@@ -1,3 +1,6 @@
+import crypto from './_crypto';
+
+
 export interface CryptoResult {
   iv: Uint8Array,
   cipher: ArrayBuffer,
@@ -35,7 +38,7 @@ export class Vault {
   }
 
   async encrypt(plaintext: string): Promise<CryptoResult> {
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
     const enc = new TextEncoder();
     const cipher = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
@@ -64,7 +67,7 @@ export class Vault {
     return this.encrypt(JSON.stringify(obj));
   }
 
-  async decryptObject({ iv, cipher, }: CryptoResult) {
+  async decryptObject({ iv, cipher }: CryptoResult) {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 }
