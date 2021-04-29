@@ -11,8 +11,8 @@ export interface VaultData {
 export interface VaultItem extends VaultKey, VaultData {}
 
 export default abstract class BaseDriver<T = unknown> {
-  abstract init(options: T): Promise<BaseDriver<T>>;
-  abstract connect(options: T): Promise<BaseDriver<T>>;
+  abstract init(options?: T): Promise<BaseDriver<T>>;
+  abstract connect(options?: T): BaseDriver<T>;
 
   abstract set({ account, individual, iv, data }: VaultItem): Promise<void>;
 
