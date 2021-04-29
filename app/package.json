@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "serve": "vue-cli-service serve",
+    "serve": "yarn vault:dev && vue-cli-service serve",
     "build": "vue-cli-service build",
+    "vault:dev": "cd ../vault && docker-compose up -d",
     "test": "yarn test:unit",
     "test:unit": "vue-cli-service test:unit src/**/*.spec.ts src/**/*.test.ts tests/**/*.ts",
     "test:e2e": "vue-cli-service test:e2e",

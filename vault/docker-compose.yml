@@ -5,3 +5,14 @@ services:
     image: amazon/dynamodb-local
     ports:
       - 8000:8000
+
+  api:
+    image: vault-api
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    volumes:
+      - .:/vault
+    ports:
+      - 4000:4000
+    command: yarn docker
