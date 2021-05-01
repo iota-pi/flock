@@ -9,4 +9,4 @@ async function runServer(port = 4000) {
   }
 }
 
-export default runServer;
+runServer();

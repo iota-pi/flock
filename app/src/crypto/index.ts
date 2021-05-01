@@ -1,15 +1,20 @@
 import crypto from './_crypto';
+import VaultAPI from './api';
+import { Individual } from '@/utils/interfaces';
 
+const api = new VaultAPI();
 
 export interface CryptoResult {
-  iv: Uint8Array,
-  cipher: ArrayBuffer,
+  iv: string,
+  cipher: string,
 }
 
-export class Vault {
+export class Vault<T extends Individual = Individual> {
+  private account: string;
   private key: CryptoKey;
 
-  constructor(key: CryptoKey) {
+  constructor(account: string, key: CryptoKey) {
+    this.account = account;
     this.key = key;
   }
 
@@ -34,7 +39,7 @@ export class Vault {
       false,
       ['encrypt', 'decrypt'],
     );
-    return new Vault(key);
+    return new Vault(accountId, key);
   }
 
   async encrypt(plaintext: string): Promise<CryptoResult> {
@@ -45,7 +50,11 @@ export class Vault {
       this.key,
       enc.encode(plaintext),
     );
-    return { iv, cipher };
+    const dec = new TextDecoder();
+    return {
+      iv: dec.decode(iv),
+      cipher: dec.decode(cipher),
+    };
   }
 
   async decrypt(
@@ -54,20 +63,46 @@ export class Vault {
       cipher,
     }: CryptoResult,
   ): Promise<string> {
+    const enc = new TextEncoder();
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
+      { name: 'AES-GCM', iv: enc.encode(iv) },
       this.key,
-      cipher,
+      enc.encode(cipher),
     );
     const dec = new TextDecoder();
     return dec.decode(plaintext);
   }
 
-  encryptObject(obj: Record<string, unknown>) {
+  encryptObject(obj: T) {
     return this.encrypt(JSON.stringify(obj));
   }
 
   async decryptObject({ iv, cipher }: CryptoResult) {
     return JSON.parse(await this.decrypt({ iv, cipher }));
+  }
+
+  async store(individual: T) {
+    const { cipher, iv } = await this.encryptObject(individual);
+    await api.put({
+      account: this.account,
+      individual: individual.id,
+      data: cipher,
+      iv: iv,
+    });
+  }
+
+  async fetch(individual: string) {
+    const result = await api.fetch({
+      account: this.account,
+      individual,
+    });
+    return result[0];
+  }
+
+  async fetchAll() {
+    const result = await api.fetchAll({
+      account: this.account,
+    });
+    return result;
   }
 }

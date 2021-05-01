@@ -15,7 +15,7 @@ describe('Vault (Crypto)', () => {
   it('encryptObject and decryptObject', async () => {
     const account = getAccountId();
     const vault = await Vault.create(account, 'example');
-    const obj = { one: 'ring' };
+    const obj = { id: 'onering' };
     const cipher = await vault.encryptObject(obj);
     const result = await vault.decryptObject(cipher);
     expect(result).to.deep.equal(obj);
