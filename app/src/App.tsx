@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { BrowserRouter as Router } from 'react-router-dom';
+import { Toolbar } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
-import { Container, Grid, Typography } from '@material-ui/core';
+import AppBar from './components/nav/AppBar';
+import MainMenu from './components/nav/MainMenu';
+import PageView from './components/pages';
 
 
 const useStyles = makeStyles(theme => ({
-  header: {
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(4),
-    backgroundColor: theme.palette.grey[100],
+  root: {
+    display: 'flex',
+    height: '100vh',
   },
   section: {
     paddingTop: theme.spacing(4),
@@ -16,29 +19,41 @@ const useStyles = makeStyles(theme => ({
   paddingTop: {
     paddingTop: theme.spacing(2),
   },
+  content: {
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
+  },
 }));
 
 export default function App() {
   const classes = useStyles();
+  const [open, setOpen] = useState(true);
+
+  const handleShowMenu = useCallback(
+    () => {
+      setOpen(!open);
+    },
+    [open],
+  );
 
   return (
-    <div>
-      <Container maxWidth="md">
-        <Grid container className={classes.paddingTop}>
-          <Grid item xs={12} sm={6}>
-            Hi
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            There
-          </Grid>
-        </Grid>
-      </Container>
+    <>
+      <Router>
+        <div className={classes.root}>
+          <AppBar
+            showMenu={open}
+            onShowMenu={handleShowMenu}
+          />
 
-      <Container maxWidth="md" className={classes.section}>
-        <Typography variant="h3" gutterBottom>
-          Something
-        </Typography>
-      </Container>
-    </div>
+          <MainMenu open={open} />
+
+          <div className={classes.content}>
+            <Toolbar />
+            <PageView />
+          </div>
+        </div>
+      </Router>
+    </>
   );
 }
