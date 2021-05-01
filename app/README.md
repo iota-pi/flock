@@ -1,34 +1,25 @@
-# app
+# Create React App example with TypeScript
 
-## Project setup
-```
-yarn install
-```
+## How to use
 
-### Compiles and hot-reloads for development
-```
-yarn serve
-```
+Download the example [or clone the repo](https://github.com/mui-org/material-ui):
 
-### Compiles and minifies for production
-```
-yarn build
+```sh
+curl https://codeload.github.com/mui-org/material-ui/tar.gz/master | tar -xz --strip=2 material-ui-master/examples/create-react-app-with-typescript
+cd create-react-app-with-typescript
 ```
 
-### Run your unit tests
-```
-yarn test:unit
+Install it and run:
+
+```sh
+npm install
+npm start
 ```
 
-### Run your end-to-end tests
-```
-yarn test:e2e
-```
+or:
 
-### Lints and fixes files
-```
-yarn lint
-```
+[![Edit on CodeSandbox](https://codesandbox.io/static/img/play-codesandbox.svg)](https://codesandbox.io/s/github/mui-org/material-ui/tree/master/examples/create-react-app-with-typescript)
 
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+## The idea behind the example
+
+This example demonstrates how you can use [Create React App](https://github.com/facebookincubator/create-react-app) with [TypeScript](https://github.com/Microsoft/TypeScript).

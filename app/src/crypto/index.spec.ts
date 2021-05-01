@@ -1,4 +1,3 @@
-import { expect } from 'chai';
 import { Vault } from '.';
 import { getAccountId } from '../utils';
 
@@ -9,7 +8,7 @@ describe('Vault (Crypto)', () => {
     const text = 'It came to me on my birthday, my precious.';
     const cipher = await vault.encrypt(text);
     const result = await vault.decrypt(cipher);
-    expect(result).to.equal(text);
+    expect(result).toEqual(text);
   });
 
   it('encryptObject and decryptObject', async () => {
@@ -18,6 +17,6 @@ describe('Vault (Crypto)', () => {
     const obj = { id: 'onering' };
     const cipher = await vault.encryptObject(obj);
     const result = await vault.decryptObject(cipher);
-    expect(result).to.deep.equal(obj);
+    expect(result).toEqual(obj);
   });
 });

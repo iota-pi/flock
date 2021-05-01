@@ -1,6 +1,7 @@
+import { TextEncoder, TextDecoder } from 'util';
 import crypto from './_crypto';
 import VaultAPI from './api';
-import { Individual } from '@/utils/interfaces';
+import { Individual } from '../utils/interfaces';
 
 const api = new VaultAPI();
 
@@ -75,7 +76,7 @@ export class Vault<T extends Individual = Individual> {
     const plaintext = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: this.toBytes(iv) },
       this.key,
-      this.toBytes(cipher)
+      this.toBytes(cipher),
     );
     const dec = new TextDecoder();
     return dec.decode(plaintext);
@@ -104,13 +105,13 @@ export class Vault<T extends Individual = Individual> {
       account: this.account,
       individual,
     });
-    return await this.decryptObject(result);
+    return this.decryptObject(result);
   }
 
   async fetchAll() {
     const result = await api.fetchAll({
       account: this.account,
     });
-    return await Promise.all(result.map(d => this.decryptObject(d)));
+    return Promise.all(result.map(d => this.decryptObject(d)));
   }
 }

@@ -3,39 +3,35 @@
     "target": "esnext",
     "module": "esnext",
     "strict": true,
-    "jsx": "preserve",
-    "importHelpers": true,
+    "allowJs": true,
     "moduleResolution": "node",
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "types": [
-      "webpack-env",
-      "mocha",
-      "chai"
-    ],
-    "paths": {
-      "@/*": [
-        "src/*"
-      ]
-    },
+    "downlevelIteration": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
     "lib": [
-      "esnext",
       "dom",
       "dom.iterable",
-      "scripthost"
-    ]
+      "esnext"
+    ],
+    "types": [
+      "jest"
+    ],
+    "typeRoots": [
+      "node_modules/@types"
+    ],
+    "noFallthroughCasesInSwitch": true
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "src/**/*.vue",
-    "tests/**/*.ts",
-    "tests/**/*.tsx"
+    "src"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/*.js"
   ]
 }

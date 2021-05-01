@@ -1,47 +1,53 @@
 {
-  "name": "app",
-  "version": "0.1.0",
+  "name": "create-react-app-with-typescript",
+  "version": "4.0.0",
   "private": true,
   "scripts": {
-    "serve": "yarn vault:dev && vue-cli-service serve",
-    "build": "vue-cli-service build",
-    "vault:dev": "cd ../vault && docker-compose up -d",
-    "test": "yarn test:unit",
-    "test:unit": "vue-cli-service test:unit src/**/*.spec.ts src/**/*.test.ts tests/**/*.ts",
-    "test:e2e": "vue-cli-service test:e2e",
-    "lint": "vue-cli-service lint"
+    "build": "react-scripts build",
+    "start": "yarn vault:dev && react-scripts start",
+    "lint": "./node_modules/.bin/eslint src/ --ext .ts,.tsx",
+    "test": "react-scripts test",
+    "vault:dev": "cd ../vault && docker-compose up -d"
   },
   "dependencies": {
+    "@material-ui/core": "^4.11.3",
+    "@material-ui/icons": "^4.11.2",
+    "@material-ui/lab": "^4.0.0-alpha.57",
+    "@types/react": "^17.0.2",
+    "@types/react-dom": "^17.0.1",
     "axios": "^0.21.1",
-    "chai": "^4.1.2",
-    "core-js": "^3.6.5",
-    "uuid": "^8.3.2",
-    "vue": "^3.0.0",
-    "vue-router": "^4.0.0-0",
-    "vuex": "^4.0.0-0"
+    "react": "^17.0.1",
+    "react-dom": "^17.0.1",
+    "react-scripts": "^4.0.3",
+    "redux": "^4.0.5",
+    "typescript": "^4.2.2",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
-    "@types/chai": "^4.2.11",
-    "@types/mocha": "^5.2.4",
-    "@types/node": "^15.0.1",
+    "@types/enzyme": "^3.10.8",
+    "@types/jest": "^26.0.23",
     "@types/uuid": "^8.3.0",
-    "@typescript-eslint/eslint-plugin": "^4.18.0",
-    "@typescript-eslint/parser": "^4.18.0",
-    "@vue/cli-plugin-babel": "~4.5.0",
-    "@vue/cli-plugin-e2e-cypress": "~4.5.0",
-    "@vue/cli-plugin-eslint": "~4.5.0",
-    "@vue/cli-plugin-router": "~4.5.0",
-    "@vue/cli-plugin-typescript": "~4.5.0",
-    "@vue/cli-plugin-unit-mocha": "~4.5.0",
-    "@vue/cli-plugin-vuex": "~4.5.0",
-    "@vue/cli-service": "~4.5.0",
-    "@vue/compiler-sfc": "^3.0.0",
-    "@vue/eslint-config-airbnb": "^5.0.2",
-    "@vue/eslint-config-typescript": "^7.0.0",
-    "@vue/test-utils": "^2.0.0-0",
-    "eslint": "^6.7.2",
-    "eslint-plugin-import": "^2.20.2",
-    "eslint-plugin-vue": "^7.0.0",
-    "typescript": "~4.1.5"
+    "@typescript-eslint/eslint-plugin": "^4.15.2",
+    "eslint-config-airbnb-typescript": "^12.3.1",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-jest": "^24.1.5",
+    "eslint-plugin-jsx-a11y": "^6.4.1",
+    "eslint-plugin-react": "^7.22.0",
+    "eslint-plugin-react-hooks": "^4.2.0"
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
 }
