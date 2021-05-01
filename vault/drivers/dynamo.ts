@@ -2,7 +2,7 @@ import AWS from 'aws-sdk';
 import BaseDriver, { VaultData, VaultItem, VaultKey } from './base';
 
 export const TABLE_NAME = 'PRMIndividuals';
-const DATA_ATTRIBUTES = ['iv', 'data'];
+const DATA_ATTRIBUTES = ['iv', 'cipher'];
 
 export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}
 

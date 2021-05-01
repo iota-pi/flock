@@ -13,12 +13,12 @@ describe('DynamoDriver', function () {
   it('set, get, delete', async () => {
     const account = getAccountId();
     const individual = getIndividualId();
-    const data = 'hello';
+    const cipher = 'hello';
     const iv = 'there';
 
-    await driver.set({ account, individual, data, iv });
+    await driver.set({ account, individual, cipher, iv });
     const result = await driver.get({ account, individual });
-    expect(result).to.deep.equal({ data, iv });
+    expect(result).to.deep.equal({ cipher, iv });
 
     await driver.delete({ account, individual });
     const p = driver.get({ account, individual });
@@ -28,26 +28,26 @@ describe('DynamoDriver', function () {
   it('set can create and update', async () => {
     const account = getAccountId();
     const individual = getIndividualId();
-    let data = 'hello';
+    let cipher = 'hello';
     let iv = 'there';
 
-    await driver.set({ account, individual, data, iv });
-    data = 'good';
+    await driver.set({ account, individual, cipher, iv });
+    cipher = 'good';
     iv = 'bye';
-    await driver.set({ account, individual, data, iv });
+    await driver.set({ account, individual, cipher, iv });
     const result = await driver.get({ account, individual });
-    expect(result).to.deep.equal({ data, iv });
+    expect(result).to.deep.equal({ cipher, iv });
   });
 
   it('fetchAll works', async () => {
     const account = getAccountId();
     const individuals = [];
-    const data = 'hello';
+    const cipher = 'hello';
     const iv = 'there';
     for (let i = 0; i < 10; ++i) {
       const individual = getIndividualId();
       individuals.push(individual);
-      await driver.set({ account, individual, data, iv });
+      await driver.set({ account, individual, cipher, iv });
     }
     const result = await driver.fetchAll({ account });
     expect(result.length).to.equal(10);

@@ -24,8 +24,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   fastify.put('/:account/individuals/:individual', async (request, reply) => {
     fastify.log.info('hello there!');
     const { account, individual } = request.params as { account: string, individual: string };
-    const { data, iv } = (request.body as { data: string, iv: string });
-    await vault.set({ account, individual, data, iv });
+    const { cipher, iv } = (request.body as { cipher: string, iv: string });
+    await vault.set({ account, individual, cipher, iv });
     return { success: true };
   });
 

@@ -5,7 +5,7 @@ export interface VaultKey {
 
 export interface VaultData {
   iv: string,
-  data: string,
+  cipher: string,
 }
 
 export interface VaultItem extends VaultKey, VaultData {}
@@ -14,7 +14,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>;
   abstract connect(options?: T): BaseDriver<T>;
 
-  abstract set({ account, individual, iv, data }: VaultItem): Promise<void>;
+  abstract set({ account, individual, iv, cipher }: VaultItem): Promise<void>;
 
   abstract get({ account, individual }: VaultKey): Promise<VaultData>;
   abstract fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<VaultData[]>;

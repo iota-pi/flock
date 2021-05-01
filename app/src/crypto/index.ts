@@ -42,6 +42,16 @@ export class Vault<T extends Individual = Individual> {
     return new Vault(accountId, key);
   }
 
+  private fromBytes(array: ArrayBuffer): string {
+    const byteArray = Array.from(new Uint8Array(array));
+    const asString = byteArray.map(b => String.fromCharCode(b)).join('');
+    return btoa(asString);
+  }
+
+  private toBytes(str: string): Uint8Array {
+    return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0)));
+  }
+
   async encrypt(plaintext: string): Promise<CryptoResult> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const enc = new TextEncoder();
@@ -50,10 +60,9 @@ export class Vault<T extends Individual = Individual> {
       this.key,
       enc.encode(plaintext),
     );
-    const dec = new TextDecoder();
     return {
-      iv: dec.decode(iv),
-      cipher: dec.decode(cipher),
+      iv: this.fromBytes(iv),
+      cipher: this.fromBytes(cipher),
     };
   }
 
@@ -63,11 +72,10 @@ export class Vault<T extends Individual = Individual> {
       cipher,
     }: CryptoResult,
   ): Promise<string> {
-    const enc = new TextEncoder();
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: enc.encode(iv) },
+      { name: 'AES-GCM', iv: this.toBytes(iv) },
       this.key,
-      enc.encode(cipher),
+      this.toBytes(cipher)
     );
     const dec = new TextDecoder();
     return dec.decode(plaintext);
@@ -77,7 +85,7 @@ export class Vault<T extends Individual = Individual> {
     return this.encrypt(JSON.stringify(obj));
   }
 
-  async decryptObject({ iv, cipher }: CryptoResult) {
+  async decryptObject({ iv, cipher }: CryptoResult): Promise<T> {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
@@ -86,8 +94,8 @@ export class Vault<T extends Individual = Individual> {
     await api.put({
       account: this.account,
       individual: individual.id,
-      data: cipher,
-      iv: iv,
+      cipher,
+      iv,
     });
   }
 
@@ -96,13 +104,13 @@ export class Vault<T extends Individual = Individual> {
       account: this.account,
       individual,
     });
-    return result[0];
+    return await this.decryptObject(result);
   }
 
   async fetchAll() {
     const result = await api.fetchAll({
       account: this.account,
     });
-    return result;
+    return await Promise.all(result.map(d => this.decryptObject(d)));
   }
 }
