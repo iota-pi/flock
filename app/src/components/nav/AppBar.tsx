@@ -3,6 +3,7 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import { AppBar as MuiAppBar, IconButton, Toolbar, Typography } from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
 import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
+import { APP_NAME } from '../../utils';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -45,7 +46,7 @@ function AppBar({
         </IconButton>
 
         <Typography variant="h6" color="inherit" className={classes.grow}>
-          PRM
+          {APP_NAME}
         </Typography>
       </Toolbar>
     </MuiAppBar>
