@@ -1,55 +1,67 @@
-import chai, { expect } from 'chai';
-import chaiAsPromised from 'chai-as-promised';
 import DynamoDriver, { getConnectionParams } from './dynamo';
-import { getAccountId, getIndividualId } from '../../app/src/utils';
-chai.use(chaiAsPromised);
+import { getAccountId, getItemId } from '../../app/src/utils';
+import { VaultItemType } from './base';
 
 const driver = new DynamoDriver();
 describe('DynamoDriver', function () {
-  before(async function () {
-    await driver.connect(getConnectionParams());
+  beforeAll(function () {
+    driver.connect(getConnectionParams());
   });
 
   it('set, get, delete', async () => {
     const account = getAccountId();
-    const individual = getIndividualId();
+    const item = getItemId();
+    const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
 
-    await driver.set({ account, individual, cipher, iv });
-    const result = await driver.get({ account, individual });
-    expect(result).to.deep.equal({ cipher, iv });
+    await driver.set({ account, item, cipher, metadata: { type, iv } });
+    const result = await driver.get({ account, item });
+    expect(result).toEqual({ cipher, metadata: { type, iv } });
 
-    await driver.delete({ account, individual });
-    const p = driver.get({ account, individual });
-    await expect(p).to.be.rejected;
+    await driver.delete({ account, item });
+    const p = driver.get({ account, item });
+    await expect(p).rejects.toThrow();
   });
 
   it('set can create and update', async () => {
     const account = getAccountId();
-    const individual = getIndividualId();
+    const item = getItemId();
+    const type: VaultItemType = 'person';
     let cipher = 'hello';
     let iv = 'there';
 
-    await driver.set({ account, individual, cipher, iv });
+    await driver.set({ account, item, cipher, metadata: { type, iv } });
     cipher = 'good';
     iv = 'bye';
-    await driver.set({ account, individual, cipher, iv });
-    const result = await driver.get({ account, individual });
-    expect(result).to.deep.equal({ cipher, iv });
+    await driver.set({ account, item, cipher, metadata: { type, iv } });
+    const result = await driver.get({ account, item });
+    expect(result).toEqual({ cipher, metadata: { type, iv } });
   });
 
   it('fetchAll works', async () => {
     const account = getAccountId();
     const individuals = [];
+    const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
     for (let i = 0; i < 10; ++i) {
-      const individual = getIndividualId();
-      individuals.push(individual);
-      await driver.set({ account, individual, cipher, iv });
+      const item = getItemId();
+      individuals.push(item);
+      await driver.set({ account, item, cipher, metadata: { type, iv } });
     }
     const result = await driver.fetchAll({ account });
-    expect(result.length).to.equal(10);
+    expect(result.length).toEqual(10);
+  });
+
+  it('createAccount and checkPassword', async () => {
+    const authToken = 'q89gvlsuh398hflauht389yfles';
+    const account = await driver.createAccount({ authToken });
+    expect(typeof account).toEqual('string');
+    expect(account.length).toBeGreaterThan(0);
+
+    expect(await driver.checkPassword({ account, authToken })).toBe(true);
+    expect(await driver.checkPassword({ account, authToken: '' })).toBe(false);
+    expect(await driver.checkPassword({ account, authToken: authToken + 'a' })).toBe(false);
   });
 });

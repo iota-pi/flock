@@ -44,13 +44,13 @@ function CreateAccountPage() {
         </Typography>
 
         <Typography paragraph>
-          When you create an account you will be given an account id.
-          Please ensure that you store your account id and password in a secure location.
+          When you create an account you will be given an account ID.
+          Please ensure that you store your account ID and password in a secure location.
         </Typography>
 
         <Typography paragraph>
-          Because your data is end-to-end encrypted, it is impossible to recover your data
-          if you forget your account id or password.
+          Because your data is end-to-end encrypted, it will not be possible to recover your data
+          if you forget your account ID or password.
         </Typography>
 
         <div className={classes.textFieldHolder}>

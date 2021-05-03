@@ -6,6 +6,6 @@ export function getAccountId() {
   return uuidv4();
 }
 
-export function getIndividualId() {
+export function getItemId() {
   return uuidv4();
 }
