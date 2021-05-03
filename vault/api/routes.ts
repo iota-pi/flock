@@ -48,10 +48,11 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     return { success: valid };
   });
 
-  fastify.post('/account', async (request, reply) => {
+  fastify.post('/:account', async (request, reply) => {
+    const { account } = request.params as { account: string };
     const authToken = getAuthToken(request);
-    const account = await vault.createAccount({ authToken });
-    return { account };
+    const success = await vault.createAccount({ account, authToken });
+    return { success };
   });
 
   fastify.get('/:account/auth', async (request, reply) => {

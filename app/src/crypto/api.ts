@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios';
-import { CryptoResult } from '.';
+import { CryptoResult } from './Vault';
 
 
 export interface VaultKey {
@@ -15,7 +15,7 @@ export interface VaultAuth {
 
 
 class VaultAPI {
-  readonly endpoint = process.env.VUE_APP_VAULT_ENDPOINT!;
+  readonly endpoint = process.env.REACT_APP_VAULT_ENDPOINT!;
 
   private getAuthorization(authToken: string): AxiosRequestConfig {
     return {
@@ -53,10 +53,10 @@ class VaultAPI {
     }
   }
 
-  async createAccount({ authToken }: VaultAuth): Promise<string> {
-    const url = `${this.endpoint}/account`;
+  async createAccount({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<boolean> {
+    const url = `${this.endpoint}/${account}`;
     const result = await axios.post(url, {}, this.getAuthorization(authToken));
-    return result.data.account as string;
+    return result.data.success as boolean;
   }
 
   async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {

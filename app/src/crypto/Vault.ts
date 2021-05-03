@@ -1,22 +1,34 @@
-import { TextEncoder, TextDecoder } from 'util';
-import crypto from './_crypto';
 import VaultAPI from './api';
+import crypto from './_crypto';
+import { TextEncoder, TextDecoder } from './_util';
 import { Individual } from '../utils/interfaces';
 
 const api = new VaultAPI();
+
+function fromBytes(array: ArrayBuffer): string {
+  const byteArray = Array.from(new Uint8Array(array));
+  const asString = byteArray.map(b => String.fromCharCode(b)).join('');
+  return btoa(asString);
+}
+
+function toBytes(str: string): Uint8Array {
+  return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0)));
+}
 
 export interface CryptoResult {
   iv: string,
   cipher: string,
 }
 
-export class Vault<T extends Individual = Individual> {
+class Vault<T extends Individual = Individual> {
   private account: string;
+  private keyHash: string;
   private key: CryptoKey;
 
-  constructor(account: string, key: CryptoKey) {
+  constructor(account: string, key: CryptoKey, keyHash: string) {
     this.account = account;
     this.key = key;
+    this.keyHash = keyHash;
   }
 
   static async create(accountId: string, password: string) {
@@ -37,20 +49,16 @@ export class Vault<T extends Individual = Individual> {
       },
       keyBase,
       { name: 'AES-GCM', length: 256 },
-      false,
+      true,
       ['encrypt', 'decrypt'],
     );
-    return new Vault(accountId, key);
+    const keyBuffer = await crypto.subtle.exportKey('raw', key);
+    const keyHash = await crypto.subtle.digest('SHA-512', keyBuffer);
+    return new Vault(accountId, key, fromBytes(keyHash));
   }
 
-  private fromBytes(array: ArrayBuffer): string {
-    const byteArray = Array.from(new Uint8Array(array));
-    const asString = byteArray.map(b => String.fromCharCode(b)).join('');
-    return btoa(asString);
-  }
-
-  private toBytes(str: string): Uint8Array {
-    return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0)));
+  get authToken() {
+    return this.keyHash;
   }
 
   async encrypt(plaintext: string): Promise<CryptoResult> {
@@ -62,8 +70,8 @@ export class Vault<T extends Individual = Individual> {
       enc.encode(plaintext),
     );
     return {
-      iv: this.fromBytes(iv),
-      cipher: this.fromBytes(cipher),
+      iv: fromBytes(iv),
+      cipher: fromBytes(cipher),
     };
   }
 
@@ -74,9 +82,9 @@ export class Vault<T extends Individual = Individual> {
     }: CryptoResult,
   ): Promise<string> {
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: this.toBytes(iv) },
+      { name: 'AES-GCM', iv: toBytes(iv) },
       this.key,
-      this.toBytes(cipher),
+      toBytes(cipher),
     );
     const dec = new TextDecoder();
     return dec.decode(plaintext);
@@ -90,20 +98,21 @@ export class Vault<T extends Individual = Individual> {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
-  async store(individual: T) {
-    const { cipher, iv } = await this.encryptObject(individual);
+  async store(item: T) {
+    const { cipher, iv } = await this.encryptObject(item);
     await api.put({
       account: this.account,
-      individual: individual.id,
+      item: item.id,
       cipher,
       iv,
+      authToken: this.keyHash,
     });
   }
 
-  async fetch(individual: string) {
+  async fetch(item: string) {
     const result = await api.fetch({
       account: this.account,
-      individual,
+      item,
     });
     return this.decryptObject(result);
   }
@@ -114,4 +123,16 @@ export class Vault<T extends Individual = Individual> {
     });
     return Promise.all(result.map(d => this.decryptObject(d)));
   }
+}
+
+export default Vault;
+
+let globalVault: Vault | undefined;
+export function registerVault(vault: Vault) {
+  console.error(vault);
+  globalVault = vault;
+}
+
+export function useVault() {
+  return globalVault;
 }

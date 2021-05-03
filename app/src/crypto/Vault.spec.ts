@@ -1,4 +1,4 @@
-import { Vault } from '.';
+import Vault from './Vault';
 import { getAccountId } from '../utils';
 
 describe('Vault (Crypto)', () => {

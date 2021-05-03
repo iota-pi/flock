@@ -33,7 +33,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>;
   abstract connect(options?: T): BaseDriver<T>;
 
-  abstract createAccount({ authToken }: Pick<AuthData, 'authToken'>): Promise<string>;
+  abstract createAccount({ authToken }: Pick<AuthData, 'authToken'>): Promise<boolean>;
   abstract checkPassword({ account, authToken }: AuthData): Promise<boolean>;
 
   abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>;

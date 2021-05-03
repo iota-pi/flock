@@ -83,15 +83,19 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     return this;
   }
 
-  async createAccount({ authToken }: Pick<AuthData, 'authToken'>): Promise<string> {
-    const account = getAccountId();
-    await this.client?.put(
-      {
+  async createAccount({ account, authToken }: AuthData): Promise<boolean> {
+    const response = await this.client?.get({
+      TableName: ACCOUNT_TABLE_NAME,
+      Key: { account },
+    }).promise();
+    if (response?.Item) {
+      return false;
+    }
+    await this.client?.put({
         TableName: ACCOUNT_TABLE_NAME,
         Item: { account, authToken },
-      },
-    ).promise();
-    return account;
+    }).promise();
+    return true;
   }
 
   async checkPassword({ account, authToken }: AuthData): Promise<boolean> {

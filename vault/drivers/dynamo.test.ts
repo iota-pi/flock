@@ -55,10 +55,10 @@ describe('DynamoDriver', function () {
   });
 
   it('createAccount and checkPassword', async () => {
-    const authToken = 'q89gvlsuh398hflauht389yfles';
-    const account = await driver.createAccount({ authToken });
-    expect(typeof account).toEqual('string');
-    expect(account.length).toBeGreaterThan(0);
+    const account = getAccountId();
+    const authToken = 'an_example_auth_token_for_testing';
+    const success = await driver.createAccount({ account, authToken });
+    expect(success).toBe(true);
 
     expect(await driver.checkPassword({ account, authToken })).toBe(true);
     expect(await driver.checkPassword({ account, authToken: '' })).toBe(false);
