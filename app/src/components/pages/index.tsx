@@ -13,9 +13,20 @@ const InteractionsPage = loadable(() => import('./Interactions'));
 const SuggestionsPage = loadable(() => import('./Suggestions'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
+const CreateAccountPage = loadable(() => import('./CreateAccount'));
+
+export type PageId = (
+  'login' |
+  'signup' |
+  'people' |
+  'groups' |
+  'interactions' |
+  'suggestions' |
+  'prayer'
+);
 
 export interface InternalPage {
-  id: string,
+  id: PageId,
   path: string,
   page: ReactNode,
 }
@@ -30,6 +41,11 @@ export const internalPages: InternalPage[] = [
     id: 'login',
     path: '/login',
     page: <LoginPage />,
+  },
+  {
+    id: 'signup',
+    path: '/signup',
+    page: <CreateAccountPage />,
   },
 ];
 
@@ -71,22 +87,21 @@ export const pages: Page[] = [
   },
 ];
 
+const allPages: (InternalPage | Page)[] = [
+  ...internalPages,
+  ...pages.slice().reverse(),
+];
+
 function PageView() {
   const pageRoutes = useMemo(
-    () => {
-      const allPages = [
-        ...internalPages,
-        ...pages.slice().reverse(),
-      ];
-      return allPages.map(page => (
-        <Route
-          key={page.id}
-          path={page.path}
-        >
-          {page.page}
-        </Route>
-      ));
-    },
+    () => allPages.map(page => (
+      <Route
+        key={page.id}
+        path={page.path}
+      >
+        {page.page}
+      </Route>
+    )),
     [],
   );
 
@@ -98,3 +113,11 @@ function PageView() {
 }
 
 export default PageView;
+
+export function getPage(page: PageId) {
+  const result = allPages.find(p => p.id === page);
+  if (result === undefined) {
+    throw new Error(`Unknown page id ${page}`);
+  }
+  return result;
+}

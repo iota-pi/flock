@@ -1,9 +1,7 @@
-import React, { ChangeEvent, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { useHistory } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Button, Container, TextField, Typography } from '@material-ui/core';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { setAccount } from '../../state/account';
 import { getPage } from '.';
 
 const useStyles = makeStyles(theme => ({
@@ -25,23 +23,15 @@ const useStyles = makeStyles(theme => ({
 }));
 
 
-function LoginPage() {
+function CreateAccountPage() {
   const classes = useStyles();
-  const account = useAppSelector(state => state.account);
-  const dispatch = useAppDispatch();
   const history = useHistory();
 
-  const handleClickCreate = useCallback(
+  const handleClickLogin = useCallback(
     () => {
-      history.push(getPage('signup').path);
+      history.push(getPage('login').path);
     },
     [history],
-  );
-  const handleChangeAccount = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      dispatch(setAccount(event.target.value));
-    },
-    [dispatch],
   );
 
   return (
@@ -53,30 +43,15 @@ function LoginPage() {
           Create a New Account
         </Typography>
 
-        <Button
-          color="primary"
-          variant="contained"
-          size="large"
-          onClick={handleClickCreate}
-        >
-          Create
-        </Button>
-      </div>
-
-      <div className={classes.section}>
-        <Typography variant="h4" gutterBottom>
-          Login to Existing Account
+        <Typography paragraph>
+          When you create an account you will be given an account id.
+          Please ensure that you store your account id and password in a secure location.
         </Typography>
 
-        <div className={classes.textFieldHolder}>
-          <TextField
-            id="account-id"
-            label="Account ID"
-            value={account || ''}
-            onChange={handleChangeAccount}
-            className={classes.textField}
-          />
-        </div>
+        <Typography paragraph>
+          Because your data is end-to-end encrypted, it is impossible to recover your data
+          if you forget your account id or password.
+        </Typography>
 
         <div className={classes.textFieldHolder}>
           <TextField
@@ -88,11 +63,28 @@ function LoginPage() {
         </div>
 
         <Button color="primary" variant="contained" size="large">
-          Check
+          Create Account
         </Button>
+      </div>
+
+      <div className={classes.section}>
+        <Typography variant="h4" gutterBottom>
+          Login to Existing Account
+        </Typography>
+
+        <Button
+          color="primary"
+          variant="contained"
+          size="large"
+          onClick={handleClickLogin}
+        >
+          Login
+        </Button>
+
+
       </div>
     </Container>
   );
 }
 
-export default LoginPage;
+export default CreateAccountPage;
