@@ -10,9 +10,7 @@ function PeoplePage() {
   const classes = useStyles();
 
   return (
-    <div
-      className={classes.root}
-    >
+    <div className={classes.root}>
       People
     </div>
   );

@@ -1,8 +1,8 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
 
-export type AccountId = string | null;
-export const initialAccount: AccountId = null;
+export type AccountId = string;
+export const initialAccount: AccountId = '';
 
 export interface AccountState {
   account: AccountId,

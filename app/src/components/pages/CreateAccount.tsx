@@ -6,6 +6,8 @@ import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault, { registerVault } from '../../crypto/Vault';
 import { getAccountId } from '../../utils';
+import { useAppDispatch } from '../../store';
+import { setAccount } from '../../state/account';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -33,14 +35,14 @@ const api = new VaultAPI();
 
 function CreateAccountPage() {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
   const history = useHistory();
-  const [password, setPassword] = useState('');
+
   const [error, setError] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleClickLogin = useCallback(
-    () => {
-      history.push(getPage('login').path);
-    },
+    () => history.push(getPage('login').path),
     [history],
   );
   const handleClickCreate = useCallback(
@@ -49,14 +51,15 @@ function CreateAccountPage() {
       const vault = await Vault.create(account, password);
       const success = await api.createAccount({ account, authToken: vault.authToken });
       if (success) {
+        dispatch(setAccount(account));
         registerVault(vault);
         setError('');
-        history.push(getPage('people').path);
+        history.push(getPage('login').path, { created: true });
       } else {
         setError('An error occured while creating your account.');
       }
     },
-    [history, password],
+    [dispatch, history, password],
   );
   const handleChangePassword = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
@@ -64,9 +67,7 @@ function CreateAccountPage() {
   );
 
   return (
-    <Container
-      className={classes.root}
-    >
+    <Container className={classes.root}>
       <div className={classes.section}>
         <Typography variant="h4" gutterBottom>
           Create a New Account

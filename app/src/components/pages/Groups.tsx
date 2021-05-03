@@ -10,9 +10,7 @@ function GroupsPage() {
   const classes = useStyles();
 
   return (
-    <div
-      className={classes.root}
-    >
+    <div className={classes.root}>
       Groups
     </div>
   );

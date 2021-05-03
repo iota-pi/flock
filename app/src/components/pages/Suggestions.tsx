@@ -10,9 +10,7 @@ function SuggestionsPage() {
   const classes = useStyles();
 
   return (
-    <div
-      className={classes.root}
-    >
+    <div className={classes.root}>
       Suggestions
     </div>
   );
