@@ -9,6 +9,7 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { setAccount } from '../../state/account';
 import Vault, { registerVault } from '../../crypto/Vault';
 
+
 const useStyles = makeStyles(theme => ({
   root: {
     padding: theme.spacing(4),
@@ -107,6 +108,7 @@ function LoginPage() {
             id="password"
             label="Password"
             type="password"
+            value={password}
             onChange={handleChangePassword}
             className={classes.textField}
           />
@@ -129,7 +131,7 @@ function LoginPage() {
       </div>
 
       <div className={classes.section}>
-        <Typography variant="h4" gutterBottom>
+        <Typography variant="h5" gutterBottom>
           Create a New Account
         </Typography>
 
