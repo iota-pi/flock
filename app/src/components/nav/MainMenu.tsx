@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -29,6 +29,16 @@ const useStyles = makeStyles(theme => ({
   menuButton: {
     marginRight: theme.spacing(2),
   },
+  primaryMenuItem: {
+    color: theme.palette.primary.light,
+    transition: theme.transitions.create('color'),
+  },
+  regularMenuItem: {
+    transition: theme.transitions.create('color'),
+  },
+  inheritColour: {
+    color: 'inherit',
+  },
 }));
 
 export interface Props {
@@ -47,6 +57,7 @@ function MainMenu({
 }: Props) {
   const classes = useStyles();
   const history = useHistory();
+  const location = useLocation();
 
   const handleClick = useCallback(
     (pageId: string) => () => {
@@ -55,6 +66,7 @@ function MainMenu({
     },
     [history],
   );
+  const currentPageId = pages.find(p => p.path === location.pathname)?.id;
 
   return (
     <Drawer
@@ -66,6 +78,7 @@ function MainMenu({
       }}
     >
       <Toolbar />
+
       <div className={classes.drawerContainer}>
         <List>
           {pages.map(({ id, name, icon }) => (
@@ -73,12 +86,16 @@ function MainMenu({
               key={id}
               button
               onClick={handleClick(id)}
+              className={id === currentPageId ? classes.primaryMenuItem : classes.regularMenuItem}
             >
-              <ListItemIcon>{icon}</ListItemIcon>
+              <ListItemIcon className={classes.inheritColour}>
+                {icon}
+              </ListItemIcon>
               <ListItemText primary={name} />
             </ListItem>
           ))}
         </List>
+
         <Divider />
       </div>
     </Drawer>

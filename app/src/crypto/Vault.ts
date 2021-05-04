@@ -129,7 +129,6 @@ export default Vault;
 
 let globalVault: Vault | undefined;
 export function registerVault(vault: Vault) {
-  console.error(vault);
   globalVault = vault;
 }
 
