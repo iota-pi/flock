@@ -1,11 +1,11 @@
-import React, { ChangeEvent, useCallback, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Button, Container, TextField, Typography } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
-import { useAppDispatch, useAppSelector } from '../../store';
+import { useAppDispatch } from '../../store';
 import { setAccount } from '../../state/account';
 import Vault, { registerVault } from '../../crypto/Vault';
 
@@ -38,7 +38,6 @@ const api = new VaultAPI();
 
 
 function LoginPage() {
-  const account = useAppSelector(state => state.account);
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
@@ -46,19 +45,36 @@ function LoginPage() {
 
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
+  const [accountInput, setAccountInput] = useState('');
+
+  useEffect(
+    () => {
+      if (location.state) {
+        const { account } = location.state as { account: string | undefined };
+        if (account) {
+          setAccountInput(account);
+        }
+      }
+    },
+    [location],
+  );
 
   const handleClickLogin = useCallback(
     async () => {
-      const vault = await Vault.create(account, password);
-      const success = await api.checkPassword({ account, authToken: vault.authToken });
+      const vault = await Vault.create(accountInput, password);
+      const success = await api.checkPassword({
+        account: accountInput,
+        authToken: vault.authToken,
+      });
       if (success) {
-        history.push(getPage('people').path);
         registerVault(vault);
+        dispatch(setAccount(accountInput));
+        history.push(getPage('people').path);
       } else {
         setError('Could not find matching account ID and password.');
       }
     },
-    [account, history, password],
+    [accountInput, dispatch, history, password],
   );
   const handleClickCreate = useCallback(
     () => {
@@ -67,10 +83,8 @@ function LoginPage() {
     [history],
   );
   const handleChangeAccount = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      dispatch(setAccount(event.target.value));
-    },
-    [dispatch],
+    (event: ChangeEvent<HTMLInputElement>) => setAccountInput(event.target.value),
+    [],
   );
   const handleChangePassword = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
@@ -97,7 +111,7 @@ function LoginPage() {
           <TextField
             id="account-id"
             label="Account ID"
-            value={account || ''}
+            value={accountInput}
             onChange={handleChangeAccount}
             className={classes.textField}
           />

@@ -5,10 +5,8 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Button, Container, fade, LinearProgress, TextField, Typography } from '@material-ui/core';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
-import Vault, { registerVault } from '../../crypto/Vault';
+import Vault from '../../crypto/Vault';
 import { getAccountId } from '../../utils';
-import { useAppDispatch } from '../../store';
-import { setAccount } from '../../state/account';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
@@ -97,7 +95,6 @@ function passwordScoreToClass(score: number, classes: ReturnType<typeof useStyle
 
 function CreateAccountPage() {
   const classes = useStyles();
-  const dispatch = useAppDispatch();
   const history = useHistory();
 
   const [error, setError] = useState('');
@@ -115,15 +112,13 @@ function CreateAccountPage() {
       const vault = await Vault.create(account, password);
       const success = await api.createAccount({ account, authToken: vault.authToken });
       if (success) {
-        dispatch(setAccount(account));
-        registerVault(vault);
         setError('');
-        history.push(getPage('login').path, { created: true });
+        history.push(getPage('login').path, { created: true, account });
       } else {
         setError('An error occured while creating your account.');
       }
     },
-    [dispatch, history, password],
+    [history, password],
   );
   const handleChangePassword = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {

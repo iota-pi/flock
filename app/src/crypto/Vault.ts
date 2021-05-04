@@ -1,7 +1,7 @@
 import VaultAPI from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
-import { Individual } from '../utils/interfaces';
+import { Item } from '../state/items';
 
 const api = new VaultAPI();
 
@@ -20,7 +20,7 @@ export interface CryptoResult {
   cipher: string,
 }
 
-class Vault<T extends Individual = Individual> {
+class Vault<T extends Item = Item> {
   private account: string;
   private keyHash: string;
   private key: CryptoKey;
