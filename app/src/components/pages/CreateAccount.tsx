@@ -165,6 +165,7 @@ function CreateAccountPage() {
             id="password"
             label="Password"
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={handleChangePassword}
             fullWidth

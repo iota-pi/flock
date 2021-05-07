@@ -109,8 +109,10 @@ function LoginPage() {
 
         <div className={classes.textFieldHolder}>
           <TextField
-            id="account-id"
+            id="username"
+            name="username"
             label="Account ID"
+            autoComplete="username"
             value={accountInput}
             onChange={handleChangeAccount}
             className={classes.textField}
@@ -119,7 +121,9 @@ function LoginPage() {
 
         <div className={classes.textFieldHolder}>
           <TextField
-            id="password"
+            id="current-password"
+            autoComplete="current-password"
+            name="password"
             label="Password"
             type="password"
             value={password}
