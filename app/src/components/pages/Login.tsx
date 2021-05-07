@@ -5,9 +5,10 @@ import { Button, Container, TextField, Typography } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
+import Vault from '../../crypto/Vault';
 import { useAppDispatch } from '../../store';
 import { setAccount } from '../../state/account';
-import Vault, { registerVault } from '../../crypto/Vault';
+import { setVault } from '../../state/vault';
 
 
 const useStyles = makeStyles(theme => ({
@@ -67,7 +68,7 @@ function LoginPage() {
         authToken: vault.authToken,
       });
       if (success) {
-        registerVault(vault);
+        dispatch(setVault(vault));
         dispatch(setAccount(accountInput));
         history.push(getPage('people').path);
       } else {
@@ -107,45 +108,47 @@ function LoginPage() {
           Login to Existing Account
         </Typography>
 
-        <div className={classes.textFieldHolder}>
-          <TextField
-            id="username"
-            name="username"
-            label="Account ID"
-            autoComplete="username"
-            value={accountInput}
-            onChange={handleChangeAccount}
-            className={classes.textField}
-          />
-        </div>
+        <form>
+          <div className={classes.textFieldHolder}>
+            <TextField
+              id="username"
+              name="username"
+              label="Account ID"
+              autoComplete="username"
+              value={accountInput}
+              onChange={handleChangeAccount}
+              className={classes.textField}
+            />
+          </div>
 
-        <div className={classes.textFieldHolder}>
-          <TextField
-            id="current-password"
-            autoComplete="current-password"
-            name="password"
-            label="Password"
-            type="password"
-            value={password}
-            onChange={handleChangePassword}
-            className={classes.textField}
-          />
-        </div>
+          <div className={classes.textFieldHolder}>
+            <TextField
+              id="current-password"
+              autoComplete="current-password"
+              name="password"
+              label="Password"
+              type="password"
+              value={password}
+              onChange={handleChangePassword}
+              className={classes.textField}
+            />
+          </div>
 
-        <Button
-          color="primary"
-          variant="contained"
-          size="large"
-          onClick={handleClickLogin}
-        >
-          Login
-        </Button>
+          <Button
+            color="primary"
+            variant="contained"
+            size="large"
+            onClick={handleClickLogin}
+          >
+            Login
+          </Button>
 
-        {error && (
-          <Typography paragraph color="error" className={classes.errorMessage}>
-            {error}
-          </Typography>
-        )}
+          {error && (
+            <Typography paragraph color="error" className={classes.errorMessage}>
+              {error}
+            </Typography>
+          )}
+        </form>
       </div>
 
       <div className={classes.section}>

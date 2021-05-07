@@ -14,8 +14,7 @@ import {
   TextField,
 } from '@material-ui/core';
 import { getBlankPerson, PersonItem, updateItems } from '../../state/items';
-import { useAppDispatch } from '../../store';
-import { useVault } from '../../crypto/Vault';
+import { useAppDispatch, useVault } from '../../store';
 
 
 const useStyles = makeStyles(theme => ({

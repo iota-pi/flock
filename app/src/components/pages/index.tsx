@@ -6,6 +6,7 @@ import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import SuggestIcon from '@material-ui/icons/Update';
 import PrayerIcon from '@material-ui/icons/Phone';
 import loadable from '@loadable/component';
+import { useVault } from '../../store';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
@@ -29,6 +30,7 @@ export interface InternalPage {
   id: PageId,
   path: string,
   page: ReactNode,
+  requiresAuth: boolean,
 }
 
 export interface Page extends InternalPage {
@@ -41,11 +43,13 @@ export const internalPages: InternalPage[] = [
     id: 'login',
     path: '/login',
     page: <LoginPage />,
+    requiresAuth: false,
   },
   {
     id: 'signup',
     path: '/signup',
     page: <CreateAccountPage />,
+    requiresAuth: false,
   },
 ];
 
@@ -56,6 +60,7 @@ export const pages: Page[] = [
     name: 'People',
     icon: <PersonIcon />,
     page: <PeoplePage />,
+    requiresAuth: true,
   },
   {
     id: 'groups',
@@ -63,6 +68,7 @@ export const pages: Page[] = [
     name: 'Groups',
     icon: <GroupsIcon />,
     page: <GroupsPage />,
+    requiresAuth: true,
   },
   {
     id: 'interactions',
@@ -70,6 +76,7 @@ export const pages: Page[] = [
     name: 'Interactions',
     icon: <InteractionIcon />,
     page: <InteractionsPage />,
+    requiresAuth: true,
   },
   {
     id: 'prayer',
@@ -77,6 +84,7 @@ export const pages: Page[] = [
     name: 'Prayer',
     icon: <PrayerIcon />,
     page: <PrayerPage />,
+    requiresAuth: true,
   },
   {
     id: 'suggestions',
@@ -84,6 +92,7 @@ export const pages: Page[] = [
     name: 'Suggestions',
     icon: <SuggestIcon />,
     page: <SuggestionsPage />,
+    requiresAuth: true,
   },
 ];
 
@@ -93,16 +102,18 @@ const allPages: (InternalPage | Page)[] = [
 ];
 
 function PageView() {
+  const vault = useVault();
+
   const pageRoutes = useMemo(
     () => allPages.map(page => (
       <Route
         key={page.id}
         path={page.path}
       >
-        {page.page}
+        {!page.requiresAuth || vault ? page.page : getPage('login').page}
       </Route>
     )),
-    [],
+    [vault],
   );
 
   return (

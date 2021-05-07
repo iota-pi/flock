@@ -5,8 +5,7 @@ import { makeStyles } from '@material-ui/core/styles';
 import AppBar from './components/nav/AppBar';
 import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
-import { useAppDispatch, useAppSelector } from './store';
-import { useVault } from './crypto/Vault';
+import { useAppDispatch, useAppSelector, useVault } from './store';
 import { setItems } from './state/items';
 
 

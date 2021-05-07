@@ -137,12 +137,3 @@ class Vault<T extends Item = Item> {
 }
 
 export default Vault;
-
-let globalVault: Vault | undefined;
-export function registerVault(vault: Vault) {
-  globalVault = vault;
-}
-
-export function useVault() {
-  return globalVault;
-}
