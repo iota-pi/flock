@@ -100,6 +100,10 @@ function PersonDrawer({
 
   const handleSave = useCallback(
     async () => {
+      localPerson.firstName = localPerson.firstName.trim();
+      localPerson.lastName = localPerson.lastName.trim();
+      localPerson.email = localPerson.email.trim();
+      localPerson.phone = localPerson.phone.trim();
       vault?.store(localPerson);
       dispatch(updateItems([localPerson]));
       onClose();
