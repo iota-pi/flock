@@ -7,6 +7,7 @@ import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
 import { useAppDispatch, useAppSelector, useVault } from './store';
 import { setItems } from './state/items';
+import { loadVault, setVault } from './state/vault';
 
 
 const useStyles = makeStyles(theme => ({
@@ -52,6 +53,18 @@ export default function App() {
     },
     [account, dispatch, vault],
   );
+
+  const restoreVaultFromStorage = useCallback(
+    async () => {
+      const restoredVault = await loadVault();
+      if (restoredVault) {
+        dispatch(await setVault(restoredVault, false));
+      }
+    },
+    [dispatch],
+  );
+
+  useEffect(() => { restoreVaultFromStorage(); }, [restoreVaultFromStorage]);
 
   return (
     <>

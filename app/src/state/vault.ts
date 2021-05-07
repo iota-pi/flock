@@ -1,6 +1,6 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import Vault from '../crypto/Vault';
+import Vault, { VaultImportExportData } from '../crypto/Vault';
 
 export interface VaultState {
   vault: Vault | null,
@@ -12,7 +12,22 @@ export interface SetVaultAction extends Action, VaultState {
   type: typeof SET_VAULT,
 }
 
-export function setVault(vault: Vault): SetVaultAction {
+const VAULT_STORAGE_KEY = 'PRMVaultData';
+export async function loadVault(): Promise<Vault | null> {
+  const jsonData = localStorage.getItem(VAULT_STORAGE_KEY);
+  if (jsonData) {
+    const data: VaultImportExportData = JSON.parse(jsonData);
+    const vault = await Vault.import(data);
+    return vault;
+  }
+  return null;
+}
+
+export async function setVault(vault: Vault, store = true): Promise<SetVaultAction> {
+  if (store) {
+    const data = await vault.export();
+    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(data));
+  }
   return {
     type: SET_VAULT,
     vault,

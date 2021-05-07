@@ -68,7 +68,7 @@ function LoginPage() {
         authToken: vault.authToken,
       });
       if (success) {
-        dispatch(setVault(vault));
+        dispatch(await setVault(vault));
         dispatch(setAccount(accountInput));
         history.push(getPage('people').path);
       } else {

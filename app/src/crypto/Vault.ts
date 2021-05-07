@@ -20,6 +20,11 @@ export interface CryptoResult {
   cipher: string,
 }
 
+export interface VaultImportExportData {
+  account: string,
+  key: string,
+}
+
 class Vault<T extends Item = Item> {
   private account: string;
   private keyHash: string;
@@ -55,6 +60,27 @@ class Vault<T extends Item = Item> {
     const keyBuffer = await crypto.subtle.exportKey('raw', key);
     const keyHash = await crypto.subtle.digest('SHA-512', keyBuffer);
     return new Vault(accountId, key, fromBytes(keyHash));
+  }
+
+  static async import(data: VaultImportExportData): Promise<Vault> {
+    const account = data.account;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      toBytes(data.key),
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt'],
+    );
+    const keyBuffer = await crypto.subtle.exportKey('raw', key);
+    const keyHash = await crypto.subtle.digest('SHA-512', keyBuffer);
+    return new Vault(account, key, fromBytes(keyHash));
+  }
+
+  async export(): Promise<VaultImportExportData> {
+    return {
+      account: this.account,
+      key: fromBytes(await crypto.subtle.exportKey('raw', this.key)),
+    };
   }
 
   get authToken() {
