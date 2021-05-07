@@ -72,18 +72,18 @@ export const pages: Page[] = [
     page: <InteractionsPage />,
   },
   {
-    id: 'suggestions',
-    path: '/suggestions',
-    name: 'Suggestions',
-    icon: <SuggestIcon />,
-    page: <SuggestionsPage />,
-  },
-  {
     id: 'prayer',
     path: '/prayer',
     name: 'Prayer',
     icon: <PrayerIcon />,
     page: <PrayerPage />,
+  },
+  {
+    id: 'suggestions',
+    path: '/suggestions',
+    name: 'Suggestions',
+    icon: <SuggestIcon />,
+    page: <SuggestionsPage />,
   },
 ];
 
