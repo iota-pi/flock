@@ -1,5 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios';
-import { CryptoResult } from './Vault';
+import { ItemType } from '../state/items';
 
 
 export interface VaultKey {
@@ -7,7 +7,13 @@ export interface VaultKey {
   item: string,
 }
 
-export interface VaultItem extends VaultKey, CryptoResult {}
+export interface VaultItem extends VaultKey {
+  cipher: string,
+  metadata: {
+    type: ItemType,
+    iv: string,
+  },
+}
 
 export interface VaultAuth {
   authToken: string,
@@ -23,28 +29,28 @@ class VaultAPI {
     };
   }
 
-  async fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<CryptoResult[]> {
+  async fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<VaultItem[]> {
     const url = `${this.endpoint}/${account}/items`;
     const result = await axios.get(url);
     return result.data.items;
   }
 
-  async fetch({ account, item }: VaultKey): Promise<CryptoResult> {
+  async fetch({ account, item }: VaultKey): Promise<VaultItem> {
     const url = `${this.endpoint}/${account}/items/${item}`;
     const result = await axios.get(url);
     return result.data.items[0];
   }
 
-  async put({ account, item, cipher, iv, authToken }: VaultItem & VaultAuth) {
+  async put({ account, authToken, cipher, item, metadata }: VaultItem & VaultAuth) {
     const url = `${this.endpoint}/${account}/items/${item}`;
-    const result = await axios.put(url, { cipher, iv }, this.getAuthorization(authToken));
+    const result = await axios.put(url, { cipher, ...metadata }, this.getAuthorization(authToken));
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI put operation failed');
     }
   }
 
-  async delete({ account, item, authToken }: VaultKey & VaultAuth) {
+  async delete({ account, authToken, item }: VaultKey & VaultAuth) {
     const url = `${this.endpoint}/${account}/items/${item}`;
     const result = await axios.delete(url, this.getAuthorization(authToken));
     const success = result.data.success || false;

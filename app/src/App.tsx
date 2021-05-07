@@ -45,7 +45,6 @@ export default function App() {
 
   useEffect(
     () => {
-      console.warn('triggering!!');
       if (vault) {
         vault.fetchAll().then(
           items => dispatch(setItems(items)),

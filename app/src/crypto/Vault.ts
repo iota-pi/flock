@@ -102,26 +102,37 @@ class Vault<T extends Item = Item> {
     const { cipher, iv } = await this.encryptObject(item);
     await api.put({
       account: this.account,
-      item: item.id,
-      cipher,
-      iv,
       authToken: this.keyHash,
+      cipher,
+      item: item.id,
+      metadata: {
+        iv,
+        type: item.type,
+      },
     });
   }
 
-  async fetch(item: string) {
+  async fetch(itemId: string) {
     const result = await api.fetch({
       account: this.account,
-      item,
+      item: itemId,
     });
-    return this.decryptObject(result);
+    return this.decryptObject({
+      cipher: result.cipher,
+      iv: result.metadata.iv,
+    });
   }
 
   async fetchAll() {
     const result = await api.fetchAll({
       account: this.account,
     });
-    return Promise.all(result.map(d => this.decryptObject(d)));
+    return Promise.all(result.map(
+      item => this.decryptObject({
+        cipher: item.cipher,
+        iv: item.metadata.iv,
+      }),
+    ));
   }
 }
 

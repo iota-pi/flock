@@ -22,14 +22,9 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   });
 
   fastify.put('/:account/items/:item', async (request, reply) => {
-    fastify.log.info('hello there!');
     const { account, item } = request.params as { account: string, item: string };
-    const { cipher, iv, authToken, type } = request.body as {
-      cipher: string,
-      iv: string,
-      authToken: string,
-      type: string,
-    };
+    const { cipher, iv, type } = request.body as { cipher: string, iv: string, type: string };
+    const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
     if (valid) {
       const _type = asItemType(type);
