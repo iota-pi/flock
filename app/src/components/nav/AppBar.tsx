@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { AppBar as MuiAppBar, IconButton, Toolbar, Typography } from '@material-ui/core';
+import { AppBar as MuiAppBar, Button, IconButton, Toolbar, Typography } from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
 import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
+import { clearVault } from '../../state/vault';
+import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -28,6 +30,14 @@ function AppBar({
   onShowMenu,
 }: Props) {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
+
+  const handleClickSignOut = useCallback(
+    () => {
+      dispatch(clearVault());
+    },
+    [dispatch],
+  );
 
   return (
     <MuiAppBar
@@ -48,6 +58,10 @@ function AppBar({
         <Typography variant="h6" color="inherit" className={classes.grow}>
           {APP_NAME}
         </Typography>
+
+        <Button onClick={handleClickSignOut}>
+          Sign Out
+        </Button>
       </Toolbar>
     </MuiAppBar>
   );

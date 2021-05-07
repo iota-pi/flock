@@ -34,6 +34,14 @@ export async function setVault(vault: Vault, store = true): Promise<SetVaultActi
   };
 }
 
+export function clearVault(): SetVaultAction {
+  localStorage.removeItem(VAULT_STORAGE_KEY);
+  return {
+    type: SET_VAULT,
+    vault: null,
+  };
+}
+
 export function vaultReducer(
   state: Vault | null = null,
   action: SetVaultAction | AllActions,
