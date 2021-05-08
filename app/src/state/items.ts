@@ -41,23 +41,22 @@ export interface ItemsState {
 
 export const SET_ITEMS = 'SET_ITEMS';
 export const UPDATE_ITEMS = 'UPDATE_ITEMS';
+export const DELETE_ITEMS = 'DELETE_ITEMS';
 
 export interface SetItemsAction extends Action, ItemsState {
-  type: typeof SET_ITEMS | typeof UPDATE_ITEMS,
+  type: typeof SET_ITEMS | typeof UPDATE_ITEMS | typeof DELETE_ITEMS,
 }
 
 export function setItems(items: Item[]): SetItemsAction {
-  return {
-    type: SET_ITEMS,
-    items,
-  };
+  return { type: SET_ITEMS, items };
 }
 
 export function updateItems(items: Item[]): SetItemsAction {
-  return {
-    type: UPDATE_ITEMS,
-    items,
-  };
+  return { type: UPDATE_ITEMS, items };
+}
+
+export function deleteItems(items: Item[]): SetItemsAction {
+  return { type: DELETE_ITEMS, items };
 }
 
 export function itemsReducer(
@@ -66,23 +65,13 @@ export function itemsReducer(
 ): Item[] {
   if (action.type === SET_ITEMS) {
     return action.items.slice();
-  }
-  if (action.type === UPDATE_ITEMS) {
-    const newState = state.slice();
-
-    // Update existing items
-    const updatedItems = new Map(action.items.map(item => [item.id, item]));
-    for (let i = 0; i < newState.length; ++i) {
-      const matchingItem = updatedItems.get(newState[i].id);
-      if (matchingItem) {
-        newState.splice(i, 1, matchingItem);
-        updatedItems.delete(newState[i].id);
-      }
-    }
-
-    // Add any new items
-    newState.push(...updatedItems.values());
-    return newState;
+  } else if (action.type === UPDATE_ITEMS) {
+    const updatedIds = new Set(action.items.map(item => item.id));
+    const untouchedItems = state.filter(item => !updatedIds.has(item.id));
+    return [...untouchedItems, ...action.items];
+  } else if (action.type === DELETE_ITEMS) {
+    const deletedIds = new Set(action.items.map(item => item.id));
+    return state.filter(item => !deletedIds.has(item.id));
   }
 
   return state;

@@ -17,6 +17,11 @@ const useStyles = makeStyles(theme => ({
     bottom: theme.spacing(3),
     right: theme.spacing(3),
   },
+  chevronButton: {
+    '&:hover': {
+      backgroundColor: 'transparent',
+    },
+  },
 }));
 
 
@@ -65,7 +70,9 @@ function PeoplePage() {
             <ListItemText primary={getItemName(p)} secondary={p.description} />
             <ListItemSecondaryAction>
               <IconButton
-                disabled
+                className={classes.chevronButton}
+                disableRipple
+                onClick={handleClickPerson(p)}
               >
                 <ChevronRight />
               </IconButton>

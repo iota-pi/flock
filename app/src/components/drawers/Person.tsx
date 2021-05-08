@@ -13,7 +13,7 @@ import {
   Grid,
   TextField,
 } from '@material-ui/core';
-import { getBlankPerson, PersonItem, updateItems } from '../../state/items';
+import { deleteItems, getBlankPerson, PersonItem, updateItems } from '../../state/items';
 import { useAppDispatch, useVault } from '../../store';
 
 
@@ -41,6 +41,8 @@ const useStyles = makeStyles(theme => ({
   drawerContainer: {
     overflowX: 'hidden',
     overflowY: 'auto',
+    paddingTop: theme.spacing(2),
+    paddingBottom: theme.spacing(2),
   },
   fieldGroup: {
     paddingTop: theme.spacing(4),
@@ -97,6 +99,7 @@ function PersonDrawer({
     ),
     [localPerson],
   );
+  const valid = !!localPerson.firstName && !!localPerson.lastName;
 
   const handleSave = useCallback(
     async () => {
@@ -104,14 +107,25 @@ function PersonDrawer({
       localPerson.lastName = localPerson.lastName.trim();
       localPerson.email = localPerson.email.trim();
       localPerson.phone = localPerson.phone.trim();
-      vault?.store(localPerson);
-      dispatch(updateItems([localPerson]));
+      if (valid) {
+        vault?.store(localPerson);
+        dispatch(updateItems([localPerson]));
+      }
       onClose();
     },
-    [dispatch, localPerson, onClose, vault],
+    [dispatch, localPerson, onClose, valid, vault],
   );
-
-  const valid = !!localPerson.firstName && !!localPerson.lastName;
+  const handleDelete = useCallback(
+    async () => {
+      setLocalPerson(getBlankPerson());
+      if (person) {
+        vault?.delete(person.id);
+        dispatch(deleteItems([person]));
+      }
+      onClose();
+    },
+    [dispatch, onClose, person, vault],
+  );
 
   return (
     <Drawer
@@ -124,7 +138,7 @@ function PersonDrawer({
         paper: classes.drawerPaper,
       }}
     >
-      <Container>
+      <Container className={classes.drawerContainer}>
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6}>
             <TextField
@@ -178,9 +192,20 @@ function PersonDrawer({
 
           <Grid item xs={12}>
             <Button
+              onClick={handleDelete}
+              variant="outlined"
+              fullWidth
+            >
+              Delete
+            </Button>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Button
               color="primary"
               onClick={handleSave}
               variant="contained"
+              fullWidth
               disabled={!valid}
             >
               Done

@@ -160,6 +160,19 @@ class Vault<T extends Item = Item> {
       }),
     ));
   }
+
+  async delete(itemId: string) {
+    try {
+      await api.delete({
+        account: this.account,
+        authToken: this.authToken,
+        item: itemId,
+      });
+    } catch (error) {
+      return false;
+    }
+    return true;
+  }
 }
 
 export default Vault;
