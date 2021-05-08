@@ -9,7 +9,7 @@ export type ItemNoteType = 'interaction' | 'prayer' | 'general';
 export interface ItemNote {
   id: string,
   type: ItemNoteType,
-  date: string,
+  date: number,
   content: string,
 }
 

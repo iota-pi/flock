@@ -3,18 +3,28 @@ import React, {
   ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
   Container,
+  Divider,
   Drawer,
+  fade,
   Grid,
+  IconButton,
+  List,
+  ListItem,
   TextField,
+  Typography,
 } from '@material-ui/core';
-import { deleteItems, getBlankPerson, PersonItem, updateItems } from '../../state/items';
+import DownArrow from '@material-ui/icons/ArrowDropDown';
+import UpArrow from '@material-ui/icons/ArrowDropUp';
+import { deleteItems, getBlankPerson, ItemNote, PersonItem, updateItems } from '../../state/items';
 import { useAppDispatch, useVault } from '../../store';
+import { formatDateAndTime, getItemId } from '../../utils';
 
 
 const useStyles = makeStyles(theme => ({
@@ -43,15 +53,34 @@ const useStyles = makeStyles(theme => ({
     overflowY: 'auto',
     paddingTop: theme.spacing(2),
     paddingBottom: theme.spacing(2),
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
   },
-  fieldGroup: {
-    paddingTop: theme.spacing(4),
+  filler: {
+    flexGrow: 1,
   },
-  standardInput: {
-    marginRight: theme.spacing(4),
+  danger: {
+    borderColor: theme.palette.error.light,
+    color: theme.palette.error.light,
+
+    '&:hover': {
+      backgroundColor: fade(theme.palette.error.light, 0.08),
+    },
   },
-  inheritColour: {
-    color: 'inherit',
+  notesHeader: {
+    marginTop: theme.spacing(4),
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  listItemColumn: {
+    flexDirection: 'column',
+  },
+  noteDate: {
+    alignSelf: 'flex-end',
+    padding: theme.spacing(1),
   },
 }));
 
@@ -78,6 +107,7 @@ function PersonDrawer({
   const vault = useVault();
 
   const [localPerson, setLocalPerson] = useState(getBlankPerson());
+  const [ascendingNotes, setAscendingNotes] = useState(false);
 
   useEffect(
     () => {
@@ -89,6 +119,17 @@ function PersonDrawer({
     },
     [person],
   );
+  const notes = useMemo(
+    () => {
+      const sortedNotes = localPerson.notes.slice();
+      sortedNotes.sort((a, b) => +(a.date < b.date) - +(a.date > b.date));
+      if (ascendingNotes) {
+        sortedNotes.reverse();
+      }
+      return sortedNotes;
+    },
+    [ascendingNotes, localPerson],
+  );
 
   const handleChange = useCallback(
     (key: keyof PersonItem) => (
@@ -99,7 +140,34 @@ function PersonDrawer({
     ),
     [localPerson],
   );
+  const handleChangeNote = useCallback(
+    (noteId: string) => (
+      (event: ChangeEvent<HTMLInputElement>) => {
+        const index = localPerson.notes.findIndex(n => n.id === noteId);
+        if (index > -1) {
+          const newNotes = localPerson.notes.slice();
+          newNotes[index].content = event.target.value;
+          setLocalPerson({ ...localPerson, notes: localPerson.notes.slice() });
+        }
+      }
+    ),
+    [localPerson],
+  );
   const valid = !!localPerson.firstName && !!localPerson.lastName;
+
+  const handleAddNote = useCallback(
+    () => {
+      const id = getItemId();
+      const note: ItemNote = {
+        id,
+        content: '',
+        date: new Date().getTime(),
+        type: 'general',
+      };
+      setLocalPerson({ ...localPerson, notes: [...localPerson.notes, note] });
+    },
+    [localPerson],
+  );
 
   const handleSave = useCallback(
     async () => {
@@ -126,6 +194,10 @@ function PersonDrawer({
       onClose();
     },
     [dispatch, onClose, person, vault],
+  );
+  const handleClickNoteOrder = useCallback(
+    () => setAscendingNotes(!ascendingNotes),
+    [ascendingNotes],
   );
 
   return (
@@ -188,7 +260,62 @@ function PersonDrawer({
           </Grid>
 
           <Grid item xs={12}>
-            {JSON.stringify(localPerson.notes)}
+            <div className={classes.notesHeader}>
+              <Typography className={classes.filler}>
+                Notes
+              </Typography>
+
+              <IconButton
+                onClick={handleClickNoteOrder}
+                size="small"
+              >
+                {ascendingNotes ? <UpArrow /> : <DownArrow />}
+              </IconButton>
+            </div>
+
+            <List>
+              <Divider />
+
+              {notes.map(note => (
+                <React.Fragment key={note.id}>
+                  <ListItem
+                    disableGutters
+                    className={classes.listItemColumn}
+                  >
+                    <TextField
+                      value={note.content}
+                      onChange={handleChangeNote(note.id)}
+                      label="Note"
+                      multiline
+                      fullWidth
+                    />
+
+                    <div className={classes.noteDate}>
+                      {formatDateAndTime(new Date(note.date))}
+                    </div>
+                  </ListItem>
+                  <Divider />
+                </React.Fragment>
+              ))}
+            </List>
+
+            <Button
+              fullWidth
+              size="small"
+              variant="outlined"
+              color="secondary"
+              onClick={handleAddNote}
+            >
+              +
+            </Button>
+          </Grid>
+        </Grid>
+
+        <div className={classes.filler} />
+
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Divider />
           </Grid>
 
           <Grid item xs={12}>
@@ -196,6 +323,7 @@ function PersonDrawer({
               onClick={handleDelete}
               variant="outlined"
               fullWidth
+              className={person ? classes.danger : undefined}
             >
               {person ? 'Delete' : 'Cancel'}
             </Button>
