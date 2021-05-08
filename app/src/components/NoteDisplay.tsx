@@ -8,10 +8,8 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
   Divider,
-  fade,
+  Grid,
   IconButton,
-  List,
-  ListItem,
   MenuItem,
   Select,
   TextField,
@@ -21,61 +19,42 @@ import UpArrow from '@material-ui/icons/ArrowDropUp';
 import { ItemNote, ItemNoteType } from '../state/items';
 import { formatDateAndTime, getItemId } from '../utils';
 
+const NOTE_TYPE_SELECT_WIDTH = 128;
 
 const useStyles = makeStyles(theme => ({
-  drawer: {
-    flexShrink: 0,
-
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
-  drawerPaper: {
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
-  drawerContainer: {
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
   filler: {
     flexGrow: 1,
   },
-  danger: {
-    borderColor: theme.palette.error.light,
-    color: theme.palette.error.light,
-
-    '&:hover': {
-      backgroundColor: fade(theme.palette.error.light, 0.08),
-    },
-  },
   notesHeader: {
     marginTop: theme.spacing(4),
+    marginBottom: theme.spacing(2),
     width: '100%',
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
   },
-  listItemColumn: {
-    flexDirection: 'column',
+  noteFilter: {
+    minWidth: NOTE_TYPE_SELECT_WIDTH,
+  },
+  noteDivider: {
+    flexGrow: 1,
+  },
+  noteContentRow: {
+    display: 'flex',
+    flexDirection: 'row',
+  },
+  noteType: {
+    marginRight: theme.spacing(2),
+    minWidth: NOTE_TYPE_SELECT_WIDTH,
   },
   noteDate: {
-    alignSelf: 'flex-end',
+    textAlign: 'right',
+    flexGrow: 1,
     padding: theme.spacing(1),
+    color: theme.palette.text.hint,
+  },
+  subtle: {
+    fontWeight: 300,
   },
 }));
 
@@ -85,12 +64,17 @@ export interface Props {
 }
 
 
-const ALL_NOTE_TYPES = 'all';
-export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][] = [
-  [ALL_NOTE_TYPES, 'All Notes'],
+const ALL_TYPES = 'all';
+export const noteFilterOptions: [ItemNoteType | typeof ALL_TYPES, string][] = [
+  [ALL_TYPES, 'All Notes'],
   ['general', 'General Notes'],
   ['prayer', 'Prayer Points'],
   ['interaction', 'Interactions'],
+];
+export const noteTypeOptions: [ItemNoteType, string][] = [
+  ['general', 'General'],
+  ['prayer', 'Prayer Point'],
+  ['interaction', 'Interaction'],
 ];
 
 
@@ -101,12 +85,12 @@ function NoteDisplay({
   const classes = useStyles();
 
   const [ascendingNotes, setAscendingNotes] = useState(false);
-  const [notesType, setNotesType] = useState<ItemNoteType | typeof ALL_NOTE_TYPES>(ALL_NOTE_TYPES);
+  const [filterType, setFilterType] = useState<ItemNoteType | typeof ALL_TYPES>(ALL_TYPES);
 
   const notes = useMemo(
     () => {
       const filteredNotes = rawNotes.filter(
-        note => notesType === ALL_NOTE_TYPES || notesType === note.type,
+        note => filterType === ALL_TYPES || filterType === note.type,
       );
       filteredNotes.sort((a, b) => +(a.date < b.date) - +(a.date > b.date));
       if (ascendingNotes) {
@@ -114,25 +98,38 @@ function NoteDisplay({
       }
       return filteredNotes;
     },
-    [ascendingNotes, rawNotes, notesType],
+    [ascendingNotes, filterType, rawNotes],
   );
 
   const handleChange = useCallback(
     (noteId: string) => (
       (event: ChangeEvent<HTMLInputElement>) => {
-        const index = notes.findIndex(n => n.id === noteId);
+        const index = rawNotes.findIndex(n => n.id === noteId);
         if (index > -1) {
-          const newNotes = notes.slice();
-          newNotes[index].content = event.target.value;
+          const newNotes = rawNotes.slice();
+          newNotes[index] = { ...newNotes[index], content: event.target.value };
           onChange(newNotes);
         }
       }
     ),
-    [notes, onChange],
+    [rawNotes, onChange],
   );
   const handleChangeNoteType = useCallback(
+    (noteId: string) => (
+      (event: ChangeEvent<{ value: unknown }>) => {
+        const index = rawNotes.findIndex(n => n.id === noteId);
+        if (index > -1) {
+          const newNotes = rawNotes.slice();
+          newNotes[index] = { ...newNotes[index], type: event.target.value as ItemNoteType };
+          onChange(newNotes);
+        }
+      }
+    ),
+    [rawNotes, onChange],
+  );
+  const handleChangeFilterType = useCallback(
     (event: ChangeEvent<{ value: unknown }>) => {
-      setNotesType(event.target.value as ItemNoteType);
+      setFilterType(event.target.value as ItemNoteType);
     },
     [],
   );
@@ -160,8 +157,9 @@ function NoteDisplay({
       <div className={classes.notesHeader}>
         <Select
           id="note-type-filter"
-          value={notesType}
-          onChange={handleChangeNoteType}
+          value={filterType}
+          onChange={handleChangeFilterType}
+          className={classes.noteFilter}
         >
           {noteFilterOptions.map(([value, label]) => (
             <MenuItem
@@ -183,32 +181,56 @@ function NoteDisplay({
         </IconButton>
       </div>
 
-      <List>
-        <Divider />
+      <Grid container spacing={2}>
+        <Grid item className={classes.noteDivider}>
+          <Divider />
+        </Grid>
 
         {notes.map(note => (
           <React.Fragment key={note.id}>
-            <ListItem
-              disableGutters
-              className={classes.listItemColumn}
-            >
-              <TextField
-                value={note.content}
-                onChange={handleChange(note.id)}
-                label="Note"
-                multiline
-                fullWidth
-              />
+            <Grid item xs={12}>
+              <div className={classes.noteContentRow}>
+                <Select
+                  id="note-type-selection"
+                  value={note.type}
+                  onChange={handleChangeNoteType(note.id)}
+                  className={classes.noteType}
+                >
+                  {noteTypeOptions.map(([value, label]) => (
+                    <MenuItem
+                      key={label}
+                      value={value}
+                    >
+                      {label}
+                    </MenuItem>
+                  ))}
+                </Select>
 
-              <div className={classes.noteDate}>
-                {formatDateAndTime(new Date(note.date))}
+                <TextField
+                  value={note.content}
+                  onChange={handleChange(note.id)}
+                  label="Content"
+                  multiline
+                  fullWidth
+                />
               </div>
-            </ListItem>
 
-            <Divider />
+              <div className={classes.noteContentRow}>
+                <div className={classes.noteDate}>
+                  <span className={classes.subtle}>
+                    {'Created: '}
+                  </span>
+                  {formatDateAndTime(new Date(note.date))}
+                </div>
+              </div>
+            </Grid>
+
+            <Grid item className={classes.noteDivider}>
+              <Divider />
+            </Grid>
           </React.Fragment>
         ))}
-      </List>
+      </Grid>
 
       <Button
         fullWidth
