@@ -230,7 +230,7 @@ function PersonDrawer({
             <Divider />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item xs={12} sm={6}>
             <Button
               onClick={handleDelete}
               variant="outlined"
@@ -241,7 +241,7 @@ function PersonDrawer({
             </Button>
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item xs={12} sm={6}>
             <Button
               color="primary"
               onClick={handleSave}

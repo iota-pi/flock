@@ -8,14 +8,18 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
   Divider,
+  FormControl,
   Grid,
   IconButton,
+  InputLabel,
   MenuItem,
   Select,
   TextField,
+  Tooltip,
 } from '@material-ui/core';
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
+import DeleteIcon from '@material-ui/icons/Delete';
 import { ItemNote, ItemNoteType } from '../state/items';
 import { formatDateAndTime, getItemId } from '../utils';
 
@@ -42,19 +46,23 @@ const useStyles = makeStyles(theme => ({
   noteContentRow: {
     display: 'flex',
     flexDirection: 'row',
+    alignItems: 'center',
   },
   noteType: {
     marginRight: theme.spacing(2),
     minWidth: NOTE_TYPE_SELECT_WIDTH,
   },
   noteDate: {
-    textAlign: 'right',
     flexGrow: 1,
     padding: theme.spacing(1),
+    paddingLeft: 0,
     color: theme.palette.text.hint,
   },
   subtle: {
     fontWeight: 300,
+  },
+  danger: {
+    color: theme.palette.error.light,
   },
 }));
 
@@ -66,9 +74,9 @@ export interface Props {
 
 const ALL_TYPES = 'all';
 export const noteFilterOptions: [ItemNoteType | typeof ALL_TYPES, string][] = [
-  [ALL_TYPES, 'All Notes'],
-  ['general', 'General Notes'],
-  ['prayer', 'Prayer Points'],
+  [ALL_TYPES, 'All notes'],
+  ['general', 'General notes'],
+  ['prayer', 'Prayer points'],
   ['interaction', 'Interactions'],
 ];
 export const noteTypeOptions: [ItemNoteType, string][] = [
@@ -112,7 +120,7 @@ function NoteDisplay({
         }
       }
     ),
-    [rawNotes, onChange],
+    [onChange, rawNotes],
   );
   const handleChangeNoteType = useCallback(
     (noteId: string) => (
@@ -125,7 +133,16 @@ function NoteDisplay({
         }
       }
     ),
-    [rawNotes, onChange],
+    [onChange, rawNotes],
+  );
+  const handleDelete = useCallback(
+    (noteId: string) => (
+      () => {
+        const newNotes = rawNotes.filter(n => n.id !== noteId);
+        onChange(newNotes);
+      }
+    ),
+    [onChange, rawNotes],
   );
   const handleChangeFilterType = useCallback(
     (event: ChangeEvent<{ value: unknown }>) => {
@@ -173,12 +190,14 @@ function NoteDisplay({
 
         <div className={classes.filler} />
 
-        <IconButton
-          onClick={handleClickNoteOrder}
-          size="small"
-        >
-          {ascendingNotes ? <UpArrow /> : <DownArrow />}
-        </IconButton>
+        <Tooltip title={`Sort ${ascendingNotes ? 'oldest' : 'newest'} first`}>
+          <IconButton
+            onClick={handleClickNoteOrder}
+            size="small"
+          >
+            {ascendingNotes ? <UpArrow /> : <DownArrow />}
+          </IconButton>
+        </Tooltip>
       </div>
 
       <Grid container spacing={2}>
@@ -190,21 +209,24 @@ function NoteDisplay({
           <React.Fragment key={note.id}>
             <Grid item xs={12}>
               <div className={classes.noteContentRow}>
-                <Select
-                  id="note-type-selection"
-                  value={note.type}
-                  onChange={handleChangeNoteType(note.id)}
-                  className={classes.noteType}
-                >
-                  {noteTypeOptions.map(([value, label]) => (
-                    <MenuItem
-                      key={label}
-                      value={value}
-                    >
-                      {label}
-                    </MenuItem>
-                  ))}
-                </Select>
+                <FormControl className={classes.noteType}>
+                  <InputLabel id="note-type-selection-label">Note type</InputLabel>
+                  <Select
+                    id="note-type-selection"
+                    value={note.type}
+                    labelId="note-type-selection-label"
+                    onChange={handleChangeNoteType(note.id)}
+                  >
+                    {noteTypeOptions.map(([value, label]) => (
+                      <MenuItem
+                        key={label}
+                        value={value}
+                      >
+                        {label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
 
                 <TextField
                   value={note.content}
@@ -222,6 +244,16 @@ function NoteDisplay({
                   </span>
                   {formatDateAndTime(new Date(note.date))}
                 </div>
+
+                <div>
+                  <IconButton
+                    onClick={handleDelete(note.id)}
+                    size="small"
+                    className={classes.danger}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </div>
               </div>
             </Grid>
 
@@ -236,7 +268,6 @@ function NoteDisplay({
         fullWidth
         size="small"
         variant="outlined"
-        color="secondary"
         onClick={handleAddNote}
       >
         Add Note
