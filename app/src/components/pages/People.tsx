@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Fab } from '@material-ui/core';
+import { Fab, IconButton, List, ListItem, ListItemSecondaryAction, ListItemText } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
+import ChevronRight from '@material-ui/icons/ChevronRight';
 import { useAppSelector } from '../../store';
-import { PersonItem } from '../../state/items';
+import { getItemName, PersonItem } from '../../state/items';
 import PersonDrawer from '../drawers/Person';
 
 const useStyles = makeStyles(theme => ({
@@ -22,17 +23,56 @@ const useStyles = makeStyles(theme => ({
 function PeoplePage() {
   const classes = useStyles();
   const items = useAppSelector(state => state.items);
-  const people = items.filter(item => item.type === 'person') as PersonItem[];
+  const people = useMemo(
+    () => {
+      const onlyPeople = items.filter(item => item.type === 'person') as PersonItem[];
+      return onlyPeople.sort((a, b) => (
+        (+(a.lastName > b.lastName) - +(a.lastName < b.lastName))
+        || (+(a.firstName > b.firstName) - +(a.firstName < b.firstName))
+      ));
+    },
+    [items],
+  );
 
   const [showDetails, setShowDetails] = useState(false);
-  const currentPerson: PersonItem | undefined = undefined;
+  const [currentPerson, setCurrentPerson] = useState<PersonItem>();
 
-  const handleClickAdd = useCallback(() => setShowDetails(true), []);
+  const handleClickPerson = useCallback(
+    (person: PersonItem) => () => {
+      setShowDetails(true);
+      setCurrentPerson(person);
+    },
+    [],
+  );
+  const handleClickAdd = useCallback(
+    () => {
+      setShowDetails(true);
+      setCurrentPerson(undefined);
+    },
+    [],
+  );
   const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
     <div className={classes.root}>
-      {JSON.stringify(people)}
+      <List>
+        {people.map(p => (
+          <ListItem
+            key={p.id}
+            button
+            onClick={handleClickPerson(p)}
+          >
+            <ListItemText primary={getItemName(p)} secondary={p.description} />
+            <ListItemSecondaryAction>
+              <IconButton
+                disabled
+              >
+                <ChevronRight />
+              </IconButton>
+            </ListItemSecondaryAction>
+          </ListItem>
+        ))}
+      </List>
 
       <Fab
         onClick={handleClickAdd}

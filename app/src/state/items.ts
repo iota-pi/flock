@@ -100,3 +100,10 @@ export function getBlankPerson(id?: string): PersonItem {
     notes: [],
   };
 }
+
+export function getItemName(item: Item) {
+  if (item.type === 'person') {
+    return `${item.firstName} ${item.lastName}`;
+  }
+  return item.name;
+}
