@@ -18,3 +18,9 @@ yarn install
 cd app
 yarn start
 ```
+
+## Repo Anatomy
+
+The repository has two main subdirectories:
+1. `app` contains the front-end code written with React & Typescript
+2. `vault` contains the storage and API code written with Typescript
