@@ -110,6 +110,7 @@ function PersonDrawer({
       if (valid) {
         vault?.store(localPerson);
         dispatch(updateItems([localPerson]));
+        setLocalPerson(getBlankPerson());
       }
       onClose();
     },
@@ -196,7 +197,7 @@ function PersonDrawer({
               variant="outlined"
               fullWidth
             >
-              Delete
+              {person ? 'Delete' : 'Cancel'}
             </Button>
           </Grid>
 
