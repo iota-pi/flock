@@ -11,6 +11,8 @@ cd app
 yarn install
 cd ../vault
 yarn install
+docker-compose up -d
+yarn docker:initdb
 ```
 
 ## Run development server
