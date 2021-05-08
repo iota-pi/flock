@@ -1,9 +1,7 @@
 import React, {
   ChangeEvent,
-  ReactNode,
   useCallback,
   useEffect,
-  useMemo,
   useState,
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
@@ -14,17 +12,11 @@ import {
   Drawer,
   fade,
   Grid,
-  IconButton,
-  List,
-  ListItem,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DownArrow from '@material-ui/icons/ArrowDropDown';
-import UpArrow from '@material-ui/icons/ArrowDropUp';
-import { deleteItems, getBlankPerson, ItemNote, PersonItem, updateItems } from '../../state/items';
+import { deleteItems, getBlankPerson, ItemNote, ItemNoteType, PersonItem, updateItems } from '../../state/items';
 import { useAppDispatch, useVault } from '../../store';
-import { formatDateAndTime, getItemId } from '../../utils';
+import NoteDisplay from '../NoteDisplay';
 
 
 const useStyles = makeStyles(theme => ({
@@ -90,11 +82,13 @@ export interface Props {
   person: PersonItem | undefined,
 }
 
-export interface UserInterface {
-  id: string,
-  name: string,
-  icon: ReactNode,
-}
+const ALL_NOTE_TYPES = 'all';
+export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][] = [
+  [ALL_NOTE_TYPES, 'All Notes'],
+  ['general', 'General Notes'],
+  ['prayer', 'Prayer Points'],
+  ['interaction', 'Interactions'],
+];
 
 
 function PersonDrawer({
@@ -107,7 +101,6 @@ function PersonDrawer({
   const vault = useVault();
 
   const [localPerson, setLocalPerson] = useState(getBlankPerson());
-  const [ascendingNotes, setAscendingNotes] = useState(false);
 
   useEffect(
     () => {
@@ -119,17 +112,6 @@ function PersonDrawer({
     },
     [person],
   );
-  const notes = useMemo(
-    () => {
-      const sortedNotes = localPerson.notes.slice();
-      sortedNotes.sort((a, b) => +(a.date < b.date) - +(a.date > b.date));
-      if (ascendingNotes) {
-        sortedNotes.reverse();
-      }
-      return sortedNotes;
-    },
-    [ascendingNotes, localPerson],
-  );
 
   const handleChange = useCallback(
     (key: keyof PersonItem) => (
@@ -140,34 +122,12 @@ function PersonDrawer({
     ),
     [localPerson],
   );
-  const handleChangeNote = useCallback(
-    (noteId: string) => (
-      (event: ChangeEvent<HTMLInputElement>) => {
-        const index = localPerson.notes.findIndex(n => n.id === noteId);
-        if (index > -1) {
-          const newNotes = localPerson.notes.slice();
-          newNotes[index].content = event.target.value;
-          setLocalPerson({ ...localPerson, notes: localPerson.notes.slice() });
-        }
-      }
-    ),
+  const handleChangeNotes = useCallback(
+    (newNotes: ItemNote[]) => setLocalPerson({ ...localPerson, notes: newNotes }),
     [localPerson],
   );
-  const valid = !!localPerson.firstName && !!localPerson.lastName;
 
-  const handleAddNote = useCallback(
-    () => {
-      const id = getItemId();
-      const note: ItemNote = {
-        id,
-        content: '',
-        date: new Date().getTime(),
-        type: 'general',
-      };
-      setLocalPerson({ ...localPerson, notes: [...localPerson.notes, note] });
-    },
-    [localPerson],
-  );
+  const valid = !!localPerson.firstName && !!localPerson.lastName;
 
   const handleSave = useCallback(
     async () => {
@@ -194,10 +154,6 @@ function PersonDrawer({
       onClose();
     },
     [dispatch, onClose, person, vault],
-  );
-  const handleClickNoteOrder = useCallback(
-    () => setAscendingNotes(!ascendingNotes),
-    [ascendingNotes],
   );
 
   return (
@@ -260,54 +216,10 @@ function PersonDrawer({
           </Grid>
 
           <Grid item xs={12}>
-            <div className={classes.notesHeader}>
-              <Typography className={classes.filler}>
-                Notes
-              </Typography>
-
-              <IconButton
-                onClick={handleClickNoteOrder}
-                size="small"
-              >
-                {ascendingNotes ? <UpArrow /> : <DownArrow />}
-              </IconButton>
-            </div>
-
-            <List>
-              <Divider />
-
-              {notes.map(note => (
-                <React.Fragment key={note.id}>
-                  <ListItem
-                    disableGutters
-                    className={classes.listItemColumn}
-                  >
-                    <TextField
-                      value={note.content}
-                      onChange={handleChangeNote(note.id)}
-                      label="Note"
-                      multiline
-                      fullWidth
-                    />
-
-                    <div className={classes.noteDate}>
-                      {formatDateAndTime(new Date(note.date))}
-                    </div>
-                  </ListItem>
-                  <Divider />
-                </React.Fragment>
-              ))}
-            </List>
-
-            <Button
-              fullWidth
-              size="small"
-              variant="outlined"
-              color="secondary"
-              onClick={handleAddNote}
-            >
-              +
-            </Button>
+            <NoteDisplay
+              notes={localPerson.notes}
+              onChange={handleChangeNotes}
+            />
           </Grid>
         </Grid>
 
