@@ -107,3 +107,30 @@ export function getItemName(item: Item): string {
   }
   return item.name;
 }
+
+export function comparePeopleNames(a: PersonItem, b: PersonItem) {
+  return (
+    (+(a.lastName > b.lastName) - +(a.lastName < b.lastName))
+    || (+(a.firstName > b.firstName) - +(a.firstName < b.firstName))
+  );
+}
+
+export function compareGroupNames(a: GroupItem, b: GroupItem) {
+  return +(a.name > b.name) - +(a.name < b.name);
+}
+
+export function getItemById<T extends Item>(items: T[], id: ItemId): T | undefined {
+  const result = items.find(item => item.id === id);
+  return result;
+}
+
+export function lookupItemsById<T extends Item>(items: T[], ids: ItemId[]): T[] {
+  const results: T[] = [];
+  for (let i = 0; i < ids.length; ++i) {
+    const item = getItemById(items, ids[i]);
+    if (item) {
+      results.push(item);
+    }
+  }
+  return results;
+}

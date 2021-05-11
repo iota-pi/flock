@@ -17,10 +17,19 @@ import {
 } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
-import { deleteItems, getBlankPerson, getItemName, ItemNote, ItemNoteType, PersonItem, updateItems } from '../../state/items';
-import { useAppDispatch, useVault } from '../../store';
+import {
+  deleteItems,
+  getBlankPerson,
+  getItemName,
+  ItemNote,
+  ItemNoteType,
+  PersonItem,
+  updateItems,
+} from '../../state/items';
+import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
+import { useVault } from '../../state/selectors';
 
 
 const useStyles = makeStyles(theme => ({
@@ -63,20 +72,6 @@ const useStyles = makeStyles(theme => ({
     '&:hover': {
       backgroundColor: fade(theme.palette.error.light, 0.08),
     },
-  },
-  notesHeader: {
-    marginTop: theme.spacing(4),
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  listItemColumn: {
-    flexDirection: 'column',
-  },
-  noteDate: {
-    alignSelf: 'flex-end',
-    padding: theme.spacing(1),
   },
   emphasis: {
     fontWeight: 500,

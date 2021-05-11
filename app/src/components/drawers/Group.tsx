@@ -26,9 +26,11 @@ import {
   ItemNoteType,
   updateItems,
 } from '../../state/items';
-import { useAppDispatch, useVault } from '../../store';
+import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
+import MemberDisplay from '../MemberDisplay';
+import { useVault } from '../../state/selectors';
 
 
 const useStyles = makeStyles(theme => ({
@@ -71,20 +73,6 @@ const useStyles = makeStyles(theme => ({
     '&:hover': {
       backgroundColor: fade(theme.palette.error.light, 0.08),
     },
-  },
-  notesHeader: {
-    marginTop: theme.spacing(4),
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  listItemColumn: {
-    flexDirection: 'column',
-  },
-  noteDate: {
-    alignSelf: 'flex-end',
-    padding: theme.spacing(1),
   },
   emphasis: {
     fontWeight: 500,
@@ -136,6 +124,10 @@ function GroupDrawer({
         setLocalGroup({ ...localGroup, [key]: value });
       }
     ),
+    [localGroup],
+  );
+  const handleChangeMembers = useCallback(
+    (newMembers: string[]) => setLocalGroup({ ...localGroup, members: newMembers }),
     [localGroup],
   );
   const handleChangeNotes = useCallback(
@@ -211,6 +203,15 @@ function GroupDrawer({
                 label="Description"
                 multiline
                 fullWidth
+              />
+            </Grid>
+
+            <Grid item />
+
+            <Grid item xs={12}>
+              <MemberDisplay
+                members={localGroup.members}
+                onChange={handleChangeMembers}
               />
             </Grid>
 

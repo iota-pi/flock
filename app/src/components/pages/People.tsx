@@ -2,10 +2,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { useAppSelector } from '../../store';
-import { PersonItem } from '../../state/items';
+import { comparePeopleNames, PersonItem } from '../../state/items';
 import PersonDrawer from '../drawers/Person';
 import ItemList from '../ItemList';
+import { useItems } from '../../state/selectors';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -27,17 +27,8 @@ const useStyles = makeStyles(theme => ({
 
 function PeoplePage() {
   const classes = useStyles();
-  const items = useAppSelector(state => state.items);
-  const people = useMemo(
-    () => {
-      const onlyPeople = items.filter(item => item.type === 'person') as PersonItem[];
-      return onlyPeople.sort((a, b) => (
-        (+(a.lastName > b.lastName) - +(a.lastName < b.lastName))
-        || (+(a.firstName > b.firstName) - +(a.firstName < b.firstName))
-      ));
-    },
-    [items],
-  );
+  const rawPeople = useItems<PersonItem>('person');
+  const people = useMemo(() => rawPeople.slice().sort(comparePeopleNames), [rawPeople]);
 
   const [showDetails, setShowDetails] = useState(false);
   const [currentPerson, setCurrentPerson] = useState<PersonItem>();
@@ -62,6 +53,8 @@ function PeoplePage() {
     <div className={classes.root}>
       <ItemList
         items={people}
+        noItemsHint="Click the plus button to add one!"
+        noItemsText="No people found"
         onClick={handleClickPerson}
       />
 

@@ -2,10 +2,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { useAppSelector } from '../../store';
-import { GroupItem } from '../../state/items';
+import { compareGroupNames, GroupItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GroupDrawer from '../drawers/Group';
+import { useItems } from '../../state/selectors';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -27,14 +27,8 @@ const useStyles = makeStyles(theme => ({
 
 function GroupsPage() {
   const classes = useStyles();
-  const items = useAppSelector(state => state.items);
-  const groups = useMemo(
-    () => {
-      const onlyGroups = items.filter(item => item.type === 'group') as GroupItem[];
-      return onlyGroups.sort((a, b) => +(a.name > b.name) - +(a.name < b.name));
-    },
-    [items],
-  );
+  const rawGroups = useItems<GroupItem>('group');
+  const groups = useMemo(() => rawGroups.sort(compareGroupNames), [rawGroups]);
 
   const [showDetails, setShowDetails] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<GroupItem>();
@@ -59,6 +53,8 @@ function GroupsPage() {
     <div className={classes.root}>
       <ItemList
         items={groups}
+        noItemsHint="Click the plus button to add one!"
+        noItemsText="No groups found"
         onClick={handleClickGroup}
       />
 

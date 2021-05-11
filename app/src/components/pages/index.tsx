@@ -6,7 +6,7 @@ import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import SuggestIcon from '@material-ui/icons/Update';
 import PrayerIcon from '@material-ui/icons/Phone';
 import loadable from '@loadable/component';
-import { useVault } from '../../store';
+import { useVault } from '../../state/selectors';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));

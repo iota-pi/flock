@@ -5,9 +5,10 @@ import { makeStyles } from '@material-ui/core/styles';
 import AppBar from './components/nav/AppBar';
 import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
-import { useAppDispatch, useAppSelector, useVault } from './store';
+import { useAppDispatch, useAppSelector } from './store';
 import { setItems } from './state/items';
 import { loadVault, setVault } from './state/vault';
+import { useVault } from './state/selectors';
 
 
 const useStyles = makeStyles(theme => ({
