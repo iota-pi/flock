@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Fab, IconButton, List, ListItem, ListItemSecondaryAction, ListItemText } from '@material-ui/core';
+import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import ChevronRight from '@material-ui/icons/ChevronRight';
 import { useAppSelector } from '../../store';
-import { getItemName, PersonItem } from '../../state/items';
+import { PersonItem } from '../../state/items';
 import PersonDrawer from '../drawers/Person';
+import ItemList from '../ItemList';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -60,26 +60,10 @@ function PeoplePage() {
 
   return (
     <div className={classes.root}>
-      <List>
-        {people.map(p => (
-          <ListItem
-            key={p.id}
-            button
-            onClick={handleClickPerson(p)}
-          >
-            <ListItemText primary={getItemName(p)} secondary={p.description} />
-            <ListItemSecondaryAction>
-              <IconButton
-                className={classes.chevronButton}
-                disableRipple
-                onClick={handleClickPerson(p)}
-              >
-                <ChevronRight />
-              </IconButton>
-            </ListItemSecondaryAction>
-          </ListItem>
-        ))}
-      </List>
+      <ItemList
+        items={people}
+        onClick={handleClickPerson}
+      />
 
       <Fab
         onClick={handleClickAdd}
