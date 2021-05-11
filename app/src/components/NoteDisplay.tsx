@@ -19,7 +19,7 @@ import {
 } from '@material-ui/core';
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
-import DeleteIcon from '@material-ui/icons/Delete';
+import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import { ItemNote, ItemNoteType } from '../state/items';
 import { formatDateAndTime, getItemId } from '../utils';
 
@@ -39,9 +39,6 @@ const useStyles = makeStyles(theme => ({
   },
   noteFilter: {
     minWidth: NOTE_TYPE_SELECT_WIDTH,
-  },
-  noteDivider: {
-    flexGrow: 1,
   },
   noteContentRow: {
     display: 'flex',
@@ -201,11 +198,11 @@ function NoteDisplay({
       </div>
 
       <Grid container spacing={2}>
-        <Grid item className={classes.noteDivider}>
+        <Grid item xs={12}>
           <Divider />
         </Grid>
 
-        {notes.map(note => (
+        {notes.map((note, i) => (
           <React.Fragment key={note.id}>
             <Grid item xs={12}>
               <div className={classes.noteContentRow}>
@@ -257,11 +254,21 @@ function NoteDisplay({
               </div>
             </Grid>
 
-            <Grid item className={classes.noteDivider}>
-              <Divider />
+            <Grid item xs={12}>
+              {i < notes.length - 1 && <Divider />}
             </Grid>
           </React.Fragment>
         ))}
+
+        {notes.length === 0 && (
+          <>
+            <Grid item xs={12}>
+              No notes found!
+            </Grid>
+
+            <Grid item xs={12} />
+          </>
+        )}
       </Grid>
 
       <Button
