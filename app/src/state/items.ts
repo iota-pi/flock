@@ -90,6 +90,17 @@ export function getBlankPerson(id?: string): PersonItem {
   };
 }
 
+export function getBlankGroup(id?: string): GroupItem {
+  return {
+    id: id || getItemId(),
+    type: 'group',
+    name: '',
+    description: '',
+    notes: [],
+    members: [],
+  };
+}
+
 export function getItemName(item: Item): string {
   if (item.type === 'person') {
     return `${item.firstName} ${item.lastName}`;
