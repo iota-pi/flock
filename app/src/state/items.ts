@@ -90,7 +90,7 @@ export function getBlankPerson(id?: string): PersonItem {
   };
 }
 
-export function getItemName(item: Item) {
+export function getItemName(item: Item): string {
   if (item.type === 'person') {
     return `${item.firstName} ${item.lastName}`;
   }

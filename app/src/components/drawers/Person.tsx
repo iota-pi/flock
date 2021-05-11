@@ -13,10 +13,14 @@ import {
   fade,
   Grid,
   TextField,
+  Typography,
 } from '@material-ui/core';
-import { deleteItems, getBlankPerson, ItemNote, ItemNoteType, PersonItem, updateItems } from '../../state/items';
+import DeleteIcon from '@material-ui/icons/DeleteOutline';
+import SaveIcon from '@material-ui/icons/Check';
+import { deleteItems, getBlankPerson, getItemName, ItemNote, ItemNoteType, PersonItem, updateItems } from '../../state/items';
 import { useAppDispatch, useVault } from '../../store';
 import NoteDisplay from '../NoteDisplay';
+import ConfirmationDialog from '../ConfirmationDialog';
 
 
 const useStyles = makeStyles(theme => ({
@@ -74,6 +78,9 @@ const useStyles = makeStyles(theme => ({
     alignSelf: 'flex-end',
     padding: theme.spacing(1),
   },
+  emphasis: {
+    fontWeight: 500,
+  },
 }));
 
 export interface Props {
@@ -101,6 +108,7 @@ function PersonDrawer({
   const vault = useVault();
 
   const [localPerson, setLocalPerson] = useState(getBlankPerson());
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(
     () => {
@@ -145,116 +153,148 @@ function PersonDrawer({
     [dispatch, localPerson, onClose, valid, vault],
   );
   const handleDelete = useCallback(
-    async () => {
-      setLocalPerson(getBlankPerson());
+    () => {
       if (person) {
-        vault?.delete(person.id);
-        dispatch(deleteItems([person]));
+        setShowConfirm(true);
+      } else {
+        setLocalPerson(getBlankPerson());
+        onClose();
       }
+    },
+    [onClose, person],
+  );
+  const handleConfirmedDelete = useCallback(
+    () => {
+      vault?.delete(localPerson.id);
+      dispatch(deleteItems([localPerson]));
+      setShowConfirm(false);
+      setLocalPerson(getBlankPerson());
       onClose();
     },
-    [dispatch, onClose, person, vault],
+    [dispatch, onClose, localPerson, vault],
   );
+  const handleCancel = useCallback(() => setShowConfirm(false), []);
 
   return (
-    <Drawer
-      className={classes.drawer}
-      variant="temporary"
-      open={open}
-      onClose={handleSave}
-      anchor="right"
-      classes={{
-        paper: classes.drawerPaper,
-      }}
-    >
-      <Container className={classes.drawerContainer}>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              value={localPerson.firstName}
-              onChange={handleChange('firstName')}
-              label="First Name"
-              required
-              fullWidth
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              value={localPerson.lastName}
-              onChange={handleChange('lastName')}
-              label="Last Name"
-              required
-              fullWidth
-            />
+    <>
+      <Drawer
+        className={classes.drawer}
+        variant="temporary"
+        open={open}
+        onClose={handleSave}
+        anchor="right"
+        classes={{
+          paper: classes.drawerPaper,
+        }}
+      >
+        <Container className={classes.drawerContainer}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                value={localPerson.firstName}
+                onChange={handleChange('firstName')}
+                label="First Name"
+                required
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                value={localPerson.lastName}
+                onChange={handleChange('lastName')}
+                label="Last Name"
+                required
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <TextField
+                value={localPerson.email}
+                onChange={handleChange('email')}
+                label="Email"
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                value={localPerson.phone}
+                onChange={handleChange('phone')}
+                label="Phone"
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                value={localPerson.description}
+                onChange={handleChange('description')}
+                label="Description"
+                multiline
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <NoteDisplay
+                notes={localPerson.notes}
+                onChange={handleChangeNotes}
+              />
+            </Grid>
           </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              value={localPerson.email}
-              onChange={handleChange('email')}
-              label="Email"
-              fullWidth
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              value={localPerson.phone}
-              onChange={handleChange('phone')}
-              label="Phone"
-              fullWidth
-            />
-          </Grid>
+          <div className={classes.filler} />
 
-          <Grid item xs={12}>
-            <TextField
-              value={localPerson.description}
-              onChange={handleChange('description')}
-              label="Description"
-              multiline
-              fullWidth
-            />
-          </Grid>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Divider />
+            </Grid>
 
-          <Grid item xs={12}>
-            <NoteDisplay
-              notes={localPerson.notes}
-              onChange={handleChangeNotes}
-            />
-          </Grid>
-        </Grid>
+            <Grid item xs={12} sm={6}>
+              <Button
+                onClick={handleDelete}
+                variant="outlined"
+                fullWidth
+                className={person ? classes.danger : undefined}
+                startIcon={person ? <DeleteIcon /> : undefined}
+              >
+                {person ? 'Delete' : 'Cancel'}
+              </Button>
+            </Grid>
 
-        <div className={classes.filler} />
-
-        <Grid container spacing={2}>
-          <Grid item xs={12}>
-            <Divider />
+            <Grid item xs={12} sm={6}>
+              <Button
+                color="primary"
+                onClick={handleSave}
+                variant="contained"
+                fullWidth
+                disabled={!valid}
+                startIcon={<SaveIcon />}
+              >
+                Done
+              </Button>
+            </Grid>
           </Grid>
+        </Container>
+      </Drawer>
 
-          <Grid item xs={12} sm={6}>
-            <Button
-              onClick={handleDelete}
-              variant="outlined"
-              fullWidth
-              className={person ? classes.danger : undefined}
-            >
-              {person ? 'Delete' : 'Cancel'}
-            </Button>
-          </Grid>
+      <ConfirmationDialog
+        open={showConfirm}
+        onConfirm={handleConfirmedDelete}
+        onCancel={handleCancel}
+      >
+        <Typography paragraph>
+          Are you sure you want to delete
+          {' '}
+          <span className={classes.emphasis}>{getItemName(localPerson)}</span>
+          , and all associated notes?
+        </Typography>
 
-          <Grid item xs={12} sm={6}>
-            <Button
-              color="primary"
-              onClick={handleSave}
-              variant="contained"
-              fullWidth
-              disabled={!valid}
-            >
-              Done
-            </Button>
-          </Grid>
-        </Grid>
-      </Container>
-    </Drawer>
+        <Typography paragraph>
+          This action cannot be undone.
+        </Typography>
+      </ConfirmationDialog>
+    </>
   );
 }
 
