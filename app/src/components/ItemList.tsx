@@ -44,6 +44,12 @@ function ItemList<T extends Item>({
           </ListItemSecondaryAction>
         </ListItem>
       ))}
+
+      {items.length === 0 && (
+        <ListItem>
+          <ListItemText primary="No items found" secondary="Click the plus button to add one!" />
+        </ListItem>
+      )}
     </List>
   );
 }
