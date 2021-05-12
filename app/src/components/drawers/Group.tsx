@@ -163,7 +163,7 @@ function GroupDrawer({
     [dispatch, onClose, localGroup, vault],
   );
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
-  const handleCloseReport = useCallback(() => setShowReport(true), []);
+  const handleCloseReport = useCallback(() => setShowReport(false), []);
   const handleClosePersonDrawer = useCallback(() => setShowPerson(false), []);
 
   return (
