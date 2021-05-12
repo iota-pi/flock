@@ -38,7 +38,7 @@ interface Props {
 export type { Props as ItemDrawerProps };
 
 
-function ItemDrawer({
+function BaseDrawer({
   children,
   onClose,
   open,
@@ -65,4 +65,4 @@ function ItemDrawer({
   );
 }
 
-export default ItemDrawer;
+export default BaseDrawer;

@@ -32,7 +32,8 @@ import ConfirmationDialog from '../ConfirmationDialog';
 import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
-import ItemDrawer, { ItemDrawerProps } from './ItemDrawer';
+import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
+import GroupReportDrawer from './GroupReport';
 
 
 const useStyles = makeStyles(theme => ({
@@ -85,6 +86,7 @@ function GroupDrawer({
   const vault = useVault();
 
   const [localGroup, setLocalGroup] = useState(getBlankGroup());
+  const [showReport, setShowReport] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showPerson, setShowPerson] = useState(false);
   const [currentPerson, setCurrentPerson] = useState<PersonItem>();
@@ -126,7 +128,7 @@ function GroupDrawer({
     },
     [],
   );
-
+  const handleReport = useCallback(() => setShowReport(true), []);
   const handleSave = useCallback(
     async () => {
       localGroup.name = localGroup.name.trim();
@@ -150,7 +152,7 @@ function GroupDrawer({
     },
     [onClose, group],
   );
-  const handleConfirmedDelete = useCallback(
+  const handleConfirmDelete = useCallback(
     () => {
       vault?.delete(localGroup.id);
       dispatch(deleteItems([localGroup]));
@@ -160,12 +162,13 @@ function GroupDrawer({
     },
     [dispatch, onClose, localGroup, vault],
   );
-  const handleCancel = useCallback(() => setShowConfirm(false), []);
+  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
+  const handleCloseReport = useCallback(() => setShowReport(true), []);
   const handleClosePersonDrawer = useCallback(() => setShowPerson(false), []);
 
   return (
     <>
-      <ItemDrawer
+      <BaseDrawer
         open={open}
         onClose={handleSave}
         stacked={stacked && !showPerson}
@@ -217,6 +220,17 @@ function GroupDrawer({
               <Divider />
             </Grid>
 
+            <Grid item xs={12}>
+              <Button
+                onClick={handleReport}
+                variant="outlined"
+                fullWidth
+                startIcon={group ? <DeleteIcon /> : undefined}
+              >
+                Group Report
+              </Button>
+            </Grid>
+
             <Grid item xs={12} sm={6}>
               <Button
                 onClick={handleDelete}
@@ -243,12 +257,19 @@ function GroupDrawer({
             </Grid>
           </Grid>
         </Container>
-      </ItemDrawer>
+      </BaseDrawer>
+
+      <GroupReportDrawer
+        group={localGroup}
+        onClose={handleCloseReport}
+        open={showReport}
+        stacked
+      />
 
       <ConfirmationDialog
         open={showConfirm}
-        onConfirm={handleConfirmedDelete}
-        onCancel={handleCancel}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleConfirmCancel}
       >
         <Typography paragraph>
           Are you sure you want to delete

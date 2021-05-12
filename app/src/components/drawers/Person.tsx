@@ -32,7 +32,7 @@ import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
 import { useItems, useVault } from '../../state/selectors';
-import ItemDrawer, { ItemDrawerProps } from './ItemDrawer';
+import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
 import GroupDisplay from '../GroupDisplay';
 
@@ -198,7 +198,7 @@ function PersonDrawer({
 
   return (
     <>
-      <ItemDrawer
+      <BaseDrawer
         open={open}
         onClose={handleSave}
         stacked={stacked && !showGroup}
@@ -303,7 +303,7 @@ function PersonDrawer({
             </Grid>
           </Grid>
         </Container>
-      </ItemDrawer>
+      </BaseDrawer>
 
       <ConfirmationDialog
         open={showConfirm}
