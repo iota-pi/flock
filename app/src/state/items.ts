@@ -32,6 +32,7 @@ export interface GroupItem extends BaseItem {
   members: ItemId[],
 }
 export type Item = PersonItem | GroupItem;
+export type OneItemType = Item['type'] extends PersonItem['type'] ? PersonItem : GroupItem;
 
 export const initialItems: Item[] = [];
 

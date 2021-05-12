@@ -168,7 +168,7 @@ function GroupDrawer({
       <ItemDrawer
         open={open}
         onClose={handleSave}
-        stacked={stacked}
+        stacked={stacked && !showPerson}
       >
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
@@ -262,12 +262,14 @@ function GroupDrawer({
         </Typography>
       </ConfirmationDialog>
 
-      <PersonDrawer
-        onClose={handleClosePersonDrawer}
-        open={showPerson}
-        person={currentPerson}
-        stacked
-      />
+      {showPerson && (
+        <PersonDrawer
+          onClose={handleClosePersonDrawer}
+          open={showPerson}
+          person={currentPerson}
+          stacked
+        />
+      )}
     </>
   );
 }

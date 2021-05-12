@@ -3,7 +3,6 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
 import { TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import DeleteIcon from '@material-ui/icons/Close';
@@ -11,12 +10,6 @@ import { comparePeopleNames, getItemName, lookupItemsById, PersonItem } from '..
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 
-
-const useStyles = makeStyles(theme => ({
-  memberList: {
-    backgroundColor: theme.palette.background.paper,
-  },
-}));
 
 const filterFunc = createFilterOptions<PersonItem>({ trim: true });
 
@@ -26,13 +19,11 @@ export interface Props {
   onClickMember: (member: PersonItem) => void,
 }
 
-
 function MemberDisplay({
   members: memberIds,
   onChange,
   onClickMember,
 }: Props) {
-  const classes = useStyles();
   const people = useItems<PersonItem>('person').sort(comparePeopleNames);
 
   const members = useMemo(
@@ -87,7 +78,6 @@ function MemberDisplay({
 
       <ItemList
         actionIcon={<DeleteIcon />}
-        className={classes.memberList}
         dividers
         items={members}
         noItemsText="No members found"

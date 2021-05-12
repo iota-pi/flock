@@ -2,6 +2,7 @@ import React, {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
@@ -17,9 +18,11 @@ import {
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
 import {
+  compareGroupNames,
   deleteItems,
   getBlankPerson,
   getItemName,
+  GroupItem,
   ItemNote,
   ItemNoteType,
   PersonItem,
@@ -28,8 +31,10 @@ import {
 import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
-import { useVault } from '../../state/selectors';
+import { useItems, useVault } from '../../state/selectors';
 import ItemDrawer, { ItemDrawerProps } from './ItemDrawer';
+import GroupDrawer from './Group';
+import GroupDisplay from '../GroupDisplay';
 
 
 const useStyles = makeStyles(theme => ({
@@ -80,9 +85,12 @@ function PersonDrawer({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
+  const groups = useItems<GroupItem>('group');
 
   const [localPerson, setLocalPerson] = useState(getBlankPerson());
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showGroup, setShowGroup] = useState(false);
+  const [currentGroup, setCurrentGroup] = useState<GroupItem>();
 
   useEffect(
     () => {
@@ -93,6 +101,15 @@ function PersonDrawer({
       }
     },
     [person],
+  );
+
+  const memberGroupIds = useMemo(
+    () => {
+      const memberGroups = groups.filter(g => g.members.includes(localPerson.id));
+      memberGroups.sort(compareGroupNames);
+      return memberGroups.map(g => g.id);
+    },
+    [groups, localPerson],
   );
 
   const handleChange = useCallback(
@@ -107,6 +124,35 @@ function PersonDrawer({
   const handleChangeNotes = useCallback(
     (newNotes: ItemNote[]) => setLocalPerson({ ...localPerson, notes: newNotes }),
     [localPerson],
+  );
+  const handleAddGroup = useCallback(
+    (group: GroupItem) => {
+      const newGroup: GroupItem = {
+        ...group,
+        members: [...group.members, localPerson.id],
+      };
+      vault?.store(newGroup);
+      dispatch(updateItems([newGroup]));
+    },
+    [dispatch, localPerson, vault],
+  );
+  const handleClickGroup = useCallback(
+    (group: GroupItem) => {
+      setCurrentGroup(group);
+      setShowGroup(true);
+    },
+    [],
+  );
+  const handleRemoveGroup = useCallback(
+    (group: GroupItem) => {
+      const newGroup: GroupItem = {
+        ...group,
+        members: group.members.filter(m => m !== localPerson.id),
+      };
+      vault?.store(newGroup);
+      dispatch(updateItems([newGroup]));
+    },
+    [dispatch, localPerson, vault],
   );
 
   const valid = !!localPerson.firstName && !!localPerson.lastName;
@@ -148,13 +194,14 @@ function PersonDrawer({
     [dispatch, onClose, localPerson, vault],
   );
   const handleCancel = useCallback(() => setShowConfirm(false), []);
+  const handleCloseGroupDrawer = useCallback(() => setShowGroup(false), []);
 
   return (
     <>
       <ItemDrawer
         open={open}
         onClose={handleSave}
-        stacked={stacked}
+        stacked={stacked && !showGroup}
       >
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
@@ -201,6 +248,17 @@ function PersonDrawer({
                 label="Description"
                 multiline
                 fullWidth
+              />
+            </Grid>
+
+            <Grid item />
+
+            <Grid item xs={12}>
+              <GroupDisplay
+                groups={memberGroupIds}
+                onAdd={handleAddGroup}
+                onClickGroup={handleClickGroup}
+                onRemove={handleRemoveGroup}
               />
             </Grid>
 
@@ -263,6 +321,15 @@ function PersonDrawer({
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
+
+      {showGroup && (
+        <GroupDrawer
+          onClose={handleCloseGroupDrawer}
+          open={showGroup}
+          group={currentGroup}
+          stacked
+        />
+      )}
     </>
   );
 }
