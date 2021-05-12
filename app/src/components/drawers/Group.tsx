@@ -198,7 +198,7 @@ function GroupDrawer({
               <MemberDisplay
                 members={localGroup.members}
                 onChange={handleChangeMembers}
-                onClickMember={handleClickPerson}
+                onClickMember={!stacked ? handleClickPerson : undefined}
               />
             </Grid>
 

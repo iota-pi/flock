@@ -257,7 +257,7 @@ function PersonDrawer({
               <GroupDisplay
                 groups={memberGroupIds}
                 onAdd={handleAddGroup}
-                onClickGroup={handleClickGroup}
+                onClickGroup={!stacked ? handleClickGroup : undefined}
                 onRemove={handleRemoveGroup}
               />
             </Grid>

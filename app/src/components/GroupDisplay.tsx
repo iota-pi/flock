@@ -16,7 +16,7 @@ const filterFunc = createFilterOptions<GroupItem>({ trim: true });
 export interface Props {
   groups: string[],
   onAdd: (group: GroupItem) => void,
-  onClickGroup: (group: GroupItem) => void,
+  onClickGroup?: (group: GroupItem) => void,
   onRemove: (group: GroupItem) => void,
 }
 
@@ -80,7 +80,7 @@ function GroupDisplay({
         dividers
         items={groups}
         noItemsText="No groups found"
-        onClick={item => () => onClickGroup(item)}
+        onClick={onClickGroup ? (item => () => onClickGroup(item)) : undefined}
         onClickAction={handleRemoveGroup}
       />
     </>

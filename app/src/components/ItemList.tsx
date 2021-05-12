@@ -1,6 +1,13 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Divider, IconButton, List, ListItem, ListItemSecondaryAction, ListItemText } from '@material-ui/core';
+import {
+  Divider,
+  IconButton,
+  List,
+  ListItem,
+  ListItemSecondaryAction,
+  ListItemText,
+} from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
 import { getItemName, Item } from '../state/items';
 
@@ -13,6 +20,9 @@ const useStyles = makeStyles(() => ({
   consistantMinHeight: {
     minHeight: 72,
   },
+  disabledOverride: {
+    opacity: '1 !important',
+  },
 }));
 
 export interface Props<T extends Item> {
@@ -22,7 +32,7 @@ export interface Props<T extends Item> {
   items: T[],
   noItemsHint?: string,
   noItemsText?: string,
-  onClick: (item: T) => () => void,
+  onClick?: (item: T) => () => void,
   onClickAction?: (item: T) => () => void,
 }
 
@@ -39,6 +49,18 @@ function ItemList<T extends Item>({
 }: Props<T>) {
   const classes = useStyles();
 
+  const handleClickAction = useCallback(
+    (item: T) => {
+      if (onClickAction) {
+        return onClickAction(item);
+      } else if (onClick) {
+        return onClick(item);
+      }
+      return undefined;
+    },
+    [onClick, onClickAction],
+  );
+
   return (
     <List className={className}>
       {items.map(item => (
@@ -47,7 +69,11 @@ function ItemList<T extends Item>({
 
           <ListItem
             button
-            onClick={onClick(item)}
+            disabled={!onClick}
+            onClick={onClick ? onClick(item) : undefined}
+            classes={{
+              disabled: classes.disabledOverride,
+            }}
             className={classes.consistantMinHeight}
           >
             <ListItemText
@@ -58,7 +84,7 @@ function ItemList<T extends Item>({
               <IconButton
                 className={!onClickAction ? classes.noHover : undefined}
                 disableRipple={!onClickAction}
-                onClick={onClickAction ? onClickAction(item) : onClick(item)}
+                onClick={handleClickAction(item)}
               >
                 {actionIcon || <ChevronRight />}
               </IconButton>
