@@ -23,12 +23,14 @@ const filterFunc = createFilterOptions<PersonItem>({ trim: true });
 export interface Props {
   members: string[],
   onChange: (members: string[]) => void,
+  onClickMember: (member: PersonItem) => void,
 }
 
 
 function MemberDisplay({
   members: memberIds,
   onChange,
+  onClickMember,
 }: Props) {
   const classes = useStyles();
   const people = useItems<PersonItem>('person').sort(comparePeopleNames);
@@ -89,7 +91,7 @@ function MemberDisplay({
         dividers
         items={members}
         noItemsText="No members found"
-        onClick={() => () => {}}
+        onClick={item => () => onClickMember(item)}
         onClickAction={handleRemoveMember}
       />
     </>

@@ -9,7 +9,6 @@ import {
   Button,
   Container,
   Divider,
-  Drawer,
   fade,
   Grid,
   TextField,
@@ -30,29 +29,10 @@ import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
 import { useVault } from '../../state/selectors';
+import ItemDrawer, { ItemDrawerProps } from './ItemDrawer';
 
 
 const useStyles = makeStyles(theme => ({
-  drawer: {
-    flexShrink: 0,
-
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
-  drawerPaper: {
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
   drawerContainer: {
     overflowX: 'hidden',
     overflowY: 'auto',
@@ -78,9 +58,7 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-export interface Props {
-  onClose: () => void,
-  open: boolean,
+export interface Props extends ItemDrawerProps {
   person: PersonItem | undefined,
 }
 
@@ -97,6 +75,7 @@ function PersonDrawer({
   onClose,
   open,
   person,
+  stacked,
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
@@ -172,15 +151,10 @@ function PersonDrawer({
 
   return (
     <>
-      <Drawer
-        className={classes.drawer}
-        variant="temporary"
+      <ItemDrawer
         open={open}
         onClose={handleSave}
-        anchor="right"
-        classes={{
-          paper: classes.drawerPaper,
-        }}
+        stacked={stacked}
       >
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
@@ -271,7 +245,7 @@ function PersonDrawer({
             </Grid>
           </Grid>
         </Container>
-      </Drawer>
+      </ItemDrawer>
 
       <ConfirmationDialog
         open={showConfirm}

@@ -9,7 +9,6 @@ import {
   Button,
   Container,
   Divider,
-  Drawer,
   fade,
   Grid,
   TextField,
@@ -24,6 +23,7 @@ import {
   GroupItem,
   ItemNote,
   ItemNoteType,
+  PersonItem,
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
@@ -31,29 +31,11 @@ import NoteDisplay from '../NoteDisplay';
 import ConfirmationDialog from '../ConfirmationDialog';
 import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
+import PersonDrawer from './Person';
+import ItemDrawer, { ItemDrawerProps } from './ItemDrawer';
 
 
 const useStyles = makeStyles(theme => ({
-  drawer: {
-    flexShrink: 0,
-
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
-  drawerPaper: {
-    width: '60%',
-    [theme.breakpoints.only('sm')]: {
-      width: '70%',
-    },
-    [theme.breakpoints.only('xs')]: {
-      width: '100%',
-    },
-  },
   drawerContainer: {
     overflowX: 'hidden',
     overflowY: 'auto',
@@ -79,9 +61,7 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-export interface Props {
-  onClose: () => void,
-  open: boolean,
+export interface Props extends ItemDrawerProps {
   group: GroupItem | undefined,
 }
 
@@ -95,9 +75,10 @@ export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][]
 
 
 function GroupDrawer({
+  group,
   onClose,
   open,
-  group,
+  stacked,
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
@@ -105,6 +86,10 @@ function GroupDrawer({
 
   const [localGroup, setLocalGroup] = useState(getBlankGroup());
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showPerson, setShowPerson] = useState(false);
+  const [currentPerson, setCurrentPerson] = useState<PersonItem>();
+
+  const valid = !!localGroup.name;
 
   useEffect(
     () => {
@@ -134,8 +119,13 @@ function GroupDrawer({
     (newNotes: ItemNote[]) => setLocalGroup({ ...localGroup, notes: newNotes }),
     [localGroup],
   );
-
-  const valid = !!localGroup.name;
+  const handleClickPerson = useCallback(
+    (person: PersonItem) => {
+      setCurrentPerson(person);
+      setShowPerson(true);
+    },
+    [],
+  );
 
   const handleSave = useCallback(
     async () => {
@@ -171,18 +161,14 @@ function GroupDrawer({
     [dispatch, onClose, localGroup, vault],
   );
   const handleCancel = useCallback(() => setShowConfirm(false), []);
+  const handleClosePersonDrawer = useCallback(() => setShowPerson(false), []);
 
   return (
     <>
-      <Drawer
-        className={classes.drawer}
-        variant="temporary"
+      <ItemDrawer
         open={open}
         onClose={handleSave}
-        anchor="right"
-        classes={{
-          paper: classes.drawerPaper,
-        }}
+        stacked={stacked}
       >
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
@@ -212,6 +198,7 @@ function GroupDrawer({
               <MemberDisplay
                 members={localGroup.members}
                 onChange={handleChangeMembers}
+                onClickMember={handleClickPerson}
               />
             </Grid>
 
@@ -256,7 +243,7 @@ function GroupDrawer({
             </Grid>
           </Grid>
         </Container>
-      </Drawer>
+      </ItemDrawer>
 
       <ConfirmationDialog
         open={showConfirm}
@@ -274,6 +261,13 @@ function GroupDrawer({
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
+
+      <PersonDrawer
+        onClose={handleClosePersonDrawer}
+        open={showPerson}
+        person={currentPerson}
+        stacked
+      />
     </>
   );
 }
