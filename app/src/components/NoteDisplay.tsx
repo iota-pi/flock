@@ -20,7 +20,7 @@ import {
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import { ItemNote, ItemNoteType } from '../state/items';
+import { compareNotes, ItemNote, ItemNoteType } from '../state/items';
 import { formatDateAndTime, getItemId } from '../utils';
 
 const NOTE_TYPE_SELECT_WIDTH = 128;
@@ -97,7 +97,7 @@ function NoteDisplay({
       const filteredNotes = rawNotes.filter(
         note => filterType === ALL_TYPES || filterType === note.type,
       );
-      filteredNotes.sort((a, b) => +(a.date < b.date) - +(a.date > b.date));
+      filteredNotes.sort(compareNotes);
       if (ascendingNotes) {
         filteredNotes.reverse();
       }

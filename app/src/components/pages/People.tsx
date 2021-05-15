@@ -17,11 +17,6 @@ const useStyles = makeStyles(theme => ({
     bottom: theme.spacing(3),
     right: theme.spacing(3),
   },
-  chevronButton: {
-    '&:hover': {
-      backgroundColor: 'transparent',
-    },
-  },
 }));
 
 

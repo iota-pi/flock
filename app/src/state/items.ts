@@ -6,9 +6,9 @@ export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'event';
 export type ItemNoteType = 'interaction' | 'prayer' | 'general';
 
-export interface ItemNote {
+export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
   id: string,
-  type: ItemNoteType,
+  type: T,
   date: number,
   content: string,
 }
@@ -38,17 +38,20 @@ export interface EventItem extends BaseItem {
 export type Item = PersonItem | GroupItem | EventItem;
 
 export const initialItems: Item[] = [];
+export const initialNoteToItemMap: { [note: string]: ItemId } = {};
 
 export interface ItemsState {
   items: Item[],
+  noteToItemMap: typeof initialNoteToItemMap,
 }
 
 export const SET_ITEMS = 'SET_ITEMS';
 export const UPDATE_ITEMS = 'UPDATE_ITEMS';
 export const DELETE_ITEMS = 'DELETE_ITEMS';
 
-export interface SetItemsAction extends Action, ItemsState {
+export interface SetItemsAction extends Action {
   type: typeof SET_ITEMS | typeof UPDATE_ITEMS | typeof DELETE_ITEMS,
+  items: Item[],
 }
 
 export function setItems(items: Item[]): SetItemsAction {
@@ -64,9 +67,9 @@ export function deleteItems(items: Item[]): SetItemsAction {
 }
 
 export function itemsReducer(
-  state: Item[] = initialItems,
+  state: ItemsState['items'] = initialItems,
   action: SetItemsAction | AllActions,
-): Item[] {
+): ItemsState['items'] {
   if (action.type === SET_ITEMS) {
     return action.items.slice();
   } else if (action.type === UPDATE_ITEMS) {
@@ -76,6 +79,23 @@ export function itemsReducer(
   } else if (action.type === DELETE_ITEMS) {
     const deletedIds = new Set(action.items.map(item => item.id));
     return state.filter(item => !deletedIds.has(item.id));
+  }
+
+  return state;
+}
+
+export function noteToItemMapReducer(
+  state: ItemsState['noteToItemMap'] = initialNoteToItemMap,
+  action: SetItemsAction | AllActions,
+): ItemsState['noteToItemMap'] {
+  if (action.type === SET_ITEMS || action.type === UPDATE_ITEMS) {
+    const newMap = Object.fromEntries(
+      action.items.flatMap(item => item.notes.map(n => [n.id, item.id])),
+    );
+    if (action.type === SET_ITEMS) {
+      return newMap;
+    }
+    return { ...state, ...newMap };
   }
 
   return state;
@@ -118,7 +138,9 @@ export function getBlankEvent(id?: ItemId): EventItem {
   };
 }
 
-export function getItemName(item: Item): string {
+export function getItemName(item?: Item): string {
+  if (item === undefined) return '';
+
   if (item.type === 'person') {
     return `${item.firstName} ${item.lastName}`;
   }
@@ -138,6 +160,11 @@ export function compareNames(a: GroupItem | EventItem, b: GroupItem | EventItem)
   return +(a.name > b.name) - +(a.name < b.name);
 }
 
+export function compareNotes(a: ItemNote, b: ItemNote): number {
+  // Sort notes in descending order of date by default
+  return +(a.date < b.date) - +(a.date > b.date);
+}
+
 export function getItemById<T extends Item>(items: T[], id: ItemId): T | undefined {
   const result = items.find(item => item.id === id);
   return result;
@@ -152,4 +179,15 @@ export function lookupItemsById<T extends Item>(items: T[], ids: ItemId[]): T[] 
     }
   }
   return results;
+}
+
+export function getNotes<T extends ItemNoteType = ItemNoteType>(
+  items: Item[],
+  filterType?: T,
+): ItemNote<T>[] {
+  const allNotes = items.flatMap(item => item.notes);
+  if (filterType) {
+    return allNotes.filter(note => note.type === filterType) as ItemNote<T>[];
+  }
+  return allNotes as ItemNote<T>[];
 }

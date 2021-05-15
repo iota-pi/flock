@@ -51,7 +51,6 @@ function BaseDrawer({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      console.warn('called', event);
       if (event.ctrlKey && event.key === 'Enter') {
         onClose();
       }
