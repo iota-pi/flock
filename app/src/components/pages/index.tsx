@@ -34,6 +34,7 @@ export interface InternalPage {
   path: string,
   page: ReactNode,
   requiresAuth: boolean,
+  dividerBefore?: boolean,
 }
 
 export interface Page extends InternalPage {
@@ -88,6 +89,7 @@ export const pages: Page[] = [
     icon: <InteractionIcon />,
     page: <InteractionsPage />,
     requiresAuth: true,
+    dividerBefore: true,
   },
   {
     id: 'prayer',

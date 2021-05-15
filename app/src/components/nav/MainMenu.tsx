@@ -81,22 +81,25 @@ function MainMenu({
 
       <div className={classes.drawerContainer}>
         <List>
-          {pages.map(({ id, name, icon }) => (
-            <ListItem
-              key={id}
-              button
-              onClick={handleClick(id)}
-              className={id === currentPageId ? classes.primaryMenuItem : classes.regularMenuItem}
-            >
-              <ListItemIcon className={classes.inheritColour}>
-                {icon}
-              </ListItemIcon>
-              <ListItemText primary={name} />
-            </ListItem>
+          {pages.map(({ id, name, icon, dividerBefore }) => (
+            <React.Fragment key={id}>
+              {dividerBefore && (
+                <Divider />
+              )}
+
+              <ListItem
+                button
+                onClick={handleClick(id)}
+                className={id === currentPageId ? classes.primaryMenuItem : classes.regularMenuItem}
+              >
+                <ListItemIcon className={classes.inheritColour}>
+                  {icon}
+                </ListItemIcon>
+                <ListItemText primary={name} />
+              </ListItem>
+            </React.Fragment>
           ))}
         </List>
-
-        <Divider />
       </div>
     </Drawer>
   );
