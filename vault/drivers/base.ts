@@ -23,7 +23,7 @@ export interface AuthData {
 export interface VaultItem extends VaultKey, VaultData {}
 
 export function asItemType(type: string): VaultItemType {
-  if (['person', 'group'].includes(type)) {
+  if (['person', 'group', 'event'].includes(type)) {
     return type as VaultItemType;
   }
   throw new Error(`Item type ${type} is not valid`);
