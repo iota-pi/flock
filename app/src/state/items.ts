@@ -3,7 +3,7 @@ import { AllActions } from '.';
 import { getItemId } from '../utils';
 
 export type ItemId = string;
-export type ItemType = 'person' | 'group';
+export type ItemType = 'person' | 'group' | 'event';
 export type ItemNoteType = 'interaction' | 'prayer' | 'general';
 
 export interface ItemNote {
@@ -31,8 +31,11 @@ export interface GroupItem extends BaseItem {
   name: string,
   members: ItemId[],
 }
-export type Item = PersonItem | GroupItem;
-export type OneItemType = Item['type'] extends PersonItem['type'] ? PersonItem : GroupItem;
+export interface EventItem extends BaseItem {
+  type: 'event',
+  name: string,
+}
+export type Item = PersonItem | GroupItem | EventItem;
 
 export const initialItems: Item[] = [];
 
@@ -78,27 +81,40 @@ export function itemsReducer(
   return state;
 }
 
-export function getBlankPerson(id?: string): PersonItem {
+function getBlankBaseItem(id?: ItemId): BaseItem {
   return {
+    description: '',
     id: id || getItemId(),
+    notes: [],
+    type: 'person',
+  };
+}
+
+export function getBlankPerson(id?: ItemId): PersonItem {
+  return {
+    ...getBlankBaseItem(id),
     type: 'person',
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
-    description: '',
-    notes: [],
   };
 }
 
-export function getBlankGroup(id?: string): GroupItem {
+export function getBlankGroup(id?: ItemId): GroupItem {
   return {
-    id: id || getItemId(),
+    ...getBlankBaseItem(id),
     type: 'group',
     name: '',
-    description: '',
-    notes: [],
     members: [],
+  };
+}
+
+export function getBlankEvent(id?: ItemId): EventItem {
+  return {
+    ...getBlankBaseItem(id),
+    type: 'event',
+    name: '',
   };
 }
 
@@ -116,7 +132,9 @@ export function comparePeopleNames(a: PersonItem, b: PersonItem) {
   );
 }
 
-export function compareGroupNames(a: GroupItem, b: GroupItem) {
+export function compareNames(a: GroupItem, b: GroupItem): number;
+export function compareNames(a: EventItem, b: EventItem): number;
+export function compareNames(a: GroupItem | EventItem, b: GroupItem | EventItem) {
   return +(a.name > b.name) - +(a.name < b.name);
 }
 

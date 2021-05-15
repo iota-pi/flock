@@ -2,11 +2,13 @@ import React, { ReactNode, useMemo } from 'react';
 import { Switch, Route } from 'react-router-dom';
 import PersonIcon from '@material-ui/icons/Person';
 import GroupsIcon from '@material-ui/icons/GroupWork';
+import EventsIcon from '@material-ui/icons/Event';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import SuggestIcon from '@material-ui/icons/Update';
 import PrayerIcon from '@material-ui/icons/Phone';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
+import EventsPage from './Events';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
@@ -21,6 +23,7 @@ export type PageId = (
   'signup' |
   'people' |
   'groups' |
+  'events' |
   'interactions' |
   'suggestions' |
   'prayer'
@@ -68,6 +71,14 @@ export const pages: Page[] = [
     name: 'Groups',
     icon: <GroupsIcon />,
     page: <GroupsPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'events',
+    path: '/events',
+    name: 'Events',
+    icon: <EventsIcon />,
+    page: <EventsPage />,
     requiresAuth: true,
   },
   {

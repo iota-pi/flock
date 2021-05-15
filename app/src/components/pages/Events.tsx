@@ -2,9 +2,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { compareNames, GroupItem } from '../../state/items';
+import { compareNames, EventItem } from '../../state/items';
 import ItemList from '../ItemList';
-import GroupDrawer from '../drawers/Group';
+import EventDrawer from '../drawers/Event';
 import { useItems } from '../../state/selectors';
 
 const useStyles = makeStyles(theme => ({
@@ -25,25 +25,25 @@ const useStyles = makeStyles(theme => ({
 }));
 
 
-function GroupsPage() {
+function EventsPage() {
   const classes = useStyles();
-  const rawGroups = useItems<GroupItem>('group');
-  const groups = useMemo(() => rawGroups.sort(compareNames), [rawGroups]);
+  const rawEvents = useItems<EventItem>('event');
+  const events = useMemo(() => rawEvents.sort(compareNames), [rawEvents]);
 
   const [showDetails, setShowDetails] = useState(false);
-  const [currentGroup, setCurrentGroup] = useState<GroupItem>();
+  const [currentEvent, setCurrentEvent] = useState<EventItem>();
 
-  const handleClickGroup = useCallback(
-    (group: GroupItem) => () => {
+  const handleClickEvent = useCallback(
+    (event: EventItem) => () => {
       setShowDetails(true);
-      setCurrentGroup(group);
+      setCurrentEvent(event);
     },
     [],
   );
   const handleClickAdd = useCallback(
     () => {
       setShowDetails(true);
-      setCurrentGroup(undefined);
+      setCurrentEvent(undefined);
     },
     [],
   );
@@ -52,28 +52,28 @@ function GroupsPage() {
   return (
     <div className={classes.root}>
       <ItemList
-        items={groups}
+        items={events}
         noItemsHint="Click the plus button to add one!"
-        noItemsText="No groups found"
-        onClick={handleClickGroup}
+        noItemsText="No events found"
+        onClick={handleClickEvent}
       />
 
       <Fab
         onClick={handleClickAdd}
         color="secondary"
-        aria-label="Add Group"
+        aria-label="Add Event"
         className={classes.fab}
       >
         <AddIcon />
       </Fab>
 
-      <GroupDrawer
+      <EventDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        group={currentGroup}
+        event={currentEvent}
       />
     </div>
   );
 }
 
-export default GroupsPage;
+export default EventsPage;

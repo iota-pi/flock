@@ -6,7 +6,7 @@ import React, {
 import { TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareGroupNames, getItemName, lookupItemsById, GroupItem } from '../state/items';
+import { compareNames, getItemName, lookupItemsById, GroupItem } from '../state/items';
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 
@@ -27,10 +27,10 @@ function GroupDisplay({
   onClickGroup,
   onRemove,
 }: Props) {
-  const people = useItems<GroupItem>('group').sort(compareGroupNames);
+  const people = useItems<GroupItem>('group').sort(compareNames);
 
   const groups = useMemo(
-    () => lookupItemsById(people, groupIds).sort(compareGroupNames),
+    () => lookupItemsById(people, groupIds).sort(compareNames),
     [people, groupIds],
   );
 

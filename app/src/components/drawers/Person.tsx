@@ -18,7 +18,7 @@ import {
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
 import {
-  compareGroupNames,
+  compareNames,
   deleteItems,
   getBlankPerson,
   getItemName,
@@ -106,7 +106,7 @@ function PersonDrawer({
   const memberGroupIds = useMemo(
     () => {
       const memberGroups = groups.filter(g => g.members.includes(localPerson.id));
-      memberGroups.sort(compareGroupNames);
+      memberGroups.sort(compareNames);
       return memberGroups.map(g => g.id);
     },
     [groups, localPerson],
