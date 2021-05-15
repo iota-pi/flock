@@ -5,6 +5,7 @@ import { getItemId } from '../utils';
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'event';
 export type ItemNoteType = 'interaction' | 'prayer' | 'general';
+export const ITEM_TYPES: ItemType[] = ['person', 'group', 'event'];
 
 export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
   id: string,
@@ -99,6 +100,15 @@ export function noteToItemMapReducer(
   }
 
   return state;
+}
+
+export function getBlankNote<T extends ItemNoteType>(type: T): ItemNote<T> {
+  return {
+    content: '',
+    date: new Date().getTime(),
+    id: getItemId(),
+    type,
+  };
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {

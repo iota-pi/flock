@@ -20,8 +20,8 @@ import {
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import { compareNotes, ItemNote, ItemNoteType } from '../state/items';
-import { formatDateAndTime, getItemId } from '../utils';
+import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
+import { formatDateAndTime } from '../utils';
 
 const NOTE_TYPE_SELECT_WIDTH = 128;
 
@@ -154,16 +154,11 @@ function NoteDisplay({
 
   const handleAddNote = useCallback(
     () => {
-      const id = getItemId();
-      const note: ItemNote = {
-        id,
-        content: '',
-        date: new Date().getTime(),
-        type: 'general',
-      };
+      const type = filterType === ALL_TYPES ? 'general' : filterType;
+      const note = getBlankNote(type);
       onChange([...notes, note]);
     },
-    [notes, onChange],
+    [filterType, notes, onChange],
   );
 
   return (

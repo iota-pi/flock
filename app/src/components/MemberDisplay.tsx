@@ -1,17 +1,12 @@
 import React, {
-  ChangeEvent,
   useCallback,
   useMemo,
 } from 'react';
-import { TextField } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import DeleteIcon from '@material-ui/icons/Close';
-import { comparePeopleNames, getItemName, lookupItemsById, PersonItem } from '../state/items';
+import { comparePeopleNames, Item, lookupItemsById, PersonItem } from '../state/items';
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
-
-
-const filterFunc = createFilterOptions<PersonItem>({ trim: true });
+import ItemSearch from './ItemSearch';
 
 export interface Props {
   members: string[],
@@ -31,11 +26,6 @@ function MemberDisplay({
     [people, memberIds],
   );
 
-  const options = useMemo(
-    () => people.filter(person => !memberIds.includes(person.id)),
-    [memberIds, people],
-  );
-
   const handleRemoveMember = useCallback(
     (member: PersonItem) => (
       () => {
@@ -45,35 +35,19 @@ function MemberDisplay({
     [onChange, memberIds],
   );
   const handleChangeMembers = useCallback(
-    (event: ChangeEvent<{}>, value: PersonItem[], reason: AutocompleteChangeReason) => {
-      if (reason === 'select-option') {
-        onChange([...memberIds, value[0].id]);
-      }
+    (item: Item) => {
+      onChange([...memberIds, item.id]);
     },
     [onChange, memberIds],
   );
 
   return (
     <>
-      <Autocomplete
-        filterOptions={(opts, state) => (
-          filterFunc(opts, state).filter(person => !memberIds.includes(person.id))
-        )}
-        getOptionLabel={item => getItemName(item)}
-        multiple
-        noOptionsText="No people found"
-        onChange={handleChangeMembers}
-        options={options}
-        renderInput={params => (
-          <TextField
-            {...params}
-            label="Add group members"
-            variant="outlined"
-          />
-        )}
-        renderOption={item => getItemName(item)}
-        renderTags={() => null}
-        value={[] as PersonItem[]}
+      <ItemSearch
+        items={people}
+        filterIds={memberIds}
+        onSelect={handleChangeMembers}
+        renderTags={false}
       />
 
       <ItemList
