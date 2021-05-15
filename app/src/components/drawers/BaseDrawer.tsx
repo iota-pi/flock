@@ -1,4 +1,4 @@
-import React, { PropsWithChildren } from 'react';
+import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Drawer } from '@material-ui/core';
 
@@ -49,6 +49,16 @@ function BaseDrawer({
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
 
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      console.warn('called', event);
+      if (event.ctrlKey && event.key === 'Enter') {
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
   return (
     <Drawer
       className={rootClasses.join(' ')}
@@ -59,6 +69,7 @@ function BaseDrawer({
       classes={{
         paper: commonClasses.join(' '),
       }}
+      onKeyDown={handleKeyDown}
     >
       {children}
     </Drawer>
