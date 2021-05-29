@@ -76,7 +76,10 @@ export function itemsReducer(
   } else if (action.type === UPDATE_ITEMS) {
     const updatedIds = new Set(action.items.map(item => item.id));
     const untouchedItems = state.filter(item => !updatedIds.has(item.id));
-    return [...untouchedItems, ...action.items];
+    const unqiueItems = action.items.filter(
+      (i1, index) => index === action.items.findIndex(i2 => i2.id === i1.id),
+    );
+    return [...untouchedItems, ...unqiueItems];
   } else if (action.type === DELETE_ITEMS) {
     const deletedIds = new Set(action.items.map(item => item.id));
     return state.filter(item => !deletedIds.has(item.id));
@@ -164,10 +167,17 @@ export function comparePeopleNames(a: PersonItem, b: PersonItem) {
   );
 }
 
-export function compareNames(a: GroupItem, b: GroupItem): number;
-export function compareNames(a: EventItem, b: EventItem): number;
 export function compareNames(a: GroupItem | EventItem, b: GroupItem | EventItem) {
   return +(a.name > b.name) - +(a.name < b.name);
+}
+
+export function compareItems(a: Item, b: Item) {
+  if (a.type !== b.type) {
+    return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type);
+  } else if (a.type === 'person' || b.type === 'person') {
+    return comparePeopleNames(a as PersonItem, b as PersonItem);
+  }
+  return compareNames(a, b);
 }
 
 export function compareNotes(a: ItemNote, b: ItemNote): number {
