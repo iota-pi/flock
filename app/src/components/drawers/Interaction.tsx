@@ -2,20 +2,27 @@ import React, {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
+  Checkbox,
   Container,
   Divider,
   fade,
+  FormControlLabel,
   Grid,
+  IconButton,
+  InputAdornment,
   TextField,
   Typography,
 } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
+import Visibility from '@material-ui/icons/Visibility';
+import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import {
   getBlankNote,
   getItemById,
@@ -75,6 +82,7 @@ function InteractionDrawer({
 
   const [interaction, setInteraction] = useState(getBlankNote('interaction'));
   const [linkedItem, setLinkedItem] = useState<Item>();
+  const [showSensitive, setShowSensitive] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(
@@ -83,6 +91,7 @@ function InteractionDrawer({
         setInteraction(rawInteraction);
         const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
         setLinkedItem(existingLinkedItem);
+        setShowSensitive(false);
       }
     },
     [items, noteMap, rawInteraction],
@@ -99,6 +108,16 @@ function InteractionDrawer({
     (item?: Item) => {
       setLinkedItem(item);
     },
+    [],
+  );
+  const handleChangeSensitive = useCallback(
+    () => setInteraction({ ...interaction, sensitive: !interaction.sensitive }),
+    [interaction],
+  );
+
+  const handleClickVisibility = useCallback(() => setShowSensitive(show => !show), []);
+  const handleMouseDownVisibility = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
     [],
   );
 
@@ -168,6 +187,11 @@ function InteractionDrawer({
   );
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
+  const isVisible = useMemo(
+    () => !interaction.sensitive || showSensitive,
+    [interaction, showSensitive],
+  );
+
   return (
     <>
       <BaseDrawer
@@ -188,11 +212,36 @@ function InteractionDrawer({
 
             <Grid item xs={12}>
               <TextField
-                value={interaction.content}
+                value={!isVisible ? '...' : interaction.content}
                 onChange={handleChange}
+                disabled={!isVisible}
                 label="Interaction details"
                 multiline
                 fullWidth
+                InputProps={{
+                  endAdornment: interaction.sensitive ? (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility}
+                        onMouseDown={handleMouseDownVisibility}
+                      >
+                        {showSensitive ? <Visibility /> : <VisibilityOff />}
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={(
+                  <Checkbox
+                    checked={interaction.sensitive}
+                    onChange={handleChangeSensitive}
+                  />
+                )}
+                label="Sensitive"
               />
             </Grid>
           </Grid>

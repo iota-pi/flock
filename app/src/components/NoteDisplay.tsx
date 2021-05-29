@@ -7,10 +7,13 @@ import React, {
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
+  Checkbox,
   Divider,
   FormControl,
+  FormControlLabel,
   Grid,
   IconButton,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Select,
@@ -20,6 +23,8 @@ import {
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
+import Visibility from '@material-ui/icons/Visibility';
+import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
 import { formatDateAndTime } from '../utils';
 
@@ -43,8 +48,12 @@ const useStyles = makeStyles(theme => ({
   noteContentRow: {
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'center',
+
+    '&$center': {
+      alignItems: 'center',
+    },
   },
+  center: {},
   noteType: {
     marginRight: theme.spacing(2),
     minWidth: NOTE_TYPE_SELECT_WIDTH,
@@ -91,6 +100,7 @@ function NoteDisplay({
 
   const [ascendingNotes, setAscendingNotes] = useState(false);
   const [filterType, setFilterType] = useState<ItemNoteType | typeof ALL_TYPES>(ALL_TYPES);
+  const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
 
   const notes = useMemo(
     () => {
@@ -132,6 +142,19 @@ function NoteDisplay({
     ),
     [onChange, rawNotes],
   );
+  const handleChangeSensitive = useCallback(
+    (noteId: string) => (
+      () => {
+        const index = rawNotes.findIndex(n => n.id === noteId);
+        if (index > -1) {
+          const newNotes = rawNotes.slice();
+          newNotes[index] = { ...newNotes[index], sensitive: !newNotes[index].sensitive };
+          onChange(newNotes);
+        }
+      }
+    ),
+    [onChange, rawNotes],
+  );
   const handleDelete = useCallback(
     (noteId: string) => (
       () => {
@@ -159,6 +182,29 @@ function NoteDisplay({
       onChange([...notes, note]);
     },
     [filterType, notes, onChange],
+  );
+
+  const handleClickVisibility = useCallback(
+    (note: ItemNote) => () => setVisibleSensitives(currentlyVisible => {
+      const index = currentlyVisible.indexOf(note.id);
+      if (index > -1) {
+        return [
+          ...currentlyVisible.slice(0, index),
+          ...currentlyVisible.slice(index + 1),
+        ];
+      }
+      return [...currentlyVisible, note.id];
+    }),
+    [],
+  );
+  const handleMouseDownVisibility = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+    [],
+  );
+
+  const isNoteVisible = useCallback(
+    (note: ItemNote) => !note.sensitive || visibleSensitives.includes(note.id),
+    [visibleSensitives],
   );
 
   return (
@@ -221,15 +267,38 @@ function NoteDisplay({
                 </FormControl>
 
                 <TextField
-                  value={note.content}
+                  value={!isNoteVisible(note) ? '...' : note.content}
                   onChange={handleChange(note.id)}
+                  disabled={!isNoteVisible(note)}
                   label="Content"
+                  InputProps={{
+                    endAdornment: note.sensitive ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={handleClickVisibility(note)}
+                          onMouseDown={handleMouseDownVisibility}
+                        >
+                          {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  }}
                   multiline
                   fullWidth
                 />
               </div>
 
-              <div className={classes.noteContentRow}>
+              <div className={`${classes.noteContentRow} ${classes.center}`}>
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      checked={note.sensitive}
+                      onChange={handleChangeSensitive(note.id)}
+                    />
+                  )}
+                  label="Sensitive"
+                />
+
                 <div className={classes.noteDate}>
                   <span className={classes.subtle}>
                     {'Created: '}

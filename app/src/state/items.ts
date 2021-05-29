@@ -12,6 +12,7 @@ export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
   type: T,
   date: number,
   content: string,
+  sensitive?: boolean,
 }
 
 export interface BaseItem {

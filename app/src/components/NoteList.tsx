@@ -67,8 +67,8 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
   const getNoteSubtext = useCallback(
     (note: ItemNote) => {
       const timeString = formatDateAndTime(new Date(note.date));
-      const content = note.content;
-      return `${timeString} — ${content}`;
+      const content = note.sensitive ? '(sensitive)' : `— ${note.content}`;
+      return `${timeString} ${content}`;
     },
     [],
   );
