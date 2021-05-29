@@ -16,6 +16,7 @@ import {
 } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
+import ReportIcon from '@material-ui/icons/Description';
 import {
   deleteItems,
   getBlankGroup,
@@ -225,7 +226,7 @@ function GroupDrawer({
                 onClick={handleReport}
                 variant="outlined"
                 fullWidth
-                startIcon={group ? <DeleteIcon /> : undefined}
+                startIcon={group ? <ReportIcon /> : undefined}
               >
                 Group Report
               </Button>
