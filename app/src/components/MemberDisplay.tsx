@@ -35,8 +35,10 @@ function MemberDisplay({
     [onChange, memberIds],
   );
   const handleChangeMembers = useCallback(
-    (item: Item) => {
-      onChange([...memberIds, item.id]);
+    (item?: Item) => {
+      if (item) {
+        onChange([...memberIds, item.id]);
+      }
     },
     [onChange, memberIds],
   );
@@ -44,10 +46,11 @@ function MemberDisplay({
   return (
     <>
       <ItemSearch
+        selectedIds={memberIds}
         items={people}
-        filterIds={memberIds}
+        label="Add group members"
         onSelect={handleChangeMembers}
-        renderTags={false}
+        showSelected={false}
       />
 
       <ItemList

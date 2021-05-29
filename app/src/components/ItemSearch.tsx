@@ -9,33 +9,40 @@ import {
   getItemName,
   Item,
   ItemId,
+  lookupItemsById,
 } from '../state/items';
 
 
 const filterFunc = createFilterOptions<Item>({ trim: true });
 
 export interface Props {
-  filterIds: ItemId[],
+  selectedIds: ItemId[],
   items: Item[],
-  onSelect: (item: Item) => void,
-  renderTags?: boolean,
+  label: string,
+  onSelect: (item?: Item) => void,
+  showSelected?: boolean,
 }
 
 function ItemSearch({
-  filterIds,
+  selectedIds,
   items,
+  label,
   onSelect,
-  renderTags,
+  showSelected,
 }: Props) {
   const options = useMemo(
-    () => items.filter(item => !filterIds.includes(item.id)),
-    [filterIds, items],
+    () => (showSelected !== false ? items : items.filter(item => !selectedIds.includes(item.id))),
+    [items, selectedIds, showSelected],
   );
+  const selectedItems = lookupItemsById(items, selectedIds);
 
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: Item[], reason: AutocompleteChangeReason) => {
       if (reason === 'select-option') {
-        onSelect(value[0]);
+        onSelect(value[value.length - 1]);
+      }
+      if (reason === 'remove-option' || reason === 'clear') {
+        onSelect(undefined);
       }
     },
     [onSelect],
@@ -49,16 +56,16 @@ function ItemSearch({
       noOptionsText="No people found"
       onChange={handleChange}
       options={options}
+      getOptionSelected={(a, b) => a.id === b.id}
       renderInput={params => (
         <TextField
           {...params}
-          label="Add group members"
+          label={label}
           variant="outlined"
         />
       )}
       renderOption={item => getItemName(item)}
-      renderTags={renderTags === false ? () => null : undefined}
-      value={[] as Item[]}
+      value={showSelected === false ? [] as Item[] : selectedItems}
     />
   );
 }

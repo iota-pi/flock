@@ -1,6 +1,8 @@
 import { useAppSelector } from '../store';
 import { Item } from './items';
 
+export function useItems<T extends Item>(itemType: T['type']): T[];
+export function useItems(): Item[];
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
   return useAppSelector(
     state => (

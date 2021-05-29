@@ -80,6 +80,8 @@ function GroupReportDrawer({
             </Typography>
           )}
 
+          {'<insert maturity, attendance, and other fun things here />'}
+
           <div className={classes.filler} />
 
           <Grid container spacing={2}>

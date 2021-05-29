@@ -9,7 +9,7 @@ import {
   ListItemText,
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
-import { getItemById, getItemName, Item, ItemNote } from '../state/items';
+import { getItemById, getItemName, ItemNote, ItemNoteType } from '../state/items';
 import { useItems, useNoteMap } from '../state/selectors';
 import { formatDateAndTime } from '../utils';
 
@@ -27,19 +27,19 @@ const useStyles = makeStyles(() => ({
   },
 }));
 
-export interface Props {
+export interface Props<T extends ItemNoteType> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
-  notes: ItemNote[],
+  notes: ItemNote<T>[],
   noNotesHint?: string,
   noNotesText?: string,
-  onClick?: (note: ItemNote) => () => void,
-  onClickAction?: (note: ItemNote) => () => void,
+  onClick?: (note: ItemNote<T>) => () => void,
+  onClickAction?: (note: ItemNote<T>) => () => void,
 }
 
 
-function NoteList({
+function NoteList<T extends ItemNoteType = ItemNoteType>({
   actionIcon,
   className,
   dividers,
@@ -48,13 +48,13 @@ function NoteList({
   noNotesText,
   onClick,
   onClickAction,
-}: Props) {
+}: Props<T>) {
   const classes = useStyles();
-  const items = useItems<Item>();
+  const items = useItems();
   const noteMap = useNoteMap();
 
   const handleClickAction = useCallback(
-    (note: ItemNote) => {
+    (note: ItemNote<T>) => {
       if (onClickAction) {
         return onClickAction(note);
       } else if (onClick) {
