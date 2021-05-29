@@ -292,7 +292,7 @@ function NoteDisplay({
                 <FormControlLabel
                   control={(
                     <Checkbox
-                      checked={note.sensitive}
+                      checked={note.sensitive || false}
                       onChange={handleChangeSensitive(note.id)}
                     />
                   )}

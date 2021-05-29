@@ -237,7 +237,7 @@ function InteractionDrawer({
               <FormControlLabel
                 control={(
                   <Checkbox
-                    checked={interaction.sensitive}
+                    checked={interaction.sensitive || false}
                     onChange={handleChangeSensitive}
                   />
                 )}
