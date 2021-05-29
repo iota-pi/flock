@@ -50,11 +50,29 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     return { success };
   });
 
-  fastify.get('/:account/auth', async (request, reply) => {
+  fastify.patch('/:account', async (request, reply) => {
     const { account } = request.params as { account: string };
     const authToken = getAuthToken(request);
-    const success = await vault.checkPassword({ account, authToken });
-    return { success };
+    const valid = await vault.checkPassword({ account, authToken });
+    if (valid) {
+      const { metadata } = request.body as { metadata: Record<string, any> };
+      await vault.setMetadata({ account, metadata });
+    }
+    return { success: valid };
+  });
+
+  fastify.get('/:account', async (request, reply) => {
+    const { account } = request.params as { account: string };
+    const authToken = getAuthToken(request);
+    try {
+      const { metadata } = await vault.getAccount({ account, authToken });
+      return {
+        success: true,
+        metadata,
+      };
+    } catch (error) {
+      return { success: false };
+    }
   });
 
   next();

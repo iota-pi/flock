@@ -20,6 +20,13 @@ export interface AuthData {
   authToken: string,
 }
 
+export interface VaultAccount {
+  account: string,
+  metadata: Record<string, any>,
+}
+
+export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
+
 export interface VaultItem extends VaultKey, VaultData {}
 
 export function asItemType(type: string): VaultItemType {
@@ -34,7 +41,9 @@ export default abstract class BaseDriver<T = unknown> {
   abstract connect(options?: T): BaseDriver<T>;
 
   abstract createAccount({ authToken }: Pick<AuthData, 'authToken'>): Promise<boolean>;
+  abstract getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth>;
   abstract checkPassword({ account, authToken }: AuthData): Promise<boolean>;
+  abstract setMetadata({ account, metadata }: VaultAccount): Promise<void>;
 
   abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>;
   abstract get({ account, item }: VaultKey): Promise<VaultData>;

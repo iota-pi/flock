@@ -1,7 +1,6 @@
 import AWS from 'aws-sdk';
-import { getAccountId } from '../../app/src/utils';
 import { almostConstantTimeEqual } from '../util';
-import BaseDriver, { AuthData, VaultData, VaultItem, VaultKey } from './base';
+import BaseDriver, { AuthData, VaultAccountWithAuth, VaultData, VaultItem, VaultKey } from './base';
 
 export const ACCOUNT_TABLE_NAME = 'PRMAccounts';
 export const ITEM_TABLE_NAME = 'PRMItems';
@@ -98,7 +97,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     return true;
   }
 
-  async checkPassword({ account, authToken }: AuthData): Promise<boolean> {
+  async getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth> {
     const response = await this.client?.get(
       {
         TableName: ACCOUNT_TABLE_NAME,
@@ -107,9 +106,35 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     ).promise();
     if (response?.Item) {
       const storedHash = response.Item.authToken as string;
-      return almostConstantTimeEqual(authToken, storedHash);
+      if (almostConstantTimeEqual(authToken, storedHash)) {
+        return response.Item as VaultAccountWithAuth;
+      }
     }
     throw new Error(`Could not find account ${account}`);
+  }
+
+  async setMetadata(
+    { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, any> },
+  ): Promise<void> {
+    await this.client?.update(
+      {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET metadata=:metadata',
+        ExpressionAttributeValues: {
+          ':metadata': metadata,
+        },
+      },
+    ).promise();
+  };
+
+  async checkPassword({ account, authToken }: AuthData): Promise<boolean> {
+    try {
+      const result = await this.getAccount({ account, authToken });
+      return !!result;
+    } catch (error) {
+      return false;
+    }
   }
 
   async set(item: VaultItem) {

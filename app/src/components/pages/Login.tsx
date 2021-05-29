@@ -69,7 +69,7 @@ function LoginPage() {
       });
       if (success) {
         dispatch(await setVault(vault));
-        dispatch(setAccount(accountInput));
+        dispatch(setAccount({ account: accountInput }));
         history.push(getPage('people').path);
       } else {
         setError('Could not find matching account ID and password.');

@@ -19,6 +19,11 @@ export interface VaultAuth {
   authToken: string,
 }
 
+export interface VaultAccount {
+  account: string,
+  metadata: Record<string, any>,
+}
+
 
 class VaultAPI {
   readonly endpoint = process.env.REACT_APP_VAULT_ENDPOINT!;
@@ -66,9 +71,15 @@ class VaultAPI {
   }
 
   async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
-    const url = `${this.endpoint}/${account}/auth`;
+    const url = `${this.endpoint}/${account}`;
     const result = await axios.get(url, this.getAuthorization(authToken));
     return result.data.success as boolean || false;
+  }
+
+  async setMetadata({ account, authToken, metadata }: VaultAccount & VaultAuth) {
+    const url = `${this.endpoint}/${account}`;
+    const result = await axios.patch(url, { metadata }, this.getAuthorization(authToken));
+    return result.data.success as boolean;
   }
 }
 
