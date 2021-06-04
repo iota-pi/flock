@@ -57,7 +57,7 @@ function MemberDisplay({
         actionIcon={<DeleteIcon />}
         dividers
         items={members}
-        noItemsText="No members found"
+        noItemsHint="No members found"
         onClick={onClickMember ? (item => () => onClickMember(item)) : undefined}
         onClickAction={handleRemoveMember}
       />

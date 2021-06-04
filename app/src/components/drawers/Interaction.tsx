@@ -92,6 +92,10 @@ function InteractionDrawer({
         const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
         setLinkedItem(existingLinkedItem);
         setShowSensitive(false);
+      } else {
+        setInteraction(getBlankNote('interaction'));
+        setLinkedItem(undefined);
+        setShowSensitive(false);
       }
     },
     [items, noteMap, rawInteraction],

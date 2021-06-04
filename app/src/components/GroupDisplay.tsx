@@ -66,7 +66,7 @@ function GroupDisplay({
         renderInput={params => (
           <TextField
             {...params}
-            label="Add group groups"
+            label="Add to group"
             variant="outlined"
           />
         )}
@@ -79,7 +79,7 @@ function GroupDisplay({
         actionIcon={<DeleteIcon />}
         dividers
         items={groups}
-        noItemsText="No groups found"
+        noItemsHint="Not in any groups"
         onClick={onClickGroup ? (item => () => onClickGroup(item)) : undefined}
         onClickAction={handleRemoveGroup}
       />
