@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
+import DateFnsUtils from '@date-io/date-fns';
 import { Toolbar } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
+import { MuiPickersUtilsProvider } from '@material-ui/pickers';
 import AppBar from './components/nav/AppBar';
 import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
@@ -69,21 +71,23 @@ export default function App() {
 
   return (
     <>
-      <Router>
-        <div className={classes.root}>
-          <AppBar
-            showMenu={open}
-            onShowMenu={handleShowMenu}
-          />
+      <MuiPickersUtilsProvider utils={DateFnsUtils}>
+        <Router>
+          <div className={classes.root}>
+            <AppBar
+              showMenu={open}
+              onShowMenu={handleShowMenu}
+            />
 
-          <MainMenu open={open} />
+            <MainMenu open={open} />
 
-          <div className={classes.content}>
-            <Toolbar />
-            <PageView />
+            <div className={classes.content}>
+              <Toolbar />
+              <PageView />
+            </div>
           </div>
-        </div>
-      </Router>
+        </Router>
+      </MuiPickersUtilsProvider>
     </>
   );
 }

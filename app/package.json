@@ -10,15 +10,18 @@
     "vault:dev": "cd ../vault && docker-compose up -d"
   },
   "dependencies": {
+    "@date-io/date-fns": "1.x",
     "@loadable/component": "^5.14.1",
     "@material-ui/core": "^4.11.3",
     "@material-ui/icons": "^4.11.2",
     "@material-ui/lab": "^4.0.0-alpha.57",
+    "@material-ui/pickers": "^3.3.10",
     "@types/loadable__component": "^5.13.3",
     "@types/react": "^17.0.2",
     "@types/react-dom": "^17.0.1",
     "@types/zxcvbn": "^4.4.1",
     "axios": "^0.21.1",
+    "date-fns": "^2.22.1",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
     "react-redux": "^7.2.4",

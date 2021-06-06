@@ -20,15 +20,18 @@ import {
   TextField,
   Tooltip,
 } from '@material-ui/core';
+import {
+  KeyboardDatePicker,
+} from '@material-ui/pickers';
+import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
-import { formatDateAndTime } from '../utils';
 
-const NOTE_TYPE_SELECT_WIDTH = 128;
+const NOTE_TYPE_SELECT_WIDTH = 144;
 
 const useStyles = makeStyles(theme => ({
   filler: {
@@ -54,9 +57,10 @@ const useStyles = makeStyles(theme => ({
     },
   },
   center: {},
-  noteType: {
+  firstFieldOfRow: {
     marginRight: theme.spacing(2),
     minWidth: NOTE_TYPE_SELECT_WIDTH,
+    width: NOTE_TYPE_SELECT_WIDTH,
   },
   noteDate: {
     flexGrow: 1,
@@ -174,6 +178,20 @@ function NoteDisplay({
     () => setAscendingNotes(!ascendingNotes),
     [ascendingNotes],
   );
+  const handleDateChange = useCallback(
+    (noteId: string) => (
+      (date: MaterialUiPickersDate) => {
+        const defaultedDate = date || new Date();
+        const index = rawNotes.findIndex(n => n.id === noteId);
+        if (index > -1) {
+          const newNotes = rawNotes.slice();
+          newNotes[index] = { ...newNotes[index], date: defaultedDate.getTime() };
+          onChange(newNotes);
+        }
+      }
+    ),
+    [onChange, rawNotes],
+  );
 
   const handleAddNote = useCallback(
     () => {
@@ -247,7 +265,7 @@ function NoteDisplay({
           <React.Fragment key={note.id}>
             <Grid item xs={12}>
               <div className={classes.noteContentRow}>
-                <FormControl className={classes.noteType}>
+                <FormControl className={classes.firstFieldOfRow}>
                   <InputLabel id="note-type-selection-label">Note type</InputLabel>
                   <Select
                     id="note-type-selection"
@@ -289,6 +307,20 @@ function NoteDisplay({
               </div>
 
               <div className={`${classes.noteContentRow} ${classes.center}`}>
+                {note.type === 'interaction' ? (
+                  <KeyboardDatePicker
+                    value={new Date(note.date)}
+                    onChange={handleDateChange(note.id)}
+                    maxDate={new Date()}
+                    format="dd/MM/yyyy"
+                    InputProps={{
+                      className: classes.firstFieldOfRow,
+                    }}
+                  />
+                ) : (
+                  <div className={classes.firstFieldOfRow} />
+                )}
+
                 <FormControlLabel
                   control={(
                     <Checkbox
@@ -299,12 +331,7 @@ function NoteDisplay({
                   label="Sensitive"
                 />
 
-                <div className={classes.noteDate}>
-                  <span className={classes.subtle}>
-                    {'Created: '}
-                  </span>
-                  {formatDateAndTime(new Date(note.date))}
-                </div>
+                <div className={classes.filler} />
 
                 <div>
                   <IconButton
