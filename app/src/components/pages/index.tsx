@@ -6,7 +6,7 @@ import EventsIcon from '@material-ui/icons/Event';
 import PlacesIcon from '@material-ui/icons/Public';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import SuggestIcon from '@material-ui/icons/Update';
-import PrayerIcon from '@material-ui/icons/Phone';
+import PrayerIcon from '@material-ui/icons/PhoneInTalk';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 
@@ -103,19 +103,19 @@ export const pages: Page[] = [
     dividerBefore: true,
   },
   {
-    id: 'prayer',
-    path: '/prayer',
-    name: 'Prayer',
-    icon: <PrayerIcon />,
-    page: <PrayerPage />,
-    requiresAuth: true,
-  },
-  {
     id: 'suggestions',
     path: '/suggestions',
     name: 'Suggestions',
     icon: <SuggestIcon />,
     page: <SuggestionsPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'prayer',
+    path: '/prayer',
+    name: 'Prayer',
+    icon: <PrayerIcon />,
+    page: <PrayerPage />,
     requiresAuth: true,
   },
 ];
