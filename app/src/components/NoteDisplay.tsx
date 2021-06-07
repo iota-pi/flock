@@ -30,6 +30,7 @@ import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
+import { formatDate } from '../utils';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
 
@@ -312,13 +313,18 @@ function NoteDisplay({
                     value={new Date(note.date)}
                     onChange={handleDateChange(note.id)}
                     maxDate={new Date()}
+                    maxDateMessage="Only past interactions can be recorded in the present"
                     format="dd/MM/yyyy"
                     InputProps={{
                       className: classes.firstFieldOfRow,
                     }}
                   />
                 ) : (
-                  <div className={classes.firstFieldOfRow} />
+                  <div className={classes.firstFieldOfRow}>
+                    <span className={classes.noteDate}>
+                      Date: {formatDate(new Date(note.date))}
+                    </span>
+                  </div>
                 )}
 
                 <FormControlLabel
