@@ -23,6 +23,7 @@ import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
+import { KeyboardDatePicker } from '@material-ui/pickers';
 import {
   getBlankNote,
   getItemById,
@@ -116,6 +117,10 @@ function InteractionDrawer({
   );
   const handleChangeSensitive = useCallback(
     () => setInteraction({ ...interaction, sensitive: !interaction.sensitive }),
+    [interaction],
+  );
+  const handleDateChange = useCallback(
+    (date: Date | null) => setInteraction({ ...interaction, date: (date || new Date()).getTime() }),
     [interaction],
   );
 
@@ -235,9 +240,7 @@ function InteractionDrawer({
                   ) : null,
                 }}
               />
-            </Grid>
 
-            <Grid item xs={12}>
               <FormControlLabel
                 control={(
                   <Checkbox
@@ -246,6 +249,17 @@ function InteractionDrawer({
                   />
                 )}
                 label="Sensitive"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <KeyboardDatePicker
+                value={new Date(interaction.date)}
+                onChange={handleDateChange}
+                label="Interaction Date"
+                maxDate={new Date()}
+                maxDateMessage="Only past interactions can be recorded in the present"
+                format="dd/MM/yyyy"
               />
             </Grid>
           </Grid>
