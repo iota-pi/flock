@@ -24,7 +24,6 @@ import {
   getItemName,
   GroupItem,
   ItemNote,
-  ItemNoteType,
   PersonItem,
   updateItems,
 } from '../../state/items';
@@ -66,14 +65,6 @@ const useStyles = makeStyles(theme => ({
 export interface Props extends ItemDrawerProps {
   person: PersonItem | undefined,
 }
-
-const ALL_NOTE_TYPES = 'all';
-export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][] = [
-  [ALL_NOTE_TYPES, 'All Notes'],
-  ['general', 'General Notes'],
-  ['prayer', 'Prayer Points'],
-  ['interaction', 'Interactions'],
-];
 
 
 function PersonDrawer({

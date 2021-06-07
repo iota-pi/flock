@@ -21,7 +21,6 @@ import {
   getBlankPlace,
   getItemName,
   ItemNote,
-  ItemNoteType,
   PlaceItem,
   updateItems,
 } from '../../state/items';
@@ -61,14 +60,6 @@ const useStyles = makeStyles(theme => ({
 export interface Props extends ItemDrawerProps {
   place: PlaceItem | undefined,
 }
-
-const ALL_NOTE_TYPES = 'all';
-export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][] = [
-  [ALL_NOTE_TYPES, 'All Notes'],
-  ['general', 'General Notes'],
-  ['prayer', 'Prayer Points'],
-  ['interaction', 'Interactions'],
-];
 
 
 function PlaceDrawer({

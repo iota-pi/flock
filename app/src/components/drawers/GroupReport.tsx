@@ -10,7 +10,6 @@ import {
 } from '@material-ui/core';
 import {
   GroupItem,
-  ItemNoteType,
 } from '../../state/items';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 
@@ -44,14 +43,6 @@ const useStyles = makeStyles(theme => ({
 export interface Props extends ItemDrawerProps {
   group: GroupItem,
 }
-
-const ALL_NOTE_TYPES = 'all';
-export const noteFilterOptions: [ItemNoteType | typeof ALL_NOTE_TYPES, string][] = [
-  [ALL_NOTE_TYPES, 'All Notes'],
-  ['general', 'General Notes'],
-  ['prayer', 'Prayer Points'],
-  ['interaction', 'Interactions'],
-];
 
 
 function GroupReportDrawer({
