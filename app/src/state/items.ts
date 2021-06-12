@@ -1,6 +1,6 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import { getItemId } from '../utils';
+import { Frequency, getItemId } from '../utils';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'event' | 'place';
@@ -16,10 +16,13 @@ export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
 }
 
 export interface BaseItem {
-  id: ItemId,
-  type: ItemType,
   description: string,
+  id: ItemId,
+  interactionFrequency: Frequency,
+  lastPrayedFor: number | null,
   notes: ItemNote[],
+  prayerFrequency: Frequency,
+  type: ItemType,
 }
 export interface PersonItem extends BaseItem {
   type: 'person',
@@ -61,7 +64,10 @@ export interface SetItemsAction extends Action {
 }
 
 export function setItems(items: Item[]): SetItemsAction {
-  return { type: SET_ITEMS, items };
+  return {
+    type: SET_ITEMS,
+    items: items.map(item => supplyMissingAttributes(item)),
+  };
 }
 
 export function updateItems(items: Item[]): SetItemsAction {
@@ -123,7 +129,10 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
   return {
     description: '',
     id: id || getItemId(),
+    interactionFrequency: 'monthly',
+    lastPrayedFor: null,
     notes: [],
+    prayerFrequency: 'monthly',
     type: 'person',
   };
 }
@@ -226,4 +235,11 @@ export function getNotes<T extends ItemNoteType = ItemNoteType>(
     return allNotes.filter(note => note.type === filterType) as ItemNote<T>[];
   }
   return allNotes as ItemNote<T>[];
+}
+
+export function supplyMissingAttributes(item: Item) {
+  return {
+    ...getBlankBaseItem(),
+    ...item,
+  };
 }
