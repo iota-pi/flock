@@ -36,6 +36,10 @@ export function formatDateAndTime(date: Date) {
   return `${formatDate(date)} ${formatTime(date)}`;
 }
 
+export function isSameDay(d1: Date, d2: Date) {
+  return formatDate(d1) === formatDate(d2);
+}
+
 export function frequencyToDays(frequency: Frequency) {
   return FREQUENCIES_TO_DAYS[frequency];
 }

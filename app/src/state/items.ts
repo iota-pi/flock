@@ -19,7 +19,7 @@ export interface BaseItem {
   description: string,
   id: ItemId,
   interactionFrequency: Frequency,
-  lastPrayedFor: number | null,
+  prayedFor: number[],
   notes: ItemNote[],
   prayerFrequency: Frequency,
   type: ItemType,
@@ -130,7 +130,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     description: '',
     id: id || getItemId(),
     interactionFrequency: 'monthly',
-    lastPrayedFor: null,
+    prayedFor: [],
     notes: [],
     prayerFrequency: 'monthly',
     type: 'person',
@@ -196,13 +196,17 @@ export function compareNames(
   return +(a.name > b.name) - +(a.name < b.name);
 }
 
+export function compareIds(a: Item, b: Item) {
+  return +(a.id > b.id) - +(a.id < b.id);
+}
+
 export function compareItems(a: Item, b: Item) {
   if (a.type !== b.type) {
     return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type);
   } else if (a.type === 'person' || b.type === 'person') {
     return comparePeopleNames(a as PersonItem, b as PersonItem);
   }
-  return compareNames(a, b);
+  return compareNames(a, b) || compareIds(a, b);
 }
 
 export function compareNotes(a: ItemNote, b: ItemNote): number {

@@ -1,12 +1,22 @@
-import { frequencyToDays, frequencyToMilliseconds } from '.';
-import { Item } from '../state/items';
+import { frequencyToDays, frequencyToMilliseconds, isSameDay } from '.';
+import { compareItems, Item } from '../state/items';
+
+export function getLastPrayedFor(item: Item, excludeToday = false) {
+  const prayedFor = (
+    excludeToday ? item.prayedFor.filter(d => !isSameDay(new Date(d), new Date())) : item.prayedFor
+  );
+  return prayedFor[prayedFor.length - 1] || 0;
+}
 
 export function getPrayerSchedule(items: Item[]) {
   const withNextSchedule: [Item, number][] = items.map(
-    item => [item, (item.lastPrayedFor || 0) + frequencyToMilliseconds(item.prayerFrequency)],
+    item => [
+      item,
+      getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
+    ],
   );
   withNextSchedule.sort(
-    (a, b) => a[1] - b[1],
+    (a, b) => (a[1] - b[1]) || compareItems(a[0], b[0]),
   );
   const itemsBySchedule = withNextSchedule.map(x => x[0]);
   return itemsBySchedule;
