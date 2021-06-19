@@ -56,7 +56,7 @@ function GeneralPage() {
       <Fab
         onClick={handleClickAdd}
         color="secondary"
-        aria-label="Add General Item"
+        aria-label="Add Prayer Item"
         className={classes.fab}
       >
         <AddIcon />

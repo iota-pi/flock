@@ -77,7 +77,7 @@ export const pages: Page[] = [
   {
     id: 'general',
     path: '/general',
-    name: 'General',
+    name: 'Prayer Items',
     icon: <EventsIcon />,
     page: <EventsPage />,
     requiresAuth: true,
@@ -102,7 +102,7 @@ export const pages: Page[] = [
   {
     id: 'prayer',
     path: '/prayer',
-    name: 'Prayer',
+    name: 'Prayer Schedule',
     icon: <PrayerIcon />,
     page: <PrayerPage />,
     requiresAuth: true,
