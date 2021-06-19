@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, Grid, Typography } from '@material-ui/core';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
@@ -7,6 +7,7 @@ import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../..
 import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
+import AnyItemDrawer from '../drawers/AnyItemDrawer';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -20,7 +21,6 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'flex-end',
-
   },
 }));
 
@@ -30,6 +30,9 @@ function PrayerPage() {
   const dispatch = useAppDispatch();
   const items = useItems();
   const vault = useVault();
+
+  const [currentItem, setCurrentItem] = useState<Item>();
+  const [showDrawer, setShowDrawer] = useState(false);
 
   const prayedForToday = useMemo(
     () => (
@@ -65,6 +68,15 @@ function PrayerPage() {
     [dispatch, isPrayedForToday, vault],
   );
 
+  const handleClick = useCallback(
+    (item: Item) => () => {
+      setCurrentItem(item);
+      setShowDrawer(true);
+    },
+    [],
+  );
+  const handleClose = useCallback(() => setShowDrawer(false), []);
+
   return (
     <Container maxWidth="xl" className={classes.root}>
       <Grid container spacing={2}>
@@ -89,11 +101,18 @@ function PrayerPage() {
             checkboxes
             getChecked={isPrayedForToday}
             items={prayerSchedule}
+            onClick={handleClick}
             onCheck={handlePrayedFor}
             noItemsText="No items in prayer schedule"
           />
         </Grid>
       </Grid>
+
+      <AnyItemDrawer
+        item={currentItem}
+        open={showDrawer}
+        onClose={handleClose}
+      />
     </Container>
   );
 }

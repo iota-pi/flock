@@ -7,21 +7,15 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Container,
-  Divider,
   fade,
   Grid,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
 import {
   compareNames,
   deleteItems,
   getBlankPerson,
-  getItemName,
   GroupItem,
   ItemNote,
   PersonItem,
@@ -29,11 +23,11 @@ import {
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
-import ConfirmationDialog from '../ConfirmationDialog';
 import { useItems, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
 import GroupDisplay from '../GroupDisplay';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -63,14 +57,14 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  person: PersonItem | undefined,
+  item: PersonItem | undefined,
 }
 
 
 function PersonDrawer({
   onClose,
   open,
-  person,
+  item: person,
   stacked,
 }: Props) {
   const classes = useStyles();
@@ -79,7 +73,6 @@ function PersonDrawer({
   const groups = useItems<GroupItem>('group');
 
   const [localPerson, setLocalPerson] = useState(getBlankPerson());
-  const [showConfirm, setShowConfirm] = useState(false);
   const [showGroup, setShowGroup] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<GroupItem>();
 
@@ -163,28 +156,22 @@ function PersonDrawer({
     },
     [dispatch, localPerson, onClose, valid, vault],
   );
-  const handleDelete = useCallback(
+  const handleCancel = useCallback(
     () => {
-      if (person) {
-        setShowConfirm(true);
-      } else {
-        setLocalPerson(getBlankPerson());
-        onClose();
-      }
+      setLocalPerson(getBlankPerson());
+      onClose();
     },
-    [onClose, person],
+    [onClose],
   );
-  const handleConfirmedDelete = useCallback(
+  const handleDelete = useCallback(
     () => {
       vault?.delete(localPerson.id);
       dispatch(deleteItems([localPerson]));
-      setShowConfirm(false);
       setLocalPerson(getBlankPerson());
       onClose();
     },
     [dispatch, onClose, localPerson, vault],
   );
-  const handleCancel = useCallback(() => setShowConfirm(false), []);
   const handleCloseGroupDrawer = useCallback(() => setShowGroup(false), []);
 
   return (
@@ -263,61 +250,21 @@ function PersonDrawer({
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                onClick={handleDelete}
-                variant="outlined"
-                fullWidth
-                className={person ? classes.danger : undefined}
-                startIcon={person ? <DeleteIcon /> : undefined}
-              >
-                {person ? 'Delete' : 'Cancel'}
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                color="primary"
-                onClick={handleSave}
-                variant="contained"
-                fullWidth
-                disabled={!valid}
-                startIcon={<SaveIcon />}
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            canSave={valid}
+            item={person}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onSave={handleSave}
+          />
         </Container>
       </BaseDrawer>
-
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={handleConfirmedDelete}
-        onCancel={handleCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete
-          {' '}
-          <span className={classes.emphasis}>{getItemName(localPerson)}</span>
-          , and all associated notes?
-        </Typography>
-
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
 
       {showGroup && (
         <GroupDrawer
           onClose={handleCloseGroupDrawer}
           open={showGroup}
-          group={currentGroup}
+          item={currentGroup}
           stacked
         />
       )}

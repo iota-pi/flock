@@ -65,7 +65,7 @@ function GroupsPage() {
       <GroupDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        group={currentGroup}
+        item={currentGroup}
       />
     </div>
   );

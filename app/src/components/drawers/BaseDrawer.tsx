@@ -34,6 +34,8 @@ interface Props {
   onClose: () => void,
   open: boolean,
   stacked?: boolean,
+  showCancelDelete?: boolean,
+  onNext?: () => void,
 }
 export type { Props as ItemDrawerProps };
 

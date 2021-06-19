@@ -6,29 +6,23 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Container,
-  Divider,
   fade,
   Grid,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
 import {
   deleteItems,
   getBlankPlace,
-  getItemName,
   ItemNote,
   PlaceItem,
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
-import ConfirmationDialog from '../ConfirmationDialog';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -58,12 +52,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  place: PlaceItem | undefined,
+  item: PlaceItem | undefined,
 }
 
 
 function PlaceDrawer({
-  place,
+  item: place,
   onClose,
   open,
   stacked,
@@ -73,7 +67,6 @@ function PlaceDrawer({
   const vault = useVault();
 
   const [localPlace, setLocalPlace] = useState(getBlankPlace());
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const valid = !!localPlace.name;
 
@@ -113,28 +106,22 @@ function PlaceDrawer({
     },
     [dispatch, localPlace, onClose, valid, vault],
   );
-  const handleDelete = useCallback(
+  const handleCancel = useCallback(
     () => {
-      if (place) {
-        setShowConfirm(true);
-      } else {
-        setLocalPlace(getBlankPlace());
-        onClose();
-      }
+      setLocalPlace(getBlankPlace());
+      onClose();
     },
-    [onClose, place],
+    [onClose],
   );
-  const handleConfirmDelete = useCallback(
+  const handleDelete = useCallback(
     () => {
       vault?.delete(localPlace.id);
       dispatch(deleteItems([localPlace]));
-      setShowConfirm(false);
       setLocalPlace(getBlankPlace());
       onClose();
     },
     [dispatch, onClose, localPlace, vault],
   );
-  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
   return (
     <>
@@ -175,55 +162,15 @@ function PlaceDrawer({
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                onClick={handleDelete}
-                variant="outlined"
-                fullWidth
-                className={place ? classes.danger : undefined}
-                startIcon={place ? <DeleteIcon /> : undefined}
-              >
-                {place ? 'Delete' : 'Cancel'}
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                color="primary"
-                onClick={handleSave}
-                variant="contained"
-                fullWidth
-                disabled={!valid}
-                startIcon={<SaveIcon />}
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            canSave={valid}
+            item={place}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onSave={handleSave}
+          />
         </Container>
       </BaseDrawer>
-
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete
-          {' '}
-          <span className={classes.emphasis}>{getItemName(localPlace)}</span>
-          , and all associated notes?
-        </Typography>
-
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
     </>
   );
 }

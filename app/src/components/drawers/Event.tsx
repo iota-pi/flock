@@ -6,29 +6,23 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Container,
-  Divider,
   fade,
   Grid,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
 import {
   deleteItems,
   EventItem,
   getBlankEvent,
-  getItemName,
   ItemNote,
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
-import ConfirmationDialog from '../ConfirmationDialog';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -58,12 +52,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  event: EventItem | undefined,
+  item: EventItem | undefined,
 }
 
 
 function EventDrawer({
-  event,
+  item: event,
   onClose,
   open,
   stacked,
@@ -73,7 +67,6 @@ function EventDrawer({
   const vault = useVault();
 
   const [localEvent, setLocalEvent] = useState(getBlankEvent());
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const valid = !!localEvent.name;
 
@@ -113,28 +106,22 @@ function EventDrawer({
     },
     [dispatch, localEvent, onClose, valid, vault],
   );
-  const handleDelete = useCallback(
+  const handleCancel = useCallback(
     () => {
-      if (event) {
-        setShowConfirm(true);
-      } else {
-        setLocalEvent(getBlankEvent());
-        onClose();
-      }
+      setLocalEvent(getBlankEvent());
+      onClose();
     },
-    [onClose, event],
+    [onClose],
   );
-  const handleConfirmDelete = useCallback(
+  const handleDelete = useCallback(
     () => {
       vault?.delete(localEvent.id);
       dispatch(deleteItems([localEvent]));
-      setShowConfirm(false);
       setLocalEvent(getBlankEvent());
       onClose();
     },
     [dispatch, onClose, localEvent, vault],
   );
-  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
   return (
     <>
@@ -175,55 +162,15 @@ function EventDrawer({
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                onClick={handleDelete}
-                variant="outlined"
-                fullWidth
-                className={event ? classes.danger : undefined}
-                startIcon={event ? <DeleteIcon /> : undefined}
-              >
-                {event ? 'Delete' : 'Cancel'}
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                color="primary"
-                onClick={handleSave}
-                variant="contained"
-                fullWidth
-                disabled={!valid}
-                startIcon={<SaveIcon />}
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            canSave={valid}
+            item={event}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onSave={handleSave}
+          />
         </Container>
       </BaseDrawer>
-
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete
-          {' '}
-          <span className={classes.emphasis}>{getItemName(localEvent)}</span>
-          , and all associated notes?
-        </Typography>
-
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
     </>
   );
 }

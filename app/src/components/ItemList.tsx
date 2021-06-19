@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback } from 'react';
+import React, { MouseEvent, ReactNode, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Checkbox,
@@ -81,6 +81,16 @@ function ItemList<T extends Item>({
     [onClick, onClickAction],
   );
 
+  const handleCheck = useCallback(
+    (item: T) => (event: MouseEvent) => {
+      if (onCheck) {
+        event.stopPropagation();
+        onCheck(item)();
+      }
+    },
+    [onCheck],
+  );
+
   return (
     <List className={className}>
       {items.map(item => (
@@ -102,7 +112,7 @@ function ItemList<T extends Item>({
                   edge="start"
                   checked={getChecked(item)}
                   tabIndex={-1}
-                  onClick={onCheck(item)}
+                  onClick={handleCheck(item)}
                   inputProps={{ 'aria-labelledby': `${item.id}-text` }}
                 />
               </ListItemIcon>

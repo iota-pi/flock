@@ -41,12 +41,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  group: GroupItem,
+  item: GroupItem,
 }
 
 
 function GroupReportDrawer({
-  group,
+  item: group,
   onClose,
   open,
   stacked,

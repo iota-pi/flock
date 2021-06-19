@@ -65,7 +65,7 @@ function PlacePage() {
       <PlaceDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        place={currentPlace}
+        item={currentPlace}
       />
     </div>
   );

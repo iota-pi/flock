@@ -65,7 +65,7 @@ function EventsPage() {
       <EventDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        event={currentEvent}
+        item={currentEvent}
       />
     </div>
   );

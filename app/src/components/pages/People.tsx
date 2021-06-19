@@ -65,7 +65,7 @@ function PeoplePage() {
       <PersonDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        person={currentPerson}
+        item={currentPerson}
       />
     </div>
   );

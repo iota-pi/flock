@@ -6,21 +6,14 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Container,
-  Divider,
   fade,
   Grid,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
-import ReportIcon from '@material-ui/icons/Description';
 import {
   deleteItems,
   getBlankGroup,
-  getItemName,
   GroupItem,
   ItemNote,
   PersonItem,
@@ -28,12 +21,12 @@ import {
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
-import ConfirmationDialog from '../ConfirmationDialog';
 import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupReportDrawer from './GroupReport';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -63,12 +56,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  group: GroupItem | undefined,
+  item: GroupItem | undefined,
 }
 
 
 function GroupDrawer({
-  group,
+  item: group,
   onClose,
   open,
   stacked,
@@ -79,7 +72,6 @@ function GroupDrawer({
 
   const [localGroup, setLocalGroup] = useState(getBlankGroup());
   const [showReport, setShowReport] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [showPerson, setShowPerson] = useState(false);
   const [currentPerson, setCurrentPerson] = useState<PersonItem>();
 
@@ -133,28 +125,22 @@ function GroupDrawer({
     },
     [dispatch, localGroup, onClose, valid, vault],
   );
-  const handleDelete = useCallback(
+  const handleCancel = useCallback(
     () => {
-      if (group) {
-        setShowConfirm(true);
-      } else {
-        setLocalGroup(getBlankGroup());
-        onClose();
-      }
+      setLocalGroup(getBlankGroup());
+      onClose();
     },
-    [onClose, group],
+    [onClose],
   );
-  const handleConfirmDelete = useCallback(
+  const handleDelete = useCallback(
     () => {
       vault?.delete(localGroup.id);
       dispatch(deleteItems([localGroup]));
-      setShowConfirm(false);
       setLocalGroup(getBlankGroup());
       onClose();
     },
     [dispatch, onClose, localGroup, vault],
   );
-  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
   const handleCloseReport = useCallback(() => setShowReport(false), []);
   const handleClosePersonDrawer = useCallback(() => setShowPerson(false), []);
 
@@ -207,79 +193,29 @@ function GroupDrawer({
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Button
-                onClick={handleReport}
-                variant="outlined"
-                fullWidth
-                startIcon={group ? <ReportIcon /> : undefined}
-              >
-                Group Report
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                onClick={handleDelete}
-                variant="outlined"
-                fullWidth
-                className={group ? classes.danger : undefined}
-                startIcon={group ? <DeleteIcon /> : undefined}
-              >
-                {group ? 'Delete' : 'Cancel'}
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                color="primary"
-                onClick={handleSave}
-                variant="contained"
-                fullWidth
-                disabled={!valid}
-                startIcon={<SaveIcon />}
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            canSave={valid}
+            item={group}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onReport={handleReport}
+            onSave={handleSave}
+          />
         </Container>
       </BaseDrawer>
 
       <GroupReportDrawer
-        group={localGroup}
+        item={localGroup}
         onClose={handleCloseReport}
         open={showReport}
         stacked
       />
 
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete
-          {' '}
-          <span className={classes.emphasis}>{getItemName(localGroup)}</span>
-          , and all associated notes?
-        </Typography>
-
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
-
       {showPerson && (
         <PersonDrawer
           onClose={handleClosePersonDrawer}
           open={showPerson}
-          person={currentPerson}
+          item={currentPerson}
           stacked
         />
       )}

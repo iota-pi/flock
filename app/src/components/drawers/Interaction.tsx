@@ -7,20 +7,15 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Checkbox,
   Container,
-  Divider,
   fade,
   FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
   TextField,
-  Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { KeyboardDatePicker } from '@material-ui/pickers';
@@ -34,8 +29,8 @@ import {
 import { useItems, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
-import ConfirmationDialog from '../ConfirmationDialog';
 import { useAppDispatch } from '../../store';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -84,7 +79,6 @@ function InteractionDrawer({
   const [interaction, setInteraction] = useState(getBlankNote('interaction'));
   const [linkedItem, setLinkedItem] = useState<Item>();
   const [showSensitive, setShowSensitive] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(
     () => {
@@ -164,18 +158,14 @@ function InteractionDrawer({
     },
     [dispatch, interaction, items, linkedItem, noteMap, onClose, vault],
   );
-  const handleDelete = useCallback(
+  const handleCancel = useCallback(
     () => {
-      if (rawInteraction) {
-        setShowConfirm(true);
-      } else {
-        setInteraction(getBlankNote('interaction'));
-        onClose();
-      }
+      setInteraction(getBlankNote('interaction'));
+      onClose();
     },
-    [onClose, rawInteraction],
+    [onClose],
   );
-  const handleConfirmDelete = useCallback(
+  const handleDelete = useCallback(
     () => {
       if (rawInteraction) {
         const oldItem = getItemById(items, noteMap[rawInteraction.id]);
@@ -188,13 +178,11 @@ function InteractionDrawer({
           dispatch(updateItems([newItem]));
         }
       }
-      setShowConfirm(false);
       setInteraction(getBlankNote('interaction'));
       onClose();
     },
     [dispatch, items, noteMap, onClose, rawInteraction, vault],
   );
-  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
   const isVisible = useMemo(
     () => !interaction.sensitive || showSensitive,
@@ -266,52 +254,15 @@ function InteractionDrawer({
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                onClick={handleDelete}
-                variant="outlined"
-                fullWidth
-                className={rawInteraction ? classes.danger : undefined}
-                startIcon={rawInteraction ? <DeleteIcon /> : undefined}
-              >
-                {rawInteraction ? 'Delete' : 'Cancel'}
-              </Button>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Button
-                color="primary"
-                onClick={handleSave}
-                variant="contained"
-                fullWidth
-                disabled={!interaction.content}
-                startIcon={<SaveIcon />}
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            canSave={!!interaction.content}
+            item={rawInteraction}
+            onCancel={handleCancel}
+            onDelete={handleDelete}
+            onSave={handleSave}
+          />
         </Container>
       </BaseDrawer>
-
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete this interaction?
-        </Typography>
-
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
     </>
   );
 }
