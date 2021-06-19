@@ -14,6 +14,7 @@ import ItemList from './ItemList';
 const filterFunc = createFilterOptions<GroupItem>({ trim: true });
 
 export interface Props {
+  editable?: boolean,
   groups: string[],
   onAdd: (group: GroupItem) => void,
   onClickGroup?: (group: GroupItem) => void,
@@ -22,6 +23,7 @@ export interface Props {
 
 
 function GroupDisplay({
+  editable = true,
   groups: groupIds,
   onAdd,
   onClickGroup,
@@ -54,34 +56,36 @@ function GroupDisplay({
 
   return (
     <>
-      <Autocomplete
-        filterOptions={(opts, state) => (
-          filterFunc(opts, state).filter(person => !groupIds.includes(person.id))
-        )}
-        getOptionLabel={item => getItemName(item)}
-        multiple
-        noOptionsText="No people found"
-        onChange={handleChangeGroups}
-        options={options}
-        renderInput={params => (
-          <TextField
-            {...params}
-            label="Add to group"
-            variant="outlined"
-          />
-        )}
-        renderOption={item => getItemName(item)}
-        renderTags={() => null}
-        value={[] as GroupItem[]}
-      />
+      {editable && (
+        <Autocomplete
+          filterOptions={(opts, state) => (
+            filterFunc(opts, state).filter(person => !groupIds.includes(person.id))
+          )}
+          getOptionLabel={item => getItemName(item)}
+          multiple
+          noOptionsText="No people found"
+          onChange={handleChangeGroups}
+          options={options}
+          renderInput={params => (
+            <TextField
+              {...params}
+              label="Add to group"
+              variant="outlined"
+            />
+          )}
+          renderOption={item => getItemName(item)}
+          renderTags={() => null}
+          value={[] as GroupItem[]}
+        />
+      )}
 
       <ItemList
-        actionIcon={<DeleteIcon />}
+        actionIcon={editable ? <DeleteIcon /> : <></>}
         dividers
         items={groups}
         noItemsHint="Not in any groups"
         onClick={onClickGroup ? (item => () => onClickGroup(item)) : undefined}
-        onClickAction={handleRemoveGroup}
+        onClickAction={editable ? handleRemoveGroup : undefined}
       />
     </>
   );

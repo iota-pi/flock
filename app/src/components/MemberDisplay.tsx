@@ -9,12 +9,14 @@ import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
 
 export interface Props {
+  editable?: boolean,
   members: string[],
   onChange: (members: string[]) => void,
   onClickMember?: (member: PersonItem) => void,
 }
 
 function MemberDisplay({
+  editable = true,
   members: memberIds,
   onChange,
   onClickMember,
@@ -45,21 +47,23 @@ function MemberDisplay({
 
   return (
     <>
-      <ItemSearch
-        selectedIds={memberIds}
-        items={people}
-        label="Add group members"
-        onSelect={handleChangeMembers}
-        showSelected={false}
-      />
+      {editable && (
+        <ItemSearch
+          selectedIds={memberIds}
+          items={people}
+          label="Add group members"
+          onSelect={handleChangeMembers}
+          showSelected={false}
+        />
+      )}
 
       <ItemList
-        actionIcon={<DeleteIcon />}
+        actionIcon={editable ? <DeleteIcon /> : <></>}
         dividers
         items={members}
-        noItemsHint="No members found"
+        noItemsHint="No group members"
         onClick={onClickMember ? (item => () => onClickMember(item)) : undefined}
-        onClickAction={handleRemoveMember}
+        onClickAction={editable ? handleRemoveMember : undefined}
       />
     </>
   );
