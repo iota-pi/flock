@@ -2,9 +2,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { compareNames, EventItem } from '../../state/items';
+import { compareNames, GeneralItem } from '../../state/items';
 import ItemList from '../ItemList';
-import EventDrawer from '../drawers/Event';
+import GeneralDrawer from '../drawers/General';
 import { useItems } from '../../state/selectors';
 
 const useStyles = makeStyles(theme => ({
@@ -20,25 +20,25 @@ const useStyles = makeStyles(theme => ({
 }));
 
 
-function EventsPage() {
+function GeneralPage() {
   const classes = useStyles();
-  const rawEvents = useItems<EventItem>('event');
-  const events = useMemo(() => rawEvents.sort(compareNames), [rawEvents]);
+  const rawItems = useItems<GeneralItem>('general');
+  const items = useMemo(() => rawItems.sort(compareNames), [rawItems]);
 
   const [showDetails, setShowDetails] = useState(false);
-  const [currentEvent, setCurrentEvent] = useState<EventItem>();
+  const [currentItem, setCurrentItem] = useState<GeneralItem>();
 
-  const handleClickEvent = useCallback(
-    (event: EventItem) => () => {
+  const handleClickItem = useCallback(
+    (item: GeneralItem) => () => {
       setShowDetails(true);
-      setCurrentEvent(event);
+      setCurrentItem(item);
     },
     [],
   );
   const handleClickAdd = useCallback(
     () => {
       setShowDetails(true);
-      setCurrentEvent(undefined);
+      setCurrentItem(undefined);
     },
     [],
   );
@@ -47,28 +47,28 @@ function EventsPage() {
   return (
     <div className={classes.root}>
       <ItemList
-        items={events}
+        items={items}
         noItemsHint="Click the plus button to add one!"
-        noItemsText="No events found"
-        onClick={handleClickEvent}
+        noItemsText="No items found"
+        onClick={handleClickItem}
       />
 
       <Fab
         onClick={handleClickAdd}
         color="secondary"
-        aria-label="Add Event"
+        aria-label="Add General Item"
         className={classes.fab}
       >
         <AddIcon />
       </Fab>
 
-      <EventDrawer
+      <GeneralDrawer
         open={showDetails}
         onClose={handleCloseDetails}
-        item={currentEvent}
+        item={currentItem}
       />
     </div>
   );
 }
 
-export default EventsPage;
+export default GeneralPage;

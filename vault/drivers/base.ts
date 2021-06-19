@@ -1,4 +1,4 @@
-export type VaultItemType = 'person' | 'group';
+export type VaultItemType = 'person' | 'group' | 'general';
 
 export interface VaultKey {
   account: string,
@@ -30,7 +30,8 @@ export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
 export interface VaultItem extends VaultKey, VaultData {}
 
 export function asItemType(type: string): VaultItemType {
-  if (['person', 'group', 'event'].includes(type)) {
+  const allowedTypes: VaultItemType[] = ['person', 'group', 'general'];
+  if (allowedTypes.includes(type as VaultItemType)) {
     return type as VaultItemType;
   }
   throw new Error(`Item type ${type} is not valid`);

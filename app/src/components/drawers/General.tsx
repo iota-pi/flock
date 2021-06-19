@@ -12,9 +12,9 @@ import {
 } from '@material-ui/core';
 import {
   deleteItems,
-  getBlankPlace,
+  GeneralItem,
+  getBlankGeneral,
   ItemNote,
-  PlaceItem,
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
@@ -40,12 +40,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  item: PlaceItem | undefined,
+  item: GeneralItem | undefined,
 }
 
 
-function PlaceDrawer({
-  item: place,
+function GeneralDrawer({
+  item,
   onClose,
   open,
   stacked,
@@ -54,61 +54,61 @@ function PlaceDrawer({
   const dispatch = useAppDispatch();
   const vault = useVault();
 
-  const [localPlace, setLocalPlace] = useState(getBlankPlace());
+  const [localItem, setLocalItem] = useState(getBlankGeneral());
 
-  const valid = !!localPlace.name;
+  const valid = !!localItem.name;
 
   useEffect(
     () => {
-      if (place) {
-        setLocalPlace({ ...place });
+      if (item) {
+        setLocalItem({ ...item });
       } else {
-        setLocalPlace(getBlankPlace());
+        setLocalItem(getBlankGeneral());
       }
     },
-    [place],
+    [item],
   );
 
   const handleChange = useCallback(
-    (key: keyof PlaceItem) => (
+    (key: keyof GeneralItem) => (
       (e: ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
-        setLocalPlace({ ...localPlace, [key]: value });
+        setLocalItem({ ...localItem, [key]: value });
       }
     ),
-    [localPlace],
+    [localItem],
   );
   const handleChangeNotes = useCallback(
-    (newNotes: ItemNote[]) => setLocalPlace({ ...localPlace, notes: newNotes }),
-    [localPlace],
+    (newNotes: ItemNote[]) => setLocalItem({ ...localItem, notes: newNotes }),
+    [localItem],
   );
   const handleSave = useCallback(
     async () => {
-      localPlace.name = localPlace.name.trim();
+      localItem.name = localItem.name.trim();
       if (valid) {
-        vault?.store(localPlace);
-        dispatch(updateItems([localPlace]));
-        setLocalPlace(getBlankPlace());
+        vault?.store(localItem);
+        dispatch(updateItems([localItem]));
+        setLocalItem(getBlankGeneral());
       }
       onClose();
     },
-    [dispatch, localPlace, onClose, valid, vault],
+    [dispatch, localItem, onClose, valid, vault],
   );
   const handleCancel = useCallback(
     () => {
-      setLocalPlace(getBlankPlace());
+      setLocalItem(getBlankGeneral());
       onClose();
     },
     [onClose],
   );
   const handleDelete = useCallback(
     () => {
-      vault?.delete(localPlace.id);
-      dispatch(deleteItems([localPlace]));
-      setLocalPlace(getBlankPlace());
+      vault?.delete(localItem.id);
+      dispatch(deleteItems([localItem]));
+      setLocalItem(getBlankGeneral());
       onClose();
     },
-    [dispatch, onClose, localPlace, vault],
+    [dispatch, onClose, localItem, vault],
   );
 
   return (
@@ -122,9 +122,9 @@ function PlaceDrawer({
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
-                value={localPlace.name}
+                value={localItem.name}
                 onChange={handleChange('name')}
-                label="Place Name"
+                label="Item Name"
                 required
                 fullWidth
               />
@@ -132,7 +132,7 @@ function PlaceDrawer({
 
             <Grid item xs={12}>
               <TextField
-                value={localPlace.description}
+                value={localItem.description}
                 onChange={handleChange('description')}
                 label="Description"
                 multiline
@@ -142,7 +142,7 @@ function PlaceDrawer({
 
             <Grid item xs={12}>
               <NoteDisplay
-                notes={localPlace.notes}
+                notes={localItem.notes}
                 onChange={handleChangeNotes}
               />
             </Grid>
@@ -152,7 +152,7 @@ function PlaceDrawer({
 
           <DrawerActions
             canSave={valid}
-            item={place}
+            item={item}
             onCancel={handleCancel}
             onDelete={handleDelete}
             onSave={handleSave}
@@ -163,4 +163,4 @@ function PlaceDrawer({
   );
 }
 
-export default PlaceDrawer;
+export default GeneralDrawer;

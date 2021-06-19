@@ -3,7 +3,6 @@ import { Switch, Route } from 'react-router-dom';
 import PersonIcon from '@material-ui/icons/Person';
 import GroupsIcon from '@material-ui/icons/GroupWork';
 import EventsIcon from '@material-ui/icons/Event';
-import PlacesIcon from '@material-ui/icons/Public';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import SuggestIcon from '@material-ui/icons/Update';
 import PrayerIcon from '@material-ui/icons/PhoneInTalk';
@@ -12,8 +11,7 @@ import { useVault } from '../../state/selectors';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
-const EventsPage = loadable(() => import('./Events'));
-const PlacesPage = loadable(() => import('./Places'));
+const EventsPage = loadable(() => import('./General'));
 const InteractionsPage = loadable(() => import('./Interactions'));
 const SuggestionsPage = loadable(() => import('./Suggestions'));
 const PrayerPage = loadable(() => import('./Prayer'));
@@ -25,8 +23,7 @@ export type PageId = (
   'signup' |
   'people' |
   'groups' |
-  'events' |
-  'places' |
+  'general' |
   'interactions' |
   'suggestions' |
   'prayer'
@@ -78,19 +75,11 @@ export const pages: Page[] = [
     requiresAuth: true,
   },
   {
-    id: 'events',
-    path: '/events',
-    name: 'Events',
+    id: 'general',
+    path: '/general',
+    name: 'General',
     icon: <EventsIcon />,
     page: <EventsPage />,
-    requiresAuth: true,
-  },
-  {
-    id: 'places',
-    path: '/places',
-    name: 'Places',
-    icon: <PlacesIcon />,
-    page: <PlacesPage />,
     requiresAuth: true,
   },
   {

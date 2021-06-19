@@ -3,9 +3,9 @@ import { AllActions } from '.';
 import { Frequency, getItemId } from '../utils';
 
 export type ItemId = string;
-export type ItemType = 'person' | 'group' | 'event' | 'place';
+export type ItemType = 'person' | 'group' | 'general';
 export type ItemNoteType = 'interaction' | 'prayer' | 'general';
-export const ITEM_TYPES: ItemType[] = ['person', 'group', 'event', 'place'];
+export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
 
 export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
   id: string,
@@ -36,15 +36,11 @@ export interface GroupItem extends BaseItem {
   name: string,
   members: ItemId[],
 }
-export interface EventItem extends BaseItem {
-  type: 'event',
+export interface GeneralItem extends BaseItem {
+  type: 'general',
   name: string,
 }
-export interface PlaceItem extends BaseItem {
-  type: 'place',
-  name: string,
-}
-export type Item = PersonItem | GroupItem | EventItem | PlaceItem;
+export type Item = PersonItem | GroupItem | GeneralItem;
 
 export const initialItems: Item[] = [];
 export const initialNoteToItemMap: { [note: string]: ItemId } = {};
@@ -157,18 +153,10 @@ export function getBlankGroup(id?: ItemId): GroupItem {
   };
 }
 
-export function getBlankEvent(id?: ItemId): EventItem {
+export function getBlankGeneral(id?: ItemId): GeneralItem {
   return {
     ...getBlankBaseItem(id),
-    type: 'event',
-    name: '',
-  };
-}
-
-export function getBlankPlace(id?: ItemId): PlaceItem {
-  return {
-    ...getBlankBaseItem(id),
-    type: 'place',
+    type: 'general',
     name: '',
   };
 }
@@ -190,8 +178,8 @@ export function comparePeopleNames(a: PersonItem, b: PersonItem) {
 }
 
 export function compareNames(
-  a: GroupItem | EventItem | PlaceItem,
-  b: GroupItem | EventItem | PlaceItem,
+  a: GroupItem | GeneralItem,
+  b: GroupItem | GeneralItem,
 ) {
   return +(a.name > b.name) - +(a.name < b.name);
 }
