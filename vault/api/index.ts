@@ -11,7 +11,7 @@ async function createServer() {
   server.register(routes);
   server.register(cors, {
     origin: [/^https?:\/\/localhost(:[0-9]+)?$/],
-    methods: ['GET', 'PUT', 'POST', 'DELETE'],
+    methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
   });
   return server;
 }

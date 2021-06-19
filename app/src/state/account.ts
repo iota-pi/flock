@@ -1,5 +1,8 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
+import VaultAPI from '../crypto/api';
+import Vault from '../crypto/Vault';
+import { AppDispatch } from '../store';
 
 export type AccountId = string;
 export type AccountMetadata = Record<string, any>;
@@ -48,4 +51,34 @@ export function metadataReducer(
   }
 
   return state;
+}
+
+export function updateMetadata(
+  {
+    account,
+    dispatch,
+    metadata,
+    vault,
+  }: {
+    account: string,
+    dispatch: AppDispatch,
+    metadata: AccountMetadata,
+    vault: Vault | null,
+  },
+) {
+  const api = new VaultAPI();
+  dispatch(
+    setAccount({
+      account,
+      metadata,
+    }),
+  );
+  if (vault) {
+    return api.setMetadata({
+      account,
+      metadata,
+      authToken: vault.authToken,
+    });
+  }
+  return undefined;
 }

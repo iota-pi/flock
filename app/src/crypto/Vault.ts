@@ -2,6 +2,7 @@ import VaultAPI from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
 import { Item } from '../state/items';
+import { AccountState } from '../state/account';
 
 const api = new VaultAPI();
 
@@ -172,6 +173,14 @@ class Vault<T extends Item = Item> {
       return false;
     }
     return true;
+  }
+
+  async getMetadata(): Promise<AccountState> {
+    const metadata = await api.getMetadata({
+      account: this.account,
+      authToken: this.authToken,
+    });
+    return { account: this.account, metadata };
   }
 }
 

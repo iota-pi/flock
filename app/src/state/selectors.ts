@@ -1,10 +1,8 @@
 import { useCallback } from 'react';
-import VaultAPI from '../crypto/api';
 import { useAppDispatch, useAppSelector } from '../store';
-import { setAccount } from './account';
+import { updateMetadata } from './account';
 import { Item } from './items';
 
-const api = new VaultAPI();
 
 export function useItems<T extends Item>(itemType: T['type']): T[];
 export function useItems(): Item[];
@@ -41,19 +39,12 @@ export function useMetadata<T = any>(
   const setValue = useCallback(
     async (newValue: T) => {
       const newMetadata = { ...metadata, [key]: newValue };
-      dispatch(
-        setAccount({
-          account,
-          metadata: newMetadata,
-        }),
-      );
-      if (vault) {
-        return api.setMetadata({
-          account,
-          metadata: newMetadata,
-          authToken: vault.authToken,
-        });
-      }
+      await updateMetadata({
+        account,
+        dispatch,
+        metadata: newMetadata,
+        vault,
+      });
       return false;
     },
     [account, dispatch, key, metadata, vault],

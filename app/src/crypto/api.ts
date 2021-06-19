@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios';
+import { AccountMetadata } from '../state/account';
 import { ItemType } from '../state/items';
 
 
@@ -70,10 +71,20 @@ class VaultAPI {
     return result.data.success as boolean;
   }
 
-  async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
+  private async getAccountData({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
     const url = `${this.endpoint}/${account}`;
     const result = await axios.get(url, this.getAuthorization(authToken));
-    return result.data.success as boolean || false;
+    return result.data;
+  }
+
+  async getMetadata({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
+    const data = await this.getAccountData({ account, authToken });
+    return data.metadata as AccountMetadata || {};
+  }
+
+  async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
+    const data = await this.getAccountData({ account, authToken });
+    return data.success as boolean || false;
   }
 
   async setMetadata({ account, authToken, metadata }: VaultAccount & VaultAuth) {
