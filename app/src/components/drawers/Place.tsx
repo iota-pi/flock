@@ -7,7 +7,6 @@ import React, {
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Container,
-  fade,
   Grid,
   TextField,
 } from '@material-ui/core';
@@ -37,17 +36,6 @@ const useStyles = makeStyles(theme => ({
   },
   filler: {
     flexGrow: 1,
-  },
-  danger: {
-    borderColor: theme.palette.error.light,
-    color: theme.palette.error.light,
-
-    '&:hover': {
-      backgroundColor: fade(theme.palette.error.light, 0.08),
-    },
-  },
-  emphasis: {
-    fontWeight: 500,
   },
 }));
 

@@ -18,18 +18,6 @@ import ConfirmationDialog from './ConfirmationDialog';
 
 
 const useStyles = makeStyles(theme => ({
-  drawerContainer: {
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  filler: {
-    flexGrow: 1,
-  },
   danger: {
     borderColor: theme.palette.error.light,
     color: theme.palette.error.light,
@@ -43,14 +31,29 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-export interface Props {
-  canSave: boolean,
+export interface BaseProps {
   item: Item | ItemNote<'interaction'> | undefined,
+}
+
+export interface PropsWithSave extends BaseProps {
+  canSave: boolean,
   onCancel: () => void,
   onDelete: () => void,
+  onDone?: undefined,
   onReport?: () => void,
   onSave: () => void,
 }
+
+export interface PropsWithDone extends BaseProps {
+  canSave?: undefined,
+  onCancel?: undefined,
+  onDelete?: undefined,
+  onDone: () => void,
+  onReport?: undefined,
+  onSave?: undefined,
+}
+
+export type Props = PropsWithSave | PropsWithDone;
 
 
 function DrawerActions({
@@ -58,6 +61,7 @@ function DrawerActions({
   item,
   onCancel,
   onDelete,
+  onDone,
   onReport,
   onSave,
 }: Props) {
@@ -69,7 +73,7 @@ function DrawerActions({
     () => {
       if (item) {
         setShowConfirm(true);
-      } else {
+      } else if (onCancel) {
         onCancel();
       }
     },
@@ -97,56 +101,75 @@ function DrawerActions({
           </Grid>
         )}
 
-        <Grid item xs={12} sm={6}>
-          <Button
-            onClick={handleClickDelete}
-            variant="outlined"
-            fullWidth
-            className={item ? classes.danger : undefined}
-            startIcon={item ? <DeleteIcon /> : undefined}
-          >
-            {item ? 'Delete' : 'Cancel'}
-          </Button>
-        </Grid>
+        {onCancel && onDelete && (
+          <Grid item xs={12} sm={6}>
+            <Button
+              onClick={handleClickDelete}
+              variant="outlined"
+              fullWidth
+              className={item ? classes.danger : undefined}
+              startIcon={item ? <DeleteIcon /> : undefined}
+            >
+              {item ? 'Delete' : 'Cancel'}
+            </Button>
+          </Grid>
+        )}
 
-        <Grid item xs={12} sm={6}>
-          <Button
-            color="primary"
-            onClick={onSave}
-            variant="contained"
-            fullWidth
-            disabled={!canSave}
-            startIcon={<SaveIcon />}
-          >
-            Done
-          </Button>
-        </Grid>
+        {onSave && (
+          <Grid item xs={12} sm={6}>
+            <Button
+              color="primary"
+              onClick={onSave}
+              variant="contained"
+              fullWidth
+              disabled={!canSave}
+              startIcon={<SaveIcon />}
+            >
+              Done
+            </Button>
+          </Grid>
+        )}
+
+        {onDone && (
+          <Grid item xs={12}>
+            <Button
+              color="primary"
+              onClick={onDone}
+              variant="contained"
+              fullWidth
+            >
+              Done
+            </Button>
+          </Grid>
+        )}
       </Grid>
 
-      <ConfirmationDialog
-        open={showConfirm}
-        onConfirm={onDelete}
-        onCancel={handleClickConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete
-          {' '}
-          {item?.type !== 'interaction' ? (
-            <>
-              <span className={classes.emphasis}>
-                {getItemName(item)}
-              </span>
-              , and all associated notes?
-            </>
-          ) : (
-            'this interaction?'
-          )}
-        </Typography>
+      {onDelete && (
+        <ConfirmationDialog
+          open={showConfirm}
+          onConfirm={onDelete}
+          onCancel={handleClickConfirmCancel}
+        >
+          <Typography paragraph>
+            Are you sure you want to delete
+            {' '}
+            {item?.type !== 'interaction' ? (
+              <>
+                <span className={classes.emphasis}>
+                  {getItemName(item)}
+                </span>
+                , and all associated notes?
+              </>
+            ) : (
+              'this interaction?'
+            )}
+          </Typography>
 
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
+          <Typography paragraph>
+            This action cannot be undone.
+          </Typography>
+        </ConfirmationDialog>
+      )}
     </>
   );
 }

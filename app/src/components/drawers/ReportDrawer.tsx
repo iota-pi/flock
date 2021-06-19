@@ -1,17 +1,13 @@
 import React from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Button,
   Container,
-  Divider,
   fade,
-  Grid,
-  Typography,
 } from '@material-ui/core';
-import {
-  GroupItem,
-} from '../../state/items';
+import { Item } from '../../state/items';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
+import ItemReport from '../reports/ItemReport';
+import DrawerActions from '../DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -41,12 +37,12 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
-  item: GroupItem,
+  item: Item,
 }
 
 
 function GroupReportDrawer({
-  item: group,
+  item,
   onClose,
   open,
   stacked,
@@ -61,36 +57,14 @@ function GroupReportDrawer({
         stacked={stacked}
       >
         <Container className={classes.drawerContainer}>
-          <Typography variant="h3">
-            {group.name}
-          </Typography>
-
-          {group.description && (
-            <Typography paragraph>
-              {group.description}
-            </Typography>
-          )}
-
-          {'<insert maturity, attendance, and other fun things here />'}
+          <ItemReport item={item} />
 
           <div className={classes.filler} />
 
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Button
-                color="primary"
-                onClick={onClose}
-                variant="contained"
-                fullWidth
-              >
-                Done
-              </Button>
-            </Grid>
-          </Grid>
+          <DrawerActions
+            item={item}
+            onDone={onClose}
+          />
         </Container>
       </BaseDrawer>
     </>
