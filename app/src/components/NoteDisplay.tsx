@@ -93,6 +93,22 @@ export const noteTypeOptions: [ItemNoteType, string][] = [
 ];
 
 
+function AddNoteButton(
+  { onClick }: { onClick: () => void },
+) {
+  return (
+    <Button
+      fullWidth
+      size="small"
+      variant="outlined"
+      onClick={onClick}
+    >
+      Add Note
+    </Button>
+  );
+}
+
+
 function NoteDisplay({
   notes: rawNotes,
   onChange,
@@ -253,9 +269,15 @@ function NoteDisplay({
         </Tooltip>
       </div>
 
+      {!ascendingNotes && (
+        <AddNoteButton onClick={handleAddNote} />
+      )}
+
       <Grid container spacing={2}>
         <Grid item xs={12}>
-          <Divider />
+          {ascendingNotes && (
+            <Divider />
+          )}
         </Grid>
 
         {notes.map((note, i) => (
@@ -348,7 +370,9 @@ function NoteDisplay({
             </Grid>
 
             <Grid item xs={12}>
-              {i < notes.length - 1 && <Divider />}
+              {i < notes.length - 1 || !ascendingNotes ? (
+                <Divider />
+              ) : null}
             </Grid>
           </React.Fragment>
         ))}
@@ -364,14 +388,9 @@ function NoteDisplay({
         )}
       </Grid>
 
-      <Button
-        fullWidth
-        size="small"
-        variant="outlined"
-        onClick={handleAddNote}
-      >
-        Add Note
-      </Button>
+      {ascendingNotes && (
+        <AddNoteButton onClick={handleAddNote} />
+      )}
     </>
   );
 }
