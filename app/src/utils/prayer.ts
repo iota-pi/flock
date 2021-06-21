@@ -1,4 +1,5 @@
-import { frequencyToDays, frequencyToMilliseconds, isSameDay } from '.';
+import { isSameDay } from '.';
+import { frequencyToDays, frequencyToMilliseconds } from './frequencies';
 import { compareItems, Item } from '../state/items';
 
 export function getLastPrayedFor(item: Item, excludeToday = false) {

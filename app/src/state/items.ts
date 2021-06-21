@@ -1,6 +1,7 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import { Frequency, getItemId } from '../utils';
+import { getItemId } from '../utils';
+import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
