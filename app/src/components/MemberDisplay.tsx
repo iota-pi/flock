@@ -2,11 +2,19 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
+import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
 import { comparePeopleNames, Item, lookupItemsById, PersonItem } from '../state/items';
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
+
+
+const useStyles = makeStyles(() => ({
+  list: {
+    paddingBottom: 0,
+  },
+}));
 
 export interface Props {
   editable?: boolean,
@@ -21,6 +29,7 @@ function MemberDisplay({
   onChange,
   onClickMember,
 }: Props) {
+  const classes = useStyles();
   const people = useItems<PersonItem>('person').sort(comparePeopleNames);
 
   const members = useMemo(
@@ -52,6 +61,7 @@ function MemberDisplay({
           selectedIds={memberIds}
           items={people}
           label="Add group members"
+          noItemsText="No people found"
           onSelect={handleChangeMembers}
           showSelected={false}
         />
@@ -59,6 +69,7 @@ function MemberDisplay({
 
       <ItemList
         actionIcon={editable ? <DeleteIcon /> : <></>}
+        className={classes.list}
         dividers
         items={members}
         noItemsHint="No group members"
