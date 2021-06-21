@@ -10,11 +10,9 @@ import {
   Grid,
   Typography,
 } from '@material-ui/core';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
-import SaveIcon from '@material-ui/icons/Check';
-import ReportIcon from '@material-ui/icons/Description';
 import { getItemName, Item, ItemNote } from '../../../state/items';
 import ConfirmationDialog from '../../ConfirmationDialog';
+import { DeleteIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({

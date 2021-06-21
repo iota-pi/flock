@@ -26,9 +26,9 @@ import {
 import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
 import DownArrow from '@material-ui/icons/ArrowDropDown';
 import UpArrow from '@material-ui/icons/ArrowDropUp';
-import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
+import { DeleteIcon } from './Icons';
 import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
 import { formatDate } from '../utils';
 

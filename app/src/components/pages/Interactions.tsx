@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
-import AddIcon from '@material-ui/icons/Add';
+import { AddIcon } from '../Icons';
 import NoteList from '../NoteList';
 import { useItems } from '../../state/selectors';
 import { compareNotes, getNotes, ItemNote } from '../../state/items';

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
-import AddIcon from '@material-ui/icons/Add';
+import { AddIcon } from '../Icons';
 import { compareItems, GeneralItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GeneralDrawer from '../drawers/General';

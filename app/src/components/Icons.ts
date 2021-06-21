@@ -1,2 +1,11 @@
+export { default as AddIcon } from '@material-ui/icons/Add';
+export { default as DeleteIcon } from '@material-ui/icons/DeleteOutline';
+export { default as EventsIcon } from '@material-ui/icons/Event';
+export { default as GroupsIcon } from '@material-ui/icons/GroupWork';
 export { default as InteractionIcon } from '@material-ui/icons/QuestionAnswer';
+export { default as PersonIcon } from '@material-ui/icons/Person';
 export { default as PrayerIcon } from '@material-ui/icons/PhoneInTalk';
+export { default as RemoveIcon } from '@material-ui/icons/Close';
+export { default as ReportIcon } from '@material-ui/icons/Description';
+export { default as SuggestIcon } from '@material-ui/icons/Update';
+export { default as SaveIcon } from '@material-ui/icons/Check';

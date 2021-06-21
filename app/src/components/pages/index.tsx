@@ -1,13 +1,15 @@
 import React, { ReactNode, useMemo } from 'react';
 import { Switch, Route } from 'react-router-dom';
-import PersonIcon from '@material-ui/icons/Person';
-import GroupsIcon from '@material-ui/icons/GroupWork';
-import EventsIcon from '@material-ui/icons/Event';
-import InteractionIcon from '@material-ui/icons/QuestionAnswer';
-import SuggestIcon from '@material-ui/icons/Update';
-import PrayerIcon from '@material-ui/icons/PhoneInTalk';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
+import {
+  EventsIcon,
+  GroupsIcon,
+  InteractionIcon,
+  PersonIcon,
+  PrayerIcon,
+  SuggestIcon,
+} from '../Icons';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
