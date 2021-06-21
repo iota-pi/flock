@@ -8,6 +8,14 @@ export const FREQUENCIES_TO_DAYS = {
   annually: 365.25,
 };
 export type Frequency = keyof typeof FREQUENCIES_TO_DAYS;
+export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  fortnightly: 'Fortnightly',
+  monthly: 'Monthly',
+  quarterly: 'Quarterly',
+  annually: 'Annually',
+};
 export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as Frequency[];
 
 export function frequencyToDays(frequency: Frequency) {

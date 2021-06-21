@@ -39,7 +39,6 @@ const useStyles = makeStyles(theme => ({
     flexGrow: 1,
   },
   notesHeader: {
-    marginTop: theme.spacing(4),
     marginBottom: theme.spacing(2),
     width: '100%',
     display: 'flex',
@@ -68,9 +67,6 @@ const useStyles = makeStyles(theme => ({
     padding: theme.spacing(1),
     paddingLeft: 0,
     color: theme.palette.text.hint,
-  },
-  subtle: {
-    fontWeight: 300,
   },
   danger: {
     color: theme.palette.error.light,

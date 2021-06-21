@@ -9,6 +9,7 @@ import {
   Container,
   Grid,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import {
   deleteItems,
@@ -21,7 +22,10 @@ import { useAppDispatch } from '../../store';
 import NoteDisplay from '../NoteDisplay';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
-import DrawerActions from '../DrawerActions';
+import DrawerActions from './utils/DrawerActions';
+import FrequencyPicker from '../FrequencyPicker';
+import { InteractionIcon, PrayerIcon } from '../Icons';
+import { Frequency } from '../../utils/frequencies';
 
 
 const useStyles = makeStyles(theme => ({
@@ -78,6 +82,14 @@ function GeneralDrawer({
     ),
     [localItem],
   );
+  const handleChangeFrequency = useCallback(
+    (key: 'interactionFrequency' | 'prayerFrequency') => (
+      (value: Frequency) => {
+        setLocalItem({ ...localItem, [key as string]: value });
+      }
+    ),
+    [localItem],
+  );
   const handleChangeNotes = useCallback(
     (newNotes: ItemNote[]) => setLocalItem({ ...localItem, notes: newNotes }),
     [localItem],
@@ -121,6 +133,12 @@ function GeneralDrawer({
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
             <Grid item xs={12}>
+              <Typography variant="h5">
+                Basic details
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12}>
               <TextField
                 value={localItem.name}
                 onChange={handleChange('name')}
@@ -138,6 +156,39 @@ function GeneralDrawer({
                 multiline
                 fullWidth
               />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Desired frequencies
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localItem.prayerFrequency}
+                onChange={handleChangeFrequency('prayerFrequency')}
+                label="Prayer Frequency"
+                icon={<PrayerIcon />}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localItem.interactionFrequency}
+                onChange={handleChangeFrequency('interactionFrequency')}
+                label="Interaction Frequency"
+                icon={<InteractionIcon />}
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Notes
+              </Typography>
             </Grid>
 
             <Grid item xs={12}>

@@ -10,6 +10,7 @@ import {
   Container,
   Grid,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import {
   compareNames,
@@ -26,7 +27,10 @@ import { useItems, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
 import GroupDisplay from '../GroupDisplay';
-import DrawerActions from '../DrawerActions';
+import DrawerActions from './utils/DrawerActions';
+import FrequencyPicker from '../FrequencyPicker';
+import { Frequency } from '../../utils/frequencies';
+import { InteractionIcon, PrayerIcon } from '../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -89,6 +93,14 @@ function PersonDrawer({
       (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
         setLocalPerson({ ...localPerson, [key]: value });
+      }
+    ),
+    [localPerson],
+  );
+  const handleChangeFrequency = useCallback(
+    (key: 'interactionFrequency' | 'prayerFrequency') => (
+      (value: Frequency) => {
+        setLocalPerson({ ...localPerson, [key as string]: value });
       }
     ),
     [localPerson],
@@ -171,6 +183,12 @@ function PersonDrawer({
       >
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Basic details
+              </Typography>
+            </Grid>
+
             <Grid item xs={12} sm={6}>
               <TextField
                 value={localPerson.firstName}
@@ -218,6 +236,37 @@ function PersonDrawer({
             </Grid>
 
             <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Desired frequencies
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localPerson.prayerFrequency}
+                onChange={handleChangeFrequency('prayerFrequency')}
+                label="Prayer Frequency"
+                icon={<PrayerIcon />}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localPerson.interactionFrequency}
+                onChange={handleChangeFrequency('interactionFrequency')}
+                label="Interaction Frequency"
+                icon={<InteractionIcon />}
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Group membership
+              </Typography>
+            </Grid>
 
             <Grid item xs={12}>
               <GroupDisplay
@@ -226,6 +275,13 @@ function PersonDrawer({
                 onClickGroup={!stacked ? handleClickGroup : undefined}
                 onRemove={handleRemoveGroup}
               />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Notes
+              </Typography>
             </Grid>
 
             <Grid item xs={12}>

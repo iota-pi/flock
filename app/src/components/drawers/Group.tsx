@@ -9,6 +9,7 @@ import {
   Container,
   Grid,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import {
   deleteItems,
@@ -25,7 +26,10 @@ import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupReportDrawer from './ReportDrawer';
-import DrawerActions from '../DrawerActions';
+import DrawerActions from './utils/DrawerActions';
+import FrequencyPicker from '../FrequencyPicker';
+import { InteractionIcon, PrayerIcon } from '../Icons';
+import { Frequency } from '../../utils/frequencies';
 
 
 const useStyles = makeStyles(theme => ({
@@ -81,6 +85,14 @@ function GroupDrawer({
       (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
         setLocalGroup({ ...localGroup, [key]: value });
+      }
+    ),
+    [localGroup],
+  );
+  const handleChangeFrequency = useCallback(
+    (key: 'interactionFrequency' | 'prayerFrequency') => (
+      (value: Frequency) => {
+        setLocalGroup({ ...localGroup, [key as string]: value });
       }
     ),
     [localGroup],
@@ -142,6 +154,12 @@ function GroupDrawer({
         <Container className={classes.drawerContainer}>
           <Grid container spacing={2}>
             <Grid item xs={12}>
+              <Typography variant="h5">
+                Basic details
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12}>
               <TextField
                 value={localGroup.name}
                 onChange={handleChange('name')}
@@ -162,6 +180,37 @@ function GroupDrawer({
             </Grid>
 
             <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Desired frequencies
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localGroup.prayerFrequency}
+                onChange={handleChangeFrequency('prayerFrequency')}
+                label="Prayer Frequency"
+                icon={<PrayerIcon />}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FrequencyPicker
+                frequency={localGroup.interactionFrequency}
+                onChange={handleChangeFrequency('interactionFrequency')}
+                label="Interaction Frequency"
+                icon={<InteractionIcon />}
+                fullWidth
+              />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Members
+              </Typography>
+            </Grid>
 
             <Grid item xs={12}>
               <MemberDisplay
@@ -169,6 +218,13 @@ function GroupDrawer({
                 onChange={handleChangeMembers}
                 onClickMember={!stacked ? handleClickPerson : undefined}
               />
+            </Grid>
+
+            <Grid item />
+            <Grid item xs={12}>
+              <Typography variant="h5">
+                Notes
+              </Typography>
             </Grid>
 
             <Grid item xs={12}>

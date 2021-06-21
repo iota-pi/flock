@@ -7,7 +7,7 @@ import {
 import { Item } from '../../state/items';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
-import DrawerActions from '../DrawerActions';
+import DrawerActions from './utils/DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({

@@ -29,7 +29,7 @@ import { useItems, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
-import DrawerActions from '../DrawerActions';
+import DrawerActions from './utils/DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -191,6 +191,7 @@ function InteractionDrawer({
                 selectedIds={linkedItem ? [linkedItem.id] : []}
                 items={items}
                 label="Object of Interaction"
+                noItemsText="No people found"
                 onSelect={handleChangePerson}
               />
             </Grid>

@@ -13,8 +13,8 @@ import {
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import SaveIcon from '@material-ui/icons/Check';
 import ReportIcon from '@material-ui/icons/Description';
-import { getItemName, Item, ItemNote } from '../state/items';
-import ConfirmationDialog from './ConfirmationDialog';
+import { getItemName, Item, ItemNote } from '../../../state/items';
+import ConfirmationDialog from '../../ConfirmationDialog';
 
 
 const useStyles = makeStyles(theme => ({

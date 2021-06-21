@@ -28,6 +28,9 @@ const useStyles = makeStyles(theme => ({
       },
     },
   },
+  defaultBackground: {
+    backgroundColor: theme.palette.background.default,
+  },
 }));
 
 interface Props {
@@ -50,6 +53,7 @@ function BaseDrawer({
   const commonClasses = [classes.drawerWidth];
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
+  const paperClasses = [classes.defaultBackground, ...commonClasses];
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -68,7 +72,7 @@ function BaseDrawer({
       onClose={onClose}
       anchor="right"
       classes={{
-        paper: commonClasses.join(' '),
+        paper: paperClasses.join(' '),
       }}
       onKeyDown={handleKeyDown}
     >
