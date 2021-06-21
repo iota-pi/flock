@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { compareNames, GroupItem } from '../../state/items';
+import { compareItems, GroupItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GroupDrawer from '../drawers/Group';
 import { useItems } from '../../state/selectors';
@@ -23,7 +23,7 @@ const useStyles = makeStyles(theme => ({
 function GroupsPage() {
   const classes = useStyles();
   const rawGroups = useItems<GroupItem>('group');
-  const groups = useMemo(() => rawGroups.sort(compareNames), [rawGroups]);
+  const groups = useMemo(() => rawGroups.sort(compareItems), [rawGroups]);
 
   const [showDetails, setShowDetails] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<GroupItem>();

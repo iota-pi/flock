@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { compareNames, GeneralItem } from '../../state/items';
+import { compareItems, GeneralItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GeneralDrawer from '../drawers/General';
 import { useItems } from '../../state/selectors';
@@ -23,7 +23,7 @@ const useStyles = makeStyles(theme => ({
 function GeneralPage() {
   const classes = useStyles();
   const rawItems = useItems<GeneralItem>('general');
-  const items = useMemo(() => rawItems.sort(compareNames), [rawItems]);
+  const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
 
   const [showDetails, setShowDetails] = useState(false);
   const [currentItem, setCurrentItem] = useState<GeneralItem>();

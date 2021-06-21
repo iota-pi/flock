@@ -64,7 +64,6 @@ async function migrateItems(items: Item[]) {
       if (successful) {
         ranMigrations = true;
         completedMigrations.push(migration.id);
-        // console.info(`Completed migration: ${migration.id}`);
       }
     }
   }

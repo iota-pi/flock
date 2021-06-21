@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
-import { comparePeopleNames, PersonItem } from '../../state/items';
+import { compareItems, PersonItem } from '../../state/items';
 import PersonDrawer from '../drawers/Person';
 import ItemList from '../ItemList';
 import { useItems } from '../../state/selectors';
@@ -23,7 +23,7 @@ const useStyles = makeStyles(theme => ({
 function PeoplePage() {
   const classes = useStyles();
   const rawPeople = useItems<PersonItem>('person');
-  const people = useMemo(() => rawPeople.slice().sort(comparePeopleNames), [rawPeople]);
+  const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
 
   const [showDetails, setShowDetails] = useState(false);
   const [currentPerson, setCurrentPerson] = useState<PersonItem>();
