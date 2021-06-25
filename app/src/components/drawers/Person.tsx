@@ -28,9 +28,8 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
 import GroupDisplay from '../GroupDisplay';
 import DrawerActions from './utils/DrawerActions';
-import FrequencyPicker from '../FrequencyPicker';
 import { Frequency } from '../../utils/frequencies';
-import { InteractionIcon, PrayerIcon } from '../Icons';
+import FrequencyControls from '../FrequencyControls';
 
 
 const useStyles = makeStyles(theme => ({
@@ -242,24 +241,10 @@ function PersonDrawer({
               </Typography>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
-              <FrequencyPicker
-                frequency={localPerson.prayerFrequency}
-                onChange={handleChangeFrequency('prayerFrequency')}
-                label="Prayer Frequency"
-                icon={<PrayerIcon />}
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FrequencyPicker
-                frequency={localPerson.interactionFrequency}
-                onChange={handleChangeFrequency('interactionFrequency')}
-                label="Interaction Frequency"
-                icon={<InteractionIcon />}
-                fullWidth
-              />
-            </Grid>
+            <FrequencyControls
+              item={localPerson}
+              onChange={handleChangeFrequency}
+            />
 
             <Grid item />
             <Grid item xs={12}>

@@ -23,9 +23,8 @@ import NoteDisplay from '../NoteDisplay';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import DrawerActions from './utils/DrawerActions';
-import FrequencyPicker from '../FrequencyPicker';
-import { InteractionIcon, PrayerIcon } from '../Icons';
 import { Frequency } from '../../utils/frequencies';
+import FrequencyControls from '../FrequencyControls';
 
 
 const useStyles = makeStyles(theme => ({
@@ -165,24 +164,10 @@ function GeneralDrawer({
               </Typography>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
-              <FrequencyPicker
-                frequency={localItem.prayerFrequency}
-                onChange={handleChangeFrequency('prayerFrequency')}
-                label="Prayer Frequency"
-                icon={<PrayerIcon />}
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FrequencyPicker
-                frequency={localItem.interactionFrequency}
-                onChange={handleChangeFrequency('interactionFrequency')}
-                label="Interaction Frequency"
-                icon={<InteractionIcon />}
-                fullWidth
-              />
-            </Grid>
+            <FrequencyControls
+              item={localItem}
+              onChange={handleChangeFrequency}
+            />
 
             <Grid item />
             <Grid item xs={12}>

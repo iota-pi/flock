@@ -25,3 +25,23 @@ export function frequencyToDays(frequency: Frequency) {
 export function frequencyToMilliseconds(frequency: Frequency) {
   return FREQUENCIES_TO_DAYS[frequency] * ONE_DAY;
 }
+
+export enum Due {
+  fine,
+  due,
+  overdue,
+}
+
+export function isDue(lastDate: Date, desiredFrequency: Frequency): Due {
+  const dueDate = new Date(lastDate.getTime() + frequencyToMilliseconds(desiredFrequency));
+  const today = new Date();
+  const timeTillDue = dueDate.getTime() - today.getTime();
+  const threshold = Math.ceil(frequencyToDays(desiredFrequency) / 7) * ONE_DAY;
+  if (timeTillDue < -threshold) {
+    return Due.overdue;
+  }
+  if (timeTillDue < threshold) {
+    return Due.due;
+  }
+  return Due.fine;
+}
