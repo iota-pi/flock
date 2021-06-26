@@ -35,6 +35,7 @@ export interface Props extends ItemDrawerProps {
 
 
 function PersonDrawer({
+  onBack,
   onClose,
   open,
   item: person,
@@ -44,7 +45,7 @@ function PersonDrawer({
   const vault = useVault();
   const groups = useItems<GroupItem>('group');
 
-  const [localPerson, setLocalPerson] = useState(getBlankPerson());
+  const [localPerson, setLocalPerson] = useState(person || getBlankPerson());
   const [showGroup, setShowGroup] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<GroupItem>();
 
@@ -158,6 +159,7 @@ function PersonDrawer({
     <>
       <BaseDrawer
         open={open}
+        onBack={onBack}
         onClose={handleSave}
         stacked={stacked && !showGroup}
       >

@@ -1,6 +1,7 @@
 import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Container, Drawer } from '@material-ui/core';
+import { Container, Drawer, IconButton } from '@material-ui/core';
+import { BackIcon } from '../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -40,6 +41,11 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     flexDirection: 'column',
   },
+  backButton: {
+    position: 'absolute',
+    display: 'flex',
+    right: theme.spacing(3),
+  },
 }));
 
 interface Props {
@@ -55,6 +61,7 @@ export type { Props as ItemDrawerProps };
 
 function BaseDrawer({
   children,
+  onBack,
   onClose,
   open,
   stacked,
@@ -88,6 +95,14 @@ function BaseDrawer({
     >
       <Container className={classes.container}>
         <>
+          {onBack && (
+            <div className={classes.backButton}>
+              <IconButton onClick={onBack}>
+                <BackIcon />
+              </IconButton>
+            </div>
+          )}
+
           {children}
         </>
       </Container>

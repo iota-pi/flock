@@ -33,7 +33,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface BaseProps {
-  item: Item | ItemNote<'interaction'> | undefined,
+  item?: Item | ItemNote<'interaction'> | undefined,
 }
 
 export interface PropsWithSave extends BaseProps {

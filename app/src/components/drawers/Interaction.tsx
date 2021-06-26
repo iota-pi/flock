@@ -36,6 +36,7 @@ export interface Props extends ItemDrawerProps {
 
 function InteractionDrawer({
   interaction: rawInteraction,
+  onBack,
   onClose,
   open,
   stacked,
@@ -45,7 +46,7 @@ function InteractionDrawer({
   const items = useItems();
   const noteMap = useNoteMap();
 
-  const [interaction, setInteraction] = useState(getBlankNote('interaction'));
+  const [interaction, setInteraction] = useState(rawInteraction || getBlankNote('interaction'));
   const [linkedItem, setLinkedItem] = useState<Item>();
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -162,6 +163,7 @@ function InteractionDrawer({
     <>
       <BaseDrawer
         open={open}
+        onBack={onBack}
         onClose={handleSave}
         stacked={stacked}
       >

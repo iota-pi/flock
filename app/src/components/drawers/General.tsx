@@ -31,6 +31,7 @@ export interface Props extends ItemDrawerProps {
 
 function GeneralDrawer({
   item,
+  onBack,
   onClose,
   open,
   stacked,
@@ -38,7 +39,7 @@ function GeneralDrawer({
   const dispatch = useAppDispatch();
   const vault = useVault();
 
-  const [localItem, setLocalItem] = useState(getBlankGeneral());
+  const [localItem, setLocalItem] = useState(item || getBlankGeneral());
 
   const valid = !!localItem.name;
 
@@ -107,6 +108,7 @@ function GeneralDrawer({
     <>
       <BaseDrawer
         open={open}
+        onBack={onBack}
         onClose={handleSave}
         stacked={stacked}
       >
