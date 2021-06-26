@@ -1,5 +1,5 @@
 import React, {
-  PropsWithChildren, useCallback,
+  PropsWithChildren,
 } from 'react';
 import {
   Button,
@@ -28,9 +28,6 @@ function ConfirmationDialog({
   open,
   title,
 }: PropsWithChildren<Props>) {
-  const handleClickCancel = useCallback(() => onCancel(), [onCancel]);
-  const handleClickConfirm = useCallback(() => onConfirm(), [onConfirm]);
-
   return (
     <Dialog
       open={open}
@@ -46,7 +43,7 @@ function ConfirmationDialog({
 
       <DialogActions>
         <Button
-          onClick={handleClickCancel}
+          onClick={onCancel}
           variant="outlined"
           fullWidth
         >
@@ -54,7 +51,7 @@ function ConfirmationDialog({
         </Button>
 
         <Button
-          onClick={handleClickConfirm}
+          onClick={onConfirm}
           variant="outlined"
           color="primary"
           fullWidth

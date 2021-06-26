@@ -11,3 +11,4 @@ export { default as RemoveIcon } from '@material-ui/icons/Close';
 export { default as ReportIcon } from '@material-ui/icons/Description';
 export { default as SuggestIcon } from '@material-ui/icons/Update';
 export { default as SaveIcon } from '@material-ui/icons/Check';
+export { default as WarningIcon } from '@material-ui/icons/Warning';
