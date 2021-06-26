@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Container,
   Grid,
   TextField,
   Typography,
@@ -180,113 +179,111 @@ function PersonDrawer({
         onClose={handleSave}
         stacked={stacked && !showGroup}
       >
-        <Container className={classes.drawerContainer}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Basic details
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                value={localPerson.firstName}
-                onChange={handleChange('firstName')}
-                label="First Name"
-                required
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                value={localPerson.lastName}
-                onChange={handleChange('lastName')}
-                label="Last Name"
-                required
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                value={localPerson.email}
-                onChange={handleChange('email')}
-                label="Email"
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                value={localPerson.phone}
-                onChange={handleChange('phone')}
-                label="Phone"
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={localPerson.description}
-                onChange={handleChange('description')}
-                label="Description"
-                multiline
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Desired frequencies
-              </Typography>
-            </Grid>
-
-            <FrequencyControls
-              item={localPerson}
-              onChange={handleChangeFrequency}
-            />
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Group membership
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <GroupDisplay
-                groups={memberGroupIds}
-                onAdd={handleAddGroup}
-                onClickGroup={!stacked ? handleClickGroup : undefined}
-                onRemove={handleRemoveGroup}
-              />
-            </Grid>
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Notes
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <NoteDisplay
-                notes={localPerson.notes}
-                onChange={handleChangeNotes}
-              />
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Basic details
+            </Typography>
           </Grid>
 
-          <div className={classes.filler} />
+          <Grid item xs={12} sm={6}>
+            <TextField
+              value={localPerson.firstName}
+              onChange={handleChange('firstName')}
+              label="First Name"
+              required
+              fullWidth
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              value={localPerson.lastName}
+              onChange={handleChange('lastName')}
+              label="Last Name"
+              required
+              fullWidth
+            />
+          </Grid>
 
-          <DrawerActions
-            canSave={valid}
-            item={person}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
-            onSave={handleSave}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              value={localPerson.email}
+              onChange={handleChange('email')}
+              label="Email"
+              fullWidth
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              value={localPerson.phone}
+              onChange={handleChange('phone')}
+              label="Phone"
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              value={localPerson.description}
+              onChange={handleChange('description')}
+              label="Description"
+              multiline
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Desired frequencies
+            </Typography>
+          </Grid>
+
+          <FrequencyControls
+            item={localPerson}
+            onChange={handleChangeFrequency}
           />
-        </Container>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Group membership
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <GroupDisplay
+              groups={memberGroupIds}
+              onAdd={handleAddGroup}
+              onClickGroup={!stacked ? handleClickGroup : undefined}
+              onRemove={handleRemoveGroup}
+            />
+          </Grid>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Notes
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <NoteDisplay
+              notes={localPerson.notes}
+              onChange={handleChangeNotes}
+            />
+          </Grid>
+        </Grid>
+
+        <div className={classes.filler} />
+
+        <DrawerActions
+          canSave={valid}
+          item={person}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
+          onSave={handleSave}
+        />
       </BaseDrawer>
 
       {showGroup && (

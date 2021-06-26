@@ -43,26 +43,26 @@ function FrequencyControls({
   const lastInteraction = getLastInteraction(item)?.date;
 
   let lastPrayerText: string = 'never';
-  let lastPrayerClass: string = classes.overdueDate;
+  let lastPrayerClass: string = '';
   if (lastPrayer) {
     lastPrayerText = formatDate(new Date(lastPrayer));
     const due = isDue(new Date(lastPrayer), item.prayerFrequency);
     if (due === Due.due) {
       lastPrayerClass = classes.dueDate;
-    } else if (due === Due.fine) {
-      lastPrayerClass = '';
+    } else if (due === Due.overdue) {
+      lastPrayerClass = classes.overdueDate;
     }
   }
 
   let lastInteractionText: string = 'never';
-  let lastInteractionClass: string = classes.overdueDate;
+  let lastInteractionClass: string = '';
   if (lastInteraction) {
     lastInteractionText = formatDate(new Date(lastInteraction));
     const due = isDue(new Date(lastInteraction), item.interactionFrequency);
     if (due === Due.due) {
       lastInteractionClass = classes.dueDate;
-    } else if (due === Due.fine) {
-      lastInteractionClass = '';
+    } else if (due === Due.overdue) {
+      lastInteractionClass = classes.overdueDate;
     }
   }
 

@@ -1,6 +1,6 @@
 import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Drawer } from '@material-ui/core';
+import { Container, Drawer } from '@material-ui/core';
 
 
 const useStyles = makeStyles(theme => ({
@@ -31,9 +31,19 @@ const useStyles = makeStyles(theme => ({
   defaultBackground: {
     backgroundColor: theme.palette.background.default,
   },
+  container: {
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    paddingTop: theme.spacing(2),
+    paddingBottom: theme.spacing(2),
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
+  },
 }));
 
 interface Props {
+  onBack?: () => void,
   onClose: () => void,
   open: boolean,
   stacked?: boolean,
@@ -76,7 +86,11 @@ function BaseDrawer({
       }}
       onKeyDown={handleKeyDown}
     >
-      {children}
+      <Container className={classes.container}>
+        <>
+          {children}
+        </>
+      </Container>
     </Drawer>
   );
 }

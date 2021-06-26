@@ -6,7 +6,6 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Container,
   Grid,
   TextField,
   Typography,
@@ -27,16 +26,7 @@ import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 
 
-const useStyles = makeStyles(theme => ({
-  drawerContainer: {
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
+const useStyles = makeStyles(() => ({
   filler: {
     flexGrow: 1,
   },
@@ -129,71 +119,69 @@ function GeneralDrawer({
         onClose={handleSave}
         stacked={stacked}
       >
-        <Container className={classes.drawerContainer}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Basic details
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={localItem.name}
-                onChange={handleChange('name')}
-                label="Item Name"
-                required
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={localItem.description}
-                onChange={handleChange('description')}
-                label="Description"
-                multiline
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Desired frequencies
-              </Typography>
-            </Grid>
-
-            <FrequencyControls
-              item={localItem}
-              onChange={handleChangeFrequency}
-            />
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Notes
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <NoteDisplay
-                notes={localItem.notes}
-                onChange={handleChangeNotes}
-              />
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Basic details
+            </Typography>
           </Grid>
 
-          <div className={classes.filler} />
+          <Grid item xs={12}>
+            <TextField
+              value={localItem.name}
+              onChange={handleChange('name')}
+              label="Item Name"
+              required
+              fullWidth
+            />
+          </Grid>
 
-          <DrawerActions
-            canSave={valid}
-            item={item}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
-            onSave={handleSave}
+          <Grid item xs={12}>
+            <TextField
+              value={localItem.description}
+              onChange={handleChange('description')}
+              label="Description"
+              multiline
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Desired frequencies
+            </Typography>
+          </Grid>
+
+          <FrequencyControls
+            item={localItem}
+            onChange={handleChangeFrequency}
           />
-        </Container>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Notes
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <NoteDisplay
+              notes={localItem.notes}
+              onChange={handleChangeNotes}
+            />
+          </Grid>
+        </Grid>
+
+        <div className={classes.filler} />
+
+        <DrawerActions
+          canSave={valid}
+          item={item}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
+          onSave={handleSave}
+        />
       </BaseDrawer>
     </>
   );

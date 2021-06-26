@@ -8,7 +8,6 @@ import React, {
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Checkbox,
-  Container,
   FormControlLabel,
   Grid,
   IconButton,
@@ -184,73 +183,71 @@ function InteractionDrawer({
         onClose={handleSave}
         stacked={stacked}
       >
-        <Container className={classes.drawerContainer}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <ItemSearch
-                selectedIds={linkedItem ? [linkedItem.id] : []}
-                items={items}
-                label="Object of Interaction"
-                noItemsText="No people found"
-                onSelect={handleChangePerson}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={!isVisible ? '...' : interaction.content}
-                onChange={handleChange}
-                disabled={!isVisible}
-                label="Interaction details"
-                multiline
-                fullWidth
-                InputProps={{
-                  endAdornment: interaction.sensitive ? (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={handleClickVisibility}
-                        onMouseDown={handleMouseDownVisibility}
-                      >
-                        {showSensitive ? <Visibility /> : <VisibilityOff />}
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null,
-                }}
-              />
-
-              <FormControlLabel
-                control={(
-                  <Checkbox
-                    checked={interaction.sensitive || false}
-                    onChange={handleChangeSensitive}
-                  />
-                )}
-                label="Sensitive"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <KeyboardDatePicker
-                value={new Date(interaction.date)}
-                onChange={handleDateChange}
-                label="Interaction Date"
-                maxDate={new Date()}
-                maxDateMessage="Only past interactions can be recorded in the present"
-                format="dd/MM/yyyy"
-              />
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <ItemSearch
+              selectedIds={linkedItem ? [linkedItem.id] : []}
+              items={items}
+              label="Object of Interaction"
+              noItemsText="No people found"
+              onSelect={handleChangePerson}
+            />
           </Grid>
 
-          <div className={classes.filler} />
+          <Grid item xs={12}>
+            <TextField
+              value={!isVisible ? '...' : interaction.content}
+              onChange={handleChange}
+              disabled={!isVisible}
+              label="Interaction details"
+              multiline
+              fullWidth
+              InputProps={{
+                endAdornment: interaction.sensitive ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={handleClickVisibility}
+                      onMouseDown={handleMouseDownVisibility}
+                    >
+                      {showSensitive ? <Visibility /> : <VisibilityOff />}
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+            />
 
-          <DrawerActions
-            canSave={!!interaction.content}
-            item={rawInteraction}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
-            onSave={handleSave}
-          />
-        </Container>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={interaction.sensitive || false}
+                  onChange={handleChangeSensitive}
+                />
+              )}
+              label="Sensitive"
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <KeyboardDatePicker
+              value={new Date(interaction.date)}
+              onChange={handleDateChange}
+              label="Interaction Date"
+              maxDate={new Date()}
+              maxDateMessage="Only past interactions can be recorded in the present"
+              format="dd/MM/yyyy"
+            />
+          </Grid>
+        </Grid>
+
+        <div className={classes.filler} />
+
+        <DrawerActions
+          canSave={!!interaction.content}
+          item={rawInteraction}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
+          onSave={handleSave}
+        />
       </BaseDrawer>
     </>
   );

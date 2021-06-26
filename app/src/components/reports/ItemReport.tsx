@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { makeStyles, Typography } from '@material-ui/core';
+import { IconButton, makeStyles, Typography } from '@material-ui/core';
 import {
   compareNames,
   getItemName,
@@ -8,21 +8,42 @@ import {
 } from '../../state/items';
 import MemberDisplay from '../MemberDisplay';
 import { useItems } from '../../state/selectors';
+import GroupDisplay from '../GroupDisplay';
+import { EditIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
+  heading: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   section: {
     paddingTop: theme.spacing(2),
     paddingBottom: theme.spacing(2),
   },
 }));
 
-export interface Props {
+interface BaseProps {
   item: Item,
 }
 
+interface PropsWithEdit extends BaseProps {
+  canEdit: true,
+  onEdit: () => void,
+}
+
+interface PropsNoEdit extends BaseProps {
+  canEdit?: false,
+  onEdit?: () => void,
+}
+
+export type Props = PropsWithEdit | PropsNoEdit;
+
 
 function ItemReport({
+  canEdit,
   item,
+  onEdit,
 }: Props) {
   const classes = useStyles();
   const groups = useItems<GroupItem>('group');
@@ -41,9 +62,17 @@ function ItemReport({
 
   return (
     <>
-      <Typography variant="h3">
-        {getItemName(item)}
-      </Typography>
+      <div className={classes.heading}>
+        <Typography variant="h3">
+          {getItemName(item)}
+        </Typography>
+
+        {canEdit && (
+          <IconButton onClick={onEdit}>
+            <EditIcon />
+          </IconButton>
+        )}
+      </div>
 
       {item.description && (
         <Typography paragraph>
@@ -54,13 +83,14 @@ function ItemReport({
       {item.type === 'person' && (
         <div className={classes.section}>
           <Typography variant="h4">
-            Members
+            Groups
           </Typography>
 
-          <MemberDisplay
+          <GroupDisplay
             editable={false}
-            members={memberGroupIds}
-            onChange={() => {}}
+            groups={memberGroupIds}
+            onAdd={() => {}}
+            onRemove={() => {}}
           />
         </div>
       )}

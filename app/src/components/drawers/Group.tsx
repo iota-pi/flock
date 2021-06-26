@@ -6,7 +6,6 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
-  Container,
   Grid,
   TextField,
   Typography,
@@ -25,7 +24,7 @@ import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
-import GroupReportDrawer from './ReportDrawer';
+import ReportDrawer from './ReportDrawer';
 import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
@@ -150,90 +149,88 @@ function GroupDrawer({
         onClose={handleSave}
         stacked={stacked && !showPerson}
       >
-        <Container className={classes.drawerContainer}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Basic details
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={localGroup.name}
-                onChange={handleChange('name')}
-                label="Group Name"
-                required
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                value={localGroup.description}
-                onChange={handleChange('description')}
-                label="Description"
-                multiline
-                fullWidth
-              />
-            </Grid>
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Desired frequencies
-              </Typography>
-            </Grid>
-
-            <FrequencyControls
-              item={localGroup}
-              onChange={handleChangeFrequency}
-            />
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Members
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <MemberDisplay
-                members={localGroup.members}
-                onChange={handleChangeMembers}
-                onClickMember={!stacked ? handleClickPerson : undefined}
-              />
-            </Grid>
-
-            <Grid item />
-            <Grid item xs={12}>
-              <Typography variant="h5">
-                Notes
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <NoteDisplay
-                notes={localGroup.notes}
-                onChange={handleChangeNotes}
-              />
-            </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Basic details
+            </Typography>
           </Grid>
 
-          <div className={classes.filler} />
+          <Grid item xs={12}>
+            <TextField
+              value={localGroup.name}
+              onChange={handleChange('name')}
+              label="Group Name"
+              required
+              fullWidth
+            />
+          </Grid>
 
-          <DrawerActions
-            canSave={valid}
-            item={group}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
-            onReport={handleReport}
-            onSave={handleSave}
+          <Grid item xs={12}>
+            <TextField
+              value={localGroup.description}
+              onChange={handleChange('description')}
+              label="Description"
+              multiline
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Desired frequencies
+            </Typography>
+          </Grid>
+
+          <FrequencyControls
+            item={localGroup}
+            onChange={handleChangeFrequency}
           />
-        </Container>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Members
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <MemberDisplay
+              members={localGroup.members}
+              onChange={handleChangeMembers}
+              onClickMember={!stacked ? handleClickPerson : undefined}
+            />
+          </Grid>
+
+          <Grid item />
+          <Grid item xs={12}>
+            <Typography variant="h5">
+              Notes
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12}>
+            <NoteDisplay
+              notes={localGroup.notes}
+              onChange={handleChangeNotes}
+            />
+          </Grid>
+        </Grid>
+
+        <div className={classes.filler} />
+
+        <DrawerActions
+          canSave={valid}
+          item={group}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
+          onReport={handleReport}
+          onSave={handleSave}
+        />
       </BaseDrawer>
 
-      <GroupReportDrawer
+      <ReportDrawer
         item={localGroup}
         onClose={handleCloseReport}
         open={showReport}

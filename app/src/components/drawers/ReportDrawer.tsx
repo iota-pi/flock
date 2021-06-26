@@ -1,13 +1,11 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import {
-  Container,
-  fade,
-} from '@material-ui/core';
+import { fade } from '@material-ui/core';
 import { Item } from '../../state/items';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
 import DrawerActions from './utils/DrawerActions';
+import AnyItemDrawer from './AnyItemDrawer';
 
 
 const useStyles = makeStyles(theme => ({
@@ -37,11 +35,13 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props extends ItemDrawerProps {
+  canEdit?: boolean,
   item: Item,
 }
 
 
-function GroupReportDrawer({
+function ReportDrawer({
+  canEdit = false,
   item,
   onClose,
   open,
@@ -49,26 +49,49 @@ function GroupReportDrawer({
 }: Props) {
   const classes = useStyles();
 
+  const [editing, setEditing] = useState(false);
+  const handleEdit = useCallback(() => setEditing(true), []);
+  const handleBack = useCallback(() => setEditing(false), []);
+  const handleClose = useCallback(
+    () => {
+      setEditing(false);
+      onClose();
+    },
+    [onClose],
+  );
+
   return (
     <>
       <BaseDrawer
         open={open}
-        onClose={onClose}
+        onClose={handleClose}
         stacked={stacked}
       >
-        <Container className={classes.drawerContainer}>
-          <ItemReport item={item} />
+        <ItemReport
+          item={item}
+          canEdit={canEdit}
+          onEdit={handleEdit}
+        />
 
-          <div className={classes.filler} />
+        <div className={classes.filler} />
 
-          <DrawerActions
-            item={item}
-            onDone={onClose}
-          />
-        </Container>
+        <DrawerActions
+          item={item}
+          onDone={handleClose}
+        />
       </BaseDrawer>
+
+      {canEdit && (
+        <AnyItemDrawer
+          item={item}
+          onBack={handleBack}
+          onClose={handleClose}
+          stacked={stacked}
+          open={editing}
+        />
+      )}
     </>
   );
 }
 
-export default GroupReportDrawer;
+export default ReportDrawer;

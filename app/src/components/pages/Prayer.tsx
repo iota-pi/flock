@@ -7,7 +7,7 @@ import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../..
 import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import AnyItemDrawer from '../drawers/AnyItemDrawer';
+import ReportDrawer from '../drawers/ReportDrawer';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -108,11 +108,14 @@ function PrayerPage() {
         </Grid>
       </Grid>
 
-      <AnyItemDrawer
-        item={currentItem}
-        open={showDrawer}
-        onClose={handleClose}
-      />
+      {currentItem && (
+        <ReportDrawer
+          canEdit
+          item={currentItem}
+          open={showDrawer}
+          onClose={handleClose}
+        />
+      )}
     </Container>
   );
 }
