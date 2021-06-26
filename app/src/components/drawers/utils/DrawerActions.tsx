@@ -27,6 +27,9 @@ const useStyles = makeStyles(theme => ({
   emphasis: {
     fontWeight: 500,
   },
+  filler: {
+    flexGrow: 1,
+  },
 }));
 
 export interface BaseProps {
@@ -81,6 +84,8 @@ function DrawerActions({
 
   return (
     <>
+      <div className={classes.filler} />
+
       <Grid container spacing={2}>
         <Grid item xs={12}>
           <Divider />

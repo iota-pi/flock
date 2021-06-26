@@ -4,7 +4,6 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Grid,
   TextField,
@@ -25,13 +24,6 @@ import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 
-
-const useStyles = makeStyles(() => ({
-  filler: {
-    flexGrow: 1,
-  },
-}));
-
 export interface Props extends ItemDrawerProps {
   item: GeneralItem | undefined,
 }
@@ -43,7 +35,6 @@ function GeneralDrawer({
   open,
   stacked,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
 
@@ -172,8 +163,6 @@ function GeneralDrawer({
             />
           </Grid>
         </Grid>
-
-        <div className={classes.filler} />
 
         <DrawerActions
           canSave={valid}

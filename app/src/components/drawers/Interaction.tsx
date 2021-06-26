@@ -5,7 +5,6 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Checkbox,
   FormControlLabel,
@@ -30,22 +29,6 @@ import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
 import DrawerActions from './utils/DrawerActions';
 
-
-const useStyles = makeStyles(theme => ({
-  drawerContainer: {
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  filler: {
-    flexGrow: 1,
-  },
-}));
-
 export interface Props extends ItemDrawerProps {
   interaction: ItemNote<'interaction'> | undefined,
 }
@@ -57,7 +40,6 @@ function InteractionDrawer({
   open,
   stacked,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
   const items = useItems();
@@ -238,8 +220,6 @@ function InteractionDrawer({
             />
           </Grid>
         </Grid>
-
-        <div className={classes.filler} />
 
         <DrawerActions
           canSave={!!interaction.content}

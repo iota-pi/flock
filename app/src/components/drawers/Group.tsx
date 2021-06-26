@@ -4,7 +4,6 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Grid,
   TextField,
@@ -29,22 +28,6 @@ import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 
-
-const useStyles = makeStyles(theme => ({
-  drawerContainer: {
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  filler: {
-    flexGrow: 1,
-  },
-}));
-
 export interface Props extends ItemDrawerProps {
   item: GroupItem | undefined,
 }
@@ -56,7 +39,6 @@ function GroupDrawer({
   open,
   stacked,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
 
@@ -217,8 +199,6 @@ function GroupDrawer({
             />
           </Grid>
         </Grid>
-
-        <div className={classes.filler} />
 
         <DrawerActions
           canSave={valid}
