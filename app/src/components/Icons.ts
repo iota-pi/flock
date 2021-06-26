@@ -5,6 +5,7 @@ export { default as EditIcon } from '@material-ui/icons/Edit';
 export { default as EventsIcon } from '@material-ui/icons/Event';
 export { default as GroupsIcon } from '@material-ui/icons/GroupWork';
 export { default as InteractionIcon } from '@material-ui/icons/QuestionAnswer';
+export { default as NextIcon } from '@material-ui/icons/ChevronRight';
 export { default as PersonIcon } from '@material-ui/icons/Person';
 export { default as PrayerIcon } from '@material-ui/icons/PhoneInTalk';
 export { default as RemoveIcon } from '@material-ui/icons/Close';

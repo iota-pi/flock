@@ -64,12 +64,12 @@ function GoalDialog({
   );
   const handleDone = useCallback(
     () => {
-      if (!error) {
+      if (!error && parseInt(newGoal) !== goal) {
         setGoal(parseInt(newGoal));
       }
       onClose();
     },
-    [error, newGoal, onClose, setGoal],
+    [error, goal, newGoal, onClose, setGoal],
   );
 
   return (

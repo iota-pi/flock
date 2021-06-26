@@ -8,6 +8,8 @@ import AnyItemDrawer from './AnyItemDrawer';
 export interface Props extends ItemDrawerProps {
   canEdit?: boolean,
   item: Item,
+  onDone?: () => void,
+  onNext?: () => void,
 }
 
 
@@ -15,6 +17,8 @@ function ReportDrawer({
   canEdit = false,
   item,
   onClose,
+  onDone,
+  onNext,
   open,
   stacked,
 }: Props) {
@@ -27,6 +31,20 @@ function ReportDrawer({
       onClose();
     },
     [onClose],
+  );
+  const handleCloseButton = useCallback(
+    () => {
+      setEditing(false);
+      if (onNext) {
+        onNext();
+      } else {
+        if (onDone) {
+          onDone();
+        }
+        onClose();
+      }
+    },
+    [onClose, onDone, onNext],
   );
 
   return (
@@ -42,9 +60,15 @@ function ReportDrawer({
           onEdit={handleEdit}
         />
 
-        <DrawerActions
-          onDone={handleClose}
-        />
+        {onNext ? (
+          <DrawerActions
+            onNext={handleCloseButton}
+          />
+        ) : (
+          <DrawerActions
+            onDone={handleCloseButton}
+          />
+        )}
       </BaseDrawer>
 
       {canEdit && (

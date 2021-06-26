@@ -12,7 +12,7 @@ import {
 } from '@material-ui/core';
 import { getItemName, Item, ItemNote } from '../../../state/items';
 import ConfirmationDialog from '../../ConfirmationDialog';
-import { DeleteIcon, ReportIcon, SaveIcon } from '../../Icons';
+import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -41,6 +41,7 @@ export interface PropsWithSave extends BaseProps {
   onCancel: () => void,
   onDelete: () => void,
   onDone?: undefined,
+  onNext?: undefined,
   onReport?: () => void,
   onSave: () => void,
 }
@@ -50,11 +51,22 @@ export interface PropsWithDone extends BaseProps {
   onCancel?: undefined,
   onDelete?: undefined,
   onDone: () => void,
+  onNext?: undefined,
   onReport?: undefined,
   onSave?: undefined,
 }
 
-export type Props = PropsWithSave | PropsWithDone;
+export interface PropsWithNext extends BaseProps {
+  canSave?: undefined,
+  onCancel?: undefined,
+  onDelete?: undefined,
+  onDone?: undefined,
+  onNext: () => void,
+  onReport?: undefined,
+  onSave?: undefined,
+}
+
+export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
 
 
 function DrawerActions({
@@ -63,6 +75,7 @@ function DrawerActions({
   onCancel,
   onDelete,
   onDone,
+  onNext,
   onReport,
   onSave,
 }: Props) {
@@ -142,6 +155,20 @@ function DrawerActions({
               fullWidth
             >
               Done
+            </Button>
+          </Grid>
+        )}
+
+        {onNext && (
+          <Grid item xs={12}>
+            <Button
+              color="primary"
+              onClick={onNext}
+              variant="contained"
+              fullWidth
+              endIcon={<NextIcon />}
+            >
+              Next
             </Button>
           </Grid>
         )}

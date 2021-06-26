@@ -65,13 +65,15 @@ function PrayerPage() {
     (item: Item) => prayedForToday.findIndex(i => i.id === item.id) >= 0,
     [prayedForToday],
   );
-  const handlePrayedFor = useCallback(
-    (item: Item) => () => {
+  const recordPrayerFor = useCallback(
+    (item: Item, toggle = false) => {
       let prayedFor = item.prayedFor;
       if (isPrayedForToday(item)) {
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        prayedFor = prayedFor.filter(d => d < startOfDay.getTime());
+        if (toggle) {
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          prayedFor = prayedFor.filter(d => d < startOfDay.getTime());
+        }
       } else {
         prayedFor = [...prayedFor, new Date().getTime()];
       }
@@ -81,6 +83,10 @@ function PrayerPage() {
     },
     [dispatch, isPrayedForToday, vault],
   );
+  const handleClickPrayedFor = useCallback(
+    (item: Item) => () => recordPrayerFor(item, true),
+    [recordPrayerFor],
+  );
 
   const handleClick = useCallback(
     (item: Item) => () => {
@@ -89,9 +95,27 @@ function PrayerPage() {
     },
     [],
   );
+  const handleNext = useCallback(
+    () => {
+      const index = prayerSchedule.indexOf(currentItem);
+      recordPrayerFor(currentItem);
+      setCurrentItem(prayerSchedule[index + 1] || prayerSchedule[0]);
+    },
+    [currentItem, prayerSchedule, recordPrayerFor],
+  );
+  const handleDone = useCallback(
+    () => recordPrayerFor(currentItem),
+    [currentItem, recordPrayerFor],
+  );
   const handleClose = useCallback(() => setShowDrawer(false), []);
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
+
+  const currentItemIndex = prayerSchedule.indexOf(currentItem);
+  const isLastItemOfBatch = (
+    currentItemIndex === todaysSchedule.length - 1
+    || currentItemIndex === prayerSchedule.length - 1
+  );
 
   return (
     <Container maxWidth="xl" className={classes.root}>
@@ -110,9 +134,10 @@ function PrayerPage() {
           <Typography color="secondary">
             {completed} / {goal}
           </Typography>
+          <span>&nbsp;&nbsp;</span>
 
-          <IconButton onClick={handleEditGoal}>
-            <EditIcon />
+          <IconButton size="medium" onClick={handleEditGoal}>
+            <EditIcon fontSize="small" />
           </IconButton>
         </Grid>
 
@@ -128,7 +153,7 @@ function PrayerPage() {
             getChecked={isPrayedForToday}
             items={todaysSchedule}
             onClick={handleClick}
-            onCheck={handlePrayedFor}
+            onCheck={handleClickPrayedFor}
             noItemsText="No items in prayer schedule"
           />
         </Grid>
@@ -151,7 +176,7 @@ function PrayerPage() {
                 getChecked={isPrayedForToday}
                 items={upNextSchedule}
                 onClick={handleClick}
-                onCheck={handlePrayedFor}
+                onCheck={handleClickPrayedFor}
                 noItemsText="No more items in prayer schedule"
               />
             </Grid>
@@ -164,6 +189,8 @@ function PrayerPage() {
         item={currentItem}
         open={showDrawer}
         onClose={handleClose}
+        onDone={handleDone}
+        onNext={isLastItemOfBatch ? undefined : handleNext}
       />
 
       <GoalDialog
