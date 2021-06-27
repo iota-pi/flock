@@ -17,6 +17,7 @@ export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
 }
 
 export interface BaseItem {
+  created: number,
   description: string,
   id: ItemId,
   interactionFrequency: Frequency,
@@ -124,6 +125,7 @@ export function getBlankNote<T extends ItemNoteType>(type: T): ItemNote<T> {
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
   return {
+    created: new Date().getTime(),
     description: '',
     id: id || getItemId(),
     interactionFrequency: 'monthly',

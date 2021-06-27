@@ -2,18 +2,23 @@ import { isSameDay } from '.';
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies';
 import { compareItems, Item } from '../state/items';
 
-export function getLastPrayedFor(item: Item, excludeToday = false) {
+export function getLastPrayedFor(
+  item: Item,
+  excludeToday = false,
+  useItemCreatedAsFallback = false,
+) {
   const prayedFor = (
     excludeToday ? item.prayedFor.filter(d => !isSameDay(new Date(d), new Date())) : item.prayedFor
   );
-  return prayedFor[prayedFor.length - 1] || 0;
+  const fallback = useItemCreatedAsFallback ? item.created : 0;
+  return prayedFor[prayedFor.length - 1] || fallback;
 }
 
 export function getPrayerSchedule(items: Item[]) {
   const withNextSchedule: [Item, number][] = items.map(
     item => [
       item,
-      getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
+      getLastPrayedFor(item, true, true) + frequencyToMilliseconds(item.prayerFrequency),
     ],
   );
   withNextSchedule.sort(
