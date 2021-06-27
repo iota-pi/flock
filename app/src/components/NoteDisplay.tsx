@@ -95,7 +95,7 @@ export interface Props {
 
 
 function AddNoteButton(
-  { onClick }: { onClick: () => void },
+  { label, onClick }: { label: string, onClick: () => void },
 ) {
   return (
     <Button
@@ -104,7 +104,7 @@ function AddNoteButton(
       variant="outlined"
       onClick={onClick}
     >
-      Add Note
+      {label}
     </Button>
   );
 }
@@ -254,6 +254,18 @@ function NoteDisplay({
     [excludeTypes],
   );
 
+  const addNoteLabel = useMemo(
+    () => {
+      if (filterType === 'interaction') {
+        return 'Add Interaction';
+      } else if (filterType === 'prayer') {
+        return 'Add Prayer Point';
+      }
+      return 'Add Note';
+    },
+    [filterType],
+  );
+
   return (
     <>
       <div className={classes.notesHeader}>
@@ -286,7 +298,10 @@ function NoteDisplay({
       </div>
 
       {!ascendingNotes && (
-        <AddNoteButton onClick={handleAddNote} />
+        <AddNoteButton
+          label={addNoteLabel}
+          onClick={handleAddNote}
+        />
       )}
 
       <Grid container spacing={2}>
@@ -405,7 +420,10 @@ function NoteDisplay({
       </Grid>
 
       {ascendingNotes && (
-        <AddNoteButton onClick={handleAddNote} />
+        <AddNoteButton
+          label={addNoteLabel}
+          onClick={handleAddNote}
+        />
       )}
     </>
   );
