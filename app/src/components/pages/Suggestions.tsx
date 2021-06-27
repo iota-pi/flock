@@ -1,6 +1,4 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Container, Grid, Typography } from '@material-ui/core';
 import { useItems } from '../../state/selectors';
 import ItemList from '../ItemList';
 import { PersonItem } from '../../state/items';
@@ -8,27 +6,8 @@ import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/i
 import PersonDrawer from '../drawers/Person';
 import { formatDate } from '../../utils';
 
-const useStyles = makeStyles(theme => ({
-  root: {
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-  },
-  heading: {
-    fontWeight: 300,
-  },
-  flexRightLarge: {
-    display: 'flex',
-    alignItems: 'center',
-
-    [theme.breakpoints.up('md')]: {
-      justifyContent: 'flex-end',
-    },
-  },
-}));
-
 
 function SuggestionsPage() {
-  const classes = useStyles();
   const people = useItems<PersonItem>('person');
 
   const [currentItem, setCurrentItem] = useState<PersonItem>(people[0]);
@@ -56,23 +35,13 @@ function SuggestionsPage() {
   );
 
   return (
-    <Container maxWidth="xl" className={classes.root}>
-      <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <Typography variant="h4" className={classes.heading}>
-            Interaction Suggestions
-          </Typography>
-        </Grid>
-
-        <Grid item xs={12}>
-          <ItemList
-            getDescription={getDescription}
-            items={suggestions}
-            onClick={handleClick}
-            noItemsText="No interaction suggestions"
-          />
-        </Grid>
-      </Grid>
+    <>
+      <ItemList
+        getDescription={getDescription}
+        items={suggestions}
+        onClick={handleClick}
+        noItemsText="No interaction suggestions"
+      />
 
       <PersonDrawer
         item={currentItem}
@@ -80,7 +49,7 @@ function SuggestionsPage() {
         onClose={handleClose}
         initialNotesType="interaction"
       />
-    </Container>
+    </>
   );
 }
 
