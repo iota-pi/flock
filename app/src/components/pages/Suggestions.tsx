@@ -40,7 +40,7 @@ function SuggestionsPage() {
         getDescription={getDescription}
         items={suggestions}
         onClick={handleClick}
-        noItemsText="No interaction suggestions"
+        noItemsText="Nice! You're all caught up"
       />
 
       <PersonDrawer
