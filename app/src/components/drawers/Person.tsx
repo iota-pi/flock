@@ -16,6 +16,7 @@ import {
   getBlankPerson,
   GroupItem,
   ItemNote,
+  ItemNoteType,
   PersonItem,
   updateItems,
 } from '../../state/items';
@@ -31,6 +32,7 @@ import FrequencyControls from '../FrequencyControls';
 
 export interface Props extends ItemDrawerProps {
   item: PersonItem | undefined,
+  initialNotesType?: ItemNoteType,
 }
 
 
@@ -40,6 +42,7 @@ function PersonDrawer({
   open,
   item: person,
   stacked,
+  initialNotesType,
 }: Props) {
   const dispatch = useAppDispatch();
   const vault = useVault();
@@ -255,6 +258,7 @@ function PersonDrawer({
             <NoteDisplay
               notes={localPerson.notes}
               onChange={handleChangeNotes}
+              initialNotesType={initialNotesType}
             />
           </Grid>
         </Grid>

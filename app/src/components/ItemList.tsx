@@ -34,6 +34,7 @@ export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
+  getDescription?: (item: T) => ReactNode,
   items: T[],
   noItemsHint?: string,
   noItemsText?: string,
@@ -60,6 +61,7 @@ function ItemList<T extends Item>({
   className,
   dividers,
   getChecked,
+  getDescription,
   items,
   noItemsHint,
   noItemsText,
@@ -119,7 +121,7 @@ function ItemList<T extends Item>({
             )}
             <ListItemText
               primary={getItemName(item)}
-              secondary={item.description}
+              secondary={getDescription ? getDescription(item) : item.description}
               className={getChecked && getChecked(item) ? classes.faded : undefined}
               id={`${item.id}-text`}
             />

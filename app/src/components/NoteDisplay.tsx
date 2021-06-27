@@ -90,6 +90,7 @@ export interface Props {
   notes: ItemNote[],
   onChange: (notes: ItemNote[]) => void,
   excludeTypes?: ItemNoteType[],
+  initialNotesType?: ItemNoteType | typeof ALL_TYPES,
 }
 
 
@@ -113,11 +114,12 @@ function NoteDisplay({
   notes: rawNotes,
   onChange,
   excludeTypes = [],
+  initialNotesType = ALL_TYPES,
 }: Props) {
   const classes = useStyles();
 
   const [ascendingNotes, setAscendingNotes] = useState(false);
-  const [filterType, setFilterType] = useState<ItemNoteType | typeof ALL_TYPES>(ALL_TYPES);
+  const [filterType, setFilterType] = useState<ItemNoteType | typeof ALL_TYPES>(initialNotesType);
   const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
 
   const notes = useMemo(

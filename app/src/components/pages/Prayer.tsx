@@ -121,8 +121,8 @@ function PrayerPage() {
     <Container maxWidth="xl" className={classes.root}>
       <Grid container spacing={2}>
         <Grid item xs={12} md={8}>
-          <Typography variant="h3" className={classes.heading}>
-            Prayer Schedule
+          <Typography variant="h4" className={classes.heading}>
+            Today
           </Typography>
         </Grid>
 
@@ -139,12 +139,6 @@ function PrayerPage() {
           <IconButton size="medium" onClick={handleEditGoal}>
             <EditIcon fontSize="small" />
           </IconButton>
-        </Grid>
-
-        <Grid item xs={12}>
-          <Typography variant="h4" className={classes.heading}>
-            Today
-          </Typography>
         </Grid>
 
         <Grid item xs={12}>

@@ -9,7 +9,7 @@ import FrequencyPicker from './FrequencyPicker';
 import { Due, Frequency, isDue } from '../utils/frequencies';
 import { InteractionIcon, PrayerIcon } from './Icons';
 import { getLastPrayedFor } from '../utils/prayer';
-import { getLastInteraction } from '../utils/interactions';
+import { getLastInteractionDate } from '../utils/interactions';
 import { formatDate } from '../utils';
 
 
@@ -42,7 +42,7 @@ function FrequencyControls({
 }: Props) {
   const classes = useStyles();
   const lastPrayer = getLastPrayedFor(item);
-  const lastInteraction = getLastInteraction(item)?.date;
+  const lastInteraction = item.type === 'person' ? getLastInteractionDate(item) : 0;
 
   let lastPrayerText: string = 'never';
   let lastPrayerClass: string = '';
