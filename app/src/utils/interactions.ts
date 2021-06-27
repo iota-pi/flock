@@ -1,5 +1,5 @@
 import { compareItems, ItemNote, PersonItem } from '../state/items';
-import { frequencyToMilliseconds } from './frequencies';
+import { Due, frequencyToMilliseconds, isDue } from './frequencies';
 
 
 export function getInteractions(item: PersonItem): ItemNote<'interaction'>[] {
@@ -23,7 +23,10 @@ export function getLastInteractionDate(
 }
 
 export function getInteractionSuggestions(items: PersonItem[]) {
-  const withNextSchedule: [PersonItem, number][] = items.map(
+  const dueItems = items.filter(
+    item => isDue(new Date(getLastInteractionDate(item)), item.interactionFrequency) !== Due.fine,
+  );
+  const withNextSchedule: [PersonItem, number][] = dueItems.map(
     item => [
       item,
       getLastInteractionDate(item, true) + frequencyToMilliseconds(item.interactionFrequency),
