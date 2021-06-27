@@ -25,16 +25,25 @@ const useStyles = makeStyles(theme => ({
     alignItems: 'center',
     paddingRight: theme.spacing(2),
   },
+  faded: {
+    opacity: 0.85,
+    fontWeight: 300,
+  },
 }));
 
 function ItemOption({
   item,
   showIcons,
+  showGroupMemberCount,
 }: {
   item: Item,
   showIcons: boolean,
+  showGroupMemberCount: boolean,
 }) {
   const classes = useStyles();
+  const groupMembers = item.type === 'group' ? item.members.length : 0;
+  const plural = groupMembers !== 1 ? 's' : '';
+  const groupMembersText = ` (${groupMembers} member${plural})`;
 
   return (
     <div className={classes.autocompleteOption}>
@@ -46,6 +55,10 @@ function ItemOption({
 
       <div>
         {getItemName(item)}
+
+        <span className={classes.faded}>
+          {showGroupMemberCount && item.type === 'group' ? groupMembersText : ''}
+        </span>
       </div>
     </div>
   );
@@ -58,6 +71,7 @@ export interface Props<T extends Item> {
   noItemsText?: string,
   onSelect: (item?: T) => void,
   selectedIds: ItemId[],
+  showGroupMemberCount?: boolean,
   showIcons?: boolean,
   showSelected?: boolean,
 }
@@ -78,6 +92,7 @@ function ItemSearch<T extends Item = Item>({
   noItemsText,
   onSelect,
   selectedIds,
+  showGroupMemberCount = false,
   showIcons = false,
   showSelected = true,
 }: Props<T>) {
@@ -120,7 +135,13 @@ function ItemSearch<T extends Item = Item>({
           variant="outlined"
         />
       )}
-      renderOption={item => <ItemOption item={item} showIcons={showIcons} />}
+      renderOption={item => (
+        <ItemOption
+          item={item}
+          showIcons={showIcons}
+          showGroupMemberCount={showGroupMemberCount}
+        />
+      )}
       renderTags={tagItems => (
         tagItems.map(item => (
           <Chip

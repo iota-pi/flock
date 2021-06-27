@@ -208,10 +208,11 @@ function InteractionDrawer({
             <ItemSearch
               autoFocus
               items={items}
-              label="Object of Interaction"
+              label="People"
               noItemsText="No people found"
               onSelect={handleAddItem}
               selectedIds={linkedItems.map(item => item.id)}
+              showGroupMemberCount
               showIcons
               showSelected={isEditing}
             />
