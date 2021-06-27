@@ -2,7 +2,7 @@ export { default as AddIcon } from '@material-ui/icons/Add';
 export { default as BackIcon } from '@material-ui/icons/ChevronLeft';
 export { default as DeleteIcon } from '@material-ui/icons/DeleteOutline';
 export { default as EditIcon } from '@material-ui/icons/Edit';
-export { default as EventsIcon } from '@material-ui/icons/Event';
+export { default as GeneralIcon } from '@material-ui/icons/Event';
 export { default as GroupsIcon } from '@material-ui/icons/GroupWork';
 export { default as InteractionIcon } from '@material-ui/icons/QuestionAnswer';
 export { default as NextIcon } from '@material-ui/icons/ChevronRight';

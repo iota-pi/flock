@@ -17,10 +17,12 @@ import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { KeyboardDatePicker } from '@material-ui/pickers';
 import {
+  compareItems,
   getBlankNote,
   getItemById,
   Item,
   ItemNote,
+  lookupItemsById,
   updateItems,
 } from '../../state/items';
 import { useItems, useNoteMap, useVault } from '../../state/selectors';
@@ -28,6 +30,9 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
 import DrawerActions from './utils/DrawerActions';
+import ItemList from '../ItemList';
+import { RemoveIcon } from '../Icons';
+import { getItemId } from '../../utils';
 
 export interface Props extends ItemDrawerProps {
   interaction: ItemNote<'interaction'> | undefined,
@@ -43,23 +48,33 @@ function InteractionDrawer({
 }: Props) {
   const dispatch = useAppDispatch();
   const vault = useVault();
-  const items = useItems();
+  const allItems = useItems();
   const noteMap = useNoteMap();
 
+  const isEditing = !!rawInteraction;
   const [interaction, setInteraction] = useState(rawInteraction || getBlankNote('interaction'));
-  const [linkedItem, setLinkedItem] = useState<Item>();
+  const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
+
+  const items = useMemo(
+    () => (
+      allItems.filter(
+        item => item.type === 'person' || (!isEditing && item.type === 'group'),
+      ).sort(compareItems)
+    ),
+    [allItems, isEditing],
+  );
 
   useEffect(
     () => {
       if (rawInteraction) {
         setInteraction(rawInteraction);
         const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
-        setLinkedItem(existingLinkedItem);
+        setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
         setShowSensitive(false);
       } else {
         setInteraction(getBlankNote('interaction'));
-        setLinkedItem(undefined);
+        setLinkedItems([]);
         setShowSensitive(false);
       }
     },
@@ -73,9 +88,26 @@ function InteractionDrawer({
     },
     [interaction],
   );
-  const handleChangePerson = useCallback(
+  const handleAddItem = useCallback(
     (item?: Item) => {
-      setLinkedItem(item);
+      if (item) {
+        const newItems = item.type === 'group' ? lookupItemsById(items, item.members) : [item];
+
+        if (isEditing) {
+          setLinkedItems(newItems);
+        } else {
+          setLinkedItems(prev => {
+            const uniqueNewItems = newItems.filter(i1 => !prev.find(i2 => i1.id === i2.id));
+            return [...prev, ...uniqueNewItems];
+          });
+        }
+      }
+    },
+    [isEditing, items],
+  );
+  const handleUnlinkItem = useCallback(
+    (item: Item) => () => {
+      setLinkedItems(prev => prev.filter(i => i.id !== item.id));
     },
     [],
   );
@@ -96,18 +128,20 @@ function InteractionDrawer({
 
   const handleSave = useCallback(
     async () => {
-      const newNote: ItemNote<'interaction'> = {
+      let newNote: ItemNote<'interaction'> = {
         ...interaction,
         content: interaction.content.trim(),
       };
-      if (newNote.content && linkedItem) {
-        const itemsToUpdate: Item[] = [];
-        const oldItem = getItemById(items, noteMap[interaction.id]);
-        if (oldItem && oldItem.id !== linkedItem.id) {
-          itemsToUpdate.push({
-            ...oldItem,
-            notes: oldItem.notes.filter(note => note.id !== interaction.id),
-          });
+      const itemsToUpdate: Item[] = [];
+      for (const linkedItem of linkedItems) {
+        if (isEditing) {
+          const oldItem = getItemById(items, noteMap[interaction.id]);
+          if (oldItem && oldItem.id !== linkedItem.id) {
+            itemsToUpdate.push({
+              ...oldItem,
+              notes: oldItem.notes.filter(note => note.id !== interaction.id),
+            });
+          }
         }
 
         itemsToUpdate.push({
@@ -118,15 +152,17 @@ function InteractionDrawer({
           ],
         });
 
-        for (const item of itemsToUpdate) {
-          vault?.store(item);
-        }
-        dispatch(updateItems(itemsToUpdate));
-        setInteraction(getBlankNote('interaction'));
+        // Update interaction id between each linked item
+        newNote = { ...newNote, id: getItemId() };
       }
+      for (const item of itemsToUpdate) {
+        vault?.store(item);
+      }
+      dispatch(updateItems(itemsToUpdate));
+      setInteraction(getBlankNote('interaction'));
       onClose();
     },
-    [dispatch, interaction, items, linkedItem, noteMap, onClose, vault],
+    [dispatch, interaction, isEditing, items, linkedItems, noteMap, onClose, vault],
   );
   const handleCancel = useCallback(
     () => {
@@ -171,12 +207,24 @@ function InteractionDrawer({
           <Grid item xs={12}>
             <ItemSearch
               autoFocus
-              selectedIds={linkedItem ? [linkedItem.id] : []}
               items={items}
               label="Object of Interaction"
               noItemsText="No people found"
-              onSelect={handleChangePerson}
+              onSelect={handleAddItem}
+              selectedIds={linkedItems.map(item => item.id)}
+              showIcons
+              showSelected={isEditing}
             />
+
+            {!isEditing && (
+              <ItemList
+                actionIcon={<RemoveIcon />}
+                dividers
+                items={linkedItems}
+                noItemsHint="No people selected"
+                onClickAction={handleUnlinkItem}
+              />
+            )}
           </Grid>
 
           <Grid item xs={12}>
@@ -225,7 +273,7 @@ function InteractionDrawer({
         </Grid>
 
         <DrawerActions
-          canSave={!!linkedItem}
+          canSave={linkedItems.length > 0}
           item={rawInteraction}
           onCancel={handleCancel}
           onDelete={handleDelete}

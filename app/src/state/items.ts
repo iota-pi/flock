@@ -187,7 +187,7 @@ export function compareNames(
   return +(a.name > b.name) - +(a.name < b.name);
 }
 
-export function compareIds(a: Item, b: Item) {
+export function compareIds(a: Item | ItemNote, b: Item | ItemNote) {
   return +(a.id > b.id) - +(a.id < b.id);
 }
 
@@ -202,7 +202,7 @@ export function compareItems(a: Item, b: Item) {
 
 export function compareNotes(a: ItemNote, b: ItemNote): number {
   // Sort notes in descending order of date by default
-  return +(a.date < b.date) - +(a.date > b.date);
+  return b.date - a.date || compareIds(a, b);
 }
 
 export function getItemById<T extends Item>(items: T[], id: ItemId): T | undefined {

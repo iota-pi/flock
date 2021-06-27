@@ -3,7 +3,7 @@ import { Switch, Route } from 'react-router-dom';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
-  EventsIcon,
+  GeneralIcon,
   GroupsIcon,
   InteractionIcon,
   PersonIcon,
@@ -80,7 +80,7 @@ export const pages: Page[] = [
     id: 'general',
     path: '/general',
     name: 'Prayer Items',
-    icon: <EventsIcon />,
+    icon: <GeneralIcon />,
     page: <EventsPage />,
     requiresAuth: true,
   },

@@ -3,7 +3,7 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import { TextField } from '@material-ui/core';
+import { Chip, makeStyles, TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import {
   getItemName,
@@ -11,7 +11,45 @@ import {
   ItemId,
   lookupItemsById,
 } from '../state/items';
+import { GeneralIcon, GroupsIcon, PersonIcon } from './Icons';
 
+const useStyles = makeStyles(theme => ({
+  autocompleteOption: {
+    display: 'flex',
+    alignItems: 'center',
+    paddingTop: theme.spacing(1),
+    paddingBottom: theme.spacing(1),
+  },
+  optionIcon: {
+    display: 'flex',
+    alignItems: 'center',
+    paddingRight: theme.spacing(2),
+  },
+}));
+
+function ItemOption({
+  item,
+  showIcons,
+}: {
+  item: Item,
+  showIcons: boolean,
+}) {
+  const classes = useStyles();
+
+  return (
+    <div className={classes.autocompleteOption}>
+      {showIcons && (
+        <div className={classes.optionIcon}>
+          {getIcon(item)}
+        </div>
+      )}
+
+      <div>
+        {getItemName(item)}
+      </div>
+    </div>
+  );
+}
 
 export interface Props<T extends Item> {
   autoFocus?: boolean,
@@ -20,7 +58,17 @@ export interface Props<T extends Item> {
   noItemsText?: string,
   onSelect: (item?: T) => void,
   selectedIds: ItemId[],
+  showIcons?: boolean,
   showSelected?: boolean,
+}
+
+export function getIcon(item: Item) {
+  if (item.type === 'person') {
+    return <PersonIcon />;
+  } else if (item.type === 'group') {
+    return <GroupsIcon />;
+  }
+  return <GeneralIcon />;
 }
 
 function ItemSearch<T extends Item = Item>({
@@ -30,6 +78,7 @@ function ItemSearch<T extends Item = Item>({
   noItemsText,
   onSelect,
   selectedIds,
+  showIcons = false,
   showSelected = true,
 }: Props<T>) {
   const filterFunc = useMemo(
@@ -71,7 +120,16 @@ function ItemSearch<T extends Item = Item>({
           variant="outlined"
         />
       )}
-      renderOption={item => getItemName(item)}
+      renderOption={item => <ItemOption item={item} showIcons={showIcons} />}
+      renderTags={tagItems => (
+        tagItems.map(item => (
+          <Chip
+            key={item.id}
+            label={getItemName(item)}
+            icon={getIcon(item)}
+          />
+        ))
+      )}
       value={showSelected ? selectedItems : [] as T[]}
     />
   );
