@@ -32,11 +32,13 @@ const useStyles = makeStyles(theme => ({
 export interface Props {
   item: Item,
   onChange: (key: 'interactionFrequency' | 'prayerFrequency') => (value: Frequency) => void,
+  noInteractions?: boolean,
 }
 
 function FrequencyControls({
   item,
   onChange,
+  noInteractions = false,
 }: Props) {
   const classes = useStyles();
   const lastPrayer = getLastPrayedFor(item);
@@ -68,7 +70,7 @@ function FrequencyControls({
 
   return (
     <>
-      <Grid item xs={12} sm={6}>
+      <Grid item xs={12} sm={noInteractions ? 12 : 6}>
         <FrequencyPicker
           frequency={item.prayerFrequency}
           onChange={onChange('prayerFrequency')}
@@ -87,24 +89,26 @@ function FrequencyControls({
         ) : null}
       </Grid>
 
-      <Grid item xs={12} sm={6}>
-        <FrequencyPicker
-          frequency={item.interactionFrequency}
-          onChange={onChange('interactionFrequency')}
-          label="Interaction Frequency"
-          icon={<InteractionIcon />}
-          fullWidth
-        />
+      {!noInteractions && (
+        <Grid item xs={12} sm={6}>
+          <FrequencyPicker
+            frequency={item.interactionFrequency}
+            onChange={onChange('interactionFrequency')}
+            label="Interaction Frequency"
+            icon={<InteractionIcon />}
+            fullWidth
+          />
 
-        {lastInteractionText ? (
-          <div className={classes.subscript}>
-            {'Last interaction: '}
-            <span className={`${classes.baseDate} ${lastInteractionClass}`}>
-              {lastInteractionText}
-            </span>
-          </div>
-        ) : null}
-      </Grid>
+          {lastInteractionText ? (
+            <div className={classes.subscript}>
+              {'Last interaction: '}
+              <span className={`${classes.baseDate} ${lastInteractionClass}`}>
+                {lastInteractionText}
+              </span>
+            </div>
+          ) : null}
+        </Grid>
+      )}
     </>
   );
 }

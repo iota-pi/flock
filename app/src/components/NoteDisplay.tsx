@@ -73,24 +73,24 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-export interface Props {
-  notes: ItemNote[],
-  onChange: (notes: ItemNote[]) => void,
-}
-
-
 const ALL_TYPES = 'all';
-export const noteFilterOptions: [ItemNoteType | typeof ALL_TYPES, string][] = [
+export const NOTE_FILTER_OPTIONS: [ItemNoteType | typeof ALL_TYPES, string][] = [
   [ALL_TYPES, 'All notes'],
   ['general', 'General notes'],
   ['prayer', 'Prayer points'],
   ['interaction', 'Interactions'],
 ];
-export const noteTypeOptions: [ItemNoteType, string][] = [
+export const NOTE_TYPE_OPTIONS: [ItemNoteType, string][] = [
   ['general', 'General'],
   ['prayer', 'Prayer Point'],
   ['interaction', 'Interaction'],
 ];
+
+export interface Props {
+  notes: ItemNote[],
+  onChange: (notes: ItemNote[]) => void,
+  excludeTypes?: ItemNoteType[],
+}
 
 
 function AddNoteButton(
@@ -112,6 +112,7 @@ function AddNoteButton(
 function NoteDisplay({
   notes: rawNotes,
   onChange,
+  excludeTypes = [],
 }: Props) {
   const classes = useStyles();
 
@@ -236,6 +237,19 @@ function NoteDisplay({
   const isNoteVisible = useCallback(
     (note: ItemNote) => !note.sensitive || visibleSensitives.includes(note.id),
     [visibleSensitives],
+  );
+
+  const noteFilterOptions = useMemo(
+    () => NOTE_FILTER_OPTIONS.filter(
+      ([t]) => !excludeTypes.includes(t as ItemNoteType),
+    ),
+    [excludeTypes],
+  );
+  const noteTypeOptions = useMemo(
+    () => NOTE_TYPE_OPTIONS.filter(
+      ([t]) => !excludeTypes.includes(t),
+    ),
+    [excludeTypes],
   );
 
   return (

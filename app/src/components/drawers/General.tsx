@@ -142,12 +142,13 @@ function GeneralDrawer({
           <Grid item />
           <Grid item xs={12}>
             <Typography variant="h5">
-              Desired frequencies
+              Desired frequency
             </Typography>
           </Grid>
 
           <FrequencyControls
             item={localItem}
+            noInteractions
             onChange={handleChangeFrequency}
           />
 
@@ -160,6 +161,7 @@ function GeneralDrawer({
 
           <Grid item xs={12}>
             <NoteDisplay
+              excludeTypes={['interaction']}
               notes={localItem.notes}
               onChange={handleChangeNotes}
             />

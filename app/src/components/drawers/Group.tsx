@@ -163,12 +163,13 @@ function GroupDrawer({
           <Grid item />
           <Grid item xs={12}>
             <Typography variant="h5">
-              Desired frequencies
+              Desired frequency
             </Typography>
           </Grid>
 
           <FrequencyControls
             item={localGroup}
+            noInteractions
             onChange={handleChangeFrequency}
           />
 
@@ -196,6 +197,7 @@ function GroupDrawer({
 
           <Grid item xs={12}>
             <NoteDisplay
+              excludeTypes={['interaction']}
               notes={localGroup.notes}
               onChange={handleChangeNotes}
             />
