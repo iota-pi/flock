@@ -170,6 +170,7 @@ function InteractionDrawer({
         <Grid container spacing={2}>
           <Grid item xs={12}>
             <ItemSearch
+              autoFocus
               selectedIds={linkedItem ? [linkedItem.id] : []}
               items={items}
               label="Object of Interaction"
@@ -180,12 +181,12 @@ function InteractionDrawer({
 
           <Grid item xs={12}>
             <TextField
-              value={!isVisible ? '...' : interaction.content}
-              onChange={handleChange}
               disabled={!isVisible}
-              label="Interaction details"
-              multiline
               fullWidth
+              label="Comment"
+              multiline
+              onChange={handleChange}
+              value={!isVisible ? '...' : interaction.content}
               InputProps={{
                 endAdornment: interaction.sensitive ? (
                   <InputAdornment position="end">
@@ -224,7 +225,7 @@ function InteractionDrawer({
         </Grid>
 
         <DrawerActions
-          canSave={!!interaction.content}
+          canSave={!!linkedItem}
           item={rawInteraction}
           onCancel={handleCancel}
           onDelete={handleDelete}

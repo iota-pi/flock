@@ -14,20 +14,22 @@ import {
 
 
 export interface Props<T extends Item> {
-  selectedIds: ItemId[],
+  autoFocus?: boolean,
   items: T[],
   label: string,
   noItemsText?: string,
   onSelect: (item?: T) => void,
+  selectedIds: ItemId[],
   showSelected?: boolean,
 }
 
 function ItemSearch<T extends Item = Item>({
-  selectedIds,
+  autoFocus = false,
   items,
   label,
   noItemsText,
   onSelect,
+  selectedIds,
   showSelected = true,
 }: Props<T>) {
   const filterFunc = useMemo(
@@ -64,6 +66,7 @@ function ItemSearch<T extends Item = Item>({
       renderInput={params => (
         <TextField
           {...params}
+          autoFocus={autoFocus}
           label={label}
           variant="outlined"
         />
