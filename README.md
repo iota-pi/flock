@@ -1,4 +1,7 @@
-# Pastoral Relationship Management (pending name)
+# Flock
+
+Flock is Pastoral Relationship Management software (PRM). Our prayer is that
+Flock will help you to care diligently for the flock of God that is among you.
 
 ## Set up
 
