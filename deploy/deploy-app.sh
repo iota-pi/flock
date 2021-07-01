@@ -6,6 +6,7 @@ source .env
 outputs="$(./tf.sh output -json)"
 environment=$(echo "$outputs" | jq -r ".environment.value")
 app_bucket=$(echo "$outputs" | jq -r ".app_bucket.value")
+vault_endpoint=$(echo "$outputs" | jq -r ".vault_endpoint.value")
 
 if [[ -z $app_bucket || $app_bucket == null ]]; then
   echo "App bucket has not been deployed yet. Skipping building app."
@@ -26,11 +27,12 @@ fi
 environment_hyphens=$(echo $environment | sed 's/./-/g')
 echo "Deploying app to $environment"
 echo "-----------------$environment_hyphens"
-REACT_APP_BASE_URL=$APP_NAME.cross-code.org
+REACT_APP_BASE_URL="$APP_NAME.cross-code.org"
 if [[ $environment != "production" ]]; then
-  REACT_APP_BASE_URL=$environment.$REACT_APP_BASE_URL
+  REACT_APP_BASE_URL="$environment.$REACT_APP_BASE_URL"
 fi
 export REACT_APP_BASE_URL
+export REACT_APP_VAULT_ENDPOINT="$vault_endpoint"
 
 max_age=0
 if [[ $environment == production ]]; then

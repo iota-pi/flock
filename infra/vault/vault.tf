@@ -22,6 +22,13 @@ resource "aws_lambda_function" "vault" {
 
   role = aws_iam_role.vault_role.arn
 
+  environment {
+    variables = {
+      ACCOUNTS_TABLE = aws_dynamodb_table.vault_accounts_table.name
+      ITEMS_TABLE    = aws_dynamodb_table.vault_items_table.name
+    }
+  }
+
   tags = local.standard_tags
 }
 
@@ -44,7 +51,7 @@ EOF
 }
 
 resource "aws_iam_policy" "vault_policy" {
-  description = "Lambda policy to allow logging"
+  description = "Lambda policy to allow writing to DynamoDB and logging"
 
   policy = <<EOF
 {
@@ -59,6 +66,24 @@ resource "aws_iam_policy" "vault_policy" {
         "logs:PutLogEvents"
       ],
       "Resource": ["arn:aws:logs:*:*:*"]
+    },
+    {
+      "Sid": "ReadWriteCreateTable",
+      "Effect": "Allow",
+      "Action": [
+          "dynamodb:BatchGetItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:CreateTable"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_accounts_table.name}",
+        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_items_table.name}"
+      ]
     }
   ]
 }
@@ -74,6 +99,40 @@ resource "aws_iam_role_policy_attachment" "vault_policy_attach" {
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${aws_lambda_function.vault.function_name}"
   retention_in_days = 14
+}
+
+
+resource "aws_dynamodb_table" "vault_accounts_table" {
+  name         = "FlockAccounts_${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "account"
+
+  attribute {
+    name = "account"
+    type = "S"
+  }
+
+  tags = local.standard_tags
+}
+
+
+resource "aws_dynamodb_table" "vault_items_table" {
+  name         = "FlockItems_${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "account"
+  range_key    = "item"
+
+  attribute {
+    name = "account"
+    type = "S"
+  }
+
+  attribute {
+    name = "item"
+    type = "S"
+  }
+
+  tags = local.standard_tags
 }
 
 

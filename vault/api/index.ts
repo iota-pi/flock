@@ -10,7 +10,10 @@ function createServer() {
   server.register(cookie);
   server.register(routes);
   server.register(cors, {
-    origin: [/^https?:\/\/localhost(:[0-9]+)?$/],
+    origin: [
+      /^https?:\/\/([^.]*\.)?flock\.cross-code\.org$/,
+      /^https?:\/\/localhost(:[0-9]+)?$/,
+    ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
   });
   return server;
