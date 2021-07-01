@@ -3,7 +3,7 @@ import cookie from 'fastify-cookie';
 import cors from 'fastify-cors';
 import routes from './routes';
 
-async function createServer() {
+function createServer() {
   const server: FastifyInstance = Fastify({
     logger: { level: 'info' },
   });

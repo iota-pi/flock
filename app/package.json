@@ -7,7 +7,7 @@
     "start": "yarn vault:dev && react-scripts start",
     "lint": "./node_modules/.bin/eslint src/ --ext .ts,.tsx",
     "test": "react-scripts test",
-    "vault:dev": "cd ../vault && docker-compose up -d"
+    "vault:dev": "cd .. && docker-compose up -d api"
   },
   "dependencies": {
     "@date-io/date-fns": "1.x",

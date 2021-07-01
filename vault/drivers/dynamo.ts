@@ -2,8 +2,8 @@ import AWS from 'aws-sdk';
 import { almostConstantTimeEqual } from '../util';
 import BaseDriver, { AuthData, VaultAccountWithAuth, VaultData, VaultItem, VaultKey } from './base';
 
-export const ACCOUNT_TABLE_NAME = 'PRMAccounts';
-export const ITEM_TABLE_NAME = 'PRMItems';
+export const ACCOUNT_TABLE_NAME = 'FlockAccounts';
+export const ITEM_TABLE_NAME = 'FlockItems';
 const DATA_ATTRIBUTES = ['metadata', 'cipher'];
 
 export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}

@@ -12,7 +12,7 @@ export interface SetVaultAction extends Action, VaultState {
   type: typeof SET_VAULT,
 }
 
-const VAULT_STORAGE_KEY = 'PRMVaultData';
+const VAULT_STORAGE_KEY = 'FlockVaultData';
 export async function loadVault(): Promise<Vault | null> {
   const jsonData = localStorage.getItem(VAULT_STORAGE_KEY);
   if (jsonData) {

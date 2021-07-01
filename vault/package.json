@@ -1,13 +1,14 @@
 {
   "name": "vault",
   "version": "1.0.0",
-  "description": "Storage solution and API for PRM",
+  "description": "Storage solution and API for Flock",
   "main": "index.ts",
   "author": "David Adams",
   "license": "MIT",
   "private": true,
   "dependencies": {
     "@types/node": "^15.0.1",
+    "aws-lambda-fastify": "^1.7.0",
     "aws-sdk": "^2.892.0",
     "fastify": "^3.15.0",
     "fastify-cookie": "^5.3.0",
@@ -19,7 +20,8 @@
   },
   "scripts": {
     "initdb": "ts-node drivers/init.ts",
-    "test": "jest --watch",
+    "test": "jest",
+    "build": "./build.sh",
     "dev": "nodemon api/runServer.ts",
     "docker:test": "docker-compose run --rm api npm test",
     "docker:initdb": "docker-compose run --rm api npm run initdb"
@@ -27,6 +29,8 @@
   "devDependencies": {
     "@types/jest": "^26.0.23",
     "jest": "^26.6.3",
-    "ts-jest": "^26.5.5"
+    "ts-jest": "^26.5.5",
+    "webpack": "^5.41.1",
+    "webpack-cli": "^4.7.2"
   }
 }
