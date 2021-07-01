@@ -13,7 +13,7 @@ resource "aws_lambda_function" "vault" {
   # is the name of the property under which the handler function was
   # exported in that file.
   handler     = "lambda.handler"
-  runtime     = "nodejs12.x"
+  runtime     = "nodejs14.x"
   memory_size = 256
   timeout     = 5
 
@@ -159,7 +159,25 @@ resource "aws_api_gateway_resource" "vault_proxy" {
   path_part   = "{proxy+}"
 }
 
-resource "aws_api_gateway_method" "vault_proxy_root" {
+resource "aws_api_gateway_method" "vault_proxy_method" {
+  rest_api_id   = aws_api_gateway_rest_api.vault_gateway.id
+  resource_id   = aws_api_gateway_resource.vault_proxy.id
+  http_method   = "ANY"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "vault_lambda" {
+  rest_api_id = aws_api_gateway_rest_api.vault_gateway.id
+  resource_id = aws_api_gateway_method.vault_proxy_method.resource_id
+  http_method = aws_api_gateway_method.vault_proxy_method.http_method
+
+  integration_http_method = "POST"
+
+  type = "AWS_PROXY"
+  uri  = aws_lambda_function.vault.invoke_arn
+}
+
+resource "aws_api_gateway_method" "vault_proxy_method_root" {
   rest_api_id   = aws_api_gateway_rest_api.vault_gateway.id
   resource_id   = aws_api_gateway_rest_api.vault_gateway.root_resource_id
   http_method   = "ANY"
@@ -168,8 +186,8 @@ resource "aws_api_gateway_method" "vault_proxy_root" {
 
 resource "aws_api_gateway_integration" "vault_lambda_root" {
   rest_api_id = aws_api_gateway_rest_api.vault_gateway.id
-  resource_id = aws_api_gateway_method.vault_proxy_root.resource_id
-  http_method = aws_api_gateway_method.vault_proxy_root.http_method
+  resource_id = aws_api_gateway_method.vault_proxy_method_root.resource_id
+  http_method = aws_api_gateway_method.vault_proxy_method_root.http_method
 
   integration_http_method = "POST"
 
@@ -178,10 +196,16 @@ resource "aws_api_gateway_integration" "vault_lambda_root" {
 }
 
 resource "aws_api_gateway_deployment" "vault_deployment" {
-  depends_on = [
-    aws_api_gateway_integration.vault_lambda_root,
-    aws_cloudwatch_log_group.debugging,
-  ]
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.vault_proxy.id,
+      aws_api_gateway_method.vault_proxy_method.id,
+      aws_api_gateway_method.vault_proxy_method_root.id,
+      aws_api_gateway_integration.vault_lambda.id,
+      aws_api_gateway_integration.vault_lambda_root.id,
+      aws_cloudwatch_log_group.debugging.id,
+    ]))
+  }
 
   rest_api_id = aws_api_gateway_rest_api.vault_gateway.id
   stage_name  = var.environment

@@ -17,6 +17,8 @@ services:
     command: yarn dev
     depends_on:
       - dynamodb
+    environment:
+      - DYNAMODB_ENDPOINT=http://dynamodb:8000
     ports:
       - 4000:4000
     volumes:

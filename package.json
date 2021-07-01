@@ -1,4 +1,5 @@
 {
+  "license": "MIT",
   "scripts": {
     "deploy": "./deploy/deploy.sh"
   }

@@ -192,7 +192,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
 export function getConnectionParams(options?: DynamoOptions): DynamoOptions {
   return {
     region: 'ap-southeast-2',
-    endpoint: 'http://dynamodb:8000',
+    endpoint: process.env.DYNAMODB_ENDPOINT,
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
     ...options,
   };

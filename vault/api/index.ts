@@ -11,7 +11,7 @@ function createServer() {
   server.register(routes);
   server.register(cors, {
     origin: [
-      /^https?:\/\/([^.]*\.)?flock\.cross-code\.org$/,
+      /^https?:\/\/([^.]+\.)?flock\.cross-code\.org$/,
       /^https?:\/\/localhost(:[0-9]+)?$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
