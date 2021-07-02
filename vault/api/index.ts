@@ -6,7 +6,7 @@ import routes from './routes';
 
 function createServer() {
   const server: FastifyInstance = Fastify({
-    logger: { level: 'info' },
+    logger: { level: 'warn' },
   });
   server.register(cookie);
   server.register(routes);
