@@ -70,8 +70,13 @@ const useStyles = makeStyles(theme => ({
 const api = new VaultAPI();
 
 function scorePassword(password: string): zxcvbn.ZXCVBNResult {
-  const mainScore = zxcvbn(password);
-  const harshScore = zxcvbn(password.substr(3));
+  const customDomainWords: string[] = [
+    'flock',
+    '1peter',
+    'cross-code.org',
+  ];
+  const mainScore = zxcvbn(password, customDomainWords);
+  const harshScore = zxcvbn(password.substr(3), customDomainWords);
   mainScore.score = Math.min(mainScore.score, harshScore.score) as zxcvbn.ZXCVBNScore;
   return mainScore;
 }
