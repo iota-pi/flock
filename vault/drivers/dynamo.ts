@@ -190,10 +190,14 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
 }
 
 export function getConnectionParams(options?: DynamoOptions): DynamoOptions {
-  return {
-    region: 'ap-southeast-2',
+  const customEndpoint = !!process.env.DYNAMODB_ENDPOINT;
+  const endpointArgs: DynamoOptions = customEndpoint ? {
     endpoint: process.env.DYNAMODB_ENDPOINT,
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
+  } : {};
+  return {
+    region: 'ap-southeast-2',
+    ...endpointArgs,
     ...options,
   };
 }
