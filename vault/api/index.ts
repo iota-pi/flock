@@ -2,11 +2,12 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cookie from 'fastify-cookie';
 import cors from 'fastify-cors';
 import routes from './routes';
-import logger from '../logging';
 
 
 function createServer() {
-  const server: FastifyInstance = Fastify({ logger });
+  const server: FastifyInstance = Fastify({
+    logger: { level: 'info' },
+  });
   server.register(cookie);
   server.register(routes);
   server.register(cors, {
