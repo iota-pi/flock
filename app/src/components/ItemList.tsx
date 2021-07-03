@@ -125,6 +125,8 @@ function ItemList<T extends Item>({
 
   return (
     <List className={className}>
+      {dividers && items.length === 0 && <Divider />}
+
       {items.map(item => (
         <React.Fragment key={item.id}>
           {dividers && <Divider />}
