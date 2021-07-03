@@ -1,7 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { updateMetadata } from './account';
-import { Item } from './items';
+import { getTags, Item } from './items';
 
 
 export function useItems<T extends Item>(itemType: T['type']): T[];
@@ -51,3 +51,12 @@ export function useMetadata<T = any>(
   );
   return [value, setValue];
 }
+
+export const useTags = () => {
+  const items = useItems();
+  const tags = useMemo(
+    () => getTags(items),
+    [items],
+  );
+  return tags;
+};

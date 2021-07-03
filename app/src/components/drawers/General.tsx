@@ -23,6 +23,7 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
+import TagSelection from '../TagSelection';
 
 export interface Props extends ItemDrawerProps {
   item: GeneralItem | undefined,
@@ -72,8 +73,12 @@ function GeneralDrawer({
     [localItem],
   );
   const handleChangeNotes = useCallback(
-    (newNotes: ItemNote[]) => setLocalItem({ ...localItem, notes: newNotes }),
-    [localItem],
+    (newNotes: ItemNote[]) => setLocalItem(i => ({ ...i, notes: newNotes })),
+    [],
+  );
+  const handleChangeTags = useCallback(
+    (newTags: string[]) => setLocalItem(i => ({ ...i, tags: newTags })),
+    [],
   );
   const handleSave = useCallback(
     async () => {
@@ -136,6 +141,13 @@ function GeneralDrawer({
               label="Description"
               multiline
               fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TagSelection
+              selectedTags={localItem.tags}
+              onChange={handleChangeTags}
             />
           </Grid>
 

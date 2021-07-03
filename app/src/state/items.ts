@@ -24,6 +24,7 @@ export interface BaseItem {
   prayedFor: number[],
   notes: ItemNote[],
   prayerFrequency: Frequency,
+  tags: string[],
   type: ItemType,
 }
 export interface PersonItem extends BaseItem {
@@ -132,6 +133,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     prayedFor: [],
     notes: [],
     prayerFrequency: 'monthly',
+    tags: [],
     type: 'person',
   };
 }
@@ -230,6 +232,10 @@ export function getNotes<T extends ItemNoteType = ItemNoteType>(
     return allNotes.filter(note => note.type === filterType) as ItemNote<T>[];
   }
   return allNotes as ItemNote<T>[];
+}
+
+export function getTags(items: Item[]) {
+  return Array.from(new Set(items.flatMap(item => item.tags))).sort();
 }
 
 export function supplyMissingAttributes(item: Item) {

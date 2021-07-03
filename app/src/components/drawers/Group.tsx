@@ -27,6 +27,7 @@ import ReportDrawer from './ReportDrawer';
 import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
+import TagSelection from '../TagSelection';
 
 export interface Props extends ItemDrawerProps {
   item: GroupItem | undefined,
@@ -83,8 +84,12 @@ function GroupDrawer({
     [localGroup],
   );
   const handleChangeNotes = useCallback(
-    (newNotes: ItemNote[]) => setLocalGroup({ ...localGroup, notes: newNotes }),
-    [localGroup],
+    (newNotes: ItemNote[]) => setLocalGroup(g => ({ ...g, notes: newNotes })),
+    [],
+  );
+  const handleChangeTags = useCallback(
+    (newTags: string[]) => setLocalGroup(p => ({ ...p, tags: newTags })),
+    [],
   );
   const handleClickPerson = useCallback(
     (person: PersonItem) => {
@@ -157,6 +162,13 @@ function GroupDrawer({
               label="Description"
               multiline
               fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TagSelection
+              selectedTags={localGroup.tags}
+              onChange={handleChangeTags}
             />
           </Grid>
 
