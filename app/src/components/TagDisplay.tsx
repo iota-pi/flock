@@ -4,6 +4,8 @@ import { Chip, makeStyles } from '@material-ui/core';
 const useStyles = makeStyles(theme => ({
   tagChip: {
     marginRight: theme.spacing(1),
+    marginTop: theme.spacing(0.5),
+    marginBottom: theme.spacing(0.5),
   },
 }));
 

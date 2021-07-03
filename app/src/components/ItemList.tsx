@@ -33,6 +33,13 @@ const useStyles = makeStyles(theme => ({
     flexGrow: 0,
     paddingRight: theme.spacing(2),
   },
+  itemTextWithTags: {
+    maxWidth: '70%',
+
+    [theme.breakpoints.down('sm')]: {
+      maxWidth: '60%',
+    },
+  },
   spacer: {
     flexGrow: 1,
   },
@@ -42,7 +49,7 @@ export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
-  getDescription?: (item: T) => ReactNode,
+  getDescription?: (item: T) => string,
   items: T[],
   noItemsHint?: string,
   noItemsText?: string,
@@ -103,6 +110,19 @@ function ItemList<T extends Item>({
     [onCheck],
   );
 
+  const getClippedDescription = useCallback(
+    (item: T) => {
+      const base = getDescription ? getDescription(item) : item.description;
+      const clipped = base.slice(0, 100);
+      if (clipped.length < base.length) {
+        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
+        return `${clippedToWord}…`;
+      }
+      return base;
+    },
+    [getDescription],
+  );
+
   return (
     <List className={className}>
       {items.map(item => (
@@ -132,9 +152,10 @@ function ItemList<T extends Item>({
 
             <ListItemText
               primary={getItemName(item)}
-              secondary={getDescription ? getDescription(item) : item.description}
+              secondary={getClippedDescription(item)}
               className={([
                 classes.itemText,
+                item.tags.length > 0 ? classes.itemTextWithTags : undefined,
                 getChecked && getChecked(item) ? classes.faded : undefined,
               ].join(' '))}
               id={`${item.id}-text`}
