@@ -2,7 +2,15 @@ import React, { ChangeEvent, useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Button, Container, fade, LinearProgress, TextField, Typography } from '@material-ui/core';
+import {
+  Button,
+  CircularProgress,
+  Container,
+  fade,
+  LinearProgress,
+  TextField,
+  Typography,
+} from '@material-ui/core';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';
@@ -65,6 +73,13 @@ const useStyles = makeStyles(theme => ({
   meterGood: {
     backgroundColor: theme.palette.success.main,
   },
+  buttonProgress: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -12,
+    marginLeft: -12,
+  },
 }));
 
 const api = new VaultAPI();
@@ -106,6 +121,7 @@ function CreateAccountPage() {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordScore, setPasswordScore] = useState(0);
+  const [waiting, setWaiting] = useState(false);
 
   const handleClickLogin = useCallback(
     () => history.push(getPage('login').path),
@@ -113,15 +129,21 @@ function CreateAccountPage() {
   );
   const handleClickCreate = useCallback(
     async () => {
-      const account = getAccountId();
-      const vault = await Vault.create(account, password);
-      const success = await api.createAccount({ account, authToken: vault.authToken });
-      if (success) {
-        setError('');
-        history.push(getPage('login').path, { created: true, account });
-      } else {
-        setError('An error occured while creating your account.');
+      setWaiting(true);
+      try {
+        const account = getAccountId();
+        const vault = await Vault.create(account, password);
+        const success = await api.createAccount({ account, authToken: vault.authToken });
+        if (success) {
+          setError('');
+          history.push(getPage('login').path, { created: true, account });
+        } else {
+          setError('An error occured while creating your account.');
+        }
+      } catch (e) {
+        console.error(e);
       }
+      setWaiting(false);
     },
     [history, password],
   );
@@ -208,9 +230,16 @@ function CreateAccountPage() {
           variant="contained"
           size="large"
           onClick={handleClickCreate}
-          disabled={!validPassword}
+          disabled={!validPassword || waiting}
         >
           Create Account
+
+          {waiting && (
+            <CircularProgress
+              className={classes.buttonProgress}
+              size={24}
+            />
+          )}
         </Button>
 
         {error && (
