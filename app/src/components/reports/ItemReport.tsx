@@ -3,6 +3,7 @@ import { IconButton, makeStyles, Typography } from '@material-ui/core';
 import {
   compareNames,
   getItemName,
+  getNotes,
   GroupItem,
   Item,
 } from '../../state/items';
@@ -10,6 +11,7 @@ import MemberDisplay from '../MemberDisplay';
 import { useItems } from '../../state/selectors';
 import GroupDisplay from '../GroupDisplay';
 import { EditIcon } from '../Icons';
+import NoteList from '../NoteList';
 
 const useStyles = makeStyles(theme => ({
   heading: {
@@ -59,6 +61,7 @@ function ItemReport({
     },
     [groups, item],
   );
+  const prayerPoints = useMemo(() => getNotes([item], 'prayer'), [item]);
 
   return (
     <>
@@ -79,6 +82,20 @@ function ItemReport({
           {item.description}
         </Typography>
       )}
+
+      <div className={classes.section}>
+        <Typography variant="h4">
+          Prayer Points
+        </Typography>
+
+        <NoteList
+          notes={prayerPoints}
+          displayItemNames={false}
+          displayNoteDate={false}
+          dividers
+          noNotesText="No prayer points"
+        />
+      </div>
 
       {item.type === 'person' && (
         <div className={classes.section}>

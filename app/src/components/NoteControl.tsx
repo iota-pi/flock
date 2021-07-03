@@ -110,7 +110,7 @@ function AddNoteButton(
 }
 
 
-function NoteDisplay({
+function NoteControl({
   notes: rawNotes,
   onChange,
   excludeTypes = [],
@@ -429,4 +429,4 @@ function NoteDisplay({
   );
 }
 
-export default NoteDisplay;
+export default NoteControl;

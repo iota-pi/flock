@@ -17,7 +17,7 @@ import {
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import NoteDisplay from '../NoteDisplay';
+import NoteControl from '../NoteControl';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import DrawerActions from './utils/DrawerActions';
@@ -172,7 +172,7 @@ function GeneralDrawer({
           </Grid>
 
           <Grid item xs={12}>
-            <NoteDisplay
+            <NoteControl
               excludeTypes={['interaction']}
               notes={localItem.notes}
               onChange={handleChangeNotes}

@@ -21,7 +21,7 @@ import {
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import NoteDisplay from '../NoteDisplay';
+import NoteControl from '../NoteControl';
 import { useItems, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
@@ -267,7 +267,7 @@ function PersonDrawer({
           </Grid>
 
           <Grid item xs={12}>
-            <NoteDisplay
+            <NoteControl
               notes={localPerson.notes}
               onChange={handleChangeNotes}
               initialNotesType={initialNotesType}

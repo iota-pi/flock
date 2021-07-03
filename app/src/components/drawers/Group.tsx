@@ -18,7 +18,7 @@ import {
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import NoteDisplay from '../NoteDisplay';
+import NoteControl from '../NoteControl';
 import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
@@ -208,7 +208,7 @@ function GroupDrawer({
           </Grid>
 
           <Grid item xs={12}>
-            <NoteDisplay
+            <NoteControl
               excludeTypes={['interaction']}
               notes={localGroup.notes}
               onChange={handleChangeNotes}

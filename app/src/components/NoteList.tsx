@@ -11,7 +11,7 @@ import {
 import ChevronRight from '@material-ui/icons/ChevronRight';
 import { getItemById, getItemName, ItemNote, ItemNoteType } from '../state/items';
 import { useItems, useNoteMap } from '../state/selectors';
-import { formatDateAndTime } from '../utils';
+import { formatDate } from '../utils';
 
 const useStyles = makeStyles(() => ({
   noHover: {
@@ -31,6 +31,8 @@ export interface Props<T extends ItemNoteType> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
+  displayItemNames?: boolean,
+  displayNoteDate?: boolean,
   notes: ItemNote<T>[],
   noNotesHint?: string,
   noNotesText?: string,
@@ -42,6 +44,8 @@ export interface Props<T extends ItemNoteType> {
 function NoteList<T extends ItemNoteType = ItemNoteType>({
   actionIcon,
   className,
+  displayItemNames = true,
+  displayNoteDate = true,
   dividers,
   notes,
   noNotesHint,
@@ -64,14 +68,35 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
     },
     [onClick, onClickAction],
   );
-  const getNoteSubtext = useCallback(
+  const getNotePrimaryText = useCallback(
     (note: ItemNote) => {
-      const timeString = formatDateAndTime(new Date(note.date));
-      const content = note.sensitive ? '(sensitive)' : `— ${note.content}`;
-      return `${timeString} ${content}`;
+      if (displayItemNames) {
+        return getItemName(getItemById(items, noteMap[note.id]));
+      }
+
+      return note.sensitive ? '(sensitive)' : note.content;
     },
-    [],
+    [displayItemNames, items, noteMap],
   );
+  const getNoteSecondaryText = useCallback(
+    (note: ItemNote) => {
+      const textParts = [];
+
+      if (displayNoteDate) {
+        const timeString = formatDate(new Date(note.date));
+        textParts.push(timeString);
+      }
+
+      if (displayItemNames) {
+        const content = note.sensitive ? '(sensitive)' : note.content;
+        textParts.push(content);
+      }
+
+      return textParts.join('—');
+    },
+    [displayItemNames, displayNoteDate],
+  );
+  const compactList = !displayNoteDate && !displayItemNames;
 
   return (
     <List className={className}>
@@ -86,21 +111,25 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
             classes={{
               disabled: classes.disabledOverride,
             }}
-            className={classes.consistantMinHeight}
+            className={!compactList ? classes.consistantMinHeight : ''}
+            dense={compactList}
           >
             <ListItemText
-              primary={getItemName(getItemById(items, noteMap[note.id]))}
-              secondary={getNoteSubtext(note)}
+              primary={getNotePrimaryText(note)}
+              secondary={getNoteSecondaryText(note)}
             />
-            <ListItemSecondaryAction>
-              <IconButton
-                className={!onClickAction ? classes.noHover : undefined}
-                disableRipple={!onClickAction}
-                onClick={handleClickAction(note)}
-              >
-                {actionIcon || <ChevronRight />}
-              </IconButton>
-            </ListItemSecondaryAction>
+
+            {(onClick || onClickAction) && (
+              <ListItemSecondaryAction>
+                <IconButton
+                  className={!onClickAction ? classes.noHover : undefined}
+                  disableRipple={!onClickAction}
+                  onClick={handleClickAction(note)}
+                >
+                  {actionIcon || <ChevronRight />}
+                </IconButton>
+              </ListItemSecondaryAction>
+            )}
           </ListItem>
         </React.Fragment>
       ))}
