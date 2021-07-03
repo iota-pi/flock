@@ -12,8 +12,9 @@ import {
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
 import { getItemName, Item } from '../state/items';
+import TagDisplay from './TagDisplay';
 
-const useStyles = makeStyles(() => ({
+const useStyles = makeStyles(theme => ({
   noHover: {
     '&:hover': {
       backgroundColor: 'transparent',
@@ -28,6 +29,13 @@ const useStyles = makeStyles(() => ({
   faded: {
     opacity: 0.65,
   },
+  itemText: {
+    flexGrow: 0,
+    paddingRight: theme.spacing(2),
+  },
+  spacer: {
+    flexGrow: 1,
+  },
 }));
 
 export interface BaseProps<T extends Item> {
@@ -40,6 +48,7 @@ export interface BaseProps<T extends Item> {
   noItemsText?: string,
   onClick?: (item: T) => () => void,
   onClickAction?: (item: T) => () => void,
+  showTags?: boolean,
 }
 
 export interface PropsNoCheckboxes<T extends Item> extends BaseProps<T> {
@@ -68,6 +77,7 @@ function ItemList<T extends Item>({
   onClick,
   onClickAction,
   onCheck,
+  showTags = true,
 }: Props<T>) {
   const classes = useStyles();
 
@@ -119,12 +129,25 @@ function ItemList<T extends Item>({
                 />
               </ListItemIcon>
             )}
+
             <ListItemText
               primary={getItemName(item)}
               secondary={getDescription ? getDescription(item) : item.description}
-              className={getChecked && getChecked(item) ? classes.faded : undefined}
+              className={([
+                classes.itemText,
+                getChecked && getChecked(item) ? classes.faded : undefined,
+              ].join(' '))}
               id={`${item.id}-text`}
             />
+
+            {showTags && (
+              <div>
+                <TagDisplay tags={item.tags} />
+              </div>
+            )}
+
+            <div className={classes.spacer} />
+
             <ListItemSecondaryAction>
               <IconButton
                 className={!onClickAction ? classes.noHover : undefined}
