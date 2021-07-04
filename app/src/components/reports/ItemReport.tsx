@@ -177,8 +177,6 @@ function ItemReport({
           />
         </div>
       )}
-
-      {'<insert maturity, attendance, and other fun things here />'}
     </>
   );
 }
