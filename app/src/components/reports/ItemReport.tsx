@@ -116,7 +116,7 @@ function ItemReport({
           displayItemNames={false}
           displayNoteDate={false}
           dividers
-          noNotesText="No prayer points"
+          noNotesHint="No prayer points"
         />
       </div>
 
@@ -130,7 +130,7 @@ function ItemReport({
             notes={interactions}
             displayItemNames={false}
             dividers
-            noNotesText="No interactions"
+            noNotesHint="No interactions"
           />
         </div>
       )}
@@ -145,7 +145,7 @@ function ItemReport({
           displayItemNames={false}
           displayNoteDate={false}
           dividers
-          noNotesText="No general notes"
+          noNotesHint="No general notes"
         />
       </div>
 
