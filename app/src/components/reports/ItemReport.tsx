@@ -12,6 +12,7 @@ import { useItems } from '../../state/selectors';
 import GroupDisplay from '../GroupDisplay';
 import { EditIcon } from '../Icons';
 import NoteList from '../NoteList';
+import TagDisplay from '../TagDisplay';
 
 const useStyles = makeStyles(theme => ({
   heading: {
@@ -22,7 +23,13 @@ const useStyles = makeStyles(theme => ({
   section: {
     paddingTop: theme.spacing(2),
     paddingBottom: theme.spacing(2),
+
+    '&$lessPadding': {
+      paddingTop: theme.spacing(1),
+      paddingBottom: theme.spacing(1),
+    },
   },
+  lessPadding: {},
 }));
 
 interface BaseProps {
@@ -75,6 +82,10 @@ function ItemReport({
             <EditIcon />
           </IconButton>
         )}
+      </div>
+
+      <div className={`${classes.section} ${classes.lessPadding}`}>
+        <TagDisplay tags={item.tags} />
       </div>
 
       {item.description && (

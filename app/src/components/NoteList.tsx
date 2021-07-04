@@ -14,6 +14,9 @@ import { useItems, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';
 
 const useStyles = makeStyles(() => ({
+  root: {
+    paddingBottom: 0,
+  },
   noHover: {
     '&:hover': {
       backgroundColor: 'transparent',
@@ -33,6 +36,7 @@ export interface Props<T extends ItemNoteType> {
   dividers?: boolean,
   displayItemNames?: boolean,
   displayNoteDate?: boolean,
+  paddingTop?: boolean,
   notes: ItemNote<T>[],
   noNotesHint?: string,
   noNotesText?: string,
@@ -47,6 +51,7 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
   displayItemNames = true,
   displayNoteDate = true,
   dividers,
+  paddingTop = true,
   notes,
   noNotesHint,
   noNotesText,
@@ -99,7 +104,10 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
   const compactList = !displayNoteDate && !displayItemNames;
 
   return (
-    <List className={className}>
+    <List
+      className={`${className} ${classes.root}`}
+      disablePadding={!paddingTop}
+    >
       {notes.map(note => (
         <React.Fragment key={note.id}>
           {dividers && <Divider />}
