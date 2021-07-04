@@ -7,6 +7,10 @@ const useStyles = makeStyles(theme => ({
     marginTop: theme.spacing(0.5),
     marginBottom: theme.spacing(0.5),
   },
+  chipLabel: {
+    paddingLeft: theme.spacing(2),
+    paddingRight: theme.spacing(2),
+  },
 }));
 
 export interface Props {
@@ -24,6 +28,7 @@ function TagDisplay({
         <Chip
           key={tag}
           label={tag}
+          classes={{ label: classes.chipLabel }}
           className={classes.tagChip}
           variant="outlined"
         />
