@@ -13,6 +13,7 @@ import GroupDisplay from '../GroupDisplay';
 import { EditIcon } from '../Icons';
 import NoteList from '../NoteList';
 import TagDisplay from '../TagDisplay';
+import { getInteractions } from '../../utils/interactions';
 
 const useStyles = makeStyles(theme => ({
   heading: {
@@ -68,7 +69,18 @@ function ItemReport({
     },
     [groups, item],
   );
-  const prayerPoints = useMemo(() => getNotes([item], 'prayer'), [item]);
+  const prayerPoints = useMemo(
+    () => getNotes([item], 'prayer'),
+    [item],
+  );
+  const interactions = useMemo(
+    () => (item.type === 'person' ? getInteractions(item) : []),
+    [item],
+  );
+  const otherNotes = useMemo(
+    () => getNotes([item], 'general'),
+    [item],
+  );
 
   return (
     <>
@@ -105,6 +117,35 @@ function ItemReport({
           displayNoteDate={false}
           dividers
           noNotesText="No prayer points"
+        />
+      </div>
+
+      {item.type === 'person' && (
+        <div className={classes.section}>
+          <Typography variant="h4">
+            Interactions
+          </Typography>
+
+          <NoteList
+            notes={interactions}
+            displayItemNames={false}
+            dividers
+            noNotesText="No interactions"
+          />
+        </div>
+      )}
+
+      <div className={classes.section}>
+        <Typography variant="h4">
+          General Notes
+        </Typography>
+
+        <NoteList
+          notes={otherNotes}
+          displayItemNames={false}
+          displayNoteDate={false}
+          dividers
+          noNotesText="No general notes"
         />
       </div>
 

@@ -108,6 +108,8 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
       className={`${className} ${classes.root}`}
       disablePadding={!paddingTop}
     >
+      {dividers && notes.length === 0 && <Divider />}
+
       {notes.map(note => (
         <React.Fragment key={note.id}>
           {dividers && <Divider />}
