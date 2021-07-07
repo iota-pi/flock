@@ -13,6 +13,7 @@ import {
   deleteItems,
   GeneralItem,
   getBlankGeneral,
+  getItemName,
   ItemNote,
   updateItems,
 } from '../../state/items';
@@ -182,7 +183,8 @@ function GeneralDrawer({
 
         <DrawerActions
           canSave={valid}
-          item={item}
+          editing={!!item}
+          itemName={item ? getItemName(item) : undefined}
           onCancel={handleCancel}
           onDelete={handleDelete}
           onSave={handleSave}

@@ -13,7 +13,8 @@ import {
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
-const EventsPage = loadable(() => import('./General'));
+const GeneralPage = loadable(() => import('./General'));
+const PrayerPointsPage = loadable(() => import('./PrayerPoints'));
 const InteractionsPage = loadable(() => import('./Interactions'));
 const SuggestionsPage = loadable(() => import('./Suggestions'));
 const PrayerPage = loadable(() => import('./Prayer'));
@@ -26,9 +27,10 @@ export type PageId = (
   'people' |
   'groups' |
   'general' |
+  'prayer-points' |
   'interactions' |
-  'suggestions' |
-  'prayer'
+  'prayer' |
+  'suggestions'
 );
 
 export interface InternalPage {
@@ -79,9 +81,26 @@ export const pages: Page[] = [
   {
     id: 'general',
     path: '/general',
-    name: 'Prayer Items',
+    name: 'Other Items',
     icon: <GeneralIcon />,
-    page: <EventsPage />,
+    page: <GeneralPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'prayer-points',
+    path: '/prayer-points',
+    name: 'Prayer Points',
+    icon: <PrayerIcon />,
+    page: <PrayerPointsPage />,
+    requiresAuth: true,
+    dividerBefore: true,
+  },
+  {
+    id: 'prayer',
+    path: '/prayer',
+    name: 'Prayer Schedule',
+    icon: <PrayerIcon />,
+    page: <PrayerPage />,
     requiresAuth: true,
   },
   {
@@ -99,14 +118,6 @@ export const pages: Page[] = [
     name: 'Suggestions',
     icon: <SuggestIcon />,
     page: <SuggestionsPage />,
-    requiresAuth: true,
-  },
-  {
-    id: 'prayer',
-    path: '/prayer',
-    name: 'Prayer Schedule',
-    icon: <PrayerIcon />,
-    page: <PrayerPage />,
     requiresAuth: true,
   },
 ];

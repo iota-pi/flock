@@ -14,6 +14,7 @@ import {
   compareNames,
   deleteItems,
   getBlankPerson,
+  getItemName,
   GroupItem,
   ItemNote,
   ItemNoteType,
@@ -277,7 +278,8 @@ function PersonDrawer({
 
         <DrawerActions
           canSave={valid}
-          item={person}
+          editing={!!person}
+          itemName={person ? getItemName(person) : undefined}
           onCancel={handleCancel}
           onDelete={handleDelete}
           onSave={handleSave}

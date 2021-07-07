@@ -10,7 +10,6 @@ import {
   Grid,
   Typography,
 } from '@material-ui/core';
-import { getItemName, Item, ItemNote } from '../../../state/items';
 import ConfirmationDialog from '../../ConfirmationDialog';
 import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
@@ -33,7 +32,9 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface BaseProps {
-  item?: Item | ItemNote<'interaction'> | undefined,
+  editing?: boolean,
+  itemIsNote?: boolean,
+  itemName?: string,
 }
 
 export interface PropsWithSave extends BaseProps {
@@ -71,7 +72,9 @@ export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
 
 function DrawerActions({
   canSave,
-  item,
+  editing,
+  itemIsNote,
+  itemName,
   onCancel,
   onDelete,
   onDone,
@@ -85,13 +88,13 @@ function DrawerActions({
 
   const handleClickDelete = useCallback(
     () => {
-      if (item) {
+      if (editing) {
         setShowConfirm(true);
       } else if (onCancel) {
         onCancel();
       }
     },
-    [item, onCancel],
+    [editing, onCancel],
   );
   const handleClickConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
@@ -110,7 +113,7 @@ function DrawerActions({
               onClick={onReport}
               variant="outlined"
               fullWidth
-              startIcon={item ? <ReportIcon /> : undefined}
+              startIcon={editing ? <ReportIcon /> : undefined}
             >
               Group Report
             </Button>
@@ -123,10 +126,10 @@ function DrawerActions({
               onClick={handleClickDelete}
               variant="outlined"
               fullWidth
-              className={item ? classes.danger : undefined}
-              startIcon={item ? <DeleteIcon /> : undefined}
+              className={editing ? classes.danger : undefined}
+              startIcon={editing ? <DeleteIcon /> : undefined}
             >
-              {item ? 'Delete' : 'Cancel'}
+              {editing ? 'Delete' : 'Cancel'}
             </Button>
           </Grid>
         )}
@@ -183,15 +186,15 @@ function DrawerActions({
           <Typography paragraph>
             Are you sure you want to delete
             {' '}
-            {item?.type !== 'interaction' ? (
+            {itemIsNote ? (
               <>
                 <span className={classes.emphasis}>
-                  {getItemName(item)}
+                  {itemName}
                 </span>
                 , and all associated notes?
               </>
             ) : (
-              'this interaction?'
+              ` this ${itemName}?`
             )}
           </Typography>
 

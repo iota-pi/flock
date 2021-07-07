@@ -15,9 +15,7 @@ import {
 } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import { KeyboardDatePicker } from '@material-ui/pickers';
 import {
-  compareItems,
   getBlankNote,
   getItemById,
   Item,
@@ -35,12 +33,12 @@ import { RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
 
 export interface Props extends ItemDrawerProps {
-  interaction: ItemNote<'interaction'> | undefined,
+  prayerPoint: ItemNote<'prayer'> | undefined,
 }
 
 
-function InteractionDrawer({
-  interaction: rawInteraction,
+function PrayerPointDrawer({
+  prayerPoint: rawPrayerPoint,
   onBack,
   onClose,
   open,
@@ -48,45 +46,36 @@ function InteractionDrawer({
 }: Props) {
   const dispatch = useAppDispatch();
   const vault = useVault();
-  const allItems = useItems();
+  const items = useItems();
   const noteMap = useNoteMap();
 
-  const isEditing = !!rawInteraction;
-  const [interaction, setInteraction] = useState(rawInteraction || getBlankNote('interaction'));
+  const isEditing = !!rawPrayerPoint;
+  const [prayerPoint, setPrayerPoint] = useState(rawPrayerPoint || getBlankNote('prayer'));
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
 
-  const items = useMemo(
-    () => (
-      allItems.filter(
-        item => item.type === 'person' || (!isEditing && item.type === 'group'),
-      ).sort(compareItems)
-    ),
-    [allItems, isEditing],
-  );
-
   useEffect(
     () => {
-      if (rawInteraction) {
-        setInteraction(rawInteraction);
-        const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
+      if (rawPrayerPoint) {
+        setPrayerPoint(rawPrayerPoint);
+        const existingLinkedItem = getItemById(items, noteMap[rawPrayerPoint.id]);
         setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
         setShowSensitive(false);
       } else {
-        setInteraction(getBlankNote('interaction'));
+        setPrayerPoint(getBlankNote('prayer'));
         setLinkedItems([]);
         setShowSensitive(false);
       }
     },
-    [items, noteMap, rawInteraction],
+    [items, noteMap, rawPrayerPoint],
   );
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value;
-      setInteraction({ ...interaction, content: value });
+      setPrayerPoint({ ...prayerPoint, content: value });
     },
-    [interaction],
+    [prayerPoint],
   );
   const handleAddItem = useCallback(
     (item?: Item) => {
@@ -112,12 +101,8 @@ function InteractionDrawer({
     [],
   );
   const handleChangeSensitive = useCallback(
-    () => setInteraction({ ...interaction, sensitive: !interaction.sensitive }),
-    [interaction],
-  );
-  const handleDateChange = useCallback(
-    (date: Date | null) => setInteraction({ ...interaction, date: (date || new Date()).getTime() }),
-    [interaction],
+    () => setPrayerPoint({ ...prayerPoint, sensitive: !prayerPoint.sensitive }),
+    [prayerPoint],
   );
 
   const handleClickVisibility = useCallback(() => setShowSensitive(show => !show), []);
@@ -128,18 +113,18 @@ function InteractionDrawer({
 
   const handleSave = useCallback(
     async () => {
-      let newNote: ItemNote<'interaction'> = {
-        ...interaction,
-        content: interaction.content.trim(),
+      let newNote: ItemNote<'prayer'> = {
+        ...prayerPoint,
+        content: prayerPoint.content.trim(),
       };
       const itemsToUpdate: Item[] = [];
       for (const linkedItem of linkedItems) {
         if (isEditing) {
-          const oldItem = getItemById(items, noteMap[interaction.id]);
+          const oldItem = getItemById(items, noteMap[prayerPoint.id]);
           if (oldItem && oldItem.id !== linkedItem.id) {
             itemsToUpdate.push({
               ...oldItem,
-              notes: oldItem.notes.filter(note => note.id !== interaction.id),
+              notes: oldItem.notes.filter(note => note.id !== prayerPoint.id),
             });
           }
         }
@@ -147,52 +132,52 @@ function InteractionDrawer({
         itemsToUpdate.push({
           ...linkedItem,
           notes: [
-            ...linkedItem.notes.filter(note => note.id !== interaction.id),
+            ...linkedItem.notes.filter(note => note.id !== prayerPoint.id),
             newNote,
           ],
         });
 
-        // Update interaction id between each linked item
+        // Update prayer point id between each linked item
         newNote = { ...newNote, id: getItemId() };
       }
       for (const item of itemsToUpdate) {
         vault?.store(item);
       }
       dispatch(updateItems(itemsToUpdate));
-      setInteraction(getBlankNote('interaction'));
+      setPrayerPoint(getBlankNote('prayer'));
       onClose();
     },
-    [dispatch, interaction, isEditing, items, linkedItems, noteMap, onClose, vault],
+    [dispatch, prayerPoint, isEditing, items, linkedItems, noteMap, onClose, vault],
   );
   const handleCancel = useCallback(
     () => {
-      setInteraction(getBlankNote('interaction'));
+      setPrayerPoint(getBlankNote('prayer'));
       onClose();
     },
     [onClose],
   );
   const handleDelete = useCallback(
     () => {
-      if (rawInteraction) {
-        const oldItem = getItemById(items, noteMap[rawInteraction.id]);
+      if (rawPrayerPoint) {
+        const oldItem = getItemById(items, noteMap[rawPrayerPoint.id]);
         if (oldItem) {
           const newItem: Item = {
             ...oldItem,
-            notes: oldItem.notes.filter(note => note.id !== rawInteraction.id),
+            notes: oldItem.notes.filter(note => note.id !== rawPrayerPoint.id),
           };
           vault?.store(newItem);
           dispatch(updateItems([newItem]));
         }
       }
-      setInteraction(getBlankNote('interaction'));
+      setPrayerPoint(getBlankNote('prayer'));
       onClose();
     },
-    [dispatch, items, noteMap, onClose, rawInteraction, vault],
+    [dispatch, items, noteMap, onClose, rawPrayerPoint, vault],
   );
 
   const isVisible = useMemo(
-    () => !interaction.sensitive || showSensitive,
-    [interaction, showSensitive],
+    () => !prayerPoint.sensitive || showSensitive,
+    [prayerPoint, showSensitive],
   );
 
   return (
@@ -207,8 +192,8 @@ function InteractionDrawer({
           <ItemSearch
             autoFocus
             items={items}
-            label="People"
-            noItemsText="No people found"
+            label="Items"
+            noItemsText="No items found"
             onSelect={handleAddItem}
             selectedIds={linkedItems.map(item => item.id)}
             showGroupMemberCount
@@ -221,7 +206,7 @@ function InteractionDrawer({
               actionIcon={<RemoveIcon />}
               dividers
               items={linkedItems}
-              noItemsHint="No people selected"
+              noItemsHint="No items selected"
               onClickAction={handleUnlinkItem}
             />
           )}
@@ -231,12 +216,12 @@ function InteractionDrawer({
           <TextField
             disabled={!isVisible}
             fullWidth
-            label="Comment"
+            label="Prayer point"
             multiline
             onChange={handleChange}
-            value={!isVisible ? '...' : interaction.content}
+            value={!isVisible ? '...' : prayerPoint.content}
             InputProps={{
-              endAdornment: interaction.sensitive ? (
+              endAdornment: prayerPoint.sensitive ? (
                 <InputAdornment position="end">
                   <IconButton
                     onClick={handleClickVisibility}
@@ -252,31 +237,20 @@ function InteractionDrawer({
           <FormControlLabel
             control={(
               <Checkbox
-                checked={interaction.sensitive || false}
+                checked={prayerPoint.sensitive || false}
                 onChange={handleChangeSensitive}
               />
             )}
             label="Sensitive"
           />
         </Grid>
-
-        <Grid item xs={12}>
-          <KeyboardDatePicker
-            value={new Date(interaction.date)}
-            onChange={handleDateChange}
-            label="Interaction Date"
-            maxDate={new Date()}
-            maxDateMessage="Only past interactions can be recorded in the present"
-            format="dd/MM/yyyy"
-          />
-        </Grid>
       </Grid>
 
       <DrawerActions
         canSave={linkedItems.length > 0}
-        editing={!!rawInteraction}
         itemIsNote
-        itemName={rawInteraction?.type}
+        editing={!!rawPrayerPoint}
+        itemName={rawPrayerPoint?.type}
         onCancel={handleCancel}
         onDelete={handleDelete}
         onSave={handleSave}
@@ -285,4 +259,4 @@ function InteractionDrawer({
   );
 }
 
-export default InteractionDrawer;
+export default PrayerPointDrawer;

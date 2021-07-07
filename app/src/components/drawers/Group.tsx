@@ -12,6 +12,7 @@ import {
 import {
   deleteItems,
   getBlankGroup,
+  getItemName,
   GroupItem,
   ItemNote,
   PersonItem,
@@ -218,7 +219,8 @@ function GroupDrawer({
 
         <DrawerActions
           canSave={valid}
-          item={group}
+          editing={!!group}
+          itemName={group ? getItemName(group) : undefined}
           onCancel={handleCancel}
           onDelete={handleDelete}
           onReport={handleReport}
