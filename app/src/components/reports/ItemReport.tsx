@@ -70,15 +70,19 @@ function ItemReport({
     [groups, item],
   );
   const prayerPoints = useMemo(
-    () => getNotes([item], 'prayer'),
+    () => getNotes([item], 'prayer').sort((a, b) => b.date - a.date),
     [item],
   );
   const interactions = useMemo(
-    () => (item.type === 'person' ? getInteractions(item) : []),
+    () => (
+      item.type === 'person'
+        ? getInteractions(item).sort((a, b) => b.date - a.date)
+        : []
+    ),
     [item],
   );
   const otherNotes = useMemo(
-    () => getNotes([item], 'general'),
+    () => getNotes([item], 'general').sort((a, b) => b.date - a.date),
     [item],
   );
 
