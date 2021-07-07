@@ -1,27 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Fab } from '@material-ui/core';
-import { AddIcon } from '../Icons';
 import { compareItems, GeneralItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GeneralDrawer from '../drawers/General';
 import { useItems } from '../../state/selectors';
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    position: 'relative',
-    flexGrow: 1,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: theme.spacing(3),
-    right: theme.spacing(3),
-  },
-}));
+import BasePage from './BasePage';
 
 
 function GeneralPage() {
-  const classes = useStyles();
   const rawItems = useItems<GeneralItem>('general');
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
 
@@ -45,7 +30,11 @@ function GeneralPage() {
   const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
-    <div className={classes.root}>
+    <BasePage
+      fab
+      fabLabel="Add Prayer Item"
+      onClickFab={handleClickAdd}
+    >
       <ItemList
         items={items}
         noItemsHint="Click the plus button to add one!"
@@ -53,21 +42,12 @@ function GeneralPage() {
         onClick={handleClickItem}
       />
 
-      <Fab
-        onClick={handleClickAdd}
-        color="secondary"
-        aria-label="Add Prayer Item"
-        className={classes.fab}
-      >
-        <AddIcon />
-      </Fab>
-
       <GeneralDrawer
         open={showDetails}
         onClose={handleCloseDetails}
         item={currentItem}
       />
-    </div>
+    </BasePage>
   );
 }
 

@@ -5,6 +5,7 @@ import { PersonItem } from '../../state/items';
 import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/interactions';
 import PersonDrawer from '../drawers/Person';
 import { formatDate } from '../../utils';
+import BasePage from './BasePage';
 
 
 function SuggestionsPage() {
@@ -35,7 +36,7 @@ function SuggestionsPage() {
   );
 
   return (
-    <>
+    <BasePage>
       <ItemList
         getDescription={getDescription}
         items={suggestions}
@@ -49,7 +50,7 @@ function SuggestionsPage() {
         onClose={handleClose}
         initialNotesType="interaction"
       />
-    </>
+    </BasePage>
   );
 }
 

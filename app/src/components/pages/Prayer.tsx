@@ -10,6 +10,7 @@ import { useAppDispatch } from '../../store';
 import ReportDrawer from '../drawers/ReportDrawer';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../GoalDialog';
+import BasePage from './BasePage';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -118,65 +119,67 @@ function PrayerPage() {
   );
 
   return (
-    <Container maxWidth="xl" className={classes.root}>
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={8}>
-          <Typography variant="h4" className={classes.heading}>
-            Today
-          </Typography>
+    <BasePage>
+      <Container maxWidth="xl" className={classes.root}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={8}>
+            <Typography variant="h4" className={classes.heading}>
+              Today
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12} md={4} className={classes.flexRightLarge}>
+            <Typography>
+              Daily Goal:
+            </Typography>
+            <span>&nbsp;</span>
+            <Typography color="secondary">
+              {completed} / {goal}
+            </Typography>
+            <span>&nbsp;&nbsp;</span>
+
+            <IconButton size="medium" onClick={handleEditGoal}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Grid>
+
+          <Grid item xs={12}>
+            <ItemList
+              checkboxes
+              getChecked={isPrayedForToday}
+              items={todaysSchedule}
+              onClick={handleClick}
+              onCheck={handleClickPrayedFor}
+              noItemsText="No items in prayer schedule"
+            />
+          </Grid>
+
+          {upNextSchedule.length > 0 && (
+            <>
+              <Grid item xs={12}>
+                <Divider />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h4" className={classes.heading}>
+                  Up next
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <ItemList
+                  checkboxes
+                  getChecked={isPrayedForToday}
+                  items={upNextSchedule}
+                  onClick={handleClick}
+                  onCheck={handleClickPrayedFor}
+                  noItemsText="No more items in prayer schedule"
+                />
+              </Grid>
+            </>
+          )}
         </Grid>
-
-        <Grid item xs={12} md={4} className={classes.flexRightLarge}>
-          <Typography>
-            Daily Goal:
-          </Typography>
-          <span>&nbsp;</span>
-          <Typography color="secondary">
-            {completed} / {goal}
-          </Typography>
-          <span>&nbsp;&nbsp;</span>
-
-          <IconButton size="medium" onClick={handleEditGoal}>
-            <EditIcon fontSize="small" />
-          </IconButton>
-        </Grid>
-
-        <Grid item xs={12}>
-          <ItemList
-            checkboxes
-            getChecked={isPrayedForToday}
-            items={todaysSchedule}
-            onClick={handleClick}
-            onCheck={handleClickPrayedFor}
-            noItemsText="No items in prayer schedule"
-          />
-        </Grid>
-
-        {upNextSchedule.length > 0 && (
-          <>
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h4" className={classes.heading}>
-                Up next
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <ItemList
-                checkboxes
-                getChecked={isPrayedForToday}
-                items={upNextSchedule}
-                onClick={handleClick}
-                onCheck={handleClickPrayedFor}
-                noItemsText="No more items in prayer schedule"
-              />
-            </Grid>
-          </>
-        )}
-      </Grid>
+      </Container>
 
       <ReportDrawer
         canEdit
@@ -192,7 +195,7 @@ function PrayerPage() {
         onClose={handleCloseGoalDialog}
         open={showGoalDialog}
       />
-    </Container>
+    </BasePage>
   );
 }
 

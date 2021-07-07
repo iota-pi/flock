@@ -1,27 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Fab } from '@material-ui/core';
-import { AddIcon } from '../Icons';
 import { compareItems, GroupItem } from '../../state/items';
 import ItemList from '../ItemList';
 import GroupDrawer from '../drawers/Group';
 import { useItems } from '../../state/selectors';
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    position: 'relative',
-    flexGrow: 1,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: theme.spacing(3),
-    right: theme.spacing(3),
-  },
-}));
+import BasePage from './BasePage';
 
 
 function GroupsPage() {
-  const classes = useStyles();
   const rawGroups = useItems<GroupItem>('group');
   const groups = useMemo(() => rawGroups.sort(compareItems), [rawGroups]);
 
@@ -45,7 +30,11 @@ function GroupsPage() {
   const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
-    <div className={classes.root}>
+    <BasePage
+      fab
+      fabLabel="Add Group"
+      onClickFab={handleClickAdd}
+    >
       <ItemList
         items={groups}
         noItemsHint="Click the plus button to add one!"
@@ -53,21 +42,12 @@ function GroupsPage() {
         onClick={handleClickGroup}
       />
 
-      <Fab
-        onClick={handleClickAdd}
-        color="secondary"
-        aria-label="Add Group"
-        className={classes.fab}
-      >
-        <AddIcon />
-      </Fab>
-
       <GroupDrawer
         open={showDetails}
         onClose={handleCloseDetails}
         item={currentGroup}
       />
-    </div>
+    </BasePage>
   );
 }
 
