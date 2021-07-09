@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useHistory } from 'react-router-dom';
 import { Chip, makeStyles } from '@material-ui/core';
+import { getTagPage } from './pages';
 
 const useStyles = makeStyles(theme => ({
   tagChip: {
@@ -15,12 +17,23 @@ const useStyles = makeStyles(theme => ({
 
 export interface Props {
   tags: string[],
+  linked?: boolean,
 }
 
 function TagDisplay({
   tags,
+  linked = false,
 }: Props) {
   const classes = useStyles();
+  const history = useHistory();
+
+  const handleClick = useCallback(
+    (tag: string) => (event: React.MouseEvent) => {
+      history.push(getTagPage(tag));
+      event.stopPropagation();
+    },
+    [history],
+  );
 
   return (
     <>
@@ -31,6 +44,7 @@ function TagDisplay({
           classes={{ label: classes.chipLabel }}
           className={classes.tagChip}
           variant="outlined"
+          onClick={linked ? handleClick(tag) : undefined}
         />
       ))}
     </>

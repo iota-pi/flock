@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useHistory, useRouteMatch } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { AppBar as MuiAppBar, Button, IconButton, Toolbar, Typography } from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
@@ -9,6 +10,7 @@ import { useAppDispatch } from '../../store';
 import EverythingSearch from './EverythingSearch';
 import AnyItemDrawer from '../drawers/AnyItemDrawer';
 import { Item } from '../../state/items';
+import { getPage, getTagPage } from '../pages';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -29,6 +31,11 @@ export interface Props {
   onShowMenu: () => void,
 }
 
+function useTagParam() {
+  const params = useRouteMatch(getPage('tag').path)?.params as { tag: string } | undefined;
+  return params?.tag;
+}
+
 
 function AppBar({
   showMenu,
@@ -36,6 +43,8 @@ function AppBar({
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
+  const history = useHistory();
+  const tag = useTagParam();
 
   const [showDrawer, setShowDrawer] = useState(false);
   const [currentItem, setCurrentItem] = useState<Item>();
@@ -50,7 +59,7 @@ function AppBar({
     (item: Item | string | undefined) => {
       if (item !== undefined) {
         if (typeof item === 'string') {
-          console.warn(item);
+          history.push(getTagPage(item));
           setCurrentItem(undefined);
           setShowDrawer(false);
         } else {
@@ -59,7 +68,7 @@ function AppBar({
         }
       }
     },
-    [],
+    [history],
   );
   const handleCloseDrawer = useCallback(() => setShowDrawer(false), []);
 
@@ -76,7 +85,7 @@ function AppBar({
           onClick={onShowMenu}
           className={classes.menuButton}
         >
-          {showMenu ? <ContractMenuIcon /> : <ExpandMenuIcon /> }
+          {showMenu ? <ContractMenuIcon /> : <ExpandMenuIcon />}
         </IconButton>
 
         <Typography variant="h6" color="inherit">
@@ -85,7 +94,7 @@ function AppBar({
 
         <div className={classes.searchField}>
           <EverythingSearch
-            label="Search"
+            label={tag || 'Search'}
             onSelect={handleSelect}
           />
         </div>

@@ -10,6 +10,7 @@ import {
   PrayerIcon,
   SuggestIcon,
 } from '../Icons';
+import TagPage from './Tag';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
@@ -30,7 +31,8 @@ export type PageId = (
   'prayer-points' |
   'interactions' |
   'prayer' |
-  'suggestions'
+  'suggestions' |
+  'tag'
 );
 
 export interface InternalPage {
@@ -39,6 +41,7 @@ export interface InternalPage {
   page: ReactNode,
   requiresAuth: boolean,
   dividerBefore?: boolean,
+  visible?: boolean,
 }
 
 export interface Page extends InternalPage {
@@ -58,6 +61,12 @@ export const internalPages: InternalPage[] = [
     path: '/signup',
     page: <CreateAccountPage />,
     requiresAuth: false,
+  },
+  {
+    id: 'tag',
+    path: '/tag/:tag',
+    page: <TagPage />,
+    requiresAuth: true,
   },
 ];
 
@@ -157,4 +166,8 @@ export function getPage(page: PageId) {
     throw new Error(`Unknown page id ${page}`);
   }
   return result;
+}
+
+export function getTagPage(tag: string) {
+  return getPage('tag').path.replace(':tag', tag);
 }

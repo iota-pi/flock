@@ -13,6 +13,7 @@ import {
 import ChevronRight from '@material-ui/icons/ChevronRight';
 import { getItemName, Item } from '../state/items';
 import TagDisplay from './TagDisplay';
+import { getIcon } from './Icons';
 
 const useStyles = makeStyles(theme => ({
   noHover: {
@@ -51,10 +52,12 @@ export interface BaseProps<T extends Item> {
   dividers?: boolean,
   getDescription?: (item: T) => string,
   items: T[],
+  linkTags?: boolean,
   noItemsHint?: string,
   noItemsText?: string,
   onClick?: (item: T) => () => void,
   onClickAction?: (item: T) => () => void,
+  showIcons?: boolean,
   showTags?: boolean,
 }
 
@@ -67,6 +70,7 @@ export interface PropsWithCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes: true,
   getChecked: (item: T) => boolean,
   onCheck: (item: T) => () => void,
+  showIcons?: false,
 }
 export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T>;
 
@@ -79,11 +83,13 @@ function ItemList<T extends Item>({
   getChecked,
   getDescription,
   items,
+  linkTags = true,
   noItemsHint,
   noItemsText,
   onClick,
   onClickAction,
   onCheck,
+  showIcons = false,
   showTags = true,
 }: Props<T>) {
   const classes = useStyles();
@@ -152,6 +158,12 @@ function ItemList<T extends Item>({
               </ListItemIcon>
             )}
 
+            {showIcons && (
+              <ListItemIcon>
+                {getIcon(item.type)}
+              </ListItemIcon>
+            )}
+
             <ListItemText
               primary={getItemName(item)}
               secondary={getClippedDescription(item)}
@@ -165,7 +177,10 @@ function ItemList<T extends Item>({
 
             {showTags && (
               <div>
-                <TagDisplay tags={item.tags} />
+                <TagDisplay
+                  tags={item.tags}
+                  linked={linkTags}
+                />
               </div>
             )}
 
