@@ -1,6 +1,7 @@
 {
   "license": "MIT",
   "scripts": {
-    "deploy": "./deploy/deploy.sh"
+    "deploy": "./deploy/deploy.sh",
+    "start": "cd app && yarn start"
   }
 }
