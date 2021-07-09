@@ -11,7 +11,7 @@ import {
   ItemId,
   lookupItemsById,
 } from '../state/items';
-import { GeneralIcon, GroupsIcon, PersonIcon } from './Icons';
+import { getIcon } from './Icons';
 
 const useStyles = makeStyles(theme => ({
   autocompleteOption: {
@@ -49,7 +49,7 @@ function ItemOption({
     <div className={classes.autocompleteOption}>
       {showIcons && (
         <div className={classes.optionIcon}>
-          {getIcon(item)}
+          {getIcon(item.type)}
         </div>
       )}
 
@@ -74,15 +74,6 @@ export interface Props<T extends Item> {
   showGroupMemberCount?: boolean,
   showIcons?: boolean,
   showSelected?: boolean,
-}
-
-export function getIcon(item: Item) {
-  if (item.type === 'person') {
-    return <PersonIcon />;
-  } else if (item.type === 'group') {
-    return <GroupsIcon />;
-  }
-  return <GeneralIcon />;
 }
 
 function ItemSearch<T extends Item = Item>({
@@ -147,7 +138,7 @@ function ItemSearch<T extends Item = Item>({
           <Chip
             key={item.id}
             label={getItemName(item)}
-            icon={getIcon(item)}
+            icon={getIcon(item.type)}
           />
         ))
       )}
