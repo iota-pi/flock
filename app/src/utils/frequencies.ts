@@ -6,6 +6,7 @@ export const FREQUENCIES_TO_DAYS = {
   monthly: 365.25 / 12,
   quarterly: 365.25 / 4,
   annually: 365.25,
+  none: Infinity,
 };
 export type Frequency = keyof typeof FREQUENCIES_TO_DAYS;
 export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
@@ -15,6 +16,7 @@ export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
   monthly: 'Monthly',
   quarterly: 'Quarterly',
   annually: 'Annually',
+  none: 'No target',
 };
 export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as Frequency[];
 
