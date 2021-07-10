@@ -45,7 +45,7 @@ const useStyles = makeStyles(theme => ({
   },
   primary: {
     color: theme.palette.primary.light,
-    backgroundColor: `${fade('#fff', 0.08)} !important`,
+    backgroundColor: `${fade('#fff', 0.05)} !important`,
   },
   menuItemIcon: {
     color: 'inherit',
