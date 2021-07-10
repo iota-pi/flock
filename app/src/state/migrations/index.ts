@@ -1,7 +1,7 @@
 import Vault from '../../crypto/Vault';
 import store from '../../store';
 import { updateMetadata } from '../account';
-import { GeneralItem, Item, updateItems } from '../items';
+import { GeneralItem, GroupItem, Item, updateItems } from '../items';
 
 const dispatch = store.dispatch;
 
@@ -33,6 +33,35 @@ const migrations: ItemMigration[] = [
           successful = false;
         }
       }
+
+      return successful;
+    },
+  },
+  {
+    dependencies: [],
+    id: 'removeDeletedMembersFromGroups',
+    migrate: async ({ items, vault }) => {
+      let successful = true;
+      const peopleIds = new Set(items.filter(item => item.type === 'person').map(item => item.id));
+
+      const updatedItems: GroupItem[] = [];
+      for (let i = 0; i < items.length; ++i) {
+        try {
+          const item = items[i];
+          if (item.type === 'group') {
+            const remainingMembers = item.members.filter(memberId => peopleIds.has(memberId));
+            if (remainingMembers.length !== item.members.length) {
+              const newItem: GroupItem = { ...item, members: remainingMembers };
+              updatedItems.push(newItem);
+              vault.store(newItem);
+            }
+          }
+        } catch (error) {
+          console.error(error);
+          successful = false;
+        }
+      }
+      dispatch(updateItems(updatedItems));
 
       return successful;
     },
