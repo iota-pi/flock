@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import DateFnsUtils from '@date-io/date-fns';
-import { Toolbar } from '@material-ui/core';
-import { makeStyles } from '@material-ui/core/styles';
+import { Toolbar, useMediaQuery } from '@material-ui/core';
+import { makeStyles, Theme } from '@material-ui/core/styles';
 import { MuiPickersUtilsProvider } from '@material-ui/pickers';
 import AppBar from './components/nav/AppBar';
 import MainMenu from './components/nav/MainMenu';
@@ -51,9 +51,12 @@ async function initialLoadFromVault(
 
 export default function App() {
   const classes = useStyles();
-  const [miniMenu, setMiniMenu] = useState(false);
   const dispatch = useAppDispatch();
   const vault = useVault();
+  const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('xs'));
+
+  const [rawMiniMenu, setMiniMenu] = useState<boolean>();
+  const miniMenu = rawMiniMenu === undefined ? xs : rawMiniMenu;
 
   const handleShowMenu = useCallback(
     () => {
