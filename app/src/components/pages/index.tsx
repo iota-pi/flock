@@ -10,7 +10,6 @@ import {
   PrayerIcon,
   SuggestIcon,
 } from '../Icons';
-import TagPage from './Tag';
 
 const PeoplePage = loadable(() => import('./People'));
 const GroupsPage = loadable(() => import('./Groups'));
@@ -21,6 +20,7 @@ const SuggestionsPage = loadable(() => import('./Suggestions'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
+const TagPage = loadable(() => import('./Tag'));
 
 export type PageId = (
   'login' |
