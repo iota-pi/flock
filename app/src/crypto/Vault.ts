@@ -2,7 +2,7 @@ import VaultAPI from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
 import { Item } from '../state/items';
-import { AccountState } from '../state/account';
+import { AccountMetadata, AccountState } from '../state/account';
 
 const api = new VaultAPI();
 
@@ -26,7 +26,7 @@ export interface VaultImportExportData {
   key: string,
 }
 
-class Vault<T extends Item = Item> {
+class Vault {
   private account: string;
   private keyHash: string;
   private key: CryptoKey;
@@ -117,15 +117,15 @@ class Vault<T extends Item = Item> {
     return dec.decode(plaintext);
   }
 
-  encryptObject(obj: T) {
+  encryptObject(obj: object) {
     return this.encrypt(JSON.stringify(obj));
   }
 
-  async decryptObject({ iv, cipher }: CryptoResult): Promise<T> {
+  async decryptObject({ iv, cipher }: CryptoResult): Promise<object> {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
-  async store(item: T) {
+  async store(item: Item) {
     const { cipher, iv } = await this.encryptObject(item);
     await api.put({
       account: this.account,
@@ -139,7 +139,7 @@ class Vault<T extends Item = Item> {
     });
   }
 
-  async fetch(itemId: string) {
+  async fetch(itemId: string): Promise<Item> {
     const result = await api.fetch({
       account: this.account,
       item: itemId,
@@ -147,7 +147,7 @@ class Vault<T extends Item = Item> {
     return this.decryptObject({
       cipher: result.cipher,
       iv: result.metadata.iv,
-    });
+    }) as Promise<Item>;
   }
 
   async fetchAll() {
@@ -159,7 +159,7 @@ class Vault<T extends Item = Item> {
         cipher: item.cipher,
         iv: item.metadata.iv,
       }),
-    ));
+    )) as Promise<Item[]>;
   }
 
   async delete(itemId: string) {
@@ -175,11 +175,27 @@ class Vault<T extends Item = Item> {
     return true;
   }
 
+  async setMetadata(metadata: AccountMetadata) {
+    const { cipher, iv } = await this.encryptObject(metadata);
+    return api.setMetadata({
+      account: this.account,
+      authToken: this.authToken,
+      metadata: { cipher, iv },
+    });
+  }
+
   async getMetadata(): Promise<AccountState> {
-    const metadata = await api.getMetadata({
+    const result = await api.getMetadata({
       account: this.account,
       authToken: this.authToken,
     });
+    let metadata: AccountMetadata;
+    try {
+      metadata = await this.decryptObject(result as CryptoResult);
+    } catch (error) {
+      // Backwards compatibility (10/07/21)
+      metadata = result;
+    }
     return { account: this.account, metadata };
   }
 }

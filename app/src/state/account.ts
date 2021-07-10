@@ -1,6 +1,5 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import VaultAPI from '../crypto/api';
 import Vault from '../crypto/Vault';
 import { AppDispatch } from '../store';
 
@@ -66,7 +65,6 @@ export function updateMetadata(
     vault: Vault | null,
   },
 ) {
-  const api = new VaultAPI();
   dispatch(
     setAccount({
       account,
@@ -74,11 +72,7 @@ export function updateMetadata(
     }),
   );
   if (vault) {
-    return api.setMetadata({
-      account,
-      metadata,
-      authToken: vault.authToken,
-    });
+    return vault.setMetadata(metadata);
   }
   return undefined;
 }

@@ -1,6 +1,7 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import { AccountMetadata } from '../state/account';
 import { ItemType } from '../state/items';
+import { CryptoResult } from './Vault';
 
 
 export interface VaultKey {
@@ -79,7 +80,7 @@ class VaultAPI {
 
   async getMetadata({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
     const data = await this.getAccountData({ account, authToken });
-    return data.metadata as AccountMetadata || {};
+    return data.metadata as (AccountMetadata | CryptoResult) || {};
   }
 
   async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
