@@ -4,6 +4,7 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
   Drawer,
+  fade,
   List,
   ListItem,
   ListItemIcon,
@@ -12,36 +13,70 @@ import {
 } from '@material-ui/core';
 import { pages } from '../pages';
 
-const drawerWidth = 240;
+const DRAWER_SPACING_FULL = 30;
+const DRAWER_SPACING_NARROW = 10;
 
 const useStyles = makeStyles(theme => ({
   drawer: {
-    width: drawerWidth,
+    width: theme.spacing(DRAWER_SPACING_FULL),
     flexShrink: 0,
+    transition: theme.transitions.create('width'),
+
+    '&$minimised': {
+      width: theme.spacing(DRAWER_SPACING_NARROW),
+    },
   },
   drawerPaper: {
-    width: drawerWidth,
+    width: theme.spacing(DRAWER_SPACING_FULL),
+    transition: theme.transitions.create('width'),
+
+    '$minimised &': {
+      width: theme.spacing(DRAWER_SPACING_NARROW),
+    },
   },
   drawerContainer: {
     overflowX: 'hidden',
     overflowY: 'auto',
   },
-  menuButton: {
-    marginRight: theme.spacing(2),
+  menuItem: {
+    transition: theme.transitions.create('color'),
+    justifyContent: 'center',
+    height: theme.spacing(6),
   },
-  primaryMenuItem: {
+  primary: {
     color: theme.palette.primary.light,
-    transition: theme.transitions.create('color'),
+    backgroundColor: `${fade('#fff', 0.08)} !important`,
   },
-  regularMenuItem: {
-    transition: theme.transitions.create('color'),
-  },
-  inheritColour: {
+  menuItemIcon: {
     color: 'inherit',
+    minWidth: 0,
+    paddingLeft: theme.spacing(0.5),
+    paddingRight: theme.spacing(3),
+    transition: theme.transitions.create('padding'),
+  },
+  minimised: {
+    '& $menuItemIcon': {
+      paddingLeft: theme.spacing(1.5),
+      paddingRight: theme.spacing(0),
+    },
+  },
+  menuItemText: {
+    whiteSpace: 'nowrap',
+    overflowX: 'hidden',
+    textOverflow: 'ellipsis',
+    transition: theme.transitions.create('opacity'),
+
+    '$minimised &': {
+      opacity: 0,
+    },
+  },
+  menuItemTextTypography: {
+    display: 'inline',
   },
 }));
 
 export interface Props {
+  minimised?: boolean,
   open: boolean,
 }
 
@@ -53,6 +88,7 @@ export interface UserInterface {
 
 
 function MainMenu({
+  minimised,
   open,
 }: Props) {
   const classes = useStyles();
@@ -70,7 +106,7 @@ function MainMenu({
 
   return (
     <Drawer
-      className={classes.drawer}
+      className={`${classes.drawer} ${minimised ? classes.minimised : ''}`}
       variant="persistent"
       open={open}
       classes={{
@@ -90,12 +126,19 @@ function MainMenu({
               <ListItem
                 button
                 onClick={handleClick(id)}
-                className={id === currentPageId ? classes.primaryMenuItem : classes.regularMenuItem}
+                className={`${classes.menuItem} ${id === currentPageId ? classes.primary : ''}`}
               >
-                <ListItemIcon className={classes.inheritColour}>
+                <ListItemIcon className={classes.menuItemIcon}>
                   {icon}
                 </ListItemIcon>
-                <ListItemText primary={name} />
+
+                <ListItemText
+                  primary={name}
+                  className={classes.menuItemText}
+                  classes={{
+                    primary: classes.menuItemTextTypography,
+                  }}
+                />
               </ListItem>
             </React.Fragment>
           ))}

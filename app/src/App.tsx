@@ -51,15 +51,15 @@ async function initialLoadFromVault(
 
 export default function App() {
   const classes = useStyles();
-  const [open, setOpen] = useState(true);
+  const [miniMenu, setMiniMenu] = useState(false);
   const dispatch = useAppDispatch();
   const vault = useVault();
 
   const handleShowMenu = useCallback(
     () => {
-      setOpen(!open);
+      setMiniMenu(!miniMenu);
     },
-    [open],
+    [miniMenu],
   );
 
   useEffect(
@@ -89,11 +89,11 @@ export default function App() {
         <Router>
           <div className={classes.root}>
             <AppBar
-              showMenu={open}
-              onShowMenu={handleShowMenu}
+              minimisedMenu={miniMenu}
+              onMinimiseMenu={handleShowMenu}
             />
 
-            <MainMenu open={open} />
+            <MainMenu open minimised={miniMenu} />
 
             <div className={classes.content}>
               <Toolbar />

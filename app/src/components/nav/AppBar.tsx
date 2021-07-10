@@ -27,8 +27,8 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props {
-  showMenu: boolean,
-  onShowMenu: () => void,
+  minimisedMenu: boolean,
+  onMinimiseMenu: () => void,
 }
 
 function useTagParam() {
@@ -38,8 +38,8 @@ function useTagParam() {
 
 
 function AppBar({
-  showMenu,
-  onShowMenu,
+  minimisedMenu,
+  onMinimiseMenu,
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
@@ -82,10 +82,10 @@ function AppBar({
           edge="start"
           color="inherit"
           aria-label="menu"
-          onClick={onShowMenu}
+          onClick={onMinimiseMenu}
           className={classes.menuButton}
         >
-          {showMenu ? <ContractMenuIcon /> : <ExpandMenuIcon />}
+          {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
         </IconButton>
 
         <Typography variant="h6" color="inherit">
