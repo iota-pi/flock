@@ -33,16 +33,16 @@ function GroupDisplay({
   onRemove,
 }: Props) {
   const classes = useStyles();
-  const people = useItems<GroupItem>('group').sort(compareNames);
+  const allGroups = useItems<GroupItem>('group').sort(compareNames);
 
   const groups = useMemo(
-    () => lookupItemsById(people, groupIds).sort(compareNames),
-    [people, groupIds],
+    () => lookupItemsById(allGroups, groupIds).sort(compareNames),
+    [allGroups, groupIds],
   );
 
   const options = useMemo(
-    () => people.filter(person => !groupIds.includes(person.id)),
-    [groupIds, people],
+    () => allGroups.filter(group => !groupIds.includes(group.id)),
+    [groupIds, allGroups],
   );
 
   const handleRemoveGroup = useCallback(
