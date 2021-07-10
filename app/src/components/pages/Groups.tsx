@@ -28,6 +28,15 @@ function GroupsPage() {
     [],
   );
   const handleCloseDetails = useCallback(() => setShowDetails(false), []);
+  const getDescription = useCallback(
+    (item: GroupItem) => {
+      const n = item.members.length;
+      const s = n !== 1 ? 's' : '';
+      const description = item.description ? ` — ${item.description}` : '';
+      return `${n} member${s}${description}`;
+    },
+    [],
+  );
 
   return (
     <BasePage
@@ -40,6 +49,7 @@ function GroupsPage() {
         noItemsHint="Click the plus button to add one!"
         noItemsText="No groups found"
         onClick={handleClickGroup}
+        getDescription={getDescription}
       />
 
       <GroupDrawer
