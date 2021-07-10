@@ -39,7 +39,7 @@ const useStyles = makeStyles(theme => ({
     overflowY: 'auto',
   },
   menuItem: {
-    transition: theme.transitions.create('color'),
+    transition: theme.transitions.create(['color', 'height']),
     justifyContent: 'center',
     height: theme.spacing(6),
   },
@@ -58,6 +58,10 @@ const useStyles = makeStyles(theme => ({
     '& $menuItemIcon': {
       paddingLeft: theme.spacing(1.5),
       paddingRight: theme.spacing(0),
+    },
+
+    '& $menuItem': {
+      height: theme.spacing(8),
     },
   },
   menuItemText: {
