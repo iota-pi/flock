@@ -7,7 +7,7 @@ const useStyles = makeStyles(theme => ({
   root: {
     position: 'relative',
     flexGrow: 1,
-    marginBottom: theme.spacing(8),
+    paddingBottom: theme.spacing(8),
   },
   fab: {
     position: 'fixed',
