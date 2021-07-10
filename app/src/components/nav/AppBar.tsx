@@ -45,7 +45,7 @@ export interface Props {
 
 function useTagParam() {
   const params = useRouteMatch(getPage('tag').path)?.params as { tag: string } | undefined;
-  return params?.tag;
+  return params?.tag ? decodeURIComponent(params?.tag) : undefined;
 }
 
 

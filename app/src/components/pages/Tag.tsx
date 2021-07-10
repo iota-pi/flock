@@ -8,7 +8,7 @@ import AnyItemDrawer from '../drawers/AnyItemDrawer';
 
 
 function TagPage() {
-  const { tag } = useParams<{ tag: string }>();
+  const tag = decodeURIComponent(useParams<{ tag: string }>().tag);
   const rawItems = useItems();
   const items = useMemo(
     () => rawItems.filter(item => item.tags.includes(tag)).sort(compareItems),

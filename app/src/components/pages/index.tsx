@@ -170,5 +170,5 @@ export function getPage(page: PageId) {
 }
 
 export function getTagPage(tag: string) {
-  return getPage('tag').path.replace(':tag', tag);
+  return getPage('tag').path.replace(':tag', encodeURIComponent(tag));
 }
