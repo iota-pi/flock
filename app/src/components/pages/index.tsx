@@ -8,6 +8,7 @@ import {
   InteractionIcon,
   PersonIcon,
   PrayerIcon,
+  PrayerPointIcon,
   SuggestIcon,
 } from '../Icons';
 
@@ -99,7 +100,7 @@ export const pages: Page[] = [
     id: 'prayer-points',
     path: '/prayer-points',
     name: 'Prayer Points',
-    icon: <PrayerIcon />,
+    icon: <PrayerPointIcon />,
     page: <PrayerPointsPage />,
     requiresAuth: true,
     dividerBefore: true,
