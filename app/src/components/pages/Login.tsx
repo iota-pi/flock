@@ -1,8 +1,10 @@
 import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Button, Container, TextField, Typography } from '@material-ui/core';
+import { Button, Container, IconButton, InputAdornment, TextField, Typography } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
+import Visibility from '@material-ui/icons/Visibility';
+import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';
@@ -47,6 +49,7 @@ function LoginPage() {
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
   const [accountInput, setAccountInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(
     () => {
@@ -91,6 +94,14 @@ function LoginPage() {
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
     [],
   );
+  const handleClickVisibility = useCallback(
+    () => setShowPassword(p => !p),
+    [],
+  );
+  const handleMouseDownVisibility = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
+    [],
+  );
 
   const justCreated = (location.state as { created: boolean } | undefined)?.created || false;
 
@@ -127,10 +138,22 @@ function LoginPage() {
               autoComplete="current-password"
               name="password"
               label="Password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={handleChangePassword}
               className={classes.textField}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={handleClickVisibility}
+                      onMouseDown={handleMouseDownVisibility}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
           </div>
 

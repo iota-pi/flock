@@ -1,16 +1,20 @@
 import React, { ChangeEvent, useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
-import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
   CircularProgress,
   Container,
   fade,
+  IconButton,
+  InputAdornment,
   LinearProgress,
+  makeStyles,
   TextField,
   Typography,
 } from '@material-ui/core';
+import VisibilityOff from '@material-ui/icons/VisibilityOff';
+import Visibility from '@material-ui/icons/Visibility';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';
@@ -122,6 +126,7 @@ function CreateAccountPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordScore, setPasswordScore] = useState(0);
   const [waiting, setWaiting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleClickLogin = useCallback(
     () => history.push(getPage('login').path),
@@ -167,6 +172,14 @@ function CreateAccountPage() {
     },
     [],
   );
+  const handleClickVisibility = useCallback(
+    () => setShowPassword(p => !p),
+    [],
+  );
+  const handleMouseDownVisibility = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
+    [],
+  );
 
   const validPassword = !!password && !passwordError;
 
@@ -191,12 +204,24 @@ function CreateAccountPage() {
           <TextField
             id="password"
             label="Password"
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             autoComplete="current-password"
             value={password}
             onChange={handleChangePassword}
             fullWidth
             className={classes.textField}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={handleClickVisibility}
+                    onMouseDown={handleMouseDownVisibility}
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
           />
 
           <div className={classes.meterHolder}>
