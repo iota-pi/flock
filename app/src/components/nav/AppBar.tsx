@@ -11,6 +11,7 @@ import EverythingSearch from './EverythingSearch';
 import AnyItemDrawer from '../drawers/AnyItemDrawer';
 import { Item } from '../../state/items';
 import { getPage, getTagPage } from '../pages';
+import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -18,12 +19,23 @@ const useStyles = makeStyles(theme => ({
   },
   searchField: {
     flexGrow: 1,
-    marginLeft: theme.spacing(2),
-    marginRight: theme.spacing(2),
+    marginLeft: theme.spacing(1),
+    marginRight: theme.spacing(1),
   },
   menuButton: {
     marginRight: theme.spacing(2),
   },
+  preSearch: {
+    display: 'flex',
+    alignItems: 'center',
+    minWidth: theme.spacing(DRAWER_SPACING_FULL - 3),
+    paddingRight: theme.spacing(4),
+
+    '$minimised &': {
+      minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
+    },
+  },
+  minimised: {},
 }));
 
 export interface Props {
@@ -75,22 +87,24 @@ function AppBar({
   return (
     <MuiAppBar
       position="fixed"
-      className={classes.root}
+      className={`${classes.root} ${minimisedMenu ? classes.minimised : ''}`}
     >
       <Toolbar>
-        <IconButton
-          edge="start"
-          color="inherit"
-          aria-label="menu"
-          onClick={onMinimiseMenu}
-          className={classes.menuButton}
-        >
-          {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
-        </IconButton>
+        <div className={classes.preSearch}>
+          <IconButton
+            edge="start"
+            color="inherit"
+            aria-label="menu"
+            onClick={onMinimiseMenu}
+            className={classes.menuButton}
+          >
+            {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
+          </IconButton>
 
-        <Typography variant="h6" color="inherit">
-          {APP_NAME}
-        </Typography>
+          <Typography variant="h6" color="inherit">
+            {APP_NAME}
+          </Typography>
+        </div>
 
         <div className={classes.searchField}>
           <EverythingSearch

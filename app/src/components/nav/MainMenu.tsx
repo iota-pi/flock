@@ -13,8 +13,8 @@ import {
 } from '@material-ui/core';
 import { pages } from '../pages';
 
-const DRAWER_SPACING_FULL = 30;
-const DRAWER_SPACING_NARROW = 10;
+export const DRAWER_SPACING_FULL = 30;
+export const DRAWER_SPACING_NARROW = 10;
 
 const useStyles = makeStyles(theme => ({
   drawer: {
