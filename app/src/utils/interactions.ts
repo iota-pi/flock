@@ -24,7 +24,12 @@ export function getLastInteractionDate(
 
 export function getInteractionSuggestions(items: PersonItem[]) {
   const dueItems = items.filter(
-    item => isDue(new Date(getLastInteractionDate(item)), item.interactionFrequency) !== Due.fine,
+    item => (
+      isDue(
+        new Date(getLastInteractionDate(item, true)),
+        item.interactionFrequency,
+      ) !== Due.fine
+    ),
   );
   const withNextSchedule: [PersonItem, number][] = dueItems.map(
     item => [
