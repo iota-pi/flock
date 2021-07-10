@@ -51,5 +51,4 @@ export default abstract class BaseDriver<T = unknown> {
   abstract fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<VaultData[]>;
 
   abstract delete({ account, item }: VaultKey): Promise<void>;
-  abstract deleteAll({ account }: Pick<VaultKey, 'account'>): Promise<void>;
 }

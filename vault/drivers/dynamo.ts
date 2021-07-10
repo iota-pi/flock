@@ -183,10 +183,6 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
       Key: { account, item },
     }).promise();
   }
-
-  async deleteAll({ account }: Pick<VaultKey, 'account'>) {
-    throw new Error('deleteAll is not implemented for DynamoDB');
-  }
 }
 
 export function getConnectionParams(options?: DynamoOptions): DynamoOptions {
