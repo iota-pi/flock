@@ -65,13 +65,13 @@ function PersonDrawer({
     [person],
   );
 
+  const memberGroups = useMemo(
+    () => groups.filter(g => g.members.includes(localPerson.id)).sort(compareNames),
+    [groups, localPerson.id],
+  );
   const memberGroupIds = useMemo(
-    () => {
-      const memberGroups = groups.filter(g => g.members.includes(localPerson.id));
-      memberGroups.sort(compareNames);
-      return memberGroups.map(g => g.id);
-    },
-    [groups, localPerson],
+    () => memberGroups.map(g => g.id),
+    [memberGroups],
   );
 
   const handleChange = useCallback(
@@ -108,7 +108,7 @@ function PersonDrawer({
       vault?.store(newGroup);
       dispatch(updateItems([newGroup]));
     },
-    [dispatch, localPerson, vault],
+    [dispatch, localPerson.id, vault],
   );
   const handleClickGroup = useCallback(
     (group: GroupItem) => {
@@ -126,7 +126,22 @@ function PersonDrawer({
       vault?.store(newGroup);
       dispatch(updateItems([newGroup]));
     },
-    [dispatch, localPerson, vault],
+    [dispatch, localPerson.id, vault],
+  );
+  const removeFromAllGroups = useCallback(
+    () => {
+      const updatedGroupItems: GroupItem[] = [];
+      for (const group of memberGroups) {
+        const newGroup: GroupItem = {
+          ...group,
+          members: group.members.filter(m => m !== localPerson.id),
+        };
+        vault?.store(newGroup);
+        updatedGroupItems.push(newGroup);
+      }
+      dispatch(updateItems(updatedGroupItems));
+    },
+    [dispatch, localPerson.id, memberGroups, vault],
   );
 
   const valid = !!localPerson.firstName && !!localPerson.lastName;
@@ -155,12 +170,13 @@ function PersonDrawer({
   );
   const handleDelete = useCallback(
     () => {
+      removeFromAllGroups();
       vault?.delete(localPerson.id);
       dispatch(deleteItems([localPerson]));
       setLocalPerson(getBlankPerson());
       onClose();
     },
-    [dispatch, onClose, localPerson, vault],
+    [dispatch, onClose, localPerson, removeFromAllGroups, vault],
   );
   const handleCloseGroupDrawer = useCallback(() => setShowGroup(false), []);
 
