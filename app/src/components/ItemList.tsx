@@ -175,6 +175,8 @@ function ItemList<T extends Item>({
               id={`${item.id}-text`}
             />
 
+            <div className={classes.spacer} />
+
             {showTags && (
               <div>
                 <TagDisplay
@@ -183,8 +185,6 @@ function ItemList<T extends Item>({
                 />
               </div>
             )}
-
-            <div className={classes.spacer} />
 
             <ListItemSecondaryAction>
               <IconButton
