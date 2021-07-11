@@ -68,7 +68,7 @@ function MemberDisplay({
       )}
 
       <ItemList
-        actionIcon={editable ? <DeleteIcon /> : <></>}
+        actionIcon={editable ? <DeleteIcon /> : undefined}
         className={classes.list}
         dividers
         items={members}

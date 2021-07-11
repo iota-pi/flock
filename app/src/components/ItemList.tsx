@@ -10,7 +10,6 @@ import {
   ListItemSecondaryAction,
   ListItemText,
 } from '@material-ui/core';
-import ChevronRight from '@material-ui/icons/ChevronRight';
 import { getItemName, Item } from '../state/items';
 import TagDisplay from './TagDisplay';
 import { getIcon } from './Icons';
@@ -43,6 +42,9 @@ const useStyles = makeStyles(theme => ({
   },
   spacer: {
     flexGrow: 1,
+  },
+  actionButton: {
+    marginRight: theme.spacing(2),
   },
 }));
 
@@ -186,15 +188,17 @@ function ItemList<T extends Item>({
               </div>
             )}
 
-            <ListItemSecondaryAction>
-              <IconButton
-                className={!onClickAction ? classes.noHover : undefined}
-                disableRipple={!onClickAction}
-                onClick={handleClickAction(item)}
-              >
-                {actionIcon || <ChevronRight />}
-              </IconButton>
-            </ListItemSecondaryAction>
+            {actionIcon && (
+              <ListItemSecondaryAction className={classes.actionButton}>
+                <IconButton
+                  className={!onClickAction ? classes.noHover : undefined}
+                  disableRipple={!onClickAction}
+                  onClick={handleClickAction(item)}
+                >
+                  {actionIcon}
+                </IconButton>
+              </ListItemSecondaryAction>
+            )}
           </ListItem>
         </React.Fragment>
       ))}
