@@ -25,6 +25,7 @@ export interface BaseItem {
   prayedFor: number[],
   notes: ItemNote[],
   prayerFrequency: Frequency,
+  summary: string,
   tags: string[],
   type: ItemType,
 }
@@ -134,6 +135,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     prayedFor: [],
     notes: [],
     prayerFrequency: 'monthly',
+    summary: '',
     tags: [],
     type: 'person',
   };

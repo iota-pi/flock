@@ -169,6 +169,15 @@ function GroupDrawer({
               value={localGroup.description}
               onChange={handleChange('description')}
               label="Description"
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              value={localGroup.summary}
+              onChange={handleChange('summary')}
+              label="Notes"
               multiline
               fullWidth
             />

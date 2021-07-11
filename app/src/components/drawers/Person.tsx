@@ -243,6 +243,15 @@ function PersonDrawer({
               value={localPerson.description}
               onChange={handleChange('description')}
               label="Description"
+              fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              value={localPerson.summary}
+              onChange={handleChange('summary')}
+              label="Notes"
               multiline
               fullWidth
             />
