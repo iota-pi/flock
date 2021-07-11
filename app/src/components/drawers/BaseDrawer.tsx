@@ -1,6 +1,6 @@
 import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Container, Drawer, IconButton } from '@material-ui/core';
+import { Container, IconButton, SwipeableDrawer } from '@material-ui/core';
 import { BackIcon } from '../Icons';
 
 
@@ -92,11 +92,13 @@ function BaseDrawer({
   );
 
   return (
-    <Drawer
+    <SwipeableDrawer
       className={rootClasses.join(' ')}
       variant="temporary"
       open={open}
       onClose={onClose}
+      onOpen={() => {}}
+      disableSwipeToOpen
       anchor="right"
       classes={{
         paper: paperClasses.join(' '),
@@ -114,7 +116,7 @@ function BaseDrawer({
           {children}
         </>
       </Container>
-    </Drawer>
+    </SwipeableDrawer>
   );
 }
 
