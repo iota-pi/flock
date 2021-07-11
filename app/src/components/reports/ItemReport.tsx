@@ -81,10 +81,6 @@ function ItemReport({
     ),
     [item],
   );
-  const otherNotes = useMemo(
-    () => getNotes([item], 'general').sort((a, b) => b.date - a.date),
-    [item],
-  );
 
   return (
     <>
@@ -138,20 +134,6 @@ function ItemReport({
           />
         </div>
       )}
-
-      <div className={classes.section}>
-        <Typography variant="h4">
-          General Notes
-        </Typography>
-
-        <NoteList
-          notes={otherNotes}
-          displayItemNames={false}
-          displayNoteDate={false}
-          dividers
-          noNotesHint="No general notes"
-        />
-      </div>
 
       {item.type === 'person' && (
         <div className={classes.section}>

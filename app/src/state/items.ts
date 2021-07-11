@@ -5,9 +5,9 @@ import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
-export type ItemNoteType = 'interaction' | 'prayer' | 'general';
+export type ItemNoteType = 'interaction' | 'prayer';
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
-export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer', 'general'];
+export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer'];
 
 export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
   id: string,

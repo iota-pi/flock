@@ -76,12 +76,10 @@ const useStyles = makeStyles(theme => ({
 const ALL_TYPES = 'all';
 export const NOTE_FILTER_OPTIONS: [ItemNoteType | typeof ALL_TYPES, string][] = [
   [ALL_TYPES, 'All notes'],
-  ['general', 'General notes'],
   ['prayer', 'Prayer points'],
   ['interaction', 'Interactions'],
 ];
 export const NOTE_TYPE_OPTIONS: [ItemNoteType, string][] = [
-  ['general', 'General'],
   ['prayer', 'Prayer Point'],
   ['interaction', 'Interaction'],
 ];
@@ -211,7 +209,7 @@ function NoteControl({
 
   const handleAddNote = useCallback(
     () => {
-      const type = filterType === ALL_TYPES ? 'general' : filterType;
+      const type = filterType === ALL_TYPES ? 'interaction' : filterType;
       const note = getBlankNote(type);
       onChange([...notes, note]);
     },
@@ -261,7 +259,7 @@ function NoteControl({
       } else if (filterType === 'prayer') {
         return 'Add Prayer Point';
       }
-      return 'Add Note';
+      return 'Add Interaction';
     },
     [filterType],
   );
