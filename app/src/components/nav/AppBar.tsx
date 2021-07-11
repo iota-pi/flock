@@ -1,7 +1,13 @@
 import React, { useCallback, useState } from 'react';
 import { useHistory, useRouteMatch } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { AppBar as MuiAppBar, Button, IconButton, Toolbar, Typography } from '@material-ui/core';
+import {
+  AppBar as MuiAppBar,
+  IconButton,
+  Toolbar,
+  Tooltip,
+  Typography,
+} from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
 import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
@@ -12,10 +18,14 @@ import AnyItemDrawer from '../drawers/AnyItemDrawer';
 import { Item } from '../../state/items';
 import { getPage, getTagPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
+import { SignOutIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   root: {
     zIndex: theme.zIndex.drawer + 1,
+  },
+  toolbar: {
+    paddingRight: theme.spacing(2),
   },
   searchField: {
     flexGrow: 1,
@@ -36,6 +46,9 @@ const useStyles = makeStyles(theme => ({
     },
   },
   minimised: {},
+  signoutButton: {
+    marginLeft: theme.spacing(1),
+  },
 }));
 
 export interface Props {
@@ -89,7 +102,7 @@ function AppBar({
       position="fixed"
       className={`${classes.root} ${minimisedMenu ? classes.minimised : ''}`}
     >
-      <Toolbar>
+      <Toolbar className={classes.toolbar}>
         <div className={classes.preSearch}>
           <IconButton
             edge="start"
@@ -113,9 +126,13 @@ function AppBar({
           />
         </div>
 
-        <Button onClick={handleClickSignOut}>
-          Sign Out
-        </Button>
+        <div className={classes.signoutButton}>
+          <Tooltip title="Sign out">
+            <IconButton onClick={handleClickSignOut}>
+              <SignOutIcon />
+            </IconButton>
+          </Tooltip>
+        </div>
       </Toolbar>
 
       <AnyItemDrawer

@@ -14,6 +14,7 @@ import RemoveIcon from '@material-ui/icons/Close';
 import ReportIcon from '@material-ui/icons/Description';
 import SaveIcon from '@material-ui/icons/Check';
 import SearchIcon from '@material-ui/icons/Search';
+import SignOutIcon from '@material-ui/icons/ExitToApp';
 import SuggestIcon from '@material-ui/icons/Update';
 import TagIcon from '@material-ui/icons/Label';
 import WarningIcon from '@material-ui/icons/Warning';
@@ -38,6 +39,7 @@ export {
   ReportIcon,
   SaveIcon,
   SearchIcon,
+  SignOutIcon,
   SuggestIcon,
   TagIcon,
   WarningIcon,
