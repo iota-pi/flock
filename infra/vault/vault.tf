@@ -78,6 +78,7 @@ resource "aws_iam_policy" "vault_policy" {
           "dynamodb:BatchWriteItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
           "dynamodb:CreateTable"
       ],
       "Resource": [
