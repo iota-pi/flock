@@ -2,7 +2,9 @@ import React, {
   ChangeEvent,
   useCallback,
   useMemo,
+  useRef,
 } from 'react';
+import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import {
@@ -136,48 +138,68 @@ function EverythingSearch({
     [onSelect],
   );
 
+  const searchInput = useRef<HTMLInputElement>();
+  const focusSearch = useCallback(
+    () => {
+      if (searchInput.current) {
+        searchInput.current.focus();
+      }
+    },
+    [searchInput],
+  );
+  const keyMap: KeyMap = {
+    SEARCH: { sequence: '/', action: 'keyup' },
+  };
+  const handlers = {
+    SEARCH: focusSearch,
+  };
+
   return (
-    <Autocomplete
-      filterOptions={filterFunc}
-      getOptionLabel={option => getName(option)}
-      multiple
-      noOptionsText={noItemsText || 'No items found'}
-      onChange={handleChange}
-      options={options}
-      getOptionSelected={(a, b) => a.id === b.id}
-      renderInput={params => (
-        <TextField
-          {...params}
-          placeholder={label}
-          variant="outlined"
-          className={classes.whiteTextField}
-          InputProps={{
-            ...params.InputProps,
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-      )}
-      renderOption={item => (
-        <OptionComponent
-          item={item}
-          showIcons={showIcons}
-        />
-      )}
-      renderTags={tagItems => (
-        tagItems.map(item => (
-          <Chip
-            key={item.id}
-            label={getName(item)}
-            icon={getIcon(item.type)}
+    <>
+      <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
+      <Autocomplete
+        filterOptions={filterFunc}
+        getOptionLabel={option => getName(option)}
+        multiple
+        noOptionsText={noItemsText || 'No items found'}
+        onChange={handleChange}
+        options={options}
+        getOptionSelected={(a, b) => a.id === b.id}
+        renderInput={params => (
+          <TextField
+            {...params}
+            placeholder={label}
+            variant="outlined"
+            className={classes.whiteTextField}
+            inputRef={searchInput}
+            InputProps={{
+              ...params.InputProps,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
           />
-        ))
-      )}
-      value={[]}
-    />
+        )}
+        renderOption={item => (
+          <OptionComponent
+            item={item}
+            showIcons={showIcons}
+          />
+        )}
+        renderTags={tagItems => (
+          tagItems.map(item => (
+            <Chip
+              key={item.id}
+              label={getName(item)}
+              icon={getIcon(item.type)}
+            />
+          ))
+        )}
+        value={[]}
+      />
+    </>
   );
 }
 
