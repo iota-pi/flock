@@ -2,6 +2,7 @@ import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer } from '@material-ui/core';
 import { BackIcon } from '../Icons';
+import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 
 
 const useStyles = makeStyles(theme => ({
@@ -32,7 +33,13 @@ const useStyles = makeStyles(theme => ({
   defaultBackground: {
     backgroundColor: theme.palette.background.default,
   },
+  layout: {
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
   container: {
+    position: 'relative',
     overflowX: 'hidden',
     overflowY: 'auto',
     paddingTop: theme.spacing(2),
@@ -44,11 +51,12 @@ const useStyles = makeStyles(theme => ({
   backButton: {
     position: 'absolute',
     display: 'flex',
-    right: theme.spacing(3),
+    top: theme.spacing(2),
+    right: theme.spacing(2),
   },
 }));
 
-interface Props {
+interface BaseProps {
   onBack?: () => void,
   onClose: () => void,
   open: boolean,
@@ -56,10 +64,15 @@ interface Props {
   showCancelDelete?: boolean,
   onNext?: () => void,
 }
-export type { Props as ItemDrawerProps };
+interface SpecificProps {
+  ActionProps?: DrawerActionsProps,
+}
+export type { BaseProps as ItemDrawerProps };
+type Props = BaseProps & SpecificProps;
 
 
 function BaseDrawer({
+  ActionProps,
   children,
   onBack,
   onClose,
@@ -105,17 +118,25 @@ function BaseDrawer({
       }}
       onKeyDown={handleKeyDown}
     >
-      <Container className={classes.container}>
-        <>
-          <div className={classes.backButton}>
-            <IconButton onClick={handleBack}>
-              <BackIcon />
-            </IconButton>
-          </div>
+      <div className={classes.layout}>
+        <Container className={classes.container}>
+          <>
+            <div className={classes.backButton}>
+              <IconButton onClick={handleBack}>
+                <BackIcon />
+              </IconButton>
+            </div>
 
-          {children}
-        </>
-      </Container>
+            {children}
+          </>
+        </Container>
+
+        {ActionProps && (
+          <div>
+            <DrawerActions {...ActionProps} />
+          </div>
+        )}
+      </div>
     </SwipeableDrawer>
   );
 }

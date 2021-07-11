@@ -25,7 +25,6 @@ import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ReportDrawer from './ReportDrawer';
-import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
@@ -134,6 +133,15 @@ function GroupDrawer({
   return (
     <>
       <BaseDrawer
+        ActionProps={{
+          canSave: valid,
+          editing: !!group,
+          itemName: group ? getItemName(group) : undefined,
+          onCancel: handleCancel,
+          onDelete: handleDelete,
+          onReport: handleReport,
+          onSave: handleSave,
+        }}
         open={open}
         onBack={onBack}
         onClose={handleSave}
@@ -216,16 +224,6 @@ function GroupDrawer({
             />
           </Grid>
         </Grid>
-
-        <DrawerActions
-          canSave={valid}
-          editing={!!group}
-          itemName={group ? getItemName(group) : undefined}
-          onCancel={handleCancel}
-          onDelete={handleDelete}
-          onReport={handleReport}
-          onSave={handleSave}
-        />
       </BaseDrawer>
 
       <ReportDrawer

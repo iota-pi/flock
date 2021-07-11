@@ -21,7 +21,6 @@ import { useAppDispatch } from '../../store';
 import NoteControl from '../NoteControl';
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
-import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
@@ -113,6 +112,14 @@ function GeneralDrawer({
   return (
     <>
       <BaseDrawer
+        ActionProps={{
+          canSave: valid,
+          editing: !!item,
+          itemName: item ? getItemName(item) : undefined,
+          onCancel: handleCancel,
+          onDelete: handleDelete,
+          onSave: handleSave,
+        }}
         open={open}
         onBack={onBack}
         onClose={handleSave}
@@ -180,15 +187,6 @@ function GeneralDrawer({
             />
           </Grid>
         </Grid>
-
-        <DrawerActions
-          canSave={valid}
-          editing={!!item}
-          itemName={item ? getItemName(item) : undefined}
-          onCancel={handleCancel}
-          onDelete={handleDelete}
-          onSave={handleSave}
-        />
       </BaseDrawer>
     </>
   );

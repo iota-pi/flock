@@ -5,6 +5,7 @@ import React, {
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Button,
+  Container,
   Divider,
   fade,
   Grid,
@@ -28,6 +29,10 @@ const useStyles = makeStyles(theme => ({
   },
   filler: {
     flexGrow: 1,
+  },
+  container: {
+    paddingTop: theme.spacing(2),
+    paddingBottom: theme.spacing(2),
   },
 }));
 
@@ -104,94 +109,92 @@ function DrawerActions({
 
   return (
     <>
-      <div className={classes.filler} />
+      <Divider />
 
-      <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <Divider />
+      <Container className={classes.container}>
+        <Grid container spacing={2}>
+          {onReport && (
+            <Grid item xs={12}>
+              <Button
+                onClick={onReport}
+                variant="outlined"
+                fullWidth
+                startIcon={editing ? <ReportIcon /> : undefined}
+              >
+                Group Report
+              </Button>
+            </Grid>
+          )}
+
+          {onSkip && (
+            <Grid item xs={12}>
+              <Button
+                onClick={onSkip}
+                variant="outlined"
+                fullWidth
+              >
+                Skip
+              </Button>
+            </Grid>
+          )}
+
+          {onCancel && onDelete && (
+            <Grid item xs={12} sm={6}>
+              <Button
+                onClick={handleClickDelete}
+                variant="outlined"
+                fullWidth
+                className={editing ? classes.danger : undefined}
+                startIcon={editing ? <DeleteIcon /> : undefined}
+              >
+                {editing ? 'Delete' : 'Cancel'}
+              </Button>
+            </Grid>
+          )}
+
+          {onSave && (
+            <Grid item xs={12} sm={6}>
+              <Button
+                color="primary"
+                onClick={onSave}
+                variant="contained"
+                fullWidth
+                disabled={!canSave}
+                startIcon={<SaveIcon />}
+              >
+                Done
+              </Button>
+            </Grid>
+          )}
+
+          {onDone && (
+            <Grid item xs={12}>
+              <Button
+                color="primary"
+                onClick={onDone}
+                variant="contained"
+                fullWidth
+              >
+                Done
+              </Button>
+            </Grid>
+          )}
+
+          {onNext && (
+            <Grid item xs={12}>
+              <Button
+                color="primary"
+                onClick={onNext}
+                variant="contained"
+                fullWidth
+                endIcon={<NextIcon />}
+              >
+                Next
+              </Button>
+            </Grid>
+          )}
         </Grid>
-
-        {onReport && (
-          <Grid item xs={12}>
-            <Button
-              onClick={onReport}
-              variant="outlined"
-              fullWidth
-              startIcon={editing ? <ReportIcon /> : undefined}
-            >
-              Group Report
-            </Button>
-          </Grid>
-        )}
-
-        {onSkip && (
-          <Grid item xs={12}>
-            <Button
-              onClick={onSkip}
-              variant="outlined"
-              fullWidth
-            >
-              Skip
-            </Button>
-          </Grid>
-        )}
-
-        {onCancel && onDelete && (
-          <Grid item xs={12} sm={6}>
-            <Button
-              onClick={handleClickDelete}
-              variant="outlined"
-              fullWidth
-              className={editing ? classes.danger : undefined}
-              startIcon={editing ? <DeleteIcon /> : undefined}
-            >
-              {editing ? 'Delete' : 'Cancel'}
-            </Button>
-          </Grid>
-        )}
-
-        {onSave && (
-          <Grid item xs={12} sm={6}>
-            <Button
-              color="primary"
-              onClick={onSave}
-              variant="contained"
-              fullWidth
-              disabled={!canSave}
-              startIcon={<SaveIcon />}
-            >
-              Done
-            </Button>
-          </Grid>
-        )}
-
-        {onDone && (
-          <Grid item xs={12}>
-            <Button
-              color="primary"
-              onClick={onDone}
-              variant="contained"
-              fullWidth
-            >
-              Done
-            </Button>
-          </Grid>
-        )}
-
-        {onNext && (
-          <Grid item xs={12}>
-            <Button
-              color="primary"
-              onClick={onNext}
-              variant="contained"
-              fullWidth
-              endIcon={<NextIcon />}
-            >
-              Next
-            </Button>
-          </Grid>
-        )}
-      </Grid>
+      </Container>
 
       {onDelete && (
         <ConfirmationDialog

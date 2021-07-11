@@ -27,7 +27,6 @@ import { useItems, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import GroupDrawer from './Group';
 import GroupDisplay from '../GroupDisplay';
-import DrawerActions from './utils/DrawerActions';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
@@ -183,6 +182,14 @@ function PersonDrawer({
   return (
     <>
       <BaseDrawer
+        ActionProps={{
+          canSave: valid,
+          editing: !!person,
+          itemName: person ? getItemName(person) : undefined,
+          onCancel: handleCancel,
+          onDelete: handleDelete,
+          onSave: handleSave,
+        }}
         open={open}
         onBack={onBack}
         onClose={handleSave}
@@ -291,15 +298,6 @@ function PersonDrawer({
             />
           </Grid>
         </Grid>
-
-        <DrawerActions
-          canSave={valid}
-          editing={!!person}
-          itemName={person ? getItemName(person) : undefined}
-          onCancel={handleCancel}
-          onDelete={handleDelete}
-          onSave={handleSave}
-        />
       </BaseDrawer>
 
       {showGroup && (

@@ -29,7 +29,6 @@ import { useItems, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
-import DrawerActions from './utils/DrawerActions';
 import ItemList from '../ItemList';
 import { RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
@@ -197,6 +196,15 @@ function InteractionDrawer({
 
   return (
     <BaseDrawer
+      ActionProps={{
+        canSave: linkedItems.length > 0,
+        editing: !!rawInteraction,
+        itemIsNote: true,
+        itemName: rawInteraction?.type,
+        onCancel: handleCancel,
+        onDelete: handleDelete,
+        onSave: handleSave,
+      }}
       open={open}
       onBack={onBack}
       onClose={handleSave}
@@ -271,16 +279,6 @@ function InteractionDrawer({
           />
         </Grid>
       </Grid>
-
-      <DrawerActions
-        canSave={linkedItems.length > 0}
-        editing={!!rawInteraction}
-        itemIsNote
-        itemName={rawInteraction?.type}
-        onCancel={handleCancel}
-        onDelete={handleDelete}
-        onSave={handleSave}
-      />
     </BaseDrawer>
   );
 }

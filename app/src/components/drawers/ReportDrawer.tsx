@@ -63,6 +63,13 @@ function ReportDrawer({
   return (
     <>
       <BaseDrawer
+        ActionProps={onNext ? {
+          onSkip: handleSkip,
+          onNext: handlePrayedFor,
+        } : {
+          onSkip: handleSkip,
+          onDone: handlePrayedFor,
+        }}
         open={open}
         onClose={handleClose}
         stacked={stacked}
