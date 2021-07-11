@@ -72,6 +72,16 @@ function BaseDrawer({
   const rootClasses = [classes.root, ...commonClasses];
   const paperClasses = [classes.defaultBackground, ...commonClasses];
 
+  const handleBack = useCallback(
+    () => {
+      if (onBack) {
+        onBack();
+      } else {
+        onClose();
+      }
+    },
+    [onBack, onClose],
+  );
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.ctrlKey && event.key === 'Enter') {
@@ -95,13 +105,11 @@ function BaseDrawer({
     >
       <Container className={classes.container}>
         <>
-          {onBack && (
-            <div className={classes.backButton}>
-              <IconButton onClick={onBack}>
-                <BackIcon />
-              </IconButton>
-            </div>
-          )}
+          <div className={classes.backButton}>
+            <IconButton onClick={handleBack}>
+              <BackIcon />
+            </IconButton>
+          </div>
 
           {children}
         </>
