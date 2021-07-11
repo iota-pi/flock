@@ -8,6 +8,10 @@ const useStyles = makeStyles(theme => ({
     marginRight: theme.spacing(1),
     marginTop: theme.spacing(0.5),
     marginBottom: theme.spacing(0.5),
+
+    '&:last-child': {
+      marginRight: 0,
+    },
   },
   chipLabel: {
     paddingLeft: theme.spacing(2),
@@ -36,7 +40,7 @@ function TagDisplay({
   );
 
   return (
-    <>
+    <div>
       {tags.map(tag => (
         <Chip
           key={tag}
@@ -47,7 +51,7 @@ function TagDisplay({
           onClick={linked ? handleClick(tag) : undefined}
         />
       ))}
-    </>
+    </div>
   );
 }
 

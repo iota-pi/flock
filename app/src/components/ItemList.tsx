@@ -7,7 +7,6 @@ import {
   List,
   ListItem,
   ListItemIcon,
-  ListItemSecondaryAction,
   ListItemText,
 } from '@material-ui/core';
 import { getItemName, Item } from '../state/items';
@@ -44,7 +43,7 @@ const useStyles = makeStyles(theme => ({
     flexGrow: 1,
   },
   actionButton: {
-    marginRight: theme.spacing(2),
+    marginLeft: theme.spacing(2),
   },
 }));
 
@@ -195,16 +194,14 @@ function ItemList<T extends Item>({
             <div className={classes.spacer} />
 
             {showTags && (
-              <div>
-                <TagDisplay
-                  tags={item.tags}
-                  linked={linkTags}
-                />
-              </div>
+              <TagDisplay
+                tags={item.tags}
+                linked={linkTags}
+              />
             )}
 
             {actionIcon && (
-              <ListItemSecondaryAction className={classes.actionButton}>
+              <div className={classes.actionButton}>
                 <IconButton
                   className={!onClickAction ? classes.noHover : undefined}
                   disableRipple={!onClickAction}
@@ -212,7 +209,7 @@ function ItemList<T extends Item>({
                 >
                   {actionIcon}
                 </IconButton>
-              </ListItemSecondaryAction>
+              </div>
             )}
           </ListItem>
         </React.Fragment>
