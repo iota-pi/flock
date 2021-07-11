@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react';
 import { Item } from '../../state/items';
 import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
-import DrawerActions from './utils/DrawerActions';
 import AnyItemDrawer from './AnyItemDrawer';
 
 export interface Props extends ItemDrawerProps {
@@ -79,18 +78,6 @@ function ReportDrawer({
           canEdit={canEdit}
           onEdit={handleEdit}
         />
-
-        {onNext ? (
-          <DrawerActions
-            onSkip={handleSkip}
-            onNext={handlePrayedFor}
-          />
-        ) : (
-          <DrawerActions
-            onSkip={handleSkip}
-            onDone={handlePrayedFor}
-          />
-        )}
       </BaseDrawer>
 
       {canEdit && (
