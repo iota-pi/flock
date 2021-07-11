@@ -11,22 +11,36 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get('/:account/items', async (request, reply) => {
     const account = (request.params as { account: string }).account;
+    const authToken = getAuthToken(request);
+    const valid = await vault.checkPassword({ account, authToken });
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
+    }
     try {
       const results = await vault.fetchAll({ account });
-      return { items: results };
+      return { success: true, items: results };
     } catch (error) {
       fastify.log.error(error);
+      reply.code(404);
       return { success: false };
     }
   });
 
   fastify.get('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string };
+    const authToken = getAuthToken(request);
+    const valid = await vault.checkPassword({ account, authToken });
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
+    }
     try {
       const result = await vault.get({ account, item });
-      return { items: [result] };
+      return { success: true, items: [result] };
     } catch (error) {
       fastify.log.error(error);
+      reply.code(404);
       return { success: false };
     }
   });
@@ -36,31 +50,37 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     const { cipher, iv, type } = request.body as { cipher: string, iv: string, type: string };
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
-    if (valid) {
-      try {
-        const _type = asItemType(type);
-        await vault.set({ account, item, cipher, metadata: { type: _type, iv } });
-      } catch (error) {
-        fastify.log.error(error);
-        return { success: false };
-      }
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
     }
-    return { success: valid };
+    try {
+      const _type = asItemType(type);
+      await vault.set({ account, item, cipher, metadata: { type: _type, iv } });
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
+    return { success: true };
   });
 
   fastify.delete('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string };
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
-    if (valid) {
-      try {
-        await vault.delete({ account, item });
-      } catch (error) {
-        fastify.log.error(error);
-        return { success: false };
-      }
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
     }
-    return { success: valid };
+    try {
+      await vault.delete({ account, item });
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
+    return { success: true };
   });
 
   fastify.post('/:account', async (request, reply) => {
@@ -71,6 +91,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       return { success };
     } catch (error) {
       fastify.log.error(error);
+      reply.code(500);
       return { success: false };
     }
   });
@@ -79,16 +100,19 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     const { account } = request.params as { account: string };
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
-    if (valid) {
-      const { metadata } = request.body as { metadata: Record<string, any> };
-      try {
-        await vault.setMetadata({ account, metadata });
-      } catch (error) {
-        fastify.log.error(error);
-        return { success: false };
-      }
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
     }
-    return { success: valid };
+    const { metadata } = request.body as { metadata: Record<string, any> };
+    try {
+      await vault.setMetadata({ account, metadata });
+      return { success: true };
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
   });
 
   fastify.get('/:account', async (request, reply) => {
@@ -101,7 +125,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         metadata,
       };
     } catch (error) {
-      fastify.log.error(error);
+      reply.code(403);
       return { success: false };
     }
   });

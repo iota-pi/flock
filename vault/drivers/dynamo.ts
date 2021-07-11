@@ -83,6 +83,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
   }
 
   async createAccount({ account, authToken }: AuthData): Promise<boolean> {
+    // TODO: can this be atomic?
     const response = await this.client?.get({
       TableName: ACCOUNT_TABLE_NAME,
       Key: { account },
