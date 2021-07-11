@@ -36,15 +36,15 @@ class VaultAPI {
     };
   }
 
-  async fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<VaultItem[]> {
+  async fetchAll({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<VaultItem[]> {
     const url = `${this.endpoint}/${account}/items`;
-    const result = await axios.get(url);
+    const result = await axios.get(url, this.getAuthorization(authToken));
     return result.data.items;
   }
 
-  async fetch({ account, item }: VaultKey): Promise<VaultItem> {
+  async fetch({ account, authToken, item }: VaultKey & VaultAuth): Promise<VaultItem> {
     const url = `${this.endpoint}/${account}/items/${item}`;
-    const result = await axios.get(url);
+    const result = await axios.get(url, this.getAuthorization(authToken));
     return result.data.items[0];
   }
 

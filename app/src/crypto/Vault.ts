@@ -142,6 +142,7 @@ class Vault {
   async fetch(itemId: string): Promise<Item> {
     const result = await api.fetch({
       account: this.account,
+      authToken: this.authToken,
       item: itemId,
     });
     return this.decryptObject({
@@ -153,6 +154,7 @@ class Vault {
   async fetchAll() {
     const result = await api.fetchAll({
       account: this.account,
+      authToken: this.authToken,
     });
     return Promise.all(result.map(
       item => this.decryptObject({
