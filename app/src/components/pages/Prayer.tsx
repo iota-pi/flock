@@ -96,18 +96,25 @@ function PrayerPage() {
     },
     [],
   );
-  const handleNext = useCallback(
+  const moveToNext = useCallback(
     () => {
       const index = prayerSchedule.indexOf(currentItem);
-      recordPrayerFor(currentItem);
       setCurrentItem(prayerSchedule[index + 1] || prayerSchedule[0]);
     },
-    [currentItem, prayerSchedule, recordPrayerFor],
+    [currentItem, prayerSchedule],
   );
   const handleDone = useCallback(
     () => recordPrayerFor(currentItem),
     [currentItem, recordPrayerFor],
   );
+  const handleNext = useCallback(
+    () => {
+      moveToNext();
+      handleDone();
+    },
+    [handleDone, moveToNext],
+  );
+  const handleSkip = moveToNext;
   const handleClose = useCallback(() => setShowDrawer(false), []);
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
@@ -188,6 +195,7 @@ function PrayerPage() {
         onClose={handleClose}
         onDone={handleDone}
         onNext={isLastItemOfBatch ? undefined : handleNext}
+        onSkip={isLastItemOfBatch ? undefined : handleSkip}
       />
 
       <GoalDialog

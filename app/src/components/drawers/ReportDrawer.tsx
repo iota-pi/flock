@@ -10,6 +10,7 @@ export interface Props extends ItemDrawerProps {
   item: Item,
   onDone?: () => void,
   onNext?: () => void,
+  onSkip?: () => void,
 }
 
 
@@ -19,6 +20,7 @@ function ReportDrawer({
   onClose,
   onDone,
   onNext,
+  onSkip,
   open,
   stacked,
 }: Props) {
@@ -32,7 +34,7 @@ function ReportDrawer({
     },
     [onClose],
   );
-  const handleCloseButton = useCallback(
+  const handlePrayedFor = useCallback(
     () => {
       setEditing(false);
       if (onNext) {
@@ -45,6 +47,17 @@ function ReportDrawer({
       }
     },
     [onClose, onDone, onNext],
+  );
+  const handleSkip = useCallback(
+    () => {
+      setEditing(false);
+      if (onSkip) {
+        onSkip();
+      } else {
+        onClose();
+      }
+    },
+    [onClose, onSkip],
   );
 
   return (
@@ -62,11 +75,13 @@ function ReportDrawer({
 
         {onNext ? (
           <DrawerActions
-            onNext={handleCloseButton}
+            onSkip={handleSkip}
+            onNext={handlePrayedFor}
           />
         ) : (
           <DrawerActions
-            onDone={handleCloseButton}
+            onSkip={handleSkip}
+            onDone={handlePrayedFor}
           />
         )}
       </BaseDrawer>

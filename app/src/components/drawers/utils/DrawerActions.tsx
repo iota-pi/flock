@@ -41,6 +41,7 @@ export interface PropsWithSave extends BaseProps {
   canSave: boolean,
   onCancel: () => void,
   onDelete: () => void,
+  onSkip?: undefined,
   onDone?: undefined,
   onNext?: undefined,
   onReport?: () => void,
@@ -55,6 +56,7 @@ export interface PropsWithDone extends BaseProps {
   onNext?: undefined,
   onReport?: undefined,
   onSave?: undefined,
+  onSkip: () => void,
 }
 
 export interface PropsWithNext extends BaseProps {
@@ -65,6 +67,7 @@ export interface PropsWithNext extends BaseProps {
   onNext: () => void,
   onReport?: undefined,
   onSave?: undefined,
+  onSkip: () => void,
 }
 
 export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
@@ -81,6 +84,7 @@ function DrawerActions({
   onNext,
   onReport,
   onSave,
+  onSkip,
 }: Props) {
   const classes = useStyles();
 
@@ -116,6 +120,18 @@ function DrawerActions({
               startIcon={editing ? <ReportIcon /> : undefined}
             >
               Group Report
+            </Button>
+          </Grid>
+        )}
+
+        {onSkip && (
+          <Grid item xs={12}>
+            <Button
+              onClick={onSkip}
+              variant="outlined"
+              fullWidth
+            >
+              Skip
             </Button>
           </Grid>
         )}
