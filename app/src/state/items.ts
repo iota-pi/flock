@@ -18,6 +18,7 @@ export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
 }
 
 export interface BaseItem {
+  archived: boolean,
   created: number,
   description: string,
   id: ItemId,
@@ -128,6 +129,7 @@ export function getBlankNote<T extends ItemNoteType>(type: T): ItemNote<T> {
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
   return {
+    archived: false,
     created: new Date().getTime(),
     description: '',
     id: id || getItemId(),
@@ -197,7 +199,9 @@ export function compareIds(a: Item | ItemNote, b: Item | ItemNote) {
 }
 
 export function compareItems(a: Item, b: Item) {
-  if (a.type !== b.type) {
+  if (a.archived !== b.archived) {
+    return +a.archived - +b.archived;
+  } else if (a.type !== b.type) {
     return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type);
   } else if (a.type === 'person' || b.type === 'person') {
     return comparePeopleNames(a as PersonItem, b as PersonItem);

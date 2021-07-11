@@ -52,6 +52,7 @@ export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
+  fadeArchived?: boolean,
   getDescription?: (item: T) => string,
   items: T[],
   linkTags?: boolean,
@@ -82,6 +83,7 @@ function ItemList<T extends Item>({
   checkboxes,
   className,
   dividers,
+  fadeArchived = true,
   getChecked,
   getDescription,
   items,
@@ -131,6 +133,19 @@ function ItemList<T extends Item>({
     [getDescription],
   );
 
+  const getItemFaded = useCallback(
+    (item: T) => {
+      if (item.archived && fadeArchived) {
+        return true;
+      }
+      if (getChecked && getChecked(item)) {
+        return true;
+      }
+      return false;
+    },
+    [fadeArchived, getChecked],
+  );
+
   return (
     <List className={className}>
       {dividers && items.length === 0 && <Divider />}
@@ -172,7 +187,7 @@ function ItemList<T extends Item>({
               className={([
                 classes.itemText,
                 item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                getChecked && getChecked(item) ? classes.faded : undefined,
+                getItemFaded(item) ? classes.faded : undefined,
               ].join(' '))}
               id={`${item.id}-text`}
             />

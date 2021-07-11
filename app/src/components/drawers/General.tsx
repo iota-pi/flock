@@ -5,6 +5,8 @@ import React, {
   useState,
 } from 'react';
 import {
+  Checkbox,
+  FormControlLabel,
   Grid,
   TextField,
   Typography,
@@ -59,18 +61,26 @@ function GeneralDrawer({
     (key: keyof GeneralItem) => (
       (e: ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
-        setLocalItem({ ...localItem, [key]: value });
+        setLocalItem(i => ({ ...i, [key]: value }));
       }
     ),
-    [localItem],
+    [],
+  );
+  const handleChangeBoolean = useCallback(
+    (key: keyof GeneralItem) => (
+      (event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+        setLocalItem(i => ({ ...i, [key]: checked }));
+      }
+    ),
+    [],
   );
   const handleChangeFrequency = useCallback(
     (key: 'interactionFrequency' | 'prayerFrequency') => (
       (value: Frequency) => {
-        setLocalItem({ ...localItem, [key as string]: value });
+        setLocalItem(i => ({ ...i, [key as string]: value }));
       }
     ),
-    [localItem],
+    [],
   );
   const handleChangeNotes = useCallback(
     (newNotes: ItemNote[]) => setLocalItem(i => ({ ...i, notes: newNotes })),
@@ -158,6 +168,18 @@ function GeneralDrawer({
               label="Notes"
               multiline
               fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={localItem.archived}
+                  onChange={handleChangeBoolean('archived')}
+                />
+              )}
+              label="Archive"
             />
           </Grid>
 

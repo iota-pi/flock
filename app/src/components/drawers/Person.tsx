@@ -6,6 +6,8 @@ import React, {
   useState,
 } from 'react';
 import {
+  Checkbox,
+  FormControlLabel,
   Grid,
   TextField,
   Typography,
@@ -77,18 +79,26 @@ function PersonDrawer({
     (key: keyof PersonItem) => (
       (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
-        setLocalPerson({ ...localPerson, [key]: value });
+        setLocalPerson(p => ({ ...p, [key]: value }));
       }
     ),
-    [localPerson],
+    [],
+  );
+  const handleChangeBoolean = useCallback(
+    (key: keyof PersonItem) => (
+      (event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+        setLocalPerson(p => ({ ...p, [key]: checked }));
+      }
+    ),
+    [],
   );
   const handleChangeFrequency = useCallback(
     (key: 'interactionFrequency' | 'prayerFrequency') => (
       (value: Frequency) => {
-        setLocalPerson({ ...localPerson, [key as string]: value });
+        setLocalPerson(p => ({ ...p, [key as string]: value }));
       }
     ),
-    [localPerson],
+    [],
   );
   const handleChangeNotes = useCallback(
     (newNotes: ItemNote[]) => setLocalPerson(p => ({ ...p, notes: newNotes })),
@@ -254,6 +264,18 @@ function PersonDrawer({
               label="Notes"
               multiline
               fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={localPerson.archived}
+                  onChange={handleChangeBoolean('archived')}
+                />
+              )}
+              label="Archive"
             />
           </Grid>
 

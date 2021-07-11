@@ -5,6 +5,8 @@ import React, {
   useState,
 } from 'react';
 import {
+  Checkbox,
+  FormControlLabel,
   Grid,
   TextField,
   Typography,
@@ -66,22 +68,30 @@ function GroupDrawer({
     (key: keyof GroupItem) => (
       (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
-        setLocalGroup({ ...localGroup, [key]: value });
+        setLocalGroup(g => ({ ...g, [key]: value }));
       }
     ),
-    [localGroup],
+    [],
+  );
+  const handleChangeBoolean = useCallback(
+    (key: keyof GroupItem) => (
+      (event: ChangeEvent<HTMLInputElement>, checked: boolean) => {
+        setLocalGroup(g => ({ ...g, [key]: checked }));
+      }
+    ),
+    [],
   );
   const handleChangeFrequency = useCallback(
     (key: 'interactionFrequency' | 'prayerFrequency') => (
       (value: Frequency) => {
-        setLocalGroup({ ...localGroup, [key as string]: value });
+        setLocalGroup(g => ({ ...g, [key as string]: value }));
       }
     ),
-    [localGroup],
+    [],
   );
   const handleChangeMembers = useCallback(
-    (newMembers: string[]) => setLocalGroup({ ...localGroup, members: newMembers }),
-    [localGroup],
+    (newMembers: string[]) => setLocalGroup(g => ({ ...g, members: newMembers })),
+    [],
   );
   const handleChangeNotes = useCallback(
     (newNotes: ItemNote[]) => setLocalGroup(g => ({ ...g, notes: newNotes })),
@@ -180,6 +190,18 @@ function GroupDrawer({
               label="Notes"
               multiline
               fullWidth
+            />
+          </Grid>
+
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={localGroup.archived}
+                  onChange={handleChangeBoolean('archived')}
+                />
+              )}
+              label="Archive"
             />
           </Grid>
 
