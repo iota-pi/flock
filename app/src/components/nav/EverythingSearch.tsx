@@ -158,13 +158,14 @@ function EverythingSearch({
     <>
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Autocomplete
+        autoHighlight
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
+        getOptionSelected={(a, b) => a.id === b.id}
         multiple
         noOptionsText={noItemsText || 'No items found'}
         onChange={handleChange}
         options={options}
-        getOptionSelected={(a, b) => a.id === b.id}
         renderInput={params => (
           <TextField
             {...params}

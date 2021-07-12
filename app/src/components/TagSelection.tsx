@@ -46,6 +46,7 @@ function TagSelection({
 
   return (
     <Autocomplete
+      autoHighlight
       clearOnBlur
       filterOptions={(options, params) => {
         const filtered = filterFunc(options, params);

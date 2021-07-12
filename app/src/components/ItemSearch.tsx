@@ -111,13 +111,14 @@ function ItemSearch<T extends Item = Item>({
 
   return (
     <Autocomplete
+      autoHighlight
       filterOptions={filterFunc}
       getOptionLabel={item => getItemName(item)}
+      getOptionSelected={(a, b) => a.id === b.id}
       multiple
       noOptionsText={noItemsText || 'No items found'}
       onChange={handleChange}
       options={options}
-      getOptionSelected={(a, b) => a.id === b.id}
       renderInput={params => (
         <TextField
           {...params}
