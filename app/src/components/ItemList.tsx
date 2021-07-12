@@ -98,11 +98,12 @@ function ItemList<T extends Item>({
   const classes = useStyles();
 
   const handleClickAction = useCallback(
-    (item: T) => {
+    (item: T) => (event: MouseEvent) => {
+      event.stopPropagation();
       if (onClickAction) {
-        return onClickAction(item);
+        return onClickAction(item)();
       } else if (onClick) {
-        return onClick(item);
+        return onClick(item)();
       }
       return undefined;
     },
