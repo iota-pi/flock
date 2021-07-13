@@ -69,6 +69,7 @@ function ReportDrawer({
           onSkip: handleSkip,
           onDone: handlePrayedFor,
         }}
+        hideBackButton
         open={open}
         onClose={handleClose}
         stacked={stacked}

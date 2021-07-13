@@ -63,10 +63,10 @@ interface BaseProps {
   open: boolean,
   stacked?: boolean,
   showCancelDelete?: boolean,
-  onNext?: () => void,
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
+  hideBackButton?: boolean,
 }
 export type { BaseProps as ItemDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -75,6 +75,7 @@ type Props = BaseProps & SpecificProps;
 function BaseDrawer({
   ActionProps,
   children,
+  hideBackButton = false,
   onBack,
   onClose,
   open,
@@ -122,11 +123,13 @@ function BaseDrawer({
       <div className={classes.layout}>
         <Container className={classes.container}>
           <>
-            <div className={classes.backButton}>
-              <IconButton onClick={handleBack}>
-                <BackIcon />
-              </IconButton>
-            </div>
+            {!hideBackButton && (
+              <div className={classes.backButton}>
+                <IconButton onClick={handleBack}>
+                  <BackIcon />
+                </IconButton>
+              </div>
+            )}
 
             {children}
           </>
