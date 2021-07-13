@@ -66,18 +66,20 @@ function InteractionDrawer({
 
   useEffect(
     () => {
-      if (rawInteraction) {
-        setInteraction(rawInteraction);
-        const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
-        setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
-        setShowSensitive(false);
-      } else {
-        setInteraction(getBlankInteraction());
-        setLinkedItems([]);
-        setShowSensitive(false);
+      if (open) {
+        if (rawInteraction) {
+          setInteraction(rawInteraction);
+          const existingLinkedItem = getItemById(items, noteMap[rawInteraction.id]);
+          setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
+          setShowSensitive(false);
+        } else {
+          setInteraction(getBlankInteraction());
+          setLinkedItems([]);
+          setShowSensitive(false);
+        }
       }
     },
-    [items, noteMap, rawInteraction],
+    [items, noteMap, open, rawInteraction],
   );
 
   const handleChange = useCallback(

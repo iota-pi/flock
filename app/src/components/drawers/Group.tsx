@@ -58,13 +58,15 @@ function GroupDrawer({
 
   useEffect(
     () => {
-      if (group) {
-        setLocalGroup({ ...group });
-      } else {
-        setLocalGroup(getBlankGroup());
+      if (open) {
+        if (group) {
+          setLocalGroup({ ...group });
+        } else {
+          setLocalGroup(getBlankGroup());
+        }
       }
     },
-    [group],
+    [group, open],
   );
 
   const handleChange = useCallback(

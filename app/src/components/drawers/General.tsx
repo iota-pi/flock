@@ -51,13 +51,15 @@ function GeneralDrawer({
 
   useEffect(
     () => {
-      if (item) {
-        setLocalItem({ ...item });
-      } else {
-        setLocalItem(getBlankGeneral());
+      if (open) {
+        if (item) {
+          setLocalItem({ ...item });
+        } else {
+          setLocalItem(getBlankGeneral());
+        }
       }
     },
-    [item],
+    [item, open],
   );
 
   const handleChange = useCallback(

@@ -55,18 +55,20 @@ function PrayerPointDrawer({
 
   useEffect(
     () => {
-      if (rawPrayerPoint) {
-        setPrayerPoint(rawPrayerPoint);
-        const existingLinkedItem = getItemById(items, noteMap[rawPrayerPoint.id]);
-        setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
-        setShowSensitive(false);
-      } else {
-        setPrayerPoint(getBlankPrayerPoint());
-        setLinkedItems([]);
-        setShowSensitive(false);
+      if (open) {
+        if (rawPrayerPoint) {
+          setPrayerPoint(rawPrayerPoint);
+          const existingLinkedItem = getItemById(items, noteMap[rawPrayerPoint.id]);
+          setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
+          setShowSensitive(false);
+        } else {
+          setPrayerPoint(getBlankPrayerPoint());
+          setLinkedItems([]);
+          setShowSensitive(false);
+        }
       }
     },
-    [items, noteMap, rawPrayerPoint],
+    [items, noteMap, open, rawPrayerPoint],
   );
 
   const handleChange = useCallback(

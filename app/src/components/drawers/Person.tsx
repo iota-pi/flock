@@ -57,13 +57,15 @@ function PersonDrawer({
 
   useEffect(
     () => {
-      if (person) {
-        setLocalPerson({ ...person });
-      } else {
-        setLocalPerson(getBlankPerson());
+      if (open) {
+        if (person) {
+          setLocalPerson({ ...person });
+        } else {
+          setLocalPerson(getBlankPerson());
+        }
       }
     },
-    [person],
+    [open, person],
   );
 
   const memberGroups = useMemo(
