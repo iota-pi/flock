@@ -130,6 +130,7 @@ function ItemReport({
           displayItemNames={false}
           displayNoteDate={false}
           dividers
+          hideEmpty
           noNotesHint="No prayer points"
         />
       </div>

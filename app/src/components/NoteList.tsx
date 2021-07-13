@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback } from 'react';
+import React, { ReactNode, useCallback, useMemo } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -28,6 +28,9 @@ const useStyles = makeStyles(() => ({
   disabledOverride: {
     opacity: '1 !important',
   },
+  faded: {
+    opacity: 0.85,
+  },
 }));
 
 export interface Props<T extends ItemNote> {
@@ -36,6 +39,7 @@ export interface Props<T extends ItemNote> {
   dividers?: boolean,
   displayItemNames?: boolean,
   displayNoteDate?: boolean,
+  hideEmpty?: boolean,
   paddingTop?: boolean,
   notes: T[],
   noNotesHint?: string,
@@ -51,8 +55,9 @@ function NoteList<T extends ItemNote = ItemNote>({
   displayItemNames = true,
   displayNoteDate = true,
   dividers,
+  hideEmpty = false,
   paddingTop = true,
-  notes,
+  notes: rawNotes,
   noNotesHint,
   noNotesText,
   onClick,
@@ -61,6 +66,16 @@ function NoteList<T extends ItemNote = ItemNote>({
   const classes = useStyles();
   const items = useItems();
   const noteMap = useNoteMap();
+
+  const notes = useMemo(
+    () => {
+      if (hideEmpty) {
+        return rawNotes.filter(note => !!note.content.trim());
+      }
+      return rawNotes;
+    },
+    [hideEmpty, rawNotes],
+  );
 
   const handleClickAction = useCallback(
     (note: T) => {
@@ -79,7 +94,8 @@ function NoteList<T extends ItemNote = ItemNote>({
         return getItemName(getItemById(items, noteMap[note.id]));
       }
 
-      return note.sensitive ? '(sensitive)' : note.content;
+      const content = note.content || '(no details)';
+      return note.sensitive ? '(sensitive)' : content;
     },
     [displayItemNames, items, noteMap],
   );
@@ -93,7 +109,7 @@ function NoteList<T extends ItemNote = ItemNote>({
       }
 
       if (displayItemNames) {
-        const content = note.sensitive ? '(sensitive)' : note.content;
+        const content = note.sensitive ? '(sensitive)' : (note.content || '(no details)');
         textParts.push(content);
       }
 
@@ -127,6 +143,9 @@ function NoteList<T extends ItemNote = ItemNote>({
             <ListItemText
               primary={getNotePrimaryText(note)}
               secondary={getNoteSecondaryText(note)}
+              classes={{
+                primary: note.content ? undefined : classes.faded,
+              }}
             />
 
             {(onClick || onClickAction) && (
