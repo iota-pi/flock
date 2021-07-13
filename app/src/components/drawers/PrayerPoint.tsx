@@ -12,6 +12,7 @@ import {
   IconButton,
   InputAdornment,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
@@ -28,8 +29,9 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
 import ItemList from '../ItemList';
-import { RemoveIcon } from '../Icons';
+import { PrayerPointIcon, RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
+import LargeIcon from '../LargeIcon';
 
 export interface Props extends ItemDrawerProps {
   prayerPoint: PrayerNote | undefined,
@@ -37,10 +39,12 @@ export interface Props extends ItemDrawerProps {
 
 
 function PrayerPointDrawer({
+  alwaysTemporary,
   prayerPoint: rawPrayerPoint,
   onBack,
   onClose,
   open,
+  placeholder,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -192,9 +196,20 @@ function PrayerPointDrawer({
         onDelete: handleDelete,
         onSave: handleSave,
       }}
-      open={open}
+      alwaysTemporary={alwaysTemporary}
       onBack={onBack}
       onClose={handleSave}
+      open={open}
+      placeholder={placeholder || (
+        <>
+          <LargeIcon icon={PrayerPointIcon} />
+
+          <Typography variant="h5" color="textSecondary" align="center">
+            Select a prayer point from the list<br />
+            or click the + to add a new prayer point
+          </Typography>
+        </>
+      )}
       stacked={stacked}
     >
       <Grid container spacing={2}>

@@ -33,6 +33,8 @@ import TagSelection from '../TagSelection';
 import CollapsibleSections from './utils/CollapsibleSections';
 import NoteControl from '../NoteControl';
 import { getPrayerPoints } from '../../utils/prayer';
+import { GroupsIcon } from '../Icons';
+import LargeIcon from '../LargeIcon';
 
 export interface Props extends ItemDrawerProps {
   item: GroupItem | undefined,
@@ -40,10 +42,12 @@ export interface Props extends ItemDrawerProps {
 
 
 function GroupDrawer({
+  alwaysTemporary,
   item: group,
   onBack,
   onClose,
   open,
+  placeholder,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -159,9 +163,20 @@ function GroupDrawer({
           onReport: handleReport,
           onSave: handleSave,
         }}
-        open={open}
+        alwaysTemporary={alwaysTemporary}
         onBack={onBack}
         onClose={handleSave}
+        open={open}
+        placeholder={placeholder || (
+          <>
+            <LargeIcon icon={GroupsIcon} />
+
+            <Typography variant="h5" color="textSecondary" align="center">
+              Select a group from the list<br />
+              or click the + to add a new group
+            </Typography>
+          </>
+        )}
         stacked={stacked && !showPerson}
       >
         <Grid container spacing={2}>
@@ -263,6 +278,7 @@ function GroupDrawer({
         item={localGroup}
         onClose={handleCloseReport}
         open={showReport}
+        placeholderIcon={GroupsIcon}
         stacked
       />
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { Typography } from '@material-ui/core';
 import { useItems } from '../../state/selectors';
 import ItemList from '../ItemList';
 import { PersonItem } from '../../state/items';
@@ -6,6 +7,8 @@ import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/i
 import PersonDrawer from '../drawers/Person';
 import { formatDate } from '../../utils';
 import BasePage from './BasePage';
+import { SuggestIcon } from '../Icons';
+import LargeIcon from '../LargeIcon';
 
 
 function SuggestionsPage() {
@@ -42,6 +45,16 @@ function SuggestionsPage() {
           item={currentItem}
           onClose={handleClose}
           open={showDrawer}
+          placeholder={(
+            <>
+              <LargeIcon icon={SuggestIcon} />
+
+              <Typography variant="h5" color="textSecondary" align="center">
+                Select a person from the list<br />
+                to view more details
+              </Typography>
+            </>
+          )}
         />
       )}
     >

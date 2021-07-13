@@ -29,6 +29,8 @@ import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
 import CollapsibleSections from './utils/CollapsibleSections';
 import { getPrayerPoints } from '../../utils/prayer';
+import { GeneralIcon } from '../Icons';
+import LargeIcon from '../LargeIcon';
 
 export interface Props extends ItemDrawerProps {
   item: GeneralItem | undefined,
@@ -36,10 +38,12 @@ export interface Props extends ItemDrawerProps {
 
 
 function GeneralDrawer({
+  alwaysTemporary,
   item,
   onBack,
   onClose,
   open,
+  placeholder,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -137,9 +141,20 @@ function GeneralDrawer({
           onDelete: handleDelete,
           onSave: handleSave,
         }}
-        open={open}
+        alwaysTemporary={alwaysTemporary}
         onBack={onBack}
         onClose={handleSave}
+        open={open}
+        placeholder={placeholder || (
+          <>
+            <LargeIcon icon={GeneralIcon} />
+
+            <Typography variant="h5" color="textSecondary" align="center">
+              Select an item from the list<br />
+              or click the + to add a new item
+            </Typography>
+          </>
+        )}
         stacked={stacked}
       >
         <Grid container spacing={2}>

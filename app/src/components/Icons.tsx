@@ -1,5 +1,7 @@
 import React from 'react';
-import { createSvgIcon } from '@material-ui/core';
+import { createSvgIcon, SvgIconTypeMap } from '@material-ui/core';
+import { OverridableComponent } from '@material-ui/core/OverridableComponent';
+
 import AddIcon from '@material-ui/icons/Add';
 import BackIcon from '@material-ui/icons/ChevronLeft';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
@@ -18,10 +20,14 @@ import SignOutIcon from '@material-ui/icons/ExitToApp';
 import SuggestIcon from '@material-ui/icons/Update';
 import TagIcon from '@material-ui/icons/Label';
 import WarningIcon from '@material-ui/icons/Warning';
+
 import { FaPrayingHands } from 'react-icons/fa';
+
 import { ItemType } from '../state/items';
 
 const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
+
+export type MuiIconType = OverridableComponent<SvgIconTypeMap<{}, 'svg'>>;
 
 export {
   AddIcon,

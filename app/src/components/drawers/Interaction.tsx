@@ -12,6 +12,7 @@ import {
   IconButton,
   InputAdornment,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
@@ -30,8 +31,9 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
 import ItemList from '../ItemList';
-import { RemoveIcon } from '../Icons';
+import { InteractionIcon, RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
+import LargeIcon from '../LargeIcon';
 
 export interface Props extends ItemDrawerProps {
   interaction: InteractionNote | undefined,
@@ -39,10 +41,12 @@ export interface Props extends ItemDrawerProps {
 
 
 function InteractionDrawer({
+  alwaysTemporary,
   interaction: rawInteraction,
   onBack,
   onClose,
   open,
+  placeholder,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -207,9 +211,20 @@ function InteractionDrawer({
         onDelete: handleDelete,
         onSave: handleSave,
       }}
-      open={open}
+      alwaysTemporary={alwaysTemporary}
       onBack={onBack}
       onClose={handleSave}
+      open={open}
+      placeholder={placeholder || (
+        <>
+          <LargeIcon icon={InteractionIcon} />
+
+          <Typography variant="h5" color="textSecondary" align="center">
+            Select an interaction from the list<br />
+            or click the + to add a new interaction
+          </Typography>
+        </>
+      )}
       stacked={stacked}
     >
       <Grid container spacing={2}>

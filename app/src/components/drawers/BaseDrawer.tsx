@@ -62,6 +62,14 @@ const useStyles = makeStyles(theme => ({
     top: theme.spacing(2),
     right: theme.spacing(2),
   },
+  placeholder: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexGrow: 1,
+    opacity: 0.75,
+  },
 }));
 
 interface BaseProps {
@@ -70,11 +78,12 @@ interface BaseProps {
   open: boolean,
   showCancelDelete?: boolean,
   stacked?: boolean,
+  alwaysTemporary?: boolean,
+  placeholder?: ReactNode,
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   hideBackButton?: boolean,
-  placeholder?: ReactNode,
 }
 export type { BaseProps as ItemDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -82,6 +91,7 @@ type Props = BaseProps & SpecificProps;
 
 function BaseDrawer({
   ActionProps,
+  alwaysTemporary = false,
   children,
   hideBackButton = false,
   onBack,
@@ -116,8 +126,9 @@ function BaseDrawer({
     [onClose],
   );
 
-  const permanentDrawer = largeScreen && !stacked;
+  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
   const showBackButton = !hideBackButton && !permanentDrawer;
+  const displayContent = open || !permanentDrawer;
 
   return (
     <SwipeableDrawer
@@ -148,11 +159,15 @@ function BaseDrawer({
               </div>
             )}
 
-            {!open ? placeholder : children}
+            {displayContent ? children : (
+              <div className={classes.placeholder}>
+                {placeholder}
+              </div>
+            )}
           </>
         </Container>
 
-        {ActionProps && (open || !permanentDrawer) && (
+        {ActionProps && displayContent && (
           <div>
             <DrawerActions {...ActionProps} />
           </div>

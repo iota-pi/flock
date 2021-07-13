@@ -8,12 +8,13 @@ import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import ReportDrawer from '../drawers/ReportDrawer';
-import { EditIcon } from '../Icons';
+import { EditIcon, PrayerIcon } from '../Icons';
 import GoalDialog from '../GoalDialog';
 import BasePage from './BasePage';
 
 const useStyles = makeStyles(theme => ({
   root: {
+    flexGrow: 1,
     paddingTop: theme.spacing(2),
     paddingBottom: theme.spacing(2),
   },
@@ -136,18 +137,19 @@ function PrayerPage() {
           onNext={isLastItemOfBatch ? undefined : handleNext}
           onSkip={isLastItemOfBatch ? undefined : handleSkip}
           open={showDrawer}
+          placeholderIcon={PrayerIcon}
         />
       )}
     >
       <Container maxWidth="xl" className={classes.root}>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={8}>
+          <Grid item xs={12} md={6}>
             <Typography variant="h4" className={classes.heading}>
               Today
             </Typography>
           </Grid>
 
-          <Grid item xs={12} md={4} className={classes.flexRightLarge}>
+          <Grid item xs={12} md={6} className={classes.flexRightLarge}>
             <Typography>
               Daily Goal:
             </Typography>

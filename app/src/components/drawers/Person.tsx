@@ -34,6 +34,8 @@ import TagSelection from '../TagSelection';
 import CollapsibleSections from './utils/CollapsibleSections';
 import { getInteractions } from '../../utils/interactions';
 import { getPrayerPoints } from '../../utils/prayer';
+import { PersonIcon } from '../Icons';
+import LargeIcon from '../LargeIcon';
 
 export interface Props extends ItemDrawerProps {
   item: PersonItem | undefined,
@@ -41,10 +43,12 @@ export interface Props extends ItemDrawerProps {
 
 
 function PersonDrawer({
+  alwaysTemporary,
+  item: person,
   onBack,
   onClose,
   open,
-  item: person,
+  placeholder,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -205,9 +209,20 @@ function PersonDrawer({
           onDelete: handleDelete,
           onSave: handleSave,
         }}
-        open={open}
+        alwaysTemporary={alwaysTemporary}
         onBack={onBack}
         onClose={handleSave}
+        open={open}
+        placeholder={placeholder || (
+          <>
+            <LargeIcon icon={PersonIcon} />
+
+            <Typography variant="h5" color="textSecondary" align="center">
+              Select a person from the list<br />
+              or click the + to add a new person
+            </Typography>
+          </>
+        )}
         stacked={stacked && !showGroup}
       >
         <Grid container spacing={2}>
