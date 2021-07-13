@@ -5,18 +5,27 @@ import { AddIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   root: {
+    display: 'flex',
+    flexGrow: 1,
+  },
+  pageContent: {
     position: 'relative',
     flexGrow: 1,
     paddingBottom: theme.spacing(8),
   },
+  fabContainer: {
+    position: 'absolute',
+    // Width of FAB + spacing
+    right: 56 + theme.spacing(3),
+  },
   fab: {
     position: 'fixed',
     bottom: theme.spacing(3),
-    right: theme.spacing(3),
   },
 }));
 
 interface BaseProps {
+  drawer?: ReactNode,
 }
 interface PropsWithFab extends BaseProps {
   fab: true,
@@ -37,6 +46,7 @@ export type { Props as BasePageProps };
 
 function BasePage({
   children,
+  drawer = null,
   fab,
   fabIcon,
   fabLabel,
@@ -46,18 +56,24 @@ function BasePage({
 
   return (
     <div className={classes.root}>
-      {children}
+      <div className={classes.pageContent}>
+        {children}
 
-      {fab && (
-        <Fab
-          onClick={onClickFab}
-          color="secondary"
-          aria-label={fabLabel}
-          className={classes.fab}
-        >
-          {fabIcon || <AddIcon />}
-        </Fab>
-      )}
+        {fab && (
+          <div className={classes.fabContainer}>
+            <Fab
+              onClick={onClickFab}
+              color="secondary"
+              aria-label={fabLabel}
+              className={classes.fab}
+            >
+              {fabIcon || <AddIcon />}
+            </Fab>
+          </div>
+        )}
+      </div>
+
+      {drawer}
     </div>
   );
 }

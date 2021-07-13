@@ -31,6 +31,13 @@ function InteractionsPage() {
 
   return (
     <BasePage
+      drawer={(
+        <InteractionDrawer
+          interaction={currentInteraction}
+          onClose={handleCloseDrawer}
+          open={showDrawer}
+        />
+      )}
       fab
       fabLabel="Add Interaction"
       onClickFab={handleClickAdd}
@@ -40,12 +47,6 @@ function InteractionsPage() {
         noNotesHint="Click the plus button to add one!"
         noNotesText="No interactions found"
         onClick={handleClickNote}
-      />
-
-      <InteractionDrawer
-        interaction={currentInteraction}
-        onClose={handleCloseDrawer}
-        open={showDrawer}
       />
     </BasePage>
   );

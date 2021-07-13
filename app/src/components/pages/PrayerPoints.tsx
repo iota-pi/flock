@@ -32,6 +32,13 @@ function PrayerPointsPage() {
 
   return (
     <BasePage
+      drawer={(
+        <PrayerPointDrawer
+          prayerPoint={currentPrayerPoint}
+          onClose={handleCloseDrawer}
+          open={showDrawer}
+        />
+      )}
       fab
       fabLabel="Add Prayer Point"
       onClickFab={handleClickAdd}
@@ -41,12 +48,6 @@ function PrayerPointsPage() {
         noNotesHint="Click the plus button to add one!"
         noNotesText="No prayer points found"
         onClick={handleClickNote}
-      />
-
-      <PrayerPointDrawer
-        prayerPoint={currentPrayerPoint}
-        onClose={handleCloseDrawer}
-        open={showDrawer}
       />
     </BasePage>
   );

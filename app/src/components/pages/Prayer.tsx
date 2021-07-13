@@ -126,7 +126,19 @@ function PrayerPage() {
   );
 
   return (
-    <BasePage>
+    <BasePage
+      drawer={(
+        <ReportDrawer
+          canEdit
+          item={currentItem}
+          onClose={handleClose}
+          onDone={handleDone}
+          onNext={isLastItemOfBatch ? undefined : handleNext}
+          onSkip={isLastItemOfBatch ? undefined : handleSkip}
+          open={showDrawer}
+        />
+      )}
+    >
       <Container maxWidth="xl" className={classes.root}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={8}>
@@ -187,16 +199,6 @@ function PrayerPage() {
           )}
         </Grid>
       </Container>
-
-      <ReportDrawer
-        canEdit
-        item={currentItem}
-        open={showDrawer}
-        onClose={handleClose}
-        onDone={handleDone}
-        onNext={isLastItemOfBatch ? undefined : handleNext}
-        onSkip={isLastItemOfBatch ? undefined : handleSkip}
-      />
 
       <GoalDialog
         naturalGoal={naturalGoal}

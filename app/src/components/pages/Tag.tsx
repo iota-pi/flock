@@ -28,18 +28,20 @@ function TagPage() {
   const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
-    <BasePage>
+    <BasePage
+      drawer={(
+        <AnyItemDrawer
+          item={currentItem}
+          onClose={handleCloseDetails}
+          open={showDetails}
+        />
+      )}
+    >
       <ItemList
         items={items}
         noItemsText="No items found"
         onClick={handleClickItem}
         showIcons
-      />
-
-      <AnyItemDrawer
-        open={showDetails}
-        onClose={handleCloseDetails}
-        item={currentItem}
       />
     </BasePage>
   );

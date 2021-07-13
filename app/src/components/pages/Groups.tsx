@@ -40,6 +40,13 @@ function GroupsPage() {
 
   return (
     <BasePage
+      drawer={(
+        <GroupDrawer
+          item={currentGroup}
+          onClose={handleCloseDetails}
+          open={showDetails}
+        />
+      )}
       fab
       fabLabel="Add Group"
       onClickFab={handleClickAdd}
@@ -50,12 +57,6 @@ function GroupsPage() {
         noItemsText="No groups found"
         onClick={handleClickGroup}
         getDescription={getDescription}
-      />
-
-      <GroupDrawer
-        open={showDetails}
-        onClose={handleCloseDetails}
-        item={currentGroup}
       />
     </BasePage>
   );

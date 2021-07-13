@@ -36,18 +36,20 @@ function SuggestionsPage() {
   );
 
   return (
-    <BasePage>
+    <BasePage
+      drawer={(
+        <PersonDrawer
+          item={currentItem}
+          onClose={handleClose}
+          open={showDrawer}
+        />
+      )}
+    >
       <ItemList
         getDescription={getDescription}
         items={suggestions}
         onClick={handleClick}
         noItemsText="Nice! You're all caught up"
-      />
-
-      <PersonDrawer
-        item={currentItem}
-        open={showDrawer}
-        onClose={handleClose}
       />
     </BasePage>
   );

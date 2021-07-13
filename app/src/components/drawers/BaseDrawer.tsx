@@ -1,6 +1,6 @@
-import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
+import React, { KeyboardEvent, PropsWithChildren, ReactNode, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Container, IconButton, SwipeableDrawer } from '@material-ui/core';
+import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
 import { BackIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 
@@ -11,22 +11,29 @@ const useStyles = makeStyles(theme => ({
   },
   stacked: {},
   drawerWidth: {
-    width: '60%',
+    width: '45vw',
     '&$stacked': {
-      width: '45%',
+      width: '35vw',
     },
 
     [theme.breakpoints.down('md')]: {
-      width: '80%',
+      width: '70vw',
       '&$stacked': {
-        width: '60%',
+        width: '55vw',
+      },
+    },
+
+    [theme.breakpoints.down('sm')]: {
+      width: '85vw',
+      '&$stacked': {
+        width: '70vw',
       },
     },
 
     [theme.breakpoints.only('xs')]: {
-      width: '100%',
+      width: '100vw',
       '&$stacked': {
-        width: '100%',
+        width: '100vw',
       },
     },
   },
@@ -61,12 +68,13 @@ interface BaseProps {
   onBack?: () => void,
   onClose: () => void,
   open: boolean,
-  stacked?: boolean,
   showCancelDelete?: boolean,
+  stacked?: boolean,
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   hideBackButton?: boolean,
+  placeholder?: ReactNode,
 }
 export type { BaseProps as ItemDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -79,6 +87,7 @@ function BaseDrawer({
   onBack,
   onClose,
   open,
+  placeholder = null,
   stacked,
 }: PropsWithChildren<Props>) {
   const classes = useStyles();
@@ -86,6 +95,7 @@ function BaseDrawer({
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
   const paperClasses = [classes.defaultBackground, ...commonClasses];
+  const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
   const handleBack = useCallback(
     () => {
@@ -106,10 +116,13 @@ function BaseDrawer({
     [onClose],
   );
 
+  const permanentDrawer = largeScreen && !stacked;
+  const showBackButton = !hideBackButton && !permanentDrawer;
+
   return (
     <SwipeableDrawer
       className={rootClasses.join(' ')}
-      variant="temporary"
+      variant={permanentDrawer ? 'permanent' : 'temporary'}
       open={open}
       onClose={onClose}
       onOpen={() => {}}
@@ -120,10 +133,14 @@ function BaseDrawer({
       }}
       onKeyDown={handleKeyDown}
     >
+      {permanentDrawer && (
+        <Toolbar />
+      )}
+
       <div className={classes.layout}>
         <Container className={classes.container}>
           <>
-            {!hideBackButton && (
+            {showBackButton && (
               <div className={classes.backButton}>
                 <IconButton onClick={handleBack}>
                   <BackIcon />
@@ -131,11 +148,11 @@ function BaseDrawer({
               </div>
             )}
 
-            {children}
+            {!open ? placeholder : children}
           </>
         </Container>
 
-        {ActionProps && (
+        {ActionProps && (open || !permanentDrawer) && (
           <div>
             <DrawerActions {...ActionProps} />
           </div>

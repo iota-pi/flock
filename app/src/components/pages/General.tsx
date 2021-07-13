@@ -31,6 +31,13 @@ function GeneralPage() {
 
   return (
     <BasePage
+      drawer={(
+        <GeneralDrawer
+          item={currentItem}
+          onClose={handleCloseDetails}
+          open={showDetails}
+        />
+      )}
       fab
       fabLabel="Add Prayer Item"
       onClickFab={handleClickAdd}
@@ -40,12 +47,6 @@ function GeneralPage() {
         noItemsHint="Click the plus button to add one!"
         noItemsText="No items found"
         onClick={handleClickItem}
-      />
-
-      <GeneralDrawer
-        open={showDetails}
-        onClose={handleCloseDetails}
-        item={currentItem}
       />
     </BasePage>
   );

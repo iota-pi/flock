@@ -31,6 +31,13 @@ function PeoplePage() {
 
   return (
     <BasePage
+      drawer={(
+        <PersonDrawer
+          item={currentPerson}
+          onClose={handleCloseDetails}
+          open={showDetails}
+        />
+      )}
       fab
       fabLabel="Add Person"
       onClickFab={handleClickAdd}
@@ -40,12 +47,6 @@ function PeoplePage() {
         noItemsHint="Click the plus button to add one!"
         noItemsText="No people found"
         onClick={handleClickPerson}
-      />
-
-      <PersonDrawer
-        open={showDetails}
-        onClose={handleCloseDetails}
-        item={currentPerson}
       />
     </BasePage>
   );
