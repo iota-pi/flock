@@ -31,6 +31,11 @@ const useStyles = makeStyles(theme => ({
     },
   },
   lessPadding: {},
+  subtleHeading: {
+    display: 'block',
+    fontWeight: 500,
+    marginTop: theme.spacing(1),
+  },
 }));
 
 interface BaseProps {
@@ -96,13 +101,22 @@ function ItemReport({
         )}
       </div>
 
+      {item.description && (
+        <Typography color="textSecondary">
+          {item.description}
+        </Typography>
+      )}
+
       <div className={`${classes.section} ${classes.lessPadding}`}>
         <TagDisplay tags={item.tags} />
       </div>
 
-      {item.description && (
+      {item.summary && (
         <Typography paragraph>
-          {item.description}
+          <span className={classes.subtleHeading}>
+            Notes
+          </span>
+          {item.summary}
         </Typography>
       )}
 
