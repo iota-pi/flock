@@ -6,8 +6,8 @@ locals {
   origin_id   = "app_s3_origin"
 
   min_ttl     = var.environment == "production" ? 600 : 0
-  default_ttl = var.environment == "production" ? 1800 : 0
-  max_ttl     = 3600
+  default_ttl = var.environment == "production" ? 600 : 0
+  max_ttl     = 600
 
   allowed_methods = ["GET", "HEAD", "OPTIONS"]
   cached_methods  = ["GET", "HEAD"]
