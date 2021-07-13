@@ -105,6 +105,7 @@ function BaseDrawer({
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
   const paperClasses = [classes.defaultBackground, ...commonClasses];
+  const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('xs'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
   const handleBack = useCallback(
@@ -127,7 +128,7 @@ function BaseDrawer({
   );
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
-  const showBackButton = !hideBackButton && !permanentDrawer;
+  const showBackButton = !hideBackButton && !permanentDrawer && xsScreen;
   const displayContent = open || !permanentDrawer;
 
   return (
