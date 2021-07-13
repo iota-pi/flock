@@ -136,6 +136,7 @@ function AppBar({
       </Toolbar>
 
       <AnyItemDrawer
+        alwaysTemporary
         item={currentItem}
         open={showDrawer}
         onClose={handleCloseDrawer}
