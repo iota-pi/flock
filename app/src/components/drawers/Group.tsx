@@ -263,6 +263,7 @@ function GroupDrawer({
                 title: 'Prayer points',
                 content: (
                   <NoteControl
+                    noNotesText="No prayer points"
                     notes={prayerPoints}
                     onChange={handleChangeNotes}
                     noteType="prayer"

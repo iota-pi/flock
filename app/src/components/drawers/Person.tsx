@@ -335,6 +335,7 @@ function PersonDrawer({
                 title: 'Prayer points',
                 content: (
                   <NoteControl
+                    noNotesText="No prayer points"
                     notes={prayerPoints}
                     onChange={handleChangeNotes}
                     noteType="prayer"
@@ -346,6 +347,7 @@ function PersonDrawer({
                 title: 'Interactions',
                 content: (
                   <NoteControl
+                    noNotesText="No interactions"
                     notes={interactions}
                     onChange={handleChangeNotes}
                     noteType="interaction"

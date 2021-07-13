@@ -22,7 +22,7 @@ import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
-import { compareNotes, getBlankNote, ItemNote, ItemNoteType } from '../state/items';
+import { compareNotes, getBlankNote, ItemNote } from '../state/items';
 import { formatDate } from '../utils';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
@@ -66,23 +66,12 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-const ALL_TYPES = 'all';
-export const NOTE_FILTER_OPTIONS: [ItemNoteType | typeof ALL_TYPES, string][] = [
-  [ALL_TYPES, 'All notes'],
-  ['prayer', 'Prayer points'],
-  ['interaction', 'Interactions'],
-];
-export const NOTE_TYPE_OPTIONS: [ItemNoteType, string][] = [
-  ['prayer', 'Prayer Point'],
-  ['interaction', 'Interaction'],
-];
-
 export interface Props<T extends ItemNote> {
+  noNotesText?: string,
   noteType: T['type'],
   notes: T[],
   onChange: (notes: T[]) => void,
 }
-
 
 function AddNoteButton(
   { label, onClick }: { label: string, onClick: () => void },
@@ -101,6 +90,7 @@ function AddNoteButton(
 
 
 function NoteControl<T extends ItemNote>({
+  noNotesText,
   noteType,
   notes: rawNotes,
   onChange,
@@ -306,7 +296,7 @@ function NoteControl<T extends ItemNote>({
         {notes.length === 0 && (
           <>
             <Grid item xs={12}>
-              No notes found!
+              {noNotesText || 'No notes'}
             </Grid>
 
             <Grid item xs={12} />
