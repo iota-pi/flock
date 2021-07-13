@@ -22,7 +22,7 @@ export function getPrayerSchedule(items: Item[]) {
   const withNextSchedule: [Item, number][] = items.map(
     item => [
       item,
-      getLastPrayedFor(item, true, true) + frequencyToMilliseconds(item.prayerFrequency),
+      getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
     ],
   );
   withNextSchedule.sort(
