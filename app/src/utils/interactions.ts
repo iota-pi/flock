@@ -1,12 +1,12 @@
-import { compareItems, ItemNote, PersonItem } from '../state/items';
+import { compareItems, InteractionNote, PersonItem } from '../state/items';
 import { Due, frequencyToMilliseconds, isDue } from './frequencies';
 
 
-export function getInteractions(item: PersonItem): ItemNote<'interaction'>[] {
-  return item.notes.filter(n => n.type === 'interaction') as ItemNote<'interaction'>[];
+export function getInteractions(item: PersonItem): InteractionNote[] {
+  return item.notes.filter(n => n.type === 'interaction') as InteractionNote[];
 }
 
-export function getLastInteraction(item: PersonItem): ItemNote<'interaction'> | undefined {
+export function getLastInteraction(item: PersonItem): InteractionNote | undefined {
   const interactions = getInteractions(item);
   interactions.sort((a, b) => a.date - b.date);
   const lastInteraction = interactions[interactions.length - 1];

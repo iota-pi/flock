@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import NoteList from '../NoteList';
 import { useItems } from '../../state/selectors';
-import { compareItems, compareNotes, getNotes, ItemNote } from '../../state/items';
+import { compareItems, compareNotes, getNotes, PrayerNote } from '../../state/items';
 import PrayerPointDrawer from '../drawers/PrayerPoint';
 import BasePage from './BasePage';
 
@@ -10,12 +10,12 @@ function PrayerPointsPage() {
   const rawItems = useItems();
 
   const [showDrawer, setShowDrawer] = useState(false);
-  const [currentPrayerPoint, setPrayerPoint] = useState<ItemNote<'prayer'>>();
+  const [currentPrayerPoint, setPrayerPoint] = useState<PrayerNote>();
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
   const notes = useMemo(() => getNotes(items, 'prayer').sort(compareNotes), [items]);
 
   const handleClickNote = useCallback(
-    (note: ItemNote<'prayer'>) => () => {
+    (note: PrayerNote) => () => {
       setPrayerPoint(note);
       setShowDrawer(true);
     },

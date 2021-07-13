@@ -48,7 +48,6 @@ function SuggestionsPage() {
         item={currentItem}
         open={showDrawer}
         onClose={handleClose}
-        initialNotesType="interaction"
       />
     </BasePage>
   );

@@ -69,7 +69,7 @@ function FrequencyControls({
   }
 
   return (
-    <>
+    <Grid container spacing={2}>
       <Grid item xs={12} sm={noInteractions ? 12 : 6}>
         <FrequencyPicker
           frequency={item.prayerFrequency}
@@ -109,7 +109,7 @@ function FrequencyControls({
           ) : null}
         </Grid>
       )}
-    </>
+    </Grid>
   );
 }
 

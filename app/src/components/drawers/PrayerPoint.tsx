@@ -16,11 +16,11 @@ import {
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import {
-  getBlankNote,
+  getBlankPrayerPoint,
   getItemById,
   Item,
-  ItemNote,
   lookupItemsById,
+  PrayerNote,
   updateItems,
 } from '../../state/items';
 import { useItems, useNoteMap, useVault } from '../../state/selectors';
@@ -32,7 +32,7 @@ import { RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
 
 export interface Props extends ItemDrawerProps {
-  prayerPoint: ItemNote<'prayer'> | undefined,
+  prayerPoint: PrayerNote | undefined,
 }
 
 
@@ -49,7 +49,7 @@ function PrayerPointDrawer({
   const noteMap = useNoteMap();
 
   const isEditing = !!rawPrayerPoint;
-  const [prayerPoint, setPrayerPoint] = useState(rawPrayerPoint || getBlankNote('prayer'));
+  const [prayerPoint, setPrayerPoint] = useState(rawPrayerPoint || getBlankPrayerPoint());
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -61,7 +61,7 @@ function PrayerPointDrawer({
         setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
         setShowSensitive(false);
       } else {
-        setPrayerPoint(getBlankNote('prayer'));
+        setPrayerPoint(getBlankPrayerPoint());
         setLinkedItems([]);
         setShowSensitive(false);
       }
@@ -112,7 +112,7 @@ function PrayerPointDrawer({
 
   const handleSave = useCallback(
     async () => {
-      let newNote: ItemNote<'prayer'> = {
+      let newNote: PrayerNote = {
         ...prayerPoint,
         content: prayerPoint.content.trim(),
       };
@@ -143,14 +143,14 @@ function PrayerPointDrawer({
         vault?.store(item);
       }
       dispatch(updateItems(itemsToUpdate));
-      setPrayerPoint(getBlankNote('prayer'));
+      setPrayerPoint(getBlankPrayerPoint());
       onClose();
     },
     [dispatch, prayerPoint, isEditing, items, linkedItems, noteMap, onClose, vault],
   );
   const handleCancel = useCallback(
     () => {
-      setPrayerPoint(getBlankNote('prayer'));
+      setPrayerPoint(getBlankPrayerPoint());
       onClose();
     },
     [onClose],
@@ -168,7 +168,7 @@ function PrayerPointDrawer({
           dispatch(updateItems([newItem]));
         }
       }
-      setPrayerPoint(getBlankNote('prayer'));
+      setPrayerPoint(getBlankPrayerPoint());
       onClose();
     },
     [dispatch, items, noteMap, onClose, rawPrayerPoint, vault],

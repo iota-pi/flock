@@ -19,7 +19,6 @@ import {
   getItemName,
   GroupItem,
   ItemNote,
-  ItemNoteType,
   PersonItem,
   updateItems,
 } from '../../state/items';
@@ -32,10 +31,12 @@ import GroupDisplay from '../GroupDisplay';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
+import CollapsibleSections from './utils/CollapsibleSections';
+import { getInteractions } from '../../utils/interactions';
+import { getPrayerPoints } from '../../utils/prayer';
 
 export interface Props extends ItemDrawerProps {
   item: PersonItem | undefined,
-  initialNotesType?: ItemNoteType,
 }
 
 
@@ -45,7 +46,6 @@ function PersonDrawer({
   open,
   item: person,
   stacked,
-  initialNotesType,
 }: Props) {
   const dispatch = useAppDispatch();
   const vault = useVault();
@@ -189,6 +189,9 @@ function PersonDrawer({
   );
   const handleCloseGroupDrawer = useCallback(() => setShowGroup(false), []);
 
+  const prayerPoints = useMemo(() => getPrayerPoints(localPerson), [localPerson]);
+  const interactions = useMemo(() => getInteractions(localPerson), [localPerson]);
+
   return (
     <>
       <BaseDrawer
@@ -286,48 +289,54 @@ function PersonDrawer({
             />
           </Grid>
 
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Desired frequencies
-            </Typography>
-          </Grid>
-
-          <FrequencyControls
-            item={localPerson}
-            onChange={handleChangeFrequency}
+          <CollapsibleSections
+            sections={[
+              {
+                id: 'frequencies',
+                title: 'Prayer and interaction frequencies',
+                content: (
+                  <FrequencyControls
+                    item={localPerson}
+                    onChange={handleChangeFrequency}
+                  />
+                ),
+              },
+              {
+                id: 'group-display',
+                title: 'Group membership',
+                content: (
+                  <GroupDisplay
+                    groups={memberGroupIds}
+                    onAdd={handleAddGroup}
+                    onClickGroup={!stacked ? handleClickGroup : undefined}
+                    onRemove={handleRemoveGroup}
+                  />
+                ),
+              },
+              {
+                id: 'prayer-points',
+                title: 'Prayer points',
+                content: (
+                  <NoteControl
+                    notes={prayerPoints}
+                    onChange={handleChangeNotes}
+                    noteType="prayer"
+                  />
+                ),
+              },
+              {
+                id: 'interactions',
+                title: 'Interactions',
+                content: (
+                  <NoteControl
+                    notes={interactions}
+                    onChange={handleChangeNotes}
+                    noteType="interaction"
+                  />
+                ),
+              },
+            ]}
           />
-
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Group membership
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <GroupDisplay
-              groups={memberGroupIds}
-              onAdd={handleAddGroup}
-              onClickGroup={!stacked ? handleClickGroup : undefined}
-              onRemove={handleRemoveGroup}
-            />
-          </Grid>
-
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Notes
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <NoteControl
-              notes={localPerson.notes}
-              onChange={handleChangeNotes}
-              initialNotesType={initialNotesType}
-            />
-          </Grid>
         </Grid>
       </BaseDrawer>
 

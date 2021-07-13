@@ -2,6 +2,7 @@ import React, {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import {
@@ -21,7 +22,6 @@ import {
   updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import NoteControl from '../NoteControl';
 import MemberDisplay from '../MemberDisplay';
 import { useVault } from '../../state/selectors';
 import PersonDrawer from './Person';
@@ -30,6 +30,9 @@ import ReportDrawer from './ReportDrawer';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
+import CollapsibleSections from './utils/CollapsibleSections';
+import NoteControl from '../NoteControl';
+import { getPrayerPoints } from '../../utils/prayer';
 
 export interface Props extends ItemDrawerProps {
   item: GroupItem | undefined,
@@ -140,6 +143,8 @@ function GroupDrawer({
   const handleCloseReport = useCallback(() => setShowReport(false), []);
   const handleClosePersonDrawer = useCallback(() => setShowPerson(false), []);
 
+  const prayerPoints = useMemo(() => getPrayerPoints(localGroup), [localGroup]);
+
   return (
     <>
       <BaseDrawer
@@ -212,48 +217,43 @@ function GroupDrawer({
             />
           </Grid>
 
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Desired frequency
-            </Typography>
-          </Grid>
-
-          <FrequencyControls
-            item={localGroup}
-            noInteractions
-            onChange={handleChangeFrequency}
+          <CollapsibleSections
+            sections={[
+              {
+                id: 'frequencies',
+                title: 'Prayer frequency',
+                content: (
+                  <FrequencyControls
+                    item={localGroup}
+                    noInteractions
+                    onChange={handleChangeFrequency}
+                  />
+                ),
+              },
+              {
+                id: 'member-display',
+                title: 'Group members',
+                content: (
+                  <MemberDisplay
+                    members={localGroup.members}
+                    onChange={handleChangeMembers}
+                    onClickMember={!stacked ? handleClickPerson : undefined}
+                  />
+                ),
+              },
+              {
+                id: 'prayer-points',
+                title: 'Prayer points',
+                content: (
+                  <NoteControl
+                    notes={prayerPoints}
+                    onChange={handleChangeNotes}
+                    noteType="prayer"
+                  />
+                ),
+              },
+            ]}
           />
-
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Members
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <MemberDisplay
-              members={localGroup.members}
-              onChange={handleChangeMembers}
-              onClickMember={!stacked ? handleClickPerson : undefined}
-            />
-          </Grid>
-
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Notes
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <NoteControl
-              excludeTypes={['interaction']}
-              notes={localGroup.notes}
-              onChange={handleChangeNotes}
-            />
-          </Grid>
         </Grid>
       </BaseDrawer>
 

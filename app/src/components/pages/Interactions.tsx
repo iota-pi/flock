@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import NoteList from '../NoteList';
 import { useItems } from '../../state/selectors';
-import { compareNotes, getNotes, ItemNote } from '../../state/items';
+import { compareNotes, getNotes, InteractionNote } from '../../state/items';
 import InteractionDrawer from '../drawers/Interaction';
 import BasePage from './BasePage';
 
@@ -10,11 +10,11 @@ function InteractionsPage() {
   const items = useItems();
 
   const [showDrawer, setShowDrawer] = useState(false);
-  const [currentInteraction, setCurrentInteraction] = useState<ItemNote<'interaction'>>();
+  const [currentInteraction, setCurrentInteraction] = useState<InteractionNote>();
   const notes = useMemo(() => getNotes(items, 'interaction').sort(compareNotes), [items]);
 
   const handleClickNote = useCallback(
-    (note: ItemNote<'interaction'>) => () => {
+    (note: InteractionNote) => () => {
       setCurrentInteraction(note);
       setShowDrawer(true);
     },

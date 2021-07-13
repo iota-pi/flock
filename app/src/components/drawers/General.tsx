@@ -2,6 +2,7 @@ import React, {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import {
@@ -26,6 +27,8 @@ import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
 import { Frequency } from '../../utils/frequencies';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
+import CollapsibleSections from './utils/CollapsibleSections';
+import { getPrayerPoints } from '../../utils/prayer';
 
 export interface Props extends ItemDrawerProps {
   item: GeneralItem | undefined,
@@ -119,6 +122,8 @@ function GeneralDrawer({
     [dispatch, onClose, localItem, vault],
   );
 
+  const prayerPoints = useMemo(() => getPrayerPoints(localItem), [localItem]);
+
   return (
     <>
       <BaseDrawer
@@ -190,33 +195,32 @@ function GeneralDrawer({
             />
           </Grid>
 
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Desired frequency
-            </Typography>
-          </Grid>
-
-          <FrequencyControls
-            item={localItem}
-            noInteractions
-            onChange={handleChangeFrequency}
+          <CollapsibleSections
+            sections={[
+              {
+                id: 'frequencies',
+                title: 'Prayer frequency',
+                content: (
+                  <FrequencyControls
+                    item={localItem}
+                    noInteractions
+                    onChange={handleChangeFrequency}
+                  />
+                ),
+              },
+              {
+                id: 'prayer-points',
+                title: 'Prayer points',
+                content: (
+                  <NoteControl
+                    notes={prayerPoints}
+                    onChange={handleChangeNotes}
+                    noteType="prayer"
+                  />
+                ),
+              },
+            ]}
           />
-
-          <Grid item />
-          <Grid item xs={12}>
-            <Typography variant="h5">
-              Notes
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <NoteControl
-              excludeTypes={['interaction']}
-              notes={localItem.notes}
-              onChange={handleChangeNotes}
-            />
-          </Grid>
         </Grid>
       </BaseDrawer>
     </>

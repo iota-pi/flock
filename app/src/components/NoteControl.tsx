@@ -9,23 +9,16 @@ import {
   Button,
   Checkbox,
   Divider,
-  FormControl,
   FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
-  InputLabel,
-  MenuItem,
-  Select,
   TextField,
-  Tooltip,
 } from '@material-ui/core';
 import {
   KeyboardDatePicker,
 } from '@material-ui/pickers';
 import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
-import DownArrow from '@material-ui/icons/ArrowDropDown';
-import UpArrow from '@material-ui/icons/ArrowDropUp';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
@@ -84,11 +77,10 @@ export const NOTE_TYPE_OPTIONS: [ItemNoteType, string][] = [
   ['interaction', 'Interaction'],
 ];
 
-export interface Props {
-  notes: ItemNote[],
-  onChange: (notes: ItemNote[]) => void,
-  excludeTypes?: ItemNoteType[],
-  initialNotesType?: ItemNoteType | typeof ALL_TYPES,
+export interface Props<T extends ItemNote> {
+  noteType: T['type'],
+  notes: T[],
+  onChange: (notes: T[]) => void,
 }
 
 
@@ -108,31 +100,16 @@ function AddNoteButton(
 }
 
 
-function NoteControl({
+function NoteControl<T extends ItemNote>({
+  noteType,
   notes: rawNotes,
   onChange,
-  excludeTypes = [],
-  initialNotesType = ALL_TYPES,
-}: Props) {
+}: Props<T>) {
   const classes = useStyles();
 
-  const [ascendingNotes, setAscendingNotes] = useState(false);
-  const [filterType, setFilterType] = useState<ItemNoteType | typeof ALL_TYPES>(initialNotesType);
+  const notes = useMemo(() => rawNotes.slice().sort(compareNotes), [rawNotes]);
+  const [autoFocus, setAutoFocus] = useState<string>();
   const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
-
-  const notes = useMemo(
-    () => {
-      const filteredNotes = rawNotes.filter(
-        note => filterType === ALL_TYPES || filterType === note.type,
-      );
-      filteredNotes.sort(compareNotes);
-      if (ascendingNotes) {
-        filteredNotes.reverse();
-      }
-      return filteredNotes;
-    },
-    [ascendingNotes, filterType, rawNotes],
-  );
 
   const handleChange = useCallback(
     (noteId: string) => (
@@ -141,19 +118,6 @@ function NoteControl({
         if (index > -1) {
           const newNotes = rawNotes.slice();
           newNotes[index] = { ...newNotes[index], content: event.target.value };
-          onChange(newNotes);
-        }
-      }
-    ),
-    [onChange, rawNotes],
-  );
-  const handleChangeNoteType = useCallback(
-    (noteId: string) => (
-      (event: ChangeEvent<{ value: unknown }>) => {
-        const index = rawNotes.findIndex(n => n.id === noteId);
-        if (index > -1) {
-          const newNotes = rawNotes.slice();
-          newNotes[index] = { ...newNotes[index], type: event.target.value as ItemNoteType };
           onChange(newNotes);
         }
       }
@@ -182,16 +146,6 @@ function NoteControl({
     ),
     [onChange, rawNotes],
   );
-  const handleChangeFilterType = useCallback(
-    (event: ChangeEvent<{ value: unknown }>) => {
-      setFilterType(event.target.value as ItemNoteType);
-    },
-    [],
-  );
-  const handleClickNoteOrder = useCallback(
-    () => setAscendingNotes(!ascendingNotes),
-    [ascendingNotes],
-  );
   const handleDateChange = useCallback(
     (noteId: string) => (
       (date: MaterialUiPickersDate) => {
@@ -209,11 +163,11 @@ function NoteControl({
 
   const handleAddNote = useCallback(
     () => {
-      const type = filterType === ALL_TYPES ? 'interaction' : filterType;
-      const note = getBlankNote(type);
-      onChange([...notes, note]);
+      const note = getBlankNote(noteType) as T;
+      onChange([...rawNotes, note]);
+      setAutoFocus(note.id);
     },
-    [filterType, notes, onChange],
+    [rawNotes, noteType, onChange],
   );
 
   const handleClickVisibility = useCallback(
@@ -239,104 +193,49 @@ function NoteControl({
     [visibleSensitives],
   );
 
-  const noteFilterOptions = useMemo(
-    () => NOTE_FILTER_OPTIONS.filter(
-      ([t]) => !excludeTypes.includes(t as ItemNoteType),
-    ),
-    [excludeTypes],
-  );
-  const noteTypeOptions = useMemo(
-    () => NOTE_TYPE_OPTIONS.filter(
-      ([t]) => !excludeTypes.includes(t),
-    ),
-    [excludeTypes],
-  );
-
   const addNoteLabel = useMemo(
     () => {
-      if (filterType === 'interaction') {
+      if (noteType === 'interaction') {
         return 'Add Interaction';
-      } else if (filterType === 'prayer') {
+      } else if (noteType === 'prayer') {
         return 'Add Prayer Point';
       }
-      return 'Add Interaction';
+      throw new Error(`Unsupported note type ${noteType}`);
     },
-    [filterType],
+    [noteType],
+  );
+  const noteContentLabel = useMemo(
+    () => {
+      if (noteType === 'interaction') {
+        return 'Details';
+      } else if (noteType === 'prayer') {
+        return 'Prayer point';
+      }
+      throw new Error(`Unsupported note type ${noteType}`);
+    },
+    [noteType],
   );
 
   return (
     <>
-      <div className={classes.notesHeader}>
-        <Select
-          id="note-type-filter"
-          value={filterType}
-          onChange={handleChangeFilterType}
-          className={classes.noteFilter}
-        >
-          {noteFilterOptions.map(([value, label]) => (
-            <MenuItem
-              key={label}
-              value={value}
-            >
-              {label}
-            </MenuItem>
-          ))}
-        </Select>
-
-        <div className={classes.filler} />
-
-        <Tooltip title={`Sort ${ascendingNotes ? 'oldest' : 'newest'} first`}>
-          <IconButton
-            onClick={handleClickNoteOrder}
-            size="small"
-          >
-            {ascendingNotes ? <UpArrow /> : <DownArrow />}
-          </IconButton>
-        </Tooltip>
-      </div>
-
-      {!ascendingNotes && (
-        <AddNoteButton
-          label={addNoteLabel}
-          onClick={handleAddNote}
-        />
-      )}
+      <AddNoteButton
+        label={addNoteLabel}
+        onClick={handleAddNote}
+      />
 
       <Grid container spacing={2}>
-        <Grid item xs={12}>
-          {ascendingNotes && (
-            <Divider />
-          )}
-        </Grid>
+        <Grid item />
 
-        {notes.map((note, i) => (
+        {notes.map(note => (
           <React.Fragment key={note.id}>
             <Grid item xs={12}>
               <div className={classes.noteContentRow}>
-                <FormControl className={classes.firstFieldOfRow}>
-                  <InputLabel id="note-type-selection-label">Note type</InputLabel>
-                  <Select
-                    id="note-type-selection"
-                    value={note.type}
-                    labelId="note-type-selection-label"
-                    onChange={handleChangeNoteType(note.id)}
-                  >
-                    {noteTypeOptions.map(([value, label]) => (
-                      <MenuItem
-                        key={label}
-                        value={value}
-                      >
-                        {label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
                 <TextField
+                  autoFocus={autoFocus === note.id}
                   value={!isNoteVisible(note) ? '...' : note.content}
                   onChange={handleChange(note.id)}
                   disabled={!isNoteVisible(note)}
-                  label="Content"
+                  label={noteContentLabel}
                   InputProps={{
                     endAdornment: note.sensitive ? (
                       <InputAdornment position="end">
@@ -399,9 +298,7 @@ function NoteControl({
             </Grid>
 
             <Grid item xs={12}>
-              {i < notes.length - 1 || !ascendingNotes ? (
-                <Divider />
-              ) : null}
+              <Divider />
             </Grid>
           </React.Fragment>
         ))}
@@ -416,13 +313,6 @@ function NoteControl({
           </>
         )}
       </Grid>
-
-      {ascendingNotes && (
-        <AddNoteButton
-          label={addNoteLabel}
-          onClick={handleAddNote}
-        />
-      )}
     </>
   );
 }

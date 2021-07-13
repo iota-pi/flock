@@ -9,13 +9,20 @@ export type ItemNoteType = 'interaction' | 'prayer';
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
 export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer'];
 
-export interface ItemNote<T extends ItemNoteType = ItemNoteType> {
+export interface BaseNote {
   id: string,
-  type: T,
   date: number,
   content: string,
   sensitive?: boolean,
+  type: ItemNoteType,
 }
+export interface PrayerNote extends BaseNote {
+  type: 'prayer',
+}
+export interface InteractionNote extends BaseNote {
+  type: 'interaction',
+}
+export type ItemNote = PrayerNote | InteractionNote;
 
 export interface BaseItem {
   archived: boolean,
@@ -118,13 +125,36 @@ export function noteToItemMapReducer(
   return state;
 }
 
-export function getBlankNote<T extends ItemNoteType>(type: T): ItemNote<T> {
+export function getBlankBaseNote(): BaseNote {
   return {
     content: '',
     date: new Date().getTime(),
     id: getItemId(),
-    type,
+    type: 'interaction',
   };
+}
+
+export function getBlankPrayerPoint(): PrayerNote {
+  return {
+    ...getBlankBaseNote(),
+    type: 'prayer',
+  };
+}
+
+export function getBlankInteraction(): InteractionNote {
+  return {
+    ...getBlankBaseNote(),
+    type: 'interaction',
+  };
+}
+
+export function getBlankNote(noteType: ItemNoteType): ItemNote {
+  if (noteType === 'interaction') {
+    return getBlankInteraction();
+  } else if (noteType === 'prayer') {
+    return getBlankPrayerPoint();
+  }
+  throw new Error(`Unknown note type ${noteType}`);
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
@@ -230,15 +260,14 @@ export function lookupItemsById<T extends Item>(items: T[], ids: ItemId[]): T[] 
   return results;
 }
 
-export function getNotes<T extends ItemNoteType = ItemNoteType>(
-  items: Item[],
-  filterType?: T,
-): ItemNote<T>[] {
+export function getNotes(items: Item[], filterType?: 'prayer'): PrayerNote[];
+export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
+export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[] {
   const allNotes = items.flatMap(item => item.notes);
   if (filterType) {
-    return allNotes.filter(note => note.type === filterType) as ItemNote<T>[];
+    return allNotes.filter(note => note.type === filterType);
   }
-  return allNotes as ItemNote<T>[];
+  return allNotes;
 }
 
 export function getTags(items: Item[]) {

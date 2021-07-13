@@ -9,7 +9,7 @@ import {
   ListItemText,
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
-import { getItemById, getItemName, ItemNote, ItemNoteType } from '../state/items';
+import { getItemById, getItemName, ItemNote } from '../state/items';
 import { useItems, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';
 
@@ -30,22 +30,22 @@ const useStyles = makeStyles(() => ({
   },
 }));
 
-export interface Props<T extends ItemNoteType> {
+export interface Props<T extends ItemNote> {
   actionIcon?: ReactNode,
   className?: string,
   dividers?: boolean,
   displayItemNames?: boolean,
   displayNoteDate?: boolean,
   paddingTop?: boolean,
-  notes: ItemNote<T>[],
+  notes: T[],
   noNotesHint?: string,
   noNotesText?: string,
-  onClick?: (note: ItemNote<T>) => () => void,
-  onClickAction?: (note: ItemNote<T>) => () => void,
+  onClick?: (note: T) => () => void,
+  onClickAction?: (note: T) => () => void,
 }
 
 
-function NoteList<T extends ItemNoteType = ItemNoteType>({
+function NoteList<T extends ItemNote = ItemNote>({
   actionIcon,
   className,
   displayItemNames = true,
@@ -63,7 +63,7 @@ function NoteList<T extends ItemNoteType = ItemNoteType>({
   const noteMap = useNoteMap();
 
   const handleClickAction = useCallback(
-    (note: ItemNote<T>) => {
+    (note: T) => {
       if (onClickAction) {
         return onClickAction(note);
       } else if (onClick) {

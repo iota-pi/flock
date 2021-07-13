@@ -18,10 +18,10 @@ import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { KeyboardDatePicker } from '@material-ui/pickers';
 import {
   compareItems,
-  getBlankNote,
+  getBlankInteraction,
   getItemById,
+  InteractionNote,
   Item,
-  ItemNote,
   lookupItemsById,
   updateItems,
 } from '../../state/items';
@@ -34,7 +34,7 @@ import { RemoveIcon } from '../Icons';
 import { getItemId } from '../../utils';
 
 export interface Props extends ItemDrawerProps {
-  interaction: ItemNote<'interaction'> | undefined,
+  interaction: InteractionNote | undefined,
 }
 
 
@@ -51,7 +51,7 @@ function InteractionDrawer({
   const noteMap = useNoteMap();
 
   const isEditing = !!rawInteraction;
-  const [interaction, setInteraction] = useState(rawInteraction || getBlankNote('interaction'));
+  const [interaction, setInteraction] = useState(rawInteraction || getBlankInteraction());
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -72,7 +72,7 @@ function InteractionDrawer({
         setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
         setShowSensitive(false);
       } else {
-        setInteraction(getBlankNote('interaction'));
+        setInteraction(getBlankInteraction());
         setLinkedItems([]);
         setShowSensitive(false);
       }
@@ -127,7 +127,7 @@ function InteractionDrawer({
 
   const handleSave = useCallback(
     async () => {
-      let newNote: ItemNote<'interaction'> = {
+      let newNote: InteractionNote = {
         ...interaction,
         content: interaction.content.trim(),
       };
@@ -158,14 +158,14 @@ function InteractionDrawer({
         vault?.store(item);
       }
       dispatch(updateItems(itemsToUpdate));
-      setInteraction(getBlankNote('interaction'));
+      setInteraction(getBlankInteraction());
       onClose();
     },
     [dispatch, interaction, isEditing, items, linkedItems, noteMap, onClose, vault],
   );
   const handleCancel = useCallback(
     () => {
-      setInteraction(getBlankNote('interaction'));
+      setInteraction(getBlankInteraction());
       onClose();
     },
     [onClose],
@@ -183,7 +183,7 @@ function InteractionDrawer({
           dispatch(updateItems([newItem]));
         }
       }
-      setInteraction(getBlankNote('interaction'));
+      setInteraction(getBlankInteraction());
       onClose();
     },
     [dispatch, items, noteMap, onClose, rawInteraction, vault],
