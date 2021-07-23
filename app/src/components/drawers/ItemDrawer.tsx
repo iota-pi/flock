@@ -2,6 +2,7 @@ import React, {
   ChangeEvent,
   ReactNode,
   useCallback,
+  useEffect,
   useMemo,
 } from 'react';
 import {
@@ -37,6 +38,7 @@ import CollapsibleSections, { CollapsibleSection } from './utils/CollapsibleSect
 import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
+import { usePrevious } from '../../utils';
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
@@ -285,6 +287,7 @@ function ItemDrawer({
   const dispatch = useAppDispatch();
   const vault = useVault();
   const groups = useItems<GroupItem>('group');
+  const prevItem = usePrevious(item);
 
   const memberGroups = useMemo(
     () => (
@@ -330,24 +333,29 @@ function ItemDrawer({
   );
 
   const handleSave = useCallback(
-    async () => {
-      if ((item.dirty || item.isNew) && getItemName(item)) {
-        const clean = cleanItem(item);
+    async (itemToSave: DirtyItem<Item>, propagateChange = true) => {
+      if ((itemToSave.dirty || itemToSave.isNew) && getItemName(itemToSave)) {
+        const clean = cleanItem(itemToSave);
         vault?.store(clean);
         dispatch(updateItems([clean]));
-        onChange(clean);
+        if (propagateChange) {
+          onChange(clean);
+        }
       }
     },
-    [dispatch, item, onChange, vault],
+    [dispatch, onChange, vault],
   );
   const handleSaveAndClose = useCallback(
     async () => {
-      handleSave();
+      handleSave(item);
       onClose();
     },
-    [handleSave, onClose],
+    [handleSave, item, onClose],
   );
-  const handleUnmount = useCallback(() => handleSave(), [handleSave]);
+  const handleUnmount = useCallback(
+    () => handleSave(item),
+    [handleSave, item],
+  );
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups();
@@ -362,6 +370,15 @@ function ItemDrawer({
   const handleReport = useCallback(
     () => dispatch(pushActive({ item, report: true })),
     [dispatch, item],
+  );
+
+  useEffect(
+    () => {
+      if (open && prevItem && prevItem.id !== item.id) {
+        handleSave(prevItem, false);
+      }
+    },
+    [handleSave, item.id, open, prevItem],
   );
 
   return (

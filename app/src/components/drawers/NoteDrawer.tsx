@@ -30,7 +30,7 @@ import ItemSearch from '../ItemSearch';
 import { useAppDispatch } from '../../store';
 import ItemList from '../ItemList';
 import { RemoveIcon } from '../Icons';
-import { getItemId } from '../../utils';
+import { getItemId, usePrevious } from '../../utils';
 
 export interface Props extends BaseDrawerProps {
   note: ItemNote,
@@ -51,6 +51,7 @@ function NoteDrawer({
   const vault = useVault();
   const allItems = useItems();
   const noteMap = useNoteMap();
+  const prevNote = usePrevious(note);
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
@@ -125,19 +126,19 @@ function NoteDrawer({
   );
 
   const handleSave = useCallback(
-    async () => {
+    async (noteToSave: ItemNote) => {
       let newNote: ItemNote = {
-        ...note,
-        content: note.content.trim(),
+        ...noteToSave,
+        content: noteToSave.content.trim(),
       };
       const itemsToUpdate: Item[] = [];
       for (const linkedItem of linkedItems) {
         if (editing) {
-          const oldItem = getItemById(items, noteMap[note.id]);
+          const oldItem = getItemById(items, noteMap[noteToSave.id]);
           if (oldItem && oldItem.id !== linkedItem.id) {
             itemsToUpdate.push({
               ...oldItem,
-              notes: oldItem.notes.filter(n => n.id !== note.id),
+              notes: oldItem.notes.filter(n => n.id !== noteToSave.id),
             });
           }
         }
@@ -145,7 +146,7 @@ function NoteDrawer({
         itemsToUpdate.push({
           ...linkedItem,
           notes: [
-            ...linkedItem.notes.filter(n => n.id !== note.id),
+            ...linkedItem.notes.filter(n => n.id !== noteToSave.id),
             newNote,
           ],
         });
@@ -157,11 +158,17 @@ function NoteDrawer({
         vault?.store(item);
       }
       dispatch(updateItems(itemsToUpdate));
+    },
+    [dispatch, editing, items, linkedItems, noteMap, vault],
+  );
+  const handleSaveAndClose = useCallback(
+    () => {
+      handleSave(note);
       onClose();
     },
-    [dispatch, note, editing, items, linkedItems, noteMap, onClose, vault],
+    [handleSave, note, onClose],
   );
-  const handleUnmount = useCallback(() => handleSave(), [handleSave]);
+  const handleUnmount = useCallback(() => handleSave(note), [handleSave, note]);
   const handleCancel = useCallback(
     () => {
       onClose();
@@ -191,6 +198,15 @@ function NoteDrawer({
     [note, showSensitive],
   );
 
+  useEffect(
+    () => {
+      if (open && prevNote && prevNote.id !== note.id) {
+        handleSave(prevNote);
+      }
+    },
+    [handleSave, note.id, open, prevNote],
+  );
+
   return (
     <BaseDrawer
       ActionProps={{
@@ -200,11 +216,11 @@ function NoteDrawer({
         itemName: note?.type,
         onCancel: handleCancel,
         onDelete: handleDelete,
-        onSave: handleSave,
+        onSave: handleSaveAndClose,
       }}
       alwaysTemporary={alwaysTemporary}
       onBack={onBack}
-      onClose={handleSave}
+      onClose={handleSaveAndClose}
       onExited={onExited}
       onUnmount={handleUnmount}
       open={open}
