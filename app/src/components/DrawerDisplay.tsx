@@ -1,11 +1,12 @@
 import React, { useCallback } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
-import { Item } from '../state/items';
-import { removeActive, updateActive } from '../state/ui';
+import { isItem, Item, ItemNote } from '../state/items';
+import { DrawerData, removeActive, updateActive } from '../state/ui';
 import { useAppDispatch, useAppSelector } from '../store';
 import ItemDrawer from './drawers/ItemDrawer';
 import PlaceholderDrawer from './drawers/Placeholder';
 import ReportDrawer from './drawers/ReportDrawer';
+import NoteDrawer from './drawers/NoteDrawer';
 
 function DrawerDisplay() {
   const dispatch = useAppDispatch();
@@ -28,34 +29,57 @@ function DrawerDisplay() {
     [baseDrawerIsPermanent, dispatch, drawers.length, handleExited],
   );
   const handleChange = useCallback(
-    (newItem: Item) => dispatch(updateActive({ item: newItem })),
+    (newItem: Item | ItemNote) => dispatch(updateActive({ item: newItem })),
     [dispatch],
+  );
+
+  const isOpen = useCallback(
+    (drawer: DrawerData, i: number) => drawer.open || (baseDrawerIsPermanent && i === 0),
+    [baseDrawerIsPermanent],
   );
 
   return (
     <>
-      {drawers.map((drawer, i) => drawer.item && (
-        drawer.report ? (
-          <ReportDrawer
-            item={drawer.item}
-            key={drawer.id}
-            onClose={handleClose}
-            onExited={handleExited}
-            open={drawer.open || (baseDrawerIsPermanent && i === 0)}
-            stacked={i > 0}
-          />
-        ) : (
-          <ItemDrawer
-            item={drawer.item}
-            key={drawer.id}
-            onClose={handleClose}
-            onChange={handleChange}
-            onExited={handleExited}
-            open={drawer.open || (baseDrawerIsPermanent && i === 0)}
-            stacked={i > 0}
-          />
-        )
-      ))}
+      {drawers.map((drawer, i) => {
+        if (drawer.item) {
+          if (isItem(drawer.item)) {
+            return drawer.report ? (
+              <ReportDrawer
+                item={drawer.item}
+                key={drawer.id}
+                onClose={handleClose}
+                onExited={handleExited}
+                open={isOpen(drawer, i)}
+                stacked={i > 0}
+              />
+            ) : (
+              <ItemDrawer
+                item={drawer.item}
+                key={drawer.id}
+                onChange={handleChange}
+                onClose={handleClose}
+                onExited={handleExited}
+                open={isOpen(drawer, i)}
+                stacked={i > 0}
+              />
+            );
+          }
+
+          return (
+            <NoteDrawer
+              key={drawer.id}
+              note={drawer.item}
+              onChange={handleChange}
+              onClose={handleClose}
+              onExited={handleExited}
+              open={isOpen(drawer, i)}
+              stacked={i > 0}
+            />
+          );
+        }
+
+        return null;
+      })}
 
       {drawers.length === 0 && baseDrawerIsPermanent && (
         <PlaceholderDrawer

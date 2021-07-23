@@ -1,43 +1,33 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import NoteList from '../NoteList';
 import { useItems } from '../../state/selectors';
-import { compareNotes, getNotes, InteractionNote } from '../../state/items';
-import InteractionDrawer from '../drawers/Interaction';
+import { compareNotes, getBlankInteraction, getNotes, InteractionNote } from '../../state/items';
 import BasePage from './BasePage';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 
 function InteractionsPage() {
+  const dispatch = useAppDispatch();
   const items = useItems();
 
-  const [showDrawer, setShowDrawer] = useState(false);
-  const [currentInteraction, setCurrentInteraction] = useState<InteractionNote>();
   const notes = useMemo(() => getNotes(items, 'interaction').sort(compareNotes), [items]);
 
   const handleClickNote = useCallback(
     (note: InteractionNote) => () => {
-      setCurrentInteraction(note);
-      setShowDrawer(true);
+      dispatch(updateActive({ item: note }));
     },
-    [],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      setCurrentInteraction(undefined);
-      setShowDrawer(true);
+      dispatch(updateActive({ item: getBlankInteraction() }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDrawer = useCallback(() => setShowDrawer(false), []);
 
   return (
     <BasePage
-      drawer={(
-        <InteractionDrawer
-          interaction={currentInteraction}
-          onClose={handleCloseDrawer}
-          open={showDrawer}
-        />
-      )}
       fab
       fabLabel="Add Interaction"
       onClickFab={handleClickAdd}

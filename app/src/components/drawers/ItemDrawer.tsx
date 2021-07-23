@@ -347,10 +347,7 @@ function ItemDrawer({
     },
     [handleSave, onClose],
   );
-  const handleUnmount = useCallback(
-    () => handleSave(),
-    [handleSave],
-  );
+  const handleUnmount = useCallback(() => handleSave(), [handleSave]);
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups();

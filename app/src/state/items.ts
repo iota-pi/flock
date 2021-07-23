@@ -6,13 +6,14 @@ import { Frequency } from '../utils/frequencies';
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
 export type ItemNoteType = 'interaction' | 'prayer';
+export type ItemOrNoteType = ItemType | ItemNoteType;
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
 export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer'];
 
 export interface BaseNote {
-  id: string,
-  date: number,
   content: string,
+  date: number,
+  id: string,
   sensitive?: boolean,
   type: ItemNoteType,
 }
@@ -55,6 +56,7 @@ export interface GeneralItem extends BaseItem {
   name: string,
 }
 export type Item = PersonItem | GroupItem | GeneralItem;
+export type ItemOrNote = Item | ItemNote;
 
 export const initialItems: Item[] = [];
 export const initialNoteToItemMap: { [note: string]: ItemId } = {};
@@ -126,6 +128,14 @@ export function noteToItemMapReducer(
   }
 
   return state;
+}
+
+export function isItem(itemOrNote: ItemOrNote): itemOrNote is Item {
+  return (ITEM_TYPES as ItemOrNoteType[]).includes(itemOrNote.type);
+}
+
+export function isNote(itemOrNote: ItemOrNote): itemOrNote is ItemNote {
+  return (NOTE_TYPES as ItemOrNoteType[]).includes(itemOrNote.type);
 }
 
 export function getBlankBaseNote(): BaseNote {

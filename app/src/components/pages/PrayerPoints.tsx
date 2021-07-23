@@ -1,44 +1,34 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import NoteList from '../NoteList';
 import { useItems } from '../../state/selectors';
-import { compareItems, compareNotes, getNotes, PrayerNote } from '../../state/items';
-import PrayerPointDrawer from '../drawers/PrayerPoint';
+import { compareItems, compareNotes, getBlankPrayerPoint, getNotes, PrayerNote } from '../../state/items';
 import BasePage from './BasePage';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 
 function PrayerPointsPage() {
+  const dispatch = useAppDispatch();
   const rawItems = useItems();
 
-  const [showDrawer, setShowDrawer] = useState(false);
-  const [currentPrayerPoint, setPrayerPoint] = useState<PrayerNote>();
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
   const notes = useMemo(() => getNotes(items, 'prayer').sort(compareNotes), [items]);
 
   const handleClickNote = useCallback(
     (note: PrayerNote) => () => {
-      setPrayerPoint(note);
-      setShowDrawer(true);
+      dispatch(updateActive({ item: note }));
     },
-    [],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      setPrayerPoint(undefined);
-      setShowDrawer(true);
+      dispatch(updateActive({ item: getBlankPrayerPoint() }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDrawer = useCallback(() => setShowDrawer(false), []);
 
   return (
     <BasePage
-      drawer={(
-        <PrayerPointDrawer
-          prayerPoint={currentPrayerPoint}
-          onClose={handleCloseDrawer}
-          open={showDrawer}
-        />
-      )}
       fab
       fabLabel="Add Prayer Point"
       onClickFab={handleClickAdd}

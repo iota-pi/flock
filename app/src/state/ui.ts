@@ -1,11 +1,11 @@
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
-import { Item } from './items';
+import { Item, ItemNote } from './items';
 
 export interface DrawerData {
   id: string,
-  item?: Item,
+  item?: Item | ItemNote,
   report: boolean,
   open: boolean,
 }
@@ -86,11 +86,15 @@ export function activeItemsReducer(
     return action.drawers || state;
   }
   if (action.type === REPLACE_ACTIVE) {
-    const prevItem = state.length > 0 ? state[state.length - 1] : undefined;
-    return [
-      ...state.slice(0, -1),
-      { id: getItemId(), open: true, report: false, ...prevItem, ...action.data },
-    ];
+    const lastItem = state.length > 0 ? state[state.length - 1] : undefined;
+    const newItem: DrawerData = {
+      id: getItemId(),
+      open: true,
+      report: false,
+      ...lastItem,
+      ...action.data,
+    };
+    return [...state.slice(0, -1), newItem];
   }
   if (action.type === PUSH_ACTIVE) {
     const newItem: DrawerData = {
