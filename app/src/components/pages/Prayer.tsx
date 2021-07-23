@@ -8,7 +8,7 @@ import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import ReportDrawer from '../drawers/ReportDrawer';
-import { EditIcon, PrayerIcon } from '../Icons';
+import { EditIcon } from '../Icons';
 import GoalDialog from '../GoalDialog';
 import BasePage from './BasePage';
 
@@ -137,7 +137,6 @@ function PrayerPage() {
           onNext={isLastItemOfBatch ? undefined : handleNext}
           onSkip={isLastItemOfBatch ? undefined : handleSkip}
           open={showDrawer}
-          placeholderIcon={PrayerIcon}
         />
       )}
     >

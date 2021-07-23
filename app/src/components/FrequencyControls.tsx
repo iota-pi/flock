@@ -6,7 +6,7 @@ import {
   Item,
 } from '../state/items';
 import FrequencyPicker from './FrequencyPicker';
-import { Due, Frequency, isDue } from '../utils/frequencies';
+import { Due, isDue } from '../utils/frequencies';
 import { InteractionIcon, PrayerIcon } from './Icons';
 import { getLastPrayedFor } from '../utils/prayer';
 import { getLastInteractionDate } from '../utils/interactions';
@@ -31,7 +31,7 @@ const useStyles = makeStyles(theme => ({
 
 export interface Props {
   item: Item,
-  onChange: (key: 'interactionFrequency' | 'prayerFrequency') => (value: Frequency) => void,
+  onChange: (data: Partial<Pick<Item, 'prayerFrequency' | 'interactionFrequency'>>) => void,
   noInteractions?: boolean,
 }
 
@@ -73,7 +73,7 @@ function FrequencyControls({
       <Grid item xs={12} sm={noInteractions ? 12 : 6}>
         <FrequencyPicker
           frequency={item.prayerFrequency}
-          onChange={onChange('prayerFrequency')}
+          onChange={prayerFrequency => onChange({ prayerFrequency })}
           label="Prayer Frequency"
           icon={<PrayerIcon />}
           fullWidth
@@ -93,7 +93,7 @@ function FrequencyControls({
         <Grid item xs={12} sm={6}>
           <FrequencyPicker
             frequency={item.interactionFrequency}
-            onChange={onChange('interactionFrequency')}
+            onChange={interactionFrequency => onChange({ interactionFrequency })}
             label="Interaction Frequency"
             icon={<InteractionIcon />}
             fullWidth

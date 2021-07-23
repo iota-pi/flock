@@ -1,9 +1,10 @@
 import { combineReducers } from 'redux';
 import { accountReducer, AccountState, metadataReducer, SetAccountAction } from './account';
 import { itemsReducer, ItemsState, noteToItemMapReducer, SetItemsAction } from './items';
+import { UIAction, uiReducer, UIState } from './ui';
 import { SetVaultAction, vaultReducer, VaultState } from './vault';
 
-export interface RootState extends AccountState, ItemsState, VaultState {}
+export interface RootState extends AccountState, ItemsState, VaultState, UIState {}
 
 export const rootReducer = combineReducers<RootState>({
   account: accountReducer,
@@ -11,10 +12,12 @@ export const rootReducer = combineReducers<RootState>({
   metadata: metadataReducer,
   noteToItemMap: noteToItemMapReducer,
   vault: vaultReducer,
+  ui: uiReducer,
 });
 
 export type AllActions = (
   SetAccountAction |
   SetItemsAction |
-  SetVaultAction
+  SetVaultAction |
+  UIAction
 );

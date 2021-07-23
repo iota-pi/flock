@@ -1,43 +1,33 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { compareItems, PersonItem } from '../../state/items';
-import PersonDrawer from '../drawers/Person';
+import React, { useCallback, useMemo } from 'react';
+import { compareItems, getBlankPerson, PersonItem } from '../../state/items';
 import ItemList from '../ItemList';
 import { useItems } from '../../state/selectors';
 import BasePage from './BasePage';
+import { useAppDispatch } from '../../store';
+import { updateActive } from '../../state/ui';
 
 
 function PeoplePage() {
+  const dispatch = useAppDispatch();
   const rawPeople = useItems<PersonItem>('person');
-  const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
 
-  const [showDetails, setShowDetails] = useState(false);
-  const [currentPerson, setCurrentPerson] = useState<PersonItem>();
+  const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
 
   const handleClickPerson = useCallback(
     (person: PersonItem) => () => {
-      setShowDetails(true);
-      setCurrentPerson(person);
+      dispatch(updateActive({ item: person }));
     },
-    [],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      setShowDetails(true);
-      setCurrentPerson(undefined);
+      dispatch(updateActive({ item: getBlankPerson() }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
     <BasePage
-      drawer={(
-        <PersonDrawer
-          item={currentPerson}
-          onClose={handleCloseDetails}
-          open={showDetails}
-        />
-      )}
       fab
       fabLabel="Add Person"
       onClickFab={handleClickAdd}

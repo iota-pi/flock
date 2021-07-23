@@ -14,11 +14,11 @@ import { APP_NAME } from '../../utils';
 import { clearVault } from '../../state/vault';
 import { useAppDispatch } from '../../store';
 import EverythingSearch from './EverythingSearch';
-import AnyItemDrawer from '../drawers/AnyItemDrawer';
 import { Item } from '../../state/items';
 import { getPage, getTagPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
 import { SignOutIcon } from '../Icons';
+import { updateActive } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -71,9 +71,6 @@ function AppBar({
   const history = useHistory();
   const tag = useTagParam();
 
-  const [showDrawer, setShowDrawer] = useState(false);
-  const [currentItem, setCurrentItem] = useState<Item>();
-
   const handleClickSignOut = useCallback(
     () => {
       dispatch(clearVault());
@@ -85,17 +82,13 @@ function AppBar({
       if (item !== undefined) {
         if (typeof item === 'string') {
           history.push(getTagPage(item));
-          setCurrentItem(undefined);
-          setShowDrawer(false);
         } else {
-          setCurrentItem(item);
-          setShowDrawer(true);
+          dispatch(updateActive({ item }));
         }
       }
     },
-    [history],
+    [dispatch, history],
   );
-  const handleCloseDrawer = useCallback(() => setShowDrawer(false), []);
 
   return (
     <MuiAppBar
@@ -134,13 +127,6 @@ function AppBar({
           </Tooltip>
         </div>
       </Toolbar>
-
-      <AnyItemDrawer
-        alwaysTemporary
-        item={currentItem}
-        open={showDrawer}
-        onClose={handleCloseDrawer}
-      />
     </MuiAppBar>
   );
 }

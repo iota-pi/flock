@@ -1,42 +1,32 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { compareItems, Item } from '../../state/items';
 import ItemList from '../ItemList';
 import { useItems } from '../../state/selectors';
 import BasePage from './BasePage';
-import AnyItemDrawer from '../drawers/AnyItemDrawer';
+import { useAppDispatch } from '../../store';
+import { updateActive } from '../../state/ui';
 
 
 function TagPage() {
-  const tag = decodeURIComponent(useParams<{ tag: string }>().tag);
+  const dispatch = useAppDispatch();
   const rawItems = useItems();
+  const tag = decodeURIComponent(useParams<{ tag: string }>().tag);
+
   const items = useMemo(
     () => rawItems.filter(item => item.tags.includes(tag)).sort(compareItems),
     [rawItems, tag],
   );
 
-  const [showDetails, setShowDetails] = useState(false);
-  const [currentItem, setCurrentItem] = useState<Item>();
-
   const handleClickItem = useCallback(
     (item: Item) => () => {
-      setCurrentItem(item);
-      setShowDetails(true);
+      dispatch(updateActive({ item }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
-    <BasePage
-      drawer={(
-        <AnyItemDrawer
-          item={currentItem}
-          onClose={handleCloseDetails}
-          open={showDetails}
-        />
-      )}
-    >
+    <BasePage>
       <ItemList
         items={items}
         noItemsText="No items found"

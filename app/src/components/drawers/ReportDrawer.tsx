@@ -1,19 +1,16 @@
-import React, { useCallback, useState } from 'react';
-import { Typography } from '@material-ui/core';
+import React, { useCallback } from 'react';
 import { Item } from '../../state/items';
-import BaseDrawer, { ItemDrawerProps } from './BaseDrawer';
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
-import AnyItemDrawer from './AnyItemDrawer';
-import { MuiIconType } from '../Icons';
-import LargeIcon from '../LargeIcon';
+import { useAppDispatch } from '../../store';
+import { pushActive } from '../../state/ui';
 
-export interface Props extends ItemDrawerProps {
+export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
   item: Item,
   onDone?: () => void,
   onNext?: () => void,
   onSkip?: () => void,
-  placeholderIcon: MuiIconType,
 }
 
 
@@ -26,23 +23,22 @@ function ReportDrawer({
   onNext,
   onSkip,
   open,
-  placeholder,
-  placeholderIcon,
   stacked,
 }: Props) {
-  const [editing, setEditing] = useState(false);
-  const handleEdit = useCallback(() => setEditing(true), []);
-  const handleBack = useCallback(() => setEditing(false), []);
+  const dispatch = useAppDispatch();
+  const handleEdit = useCallback(
+    () => dispatch(pushActive({ item })),
+    [dispatch, item],
+  );
+
   const handleClose = useCallback(
     () => {
-      setEditing(false);
       onClose();
     },
     [onClose],
   );
   const handlePrayedFor = useCallback(
     () => {
-      setEditing(false);
       if (onNext) {
         onNext();
       } else {
@@ -56,7 +52,6 @@ function ReportDrawer({
   );
   const handleSkip = useCallback(
     () => {
-      setEditing(false);
       if (onSkip) {
         onSkip();
       } else {
@@ -67,49 +62,26 @@ function ReportDrawer({
   );
 
   return (
-    <>
-      <BaseDrawer
-        ActionProps={onNext ? {
-          onSkip: handleSkip,
-          onNext: handlePrayedFor,
-        } : {
-          onSkip: handleSkip,
-          onDone: handlePrayedFor,
-        }}
-        alwaysTemporary={alwaysTemporary}
-        hideBackButton
-        open={open}
-        onClose={handleClose}
-        stacked={stacked}
-        placeholder={placeholder || (
-          <>
-            <LargeIcon icon={placeholderIcon} />
-
-            <Typography variant="h5" color="textSecondary" align="center">
-              Select an item from the list<br />
-              to view more details
-            </Typography>
-          </>
-        )}
-      >
-        <ItemReport
-          item={item}
-          canEdit={canEdit}
-          onEdit={handleEdit}
-        />
-      </BaseDrawer>
-
-      {canEdit && (
-        <AnyItemDrawer
-          alwaysTemporary
-          item={item}
-          onBack={handleBack}
-          onClose={handleBack}
-          open={editing}
-          stacked={stacked}
-        />
-      )}
-    </>
+    <BaseDrawer
+      ActionProps={onNext ? {
+        onSkip: handleSkip,
+        onNext: handlePrayedFor,
+      } : {
+        onSkip: handleSkip,
+        onDone: handlePrayedFor,
+      }}
+      alwaysTemporary={alwaysTemporary}
+      hideBackButton
+      open={open}
+      onClose={handleClose}
+      stacked={stacked}
+    >
+      <ItemReport
+        item={item}
+        canEdit={canEdit}
+        onEdit={handleEdit}
+      />
+    </BaseDrawer>
   );
 }
 

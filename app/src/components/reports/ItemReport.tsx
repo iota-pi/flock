@@ -1,14 +1,11 @@
 import React, { useMemo } from 'react';
 import { IconButton, makeStyles, Typography } from '@material-ui/core';
 import {
-  compareNames,
   getItemName,
   getNotes,
-  GroupItem,
   Item,
 } from '../../state/items';
 import MemberDisplay from '../MemberDisplay';
-import { useItems } from '../../state/selectors';
 import GroupDisplay from '../GroupDisplay';
 import { EditIcon } from '../Icons';
 import NoteList from '../NoteList';
@@ -61,19 +58,7 @@ function ItemReport({
   onEdit,
 }: Props) {
   const classes = useStyles();
-  const groups = useItems<GroupItem>('group');
 
-  const memberGroupIds = useMemo(
-    () => {
-      if (item.type === 'person') {
-        const memberGroups = groups.filter(g => g.members.includes(item.id));
-        memberGroups.sort(compareNames);
-        return memberGroups.map(g => g.id);
-      }
-      return [];
-    },
-    [groups, item],
-  );
   const prayerPoints = useMemo(
     () => getNotes([item], 'prayer').sort((a, b) => b.date - a.date),
     [item],
@@ -157,10 +142,8 @@ function ItemReport({
           </Typography>
 
           <GroupDisplay
+            item={item}
             editable={false}
-            groups={memberGroupIds}
-            onAdd={() => {}}
-            onRemove={() => {}}
           />
         </div>
       )}
@@ -173,7 +156,7 @@ function ItemReport({
 
           <MemberDisplay
             editable={false}
-            members={item.members}
+            item={item}
             onChange={() => {}}
           />
         </div>

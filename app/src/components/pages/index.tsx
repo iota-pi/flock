@@ -1,11 +1,12 @@
 import React, { ReactNode, useMemo } from 'react';
-import { Switch, Route } from 'react-router-dom';
+import { Switch, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
   GeneralIcon,
   GroupsIcon,
   InteractionIcon,
+  MuiIconType,
   PersonIcon,
   PrayerIcon,
   PrayerPointIcon,
@@ -23,21 +24,24 @@ const LoginPage = loadable(() => import('./Login'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
 const TagPage = loadable(() => import('./Tag'));
 
-export type PageId = (
+export type InternalPageId = (
   'login' |
   'signup' |
+  'tag'
+);
+export type PageId = (
   'people' |
   'groups' |
   'general' |
   'prayer-points' |
   'interactions' |
   'prayer' |
-  'suggestions' |
-  'tag'
+  'suggestions'
 );
+export type AnyPageId = InternalPageId | PageId;
 
 export interface InternalPage {
-  id: PageId,
+  id: AnyPageId,
   path: string,
   page: ReactNode,
   requiresAuth: boolean,
@@ -46,8 +50,9 @@ export interface InternalPage {
 }
 
 export interface Page extends InternalPage {
+  id: PageId,
   name: string,
-  icon: ReactNode,
+  icon: MuiIconType,
 }
 
 export const internalPages: InternalPage[] = [
@@ -76,7 +81,7 @@ export const pages: Page[] = [
     id: 'people',
     path: '/',
     name: 'People',
-    icon: <PersonIcon />,
+    icon: PersonIcon,
     page: <PeoplePage />,
     requiresAuth: true,
   },
@@ -84,7 +89,7 @@ export const pages: Page[] = [
     id: 'groups',
     path: '/groups',
     name: 'Groups',
-    icon: <GroupsIcon />,
+    icon: GroupsIcon,
     page: <GroupsPage />,
     requiresAuth: true,
   },
@@ -92,7 +97,7 @@ export const pages: Page[] = [
     id: 'general',
     path: '/general',
     name: 'Other Items',
-    icon: <GeneralIcon />,
+    icon: GeneralIcon,
     page: <GeneralPage />,
     requiresAuth: true,
   },
@@ -100,7 +105,7 @@ export const pages: Page[] = [
     id: 'prayer-points',
     path: '/prayer-points',
     name: 'Prayer Points',
-    icon: <PrayerPointIcon />,
+    icon: PrayerPointIcon,
     page: <PrayerPointsPage />,
     requiresAuth: true,
     dividerBefore: true,
@@ -109,7 +114,7 @@ export const pages: Page[] = [
     id: 'prayer',
     path: '/prayer',
     name: 'Prayer Schedule',
-    icon: <PrayerIcon />,
+    icon: PrayerIcon,
     page: <PrayerPage />,
     requiresAuth: true,
   },
@@ -117,7 +122,7 @@ export const pages: Page[] = [
     id: 'interactions',
     path: '/interactions',
     name: 'Interactions',
-    icon: <InteractionIcon />,
+    icon: InteractionIcon,
     page: <InteractionsPage />,
     requiresAuth: true,
     dividerBefore: true,
@@ -126,7 +131,7 @@ export const pages: Page[] = [
     id: 'suggestions',
     path: '/suggestions',
     name: 'Suggestions',
-    icon: <SuggestIcon />,
+    icon: SuggestIcon,
     page: <SuggestionsPage />,
     requiresAuth: true,
   },
@@ -161,7 +166,7 @@ function PageView() {
 
 export default PageView;
 
-export function getPage(page: PageId) {
+export function getPage(page: AnyPageId) {
   const result = allPages.find(p => p.id === page);
   if (result === undefined) {
     throw new Error(`Unknown page id ${page}`);
@@ -171,4 +176,22 @@ export function getPage(page: PageId) {
 
 export function getTagPage(tag: string) {
   return getPage('tag').path.replace(':tag', encodeURIComponent(tag));
+}
+
+export function useAnyPage() {
+  const location = useLocation();
+  const page = allPages.find(p => matchPath(location.pathname, p));
+  if (page) {
+    return page;
+  }
+  throw new Error('Could not find matching page');
+}
+
+export function usePage() {
+  const location = useLocation();
+  const page = pages.slice().reverse().find(p => matchPath(location.pathname, p));
+  if (page) {
+    return page;
+  }
+  throw new Error('Could not find matching page');
 }

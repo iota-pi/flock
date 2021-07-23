@@ -30,6 +30,7 @@ export interface BaseItem {
   description: string,
   id: ItemId,
   interactionFrequency: Frequency,
+  isNew?: true,
   prayedFor: number[],
   notes: ItemNote[],
   prayerFrequency: Frequency,
@@ -57,6 +58,8 @@ export type Item = PersonItem | GroupItem | GeneralItem;
 
 export const initialItems: Item[] = [];
 export const initialNoteToItemMap: { [note: string]: ItemId } = {};
+
+export type DirtyItem<T extends Item> = T & { dirty?: boolean };
 
 export interface ItemsState {
   items: Item[],
@@ -176,28 +179,31 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
 export function getBlankPerson(id?: ItemId): PersonItem {
   return {
     ...getBlankBaseItem(id),
-    type: 'person',
-    firstName: '',
-    lastName: '',
     email: '',
+    firstName: '',
+    isNew: true,
+    lastName: '',
     phone: '',
+    type: 'person',
   };
 }
 
 export function getBlankGroup(id?: ItemId): GroupItem {
   return {
     ...getBlankBaseItem(id),
-    type: 'group',
-    name: '',
+    isNew: true,
     members: [],
+    name: '',
+    type: 'group',
   };
 }
 
 export function getBlankGeneral(id?: ItemId): GeneralItem {
   return {
     ...getBlankBaseItem(id),
-    type: 'general',
+    isNew: true,
     name: '',
+    type: 'general',
   };
 }
 
@@ -274,9 +280,17 @@ export function getTags(items: Item[]) {
   return Array.from(new Set(items.flatMap(item => item.tags))).sort();
 }
 
-export function supplyMissingAttributes(item: Item) {
+export function supplyMissingAttributes(item: Item): Item {
   return {
     ...getBlankBaseItem(),
     ...item,
   };
+}
+
+export function dirtyItem<T extends Item>(item: T): DirtyItem<T> {
+  return { ...item, dirty: true };
+}
+
+export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
+  return { ...item, dirty: undefined, isNew: undefined };
 }

@@ -4,10 +4,12 @@ import React, {
 } from 'react';
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
-import { comparePeopleNames, Item, lookupItemsById, PersonItem } from '../state/items';
+import { compareItems, GroupItem, Item, lookupItemsById, PersonItem } from '../state/items';
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
+import { useAppDispatch } from '../store';
+import { pushActive } from '../state/ui';
 
 
 const useStyles = makeStyles(() => ({
@@ -18,47 +20,52 @@ const useStyles = makeStyles(() => ({
 
 export interface Props {
   editable?: boolean,
-  members: string[],
-  onChange: (members: string[]) => void,
-  onClickMember?: (member: PersonItem) => void,
+  item: GroupItem,
+  onChange: (item: Partial<Pick<GroupItem, 'members'>>) => void,
 }
 
 function MemberDisplay({
   editable = true,
-  members: memberIds,
+  item: group,
   onChange,
-  onClickMember,
 }: Props) {
   const classes = useStyles();
-  const people = useItems<PersonItem>('person').sort(comparePeopleNames);
+  const dispatch = useAppDispatch();
+  const people = useItems<PersonItem>('person').sort(compareItems);
 
   const members = useMemo(
-    () => lookupItemsById(people, memberIds).sort(comparePeopleNames),
-    [people, memberIds],
+    () => lookupItemsById(people, group.members).sort(compareItems),
+    [group.members, people],
   );
 
+  const handleClickItem = useCallback(
+    (item: PersonItem) => () => {
+      dispatch(pushActive({ item }));
+    },
+    [dispatch],
+  );
   const handleRemoveMember = useCallback(
     (member: PersonItem) => (
       () => {
-        onChange(memberIds.filter(m => m !== member.id));
+        onChange({ members: group.members.filter(m => m !== member.id) });
       }
     ),
-    [onChange, memberIds],
+    [group.members, onChange],
   );
   const handleChangeMembers = useCallback(
     (item?: Item) => {
       if (item) {
-        onChange([...memberIds, item.id]);
+        onChange({ members: [...group.members, item.id] });
       }
     },
-    [onChange, memberIds],
+    [group.members, onChange],
   );
 
   return (
     <>
       {editable && (
         <ItemSearch
-          selectedIds={memberIds}
+          selectedIds={group.members}
           items={people}
           label="Add group members"
           noItemsText="No people found"
@@ -73,7 +80,7 @@ function MemberDisplay({
         dividers
         items={members}
         noItemsHint="No group members"
-        onClick={onClickMember ? (item => () => onClickMember(item)) : undefined}
+        onClick={handleClickItem}
         onClickAction={editable ? handleRemoveMember : undefined}
       />
     </>

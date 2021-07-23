@@ -97,7 +97,10 @@ function NoteControl<T extends ItemNote>({
 }: Props<T>) {
   const classes = useStyles();
 
-  const notes = useMemo(() => rawNotes.slice().sort(compareNotes), [rawNotes]);
+  const notes = useMemo(
+    () => rawNotes.filter(note => note.type === noteType).sort(compareNotes),
+    [noteType, rawNotes],
+  );
   const [autoFocus, setAutoFocus] = useState<string>();
   const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
 

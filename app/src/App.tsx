@@ -14,6 +14,7 @@ import { useVault } from './state/selectors';
 import migrateItems from './state/migrations';
 import { setAccount } from './state/account';
 import Vault from './crypto/Vault';
+import MainLayout from './components/nav/MainLayout';
 
 
 const useStyles = makeStyles(theme => ({
@@ -100,7 +101,10 @@ export default function App() {
 
             <div className={classes.content}>
               <Toolbar />
-              <PageView />
+
+              <MainLayout>
+                <PageView />
+              </MainLayout>
             </div>
           </div>
         </Router>

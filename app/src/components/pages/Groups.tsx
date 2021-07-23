@@ -1,33 +1,30 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { compareItems, GroupItem } from '../../state/items';
+import React, { useCallback, useMemo } from 'react';
+import { compareItems, getBlankGroup, GroupItem } from '../../state/items';
 import ItemList from '../ItemList';
-import GroupDrawer from '../drawers/Group';
 import { useItems } from '../../state/selectors';
 import BasePage from './BasePage';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 
 function GroupsPage() {
+  const dispatch = useAppDispatch();
   const rawGroups = useItems<GroupItem>('group');
+
   const groups = useMemo(() => rawGroups.sort(compareItems), [rawGroups]);
 
-  const [showDetails, setShowDetails] = useState(false);
-  const [currentGroup, setCurrentGroup] = useState<GroupItem>();
-
-  const handleClickGroup = useCallback(
-    (group: GroupItem) => () => {
-      setShowDetails(true);
-      setCurrentGroup(group);
+  const handleClickItem = useCallback(
+    (item: GroupItem) => () => {
+      dispatch(updateActive({ item }));
     },
-    [],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      setShowDetails(true);
-      setCurrentGroup(undefined);
+      dispatch(updateActive({ item: getBlankGroup() }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDetails = useCallback(() => setShowDetails(false), []);
   const getDescription = useCallback(
     (item: GroupItem) => {
       const n = item.members.length;
@@ -40,13 +37,6 @@ function GroupsPage() {
 
   return (
     <BasePage
-      drawer={(
-        <GroupDrawer
-          item={currentGroup}
-          onClose={handleCloseDetails}
-          open={showDetails}
-        />
-      )}
       fab
       fabLabel="Add Group"
       onClickFab={handleClickAdd}
@@ -55,7 +45,7 @@ function GroupsPage() {
         items={groups}
         noItemsHint="Click the plus button to add one!"
         noItemsText="No groups found"
-        onClick={handleClickGroup}
+        onClick={handleClickItem}
         getDescription={getDescription}
       />
     </BasePage>

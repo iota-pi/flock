@@ -1,32 +1,26 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Typography } from '@material-ui/core';
+import React, { useCallback, useMemo } from 'react';
 import { useItems } from '../../state/selectors';
 import ItemList from '../ItemList';
 import { PersonItem } from '../../state/items';
 import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/interactions';
-import PersonDrawer from '../drawers/Person';
 import { formatDate } from '../../utils';
 import BasePage from './BasePage';
-import { SuggestIcon } from '../Icons';
-import LargeIcon from '../LargeIcon';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 
 function SuggestionsPage() {
+  const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
-
-  const [currentItem, setCurrentItem] = useState<PersonItem>(people[0]);
-  const [showDrawer, setShowDrawer] = useState(false);
 
   const suggestions = useMemo(() => getInteractionSuggestions(people), [people]);
 
   const handleClick = useCallback(
     (item: PersonItem) => () => {
-      setCurrentItem(item);
-      setShowDrawer(true);
+      dispatch(updateActive({ item }));
     },
-    [],
+    [dispatch],
   );
-  const handleClose = useCallback(() => setShowDrawer(false), []);
   const getDescription = useCallback(
     (item: PersonItem) => {
       const interactionDate = getLastInteractionDate(item);
@@ -39,25 +33,7 @@ function SuggestionsPage() {
   );
 
   return (
-    <BasePage
-      drawer={(
-        <PersonDrawer
-          item={currentItem}
-          onClose={handleClose}
-          open={showDrawer}
-          placeholder={(
-            <>
-              <LargeIcon icon={SuggestIcon} />
-
-              <Typography variant="h5" color="textSecondary" align="center">
-                Select a person from the list<br />
-                to view more details
-              </Typography>
-            </>
-          )}
-        />
-      )}
-    >
+    <BasePage>
       <ItemList
         getDescription={getDescription}
         items={suggestions}

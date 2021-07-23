@@ -1,43 +1,33 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { compareItems, GeneralItem } from '../../state/items';
+import React, { useCallback, useMemo } from 'react';
+import { compareItems, GeneralItem, getBlankGeneral } from '../../state/items';
 import ItemList from '../ItemList';
-import GeneralDrawer from '../drawers/General';
 import { useItems } from '../../state/selectors';
 import BasePage from './BasePage';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 
 function GeneralPage() {
+  const dispatch = useAppDispatch();
   const rawItems = useItems<GeneralItem>('general');
-  const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
 
-  const [showDetails, setShowDetails] = useState(false);
-  const [currentItem, setCurrentItem] = useState<GeneralItem>();
+  const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
 
   const handleClickItem = useCallback(
     (item: GeneralItem) => () => {
-      setShowDetails(true);
-      setCurrentItem(item);
+      dispatch(updateActive({ item }));
     },
-    [],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      setShowDetails(true);
-      setCurrentItem(undefined);
+      dispatch(updateActive({ item: getBlankGeneral() }));
     },
-    [],
+    [dispatch],
   );
-  const handleCloseDetails = useCallback(() => setShowDetails(false), []);
 
   return (
     <BasePage
-      drawer={(
-        <GeneralDrawer
-          item={currentItem}
-          onClose={handleCloseDetails}
-          open={showDetails}
-        />
-      )}
       fab
       fabLabel="Add Prayer Item"
       onClickFab={handleClickAdd}

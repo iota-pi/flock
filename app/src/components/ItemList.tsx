@@ -58,7 +58,7 @@ export interface BaseProps<T extends Item> {
   noItemsHint?: string,
   noItemsText?: string,
   onClick?: (item: T) => () => void,
-  onClickAction?: (item: T) => () => void,
+  onClickAction?: (item: T) => void,
   showIcons?: boolean,
   showTags?: boolean,
 }
@@ -101,7 +101,7 @@ function ItemList<T extends Item>({
     (item: T) => (event: MouseEvent) => {
       event.stopPropagation();
       if (onClickAction) {
-        return onClickAction(item)();
+        return onClickAction(item);
       } else if (onClick) {
         return onClick(item)();
       }
@@ -156,7 +156,7 @@ function ItemList<T extends Item>({
 
           <ListItem
             button
-            disabled={!onClick && !onCheck}
+            disabled={!onClick && !onCheck && !onClickAction}
             onClick={onClick ? onClick(item) : undefined}
             classes={{
               disabled: classes.disabledOverride,

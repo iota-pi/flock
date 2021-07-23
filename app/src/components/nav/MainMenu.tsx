@@ -121,7 +121,7 @@ function MainMenu({
 
       <div className={classes.drawerContainer}>
         <List>
-          {pages.map(({ id, name, icon, dividerBefore }) => (
+          {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
             <React.Fragment key={id}>
               {dividerBefore && (
                 <Divider />
@@ -133,7 +133,7 @@ function MainMenu({
                 className={`${classes.menuItem} ${id === currentPageId ? classes.primary : ''}`}
               >
                 <ListItemIcon className={classes.menuItemIcon}>
-                  {icon}
+                  <Icon />
                 </ListItemIcon>
 
                 <ListItemText

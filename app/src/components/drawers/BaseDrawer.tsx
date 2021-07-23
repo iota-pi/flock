@@ -1,8 +1,9 @@
-import React, { KeyboardEvent, PropsWithChildren, ReactNode, useCallback } from 'react';
+import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
 import { BackIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
+import UnmountWatcher from './utils/UnmountWrapper';
 
 
 const useStyles = makeStyles(theme => ({
@@ -62,30 +63,23 @@ const useStyles = makeStyles(theme => ({
     top: theme.spacing(2),
     right: theme.spacing(2),
   },
-  placeholder: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexGrow: 1,
-    opacity: 0.75,
-  },
 }));
 
 interface BaseProps {
   onBack?: () => void,
   onClose: () => void,
+  onExited?: () => void,
+  onUnmount?: () => void,
   open: boolean,
   showCancelDelete?: boolean,
   stacked?: boolean,
   alwaysTemporary?: boolean,
-  placeholder?: ReactNode,
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   hideBackButton?: boolean,
 }
-export type { BaseProps as ItemDrawerProps };
+export type { BaseProps as BaseDrawerProps };
 type Props = BaseProps & SpecificProps;
 
 
@@ -96,8 +90,9 @@ function BaseDrawer({
   hideBackButton = false,
   onBack,
   onClose,
+  onExited,
+  onUnmount,
   open,
-  placeholder = null,
   stacked,
 }: PropsWithChildren<Props>) {
   const classes = useStyles();
@@ -129,12 +124,12 @@ function BaseDrawer({
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
   const showBackButton = !hideBackButton && !permanentDrawer && xsScreen;
-  const displayContent = open || !permanentDrawer;
 
   return (
     <SwipeableDrawer
       className={rootClasses.join(' ')}
       variant={permanentDrawer ? 'permanent' : 'temporary'}
+      SlideProps={{ onExited }}
       open={open}
       onClose={onClose}
       onOpen={() => {}}
@@ -145,6 +140,8 @@ function BaseDrawer({
       }}
       onKeyDown={handleKeyDown}
     >
+      <UnmountWatcher onUnmount={onUnmount} />
+
       {permanentDrawer && (
         <Toolbar />
       )}
@@ -160,15 +157,11 @@ function BaseDrawer({
               </div>
             )}
 
-            {displayContent ? children : (
-              <div className={classes.placeholder}>
-                {placeholder}
-              </div>
-            )}
+            {children}
           </>
         </Container>
 
-        {ActionProps && displayContent && (
+        {ActionProps && (
           <div>
             <DrawerActions {...ActionProps} />
           </div>

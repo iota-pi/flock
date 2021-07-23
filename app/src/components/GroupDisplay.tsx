@@ -4,10 +4,12 @@ import React, {
 } from 'react';
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareNames, lookupItemsById, GroupItem } from '../state/items';
-import { useItems } from '../state/selectors';
+import { compareNames, GroupItem, PersonItem, updateItems } from '../state/items';
+import { useItems, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
+import { useAppDispatch } from '../store';
+import { pushActive } from '../state/ui';
 
 
 const useStyles = makeStyles(() => ({
@@ -18,44 +20,58 @@ const useStyles = makeStyles(() => ({
 
 export interface Props {
   editable?: boolean,
-  groups: string[],
-  onAdd: (group: GroupItem) => void,
-  onClickGroup?: (group: GroupItem) => void,
-  onRemove: (group: GroupItem) => void,
+  item: PersonItem,
 }
 
 
 function GroupDisplay({
   editable = true,
-  groups: groupIds,
-  onAdd,
-  onClickGroup,
-  onRemove,
+  item,
 }: Props) {
-  const classes = useStyles();
   const allGroups = useItems<GroupItem>('group').sort(compareNames);
+  const classes = useStyles();
+  const dispatch = useAppDispatch();
+  const vault = useVault();
 
   const groups = useMemo(
-    () => lookupItemsById(allGroups, groupIds).sort(compareNames),
-    [allGroups, groupIds],
+    () => allGroups.filter(g => g.members.includes(item.id)).sort(compareNames),
+    [allGroups, item.id],
   );
-
+  const groupIds = useMemo(() => groups.map(g => g.id), [groups]);
   const options = useMemo(
     () => allGroups.filter(group => !groupIds.includes(group.id)),
     [groupIds, allGroups],
   );
 
-  const handleRemoveGroup = useCallback(
-    (group: GroupItem) => () => onRemove(group),
-    [onRemove],
-  );
-  const handleSelect = useCallback(
-    (item?: GroupItem) => {
-      if (item) {
-        onAdd(item);
+  const handleSelectGroup = useCallback(
+    (group?: GroupItem) => {
+      if (group) {
+        const newGroup: GroupItem = {
+          ...group,
+          members: [...group.members, item.id],
+        };
+        vault?.store(newGroup);
+        dispatch(updateItems([newGroup]));
       }
     },
-    [onAdd],
+    [dispatch, item.id, vault],
+  );
+  const handleRemoveGroup = useCallback(
+    (group: GroupItem) => {
+      const newGroup: GroupItem = {
+        ...group,
+        members: group.members.filter(m => m !== item.id),
+      };
+      vault?.store(newGroup);
+      dispatch(updateItems([newGroup]));
+    },
+    [dispatch, item.id, vault],
+  );
+  const handleClickGroup = useCallback(
+    (group: GroupItem) => () => {
+      dispatch(pushActive({ item: group }));
+    },
+    [dispatch],
   );
 
   return (
@@ -64,7 +80,7 @@ function GroupDisplay({
         <>
           <ItemSearch
             noItemsText="No groups found"
-            onSelect={handleSelect}
+            onSelect={handleSelectGroup}
             items={options}
             label="Add to group"
             selectedIds={groupIds}
@@ -78,7 +94,7 @@ function GroupDisplay({
         dividers
         items={groups}
         noItemsHint="Not in any groups"
-        onClick={onClickGroup ? (item => () => onClickGroup(item)) : undefined}
+        onClick={handleClickGroup}
         onClickAction={editable ? handleRemoveGroup : undefined}
       />
     </>

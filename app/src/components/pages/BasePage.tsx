@@ -4,10 +4,6 @@ import { Fab } from '@material-ui/core';
 import { AddIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
-  root: {
-    display: 'flex',
-    flexGrow: 1,
-  },
   pageContent: {
     position: 'relative',
     flexGrow: 1,
@@ -46,7 +42,6 @@ export type { Props as BasePageProps };
 
 function BasePage({
   children,
-  drawer = null,
   fab,
   fabIcon,
   fabLabel,
@@ -55,25 +50,21 @@ function BasePage({
   const classes = useStyles();
 
   return (
-    <div className={classes.root}>
-      <div className={classes.pageContent}>
-        {children}
+    <div className={classes.pageContent}>
+      {children}
 
-        {fab && (
-          <div className={classes.fabContainer}>
-            <Fab
-              onClick={onClickFab}
-              color="secondary"
-              aria-label={fabLabel}
-              className={classes.fab}
-            >
-              {fabIcon || <AddIcon />}
-            </Fab>
-          </div>
-        )}
-      </div>
-
-      {drawer}
+      {fab && (
+        <div className={classes.fabContainer}>
+          <Fab
+            onClick={onClickFab}
+            color="secondary"
+            aria-label={fabLabel}
+            className={classes.fab}
+          >
+            {fabIcon || <AddIcon />}
+          </Fab>
+        </div>
+      )}
     </div>
   );
 }
