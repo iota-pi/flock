@@ -46,7 +46,6 @@ function PlaceholderDrawer({
 }: Props) {
   const classes = useStyles();
   const page = usePage();
-  console.error(page);
 
   const canAdd = pagesWithAddButton.includes(page.id);
   const itemName = itemNameMap[page.id] || 'item';
