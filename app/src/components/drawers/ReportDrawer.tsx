@@ -1,28 +1,33 @@
-import React, { useCallback } from 'react';
-import { Item } from '../../state/items';
+import React, { useCallback, useMemo } from 'react';
+import { Item, updateItems } from '../../state/items';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
 import { useAppDispatch } from '../../store';
-import { pushActive } from '../../state/ui';
+import { pushActive, updateActive } from '../../state/ui';
+import { useVault } from '../../state/selectors';
+import { isSameDay } from '../../utils';
+import { getLastPrayedFor } from '../../utils/prayer';
 
 export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
   item: Item,
+  next?: Item[],
+  praying?: boolean,
   onDone?: () => void,
-  onNext?: () => void,
   onSkip?: () => void,
 }
 
 
 function ReportDrawer({
   alwaysTemporary,
-  canEdit = false,
+  canEdit: canEditRaw,
   item,
+  next = [],
   onClose,
   onDone,
-  onNext,
   onSkip,
   open,
+  praying = false,
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
@@ -30,25 +35,41 @@ function ReportDrawer({
     () => dispatch(pushActive({ item })),
     [dispatch, item],
   );
+  const vault = useVault();
 
-  const handleClose = useCallback(
-    () => {
-      onClose();
-    },
-    [onClose],
+  const canEdit = canEditRaw !== undefined ? canEditRaw : praying;
+
+  const prayedForToday = useMemo(
+    () => isSameDay(new Date(), new Date(getLastPrayedFor(item))),
+    [item],
   );
-  const handlePrayedFor = useCallback(
+  const recordPrayer = useCallback(
     () => {
-      if (onNext) {
-        onNext();
+      if (!prayedForToday) {
+        const prayedFor = [...item.prayedFor, new Date().getTime()];
+        const newItem: Item = { ...item, prayedFor };
+        vault?.store(newItem);
+        dispatch(updateItems([newItem]));
+      }
+    },
+    [dispatch, item, prayedForToday, vault],
+  );
+
+  const handleDone = useCallback(
+    () => {
+      if (onDone) {
+        onDone();
+      }
+      if (praying) {
+        recordPrayer();
+      }
+      if (next.length) {
+        dispatch(updateActive({ item: next[0], next: next.slice(1) }));
       } else {
-        if (onDone) {
-          onDone();
-        }
         onClose();
       }
     },
-    [onClose, onDone, onNext],
+    [dispatch, next, onClose, onDone, praying, recordPrayer],
   );
   const handleSkip = useCallback(
     () => {
@@ -63,17 +84,17 @@ function ReportDrawer({
 
   return (
     <BaseDrawer
-      ActionProps={onNext ? {
+      ActionProps={next.length > 0 ? {
         onSkip: handleSkip,
-        onNext: handlePrayedFor,
+        onNext: handleDone,
       } : {
         onSkip: handleSkip,
-        onDone: handlePrayedFor,
+        onDone: handleDone,
       }}
       alwaysTemporary={alwaysTemporary}
       hideBackButton
       open={open}
-      onClose={handleClose}
+      onClose={onClose}
       stacked={stacked}
     >
       <ItemReport

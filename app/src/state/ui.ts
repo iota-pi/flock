@@ -1,13 +1,15 @@
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
-import { Item, ItemNote } from './items';
+import { Item, ItemOrNote } from './items';
 
 export interface DrawerData {
   id: string,
-  item?: Item | ItemNote,
-  report: boolean,
+  item?: ItemOrNote,
+  next?: Item[],
   open: boolean,
+  praying?: boolean,
+  report?: boolean,
 }
 export interface UIData {
   drawers: DrawerData[],
@@ -57,14 +59,16 @@ export function updateActive(
     type: REPLACE_ACTIVE,
     data: {
       ...data,
-      report: data.report === undefined ? false : data.report,
       open: data.open === undefined ? true : data.open,
     },
   };
 }
 
 export function pushActive(
-  data: Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, 'open' | 'report'>>,
+  data: (
+    Pick<DrawerData, 'item'>
+    & Partial<Pick<DrawerData, 'next' | 'open' | 'praying' | 'report'>>
+  ),
 ): PushActiveItemAction {
   return {
     type: PUSH_ACTIVE,
@@ -90,7 +94,6 @@ export function activeItemsReducer(
     const newItem: DrawerData = {
       id: getItemId(),
       open: true,
-      report: false,
       ...lastItem,
       ...action.data,
     };
@@ -100,7 +103,6 @@ export function activeItemsReducer(
     const newItem: DrawerData = {
       id: getItemId(),
       open: true,
-      report: false,
       ...action.data,
     };
     return [...state, newItem];

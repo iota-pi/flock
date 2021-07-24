@@ -7,10 +7,10 @@ import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../..
 import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import ReportDrawer from '../drawers/ReportDrawer';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../GoalDialog';
 import BasePage from './BasePage';
+import { updateActive } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -38,8 +38,6 @@ function PrayerPage() {
   const items = useItems();
   const vault = useVault();
 
-  const [currentItem, setCurrentItem] = useState<Item>(items[0]);
-  const [showDrawer, setShowDrawer] = useState(false);
   const [showGoalDialog, setShowGoalDialog] = useState(false);
 
   const prayedForToday = useMemo(
@@ -92,54 +90,18 @@ function PrayerPage() {
 
   const handleClick = useCallback(
     (item: Item) => () => {
-      setCurrentItem(item);
-      setShowDrawer(true);
+      const index = prayerSchedule.indexOf(item);
+      const endIndex = index < goal ? goal : prayerSchedule.length;
+      const next = prayerSchedule.slice(index + 1, endIndex);
+      dispatch(updateActive({ item, next, praying: true, report: true }));
     },
-    [],
+    [dispatch, goal, prayerSchedule],
   );
-  const moveToNext = useCallback(
-    () => {
-      const index = prayerSchedule.indexOf(currentItem);
-      setCurrentItem(prayerSchedule[index + 1] || prayerSchedule[0]);
-    },
-    [currentItem, prayerSchedule],
-  );
-  const handleDone = useCallback(
-    () => recordPrayerFor(currentItem),
-    [currentItem, recordPrayerFor],
-  );
-  const handleNext = useCallback(
-    () => {
-      moveToNext();
-      handleDone();
-    },
-    [handleDone, moveToNext],
-  );
-  const handleSkip = moveToNext;
-  const handleClose = useCallback(() => setShowDrawer(false), []);
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
 
-  const currentItemIndex = prayerSchedule.indexOf(currentItem);
-  const isLastItemOfBatch = (
-    currentItemIndex === todaysSchedule.length - 1
-    || currentItemIndex === prayerSchedule.length - 1
-  );
-
   return (
-    <BasePage
-      drawer={(
-        <ReportDrawer
-          canEdit
-          item={currentItem}
-          onClose={handleClose}
-          onDone={handleDone}
-          onNext={isLastItemOfBatch ? undefined : handleNext}
-          onSkip={isLastItemOfBatch ? undefined : handleSkip}
-          open={showDrawer}
-        />
-      )}
-    >
+    <BasePage>
       <Container maxWidth="xl" className={classes.root}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
