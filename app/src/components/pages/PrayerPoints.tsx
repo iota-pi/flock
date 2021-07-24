@@ -15,10 +15,9 @@ function PrayerPointsPage() {
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
   const notes = useMemo(() => getNotes(items, 'prayer').sort(compareNotes), [items]);
 
-
   const handleClickNote = useCallback(
     (note: PrayerNote) => () => {
-      if (isActive(note)) {
+      if (!isActive(note)) {
         dispatch(updateActive({ item: note }));
       }
     },
