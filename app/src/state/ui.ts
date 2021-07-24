@@ -1,7 +1,7 @@
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
-import { Item, ItemOrNote } from './items';
+import { DELETE_ITEMS, Item, ItemOrNote, UPDATE_ITEMS } from './items';
 
 export interface DrawerData {
   id: string,
@@ -60,6 +60,9 @@ export function updateActive(
     data: {
       ...data,
       open: data.open === undefined ? true : data.open,
+      report: data.report === undefined ? false : data.report,
+      praying: data.praying === undefined ? false : data.praying,
+      next: data.next === undefined ? [] : data.next,
     },
   };
 }
@@ -84,7 +87,7 @@ export function removeActive(): RemoveActiveItemAction {
 
 export function activeItemsReducer(
   state: UIData['drawers'] = initialDrawers,
-  action: UIAction | AllActions,
+  action: AllActions,
 ): UIData['drawers'] {
   if (action.type === SET_UI_STATE) {
     return action.drawers || state;
@@ -109,6 +112,28 @@ export function activeItemsReducer(
   }
   if (action.type === REMOVE_ACTIVE) {
     return state.slice(0, -1);
+  }
+  if (action.type === UPDATE_ITEMS) {
+    const updatedIds = action.items.map(item => item.id);
+    const newDrawers: typeof state = [];
+    let modified = false;
+    for (const drawer of state) {
+      if (drawer.item && updatedIds.includes(drawer.item.id)) {
+        newDrawers.push({
+          ...drawer,
+          item: action.items.find(item => item.id === drawer.item!.id),
+        });
+        modified = true;
+      } else {
+        newDrawers.push(drawer);
+      }
+    }
+    return modified ? newDrawers : state;
+  }
+  if (action.type === DELETE_ITEMS) {
+    const deletedIds = action.items.map(item => item.id);
+    const newDrawers = state.filter(d => !d.item || !deletedIds.includes(d.item.id));
+    return newDrawers.length === state.length ? state : newDrawers;
   }
 
   return state;
