@@ -333,17 +333,14 @@ function ItemDrawer({
   );
 
   const handleSave = useCallback(
-    async (itemToSave: DirtyItem<Item>, propagateChange = true) => {
+    async (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && getItemName(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
         dispatch(updateItems([clean]));
-        if (propagateChange) {
-          onChange(clean);
-        }
       }
     },
-    [dispatch, onChange, vault],
+    [dispatch, vault],
   );
   const handleSaveAndClose = useCallback(
     async () => {
@@ -375,7 +372,7 @@ function ItemDrawer({
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
-        handleSave(prevItem, false);
+        handleSave(prevItem);
       }
     },
     [handleSave, item.id, open, prevItem],
