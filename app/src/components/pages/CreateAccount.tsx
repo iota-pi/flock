@@ -196,7 +196,7 @@ function CreateAccountPage() {
         </Typography>
 
         <Typography paragraph>
-          Because your data is end-to-end encrypted, it will not be possible to recover your data
+          Because your data is client-side encrypted, it will not be possible to recover your data
           if you forget your account ID or password.
         </Typography>
 
