@@ -168,7 +168,6 @@ function NoteDrawer({
     },
     [handleSave, note, onClose],
   );
-  const handleUnmount = useCallback(() => handleSave(note), [handleSave, note]);
   const handleCancel = useCallback(
     () => {
       onClose();
@@ -222,7 +221,6 @@ function NoteDrawer({
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}
-      onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
     >

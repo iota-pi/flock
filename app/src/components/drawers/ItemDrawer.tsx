@@ -349,10 +349,6 @@ function ItemDrawer({
     },
     [handleSave, item, onClose],
   );
-  const handleUnmount = useCallback(
-    () => handleSave(item),
-    [handleSave, item],
-  );
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups();
@@ -372,6 +368,7 @@ function ItemDrawer({
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
+        console.warn('saving through effect');
         handleSave(prevItem);
       }
     },
@@ -393,7 +390,6 @@ function ItemDrawer({
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}
-      onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
     >
