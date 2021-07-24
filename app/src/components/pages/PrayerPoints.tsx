@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import NoteList from '../NoteList';
-import { useItems } from '../../state/selectors';
+import { useIsActive, useItems } from '../../state/selectors';
 import { compareItems, compareNotes, getBlankPrayerPoint, getNotes, PrayerNote } from '../../state/items';
 import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
@@ -9,16 +9,20 @@ import { useAppDispatch } from '../../store';
 
 function PrayerPointsPage() {
   const dispatch = useAppDispatch();
+  const isActive = useIsActive();
   const rawItems = useItems();
 
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
   const notes = useMemo(() => getNotes(items, 'prayer').sort(compareNotes), [items]);
 
+
   const handleClickNote = useCallback(
     (note: PrayerNote) => () => {
-      dispatch(updateActive({ item: note }));
+      if (isActive(note)) {
+        dispatch(updateActive({ item: note }));
+      }
     },
-    [dispatch],
+    [dispatch, isActive],
   );
   const handleClickAdd = useCallback(
     () => {
@@ -34,6 +38,7 @@ function PrayerPointsPage() {
       onClickFab={handleClickAdd}
     >
       <NoteList
+        getHighlighted={isActive}
         notes={notes}
         noNotesHint="Click the plus button to add one!"
         noNotesText="No prayer points found"

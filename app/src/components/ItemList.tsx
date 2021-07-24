@@ -53,6 +53,7 @@ export interface BaseProps<T extends Item> {
   dividers?: boolean,
   fadeArchived?: boolean,
   getDescription?: (item: T) => string,
+  getHighlighted?: (item: T) => boolean,
   items: T[],
   linkTags?: boolean,
   noItemsHint?: string,
@@ -85,6 +86,7 @@ function ItemList<T extends Item>({
   fadeArchived = true,
   getChecked,
   getDescription,
+  getHighlighted,
   items,
   linkTags = true,
   noItemsHint,
@@ -157,6 +159,7 @@ function ItemList<T extends Item>({
           <ListItem
             button
             disabled={!onClick && !onCheck && !onClickAction}
+            selected={getHighlighted ? getHighlighted(item) : false}
             onClick={onClick ? onClick(item) : undefined}
             classes={{
               disabled: classes.disabledOverride,

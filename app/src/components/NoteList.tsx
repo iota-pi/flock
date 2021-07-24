@@ -36,9 +36,10 @@ const useStyles = makeStyles(() => ({
 export interface Props<T extends ItemNote> {
   actionIcon?: ReactNode,
   className?: string,
-  dividers?: boolean,
   displayItemNames?: boolean,
   displayNoteDate?: boolean,
+  dividers?: boolean,
+  getHighlighted?: (note: T) => boolean,
   hideEmpty?: boolean,
   paddingTop?: boolean,
   notes: T[],
@@ -55,6 +56,7 @@ function NoteList<T extends ItemNote = ItemNote>({
   displayItemNames = true,
   displayNoteDate = true,
   dividers,
+  getHighlighted,
   hideEmpty = false,
   paddingTop = true,
   notes: rawNotes,
@@ -134,6 +136,7 @@ function NoteList<T extends ItemNote = ItemNote>({
             button
             disabled={!onClick}
             onClick={onClick ? onClick(note) : undefined}
+            selected={getHighlighted ? getHighlighted(note) : false}
             classes={{
               disabled: classes.disabledOverride,
             }}

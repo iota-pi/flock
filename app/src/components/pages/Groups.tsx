@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { compareItems, getBlankGroup, GroupItem } from '../../state/items';
 import ItemList from '../ItemList';
-import { useItems } from '../../state/selectors';
+import { useIsActive, useItems } from '../../state/selectors';
 import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
@@ -9,15 +9,18 @@ import { useAppDispatch } from '../../store';
 
 function GroupsPage() {
   const dispatch = useAppDispatch();
+  const isActive = useIsActive();
   const rawGroups = useItems<GroupItem>('group');
 
   const groups = useMemo(() => rawGroups.sort(compareItems), [rawGroups]);
 
   const handleClickItem = useCallback(
     (item: GroupItem) => () => {
-      dispatch(updateActive({ item }));
+      if (!isActive(item)) {
+        dispatch(updateActive({ item }));
+      }
     },
-    [dispatch],
+    [dispatch, isActive],
   );
   const handleClickAdd = useCallback(
     () => {
@@ -42,6 +45,7 @@ function GroupsPage() {
       onClickFab={handleClickAdd}
     >
       <ItemList
+        getHighlighted={isActive}
         items={groups}
         noItemsHint="Click the plus button to add one!"
         noItemsText="No groups found"

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { compareItems, GeneralItem, getBlankGeneral } from '../../state/items';
 import ItemList from '../ItemList';
-import { useItems } from '../../state/selectors';
+import { useIsActive, useItems } from '../../state/selectors';
 import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
@@ -9,15 +9,18 @@ import { useAppDispatch } from '../../store';
 
 function GeneralPage() {
   const dispatch = useAppDispatch();
+  const isActive = useIsActive();
   const rawItems = useItems<GeneralItem>('general');
 
   const items = useMemo(() => rawItems.sort(compareItems), [rawItems]);
 
   const handleClickItem = useCallback(
     (item: GeneralItem) => () => {
-      dispatch(updateActive({ item }));
+      if (!isActive(item)) {
+        dispatch(updateActive({ item }));
+      }
     },
-    [dispatch],
+    [dispatch, isActive],
   );
   const handleClickAdd = useCallback(
     () => {
@@ -33,6 +36,7 @@ function GeneralPage() {
       onClickFab={handleClickAdd}
     >
       <ItemList
+        getHighlighted={isActive}
         items={items}
         noItemsHint="Click the plus button to add one!"
         noItemsText="No items found"
