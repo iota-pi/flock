@@ -206,14 +206,14 @@ function DrawerActions({
             Are you sure you want to delete
             {' '}
             {itemIsNote ? (
+              ` this ${itemName}?`
+            ) : (
               <>
                 <span className={classes.emphasis}>
                   {itemName}
                 </span>
                 , and all associated notes?
               </>
-            ) : (
-              ` this ${itemName}?`
             )}
           </Typography>
 
