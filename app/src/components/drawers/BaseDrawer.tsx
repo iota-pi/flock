@@ -71,7 +71,6 @@ interface BaseProps {
   onExited?: () => void,
   onUnmount?: () => void,
   open: boolean,
-  showCancelDelete?: boolean,
   stacked?: boolean,
   alwaysTemporary?: boolean,
 }
