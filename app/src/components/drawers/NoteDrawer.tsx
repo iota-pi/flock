@@ -63,11 +63,14 @@ function NoteDrawer({
   const editing = existingLinkedItem !== undefined;
   const items = useMemo(
     () => (
-      allItems.filter(
-        item => item.type === 'person' || (!editing && item.type === 'group'),
-      ).sort(compareItems)
+      allItems.filter(item => {
+        if (note.type === 'interaction') {
+          return item.type === 'person' || (!editing && item.type === 'group');
+        }
+        return true;
+      }).sort(compareItems)
     ),
-    [allItems, editing],
+    [allItems, editing, note.type],
   );
 
   useEffect(
@@ -206,6 +209,9 @@ function NoteDrawer({
     [handleSave, note.id, open, prevNote],
   );
 
+  const itemsLabel = note.type === 'interaction' ? 'People' : 'Items';
+  const contentLabel = note.type === 'interaction' ? 'Comment' : 'Prayer Point';
+
   return (
     <BaseDrawer
       ActionProps={{
@@ -229,8 +235,8 @@ function NoteDrawer({
           <ItemSearch
             autoFocus
             items={items}
-            label="People"
-            noItemsText="No people found"
+            label={itemsLabel}
+            noItemsText={`No ${itemsLabel.toLowerCase()} found`}
             onSelect={handleAddItem}
             selectedIds={linkedItems.map(item => item.id)}
             showGroupMemberCount
@@ -243,7 +249,7 @@ function NoteDrawer({
               actionIcon={<RemoveIcon />}
               dividers
               items={linkedItems}
-              noItemsHint="No people selected"
+              noItemsHint={`No ${itemsLabel.toLowerCase()} selected`}
               onClickAction={handleUnlinkItem}
             />
           )}
@@ -253,7 +259,7 @@ function NoteDrawer({
           <TextField
             disabled={!isVisible}
             fullWidth
-            label="Comment"
+            label={contentLabel}
             multiline
             onChange={handleChange}
             value={!isVisible ? '...' : note.content}
@@ -282,16 +288,18 @@ function NoteDrawer({
           />
         </Grid>
 
-        <Grid item xs={12}>
-          <KeyboardDatePicker
-            value={new Date(note.date)}
-            onChange={handleDateChange}
-            label="Interaction Date"
-            maxDate={new Date()}
-            maxDateMessage="Only past interactions can be recorded in the present"
-            format="dd/MM/yyyy"
-          />
-        </Grid>
+        {note.type === 'interaction' && (
+          <Grid item xs={12}>
+            <KeyboardDatePicker
+              value={new Date(note.date)}
+              onChange={handleDateChange}
+              label="Interaction Date"
+              maxDate={new Date()}
+              maxDateMessage="Only past interactions can be recorded in the present"
+              format="dd/MM/yyyy"
+            />
+          </Grid>
+        )}
       </Grid>
     </BaseDrawer>
   );

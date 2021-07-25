@@ -171,7 +171,7 @@ function getFields(
               onChange={(_, archived) => handleChange({ archived })}
             />
           )}
-          label="Archive"
+          label="Archived"
         />
       ),
     },
