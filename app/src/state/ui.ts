@@ -147,6 +147,11 @@ export function selectedReducer(
   if (action.type === SET_UI_STATE) {
     return action.selected || state;
   }
+  if (action.type === DELETE_ITEMS) {
+    const deletedIds = action.items.map(item => item.id);
+    const newState = state.filter(selected => !deletedIds.includes(selected));
+    return newState.length === state.length ? state : newState;
+  }
 
   return state;
 }

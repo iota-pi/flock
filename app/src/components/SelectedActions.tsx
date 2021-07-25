@@ -1,9 +1,12 @@
-import React, { useCallback, useMemo } from 'react';
-import { List, ListItem, ListItemIcon, ListItemText, makeStyles } from '@material-ui/core';
+import React, { useCallback, useMemo, useState } from 'react';
+import { List, ListItem, ListItemIcon, ListItemText, makeStyles, Typography } from '@material-ui/core';
 import { useAppDispatch, useAppSelector } from '../store';
-import { ArchiveIcon, MuiIconType, UnarchiveIcon } from './Icons';
-import { useItems } from '../state/selectors';
-import { Item, lookupItemsById, updateItems } from '../state/items';
+import { ArchiveIcon, DeleteIcon, MuiIconType, RemoveIcon, UnarchiveIcon } from './Icons';
+import { useItems, useVault } from '../state/selectors';
+import { deleteItems, Item, lookupItemsById, updateItems } from '../state/items';
+import { usePrevious } from '../utils';
+import ConfirmationDialog from './ConfirmationDialog';
+import { setUiState } from '../state/ui';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -29,10 +32,14 @@ function SelectedActions() {
   const dispatch = useAppDispatch();
   const items = useItems();
   const selected = useAppSelector(state => state.ui.selected);
+  const vault = useVault();
 
   const open = selected.length > 0;
 
   const selectedItems = useMemo(() => lookupItemsById(items, selected), [items, selected]);
+  const prevSelectedItems = usePrevious(selectedItems) || [];
+
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const handleArchive = useCallback(
     (archived: boolean) => () => {
@@ -41,11 +48,30 @@ function SelectedActions() {
     },
     [dispatch, selectedItems],
   );
+  const handleInitialDelete = useCallback(() => setShowConfirm(true), []);
+  const handleConfirmDelete = useCallback(
+    async () => {
+      const deletePromises = [];
+      for (const item of selectedItems) {
+        deletePromises.push(vault?.delete(item.id));
+      }
+      dispatch(deleteItems(selectedItems));
+      setShowConfirm(false);
+      await Promise.all(deletePromises).catch(error => console.error(error));
+    },
+    [dispatch, selectedItems, vault],
+  );
+  const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
+  const handleClear = useCallback(
+    () => dispatch(setUiState({ selected: [] })),
+    [dispatch],
+  );
 
+  const workingItems = open ? selectedItems : prevSelectedItems;
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = [];
-      if (selectedItems.find(item => !item.archived)) {
+      if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
           icon: ArchiveIcon,
@@ -53,7 +79,7 @@ function SelectedActions() {
           onClick: handleArchive(true),
         });
       }
-      if (selectedItems.find(item => item.archived)) {
+      if (workingItems.find(item => item.archived)) {
         result.push({
           id: 'unarchive',
           icon: UnarchiveIcon,
@@ -61,9 +87,23 @@ function SelectedActions() {
           onClick: handleArchive(false),
         });
       }
+      result.push(
+        {
+          id: 'delete',
+          icon: DeleteIcon,
+          label: 'Delete',
+          onClick: handleInitialDelete,
+        },
+        {
+          id: 'clear',
+          icon: RemoveIcon,
+          label: 'Clear Selection',
+          onClick: handleClear,
+        },
+      );
       return result;
     },
-    [handleArchive, selectedItems],
+    [handleArchive, handleInitialDelete, handleClear, workingItems],
   );
 
   const height = PADDING_HEIGHT + ACTION_HEIGHT * actions.length;
@@ -90,6 +130,20 @@ function SelectedActions() {
           </ListItem>
         ))}
       </List>
+
+      <ConfirmationDialog
+        open={showConfirm}
+        onCancel={handleConfirmCancel}
+        onConfirm={handleConfirmDelete}
+      >
+        <Typography paragraph>
+          Are you sure you want to delete {selected.length} items?
+        </Typography>
+
+        <Typography paragraph>
+          This action cannot be undone.
+        </Typography>
+      </ConfirmationDialog>
     </div>
   );
 }

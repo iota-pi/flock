@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ItemOrNote } from '../state/items';
 
 export const APP_NAME = 'Flock';
 
@@ -31,7 +30,7 @@ export function isSameDay(d1: Date, d2: Date) {
   return formatDate(d1) === formatDate(d2);
 }
 
-export function usePrevious<T extends ItemOrNote>(state: T): T | undefined {
+export function usePrevious<T>(state: T): T | undefined {
   const ref = useRef<T>();
   useEffect(() => {
     ref.current = state;
