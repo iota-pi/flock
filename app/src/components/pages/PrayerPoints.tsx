@@ -42,6 +42,7 @@ function PrayerPointsPage() {
         noNotesHint="Click the plus button to add one!"
         noNotesText="No prayer points found"
         onClick={handleClickNote}
+        showIcons
       />
     </BasePage>
   );

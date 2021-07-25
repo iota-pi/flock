@@ -5,13 +5,15 @@ import {
   IconButton,
   List,
   ListItem,
+  ListItemIcon,
   ListItemSecondaryAction,
   ListItemText,
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
-import { getItemById, getItemName, ItemNote } from '../state/items';
+import { getItemById, getItemName, Item, ItemNote } from '../state/items';
 import { useItems, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';
+import { getIcon } from './Icons';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -41,12 +43,13 @@ export interface Props<T extends ItemNote> {
   dividers?: boolean,
   getHighlighted?: (note: T) => boolean,
   hideEmpty?: boolean,
-  paddingTop?: boolean,
   notes: T[],
   noNotesHint?: string,
   noNotesText?: string,
   onClick?: (note: T) => () => void,
   onClickAction?: (note: T) => () => void,
+  paddingTop?: boolean,
+  showIcons?: boolean,
 }
 
 
@@ -64,6 +67,7 @@ function NoteList<T extends ItemNote = ItemNote>({
   noNotesText,
   onClick,
   onClickAction,
+  showIcons = false,
 }: Props<T>) {
   const classes = useStyles();
   const items = useItems();
@@ -71,12 +75,16 @@ function NoteList<T extends ItemNote = ItemNote>({
 
   const notes = useMemo(
     () => {
+      let filteredNotes = rawNotes;
       if (hideEmpty) {
-        return rawNotes.filter(note => !!note.content.trim());
+        filteredNotes = rawNotes.filter(note => !!note.content.trim());
       }
-      return rawNotes;
+      const notesWithItems: [T, Item | undefined][] = filteredNotes.map(
+        note => [note, getItemById(items, noteMap[note.id])],
+      );
+      return notesWithItems;
     },
-    [hideEmpty, rawNotes],
+    [hideEmpty, items, noteMap, rawNotes],
   );
 
   const handleClickAction = useCallback(
@@ -91,15 +99,15 @@ function NoteList<T extends ItemNote = ItemNote>({
     [onClick, onClickAction],
   );
   const getNotePrimaryText = useCallback(
-    (note: ItemNote) => {
+    (note: ItemNote, item: Item | undefined) => {
       if (displayItemNames) {
-        return getItemName(getItemById(items, noteMap[note.id]));
+        return getItemName(item);
       }
 
       const content = note.content || '(no details)';
       return note.sensitive ? '(sensitive)' : content;
     },
-    [displayItemNames, items, noteMap],
+    [displayItemNames],
   );
   const getNoteSecondaryText = useCallback(
     (note: ItemNote) => {
@@ -128,7 +136,7 @@ function NoteList<T extends ItemNote = ItemNote>({
     >
       {dividers && notes.length === 0 && <Divider />}
 
-      {notes.map(note => (
+      {notes.map(([note, item]) => (
         <React.Fragment key={note.id}>
           {dividers && <Divider />}
 
@@ -143,8 +151,14 @@ function NoteList<T extends ItemNote = ItemNote>({
             className={!compactList ? classes.consistantMinHeight : ''}
             dense={compactList}
           >
+            {item && showIcons && (
+              <ListItemIcon>
+                {getIcon(item.type)}
+              </ListItemIcon>
+            )}
+
             <ListItemText
-              primary={getNotePrimaryText(note)}
+              primary={getNotePrimaryText(note, item)}
               secondary={getNoteSecondaryText(note)}
               classes={{
                 primary: note.content ? undefined : classes.faded,

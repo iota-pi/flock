@@ -73,7 +73,6 @@ export interface PropsWithCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes: true,
   getChecked: (item: T) => boolean,
   onCheck: (item: T) => () => void,
-  showIcons?: false,
 }
 export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T>;
 

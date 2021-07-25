@@ -41,6 +41,7 @@ function InteractionsPage() {
         noNotesHint="Click the plus button to add one!"
         noNotesText="No interactions found"
         onClick={handleClickNote}
+        showIcons
       />
     </BasePage>
   );

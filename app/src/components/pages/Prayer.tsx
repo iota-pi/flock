@@ -133,6 +133,7 @@ function PrayerPage() {
               onClick={handleClick}
               onCheck={handleClickPrayedFor}
               noItemsText="No items in prayer schedule"
+              showIcons
             />
           </Grid>
 
@@ -156,6 +157,7 @@ function PrayerPage() {
                   onClick={handleClick}
                   onCheck={handleClickPrayedFor}
                   noItemsText="No more items in prayer schedule"
+                  showIcons
                 />
               </Grid>
             </>
