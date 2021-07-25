@@ -14,6 +14,7 @@ import {
   IconButton,
   InputAdornment,
   TextField,
+  Typography,
 } from '@material-ui/core';
 import {
   KeyboardDatePicker,
@@ -22,8 +23,9 @@ import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
-import { compareNotes, getBlankNote, ItemNote } from '../state/items';
+import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
 import { formatDate } from '../utils';
+import ConfirmationDialog from './ConfirmationDialog';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
 
@@ -102,6 +104,7 @@ function NoteControl<T extends ItemNote>({
     [noteType, rawNotes],
   );
   const [autoFocus, setAutoFocus] = useState<string>();
+  const [noteToDelete, setNoteToDelete] = useState<ItemId>();
   const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
 
   const handleChange = useCallback(
@@ -130,15 +133,6 @@ function NoteControl<T extends ItemNote>({
     ),
     [onChange, rawNotes],
   );
-  const handleDelete = useCallback(
-    (noteId: string) => (
-      () => {
-        const newNotes = rawNotes.filter(n => n.id !== noteId);
-        onChange(newNotes);
-      }
-    ),
-    [onChange, rawNotes],
-  );
   const handleDateChange = useCallback(
     (noteId: string) => (
       (date: MaterialUiPickersDate) => {
@@ -152,6 +146,16 @@ function NoteControl<T extends ItemNote>({
       }
     ),
     [onChange, rawNotes],
+  );
+  const handleDelete = useCallback((noteId: string) => () => setNoteToDelete(noteId), []);
+  const handleConfirmCancel = useCallback(() => { setNoteToDelete(undefined); }, []);
+  const handleConfirmDelete = useCallback(
+    () => {
+      const newNotes = rawNotes.filter(n => n.id !== noteToDelete);
+      onChange(newNotes);
+      setNoteToDelete(undefined);
+    },
+    [noteToDelete, onChange, rawNotes],
   );
 
   const handleAddNote = useCallback(
@@ -306,6 +310,20 @@ function NoteControl<T extends ItemNote>({
           </>
         )}
       </Grid>
+
+      <ConfirmationDialog
+        open={noteToDelete !== undefined}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleConfirmCancel}
+      >
+        <Typography paragraph>
+          Are you sure you want to delete this note?
+        </Typography>
+
+        <Typography paragraph>
+          This action cannot be undone.
+        </Typography>
+      </ConfirmationDialog>
     </>
   );
 }
