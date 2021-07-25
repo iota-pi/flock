@@ -39,6 +39,10 @@ const useStyles = makeStyles(theme => ({
       maxWidth: '60%',
     },
   },
+  rightCheckbox: {
+    justifyContent: 'flex-end',
+    minWidth: theme.spacing(5),
+  },
   spacer: {
     flexGrow: 1,
   },
@@ -53,6 +57,7 @@ export interface BaseProps<T extends Item> {
   dividers?: boolean,
   fadeArchived?: boolean,
   getDescription?: (item: T) => string,
+  getFaded?: (item: T) => boolean,
   getHighlighted?: (item: T) => boolean,
   items: T[],
   linkTags?: boolean,
@@ -66,11 +71,13 @@ export interface BaseProps<T extends Item> {
 
 export interface PropsNoCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes?: false,
+  checkboxSide?: undefined,
   getChecked?: undefined,
   onCheck?: undefined,
 }
 export interface PropsWithCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes: true,
+  checkboxSide?: 'left' | 'right',
   getChecked: (item: T) => boolean,
   onCheck: (item: T) => () => void,
 }
@@ -80,11 +87,13 @@ export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T
 function ItemList<T extends Item>({
   actionIcon,
   checkboxes,
+  checkboxSide = 'left',
   className,
   dividers,
   fadeArchived = true,
   getChecked,
   getDescription,
+  getFaded,
   getHighlighted,
   items,
   linkTags = true,
@@ -142,81 +151,92 @@ function ItemList<T extends Item>({
       if (getChecked && getChecked(item)) {
         return true;
       }
+      if (getFaded && getFaded(item)) {
+        return true;
+      }
       return false;
     },
-    [fadeArchived, getChecked],
+    [fadeArchived, getChecked, getFaded],
   );
 
   return (
     <List className={className}>
       {dividers && items.length === 0 && <Divider />}
 
-      {items.map(item => (
-        <React.Fragment key={item.id}>
-          {dividers && <Divider />}
-
-          <ListItem
-            button
-            disabled={!onClick && !onCheck && !onClickAction}
-            selected={getHighlighted ? getHighlighted(item) : false}
-            onClick={onClick ? onClick(item) : undefined}
-            classes={{
-              disabled: classes.disabledOverride,
-            }}
-            className={classes.consistantMinHeight}
+      {items.map(item => {
+        const checkbox = checkboxes && getChecked && onCheck && (
+          <ListItemIcon
+            className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
           >
-            {checkboxes && getChecked && onCheck && (
-              <ListItemIcon>
-                <Checkbox
-                  edge="start"
-                  checked={getChecked(item)}
-                  tabIndex={-1}
-                  onClick={handleCheck(item)}
-                  inputProps={{ 'aria-labelledby': `${item.id}-text` }}
-                />
-              </ListItemIcon>
-            )}
-
-            {showIcons && (
-              <ListItemIcon>
-                {getIcon(item.type)}
-              </ListItemIcon>
-            )}
-
-            <ListItemText
-              primary={getItemName(item)}
-              secondary={getClippedDescription(item)}
-              className={([
-                classes.itemText,
-                item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                getItemFaded(item) ? classes.faded : undefined,
-              ].join(' '))}
-              id={`${item.id}-text`}
+            <Checkbox
+              edge={checkboxSide === 'left' ? 'start' : 'end'}
+              checked={getChecked(item)}
+              tabIndex={-1}
+              onClick={handleCheck(item)}
+              inputProps={{ 'aria-labelledby': `${item.id}-text` }}
             />
+          </ListItemIcon>
+        );
 
-            <div className={classes.spacer} />
+        return (
+          <React.Fragment key={item.id}>
+            {dividers && <Divider />}
 
-            {showTags && (
-              <TagDisplay
-                tags={item.tags}
-                linked={linkTags}
+            <ListItem
+              button
+              disabled={!onClick && !onCheck && !onClickAction}
+              selected={getHighlighted ? getHighlighted(item) : false}
+              onClick={onClick ? onClick(item) : undefined}
+              classes={{
+                disabled: classes.disabledOverride,
+              }}
+              className={classes.consistantMinHeight}
+            >
+              {checkboxSide === 'left' && checkbox}
+
+              {showIcons && (
+                <ListItemIcon>
+                  {getIcon(item.type)}
+                </ListItemIcon>
+              )}
+
+              <ListItemText
+                primary={getItemName(item)}
+                secondary={getClippedDescription(item)}
+                className={([
+                  classes.itemText,
+                  item.tags.length > 0 ? classes.itemTextWithTags : undefined,
+                  getItemFaded(item) ? classes.faded : undefined,
+                ].join(' '))}
+                id={`${item.id}-text`}
               />
-            )}
 
-            {actionIcon && (
-              <div className={classes.actionButton}>
-                <IconButton
-                  className={!onClickAction ? classes.noHover : undefined}
-                  disableRipple={!onClickAction}
-                  onClick={handleClickAction(item)}
-                >
-                  {actionIcon}
-                </IconButton>
-              </div>
-            )}
-          </ListItem>
-        </React.Fragment>
-      ))}
+              <div className={classes.spacer} />
+
+              {showTags && (
+                <TagDisplay
+                  tags={item.tags}
+                  linked={linkTags}
+                />
+              )}
+
+              {actionIcon && (
+                <div className={classes.actionButton}>
+                  <IconButton
+                    className={!onClickAction ? classes.noHover : undefined}
+                    disableRipple={!onClickAction}
+                    onClick={handleClickAction(item)}
+                  >
+                    {actionIcon}
+                  </IconButton>
+                </div>
+              )}
+
+              {checkboxSide === 'right' && checkbox}
+            </ListItem>
+          </React.Fragment>
+        );
+      })}
 
       {items.length === 0 && (
         <ListItem>

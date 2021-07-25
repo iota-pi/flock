@@ -128,6 +128,7 @@ function PrayerPage() {
           <Grid item xs={12}>
             <ItemList
               checkboxes
+              checkboxSide="right"
               getChecked={isPrayedForToday}
               items={todaysSchedule}
               onClick={handleClick}
@@ -152,6 +153,7 @@ function PrayerPage() {
               <Grid item xs={12}>
                 <ItemList
                   checkboxes
+                  checkboxSide="right"
                   getChecked={isPrayedForToday}
                   items={upNextSchedule}
                   onClick={handleClick}
