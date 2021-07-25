@@ -368,7 +368,6 @@ function ItemDrawer({
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
-        console.warn('saving through effect');
         handleSave(prevItem);
       }
     },

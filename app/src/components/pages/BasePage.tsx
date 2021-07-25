@@ -8,15 +8,17 @@ const useStyles = makeStyles(theme => ({
     position: 'relative',
     flexGrow: 1,
     paddingBottom: theme.spacing(8),
+    overflowX: 'hidden',
+    overflowY: 'auto',
   },
   fabContainer: {
     position: 'absolute',
     // Width of FAB + spacing
     right: 56 + theme.spacing(3),
+    bottom: theme.spacing(3),
   },
   fab: {
-    position: 'fixed',
-    bottom: theme.spacing(3),
+  //   position: 'fixed',
   },
 }));
 
@@ -50,8 +52,10 @@ function BasePage({
   const classes = useStyles();
 
   return (
-    <div className={classes.pageContent}>
-      {children}
+    <>
+      <div className={classes.pageContent}>
+        {children}
+      </div>
 
       {fab && (
         <div className={classes.fabContainer}>
@@ -65,7 +69,7 @@ function BasePage({
           </Fab>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

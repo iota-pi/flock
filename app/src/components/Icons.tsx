@@ -3,6 +3,7 @@ import { createSvgIcon, SvgIconTypeMap } from '@material-ui/core';
 import { OverridableComponent } from '@material-ui/core/OverridableComponent';
 
 import AddIcon from '@material-ui/icons/Add';
+import ArchiveIcon from '@material-ui/icons/Archive';
 import BackIcon from '@material-ui/icons/ChevronLeft';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import EditIcon from '@material-ui/icons/Edit';
@@ -19,6 +20,7 @@ import SearchIcon from '@material-ui/icons/Search';
 import SignOutIcon from '@material-ui/icons/ExitToApp';
 import SuggestIcon from '@material-ui/icons/Update';
 import TagIcon from '@material-ui/icons/Label';
+import UnarchiveIcon from '@material-ui/icons/Unarchive';
 import WarningIcon from '@material-ui/icons/Warning';
 
 import { FaPrayingHands } from 'react-icons/fa';
@@ -31,6 +33,7 @@ export type MuiIconType = OverridableComponent<SvgIconTypeMap<{}, 'svg'>>;
 
 export {
   AddIcon,
+  ArchiveIcon,
   BackIcon,
   DeleteIcon,
   EditIcon,
@@ -48,6 +51,7 @@ export {
   SignOutIcon,
   SuggestIcon,
   TagIcon,
+  UnarchiveIcon,
   WarningIcon,
 };
 

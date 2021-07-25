@@ -3,8 +3,8 @@ import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/
 import ItemList from '../ItemList';
 import { useIsActive, useItems } from '../../state/selectors';
 import BasePage from './BasePage';
-import { useAppDispatch } from '../../store';
-import { updateActive } from '../../state/ui';
+import { useAppDispatch, useAppSelector } from '../../store';
+import { setUiState, updateActive } from '../../state/ui';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -16,6 +16,7 @@ function ItemPage<T extends Item>({
   const dispatch = useAppDispatch();
   const isActive = useIsActive();
   const rawPeople = useItems<T>(itemType);
+  const selected = useAppSelector(state => state.ui.selected);
 
   const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
 
@@ -33,7 +34,21 @@ function ItemPage<T extends Item>({
     },
     [dispatch, itemType],
   );
+  const handleCheck = useCallback(
+    (item: T) => () => {
+      const index = selected.indexOf(item.id);
+      let newSelected: typeof selected;
+      if (index > -1) {
+        newSelected = [...selected.slice(0, index), ...selected.slice(index + 1)];
+      } else {
+        newSelected = [...selected, item.id];
+      }
+      dispatch(setUiState({ selected: newSelected }));
+    },
+    [dispatch, selected],
+  );
 
+  const getChecked = useCallback((item: T) => selected.includes(item.id), [selected]);
   const getDescription = useCallback(
     (item: T) => {
       if (item.type === 'group') {
@@ -56,11 +71,14 @@ function ItemPage<T extends Item>({
       onClickFab={handleClickAdd}
     >
       <ItemList
+        checkboxes
+        getChecked={getChecked}
         getDescription={getDescription}
         getHighlighted={isActive}
         items={people}
         noItemsHint="Click the plus button to add one!"
         noItemsText={`No ${pluralLabel.toLowerCase()} found`}
+        onCheck={handleCheck}
         onClick={handleClickItem}
       />
     </BasePage>

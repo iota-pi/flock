@@ -12,7 +12,7 @@ const useStyles = makeStyles(theme => ({
   },
   stacked: {},
   drawerWidth: {
-    width: '45vw',
+    width: '40vw',
     '&$stacked': {
       width: '35vw',
     },

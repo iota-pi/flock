@@ -148,15 +148,12 @@ function ItemList<T extends Item>({
       if (item.archived && fadeArchived) {
         return true;
       }
-      if (getChecked && getChecked(item)) {
-        return true;
-      }
       if (getFaded && getFaded(item)) {
         return true;
       }
       return false;
     },
-    [fadeArchived, getChecked, getFaded],
+    [fadeArchived, getFaded],
   );
 
   return (

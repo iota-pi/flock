@@ -1,7 +1,7 @@
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
-import { DELETE_ITEMS, Item, ItemOrNote, UPDATE_ITEMS } from './items';
+import { DELETE_ITEMS, Item, ItemId, ItemOrNote, UPDATE_ITEMS } from './items';
 
 export interface DrawerData {
   id: string,
@@ -13,13 +13,14 @@ export interface DrawerData {
 }
 export interface UIData {
   drawers: DrawerData[],
+  selected: ItemId[],
 }
 export interface UIState {
   ui: UIData,
 }
 
-
 const initialDrawers: UIData['drawers'] = [];
+const initialSelected: UIData['selected'] = [];
 
 export const SET_UI_STATE = 'SET_UI_STATE';
 export const REPLACE_ACTIVE = 'REPLACE_ACTIVE';
@@ -85,7 +86,7 @@ export function removeActive(): RemoveActiveItemAction {
   };
 }
 
-export function activeItemsReducer(
+export function drawersReducer(
   state: UIData['drawers'] = initialDrawers,
   action: AllActions,
 ): UIData['drawers'] {
@@ -139,6 +140,18 @@ export function activeItemsReducer(
   return state;
 }
 
+export function selectedReducer(
+  state: UIData['selected'] = initialSelected,
+  action: AllActions,
+): UIData['selected'] {
+  if (action.type === SET_UI_STATE) {
+    return action.selected || state;
+  }
+
+  return state;
+}
+
 export const uiReducer = combineReducers<UIData>({
-  drawers: activeItemsReducer,
+  drawers: drawersReducer,
+  selected: selectedReducer,
 });
