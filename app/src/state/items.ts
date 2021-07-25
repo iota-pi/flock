@@ -217,6 +217,26 @@ export function getBlankGeneral(id?: ItemId): GeneralItem {
   };
 }
 
+export function getBlankItem(itemType: ItemType): Item {
+  if (itemType === 'person') {
+    return getBlankPerson();
+  }
+  if (itemType === 'group') {
+    return getBlankGroup();
+  }
+  return getBlankGeneral();
+}
+
+export function getTypeLabel(itemType: ItemType, plural?: boolean): string {
+  if (itemType === 'person') {
+    return plural ? 'People' : 'Person';
+  }
+  if (itemType === 'group') {
+    return plural ? 'Groups' : 'Group';
+  }
+  return plural ? 'Items' : 'Item';
+}
+
 export function getItemName(item?: Item): string {
   if (item === undefined) return '';
 

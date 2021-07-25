@@ -13,9 +13,7 @@ import {
   SuggestIcon,
 } from '../Icons';
 
-const PeoplePage = loadable(() => import('./People'));
-const GroupsPage = loadable(() => import('./Groups'));
-const GeneralPage = loadable(() => import('./General'));
+const ItemPage = loadable(() => import('./ItemPage'));
 const PrayerPointsPage = loadable(() => import('./PrayerPoints'));
 const InteractionsPage = loadable(() => import('./Interactions'));
 const SuggestionsPage = loadable(() => import('./Suggestions'));
@@ -82,7 +80,7 @@ export const pages: Page[] = [
     path: '/',
     name: 'People',
     icon: PersonIcon,
-    page: <PeoplePage />,
+    page: <ItemPage itemType="person" />,
     requiresAuth: true,
   },
   {
@@ -90,7 +88,7 @@ export const pages: Page[] = [
     path: '/groups',
     name: 'Groups',
     icon: GroupsIcon,
-    page: <GroupsPage />,
+    page: <ItemPage itemType="group" />,
     requiresAuth: true,
   },
   {
@@ -98,7 +96,7 @@ export const pages: Page[] = [
     path: '/general',
     name: 'Other Items',
     icon: GeneralIcon,
-    page: <GeneralPage />,
+    page: <ItemPage itemType="general" />,
     requiresAuth: true,
   },
   {
