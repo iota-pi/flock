@@ -14,8 +14,7 @@ import {
 } from '../Icons';
 
 const ItemPage = loadable(() => import('./ItemPage'));
-const PrayerPointsPage = loadable(() => import('./PrayerPoints'));
-const InteractionsPage = loadable(() => import('./Interactions'));
+const NotePage = loadable(() => import('./NotePage'));
 const SuggestionsPage = loadable(() => import('./Suggestions'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
@@ -104,7 +103,7 @@ export const pages: Page[] = [
     path: '/prayer-points',
     name: 'Prayer Points',
     icon: PrayerPointIcon,
-    page: <PrayerPointsPage />,
+    page: <NotePage noteType="prayer" />,
     requiresAuth: true,
     dividerBefore: true,
   },
@@ -121,7 +120,7 @@ export const pages: Page[] = [
     path: '/interactions',
     name: 'Interactions',
     icon: InteractionIcon,
-    page: <InteractionsPage />,
+    page: <NotePage noteType="interaction" />,
     requiresAuth: true,
     dividerBefore: true,
   },

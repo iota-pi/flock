@@ -227,7 +227,7 @@ export function getBlankItem(itemType: ItemType): Item {
   return getBlankGeneral();
 }
 
-export function getTypeLabel(itemType: ItemType, plural?: boolean): string {
+export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   if (itemType === 'person') {
     return plural ? 'People' : 'Person';
   }
@@ -235,6 +235,13 @@ export function getTypeLabel(itemType: ItemType, plural?: boolean): string {
     return plural ? 'Groups' : 'Group';
   }
   return plural ? 'Items' : 'Item';
+}
+
+export function getNoteTypeLabel(itemType: ItemNoteType, plural?: boolean): string {
+  if (itemType === 'interaction') {
+    return plural ? 'Interactions' : 'Interaction';
+  }
+  return plural ? 'Prayer Points' : 'Prayer Point';
 }
 
 export function getItemName(item?: Item): string {
@@ -302,6 +309,7 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 
 export function getNotes(items: Item[], filterType?: 'prayer'): PrayerNote[];
 export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
+export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[];
 export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[] {
   const allNotes = items.flatMap(item => item.notes);
   if (filterType) {

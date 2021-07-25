@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { compareItems, getBlankItem, getTypeLabel, Item } from '../../state/items';
+import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
 import { useIsActive, useItems } from '../../state/selectors';
 import BasePage from './BasePage';
@@ -47,7 +47,7 @@ function ItemPage<T extends Item>({
     [],
   );
 
-  const pluralLabel = getTypeLabel(itemType, true);
+  const pluralLabel = getItemTypeLabel(itemType, true);
 
   return (
     <BasePage
