@@ -13,12 +13,8 @@ const useStyles = makeStyles(theme => ({
   },
   fabContainer: {
     position: 'absolute',
-    // Width of FAB + spacing
-    right: 56 + theme.spacing(3),
+    right: theme.spacing(3),
     bottom: theme.spacing(3),
-  },
-  fab: {
-  //   position: 'fixed',
   },
 }));
 
@@ -63,7 +59,6 @@ function BasePage({
             onClick={onClickFab}
             color="secondary"
             aria-label={fabLabel}
-            className={classes.fab}
           >
             {fabIcon || <AddIcon />}
           </Fab>
