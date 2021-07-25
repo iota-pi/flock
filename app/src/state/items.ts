@@ -276,6 +276,10 @@ export function lookupItemsById<T extends Item>(items: T[], ids: ItemId[]): T[] 
   return results;
 }
 
+export function filterArchived<T extends Item>(items: T[]): T[] {
+  return items.filter(item => !item.archived);
+}
+
 export function getNotes(items: Item[], filterType?: 'prayer'): PrayerNote[];
 export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
 export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[] {

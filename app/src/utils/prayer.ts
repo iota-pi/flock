@@ -1,6 +1,6 @@
 import { isSameDay } from '.';
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies';
-import { compareItems, Item, PrayerNote } from '../state/items';
+import { compareItems, filterArchived, Item, PrayerNote } from '../state/items';
 
 export function getPrayerPoints(item: Item): PrayerNote[] {
   return item.notes.filter(n => n.type === 'prayer') as PrayerNote[];
@@ -19,7 +19,8 @@ export function getLastPrayedFor(
 }
 
 export function getPrayerSchedule(items: Item[]) {
-  const withNextSchedule: [Item, number][] = items.map(
+  const activeItems = filterArchived(items);
+  const withNextSchedule: [Item, number][] = activeItems.map(
     item => [
       item,
       getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
@@ -33,7 +34,8 @@ export function getPrayerSchedule(items: Item[]) {
 }
 
 export function getNaturalPrayerGoal(items: Item[]) {
-  const inverseFrequencies = items.map(item => 1 / frequencyToDays(item.prayerFrequency));
+  const activeItems = filterArchived(items);
+  const inverseFrequencies = activeItems.map(item => 1 / frequencyToDays(item.prayerFrequency));
   const sum = inverseFrequencies.reduce((acc, x) => acc + x, 0);
   return Math.ceil(sum);
 }

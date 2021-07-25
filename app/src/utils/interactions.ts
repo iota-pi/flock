@@ -1,4 +1,4 @@
-import { compareItems, InteractionNote, PersonItem } from '../state/items';
+import { compareItems, filterArchived, InteractionNote, PersonItem } from '../state/items';
 import { Due, frequencyToMilliseconds, isDue } from './frequencies';
 
 
@@ -23,7 +23,8 @@ export function getLastInteractionDate(
 }
 
 export function getInteractionSuggestions(items: PersonItem[]) {
-  const dueItems = items.filter(
+  const activeItems = filterArchived(items);
+  const dueItems = activeItems.filter(
     item => (
       isDue(
         new Date(getLastInteractionDate(item, true)),
