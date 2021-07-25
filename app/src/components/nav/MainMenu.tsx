@@ -108,7 +108,7 @@ function MainMenu({
       if (currentPageId !== pageId) {
         const page = pages.find(p => p.id === pageId)! || '';
         history.push(page.path);
-        dispatch(setUiState({ drawers: [], selected: [] }));
+        dispatch(setUiState({ selected: [] }));
       }
     },
     [currentPageId, dispatch, history],
