@@ -12,6 +12,8 @@ import {
   Toolbar,
 } from '@material-ui/core';
 import { pages } from '../pages';
+import { useAppDispatch } from '../../store';
+import { setUiState } from '../../state/ui';
 
 export const DRAWER_SPACING_FULL = 30;
 export const DRAWER_SPACING_NARROW = 10;
@@ -96,17 +98,21 @@ function MainMenu({
   open,
 }: Props) {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
   const history = useHistory();
   const location = useLocation();
 
+  const currentPageId = pages.find(p => p.path === location.pathname)?.id;
   const handleClick = useCallback(
     (pageId: string) => () => {
-      const page = pages.find(p => p.id === pageId)! || '';
-      history.push(page.path);
+      if (currentPageId !== pageId) {
+        const page = pages.find(p => p.id === pageId)! || '';
+        history.push(page.path);
+        dispatch(setUiState({ drawers: [], selected: [] }));
+      }
     },
-    [history],
+    [currentPageId, dispatch, history],
   );
-  const currentPageId = pages.find(p => p.path === location.pathname)?.id;
 
   return (
     <Drawer
