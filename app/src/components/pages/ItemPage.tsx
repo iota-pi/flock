@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
+import { Theme, useMediaQuery } from '@material-ui/core';
 import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
 import { useIsActive, useItems } from '../../state/selectors';
@@ -62,6 +63,8 @@ function ItemPage<T extends Item>({
     [],
   );
 
+  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const checkboxes = !sm;
   const pluralLabel = getItemTypeLabel(itemType, true);
 
   return (
@@ -71,7 +74,7 @@ function ItemPage<T extends Item>({
       onClickFab={handleClickAdd}
     >
       <ItemList
-        checkboxes
+        checkboxes={checkboxes}
         getChecked={getChecked}
         getDescription={getDescription}
         getHighlighted={isActive}

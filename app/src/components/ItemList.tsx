@@ -53,9 +53,11 @@ const useStyles = makeStyles(theme => ({
 
 export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
+  checkboxSide?: 'left' | 'right',
   className?: string,
   dividers?: boolean,
   fadeArchived?: boolean,
+  getChecked?: (item: T) => boolean,
   getDescription?: (item: T) => string,
   getFaded?: (item: T) => boolean,
   getHighlighted?: (item: T) => boolean,
@@ -63,6 +65,7 @@ export interface BaseProps<T extends Item> {
   linkTags?: boolean,
   noItemsHint?: string,
   noItemsText?: string,
+  onCheck?: (item: T) => () => void,
   onClick?: (item: T) => () => void,
   onClickAction?: (item: T) => void,
   showIcons?: boolean,
@@ -71,15 +74,12 @@ export interface BaseProps<T extends Item> {
 
 export interface PropsNoCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes?: false,
-  checkboxSide?: undefined,
-  getChecked?: undefined,
-  onCheck?: undefined,
 }
 export interface PropsWithCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes: true,
   checkboxSide?: 'left' | 'right',
-  getChecked: (item: T) => boolean,
-  onCheck: (item: T) => () => void,
+  getChecked: Exclude<BaseProps<T>['getChecked'], undefined>,
+  onCheck: Exclude<BaseProps<T>['onCheck'], undefined>,
 }
 export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T>;
 
@@ -87,7 +87,7 @@ export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T
 function ItemList<T extends Item>({
   actionIcon,
   checkboxes,
-  checkboxSide = 'left',
+  checkboxSide,
   className,
   dividers,
   fadeArchived = true,
@@ -166,7 +166,7 @@ function ItemList<T extends Item>({
             className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
           >
             <Checkbox
-              edge={checkboxSide === 'left' ? 'start' : 'end'}
+              edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
               checked={getChecked(item)}
               tabIndex={-1}
               onClick={handleCheck(item)}
@@ -189,7 +189,7 @@ function ItemList<T extends Item>({
               }}
               className={classes.consistantMinHeight}
             >
-              {checkboxSide === 'left' && checkbox}
+              {checkboxSide !== 'right' && checkbox}
 
               {showIcons && (
                 <ListItemIcon>
