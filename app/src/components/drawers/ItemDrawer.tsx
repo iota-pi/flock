@@ -72,11 +72,13 @@ function getFields(
         id: 'firstName',
         node: (
           <TextField
-            value={item.firstName}
-            onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
-            label="First Name"
-            required
+            autoFocus
             fullWidth
+            key={item.id}
+            label="First Name"
+            onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
+            required
+            value={item.firstName}
           />
         ),
         sizing: { sm: 6 },
@@ -85,11 +87,11 @@ function getFields(
         id: 'lastName',
         node: (
           <TextField
-            value={item.lastName}
-            onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
-            label="Last Name"
-            required
             fullWidth
+            label="Last Name"
+            onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
+            required
+            value={item.lastName}
           />
         ),
         sizing: { sm: 6 },
@@ -98,10 +100,10 @@ function getFields(
         id: 'email',
         node: (
           <TextField
-            value={item.email}
-            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
-            label="Email"
             fullWidth
+            label="Email"
+            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
+            value={item.email}
           />
         ),
         sizing: { sm: 6 },
@@ -110,10 +112,10 @@ function getFields(
         id: 'phone',
         node: (
           <TextField
-            value={item.phone}
-            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
-            label="Phone"
             fullWidth
+            label="Phone"
+            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
+            value={item.phone}
           />
         ),
         sizing: { sm: 6 },
@@ -125,13 +127,15 @@ function getFields(
         id: 'name',
         node: (
           <TextField
-            value={item.name}
+            autoFocus
+            fullWidth
+            key={item.id}
+            label="Name"
             onChange={
               event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
             }
-            label="First Name"
             required
-            fullWidth
+            value={item.name}
           />
         ),
       },
