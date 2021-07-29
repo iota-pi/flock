@@ -9,8 +9,8 @@ import {
   TextField,
   Typography,
 } from '@material-ui/core';
-import { useMetadata } from '../state/selectors';
-import { SaveIcon, WarningIcon } from './Icons';
+import { useMetadata } from '../../state/selectors';
+import { SaveIcon, WarningIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   emphasis: {

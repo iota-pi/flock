@@ -11,7 +11,7 @@ import {
   Grid,
   Typography,
 } from '@material-ui/core';
-import ConfirmationDialog from '../../ConfirmationDialog';
+import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
 import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 

@@ -8,7 +8,7 @@ import ItemList from '../ItemList';
 import { Item, updateItems } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
-import GoalDialog from '../GoalDialog';
+import GoalDialog from '../dialogs/GoalDialog';
 import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 

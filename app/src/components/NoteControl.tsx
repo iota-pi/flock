@@ -25,7 +25,7 @@ import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
 import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
 import { formatDate } from '../utils';
-import ConfirmationDialog from './ConfirmationDialog';
+import ConfirmationDialog from './dialogs/ConfirmationDialog';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
 

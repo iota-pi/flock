@@ -5,7 +5,7 @@ import { ArchiveIcon, DeleteIcon, MuiIconType, RemoveIcon, UnarchiveIcon } from 
 import { useItems, useVault } from '../state/selectors';
 import { deleteItems, Item, lookupItemsById, updateItems } from '../state/items';
 import { usePrevious } from '../utils';
-import ConfirmationDialog from './ConfirmationDialog';
+import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUiState } from '../state/ui';
 
 const useStyles = makeStyles(theme => ({
