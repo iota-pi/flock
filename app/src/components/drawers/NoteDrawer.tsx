@@ -233,7 +233,7 @@ function NoteDrawer({
       <Grid container spacing={2}>
         <Grid item xs={12}>
           <ItemSearch
-            autoFocus
+            autoFocus={!editing}
             items={items}
             label={itemsLabel}
             noItemsText={`No ${itemsLabel.toLowerCase()} found`}
@@ -257,10 +257,12 @@ function NoteDrawer({
 
         <Grid item xs={12}>
           <TextField
+            autoFocus={editing}
             disabled={!isVisible}
             fullWidth
+            key={note.id}
             label={contentLabel}
-            multiline
+            multiline={note.content.length > 30}
             onChange={handleChange}
             value={!isVisible ? '...' : note.content}
             InputProps={{
