@@ -83,6 +83,7 @@ function NoteDrawer({
     [existingLinkedItem, open],
   );
 
+  const handleClear = useCallback(() => setLinkedItems([]), []);
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value;
@@ -91,21 +92,25 @@ function NoteDrawer({
     [note, onChange],
   );
   const handleAddItem = useCallback(
-    (item?: Item) => {
-      if (item) {
-        const newItems = item.type === 'group' ? lookupItemsById(items, item.members) : [item];
+    (item: Item) => {
+      const newItems = item.type === 'group' ? lookupItemsById(items, item.members) : [item];
 
-        if (editing) {
-          setLinkedItems(newItems);
-        } else {
-          setLinkedItems(prev => {
-            const uniqueNewItems = newItems.filter(i1 => !prev.find(i2 => i1.id === i2.id));
-            return [...prev, ...uniqueNewItems];
-          });
-        }
+      if (editing) {
+        setLinkedItems(newItems);
+      } else {
+        setLinkedItems(prev => {
+          const uniqueNewItems = newItems.filter(i1 => !prev.find(i2 => i1.id === i2.id));
+          return [...prev, ...uniqueNewItems];
+        });
       }
     },
     [editing, items],
+  );
+  const handleRemoveItem = useCallback(
+    (item: Item) => {
+      setLinkedItems(linked => linked.filter(i => i.id !== item.id));
+    },
+    [],
   );
   const handleUnlinkItem = useCallback(
     (item: Item) => () => {
@@ -237,6 +242,8 @@ function NoteDrawer({
             items={items}
             label={itemsLabel}
             noItemsText={`No ${itemsLabel.toLowerCase()} found`}
+            onClear={handleClear}
+            onRemove={handleRemoveItem}
             onSelect={handleAddItem}
             selectedIds={linkedItems.map(item => item.id)}
             showGroupMemberCount

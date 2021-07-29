@@ -69,7 +69,9 @@ export interface Props<T extends Item> {
   items: T[],
   label: string,
   noItemsText?: string,
-  onSelect: (item?: T) => void,
+  onClear?: () => void,
+  onRemove?: (item: T) => void,
+  onSelect: (item: T) => void,
   selectedIds: ItemId[],
   showGroupMemberCount?: boolean,
   showIcons?: boolean,
@@ -81,6 +83,8 @@ function ItemSearch<T extends Item = Item>({
   items,
   label,
   noItemsText,
+  onClear,
+  onRemove,
   onSelect,
   selectedIds,
   showGroupMemberCount = false,
@@ -95,18 +99,26 @@ function ItemSearch<T extends Item = Item>({
     () => (showSelected !== false ? items : items.filter(item => !selectedIds.includes(item.id))),
     [items, selectedIds, showSelected],
   );
-  const selectedItems = lookupItemsById(items, selectedIds);
+  const selectedItems = useMemo(
+    () => lookupItemsById(items, selectedIds),
+    [items, selectedIds],
+  );
 
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: T[], reason: AutocompleteChangeReason) => {
       if (reason === 'select-option') {
         onSelect(value[value.length - 1]);
       }
-      if (reason === 'remove-option' || reason === 'clear') {
-        onSelect(undefined);
+      if (onRemove && reason === 'remove-option') {
+        console.warn(value);
+        const deletedItems = selectedItems.filter(item => !value.find(i => i.id === item.id));
+        onRemove(deletedItems[0]);
+      }
+      if (onClear && reason === 'clear') {
+        onClear();
       }
     },
-    [onSelect],
+    [onClear, onRemove, onSelect, selectedItems],
   );
 
   return (
@@ -140,6 +152,7 @@ function ItemSearch<T extends Item = Item>({
             key={item.id}
             label={getItemName(item)}
             icon={getIcon(item.type)}
+            onDelete={onRemove ? () => onRemove(item) : undefined}
           />
         ))
       )}

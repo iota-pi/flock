@@ -34,25 +34,19 @@ function GroupDisplay({
   const vault = useVault();
 
   const groups = useMemo(
-    () => allGroups.filter(g => g.members.includes(item.id)).sort(compareNames),
+    () => allGroups.filter(g => g.members.includes(item.id)),
     [allGroups, item.id],
   );
   const groupIds = useMemo(() => groups.map(g => g.id), [groups]);
-  const options = useMemo(
-    () => allGroups.filter(group => !groupIds.includes(group.id)),
-    [groupIds, allGroups],
-  );
 
   const handleSelectGroup = useCallback(
-    (group?: GroupItem) => {
-      if (group) {
-        const newGroup: GroupItem = {
-          ...group,
-          members: [...group.members, item.id],
-        };
-        vault?.store(newGroup);
-        dispatch(updateItems([newGroup]));
-      }
+    (group: GroupItem) => {
+      const newGroup: GroupItem = {
+        ...group,
+        members: [...group.members, item.id],
+      };
+      vault?.store(newGroup);
+      dispatch(updateItems([newGroup]));
     },
     [dispatch, item.id, vault],
   );
@@ -81,9 +75,10 @@ function GroupDisplay({
           <ItemSearch
             noItemsText="No groups found"
             onSelect={handleSelectGroup}
-            items={options}
+            items={allGroups}
             label="Add to group"
             selectedIds={groupIds}
+            showSelected={false}
           />
         </>
       )}
