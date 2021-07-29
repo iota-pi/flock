@@ -39,6 +39,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
+import { FrequencyIcon, GroupsIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
@@ -200,6 +201,7 @@ export function getSections(
 ): CollapsibleSection[] {
   const sections: CollapsibleSection[] = [
     {
+      icon: FrequencyIcon,
       id: 'frequencies',
       title: 'Prayer and interaction frequencies',
       content: (
@@ -214,6 +216,7 @@ export function getSections(
   if (item.type === 'person') {
     sections.push(
       {
+        icon: GroupsIcon,
         id: 'group-display',
         title: 'Groups',
         content: (
@@ -226,6 +229,7 @@ export function getSections(
   if (item.type === 'group') {
     sections.push(
       {
+        icon: PersonIcon,
         id: 'member-display',
         title: 'Members',
         content: (
@@ -240,6 +244,7 @@ export function getSections(
 
   sections.push(
     {
+      icon: PrayerIcon,
       id: 'prayer-points',
       title: 'Prayer points',
       content: (
@@ -256,6 +261,7 @@ export function getSections(
   if (item.type === 'person') {
     sections.push(
       {
+        icon: InteractionIcon,
         id: 'interactions',
         title: 'Interactions',
         content: (

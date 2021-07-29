@@ -7,6 +7,7 @@ import ArchiveIcon from '@material-ui/icons/Archive';
 import BackIcon from '@material-ui/icons/ChevronLeft';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import EditIcon from '@material-ui/icons/Edit';
+import FrequencyIcon from '@material-ui/icons/Schedule';
 import GeneralIcon from '@material-ui/icons/MoreHoriz';
 import GroupsIcon from '@material-ui/icons/GroupWork';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
@@ -37,6 +38,7 @@ export {
   BackIcon,
   DeleteIcon,
   EditIcon,
+  FrequencyIcon,
   GeneralIcon,
   GroupsIcon,
   InteractionIcon,

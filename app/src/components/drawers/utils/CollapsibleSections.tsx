@@ -13,6 +13,7 @@ import {
   Divider,
 } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import { MuiIconType } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -46,9 +47,13 @@ const useStyles = makeStyles(theme => ({
   detailsRoot: {
     padding: theme.spacing(2),
   },
+  icon: {
+    marginRight: theme.spacing(2),
+  },
 }));
 
 export interface CollapsibleSection {
+  icon?: MuiIconType,
   id: string,
   title: string,
   content: ReactNode,
@@ -99,6 +104,12 @@ function CollapsibleSections({
             }}
             expandIcon={<ExpandMoreIcon />}
           >
+            {section.icon && (
+              <div className={classes.icon}>
+                <section.icon />
+              </div>
+            )}
+
             <Typography>{section.title}</Typography>
           </AccordionSummary>
 
