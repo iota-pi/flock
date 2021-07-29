@@ -4,10 +4,10 @@ import React, {
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
+  alpha,
   Button,
   Container,
   Divider,
-  fade,
   Grid,
   Typography,
 } from '@material-ui/core';
@@ -21,7 +21,7 @@ const useStyles = makeStyles(theme => ({
     color: theme.palette.error.light,
 
     '&:hover': {
-      backgroundColor: fade(theme.palette.error.light, 0.08),
+      backgroundColor: alpha(theme.palette.error.light, 0.08),
     },
   },
   emphasis: {

@@ -2,9 +2,9 @@ import React, { ReactNode, useCallback } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
+  alpha,
   Divider,
   Drawer,
-  fade,
   List,
   ListItem,
   ListItemIcon,
@@ -47,7 +47,7 @@ const useStyles = makeStyles(theme => ({
   },
   primary: {
     color: theme.palette.primary.light,
-    backgroundColor: `${fade('#fff', 0.05)} !important`,
+    backgroundColor: `${alpha('#fff', 0.05)} !important`,
   },
   menuItemIcon: {
     color: 'inherit',

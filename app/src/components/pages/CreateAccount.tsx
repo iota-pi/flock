@@ -2,10 +2,10 @@ import React, { ChangeEvent, useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
+  alpha,
   Button,
   CircularProgress,
   Container,
-  fade,
   IconButton,
   InputAdornment,
   LinearProgress,
@@ -59,13 +59,13 @@ const useStyles = makeStyles(theme => ({
     marginLeft: theme.spacing(2),
 
     '&$meterBad': {
-      backgroundColor: fade(theme.palette.error.main, 0.5),
+      backgroundColor: alpha(theme.palette.error.main, 0.5),
     },
     '&$meterOkay': {
-      backgroundColor: fade(theme.palette.warning.main, 0.5),
+      backgroundColor: alpha(theme.palette.warning.main, 0.5),
     },
     '&$meterGood': {
-      backgroundColor: fade(theme.palette.success.main, 0.5),
+      backgroundColor: alpha(theme.palette.success.main, 0.5),
     },
   },
   meterBad: {
