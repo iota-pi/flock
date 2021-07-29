@@ -9,7 +9,7 @@ import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import EditIcon from '@material-ui/icons/Edit';
 import FrequencyIcon from '@material-ui/icons/Schedule';
 import GeneralIcon from '@material-ui/icons/MoreHoriz';
-import GroupsIcon from '@material-ui/icons/GroupWork';
+import GroupIcon from '@material-ui/icons/GroupWork';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import NextIcon from '@material-ui/icons/ChevronRight';
 import PersonIcon from '@material-ui/icons/People';
@@ -40,7 +40,7 @@ export {
   EditIcon,
   FrequencyIcon,
   GeneralIcon,
-  GroupsIcon,
+  GroupIcon,
   InteractionIcon,
   NextIcon,
   PersonIcon,
@@ -61,7 +61,7 @@ export function getIcon(itemType: ItemType | 'tag') {
   if (itemType === 'person') {
     return <PersonIcon />;
   } else if (itemType === 'group') {
-    return <GroupsIcon />;
+    return <GroupIcon />;
   } else if (itemType === 'tag') {
     return <TagIcon />;
   }

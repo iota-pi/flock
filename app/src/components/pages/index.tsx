@@ -4,7 +4,7 @@ import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
   GeneralIcon,
-  GroupsIcon,
+  GroupIcon,
   InteractionIcon,
   MuiIconType,
   PersonIcon,
@@ -86,7 +86,7 @@ export const pages: Page[] = [
     id: 'groups',
     path: '/groups',
     name: 'Groups',
-    icon: GroupsIcon,
+    icon: GroupIcon,
     page: <ItemPage itemType="group" />,
     requiresAuth: true,
   },

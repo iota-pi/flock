@@ -39,7 +39,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { FrequencyIcon, GroupsIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import { FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
@@ -216,7 +216,7 @@ export function getSections(
   if (item.type === 'person') {
     sections.push(
       {
-        icon: GroupsIcon,
+        icon: GroupIcon,
         id: 'group-display',
         title: 'Groups',
         content: (
