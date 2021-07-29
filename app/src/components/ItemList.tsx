@@ -25,6 +25,9 @@ const useStyles = makeStyles(theme => ({
   disabledOverride: {
     opacity: '1 !important',
   },
+  couldFade: {
+    transition: theme.transitions.create('opacity'),
+  },
   faded: {
     opacity: 0.65,
   },
@@ -192,7 +195,12 @@ function ItemList<T extends Item>({
               {checkboxSide !== 'right' && checkbox}
 
               {showIcons && (
-                <ListItemIcon>
+                <ListItemIcon
+                  className={[
+                    classes.couldFade,
+                    getItemFaded(item) ? classes.faded : undefined,
+                  ].join(' ')}
+                >
                   {getIcon(item.type)}
                 </ListItemIcon>
               )}
@@ -202,6 +210,7 @@ function ItemList<T extends Item>({
                 secondary={getClippedDescription(item)}
                 className={([
                   classes.itemText,
+                  classes.couldFade,
                   item.tags.length > 0 ? classes.itemTextWithTags : undefined,
                   getItemFaded(item) ? classes.faded : undefined,
                 ].join(' '))}

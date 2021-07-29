@@ -130,6 +130,7 @@ function PrayerPage() {
               checkboxes
               checkboxSide="right"
               getChecked={isPrayedForToday}
+              getFaded={isPrayedForToday}
               items={todaysSchedule}
               onClick={handleClick}
               onCheck={handleClickPrayedFor}
