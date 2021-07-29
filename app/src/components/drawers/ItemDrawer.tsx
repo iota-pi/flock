@@ -215,7 +215,7 @@ export function getSections(
     sections.push(
       {
         id: 'group-display',
-        title: 'Group membership',
+        title: 'Groups',
         content: (
           <GroupDisplay item={item} />
         ),
@@ -227,7 +227,7 @@ export function getSections(
     sections.push(
       {
         id: 'member-display',
-        title: 'Member membership',
+        title: 'Members',
         content: (
           <MemberDisplay
             item={item}
