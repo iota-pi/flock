@@ -45,6 +45,41 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   });
 
+  fastify.put('/:account/items', async (request, reply) => {
+    const { account } = request.params as { account: string };
+    const items = request.body as { cipher: string, id: string, iv: string, type: string }[];
+    const authToken = getAuthToken(request);
+    const valid = await vault.checkPassword({ account, authToken });
+    if (!valid) {
+      reply.code(403);
+      return { details: [], success: false };
+    }
+    const results: { id: string, success: boolean }[] = [];
+    const promises: Promise<void>[] = [];
+    for (const item of items) {
+      const { cipher, id, iv, type } = item;
+      const _type = asItemType(type);
+      promises.push(
+        vault.set({
+          account,
+          item: id,
+          cipher,
+          metadata: {
+            type: _type,
+            iv,
+          },
+        }).then(() => {
+          results.push({ id, success: true });
+        }).catch(error => {
+          fastify.log.error(error);
+          results.push({ id, success: false });
+        }),
+      );
+    }
+    await Promise.all(promises);
+    return { details: results, success: true };
+  });
+
   fastify.put('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string };
     const { cipher, iv, type } = request.body as { cipher: string, iv: string, type: string };

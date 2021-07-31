@@ -334,9 +334,9 @@ function ItemDrawer({
           ...group,
           members: group.members.filter(m => m !== item.id),
         };
-        vault?.store(newGroup);
         updatedGroupItems.push(newGroup);
       }
+      vault?.store(updatedGroupItems);
       dispatch(updateItems(updatedGroupItems));
     },
     [dispatch, item.id, memberGroups, vault],

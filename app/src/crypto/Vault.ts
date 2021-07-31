@@ -125,7 +125,14 @@ class Vault {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
-  async store(item: Item) {
+  async store(data: Item | Item[]) {
+    if (data instanceof Array) {
+      return this.storeMany(data);
+    }
+    return this.storeOne(data);
+  }
+
+  private async storeOne(item: Item) {
     const { cipher, iv } = await this.encryptObject(item);
     await api.put({
       account: this.account,
@@ -136,6 +143,28 @@ class Vault {
         iv,
         type: item.type,
       },
+    });
+  }
+
+  private async storeMany(items: Item[]) {
+    const encrypted = await Promise.all(
+      items.map(
+        item => this.encryptObject(item),
+      ),
+    );
+
+    await api.putMany({
+      account: this.account,
+      authToken: this.keyHash,
+      items: encrypted.map(({ cipher, iv }, i) => ({
+        account: this.account,
+        cipher,
+        item: items[i].id,
+        metadata: {
+          iv,
+          type: items[i].type,
+        },
+      })),
     });
   }
 

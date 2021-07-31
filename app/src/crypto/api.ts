@@ -18,6 +18,7 @@ export interface VaultItem extends VaultKey {
 }
 
 export interface VaultAuth {
+  account: string,
   authToken: string,
 }
 
@@ -51,6 +52,16 @@ class VaultAPI {
   async put({ account, authToken, cipher, item, metadata }: VaultItem & VaultAuth) {
     const url = `${this.endpoint}/${account}/items/${item}`;
     const result = await axios.put(url, { cipher, ...metadata }, this.getAuthorization(authToken));
+    const success = result.data.success || false;
+    if (!success) {
+      throw new Error('VaultAPI put operation failed');
+    }
+  }
+
+  async putMany({ account, authToken, items }: VaultAuth & { items: VaultItem[] }) {
+    const url = `${this.endpoint}/${account}/items`;
+    const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }));
+    const result = await axios.put(url, data, this.getAuthorization(authToken));
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI put operation failed');

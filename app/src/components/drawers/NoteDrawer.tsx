@@ -162,9 +162,7 @@ function NoteDrawer({
         // Update note id between each linked item
         newNote = { ...newNote, id: getItemId() };
       }
-      for (const item of itemsToUpdate) {
-        vault?.store(item);
-      }
+      vault?.store(itemsToUpdate);
       dispatch(updateItems(itemsToUpdate));
     },
     [dispatch, editing, items, linkedItems, noteMap, vault],

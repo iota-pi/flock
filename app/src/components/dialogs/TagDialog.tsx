@@ -82,10 +82,10 @@ function TagDialog({
             ...item,
             tags: [...remainingTags, ...newTags],
           };
-          vault?.store(newItem);
           updated.push(newItem);
         }
       }
+      vault?.store(updated);
       dispatch(updateItems(updated));
       onClose();
     },
