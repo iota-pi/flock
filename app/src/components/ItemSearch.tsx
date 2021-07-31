@@ -29,6 +29,9 @@ const useStyles = makeStyles(theme => ({
     opacity: 0.85,
     fontWeight: 300,
   },
+  itemChip: {
+    marginRight: theme.spacing(1),
+  },
 }));
 
 function ItemOption({
@@ -91,6 +94,7 @@ function ItemSearch<T extends Item = Item>({
   showIcons = false,
   showSelected = true,
 }: Props<T>) {
+  const classes = useStyles();
   const filterFunc = useMemo(
     () => createFilterOptions<T>({ trim: true }),
     [],
@@ -146,13 +150,14 @@ function ItemSearch<T extends Item = Item>({
           showGroupMemberCount={showGroupMemberCount}
         />
       )}
-      renderTags={tagItems => (
-        tagItems.map(item => (
+      renderTags={itemsToRender => (
+        itemsToRender.map(item => (
           <Chip
             key={item.id}
             label={getItemName(item)}
             icon={getIcon(item.type)}
             onDelete={onRemove ? () => onRemove(item) : undefined}
+            className={classes.itemChip}
           />
         ))
       )}
