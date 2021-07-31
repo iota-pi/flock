@@ -2,9 +2,10 @@ import React, {
   ChangeEvent,
   useCallback,
 } from 'react';
-import { Chip, makeStyles, TextField } from '@material-ui/core';
+import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import { useTags } from '../state/selectors';
+import { MuiIconType } from './Icons';
 
 const useStyles = makeStyles(theme => ({
   subtle: {
@@ -16,6 +17,9 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props {
+  canAddNew?: boolean,
+  icon?: MuiIconType,
+  label?: string,
   onChange: (tags: string[]) => void,
   selectedTags: string[],
 }
@@ -23,6 +27,9 @@ export interface Props {
 const filterFunc = createFilterOptions<string>({ trim: true });
 
 function TagSelection({
+  canAddNew = true,
+  icon: Icon,
+  label,
   onChange,
   selectedTags,
 }: Props) {
@@ -51,13 +58,12 @@ function TagSelection({
       filterOptions={(options, params) => {
         const filtered = filterFunc(options, params);
 
-        if (params.inputValue !== '') {
+        if (canAddNew && params.inputValue !== '') {
           filtered.push(params.inputValue);
         }
 
         return filtered;
       }}
-      freeSolo
       getOptionLabel={tag => tag}
       handleHomeEndKeys
       multiple
@@ -67,8 +73,20 @@ function TagSelection({
       renderInput={params => (
         <TextField
           {...params}
-          label="Tags"
+          label={label || 'Tags'}
           variant="outlined"
+          InputProps={{
+            ...params.InputProps,
+            startAdornment: Icon ? (
+              <>
+                <InputAdornment position="start">
+                  <Icon />
+                </InputAdornment>
+
+                {params.InputProps.startAdornment}
+              </>
+            ) : params.InputProps.startAdornment,
+          }}
         />
       )}
       renderOption={tag => (
@@ -80,8 +98,8 @@ function TagSelection({
           </>
         )
       )}
-      renderTags={tagItems => (
-        tagItems.map(tag => (
+      renderTags={tagsToRender => (
+        tagsToRender.map(tag => (
           <Chip
             key={tag}
             label={tag}

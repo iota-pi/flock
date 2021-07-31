@@ -1,12 +1,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { List, ListItem, ListItemIcon, ListItemText, makeStyles, Typography } from '@material-ui/core';
 import { useAppDispatch, useAppSelector } from '../store';
-import { ArchiveIcon, DeleteIcon, MuiIconType, RemoveIcon, UnarchiveIcon } from './Icons';
+import { ArchiveIcon, DeleteIcon, MuiIconType, RemoveIcon, TagIcon, UnarchiveIcon } from './Icons';
 import { useItems, useVault } from '../state/selectors';
 import { deleteItems, Item, lookupItemsById, updateItems } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUiState } from '../state/ui';
+import TagDialog from './dialogs/TagDialog';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -40,7 +41,10 @@ function SelectedActions() {
   const prevSelectedItems = usePrevious(selectedItems) || [];
 
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showTags, setShowTags] = useState(false);
 
+  const handleShowTags = useCallback(() => setShowTags(true), []);
+  const handleHideTags = useCallback(() => setShowTags(false), []);
   const handleArchive = useCallback(
     (archived: boolean) => () => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
@@ -70,7 +74,14 @@ function SelectedActions() {
   const workingItems = open ? selectedItems : prevSelectedItems;
   const actions = useMemo<BulkAction[]>(
     () => {
-      const result: BulkAction[] = [];
+      const result: BulkAction[] = [
+        {
+          id: 'tags',
+          icon: TagIcon,
+          label: 'Add/Remove Tags',
+          onClick: handleShowTags,
+        },
+      ];
       if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
@@ -103,7 +114,7 @@ function SelectedActions() {
       );
       return result;
     },
-    [handleArchive, handleInitialDelete, handleClear, workingItems],
+    [handleArchive, handleClear, handleInitialDelete, handleShowTags, workingItems],
   );
 
   const height = PADDING_HEIGHT + ACTION_HEIGHT * actions.length;
@@ -144,6 +155,12 @@ function SelectedActions() {
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
+
+      <TagDialog
+        items={selectedItems}
+        onClose={handleHideTags}
+        open={showTags}
+      />
     </div>
   );
 }
