@@ -240,6 +240,7 @@ function NoteDrawer({
           <ItemSearch
             autoFocus={!editing}
             items={items}
+            key={note.id}
             label={itemsLabel}
             noItemsText={`No ${itemsLabel.toLowerCase()} found`}
             onClear={handleClear}
