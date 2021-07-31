@@ -54,14 +54,10 @@ function SelectedActions() {
   );
   const handleInitialDelete = useCallback(() => setShowConfirm(true), []);
   const handleConfirmDelete = useCallback(
-    async () => {
-      const deletePromises = [];
-      for (const item of selectedItems) {
-        deletePromises.push(vault?.delete(item.id));
-      }
+    () => {
+      vault?.delete(selectedItems.map(item => item.id)).catch(error => console.error(error));
       dispatch(deleteItems(selectedItems));
       setShowConfirm(false);
-      await Promise.all(deletePromises).catch(error => console.error(error));
     },
     [dispatch, selectedItems, vault],
   );

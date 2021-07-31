@@ -77,6 +77,18 @@ class VaultAPI {
     }
   }
 
+  async deleteMany({ account, authToken, items }: VaultAuth & { items: string[] }) {
+    const url = `${this.endpoint}/${account}/items`;
+    const result = await axios.delete(url, {
+      ...this.getAuthorization(authToken),
+      data: items,
+    });
+    const success = result.data.success || false;
+    if (!success) {
+      throw new Error('VaultAPI deleteMany opteration failed');
+    }
+  }
+
   async createAccount({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<boolean> {
     const url = `${this.endpoint}/${account}`;
     const result = await axios.post(url, {}, this.getAuthorization(authToken));

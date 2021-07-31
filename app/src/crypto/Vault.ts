@@ -125,7 +125,7 @@ class Vault {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
-  async store(data: Item | Item[]) {
+  store(data: Item | Item[]) {
     if (data instanceof Array) {
       return this.storeMany(data);
     }
@@ -193,12 +193,32 @@ class Vault {
     )) as Promise<Item[]>;
   }
 
-  async delete(itemId: string) {
+  delete(data: string | string[]) {
+    if (data instanceof Array) {
+      return this.deleteMany(data);
+    }
+    return this.deleteOne(data);
+  }
+
+  private async deleteOne(itemId: string) {
     try {
       await api.delete({
         account: this.account,
         authToken: this.authToken,
         item: itemId,
+      });
+    } catch (error) {
+      return false;
+    }
+    return true;
+  }
+
+  private async deleteMany(itemIds: string[]) {
+    try {
+      await api.deleteMany({
+        account: this.account,
+        authToken: this.authToken,
+        items: itemIds,
       });
     } catch (error) {
       return false;

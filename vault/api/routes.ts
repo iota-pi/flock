@@ -47,15 +47,16 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put('/:account/items', async (request, reply) => {
     const { account } = request.params as { account: string };
-    const items = request.body as { cipher: string, id: string, iv: string, type: string }[];
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
     if (!valid) {
       reply.code(403);
       return { details: [], success: false };
     }
-    const results: { id: string, success: boolean }[] = [];
+
+    const items = request.body as { cipher: string, id: string, iv: string, type: string }[];
     const promises: Promise<void>[] = [];
+    const results: { item: string, success: boolean }[] = [];
     for (const item of items) {
       const { cipher, id, iv, type } = item;
       const _type = asItemType(type);
@@ -69,10 +70,10 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
             iv,
           },
         }).then(() => {
-          results.push({ id, success: true });
+          results.push({ item: id, success: true });
         }).catch(error => {
           fastify.log.error(error);
-          results.push({ id, success: false });
+          results.push({ item: id, success: false });
         }),
       );
     }
@@ -98,6 +99,35 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       return { success: false };
     }
     return { success: true };
+  });
+
+  fastify.delete('/:account/items', async (request, reply) => {
+    const { account } = request.params as { account: string };
+    const authToken = getAuthToken(request);
+    const valid = await vault.checkPassword({ account, authToken });
+    if (!valid) {
+      reply.code(403);
+      return { details: [], success: false };
+    }
+
+    const items = request.body as string[];
+    const promises: Promise<void>[] = [];
+    const results: { item: string, success: boolean }[] = [];
+    for (const item of items) {
+      promises.push(
+        vault.delete({
+          account,
+          item,
+        }).then(() => {
+          results.push({ item, success: true });
+        }).catch(error => {
+          fastify.log.error(error);
+          results.push({ item, success: false });
+        }),
+      );
+    }
+    await Promise.all(promises);
+    return { details: results, success: true };
   });
 
   fastify.delete('/:account/items/:item', async (request, reply) => {
