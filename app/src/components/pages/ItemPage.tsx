@@ -48,6 +48,14 @@ function ItemPage<T extends Item>({
     },
     [dispatch, selected],
   );
+  const allSelected = useMemo(() => selected.length === people.length, [people, selected]);
+  const handleSelectAll = useCallback(
+    () => {
+      const newSelected = allSelected ? [] : people.map(p => p.id);
+      dispatch(setUiState({ selected: newSelected }));
+    },
+    [allSelected, dispatch, people],
+  );
 
   const getChecked = useCallback((item: T) => selected.includes(item.id), [selected]);
   const getDescription = useCallback(
@@ -69,9 +77,12 @@ function ItemPage<T extends Item>({
 
   return (
     <BasePage
+      allSelected={allSelected}
       fab
       fabLabel={`Add ${pluralLabel}`}
       onClickFab={handleClickAdd}
+      onSelectAll={checkboxes ? handleSelectAll : undefined}
+      topBar
     >
       <ItemList
         checkboxes={checkboxes}

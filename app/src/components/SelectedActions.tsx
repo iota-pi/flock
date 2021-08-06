@@ -188,13 +188,12 @@ function SelectedActions() {
     >
       <List>
         {actions.map(action => (
-          <>
+          <React.Fragment key={action.id}>
             {action.dividerBefore && <Divider />}
 
             <ListItem
               button
               className={action.classes?.join(' ')}
-              key={action.id}
               onClick={action.onClick}
             >
               <ListItemIcon className={action.classes?.join(' ')}>
@@ -205,7 +204,7 @@ function SelectedActions() {
                 {action.label}
               </ListItemText>
             </ListItem>
-          </>
+          </React.Fragment>
         ))}
       </List>
 

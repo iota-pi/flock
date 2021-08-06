@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import { AddIcon } from '../Icons';
+import TopBar from '../nav/TopBar';
 
 const useStyles = makeStyles(theme => ({
   pageContent: {
@@ -13,7 +14,7 @@ const useStyles = makeStyles(theme => ({
   },
   fabContainer: {
     position: 'absolute',
-    right: theme.spacing(3),
+    right: theme.spacing(4),
     bottom: theme.spacing(3),
   },
 }));
@@ -21,34 +22,54 @@ const useStyles = makeStyles(theme => ({
 interface BaseProps {
   drawer?: ReactNode,
 }
-interface PropsWithFab extends BaseProps {
+interface FabProps {
   fab: true,
   onClickFab: () => void,
-  fabLabel: string,
   fabIcon?: ReactNode,
+  fabLabel: string,
 }
-interface PropsWithoutFab extends BaseProps {
+interface NoFabProps {
   fab?: false,
   onClickFab?: never,
   fabIcon?: never,
   fabLabel?: never,
 }
-type CombinedProps = PropsWithFab | PropsWithoutFab;
+interface TopBarProps {
+  allSelected?: boolean,
+  onSelectAll?: () => void,
+  topBar: true,
+}
+interface NoTopBarProps {
+  allSelected?: never,
+  onSelectAll?: never,
+  topBar?: false,
+}
+type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps);
 type Props = React.PropsWithChildren<CombinedProps>;
 export type { Props as BasePageProps };
 
 
 function BasePage({
+  allSelected,
   children,
   fab,
   fabIcon,
   fabLabel,
   onClickFab,
+  onSelectAll,
+  topBar,
 }: Props) {
   const classes = useStyles();
 
   return (
     <>
+      {topBar && (
+        <TopBar
+          allSelected={allSelected}
+          onSelectAll={onSelectAll}
+        />
+      )}
+
       <div className={classes.pageContent}>
         {children}
       </div>

@@ -20,11 +20,12 @@ const useStyles = makeStyles(() => ({
     overflow: 'hidden',
   },
   pageContentHolder: {
-    position: 'relative',
     display: 'flex',
+    flexDirection: 'column',
     flexGrow: 1,
     overflowX: 'hidden',
     overflowY: 'hidden',
+    position: 'relative',
   },
 }));
 
