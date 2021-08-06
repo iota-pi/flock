@@ -13,6 +13,7 @@ import GroupIcon from '@material-ui/icons/GroupWork';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import MinusIcon from '@material-ui/icons/Remove';
 import NextIcon from '@material-ui/icons/ChevronRight';
+import OptionsIcon from '@material-ui/icons/Settings';
 import PersonIcon from '@material-ui/icons/People';
 import PrayerPointIcon from '@material-ui/icons/FormatListBulleted';
 import RemoveIcon from '@material-ui/icons/Close';
@@ -45,6 +46,7 @@ export {
   InteractionIcon,
   MinusIcon,
   NextIcon,
+  OptionsIcon,
   PersonIcon,
   PrayerIcon,
   PrayerPointIcon,

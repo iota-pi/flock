@@ -12,9 +12,13 @@ export interface DrawerData {
   praying?: boolean,
   report?: boolean,
 }
+export interface UiOptions {
+  bulkActionsOnMobile: boolean,
+}
 export interface UIData {
   drawers: DrawerData[],
   selected: ItemId[],
+  options: UiOptions,
 }
 export interface UIState {
   ui: UIData,
@@ -22,13 +26,17 @@ export interface UIState {
 
 const initialDrawers: UIData['drawers'] = [];
 const initialSelected: UIData['selected'] = [];
+const initialFlags: UIData['options'] = {
+  bulkActionsOnMobile: false,
+};
 
 export const SET_UI_STATE = 'SET_UI_STATE';
 export const REPLACE_ACTIVE = 'REPLACE_ACTIVE';
 export const PUSH_ACTIVE = 'PUSH_ACTIVE';
 export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
 
-export interface SetUIAction extends Action, Partial<UIData> {
+export type SetUIState = Omit<Partial<UIData>, 'options'> & { options?: Partial<UIData['options']> };
+export interface SetUIAction extends Action, SetUIState {
   type: typeof SET_UI_STATE,
 }
 export interface UpdateActiveItemAction extends Action {
@@ -47,7 +55,7 @@ export type UIAction = (
   SetUIAction | UpdateActiveItemAction | PushActiveItemAction | RemoveActiveItemAction
 );
 
-export function setUiState(data: Partial<UIData>): SetUIAction {
+export function setUiState(data: SetUIState): SetUIAction {
   return {
     type: SET_UI_STATE,
     ...data,
@@ -158,7 +166,19 @@ export function selectedReducer(
   return state;
 }
 
+export function optionsReducer(
+  state: UIData['options'] = initialFlags,
+  action: AllActions,
+): UIData['options'] {
+  if (action.type === SET_UI_STATE && action.options) {
+    return { ...state, ...action.options };
+  }
+
+  return state;
+}
+
 export const uiReducer = combineReducers<UIData>({
   drawers: drawersReducer,
   selected: selectedReducer,
+  options: optionsReducer,
 });

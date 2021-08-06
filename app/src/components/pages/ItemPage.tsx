@@ -2,7 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
 import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
-import { useIsActive, useItems } from '../../state/selectors';
+import { useIsActive, useItems, useOptions } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState, updateActive } from '../../state/ui';
@@ -18,6 +18,7 @@ function ItemPage<T extends Item>({
   const isActive = useIsActive();
   const rawPeople = useItems<T>(itemType);
   const selected = useAppSelector(state => state.ui.selected);
+  const { bulkActionsOnMobile } = useOptions();
 
   const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
 
@@ -75,7 +76,7 @@ function ItemPage<T extends Item>({
   );
 
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
-  const checkboxes = !sm;
+  const checkboxes = !sm || bulkActionsOnMobile;
   const pluralLabel = getItemTypeLabel(itemType, true);
 
   return (

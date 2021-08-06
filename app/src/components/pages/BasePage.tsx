@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab } from '@material-ui/core';
 import { AddIcon } from '../Icons';
-import TopBar from '../nav/TopBar';
+import TopBar, { MenuItemData } from '../nav/TopBar';
 
 const useStyles = makeStyles(theme => ({
   pageContent: {
@@ -37,10 +37,12 @@ interface NoFabProps {
 interface TopBarProps {
   allSelected?: boolean,
   onSelectAll?: () => void,
+  menuItems?: MenuItemData[],
   topBar: true,
 }
 interface NoTopBarProps {
   allSelected?: never,
+  menuItems?: never,
   onSelectAll?: never,
   topBar?: false,
 }
@@ -55,6 +57,7 @@ function BasePage({
   fab,
   fabIcon,
   fabLabel,
+  menuItems,
   onClickFab,
   onSelectAll,
   topBar,
@@ -66,6 +69,7 @@ function BasePage({
       {topBar && (
         <TopBar
           allSelected={allSelected}
+          menuItems={menuItems || []}
           onSelectAll={onSelectAll}
         />
       )}

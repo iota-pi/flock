@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { updateMetadata } from './account';
 import { getTags, Item, ItemId, ItemOrNote } from './items';
+import { setUiState, UiOptions } from './ui';
 
 
 export function useItems<T extends Item>(itemType: T['type']): T[];
@@ -89,3 +90,27 @@ export const useIsActive = () => {
     [ids],
   );
 };
+
+export const useOptions = () => useAppSelector(state => state.ui.options);
+export function useOption<T extends keyof UiOptions>(
+  optionKey: T,
+): [UiOptions[T], React.Dispatch<React.SetStateAction<UiOptions[T]>>] {
+  const option = useOptions()[optionKey];
+
+  const dispatch = useAppDispatch();
+  const setOption: React.Dispatch<React.SetStateAction<UiOptions[T]>> = useCallback(
+    valueOrFunction => {
+      let newValue: UiOptions[T];
+      if (typeof valueOrFunction === 'function') {
+        newValue = valueOrFunction(option);
+      } else {
+        newValue = valueOrFunction;
+      }
+      dispatch(setUiState({
+        options: { [optionKey]: newValue },
+      }));
+    },
+    [dispatch, option, optionKey],
+  );
+  return [option, setOption];
+}
