@@ -1,12 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { List, ListItem, ListItemIcon, ListItemText, makeStyles, Typography } from '@material-ui/core';
 import { useAppDispatch, useAppSelector } from '../store';
-import { ArchiveIcon, DeleteIcon, MuiIconType, RemoveIcon, TagIcon, UnarchiveIcon } from './Icons';
+import { ArchiveIcon, DeleteIcon, InteractionIcon, MuiIconType, PrayerPointIcon, RemoveIcon, TagIcon, UnarchiveIcon } from './Icons';
 import { useItems, useVault } from '../state/selectors';
-import { deleteItems, Item, lookupItemsById, updateItems } from '../state/items';
+import { deleteItems, getBlankInteraction, getBlankPrayerPoint, Item, lookupItemsById, updateItems } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
-import { setUiState } from '../state/ui';
+import { setUiState, updateActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 
 const useStyles = makeStyles(theme => ({
@@ -45,6 +45,24 @@ function SelectedActions() {
 
   const handleShowTags = useCallback(() => setShowTags(true), []);
   const handleHideTags = useCallback(() => setShowTags(false), []);
+  const handleInteraction = useCallback(
+    () => {
+      dispatch(updateActive({
+        initial: selectedItems.filter(item => item.type === 'person'),
+        item: getBlankInteraction(),
+      }));
+    },
+    [dispatch, selectedItems],
+  );
+  const handlePrayerPoint = useCallback(
+    () => {
+      dispatch(updateActive({
+        initial: selectedItems,
+        item: getBlankPrayerPoint(),
+      }));
+    },
+    [dispatch, selectedItems],
+  );
   const handleArchive = useCallback(
     (archived: boolean) => () => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
@@ -77,7 +95,21 @@ function SelectedActions() {
           label: 'Add/Remove Tags',
           onClick: handleShowTags,
         },
+        {
+          id: 'prayer-point',
+          icon: PrayerPointIcon,
+          label: 'Add Prayer Point',
+          onClick: handlePrayerPoint,
+        },
       ];
+      if (workingItems.find(item => item.type === 'person')) {
+        result.push({
+          id: 'interaction',
+          icon: InteractionIcon,
+          label: 'Add Interaction',
+          onClick: handleInteraction,
+        });
+      }
       if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
@@ -110,7 +142,15 @@ function SelectedActions() {
       );
       return result;
     },
-    [handleArchive, handleClear, handleInitialDelete, handleShowTags, workingItems],
+    [
+      handleArchive,
+      handleClear,
+      handleInitialDelete,
+      handleInteraction,
+      handlePrayerPoint,
+      handleShowTags,
+      workingItems,
+    ],
   );
 
   const height = PADDING_HEIGHT + ACTION_HEIGHT * actions.length;

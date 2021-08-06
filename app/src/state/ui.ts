@@ -5,6 +5,7 @@ import { DELETE_ITEMS, Item, ItemId, ItemOrNote, UPDATE_ITEMS } from './items';
 
 export interface DrawerData {
   id: string,
+  initial?: ItemOrNote[],
   item?: ItemOrNote,
   next?: Item[],
   open: boolean,
@@ -60,10 +61,11 @@ export function updateActive(
     type: REPLACE_ACTIVE,
     data: {
       ...data,
-      open: data.open === undefined ? true : data.open,
-      report: data.report === undefined ? false : data.report,
-      praying: data.praying === undefined ? false : data.praying,
+      initial: data.initial === undefined ? [] : data.initial,
       next: data.next === undefined ? [] : data.next,
+      open: data.open === undefined ? true : data.open,
+      praying: data.praying === undefined ? false : data.praying,
+      report: data.report === undefined ? false : data.report,
     },
   };
 }
@@ -71,7 +73,7 @@ export function updateActive(
 export function pushActive(
   data: (
     Pick<DrawerData, 'item'>
-    & Partial<Pick<DrawerData, 'next' | 'open' | 'praying' | 'report'>>
+    & Partial<Pick<DrawerData, 'initial' | 'next' | 'open' | 'praying' | 'report'>>
   ),
 ): PushActiveItemAction {
   return {

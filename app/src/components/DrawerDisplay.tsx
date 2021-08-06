@@ -67,6 +67,7 @@ function DrawerDisplay() {
           return (
             <NoteDrawer
               key={drawer.id}
+              linkedItems={drawer.initial?.filter(isItem)}
               note={drawer.item}
               onChange={handleChange}
               onClose={handleClose}

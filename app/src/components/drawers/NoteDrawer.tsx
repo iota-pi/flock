@@ -34,11 +34,13 @@ import { getItemId, usePrevious } from '../../utils';
 
 export interface Props extends BaseDrawerProps {
   note: ItemNote,
+  linkedItems?: Item[],
   onChange: (note: ItemNote) => void,
 }
 
 function NoteDrawer({
   alwaysTemporary,
+  linkedItems: linkedItemsProp,
   note,
   onBack,
   onClose,
@@ -61,6 +63,7 @@ function NoteDrawer({
     [allItems, note.id, noteMap],
   );
   const editing = existingLinkedItem !== undefined;
+  const autoFocusSearch = !editing && linkedItemsProp === undefined;
   const items = useMemo(
     () => (
       allItems.filter(item => {
@@ -76,11 +79,15 @@ function NoteDrawer({
   useEffect(
     () => {
       if (open) {
-        setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
+        if (linkedItemsProp) {
+          setLinkedItems(linkedItemsProp);
+        } else {
+          setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
+        }
         setShowSensitive(false);
       }
     },
-    [existingLinkedItem, open],
+    [existingLinkedItem, linkedItemsProp, open],
   );
 
   const handleClear = useCallback(() => setLinkedItems([]), []);
@@ -236,7 +243,7 @@ function NoteDrawer({
       <Grid container spacing={2}>
         <Grid item xs={12}>
           <ItemSearch
-            autoFocus={!editing}
+            autoFocus={autoFocusSearch}
             items={items}
             key={note.id}
             label={itemsLabel}
@@ -263,7 +270,7 @@ function NoteDrawer({
 
         <Grid item xs={12}>
           <TextField
-            autoFocus={editing}
+            autoFocus={!autoFocusSearch}
             disabled={!isVisible}
             fullWidth
             key={note.id}
