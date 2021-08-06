@@ -324,7 +324,15 @@ function ItemDrawer({
     [item, handleChange],
   );
 
-  const valid = !!getItemName(item).trim();
+  const isValid = useCallback(
+    (currentItem: Item) => {
+      if (currentItem.type === 'person') {
+        return !!currentItem.firstName.trim();
+      }
+      return !!getItemName(currentItem).trim();
+    },
+    [],
+  );
 
   const removeFromAllGroups = useCallback(
     () => {
@@ -344,13 +352,13 @@ function ItemDrawer({
 
   const handleSave = useCallback(
     async (itemToSave: DirtyItem<Item>) => {
-      if ((itemToSave.dirty || itemToSave.isNew) && getItemName(itemToSave)) {
+      if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
         dispatch(updateItems([clean]));
       }
     },
-    [dispatch, vault],
+    [dispatch, isValid, vault],
   );
   const handleSaveAndClose = useCallback(
     async () => {
@@ -387,7 +395,7 @@ function ItemDrawer({
   return (
     <BaseDrawer
       ActionProps={{
-        canSave: valid,
+        canSave: isValid(item),
         editing: !item.isNew,
         itemName: getItemName(item),
         onCancel: onClose,
