@@ -48,7 +48,10 @@ function ItemPage<T extends Item>({
     },
     [dispatch, selected],
   );
-  const allSelected = useMemo(() => selected.length === people.length, [people, selected]);
+  const allSelected = useMemo(
+    () => selected.length === people.length && selected.length > 0,
+    [people, selected],
+  );
   const handleSelectAll = useCallback(
     () => {
       const newSelected = allSelected ? [] : people.map(p => p.id);
