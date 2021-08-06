@@ -90,7 +90,6 @@ function getFields(
             fullWidth
             label="Last Name"
             onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
-            required
             value={item.lastName}
           />
         ),
