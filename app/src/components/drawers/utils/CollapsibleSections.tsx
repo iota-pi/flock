@@ -1,6 +1,7 @@
 import React, {
   ReactNode,
   useCallback,
+  useEffect,
   useState,
 } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
@@ -61,11 +62,13 @@ export interface CollapsibleSection {
 }
 
 export interface Props {
+  initialExpandAll?: boolean,
   sections: CollapsibleSection[],
 }
 
 
 function CollapsibleSections({
+  initialExpandAll = false,
   sections,
 }: Props) {
   const classes = useStyles();
@@ -80,6 +83,15 @@ function CollapsibleSections({
       ),
     ),
     [],
+  );
+
+  useEffect(
+    () => {
+      if (initialExpandAll) {
+        setExpanded(sections.map(s => s.id));
+      }
+    },
+    [initialExpandAll, sections],
   );
 
   return (

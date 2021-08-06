@@ -415,7 +415,10 @@ function ItemDrawer({
           </Grid>
         ))}
 
-        <CollapsibleSections sections={sections} />
+        <CollapsibleSections
+          sections={sections}
+          initialExpandAll={item.isNew}
+        />
       </Grid>
     </BaseDrawer>
   );
