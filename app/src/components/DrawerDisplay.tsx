@@ -45,6 +45,7 @@ function DrawerDisplay() {
                 item={drawer.item}
                 key={drawer.id}
                 next={drawer.next}
+                onBack={handleClose}
                 onClose={handleClose}
                 onExited={handleExited}
                 open={drawer.open}
@@ -55,6 +56,7 @@ function DrawerDisplay() {
               <ItemDrawer
                 item={drawer.item}
                 key={drawer.id}
+                onBack={handleClose}
                 onChange={handleChange}
                 onClose={handleClose}
                 onExited={handleExited}
