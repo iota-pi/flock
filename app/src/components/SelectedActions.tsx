@@ -1,9 +1,33 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { List, ListItem, ListItemIcon, ListItemText, makeStyles, Typography } from '@material-ui/core';
+import {
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  makeStyles,
+  Typography,
+} from '@material-ui/core';
 import { useAppDispatch, useAppSelector } from '../store';
-import { ArchiveIcon, DeleteIcon, InteractionIcon, MuiIconType, PrayerPointIcon, RemoveIcon, TagIcon, UnarchiveIcon } from './Icons';
+import {
+  ArchiveIcon,
+  DeleteIcon,
+  InteractionIcon,
+  MuiIconType,
+  PrayerPointIcon,
+  RemoveIcon,
+  TagIcon,
+  UnarchiveIcon,
+} from './Icons';
 import { useItems, useVault } from '../state/selectors';
-import { deleteItems, getBlankInteraction, getBlankPrayerPoint, Item, lookupItemsById, updateItems } from '../state/items';
+import {
+  deleteItems,
+  getBlankInteraction,
+  getBlankPrayerPoint,
+  Item,
+  lookupItemsById,
+  updateItems,
+} from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUiState, updateActive } from '../state/ui';
@@ -19,6 +43,7 @@ const useStyles = makeStyles(theme => ({
 
 export interface BulkAction {
   classes?: string[],
+  dividerBefore?: boolean,
   icon: MuiIconType,
   id: string,
   label: string,
@@ -134,6 +159,7 @@ function SelectedActions() {
           onClick: handleInitialDelete,
         },
         {
+          dividerBefore: true,
           id: 'clear',
           icon: RemoveIcon,
           label: 'Clear Selection',
@@ -162,19 +188,24 @@ function SelectedActions() {
     >
       <List>
         {actions.map(action => (
-          <ListItem
-            key={action.id}
-            button
-            onClick={action.onClick}
-          >
-            <ListItemIcon>
-              <action.icon />
-            </ListItemIcon>
+          <>
+            {action.dividerBefore && <Divider />}
 
-            <ListItemText>
-              {action.label}
-            </ListItemText>
-          </ListItem>
+            <ListItem
+              button
+              className={action.classes?.join(' ')}
+              key={action.id}
+              onClick={action.onClick}
+            >
+              <ListItemIcon className={action.classes?.join(' ')}>
+                <action.icon />
+              </ListItemIcon>
+
+              <ListItemText>
+                {action.label}
+              </ListItemText>
+            </ListItem>
+          </>
         ))}
       </List>
 
