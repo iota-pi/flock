@@ -181,7 +181,7 @@ export function drawersReducer(
     return modified ? newDrawers : state;
   }
   if (action.type === DELETE_ITEMS) {
-    const deletedIds = action.items.map(item => item.id);
+    const deletedIds = action.items;
     const newDrawers = state.filter(d => !d.item || !deletedIds.includes(d.item.id));
     return newDrawers.length === state.length ? state : newDrawers;
   }
@@ -197,7 +197,7 @@ export function selectedReducer(
     return action.selected || state;
   }
   if (action.type === DELETE_ITEMS) {
-    const deletedIds = action.items.map(item => item.id);
+    const deletedIds = action.items;
     const newState = state.filter(selected => !deletedIds.includes(selected));
     return newState.length === state.length ? state : newState;
   }

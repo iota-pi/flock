@@ -10,12 +10,11 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import { useItems, useVault } from '../../state/selectors';
-import { Item, updateItems } from '../../state/items';
+import { Item } from '../../state/items';
 import { usePrevious } from '../../utils';
 import ItemSearch from '../ItemSearch';
 import TagSelection from '../TagSelection';
 import { AddIcon, MinusIcon } from '../Icons';
-import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(() => ({
   root: {},
@@ -35,7 +34,6 @@ function TagDialog({
 }: Props) {
   const allItems = useItems();
   const classes = useStyles();
-  const dispatch = useAppDispatch();
   const prevOpen = usePrevious(open);
   const vault = useVault();
 
@@ -86,10 +84,9 @@ function TagDialog({
         }
       }
       vault?.store(updated);
-      dispatch(updateItems(updated));
       onClose();
     },
-    [addTags, dispatch, onClose, removeTags, selected, vault],
+    [addTags, onClose, removeTags, selected, vault],
   );
 
   return (

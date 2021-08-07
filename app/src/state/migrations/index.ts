@@ -1,9 +1,6 @@
 import Vault from '../../crypto/Vault';
 import store from '../../store';
-import { updateMetadata } from '../account';
 import { Item } from '../items';
-
-const dispatch = store.dispatch;
 
 export interface ItemMigration {
   dependencies: string[],
@@ -19,7 +16,7 @@ async function migrateItems(items: Item[]) {
   // Reverse migrations to reduce dependency conflicts
   // (assuming new migrations are added to the top of the array)
   const reversedMigrations = migrations.slice().reverse();
-  const { account, metadata, vault } = store.getState();
+  const { metadata, vault } = store.getState();
   const previousMigrations: string[] = metadata.completedMigrations || [];
   const completedMigrations = previousMigrations.slice();
   if (!vault) {
@@ -45,12 +42,7 @@ async function migrateItems(items: Item[]) {
   }
 
   if (previousMigrations.length !== completedMigrations.length) {
-    await updateMetadata({
-      account,
-      dispatch,
-      metadata: { ...metadata, completedMigrations },
-      vault,
-    });
+    await vault.setMetadata({ ...metadata, completedMigrations });
   }
   return completedMigrations;
 }

@@ -1,8 +1,8 @@
 import VaultAPI from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
-import { Item } from '../state/items';
-import { AccountMetadata, AccountState } from '../state/account';
+import { deleteItems, Item, setItems, updateItems } from '../state/items';
+import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
 
 
@@ -154,6 +154,7 @@ class Vault {
   }
 
   private async storeOne(item: Item) {
+    this.dispatch(updateItems([item]));
     const { cipher, iv } = await this.encryptObject(item);
     await this.api.put({
       account: this.account,
@@ -168,6 +169,7 @@ class Vault {
   }
 
   private async storeMany(items: Item[]) {
+    this.dispatch(updateItems(items));
     const encrypted = await Promise.all(
       items.map(
         item => this.encryptObject(item),
@@ -195,23 +197,27 @@ class Vault {
       authToken: this.authToken,
       item: itemId,
     });
-    return this.decryptObject({
+    const promise = this.decryptObject({
       cipher: result.cipher,
       iv: result.metadata.iv,
     }) as Promise<Item>;
+    promise.then(item => this.dispatch(updateItems([item])));
+    return promise;
   }
 
-  async fetchAll() {
+  async fetchAll(): Promise<Item[]> {
     const result = await this.api.fetchAll({
       account: this.account,
       authToken: this.authToken,
     });
-    return Promise.all(result.map(
+    const promise = Promise.all(result.map(
       item => this.decryptObject({
         cipher: item.cipher,
         iv: item.metadata.iv,
-      }),
-    )) as Promise<Item[]>;
+      }) as Promise<Item>,
+    ));
+    promise.then(items => this.dispatch(setItems(items)));
+    return promise;
   }
 
   delete(data: string | string[]) {
@@ -222,6 +228,7 @@ class Vault {
   }
 
   private async deleteOne(itemId: string) {
+    this.dispatch(deleteItems([itemId]));
     try {
       await this.api.delete({
         account: this.account,
@@ -235,6 +242,7 @@ class Vault {
   }
 
   private async deleteMany(itemIds: string[]) {
+    this.dispatch(deleteItems(itemIds));
     try {
       await this.api.deleteMany({
         account: this.account,
@@ -248,6 +256,12 @@ class Vault {
   }
 
   async setMetadata(metadata: AccountMetadata) {
+    this.dispatch(
+      setAccount({
+        account: this.account,
+        metadata,
+      }),
+    );
     const { cipher, iv } = await this.encryptObject(metadata);
     return this.api.setMetadata({
       account: this.account,
@@ -268,7 +282,9 @@ class Vault {
       // Backwards compatibility (10/07/21)
       metadata = result;
     }
-    return { account: this.account, metadata };
+    const accountData: AccountState = { account: this.account, metadata };
+    this.dispatch(setAccount(accountData));
+    return accountData;
   }
 }
 

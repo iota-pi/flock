@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
-import { updateMetadata } from './account';
 import { getTags, Item, ItemId, ItemOrNote } from './items';
 import { setUiState, UiOptions } from './ui';
 
@@ -31,24 +30,17 @@ export function useMetadata<T = any>(
   key: string,
   defaultValue?: T,
 ): [T, (value: T) => Promise<boolean | undefined>] {
-  const account = useAppSelector(state => state.account);
   const metadata = useAppSelector(state => state.metadata);
-  const dispatch = useAppDispatch();
   const vault = useVault();
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key];
   const setValue = useCallback(
     async (newValue: T) => {
       const newMetadata = { ...metadata, [key]: newValue };
-      await updateMetadata({
-        account,
-        dispatch,
-        metadata: newMetadata,
-        vault,
-      });
+      await vault?.setMetadata(newMetadata);
       return false;
     },
-    [account, dispatch, key, metadata, vault],
+    [key, metadata, vault],
   );
   return [value, setValue];
 }

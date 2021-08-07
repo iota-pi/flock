@@ -7,12 +7,10 @@ import { MuiPickersUtilsProvider } from '@material-ui/pickers';
 import AppBar from './components/nav/AppBar';
 import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
-import { AppDispatch, useAppDispatch } from './store';
-import { setItems } from './state/items';
+import { useAppDispatch } from './store';
 import { loadVault } from './state/vault';
 import { useVault } from './state/selectors';
 import migrateItems from './state/migrations';
-import { setAccount } from './state/account';
 import Vault from './crypto/Vault';
 import MainLayout from './components/nav/MainLayout';
 
@@ -36,15 +34,9 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-async function initialLoadFromVault(
-  { vault, dispatch }: { vault: Vault, dispatch: AppDispatch },
-) {
+async function initialLoadFromVault(vault: Vault) {
   const accountDataPromise = vault.getMetadata();
   const itemsPromise = vault.fetchAll();
-
-  accountDataPromise.then(data => dispatch(setAccount(data)));
-  itemsPromise.then(items => dispatch(setItems(items)));
-
   await accountDataPromise;
   const items = await itemsPromise;
   await migrateItems(items);
@@ -69,10 +61,10 @@ export default function App() {
   useEffect(
     () => {
       if (vault) {
-        initialLoadFromVault({ vault, dispatch });
+        initialLoadFromVault(vault);
       }
     },
-    [dispatch, vault],
+    [vault],
   );
 
   const restoreVaultFromStorage = useCallback(

@@ -1,7 +1,5 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import Vault from '../crypto/Vault';
-import { AppDispatch } from '../store';
 
 export type AccountId = string;
 export type AccountMetadata = Record<string, any>;
@@ -50,29 +48,4 @@ export function metadataReducer(
   }
 
   return state;
-}
-
-export function updateMetadata(
-  {
-    account,
-    dispatch,
-    metadata,
-    vault,
-  }: {
-    account: string,
-    dispatch: AppDispatch,
-    metadata: AccountMetadata,
-    vault: Vault | null,
-  },
-) {
-  dispatch(
-    setAccount({
-      account,
-      metadata,
-    }),
-  );
-  if (vault) {
-    return vault.setMetadata(metadata);
-  }
-  return undefined;
 }

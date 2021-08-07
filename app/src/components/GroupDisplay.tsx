@@ -4,7 +4,7 @@ import React, {
 } from 'react';
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareNames, GroupItem, PersonItem, updateItems } from '../state/items';
+import { compareNames, GroupItem, PersonItem } from '../state/items';
 import { useItems, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
@@ -46,9 +46,8 @@ function GroupDisplay({
         members: [...group.members, item.id],
       };
       vault?.store(newGroup);
-      dispatch(updateItems([newGroup]));
     },
-    [dispatch, item.id, vault],
+    [item.id, vault],
   );
   const handleRemoveGroup = useCallback(
     (group: GroupItem) => {
@@ -57,9 +56,8 @@ function GroupDisplay({
         members: group.members.filter(m => m !== item.id),
       };
       vault?.store(newGroup);
-      dispatch(updateItems([newGroup]));
     },
-    [dispatch, item.id, vault],
+    [item.id, vault],
   );
   const handleClickGroup = useCallback(
     (group: GroupItem) => () => {

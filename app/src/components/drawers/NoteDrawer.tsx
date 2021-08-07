@@ -22,12 +22,10 @@ import {
   Item,
   ItemNote,
   lookupItemsById,
-  updateItems,
 } from '../../state/items';
 import { useItems, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
-import { useAppDispatch } from '../../store';
 import ItemList from '../ItemList';
 import { RemoveIcon } from '../Icons';
 import { getItemId, usePrevious } from '../../utils';
@@ -49,7 +47,6 @@ function NoteDrawer({
   open,
   stacked,
 }: Props) {
-  const dispatch = useAppDispatch();
   const vault = useVault();
   const allItems = useItems();
   const noteMap = useNoteMap();
@@ -170,9 +167,8 @@ function NoteDrawer({
         newNote = { ...newNote, id: getItemId() };
       }
       vault?.store(itemsToUpdate);
-      dispatch(updateItems(itemsToUpdate));
     },
-    [dispatch, editing, items, linkedItems, noteMap, vault],
+    [editing, items, linkedItems, noteMap, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -197,12 +193,11 @@ function NoteDrawer({
             notes: oldItem.notes.filter(n => n.id !== note.id),
           };
           vault?.store(newItem);
-          dispatch(updateItems([newItem]));
         }
       }
       onClose();
     },
-    [dispatch, items, noteMap, onClose, note, vault],
+    [items, noteMap, onClose, note, vault],
   );
 
   const isVisible = useMemo(

@@ -17,7 +17,6 @@ import { Breakpoint } from '@material-ui/core/styles/createBreakpoints';
 import {
   cleanItem,
   compareNames,
-  deleteItems,
   dirtyItem,
   DirtyItem,
   GeneralItem,
@@ -26,7 +25,6 @@ import {
   Item,
   ItemNote,
   PersonItem,
-  updateItems,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteControl from '../NoteControl';
@@ -344,9 +342,8 @@ function ItemDrawer({
         updatedGroupItems.push(newGroup);
       }
       vault?.store(updatedGroupItems);
-      dispatch(updateItems(updatedGroupItems));
     },
-    [dispatch, item.id, memberGroups, vault],
+    [item.id, memberGroups, vault],
   );
 
   const handleSave = useCallback(
@@ -354,10 +351,9 @@ function ItemDrawer({
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
-        dispatch(updateItems([clean]));
       }
     },
-    [dispatch, isValid, vault],
+    [isValid, vault],
   );
   const handleSaveAndClose = useCallback(
     async () => {
@@ -370,10 +366,9 @@ function ItemDrawer({
     () => {
       removeFromAllGroups();
       vault?.delete(item.id);
-      dispatch(deleteItems([item]));
       onClose();
     },
-    [dispatch, onClose, item, removeFromAllGroups, vault],
+    [onClose, item.id, removeFromAllGroups, vault],
   );
 
   const hasReport = item.type === 'group';

@@ -21,12 +21,10 @@ import {
 } from './Icons';
 import { useItems, useVault } from '../state/selectors';
 import {
-  deleteItems,
   getBlankInteraction,
   getBlankPrayerPoint,
   Item,
   lookupItemsById,
-  updateItems,
 } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
@@ -91,18 +89,17 @@ function SelectedActions() {
   const handleArchive = useCallback(
     (archived: boolean) => () => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
-      dispatch(updateItems(newItems));
+      vault?.store(newItems);
     },
-    [dispatch, selectedItems],
+    [selectedItems, vault],
   );
   const handleInitialDelete = useCallback(() => setShowConfirm(true), []);
   const handleConfirmDelete = useCallback(
     () => {
       vault?.delete(selectedItems.map(item => item.id)).catch(error => console.error(error));
-      dispatch(deleteItems(selectedItems));
       setShowConfirm(false);
     },
-    [dispatch, selectedItems, vault],
+    [selectedItems, vault],
   );
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
   const handleClear = useCallback(

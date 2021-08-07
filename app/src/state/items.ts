@@ -73,9 +73,15 @@ export const UPDATE_ITEMS = 'UPDATE_ITEMS';
 export const DELETE_ITEMS = 'DELETE_ITEMS';
 
 export interface SetItemsAction extends Action {
-  type: typeof SET_ITEMS | typeof UPDATE_ITEMS | typeof DELETE_ITEMS,
+  type: typeof SET_ITEMS | typeof UPDATE_ITEMS,
   items: Item[],
 }
+export interface DeleteItemsAction extends Action {
+  type: typeof DELETE_ITEMS,
+  items: string[],
+}
+
+export type ItemsAction = SetItemsAction | DeleteItemsAction;
 
 export function setItems(items: Item[]): SetItemsAction {
   return {
@@ -88,7 +94,7 @@ export function updateItems(items: Item[]): SetItemsAction {
   return { type: UPDATE_ITEMS, items };
 }
 
-export function deleteItems(items: Item[]): SetItemsAction {
+export function deleteItems(items: string[]): DeleteItemsAction {
   return { type: DELETE_ITEMS, items };
 }
 
@@ -106,7 +112,7 @@ export function itemsReducer(
     );
     return [...untouchedItems, ...unqiueItems];
   } else if (action.type === DELETE_ITEMS) {
-    const deletedIds = new Set(action.items.map(item => item.id));
+    const deletedIds = new Set(action.items);
     return state.filter(item => !deletedIds.has(item.id));
   }
 

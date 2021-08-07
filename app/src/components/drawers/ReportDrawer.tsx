@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { Item, updateItems } from '../../state/items';
+import { Item } from '../../state/items';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
 import { useAppDispatch } from '../../store';
@@ -49,10 +49,9 @@ function ReportDrawer({
         const prayedFor = [...item.prayedFor, new Date().getTime()];
         const newItem: Item = { ...item, prayedFor };
         vault?.store(newItem);
-        dispatch(updateItems([newItem]));
       }
     },
-    [dispatch, item, prayedForToday, vault],
+    [item, prayedForToday, vault],
   );
 
   const handleDone = useCallback(

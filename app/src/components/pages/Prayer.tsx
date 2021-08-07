@@ -5,7 +5,7 @@ import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
 import ItemList from '../ItemList';
-import { Item, updateItems } from '../../state/items';
+import { Item } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
@@ -79,9 +79,8 @@ function PrayerPage() {
       }
       const newItem: Item = { ...item, prayedFor };
       vault?.store(newItem);
-      dispatch(updateItems([newItem]));
     },
-    [dispatch, isPrayedForToday, vault],
+    [isPrayedForToday, vault],
   );
   const handleClickPrayedFor = useCallback(
     (item: Item) => () => recordPrayerFor(item, true),

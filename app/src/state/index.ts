@@ -1,6 +1,6 @@
 import { combineReducers } from 'redux';
 import { accountReducer, AccountState, metadataReducer, SetAccountAction } from './account';
-import { itemsReducer, ItemsState, noteToItemMapReducer, SetItemsAction } from './items';
+import { ItemsAction, itemsReducer, ItemsState, noteToItemMapReducer } from './items';
 import { UIAction, uiReducer, UIState } from './ui';
 import { SetVaultAction, vaultReducer, VaultState } from './vault';
 
@@ -17,7 +17,7 @@ export const rootReducer = combineReducers<RootState>({
 
 export type AllActions = (
   SetAccountAction |
-  SetItemsAction |
+  ItemsAction |
   SetVaultAction |
   UIAction
 );
