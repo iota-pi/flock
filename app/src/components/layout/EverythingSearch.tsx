@@ -7,10 +7,12 @@ import React, {
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { useHistory } from 'react-router-dom';
 import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
+import { Autocomplete, AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/lab';
 import {
   compareItems,
+  getBlankItem,
   getItemName,
+  getItemTypeLabel,
   Item,
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
@@ -50,36 +52,54 @@ const useStyles = makeStyles(theme => ({
       borderColor: 'rgba(255, 255, 255, 0.85)',
     },
   },
+  emphasis: {
+    fontWeight: 500,
+  },
 }));
 
 interface SearchableItem<T extends Item = Item> {
-  type: T['type'],
-  id: string,
+  create?: false,
   data: T,
+  id: string,
+  type: T['type'],
 }
 interface SearchableTag {
-  type: 'tag',
-  id: string,
+  create?: false,
   data: string,
+  id: string,
+  type: 'tag',
 }
-export type AnySearchable = SearchableItem | SearchableTag;
+interface SearchableAddItem<T extends Item = Item> {
+  create: true,
+  data?: undefined,
+  default: Partial<T> & Pick<T, 'type'>,
+  id: string,
+  type: T['type'],
+}
+export type AnySearchable = SearchableItem | SearchableTag | SearchableAddItem;
 
-const filterFunc = createFilterOptions<AnySearchable>({ trim: true });
+const baseFilterFunc = createFilterOptions<AnySearchable>({ trim: true });
 
-function getName(item: AnySearchable) {
-  return item.type === 'tag' ? item.data : getItemName(item.data);
+function getName(option: AnySearchable) {
+  if (option.type === 'tag') {
+    return option.data;
+  }
+  if (option.create) {
+    return getItemName(option.default);
+  }
+  return getItemName(option.data);
 }
 
 function OptionComponent({
-  item,
+  option,
   showIcons,
 }: {
-  item: AnySearchable,
+  option: AnySearchable,
   showIcons: boolean,
 }) {
   const classes = useStyles();
-  const icon = getIcon(item.type);
-  const name = getName(item);
+  const icon = getIcon(option.type);
+  const name = getName(option);
 
   return (
     <div className={classes.autocompleteOption}>
@@ -90,7 +110,12 @@ function OptionComponent({
       )}
 
       <div>
-        {name}
+        {option.create ? (
+          <>
+            <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
+            <span className={classes.emphasis}>{name}</span>
+          </>
+        ) : name}
       </div>
     </div>
   );
@@ -114,6 +139,7 @@ function EverythingSearch({
   const history = useHistory();
   const items = useItems();
   const tags = useTags();
+
   const options = useMemo<AnySearchable[]>(
     () => (
       [
@@ -132,17 +158,68 @@ function EverythingSearch({
     [items, tags],
   );
 
+  const filterFunc = useCallback(
+    (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
+      const filtered = baseFilterFunc(allOptions, state);
+
+      filtered.push(
+        {
+          create: true,
+          id: 'add-person',
+          type: 'person',
+          default: {
+            type: 'person',
+            firstName: state.inputValue.split(/\s+/, 2)[0],
+            lastName: state.inputValue.split(/\s+/, 2)[1],
+          },
+        },
+        {
+          create: true,
+          id: 'add-group',
+          type: 'group',
+          default: {
+            type: 'group',
+            name: state.inputValue,
+          },
+        },
+        {
+          create: true,
+          id: 'add-general',
+          type: 'general',
+          default: {
+            type: 'general',
+            name: state.inputValue,
+          },
+        },
+      );
+
+      return filtered;
+    },
+    [],
+  );
+
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: AnySearchable[], reason: AutocompleteChangeReason) => {
       if (reason === 'select-option') {
-        const item = value[value.length - 1].data;
-        if (onSelect) {
-          onSelect(item);
-        }
-        if (typeof item === 'string') {
-          history.push(getTagPage(item));
+        const option = value[value.length - 1];
+        if (option.create) {
+          dispatch(updateActive({
+            item: {
+              ...getBlankItem(option.type),
+              ...option.default,
+              isNew: true,
+            } as Item,
+          }));
         } else {
-          dispatch(updateActive({ item }));
+          const data = value[value.length - 1].data;
+          if (onSelect) {
+            onSelect(data);
+          }
+          if (typeof data === 'string') {
+            history.push(getTagPage(data));
+          } else {
+            dispatch(updateActive({ item: data }));
+          }
         }
       }
       if (reason === 'remove-option' || reason === 'clear') {
@@ -199,18 +276,18 @@ function EverythingSearch({
             }}
           />
         )}
-        renderOption={item => (
+        renderOption={option => (
           <OptionComponent
-            item={item}
+            option={option}
             showIcons={showIcons}
           />
         )}
-        renderTags={tagItems => (
-          tagItems.map(item => (
+        renderTags={selectedOptions => (
+          selectedOptions.map(option => (
             <Chip
-              key={item.id}
-              label={getName(item)}
-              icon={getIcon(item.type)}
+              key={option.id}
+              label={getName(option)}
+              icon={getIcon(option.type)}
             />
           ))
         )}

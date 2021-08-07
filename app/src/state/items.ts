@@ -250,13 +250,13 @@ export function getNoteTypeLabel(itemType: ItemNoteType, plural?: boolean): stri
   return plural ? 'Prayer Points' : 'Prayer Point';
 }
 
-export function getItemName(item?: Item): string {
+export function getItemName(item?: Partial<Item> & Pick<Item, 'type'>): string {
   if (item === undefined) return '';
 
   if (item.type === 'person') {
-    return `${item.firstName} ${item.lastName}`.trim();
+    return `${item.firstName || ''} ${item.lastName || ''}`.trim();
   }
-  return item.name.trim();
+  return (item.name || '').trim();
 }
 
 export function comparePeopleNames(a: PersonItem, b: PersonItem) {
