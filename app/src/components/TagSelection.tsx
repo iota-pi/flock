@@ -13,6 +13,8 @@ const useStyles = makeStyles(theme => ({
   },
   tagChip: {
     marginRight: theme.spacing(1),
+    marginTop: theme.spacing(0.25),
+    marginBottom: theme.spacing(0.25),
   },
 }));
 
@@ -35,6 +37,7 @@ function TagSelection({
 }: Props) {
   const classes = useStyles();
   const tags = useTags();
+  const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))];
 
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: string[], reason: AutocompleteChangeReason) => {
@@ -58,7 +61,7 @@ function TagSelection({
       filterOptions={(options, params) => {
         const filtered = filterFunc(options, params);
 
-        if (canAddNew && params.inputValue !== '') {
+        if (canAddNew && params.inputValue !== '' && !filtered.includes(params.inputValue)) {
           filtered.push(params.inputValue);
         }
 
@@ -69,7 +72,7 @@ function TagSelection({
       multiple
       noOptionsText="No tag found"
       onChange={handleChange}
-      options={tags}
+      options={allTags}
       renderInput={params => (
         <TextField
           {...params}

@@ -31,6 +31,8 @@ const useStyles = makeStyles(theme => ({
   },
   itemChip: {
     marginRight: theme.spacing(1),
+    marginTop: theme.spacing(0.25),
+    marginBottom: theme.spacing(0.25),
   },
 }));
 
