@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { useHistory, useRouteMatch } from 'react-router-dom';
+import { useRouteMatch } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   AppBar as MuiAppBar,
@@ -14,11 +14,9 @@ import { APP_NAME } from '../../utils';
 import { clearVault } from '../../state/vault';
 import { useAppDispatch } from '../../store';
 import EverythingSearch from './EverythingSearch';
-import { Item } from '../../state/items';
-import { getPage, getTagPage } from '../pages';
+import { getPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
 import { SignOutIcon } from '../Icons';
-import { updateActive } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -68,7 +66,6 @@ function AppBar({
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
-  const history = useHistory();
   const tag = useTagParam();
 
   const handleClickSignOut = useCallback(
@@ -76,18 +73,6 @@ function AppBar({
       dispatch(clearVault());
     },
     [dispatch],
-  );
-  const handleSelect = useCallback(
-    (item: Item | string | undefined) => {
-      if (item !== undefined) {
-        if (typeof item === 'string') {
-          history.push(getTagPage(item));
-        } else {
-          dispatch(updateActive({ item }));
-        }
-      }
-    },
-    [dispatch, history],
   );
 
   return (
@@ -113,10 +98,7 @@ function AppBar({
         </div>
 
         <div className={classes.searchField}>
-          <EverythingSearch
-            label={tag || 'Search'}
-            onSelect={handleSelect}
-          />
+          <EverythingSearch label={tag || 'Search'} />
         </div>
 
         <div className={classes.signoutButton}>

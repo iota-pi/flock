@@ -5,6 +5,7 @@ import React, {
   useRef,
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
+import { useHistory } from 'react-router-dom';
 import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import {
@@ -14,6 +15,9 @@ import {
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
 import { useItems, useTags } from '../../state/selectors';
+import { getTagPage } from '../pages';
+import { updateActive } from '../../state/ui';
+import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
   autocompleteOption: {
@@ -95,7 +99,7 @@ function OptionComponent({
 export interface Props {
   label: string,
   noItemsText?: string,
-  onSelect: (item?: Item | string) => void,
+  onSelect?: (item?: Item | string) => void,
   showIcons?: boolean,
 }
 
@@ -106,6 +110,8 @@ function EverythingSearch({
   showIcons = true,
 }: Props) {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
+  const history = useHistory();
   const items = useItems();
   const tags = useTags();
   const options = useMemo<AnySearchable[]>(
@@ -129,13 +135,23 @@ function EverythingSearch({
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: AnySearchable[], reason: AutocompleteChangeReason) => {
       if (reason === 'select-option') {
-        onSelect(value[value.length - 1].data);
+        const item = value[value.length - 1].data;
+        if (onSelect) {
+          onSelect(item);
+        }
+        if (typeof item === 'string') {
+          history.push(getTagPage(item));
+        } else {
+          dispatch(updateActive({ item }));
+        }
       }
       if (reason === 'remove-option' || reason === 'clear') {
-        onSelect(undefined);
+        if (onSelect) {
+          onSelect(undefined);
+        }
       }
     },
-    [onSelect],
+    [dispatch, history, onSelect],
   );
 
   const searchInput = useRef<HTMLInputElement>();
