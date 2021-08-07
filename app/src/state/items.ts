@@ -254,9 +254,9 @@ export function getItemName(item?: Item): string {
   if (item === undefined) return '';
 
   if (item.type === 'person') {
-    return `${item.firstName} ${item.lastName}`;
+    return `${item.firstName} ${item.lastName}`.trim();
   }
-  return item.name;
+  return item.name.trim();
 }
 
 export function comparePeopleNames(a: PersonItem, b: PersonItem) {
