@@ -1,12 +1,12 @@
 import React, { useCallback } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
-import { isItem, Item, ItemNote } from '../state/items';
-import { removeActive, updateActive } from '../state/ui';
-import { useAppDispatch, useAppSelector } from '../store';
-import ItemDrawer from './drawers/ItemDrawer';
-import PlaceholderDrawer from './drawers/Placeholder';
-import ReportDrawer from './drawers/ReportDrawer';
-import NoteDrawer from './drawers/NoteDrawer';
+import { isItem, Item, ItemNote } from '../../state/items';
+import { removeActive, updateActive } from '../../state/ui';
+import { useAppDispatch, useAppSelector } from '../../store';
+import ItemDrawer from '../drawers/ItemDrawer';
+import PlaceholderDrawer from '../drawers/Placeholder';
+import ReportDrawer from '../drawers/ReportDrawer';
+import NoteDrawer from '../drawers/NoteDrawer';
 
 function DrawerDisplay() {
   const dispatch = useAppDispatch();

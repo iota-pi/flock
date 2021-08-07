@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab, Fade, LinearProgress } from '@material-ui/core';
 import { AddIcon } from '../Icons';
-import TopBar, { MenuItemData } from '../nav/TopBar';
+import TopBar, { MenuItemData } from '../layout/TopBar';
 import { useAppSelector } from '../../store';
 
 const useStyles = makeStyles(theme => ({

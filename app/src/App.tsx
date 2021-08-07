@@ -4,15 +4,15 @@ import DateFnsUtils from '@date-io/date-fns';
 import { Toolbar, useMediaQuery } from '@material-ui/core';
 import { makeStyles, Theme } from '@material-ui/core/styles';
 import { MuiPickersUtilsProvider } from '@material-ui/pickers';
-import AppBar from './components/nav/AppBar';
-import MainMenu from './components/nav/MainMenu';
+import AppBar from './components/layout/AppBar';
+import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';
 import { useAppDispatch } from './store';
 import { loadVault } from './state/vault';
 import { useVault } from './state/selectors';
 import migrateItems from './state/migrations';
 import Vault from './crypto/Vault';
-import MainLayout from './components/nav/MainLayout';
+import MainLayout from './components/layout/MainLayout';
 
 
 const useStyles = makeStyles(theme => ({
