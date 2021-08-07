@@ -65,7 +65,7 @@ function LoginPage() {
 
   const handleClickLogin = useCallback(
     async () => {
-      const vault = await Vault.create(accountInput, password);
+      const vault = await Vault.create(accountInput, password, dispatch);
       const success = await api.checkPassword({
         account: accountInput,
         authToken: vault.authToken,

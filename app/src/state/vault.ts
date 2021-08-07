@@ -1,6 +1,7 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
 import Vault, { VaultImportExportData } from '../crypto/Vault';
+import { AppDispatch } from '../store';
 
 export interface VaultState {
   vault: Vault | null,
@@ -13,20 +14,22 @@ export interface SetVaultAction extends Action, VaultState {
 }
 
 const VAULT_STORAGE_KEY = 'FlockVaultData';
-export async function loadVault(): Promise<Vault | null> {
+export async function loadVault(dispatch: AppDispatch): Promise<Vault | null> {
   const jsonData = localStorage.getItem(VAULT_STORAGE_KEY);
   if (jsonData) {
     const data: VaultImportExportData = JSON.parse(jsonData);
-    const vault = await Vault.import(data);
+    const vault = await Vault.import(data, dispatch);
+    dispatch(setVault(vault, false));
     return vault;
   }
   return null;
 }
 
-export async function setVault(vault: Vault, store = true): Promise<SetVaultAction> {
+export function setVault(vault: Vault, store = true): SetVaultAction {
   if (store) {
-    const data = await vault.export();
-    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(data));
+    vault.export().then(data => {
+      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(data));
+    });
   }
   return {
     type: SET_VAULT,

@@ -1,8 +1,9 @@
 import React, { ReactNode } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Fab } from '@material-ui/core';
+import { Fab, Fade, LinearProgress } from '@material-ui/core';
 import { AddIcon } from '../Icons';
 import TopBar, { MenuItemData } from '../nav/TopBar';
+import { useAppSelector } from '../../store';
 
 const useStyles = makeStyles(theme => ({
   pageContent: {
@@ -16,6 +17,15 @@ const useStyles = makeStyles(theme => ({
     position: 'absolute',
     right: theme.spacing(4),
     bottom: theme.spacing(3),
+  },
+  loadingBarHolder: {
+    position: 'relative',
+  },
+  loadingBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
   },
 }));
 
@@ -63,6 +73,8 @@ function BasePage({
   topBar,
 }: Props) {
   const classes = useStyles();
+  const activeRequests = useAppSelector(state => state.ui.requests.active);
+  const loading = activeRequests > 0;
 
   return (
     <>
@@ -73,6 +85,12 @@ function BasePage({
           onSelectAll={onSelectAll}
         />
       )}
+
+      <div className={classes.loadingBarHolder}>
+        <Fade in={loading}>
+          <LinearProgress className={classes.loadingBar} />
+        </Fade>
+      </div>
 
       <div className={classes.pageContent}>
         {children}

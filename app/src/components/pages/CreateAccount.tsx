@@ -19,6 +19,7 @@ import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';
 import { getAccountId } from '../../utils';
+import { useAppDispatch } from '../../store';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
@@ -119,6 +120,7 @@ function passwordScoreToClass(score: number, classes: ReturnType<typeof useStyle
 
 function CreateAccountPage() {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
   const history = useHistory();
 
   const [error, setError] = useState('');
@@ -137,7 +139,7 @@ function CreateAccountPage() {
       setWaiting(true);
       try {
         const account = getAccountId();
-        const vault = await Vault.create(account, password);
+        const vault = await Vault.create(account, password, dispatch);
         const success = await api.createAccount({ account, authToken: vault.authToken });
         if (success) {
           setError('');
@@ -150,7 +152,7 @@ function CreateAccountPage() {
       }
       setWaiting(false);
     },
-    [history, password],
+    [dispatch, history, password],
   );
   const handleChangePassword = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {

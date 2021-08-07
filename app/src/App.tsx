@@ -9,7 +9,7 @@ import MainMenu from './components/nav/MainMenu';
 import PageView from './components/pages';
 import { AppDispatch, useAppDispatch } from './store';
 import { setItems } from './state/items';
-import { loadVault, setVault } from './state/vault';
+import { loadVault } from './state/vault';
 import { useVault } from './state/selectors';
 import migrateItems from './state/migrations';
 import { setAccount } from './state/account';
@@ -76,12 +76,7 @@ export default function App() {
   );
 
   const restoreVaultFromStorage = useCallback(
-    async () => {
-      const restoredVault = await loadVault();
-      if (restoredVault) {
-        dispatch(await setVault(restoredVault, false));
-      }
-    },
+    () => loadVault(dispatch),
     [dispatch],
   );
 

@@ -15,10 +15,15 @@ export interface DrawerData {
 export interface UiOptions {
   bulkActionsOnMobile: boolean,
 }
+export interface RequestData {
+  active: number,
+  error: string,
+}
 export interface UIData {
   drawers: DrawerData[],
   selected: ItemId[],
   options: UiOptions,
+  requests: RequestData,
 }
 export interface UIState {
   ui: UIData,
@@ -29,13 +34,22 @@ const initialSelected: UIData['selected'] = [];
 const initialFlags: UIData['options'] = {
   bulkActionsOnMobile: false,
 };
+const initialRequests: UIData['requests'] = {
+  active: 0,
+  error: '',
+};
 
 export const SET_UI_STATE = 'SET_UI_STATE';
 export const REPLACE_ACTIVE = 'REPLACE_ACTIVE';
 export const PUSH_ACTIVE = 'PUSH_ACTIVE';
 export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
+export const START_REQUEST = 'START_REQUEST';
+export const FINISH_REQUEST = 'FINISH_REQUEST';
 
-export type SetUIState = Omit<Partial<UIData>, 'options'> & { options?: Partial<UIData['options']> };
+export type SetUIState = Omit<Partial<UIData>, 'options' | 'requests'> & {
+  options?: Partial<UIData['options']>,
+  requests?: Partial<UIData['requests']>,
+};
 export interface SetUIAction extends Action, SetUIState {
   type: typeof SET_UI_STATE,
 }
@@ -50,9 +64,21 @@ export interface PushActiveItemAction extends Action {
 export interface RemoveActiveItemAction extends Action {
   type: typeof REMOVE_ACTIVE,
 }
+export interface StartRequestAction extends Action {
+  type: typeof START_REQUEST,
+}
+export interface FinishRequestAction extends Action {
+  type: typeof FINISH_REQUEST,
+  error?: string,
+}
 
 export type UIAction = (
-  SetUIAction | UpdateActiveItemAction | PushActiveItemAction | RemoveActiveItemAction
+  SetUIAction
+  | UpdateActiveItemAction
+  | PushActiveItemAction
+  | RemoveActiveItemAction
+  | StartRequestAction
+  | FinishRequestAction
 );
 
 export function setUiState(data: SetUIState): SetUIAction {
@@ -93,6 +119,19 @@ export function pushActive(
 export function removeActive(): RemoveActiveItemAction {
   return {
     type: REMOVE_ACTIVE,
+  };
+}
+
+export function startRequest(): StartRequestAction {
+  return {
+    type: START_REQUEST,
+  };
+}
+
+export function finishRequest(error?: string): FinishRequestAction {
+  return {
+    type: FINISH_REQUEST,
+    error,
   };
 }
 
@@ -177,8 +216,30 @@ export function optionsReducer(
   return state;
 }
 
+export function requestsReducer(
+  state: UIData['requests'] = initialRequests,
+  action: AllActions,
+): UIData['requests'] {
+  if (action.type === SET_UI_STATE && action.requests) {
+    return { ...state, ...action.requests };
+  }
+  if (action.type === START_REQUEST) {
+    return { ...state, active: state.active + 1 };
+  }
+  if (action.type === FINISH_REQUEST) {
+    return {
+      ...state,
+      active: state.active - 1,
+      error: action.error || state.error,
+    };
+  }
+
+  return state;
+}
+
 export const uiReducer = combineReducers<UIData>({
   drawers: drawersReducer,
   selected: selectedReducer,
   options: optionsReducer,
+  requests: requestsReducer,
 });

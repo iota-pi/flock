@@ -3,8 +3,8 @@ import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
 import { Item } from '../state/items';
 import { AccountMetadata, AccountState } from '../state/account';
+import { AppDispatch } from '../store';
 
-const api = new VaultAPI();
 
 function fromBytes(array: ArrayBuffer): string {
   const byteArray = Array.from(new Uint8Array(array));
@@ -26,18 +26,29 @@ export interface VaultImportExportData {
   key: string,
 }
 
+export interface VaultConstructorData {
+  account: string,
+  dispatch: AppDispatch,
+  key: CryptoKey,
+  keyHash: string,
+}
+
 class Vault {
   private account: string;
-  private keyHash: string;
+  private api: VaultAPI;
+  private dispatch: AppDispatch;
   private key: CryptoKey;
+  private keyHash: string;
 
-  constructor(account: string, key: CryptoKey, keyHash: string) {
+  constructor({ account, dispatch, key, keyHash }: VaultConstructorData) {
+    this.api = new VaultAPI(dispatch);
+    this.dispatch = dispatch;
     this.account = account;
     this.key = key;
     this.keyHash = keyHash;
   }
 
-  static async create(accountId: string, password: string) {
+  static async create(accountId: string, password: string, dispatch: AppDispatch) {
     const enc = new TextEncoder();
     const keyBase = await crypto.subtle.importKey(
       'raw',
@@ -60,10 +71,15 @@ class Vault {
     );
     const keyBuffer = await crypto.subtle.exportKey('raw', key);
     const keyHash = await crypto.subtle.digest('SHA-512', keyBuffer);
-    return new Vault(accountId, key, fromBytes(keyHash));
+    return new Vault({
+      account: accountId,
+      dispatch,
+      key,
+      keyHash: fromBytes(keyHash),
+    });
   }
 
-  static async import(data: VaultImportExportData): Promise<Vault> {
+  static async import(data: VaultImportExportData, dispatch: AppDispatch): Promise<Vault> {
     const account = data.account;
     const key = await crypto.subtle.importKey(
       'raw',
@@ -74,7 +90,12 @@ class Vault {
     );
     const keyBuffer = await crypto.subtle.exportKey('raw', key);
     const keyHash = await crypto.subtle.digest('SHA-512', keyBuffer);
-    return new Vault(account, key, fromBytes(keyHash));
+    return new Vault({
+      account,
+      dispatch,
+      key,
+      keyHash: fromBytes(keyHash),
+    });
   }
 
   async export(): Promise<VaultImportExportData> {
@@ -134,7 +155,7 @@ class Vault {
 
   private async storeOne(item: Item) {
     const { cipher, iv } = await this.encryptObject(item);
-    await api.put({
+    await this.api.put({
       account: this.account,
       authToken: this.keyHash,
       cipher,
@@ -153,7 +174,7 @@ class Vault {
       ),
     );
 
-    await api.putMany({
+    await this.api.putMany({
       account: this.account,
       authToken: this.keyHash,
       items: encrypted.map(({ cipher, iv }, i) => ({
@@ -169,7 +190,7 @@ class Vault {
   }
 
   async fetch(itemId: string): Promise<Item> {
-    const result = await api.fetch({
+    const result = await this.api.fetch({
       account: this.account,
       authToken: this.authToken,
       item: itemId,
@@ -181,7 +202,7 @@ class Vault {
   }
 
   async fetchAll() {
-    const result = await api.fetchAll({
+    const result = await this.api.fetchAll({
       account: this.account,
       authToken: this.authToken,
     });
@@ -202,7 +223,7 @@ class Vault {
 
   private async deleteOne(itemId: string) {
     try {
-      await api.delete({
+      await this.api.delete({
         account: this.account,
         authToken: this.authToken,
         item: itemId,
@@ -215,7 +236,7 @@ class Vault {
 
   private async deleteMany(itemIds: string[]) {
     try {
-      await api.deleteMany({
+      await this.api.deleteMany({
         account: this.account,
         authToken: this.authToken,
         items: itemIds,
@@ -228,7 +249,7 @@ class Vault {
 
   async setMetadata(metadata: AccountMetadata) {
     const { cipher, iv } = await this.encryptObject(metadata);
-    return api.setMetadata({
+    return this.api.setMetadata({
       account: this.account,
       authToken: this.authToken,
       metadata: { cipher, iv },
@@ -236,7 +257,7 @@ class Vault {
   }
 
   async getMetadata(): Promise<AccountState> {
-    const result = await api.getMetadata({
+    const result = await this.api.getMetadata({
       account: this.account,
       authToken: this.authToken,
     });

@@ -1,6 +1,8 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import { AccountMetadata } from '../state/account';
 import { ItemType } from '../state/items';
+import { finishRequest, startRequest } from '../state/ui';
+import { AppDispatch } from '../store';
 import { CryptoResult } from './Vault';
 
 
@@ -30,6 +32,35 @@ export interface VaultAccount {
 
 class VaultAPI {
   readonly endpoint = process.env.REACT_APP_VAULT_ENDPOINT!;
+  dispatch: AppDispatch | undefined;
+
+  constructor(dispatch?: AppDispatch) {
+    this.dispatch = dispatch;
+  }
+
+  private startRequest() {
+    if (this.dispatch) {
+      this.dispatch(startRequest());
+    }
+  }
+
+  private finishRequest(error?: string) {
+    if (this.dispatch) {
+      this.dispatch(finishRequest(error));
+    }
+  }
+
+  private async wrap<T>(promise: Promise<T>): Promise<T> {
+    this.startRequest();
+    try {
+      const result = await promise;
+      this.finishRequest();
+      return result;
+    } catch (error) {
+      this.finishRequest(error);
+      throw error;
+    }
+  }
 
   private getAuthorization(authToken: string): AxiosRequestConfig {
     return {
@@ -39,19 +70,21 @@ class VaultAPI {
 
   async fetchAll({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<VaultItem[]> {
     const url = `${this.endpoint}/${account}/items`;
-    const result = await axios.get(url, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.get(url, this.getAuthorization(authToken)));
     return result.data.items;
   }
 
   async fetch({ account, authToken, item }: VaultKey & VaultAuth): Promise<VaultItem> {
     const url = `${this.endpoint}/${account}/items/${item}`;
-    const result = await axios.get(url, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.get(url, this.getAuthorization(authToken)));
     return result.data.items[0];
   }
 
   async put({ account, authToken, cipher, item, metadata }: VaultItem & VaultAuth) {
     const url = `${this.endpoint}/${account}/items/${item}`;
-    const result = await axios.put(url, { cipher, ...metadata }, this.getAuthorization(authToken));
+    const result = await this.wrap(
+      axios.put(url, { cipher, ...metadata }, this.getAuthorization(authToken)),
+    );
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI put operation failed');
@@ -61,7 +94,7 @@ class VaultAPI {
   async putMany({ account, authToken, items }: VaultAuth & { items: VaultItem[] }) {
     const url = `${this.endpoint}/${account}/items`;
     const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }));
-    const result = await axios.put(url, data, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.put(url, data, this.getAuthorization(authToken)));
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI put operation failed');
@@ -70,7 +103,7 @@ class VaultAPI {
 
   async delete({ account, authToken, item }: VaultKey & VaultAuth) {
     const url = `${this.endpoint}/${account}/items/${item}`;
-    const result = await axios.delete(url, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.delete(url, this.getAuthorization(authToken)));
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI delete opteration failed');
@@ -79,10 +112,10 @@ class VaultAPI {
 
   async deleteMany({ account, authToken, items }: VaultAuth & { items: string[] }) {
     const url = `${this.endpoint}/${account}/items`;
-    const result = await axios.delete(url, {
+    const result = await this.wrap(axios.delete(url, {
       ...this.getAuthorization(authToken),
       data: items,
-    });
+    }));
     const success = result.data.success || false;
     if (!success) {
       throw new Error('VaultAPI deleteMany opteration failed');
@@ -91,13 +124,13 @@ class VaultAPI {
 
   async createAccount({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<boolean> {
     const url = `${this.endpoint}/${account}`;
-    const result = await axios.post(url, {}, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.post(url, {}, this.getAuthorization(authToken)));
     return result.data.success as boolean;
   }
 
   private async getAccountData({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
     const url = `${this.endpoint}/${account}`;
-    const result = await axios.get(url, this.getAuthorization(authToken));
+    const result = await this.wrap(axios.get(url, this.getAuthorization(authToken)));
     return result.data;
   }
 
@@ -113,7 +146,9 @@ class VaultAPI {
 
   async setMetadata({ account, authToken, metadata }: VaultAccount & VaultAuth) {
     const url = `${this.endpoint}/${account}`;
-    const result = await axios.patch(url, { metadata }, this.getAuthorization(authToken));
+    const result = await this.wrap(
+      axios.patch(url, { metadata }, this.getAuthorization(authToken)),
+    );
     return result.data.success as boolean;
   }
 }
