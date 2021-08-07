@@ -39,7 +39,10 @@ import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
 import { FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 
-const useStyles = makeStyles(() => ({
+const useStyles = makeStyles(theme => ({
+  alert: {
+    transition: theme.transitions.create('all'),
+  },
   emphasis: {
     fontWeight: 500,
   },
@@ -62,21 +65,27 @@ function DuplicateAlert({ item, count }: { item: Item, count: number }) {
   const areOrIs = plural ? 'are' : 'is';
 
   return (
-    <Alert severity="warning">
-      <Typography paragraph>
+    <Alert
+      className={classes.alert}
+      severity={item.description ? 'info' : 'warning'}
+    >
+      <Typography paragraph={!item.description}>
         There {areOrIs} <span className={classes.emphasis}>{count}</span>
         {' other '}
         {getItemTypeLabel(item.type, plural).toLowerCase()}
         {' with this name.'}
       </Typography>
-      <Typography>
-        Please check if this is a duplicate.
-        If not, it may be helpful to
-        {' '}
-        <span className={classes.emphasis}>add a description</span>
-        {' '}
-        to help distinguish between these {getItemTypeLabel(item.type, true).toLowerCase()}.
-      </Typography>
+
+      {!item.description && (
+        <Typography>
+          Please check if this is a duplicate.
+          Otherwise, it may be helpful to
+          {' '}
+          <span className={classes.emphasis}>add a description</span>
+          {' '}
+          to help distinguish between these {getItemTypeLabel(item.type, true).toLowerCase()}.
+        </Typography>
+      )}
     </Alert>
   );
 }
@@ -196,18 +205,13 @@ function ItemDrawer({
   );
 
   const duplicates = useMemo(
-    () => {
-      if (!item.isNew && item.description) {
-        return [];
-      }
-      return items.filter(
-        i => (
-          i.type === item.type
-          && i.id !== item.id
-          && getItemName(i) === getItemName(item)
-        ),
-      );
-    },
+    () => items.filter(
+      i => (
+        i.type === item.type
+        && i.id !== item.id
+        && getItemName(i) === getItemName(item)
+      ),
+    ),
     [item, items],
   );
 
@@ -313,6 +317,12 @@ function ItemDrawer({
           </Typography>
         </Grid>
 
+        {duplicates.length > 0 && (
+          <Grid item xs={12}>
+            <DuplicateAlert item={item} count={duplicates.length} />
+          </Grid>
+        )}
+
         {item.type === 'person' ? (
           <>
             <Grid item xs={6}>
@@ -349,12 +359,6 @@ function ItemDrawer({
               required
               value={item.name}
             />
-          </Grid>
-        )}
-
-        {duplicates.length > 0 && (
-          <Grid item xs={12}>
-            <DuplicateAlert item={item} count={duplicates.length} />
           </Grid>
         )}
 
