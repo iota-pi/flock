@@ -162,36 +162,38 @@ function EverythingSearch({
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
       const filtered = baseFilterFunc(allOptions, state);
 
-      filtered.push(
-        {
-          create: true,
-          id: 'add-person',
-          type: 'person',
-          default: {
+      if (state.inputValue.trim()) {
+        filtered.push(
+          {
+            create: true,
+            id: 'add-person',
             type: 'person',
-            firstName: state.inputValue.split(/\s+/, 2)[0],
-            lastName: state.inputValue.split(/\s+/, 2)[1],
+            default: {
+              type: 'person',
+              firstName: state.inputValue.trim().split(/\s+/, 2)[0],
+              lastName: state.inputValue.trim().split(/\s+/, 2)[1] || '',
+            },
           },
-        },
-        {
-          create: true,
-          id: 'add-group',
-          type: 'group',
-          default: {
+          {
+            create: true,
+            id: 'add-group',
             type: 'group',
-            name: state.inputValue,
+            default: {
+              type: 'group',
+              name: state.inputValue.trim(),
+            },
           },
-        },
-        {
-          create: true,
-          id: 'add-general',
-          type: 'general',
-          default: {
+          {
+            create: true,
+            id: 'add-general',
             type: 'general',
-            name: state.inputValue,
+            default: {
+              type: 'general',
+              name: state.inputValue.trim(),
+            },
           },
-        },
-      );
+        );
+      }
 
       return filtered;
     },
