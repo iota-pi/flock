@@ -3,7 +3,7 @@ import React, {
   useCallback,
 } from 'react';
 import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
+import { Autocomplete, AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/lab';
 import { useTags } from '../state/selectors';
 import { MuiIconType } from './Icons';
 
@@ -26,7 +26,7 @@ export interface Props {
   selectedTags: string[],
 }
 
-const filterFunc = createFilterOptions<string>({ trim: true });
+const baseFilterFunc = createFilterOptions<string>({ trim: true });
 
 function TagSelection({
   canAddNew = true,
@@ -54,19 +54,24 @@ function TagSelection({
     [onChange, selectedTags],
   );
 
+  const filterFunc = useCallback(
+    (options: string[], state: FilterOptionsState<string>) => {
+      const filtered = baseFilterFunc(options, state);
+
+      if (canAddNew && state.inputValue !== '' && !filtered.includes(state.inputValue)) {
+        filtered.push(state.inputValue);
+      }
+
+      return filtered;
+    },
+    [canAddNew],
+  );
+
   return (
     <Autocomplete
       autoHighlight
       clearOnBlur
-      filterOptions={(options, params) => {
-        const filtered = filterFunc(options, params);
-
-        if (canAddNew && params.inputValue !== '' && !filtered.includes(params.inputValue)) {
-          filtered.push(params.inputValue);
-        }
-
-        return filtered;
-      }}
+      filterOptions={filterFunc}
       getOptionLabel={tag => tag}
       handleHomeEndKeys
       multiple
