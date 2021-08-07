@@ -2,6 +2,7 @@ import React, { PropsWithChildren } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import DrawerDisplay from './DrawerDisplay';
 import SelectedActions from '../SelectedActions';
+import GeneralAlert from '../GeneralAlert';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -46,6 +47,8 @@ function MainLayout({ children }: PropsWithChildren<{}>) {
       </div>
 
       <DrawerDisplay />
+
+      <GeneralAlert />
     </div>
   );
 }
