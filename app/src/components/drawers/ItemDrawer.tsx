@@ -1,6 +1,5 @@
 import React, {
   ChangeEvent,
-  ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -9,11 +8,11 @@ import {
   Checkbox,
   FormControlLabel,
   Grid,
-  GridSize,
+  makeStyles,
   TextField,
   Typography,
 } from '@material-ui/core';
-import { Breakpoint } from '@material-ui/core/styles/createBreakpoints';
+import { Alert } from '@material-ui/lab';
 import {
   cleanItem,
   compareNames,
@@ -21,6 +20,7 @@ import {
   DirtyItem,
   GeneralItem,
   getItemName,
+  getItemTypeLabel,
   GroupItem,
   Item,
   ItemNote,
@@ -39,6 +39,12 @@ import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
 import { FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 
+const useStyles = makeStyles(() => ({
+  emphasis: {
+    fontWeight: 500,
+  },
+}));
+
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
   onChange: (item: DirtyItem<Item>) => void,
@@ -49,151 +55,29 @@ export interface ItemAndChangeCallback {
   handleChange: <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => void,
 }
 
-interface ItemField {
-  id: string,
-  node: ReactNode,
-  sizing?: Partial<Record<Breakpoint, boolean | GridSize>>,
-}
+function DuplicateAlert({ item, count }: { item: Item, count: number }) {
+  const classes = useStyles();
 
-function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  return event.target.value;
-}
+  const plural = count > 1;
+  const areOrIs = plural ? 'are' : 'is';
 
-function getFields(
-  { item, handleChange }: ItemAndChangeCallback,
-): ItemField[] {
-  const fields: ItemField[] = [];
-
-  if (item.type === 'person') {
-    fields.push(
-      {
-        id: 'firstName',
-        node: (
-          <TextField
-            autoFocus
-            fullWidth
-            key={item.id}
-            label="First Name"
-            onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
-            required
-            value={item.firstName}
-          />
-        ),
-        sizing: { sm: 6 },
-      },
-      {
-        id: 'lastName',
-        node: (
-          <TextField
-            fullWidth
-            label="Last Name"
-            onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
-            value={item.lastName}
-          />
-        ),
-        sizing: { sm: 6 },
-      },
-      {
-        id: 'email',
-        node: (
-          <TextField
-            fullWidth
-            label="Email"
-            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
-            value={item.email}
-          />
-        ),
-        sizing: { sm: 6 },
-      },
-      {
-        id: 'phone',
-        node: (
-          <TextField
-            fullWidth
-            label="Phone"
-            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
-            value={item.phone}
-          />
-        ),
-        sizing: { sm: 6 },
-      },
-    );
-  } else {
-    fields.push(
-      {
-        id: 'name',
-        node: (
-          <TextField
-            autoFocus
-            fullWidth
-            key={item.id}
-            label="Name"
-            onChange={
-              event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
-            }
-            required
-            value={item.name}
-          />
-        ),
-      },
-    );
-  }
-
-  fields.push(
-    {
-      id: 'description',
-      node: (
-        <TextField
-          value={item.description}
-          onChange={event => handleChange({ description: getValue(event) })}
-          label="Description"
-          fullWidth
-        />
-      ),
-    },
-    {
-      id: 'summary',
-      node: (
-        <TextField
-          value={item.summary}
-          onChange={event => handleChange({ summary: getValue(event) })}
-          label="Notes"
-          multiline
-          fullWidth
-        />
-      ),
-    },
-    {
-      id: 'archived',
-      node: (
-        <FormControlLabel
-          control={(
-            <Checkbox
-              checked={item.archived}
-              onChange={(_, archived) => handleChange({ archived })}
-            />
-          )}
-          label="Archived"
-        />
-      ),
-    },
-    {
-      id: 'tags',
-      node: (
-        <TagSelection
-          selectedTags={item.tags}
-          onChange={tags => handleChange({ tags })}
-        />
-      ),
-    },
-  );
-
-  // Default sizing to always full width
-  return fields.map(
-    f => ({
-      ...f,
-      sizing: { xs: 12, ...f.sizing },
-    }),
+  return (
+    <Alert severity="warning">
+      <Typography paragraph>
+        There {areOrIs} <span className={classes.emphasis}>{count}</span>
+        {' other '}
+        {getItemTypeLabel(item.type, plural).toLowerCase()}
+        {' with this name.'}
+      </Typography>
+      <Typography>
+        Please check if this is a duplicate.
+        If not, it may be helpful to
+        {' '}
+        <span className={classes.emphasis}>add a description</span>
+        {' '}
+        to help distinguish between these {getItemTypeLabel(item.type, true).toLowerCase()}.
+      </Typography>
+    </Alert>
   );
 }
 
@@ -280,6 +164,10 @@ export function getSections(
   return sections;
 }
 
+function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  return event.target.value;
+}
+
 
 function ItemDrawer({
   alwaysTemporary,
@@ -292,8 +180,10 @@ function ItemDrawer({
   stacked,
 }: Props) {
   const dispatch = useAppDispatch();
-  const vault = useVault();
   const groups = useItems<GroupItem>('group');
+  const items = useItems();
+  const vault = useVault();
+
   const prevItem = usePrevious(item);
 
   const memberGroups = useMemo(
@@ -305,17 +195,29 @@ function ItemDrawer({
     [item.id, item.type, groups],
   );
 
+  const duplicates = useMemo(
+    () => {
+      if (!item.isNew && item.description) {
+        return [];
+      }
+      return items.filter(
+        i => (
+          i.type === item.type
+          && i.id !== item.id
+          && getItemName(i) === getItemName(item)
+        ),
+      );
+    },
+    [item, items],
+  );
+
   const handleChange = useCallback(
-    (data: Partial<Omit<Item, 'type' | 'id'>>) => (
+    <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => (
       onChange(dirtyItem({ ...item, ...data }))
     ),
     [item, onChange],
   );
 
-  const fields = useMemo(
-    () => getFields({ item, handleChange }),
-    [item, handleChange],
-  );
   const sections = useMemo(
     () => getSections({ item, handleChange }),
     [item, handleChange],
@@ -411,11 +313,110 @@ function ItemDrawer({
           </Typography>
         </Grid>
 
-        {fields.map(field => (
-          <Grid item key={field.id} {...field.sizing}>
-            {field.node}
+        {item.type === 'person' ? (
+          <>
+            <Grid item xs={6}>
+              <TextField
+                autoFocus
+                fullWidth
+                key={item.id}
+                label="First Name"
+                onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
+                required
+                value={item.firstName}
+              />
+            </Grid>
+
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Last Name"
+                onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
+                value={item.lastName}
+              />
+            </Grid>
+          </>
+        ) : (
+          <Grid item xs={6}>
+            <TextField
+              autoFocus
+              fullWidth
+              key={item.id}
+              label="Name"
+              onChange={
+                event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
+              }
+              required
+              value={item.name}
+            />
           </Grid>
-        ))}
+        )}
+
+        {duplicates.length > 0 && (
+          <Grid item xs={12}>
+            <DuplicateAlert item={item} count={duplicates.length} />
+          </Grid>
+        )}
+
+        {item.type === 'person' && (
+          <>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Email"
+                onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
+                value={item.email}
+              />
+            </Grid>
+
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Phone"
+                onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
+                value={item.phone}
+              />
+            </Grid>
+          </>
+        )}
+
+        <Grid item xs={12}>
+          <TextField
+            value={item.description}
+            onChange={event => handleChange({ description: getValue(event) })}
+            label="Description"
+            fullWidth
+          />
+        </Grid>
+
+        <Grid item xs={12}>
+          <TextField
+            value={item.summary}
+            onChange={event => handleChange({ summary: getValue(event) })}
+            label="Notes"
+            multiline
+            fullWidth
+          />
+        </Grid>
+
+        <Grid item xs={12}>
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={item.archived}
+                onChange={(_, archived) => handleChange({ archived })}
+              />
+            )}
+            label="Archived"
+          />
+        </Grid>
+
+        <Grid item xs={12}>
+          <TagSelection
+            selectedTags={item.tags}
+            onChange={tags => handleChange({ tags })}
+          />
+        </Grid>
 
         <CollapsibleSections
           sections={sections}
