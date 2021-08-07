@@ -66,6 +66,7 @@ export interface BaseProps<T extends Item> {
   getHighlighted?: (item: T) => boolean,
   items: T[],
   linkTags?: boolean,
+  maxTags?: number,
   noItemsHint?: string,
   noItemsText?: string,
   onCheck?: (item: T) => () => void,
@@ -100,6 +101,7 @@ function ItemList<T extends Item>({
   getHighlighted,
   items,
   linkTags = true,
+  maxTags,
   noItemsHint,
   noItemsText,
   onClick,
@@ -223,6 +225,7 @@ function ItemList<T extends Item>({
                 <TagDisplay
                   tags={item.tags}
                   linked={linkTags}
+                  max={maxTags}
                 />
               )}
 

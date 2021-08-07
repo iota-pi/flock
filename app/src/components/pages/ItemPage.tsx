@@ -78,6 +78,7 @@ function ItemPage<T extends Item>({
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const checkboxes = !sm || bulkActionsOnMobile;
   const pluralLabel = getItemTypeLabel(itemType, true);
+  const maxTags = sm ? 2 : 3;
 
   return (
     <BasePage
@@ -94,6 +95,7 @@ function ItemPage<T extends Item>({
         getDescription={getDescription}
         getHighlighted={isActive}
         items={people}
+        maxTags={maxTags}
         noItemsHint="Click the plus button to add one!"
         noItemsText={`No ${pluralLabel.toLowerCase()} found`}
         onCheck={handleCheck}

@@ -4,6 +4,10 @@ import { Chip, makeStyles } from '@material-ui/core';
 import { getTagPage } from './pages';
 
 const useStyles = makeStyles(theme => ({
+  root: {
+    display: 'flex',
+    alignItems: 'center',
+  },
   tagChip: {
     marginRight: theme.spacing(1),
     marginTop: theme.spacing(0.5),
@@ -17,16 +21,22 @@ const useStyles = makeStyles(theme => ({
     paddingLeft: theme.spacing(2),
     paddingRight: theme.spacing(2),
   },
+  more: {
+    marginLeft: theme.spacing(0.5),
+    color: theme.palette.text.secondary,
+  },
 }));
 
 export interface Props {
   tags: string[],
   linked?: boolean,
+  max?: number,
 }
 
 function TagDisplay({
   tags,
   linked = false,
+  max,
 }: Props) {
   const classes = useStyles();
   const history = useHistory();
@@ -39,9 +49,11 @@ function TagDisplay({
     [history],
   );
 
+  const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags;
+
   return (
-    <div>
-      {tags.map(tag => (
+    <div className={classes.root}>
+      {limitedTags.map(tag => (
         <Chip
           key={tag}
           label={tag}
@@ -51,6 +63,12 @@ function TagDisplay({
           onClick={linked ? handleClick(tag) : undefined}
         />
       ))}
+
+      {limitedTags.length < tags.length && (
+        <span className={classes.more}>
+          +{tags.length - limitedTags.length} more
+        </span>
+      )}
     </div>
   );
 }
