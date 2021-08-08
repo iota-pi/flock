@@ -5,12 +5,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
+  InputAdornment,
   makeStyles,
   TextField,
   Typography,
 } from '@material-ui/core';
 import { useMetadata } from '../../state/selectors';
-import { SaveIcon, WarningIcon } from '../Icons';
+import { ResetIcon, SaveIcon, WarningIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   emphasis: {
@@ -71,11 +73,17 @@ function GoalDialog({
     },
     [error, goal, newGoal, onClose, setGoal],
   );
+  const handleReset = useCallback(
+    () => {
+      setNewGoal(naturalGoal.toString());
+    },
+    [naturalGoal],
+  );
 
   return (
     <Dialog
       open={open}
-      onClose={handleDone}
+      onClose={onClose}
     >
       <DialogTitle>
         Customise Daily Prayer Goal
@@ -99,11 +107,31 @@ function GoalDialog({
             type="number"
             value={newGoal}
             variant="outlined"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    disabled={parseInt(newGoal) === naturalGoal}
+                    onClick={handleReset}
+                  >
+                    <ResetIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
           />
         </div>
       </DialogContent>
 
       <DialogActions>
+        <Button
+          onClick={onClose}
+          variant="outlined"
+          fullWidth
+        >
+          Cancel
+        </Button>
+
         <Button
           disabled={error}
           onClick={handleDone}

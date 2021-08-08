@@ -18,6 +18,7 @@ import PersonIcon from '@material-ui/icons/People';
 import PrayerPointIcon from '@material-ui/icons/FormatListBulleted';
 import RemoveIcon from '@material-ui/icons/Close';
 import ReportIcon from '@material-ui/icons/Description';
+import ResetIcon from '@material-ui/icons/Replay';
 import SaveIcon from '@material-ui/icons/Check';
 import SearchIcon from '@material-ui/icons/Search';
 import SignOutIcon from '@material-ui/icons/ExitToApp';
@@ -52,6 +53,7 @@ export {
   PrayerPointIcon,
   RemoveIcon,
   ReportIcon,
+  ResetIcon,
   SaveIcon,
   SearchIcon,
   SignOutIcon,
