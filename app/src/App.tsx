@@ -46,10 +46,10 @@ export default function App() {
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
-  const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('xs'));
+  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
 
   const [rawMiniMenu, setMiniMenu] = useState<boolean>();
-  const miniMenu = rawMiniMenu === undefined ? xs : rawMiniMenu;
+  const miniMenu = rawMiniMenu === undefined ? sm : rawMiniMenu;
 
   const handleShowMenu = useCallback(
     () => {
