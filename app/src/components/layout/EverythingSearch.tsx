@@ -209,7 +209,6 @@ function EverythingSearch({
             item: {
               ...getBlankItem(option.type),
               ...option.default,
-              isNew: true,
             } as Item,
           }));
         } else {
