@@ -17,6 +17,7 @@ const useStyles = makeStyles(theme => ({
     position: 'absolute',
     right: theme.spacing(4),
     bottom: theme.spacing(3),
+    zIndex: theme.zIndex.speedDial,
   },
   loadingBarHolder: {
     position: 'relative',
