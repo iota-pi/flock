@@ -29,7 +29,7 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     alignItems: 'center',
 
-    [theme.breakpoints.up('md')]: {
+    [theme.breakpoints.up('sm')]: {
       justifyContent: 'flex-end',
     },
   },
@@ -118,13 +118,13 @@ function PrayerPage() {
     >
       <Container maxWidth="xl" className={classes.container}>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} sm={6}>
             <Typography variant="h4" className={classes.heading}>
               Today
             </Typography>
           </Grid>
 
-          <Grid item xs={12} md={6} className={classes.flexRightLarge}>
+          <Grid item xs={12} sm={6} className={classes.flexRightLarge}>
             <Typography>
               Daily Goal:
             </Typography>
