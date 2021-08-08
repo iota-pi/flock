@@ -1,15 +1,31 @@
 import React, { useCallback, useMemo } from 'react';
+import { Container, Divider, makeStyles, Theme, Typography, useMediaQuery } from '@material-ui/core';
 import { useItems } from '../../state/selectors';
 import ItemList from '../ItemList';
-import { PersonItem } from '../../state/items';
+import { getBlankInteraction, PersonItem } from '../../state/items';
 import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/interactions';
 import { formatDate } from '../../utils';
 import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 
+const useStyles = makeStyles(theme => ({
+  container: {
+    flexGrow: 1,
+    paddingTop: theme.spacing(2),
+    paddingBottom: theme.spacing(2),
 
-function SuggestionsPage() {
+    '&:not(:first-child)': {
+      marginTop: theme.spacing(2),
+    },
+  },
+  heading: {
+    fontWeight: 300,
+  },
+}));
+
+function InteractionsPage() {
+  const classes = useStyles();
   const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
 
@@ -31,17 +47,38 @@ function SuggestionsPage() {
     },
     [],
   );
+  const handleClickAdd = useCallback(
+    () => dispatch(updateActive({ item: getBlankInteraction() })),
+    [dispatch],
+  );
+
+  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const maxTags = sm ? 2 : 3;
 
   return (
-    <BasePage>
+    <BasePage
+      fab
+      fabLabel="Add interaction"
+      onClickFab={handleClickAdd}
+    >
+      <Container maxWidth="xl" className={classes.container}>
+        <Typography variant="h4" className={classes.heading}>
+          Suggestions
+        </Typography>
+      </Container>
+
+      <Divider />
+
       <ItemList
         getDescription={getDescription}
         items={suggestions}
-        onClick={handleClick}
+        maxTags={maxTags}
         noItemsText="Nice! You're all caught up"
+        onClick={handleClick}
+        showIcons
       />
     </BasePage>
   );
 }
 
-export default SuggestionsPage;
+export default InteractionsPage;

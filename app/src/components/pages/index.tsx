@@ -9,13 +9,10 @@ import {
   MuiIconType,
   PersonIcon,
   PrayerIcon,
-  PrayerPointIcon,
-  SuggestIcon,
 } from '../Icons';
 
 const ItemPage = loadable(() => import('./ItemPage'));
-const NotePage = loadable(() => import('./NotePage'));
-const SuggestionsPage = loadable(() => import('./Suggestions'));
+const InteractionsPage = loadable(() => import('./Interactions'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
@@ -99,20 +96,12 @@ export const pages: Page[] = [
     requiresAuth: true,
   },
   {
-    id: 'prayer-points',
-    path: '/prayer-points',
-    name: 'Prayer Points',
-    icon: PrayerPointIcon,
-    page: <NotePage noteType="prayer" />,
-    requiresAuth: true,
-    dividerBefore: true,
-  },
-  {
     id: 'prayer',
     path: '/prayer',
-    name: 'Prayer Schedule',
+    name: 'Prayer',
     icon: PrayerIcon,
     page: <PrayerPage />,
+    dividerBefore: true,
     requiresAuth: true,
   },
   {
@@ -120,16 +109,7 @@ export const pages: Page[] = [
     path: '/interactions',
     name: 'Interactions',
     icon: InteractionIcon,
-    page: <NotePage noteType="interaction" />,
-    requiresAuth: true,
-    dividerBefore: true,
-  },
-  {
-    id: 'suggestions',
-    path: '/suggestions',
-    name: 'Suggestions',
-    icon: SuggestIcon,
-    page: <SuggestionsPage />,
+    page: <InteractionsPage />,
     requiresAuth: true,
   },
 ];

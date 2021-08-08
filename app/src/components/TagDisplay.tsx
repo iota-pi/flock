@@ -22,8 +22,11 @@ const useStyles = makeStyles(theme => ({
     paddingRight: theme.spacing(2),
   },
   more: {
-    marginLeft: theme.spacing(0.5),
     color: theme.palette.text.secondary,
+
+    '$tagChip + &': {
+      marginLeft: theme.spacing(0.5),
+    },
   },
 }));
 

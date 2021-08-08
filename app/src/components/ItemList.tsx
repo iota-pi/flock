@@ -52,6 +52,15 @@ const useStyles = makeStyles(theme => ({
   actionButton: {
     marginLeft: theme.spacing(2),
   },
+  listItemMainContent: {
+    display: 'flex',
+    flexDirection: 'row',
+    flexGrow: 1,
+
+    [theme.breakpoints.down('xs')]: {
+      flexDirection: 'column',
+    },
+  },
 }));
 
 export interface BaseProps<T extends Item> {
@@ -207,27 +216,29 @@ function ItemList<T extends Item>({
                 </ListItemIcon>
               )}
 
-              <ListItemText
-                primary={getItemName(item)}
-                secondary={getClippedDescription(item)}
-                className={([
-                  classes.itemText,
-                  classes.couldFade,
-                  item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                  getItemFaded(item) ? classes.faded : undefined,
-                ].join(' '))}
-                id={`${item.id}-text`}
-              />
-
-              <div className={classes.spacer} />
-
-              {showTags && (
-                <TagDisplay
-                  tags={item.tags}
-                  linked={linkTags}
-                  max={maxTags}
+              <div className={classes.listItemMainContent}>
+                <ListItemText
+                  primary={getItemName(item)}
+                  secondary={getClippedDescription(item)}
+                  className={([
+                    classes.itemText,
+                    classes.couldFade,
+                    item.tags.length > 0 ? classes.itemTextWithTags : undefined,
+                    getItemFaded(item) ? classes.faded : undefined,
+                  ].join(' '))}
+                  id={`${item.id}-text`}
                 />
-              )}
+
+                <div className={classes.spacer} />
+
+                {showTags && (
+                  <TagDisplay
+                    tags={item.tags}
+                    linked={linkTags}
+                    max={maxTags}
+                  />
+                )}
+              </div>
 
               {actionIcon && (
                 <div className={classes.actionButton}>

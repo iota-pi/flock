@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Container, Divider, Grid, IconButton, Typography } from '@material-ui/core';
+import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@material-ui/core';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
 import ItemList from '../ItemList';
-import { Item } from '../../state/items';
+import { getBlankPrayerPoint, Item } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
@@ -13,10 +13,14 @@ import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
-  root: {
+  container: {
     flexGrow: 1,
     paddingTop: theme.spacing(2),
     paddingBottom: theme.spacing(2),
+
+    '&:not(:first-child)': {
+      marginTop: theme.spacing(2),
+    },
   },
   heading: {
     fontWeight: 300,
@@ -96,12 +100,23 @@ function PrayerPage() {
     },
     [dispatch, goal, prayerSchedule],
   );
+  const handleClickAdd = useCallback(
+    () => dispatch(updateActive({ item: getBlankPrayerPoint() })),
+    [dispatch],
+  );
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
 
+  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const maxTags = sm ? 2 : 3;
+
   return (
-    <BasePage>
-      <Container maxWidth="xl" className={classes.root}>
+    <BasePage
+      fab
+      fabLabel="Add prayer point"
+      onClickFab={handleClickAdd}
+    >
+      <Container maxWidth="xl" className={classes.container}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Typography variant="h4" className={classes.heading}>
@@ -123,50 +138,48 @@ function PrayerPage() {
               <EditIcon fontSize="small" />
             </IconButton>
           </Grid>
-
-          <Grid item xs={12}>
-            <ItemList
-              checkboxes
-              checkboxSide="right"
-              getChecked={isPrayedForToday}
-              getFaded={isPrayedForToday}
-              items={todaysSchedule}
-              onClick={handleClick}
-              onCheck={handleClickPrayedFor}
-              noItemsText="No items in prayer schedule"
-              showIcons
-            />
-          </Grid>
-
-          {upNextSchedule.length > 0 && (
-            <>
-              <Grid item xs={12}>
-                <Divider />
-              </Grid>
-
-              <Grid item xs={12}>
-                <Typography variant="h4" className={classes.heading}>
-                  Up next
-                </Typography>
-              </Grid>
-
-              <Grid item xs={12}>
-                <ItemList
-                  checkboxes
-                  checkboxSide="right"
-                  getChecked={isPrayedForToday}
-                  getFaded={isPrayedForToday}
-                  items={upNextSchedule}
-                  onClick={handleClick}
-                  onCheck={handleClickPrayedFor}
-                  noItemsText="No more items in prayer schedule"
-                  showIcons
-                />
-              </Grid>
-            </>
-          )}
         </Grid>
       </Container>
+
+      <Divider />
+
+      <ItemList
+        checkboxes
+        checkboxSide="right"
+        getChecked={isPrayedForToday}
+        getFaded={isPrayedForToday}
+        items={todaysSchedule}
+        maxTags={maxTags}
+        onClick={handleClick}
+        onCheck={handleClickPrayedFor}
+        noItemsText="No items in prayer schedule"
+        showIcons
+      />
+
+      {upNextSchedule.length > 0 && (
+        <>
+          <Container maxWidth="xl" className={classes.container}>
+            <Typography variant="h4" className={classes.heading}>
+              Up next
+            </Typography>
+          </Container>
+
+          <Divider />
+
+          <ItemList
+            checkboxes
+            checkboxSide="right"
+            getChecked={isPrayedForToday}
+            getFaded={isPrayedForToday}
+            items={upNextSchedule}
+            maxTags={maxTags}
+            onClick={handleClick}
+            onCheck={handleClickPrayedFor}
+            noItemsText="No more items in prayer schedule"
+            showIcons
+          />
+        </>
+      )}
 
       <GoalDialog
         naturalGoal={naturalGoal}
