@@ -16,6 +16,9 @@ const useStyles = makeStyles(() => ({
     flexGrow: 1,
     opacity: 0.75,
   },
+  bold: {
+    fontWeight: 700,
+  },
 }));
 
 export interface Props extends BaseDrawerProps {}
@@ -24,18 +27,26 @@ const pagesWithAddButton: PageId[] = [
   'general',
   'groups',
   'people',
-  'prayer-points',
+  'prayer',
   'interactions',
+  'actions',
 ];
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
   groups: 'group',
   people: 'person',
-  interactions: 'interaction',
+  interactions: 'item',
   prayer: 'item',
-  'prayer-points': 'prayer point',
-  suggestions: 'item',
+  actions: 'item',
+};
+const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
+  general: 'item',
+  groups: 'group',
+  people: 'person',
+  interactions: 'interaction',
+  prayer: 'prayer point',
+  actions: 'action point',
 };
 
 function PlaceholderDrawer({
@@ -49,6 +60,7 @@ function PlaceholderDrawer({
 
   const canAdd = pagesWithAddButton.includes(page.id);
   const itemName = itemNameMap[page.id] || 'item';
+  const addName = addNameMap[page.id] || 'item';
   const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a';
 
   return (
@@ -66,7 +78,11 @@ function PlaceholderDrawer({
             Select {aOrAn} {itemName} from the list<br />
             {canAdd ? (
               <span>
-                or click the + to add a new {itemName}
+                or click the
+                {' '}
+                <span className={classes.bold}>+</span>
+                {' '}
+                to add a new {addName}
               </span>
             ) : (
               <span>

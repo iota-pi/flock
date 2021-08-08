@@ -37,7 +37,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import { ActionIcon, FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   alert: {
@@ -169,6 +169,22 @@ export function getSections(
       },
     );
   }
+
+  sections.push(
+    {
+      icon: ActionIcon,
+      id: 'actions',
+      title: 'Actions',
+      content: (
+        <NoteControl
+          noNotesText="No actions"
+          notes={item.notes}
+          onChange={(notes: ItemNote[]) => handleChange({ notes })}
+          noteType="action"
+        />
+      ),
+    },
+  );
 
   return sections;
 }

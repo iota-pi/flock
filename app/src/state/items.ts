@@ -5,10 +5,10 @@ import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
-export type ItemNoteType = 'interaction' | 'prayer';
+export type ItemNoteType = 'interaction' | 'prayer' | 'action';
 export type ItemOrNoteType = ItemType | ItemNoteType;
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
-export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer'];
+export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer', 'action'];
 
 export interface BaseNote {
   content: string,
@@ -23,7 +23,10 @@ export interface PrayerNote extends BaseNote {
 export interface InteractionNote extends BaseNote {
   type: 'interaction',
 }
-export type ItemNote = PrayerNote | InteractionNote;
+export interface ActionNote extends BaseNote {
+  type: 'action',
+}
+export type ItemNote = PrayerNote | InteractionNote | ActionNote;
 
 export interface BaseItem {
   archived: boolean,
@@ -167,13 +170,22 @@ export function getBlankInteraction(): InteractionNote {
   };
 }
 
+export function getBlankAction(): ActionNote {
+  return {
+    ...getBlankBaseNote(),
+    type: 'action',
+  };
+}
+
 export function getBlankNote(noteType: ItemNoteType): ItemNote {
   if (noteType === 'interaction') {
     return getBlankInteraction();
   } else if (noteType === 'prayer') {
     return getBlankPrayerPoint();
+  } else if (noteType === 'action') {
+    return getBlankAction();
   }
-  throw new Error(`Unknown note type ${noteType}`);
+  throw new Error(`Unsupported note type ${noteType}`);
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {

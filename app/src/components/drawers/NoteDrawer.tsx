@@ -305,6 +305,17 @@ function NoteDrawer({
             />
           </Grid>
         )}
+
+        {note.type === 'action' && (
+          <Grid item xs={12}>
+            <KeyboardDatePicker
+              value={new Date(note.date)}
+              onChange={handleDateChange}
+              label="Action Due Date"
+              format="dd/MM/yyyy"
+            />
+          </Grid>
+        )}
       </Grid>
     </BaseDrawer>
   );

@@ -196,6 +196,8 @@ function NoteControl<T extends ItemNote>({
         return 'Add Interaction';
       } else if (noteType === 'prayer') {
         return 'Add Prayer Point';
+      } else if (noteType === 'action') {
+        return 'Add Action';
       }
       throw new Error(`Unsupported note type ${noteType}`);
     },
@@ -207,6 +209,8 @@ function NoteControl<T extends ItemNote>({
         return 'Details';
       } else if (noteType === 'prayer') {
         return 'Prayer point';
+      } else if (noteType === 'action') {
+        return 'Action';
       }
       throw new Error(`Unsupported note type ${noteType}`);
     },

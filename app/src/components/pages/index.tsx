@@ -3,6 +3,7 @@ import { Switch, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
+  ActionIcon,
   GeneralIcon,
   GroupIcon,
   InteractionIcon,
@@ -11,11 +12,12 @@ import {
   PrayerIcon,
 } from '../Icons';
 
-const ItemPage = loadable(() => import('./ItemPage'));
+const ActionsPage = loadable(() => import('./Actions'));
+const CreateAccountPage = loadable(() => import('./CreateAccount'));
 const InteractionsPage = loadable(() => import('./Interactions'));
+const ItemPage = loadable(() => import('./ItemPage'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
-const CreateAccountPage = loadable(() => import('./CreateAccount'));
 const TagPage = loadable(() => import('./Tag'));
 
 export type InternalPageId = (
@@ -27,10 +29,9 @@ export type PageId = (
   'people' |
   'groups' |
   'general' |
-  'prayer-points' |
   'interactions' |
   'prayer' |
-  'suggestions'
+  'actions'
 );
 export type AnyPageId = InternalPageId | PageId;
 
@@ -110,6 +111,14 @@ export const pages: Page[] = [
     name: 'Interactions',
     icon: InteractionIcon,
     page: <InteractionsPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'actions',
+    path: '/actions',
+    name: 'Actions',
+    icon: ActionIcon,
+    page: <ActionsPage />,
     requiresAuth: true,
   },
 ];

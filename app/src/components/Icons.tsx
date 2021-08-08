@@ -2,6 +2,7 @@ import React from 'react';
 import { createSvgIcon, SvgIconTypeMap } from '@material-ui/core';
 import { OverridableComponent } from '@material-ui/core/OverridableComponent';
 
+import ActionIcon from '@material-ui/icons/ArrowForward';
 import AddIcon from '@material-ui/icons/Add';
 import ArchiveIcon from '@material-ui/icons/Archive';
 import BackIcon from '@material-ui/icons/ChevronLeft';
@@ -36,6 +37,7 @@ const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
 export type MuiIconType = OverridableComponent<SvgIconTypeMap<{}, 'svg'>>;
 
 export {
+  ActionIcon,
   AddIcon,
   ArchiveIcon,
   BackIcon,
