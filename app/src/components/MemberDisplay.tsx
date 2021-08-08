@@ -45,11 +45,9 @@ function MemberDisplay({
     [dispatch],
   );
   const handleRemoveMember = useCallback(
-    (member: PersonItem) => (
-      () => {
-        onChange({ members: group.members.filter(m => m !== member.id) });
-      }
-    ),
+    (member: PersonItem) => {
+      onChange({ members: group.members.filter(m => m !== member.id) });
+    },
     [group.members, onChange],
   );
   const handleChangeMembers = useCallback(

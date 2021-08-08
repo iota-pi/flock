@@ -51,6 +51,7 @@ function NoteDrawer({
   const allItems = useItems();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
+  const prevOpen = usePrevious(open);
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
@@ -75,16 +76,16 @@ function NoteDrawer({
 
   useEffect(
     () => {
-      if (open) {
-        if (linkedItemsProp) {
-          setLinkedItems(linkedItemsProp);
+      if (open && !prevOpen) {
+        if (existingLinkedItem) {
+          setLinkedItems([existingLinkedItem]);
         } else {
-          setLinkedItems(existingLinkedItem ? [existingLinkedItem] : []);
+          setLinkedItems(linkedItemsProp || []);
         }
         setShowSensitive(false);
       }
     },
-    [existingLinkedItem, linkedItemsProp, open],
+    [existingLinkedItem, linkedItemsProp, open, prevOpen],
   );
 
   const handleClear = useCallback(() => setLinkedItems([]), []);
@@ -110,15 +111,9 @@ function NoteDrawer({
     },
     [editing, items],
   );
-  const handleRemoveItem = useCallback(
+  const handleUnlinkItem = useCallback(
     (item: Item) => {
       setLinkedItems(linked => linked.filter(i => i.id !== item.id));
-    },
-    [],
-  );
-  const handleUnlinkItem = useCallback(
-    (item: Item) => () => {
-      setLinkedItems(prev => prev.filter(i => i.id !== item.id));
     },
     [],
   );
@@ -215,7 +210,7 @@ function NoteDrawer({
   );
 
   const itemsLabel = note.type === 'interaction' ? 'People' : 'Items';
-  const contentLabel = note.type === 'interaction' ? 'Comment' : 'Prayer Point';
+  const contentLabel = note.type !== 'prayer' ? 'Comment' : 'Prayer Point';
 
   return (
     <BaseDrawer
@@ -244,7 +239,7 @@ function NoteDrawer({
             label={itemsLabel}
             noItemsText={`No ${itemsLabel.toLowerCase()} found`}
             onClear={handleClear}
-            onRemove={handleRemoveItem}
+            onRemove={handleUnlinkItem}
             onSelect={handleAddItem}
             selectedIds={linkedItems.map(item => item.id)}
             showGroupMemberCount

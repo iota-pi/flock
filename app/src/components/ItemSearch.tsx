@@ -116,7 +116,6 @@ function ItemSearch<T extends Item = Item>({
         onSelect(value[value.length - 1]);
       }
       if (onRemove && reason === 'remove-option') {
-        console.warn(value);
         const deletedItems = selectedItems.filter(item => !value.find(i => i.id === item.id));
         onRemove(deletedItems[0]);
       }
@@ -125,6 +124,10 @@ function ItemSearch<T extends Item = Item>({
       }
     },
     [onClear, onRemove, onSelect, selectedItems],
+  );
+  const handleRemove = useCallback(
+    (item: T) => () => (onRemove ? onRemove(item) : undefined),
+    [onRemove],
   );
 
   return (
@@ -158,7 +161,7 @@ function ItemSearch<T extends Item = Item>({
             key={item.id}
             label={getItemName(item)}
             icon={getIcon(item.type)}
-            onDelete={onRemove ? () => onRemove(item) : undefined}
+            onDelete={handleRemove}
             className={classes.itemChip}
           />
         ))
