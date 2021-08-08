@@ -66,7 +66,11 @@ function TagDisplay({
 
       {limitedTags.length < tags.length && (
         <span className={classes.more}>
-          +{tags.length - limitedTags.length} more
+          {limitedTags.length > 0 ? (
+            `+${tags.length - limitedTags.length} more`
+          ) : (
+            `${tags.length} tags`
+          )}
         </span>
       )}
     </div>
