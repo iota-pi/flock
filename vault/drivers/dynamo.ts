@@ -6,6 +6,8 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts';
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems';
 const DATA_ATTRIBUTES = ['metadata', 'cipher'];
 
+export const MAX_ITEM_SIZE = 50000;
+
 export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}
 
 export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
@@ -139,6 +141,16 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
   }
 
   async set(item: VaultItem) {
+    if (!item.cipher || !item.metadata.iv || !item.metadata.type) {
+      throw new Error(
+        `Missing some required properties on item ${JSON.stringify(item)}`,
+      );
+    }
+    const itemLength = JSON.stringify(item).length;
+    if (itemLength > MAX_ITEM_SIZE) {
+      throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`);
+    }
+
     await this.client?.put(
       {
         TableName: ITEM_TABLE_NAME,
