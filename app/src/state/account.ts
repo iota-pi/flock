@@ -7,7 +7,7 @@ export const initialAccount: AccountId = '';
 export const initialMetadata: AccountMetadata = {};
 
 export interface BaseAccountState {
-  account: AccountId,
+  account?: AccountId,
   metadata?: AccountMetadata,
 }
 export type AccountState = Required<BaseAccountState>;
@@ -31,7 +31,9 @@ export function accountReducer(
   action: SetAccountAction | AllActions,
 ): AccountId {
   if (action.type === SET_ACCOUNT) {
-    return action.account;
+    if (action.account) {
+      return action.account;
+    }
   }
 
   return state === undefined ? initialAccount : state;
