@@ -60,4 +60,12 @@ module.exports = {
     'react/jsx-props-no-spreading': 'off',
     "react/require-default-props": 'off',
   },
+  overrides: [
+    {
+      files: ['*.spec.[tj]s', '*.test.[tj]s'],
+      rules: {
+        '@typescript-eslint/dot-notation': 'off',
+      },
+    }
+  ],
 };

@@ -5,7 +5,7 @@ import { deleteItems, getBlankGroup, getBlankPerson, setItems, updateItems } fro
 import { VaultItem } from './api';
 import { AccountMetadata, setAccount } from '../state/account';
 
-const getVault = (dispatch?: any) => {
+function getVault(dispatch?: any) {
   const account = getAccountId();
   return Vault.create(
     account,
