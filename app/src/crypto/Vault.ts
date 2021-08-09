@@ -48,7 +48,12 @@ class Vault {
     this.keyHash = keyHash;
   }
 
-  static async create(accountId: string, password: string, dispatch: AppDispatch) {
+  static async create(
+    accountId: string,
+    password: string,
+    dispatch: AppDispatch,
+    iterations?: number,
+  ) {
     const enc = new TextEncoder();
     const keyBase = await crypto.subtle.importKey(
       'raw',
@@ -61,7 +66,7 @@ class Vault {
       {
         name: 'PBKDF2',
         salt: enc.encode(accountId),
-        iterations: 100000,
+        iterations: iterations || 100000,
         hash: 'SHA-256',
       },
       keyBase,
@@ -242,12 +247,7 @@ class Vault {
   }
 
   async setMetadata(metadata: AccountMetadata) {
-    this.dispatch(
-      setAccount({
-        account: this.account,
-        metadata,
-      }),
-    );
+    this.dispatch(setAccount({ metadata }));
     const { cipher, iv } = await this.encryptObject(metadata);
     return this.api.setMetadata({
       account: this.account,

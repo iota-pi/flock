@@ -1,22 +1,192 @@
 import Vault from './Vault';
-import { getAccountId } from '../utils';
+import { getAccountId, getItemId } from '../utils';
+import store from '../store';
+import { deleteItems, getBlankGroup, getBlankPerson, setItems, updateItems } from '../state/items';
+import { VaultItem } from './api';
+import { AccountMetadata, setAccount } from '../state/account';
+
+const getVault = (dispatch?: any) => {
+  const account = getAccountId();
+  return Vault.create(
+    account,
+    'example',
+    dispatch || store.dispatch,
+    100,
+  );
+}
 
 describe('Vault (Crypto)', () => {
-  it('encrypt and decrypt', async () => {
-    const account = getAccountId();
-    const vault = await Vault.create(account, 'example');
+  test('encrypt and decrypt', async () => {
+    const vault = await getVault();
     const text = 'It came to me on my birthday, my precious.';
     const cipher = await vault.encrypt(text);
     const result = await vault.decrypt(cipher);
     expect(result).toEqual(text);
   });
 
-  it('encryptObject and decryptObject', async () => {
-    const account = getAccountId();
-    const vault = await Vault.create(account, 'example');
+  test('encryptObject and decryptObject', async () => {
+    const vault = await getVault();
     const obj = { id: 'onering' };
     const cipher = await vault.encryptObject(obj);
     const result = await vault.decryptObject(cipher);
     expect(result).toEqual(obj);
+  });
+
+  test('import and export', async () => {
+    const vault = await getVault();
+    const text = 'It came to me on my birthday, my precious.';
+    const cipher = await vault.encrypt(text);
+    const exported = await vault.export();
+    const imported = await Vault.import(exported, store.dispatch);
+    const result = await imported.decrypt(cipher);
+    expect(result).toEqual(text);
+    expect(vault['account']).toEqual(imported['account']);
+    expect(vault['keyHash']).toEqual(imported['keyHash']);
+  });
+
+  test('store a single item', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { put: jest.fn() };
+    vault['api'] = api as any;
+    const item = getBlankPerson();
+
+    await vault.store(item);
+
+    expect(dispatch).toBeCalledWith(updateItems([item]));
+    const apiCallParams = api.put.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      account: vault['account'],
+      authToken: vault.authToken,
+      item: item.id,
+      metadata: {
+        type: item.type,
+      },
+    });
+    expect(apiCallParams).toHaveProperty('cipher');
+    expect(apiCallParams).toHaveProperty('metadata.iv');
+  });
+
+  test('store multiple items', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { putMany: jest.fn() };
+    vault['api'] = api as any;
+    const items = [getBlankPerson(), getBlankGroup()];
+
+    await vault.store(items);
+
+    expect(dispatch).toBeCalledWith(updateItems(items));
+    const apiCallParams = api.putMany.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      account: vault['account'],
+      authToken: vault.authToken,
+    });
+    expect(apiCallParams.items.length).toEqual(items.length);
+  });
+
+  test('fetchAll', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const original = [getBlankPerson(), getBlankGroup()];
+    const encrypted = await Promise.all(original.map(item => vault.encryptObject(item)));
+    const asAPIItems: VaultItem[] = encrypted.map((item, i) => ({
+      account: vault['account'],
+      cipher: item.cipher,
+      item: original[i].id,
+      metadata: {
+        iv: item.iv,
+        type: original[i].type,
+      },
+    }));
+    const api = { fetchAll: jest.fn().mockReturnValue(asAPIItems) };
+    vault['api'] = api as any;
+
+    const result = await vault.fetchAll();
+
+    expect(dispatch).toBeCalledWith(setItems(result));
+    expect(result).toEqual(original);
+  });
+
+  test('delete a single item', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { delete: jest.fn() };
+    vault['api'] = api as any;
+    const id = getItemId();
+
+    await vault.delete(id);
+
+    expect(dispatch).toBeCalledWith(deleteItems([id]));
+    const apiCallParams = api.delete.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      account: vault['account'],
+      authToken: vault.authToken,
+      item: id,
+    });
+  });
+
+  test('delete multiple items', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { deleteMany: jest.fn() };
+    vault['api'] = api as any;
+    const ids = [getItemId(), getItemId(), getItemId()];
+
+    await vault.delete(ids);
+
+    expect(dispatch).toBeCalledWith(deleteItems(ids));
+    const apiCallParams = api.deleteMany.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      account: vault['account'],
+      authToken: vault.authToken,
+      items: ids,
+    });
+  });
+
+  test('setMetadata', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { setMetadata: jest.fn() };
+    vault['api'] = api as any;
+    const metadata: AccountMetadata = { foo: 'bar', baz: 'far' };
+
+    await vault.setMetadata(metadata);
+
+    expect(dispatch).toBeCalledWith(setAccount({ metadata }));
+    const apiCallParams = api.setMetadata.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      account: vault['account'],
+      authToken: vault.authToken,
+    });
+    const decrypted = await vault.decryptObject(apiCallParams.metadata);
+    expect(decrypted).toMatchObject(metadata);
+  });
+
+  test('getMetadata encrypted', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const original: AccountMetadata = { foo: 'bar', baz: 'far' };
+    const encrypted = await vault.encryptObject(original);
+    const api = { getMetadata: jest.fn().mockReturnValue(encrypted) };
+    vault['api'] = api as any;
+
+    const result = await vault.getMetadata();
+
+    expect(dispatch).toBeCalledWith(setAccount(result));
+    expect(result.metadata).toEqual(original);
+  });
+
+  test('getMetadata plain', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const original: AccountMetadata = { foo: 'bar', baz: 'far' };
+    const api = { getMetadata: jest.fn().mockReturnValue(original) };
+    vault['api'] = api as any;
+
+    const result = await vault.getMetadata();
+
+    expect(dispatch).toBeCalledWith(setAccount(result));
+    expect(result.metadata).toEqual(original);
   });
 });
