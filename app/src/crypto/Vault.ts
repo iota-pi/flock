@@ -191,20 +191,6 @@ class Vault {
     });
   }
 
-  async fetch(itemId: string): Promise<Item> {
-    const result = await this.api.fetch({
-      account: this.account,
-      authToken: this.authToken,
-      item: itemId,
-    });
-    const promise = this.decryptObject({
-      cipher: result.cipher,
-      iv: result.metadata.iv,
-    }) as Promise<Item>;
-    promise.then(item => this.dispatch(updateItems([item])));
-    return promise;
-  }
-
   async fetchAll(): Promise<Item[]> {
     const result = await this.api.fetchAll({
       account: this.account,
