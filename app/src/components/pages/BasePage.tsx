@@ -93,16 +93,20 @@ function BasePage({
         </Fade>
       </div>
 
-      <div className={classes.pageContent}>
+      <div
+        className={classes.pageContent}
+        data-cy="page-content"
+      >
         {children}
       </div>
 
       {fab && (
         <div className={classes.fabContainer}>
           <Fab
-            onClick={onClickFab}
-            color="secondary"
             aria-label={fabLabel}
+            data-cy="fab"
+            color="secondary"
+            onClick={onClickFab}
           >
             {fabIcon || <AddIcon />}
           </Fab>

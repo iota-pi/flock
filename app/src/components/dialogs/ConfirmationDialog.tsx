@@ -43,18 +43,20 @@ function ConfirmationDialog({
 
       <DialogActions>
         <Button
+          data-cy="confirm-cancel"
+          fullWidth
           onClick={onCancel}
           variant="outlined"
-          fullWidth
         >
           {cancel}
         </Button>
 
         <Button
+          color="primary"
+          data-cy="confirm-confirm"
+          fullWidth
           onClick={onConfirm}
           variant="outlined"
-          color="primary"
-          fullWidth
         >
           {confirm}
         </Button>

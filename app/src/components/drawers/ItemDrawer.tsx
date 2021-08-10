@@ -344,6 +344,7 @@ function ItemDrawer({
             <Grid item xs={6}>
               <TextField
                 autoFocus
+                data-cy="firstName"
                 fullWidth
                 key={item.id}
                 label="First Name"
@@ -356,6 +357,7 @@ function ItemDrawer({
             <Grid item xs={6}>
               <TextField
                 fullWidth
+                data-cy="lastName"
                 label="Last Name"
                 onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
                 value={item.lastName}
@@ -366,6 +368,7 @@ function ItemDrawer({
           <Grid item xs={6}>
             <TextField
               autoFocus
+              data-cy="name"
               fullWidth
               key={item.id}
               label="Name"
@@ -382,6 +385,7 @@ function ItemDrawer({
           <>
             <Grid item xs={6}>
               <TextField
+                data-cy="email"
                 fullWidth
                 label="Email"
                 onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
@@ -391,6 +395,7 @@ function ItemDrawer({
 
             <Grid item xs={6}>
               <TextField
+                data-cy="phone"
                 fullWidth
                 label="Phone"
                 onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
@@ -402,20 +407,22 @@ function ItemDrawer({
 
         <Grid item xs={12}>
           <TextField
-            value={item.description}
-            onChange={event => handleChange({ description: getValue(event) })}
-            label="Description"
+            data-cy="description"
             fullWidth
+            label="Description"
+            onChange={event => handleChange({ description: getValue(event) })}
+            value={item.description}
           />
         </Grid>
 
         <Grid item xs={12}>
           <TextField
-            value={item.summary}
-            onChange={event => handleChange({ summary: getValue(event) })}
+            data-cy="summary"
+            fullWidth
             label="Notes"
             multiline
-            fullWidth
+            onChange={event => handleChange({ summary: getValue(event) })}
+            value={item.summary}
           />
         </Grid>
 
@@ -424,6 +431,7 @@ function ItemDrawer({
             control={(
               <Checkbox
                 checked={item.archived}
+                data-cy="archived"
                 onChange={(_, archived) => handleChange({ archived })}
               />
             )}

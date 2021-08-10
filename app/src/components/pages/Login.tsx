@@ -159,9 +159,10 @@ function LoginPage() {
 
           <Button
             color="primary"
-            variant="contained"
-            size="large"
+            data-cy="login"
             onClick={handleClickLogin}
+            size="large"
+            variant="contained"
           >
             Login
           </Button>
@@ -175,15 +176,19 @@ function LoginPage() {
       </div>
 
       <div className={classes.section}>
-        <Typography variant="h5" gutterBottom>
+        <Typography
+          gutterBottom
+          variant="h5"
+        >
           Create a New Account
         </Typography>
 
         <Button
           color="primary"
-          variant="contained"
-          size="large"
+          data-cy="create-account"
           onClick={handleClickCreate}
+          size="large"
+          variant="contained"
         >
           Create
         </Button>

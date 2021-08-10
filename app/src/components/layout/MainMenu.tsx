@@ -135,8 +135,9 @@ function MainMenu({
 
               <ListItem
                 button
-                onClick={handleClick(id)}
                 className={`${classes.menuItem} ${id === currentPageId ? classes.primary : ''}`}
+                data-cy={`page-${id}`}
+                onClick={handleClick(id)}
               >
                 <ListItemIcon className={classes.menuItemIcon}>
                   <Icon />

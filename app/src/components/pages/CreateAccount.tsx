@@ -254,10 +254,11 @@ function CreateAccountPage() {
 
         <Button
           color="primary"
-          variant="contained"
-          size="large"
-          onClick={handleClickCreate}
+          data-cy="create-account"
           disabled={!validPassword || waiting}
+          onClick={handleClickCreate}
+          size="large"
+          variant="contained"
         >
           Create Account
 

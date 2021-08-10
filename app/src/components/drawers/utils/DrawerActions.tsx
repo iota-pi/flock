@@ -116,10 +116,11 @@ function DrawerActions({
           {onReport && (
             <Grid item xs={12}>
               <Button
-                onClick={onReport}
-                variant="outlined"
+                data-cy="drawer-report"
                 fullWidth
+                onClick={onReport}
                 startIcon={editing ? <ReportIcon /> : undefined}
+                variant="outlined"
               >
                 Group Report
               </Button>
@@ -129,9 +130,10 @@ function DrawerActions({
           {onSkip && (
             <Grid item xs={12}>
               <Button
+                data-cy="drawer-skip"
+                fullWidth
                 onClick={onSkip}
                 variant="outlined"
-                fullWidth
               >
                 Skip
               </Button>
@@ -141,11 +143,12 @@ function DrawerActions({
           {onCancel && onDelete && (
             <Grid item xs={12} sm={6}>
               <Button
-                onClick={handleClickDelete}
-                variant="outlined"
-                fullWidth
                 className={editing ? classes.danger : undefined}
+                data-cy="drawer-cancel"
+                fullWidth
+                onClick={handleClickDelete}
                 startIcon={editing ? <DeleteIcon /> : undefined}
+                variant="outlined"
               >
                 {editing ? 'Delete' : 'Cancel'}
               </Button>
@@ -156,11 +159,12 @@ function DrawerActions({
             <Grid item xs={12} sm={6}>
               <Button
                 color="primary"
-                onClick={onSave}
-                variant="contained"
-                fullWidth
+                data-cy="drawer-done"
                 disabled={!canSave}
+                fullWidth
+                onClick={onSave}
                 startIcon={<SaveIcon />}
+                variant="contained"
               >
                 Done
               </Button>
@@ -171,9 +175,10 @@ function DrawerActions({
             <Grid item xs={12}>
               <Button
                 color="primary"
+                data-cy="drawer-done"
+                fullWidth
                 onClick={onDone}
                 variant="contained"
-                fullWidth
               >
                 Done
               </Button>
@@ -184,10 +189,11 @@ function DrawerActions({
             <Grid item xs={12}>
               <Button
                 color="primary"
+                data-cy="drawer-next"
+                endIcon={<NextIcon />}
+                fullWidth
                 onClick={onNext}
                 variant="contained"
-                fullWidth
-                endIcon={<NextIcon />}
               >
                 Next
               </Button>
