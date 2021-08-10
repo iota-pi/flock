@@ -1,5 +1,5 @@
 import { getItemId } from '../utils';
-import { getBlankPerson } from './items';
+import { deleteItems, getBlankPerson, updateItems } from './items';
 import { DrawerData, drawersReducer, pushActive, removeActive, setUiState, UIData, updateActive } from './ui';
 
 describe('drawersReducer', () => {
@@ -131,10 +131,48 @@ describe('drawersReducer', () => {
   });
 
   test('UPDATE_ITEMS', () => {
-
+    const item1 = getBlankPerson();
+    const item2 = getBlankPerson();
+    const state: UIData['drawers'] = [
+      {
+        id: getItemId(),
+        open: true,
+        item: item1,
+        next: [getBlankPerson(), item2, getBlankPerson()],
+      },
+    ];
+    const result = drawersReducer(
+      state,
+      updateItems([
+        { ...item1, firstName: 'foo' },
+        { ...item2, firstName: 'bar' },
+      ]),
+    );
+    expect(result[0].item).toMatchObject({ firstName: 'foo' });
+    expect(result[0].next![0]).not.toMatchObject({ firstName: 'bar' });
+    expect(result[0].next![1]).toMatchObject({ firstName: 'bar' });
+    expect(result[0].next![2]).not.toMatchObject({ firstName: 'bar' });
   });
 
   test('DELETE_ITEMS', () => {
-
+    const item1 = getBlankPerson();
+    const item2 = getBlankPerson();
+    const state: UIData['drawers'] = [
+      {
+        id: getItemId(),
+        open: true,
+        item: getBlankPerson(),
+        next: [getBlankPerson(), item2, getBlankPerson()],
+      },
+      {
+        id: getItemId(),
+        open: true,
+        item: item1,
+      },
+    ];
+    const result = drawersReducer(state, deleteItems([item1.id, item2.id]));
+    expect(result).toHaveLength(1);
+    expect(result[0].next).toHaveLength(2);
+    expect(result[0].next).not.toContainEqual(item2);
   });
 });

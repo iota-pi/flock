@@ -168,22 +168,37 @@ export function drawersReducer(
     const newDrawers: typeof state = [];
     let modified = false;
     for (const drawer of state) {
+      const newDrawer: DrawerData = { ...drawer };
       if (drawer.item && updatedIds.includes(drawer.item.id)) {
-        newDrawers.push({
-          ...drawer,
-          item: action.items.find(item => item.id === drawer.item!.id),
-        });
+        newDrawer.item = action.items.find(item => item.id === drawer.item!.id);
         modified = true;
-      } else {
-        newDrawers.push(drawer);
       }
+      if (drawer.next && drawer.next.find(next => updatedIds.includes(next.id))) {
+        newDrawer.next = drawer.next.map(
+          nextItem => action.items.find(item => item.id === nextItem.id) || nextItem,
+        );
+        modified = true;
+      }
+      newDrawers.push(newDrawer);
     }
     return modified ? newDrawers : state;
   }
   if (action.type === DELETE_ITEMS) {
-    const deletedIds = action.items;
-    const newDrawers = state.filter(d => !d.item || !deletedIds.includes(d.item.id));
-    return newDrawers.length === state.length ? state : newDrawers;
+    const newDrawers: typeof state = [];
+    let modified = false;
+    for (const drawer of state) {
+      if (!drawer.item || !action.items.includes(drawer.item.id)) {
+        const newDrawer: DrawerData = { ...drawer };
+        if (drawer.next && drawer.next.find(item => !action.items.includes(item.id))) {
+          newDrawer.next = drawer.next.filter(item => !action.items.includes(item.id));
+          modified = true;
+        }
+        newDrawers.push(newDrawer);
+      } else {
+        modified = true;
+      }
+    }
+    return modified ? newDrawers : state;
   }
 
   return state;
