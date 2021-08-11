@@ -1,5 +1,10 @@
 import { GeneralItem, GroupItem, ItemNote, PersonItem } from '../../src/state/items';
 
+Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => {
+  options.delay = 5;
+  return originalFn(subject, text, options);
+})
+
 Cypress.Commands.add('dataCy', (dataCy: string) => {
   return cy.get(`[data-cy=${dataCy}]`)
 });

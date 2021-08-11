@@ -43,7 +43,7 @@ describe('create account', () => {
 
   it('can add action', () => {
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
-      .addNote({ content: 'Trim the hedges', type: 'action' })
+      .addNote({ content: 'Trim hedges', type: 'action' })
       .addNote({ content: 'Cook taters', type: 'action' })
       .addNote({ content: 'Bully Gollum', type: 'action', sensitive: true })
       .saveDrawer()
@@ -51,7 +51,7 @@ describe('create account', () => {
     cy.dataCy('page-content')
       .contains('Frodo Baggins')
     cy.dataCy('page-content')
-      .contains('Trim the hedges')
+      .contains('Trim hedges')
     cy.dataCy('page-content')
       .contains('Cook taters')
     cy.dataCy('page-content')
@@ -60,16 +60,16 @@ describe('create account', () => {
   });
 
   it('can create groups; add & remove members', () => {
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+    cy.createPerson({ firstName: 'Frodo' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Peregrin', lastName: 'Took' })
+    cy.createPerson({ firstName: 'Pippin' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Meriadoc', lastName: 'Brandybuck' })
+    cy.createPerson({ firstName: 'Merry' })
       .saveDrawer()
-    cy.createGroup({ name: 'The Fellowship of the Ring' })
+    cy.createGroup({ name: 'Fellowship of the Ring' })
       .addMember('Frodo')
-      .addMember('Peregrin')
-      .addMember('Meriadoc')
+      .addMember('Pippin')
+      .addMember('Merry')
       .saveDrawer()
     cy.createPerson({ firstName: 'Gandalf' })
       .addToGroup('f')
@@ -108,10 +108,10 @@ describe('create account', () => {
   });
 
   it('can add and edit tags', () => {
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+    cy.createPerson({ firstName: 'Frodo' })
       .addTag('Hobbit')
       .saveDrawer()
-    cy.createPerson({ firstName: 'Peregrin', lastName: 'Took' })
+    cy.createPerson({ firstName: 'Pippin' })
       .addTag('h')
       .saveDrawer()
     cy.createPerson({ firstName: 'Boromir' })
@@ -119,7 +119,7 @@ describe('create account', () => {
       .addTag('h')  // should remove the tag "Hobbit"
       .addTag('Gondor')
       .saveDrawer()
-    cy.contains('Peregrin').click()
+    cy.contains('Pippin').click()
       .addTag('Gon')
       .saveDrawer();
 
