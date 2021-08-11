@@ -147,7 +147,10 @@ function BaseDrawer({
       )}
 
       <div className={classes.layout}>
-        <Container className={classes.container}>
+        <Container
+          className={classes.container}
+          data-cy="drawer-content"
+        >
           <>
             {showBackButton && (
               <div className={classes.backButton}>

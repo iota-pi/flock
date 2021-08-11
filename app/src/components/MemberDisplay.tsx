@@ -63,11 +63,12 @@ function MemberDisplay({
     <>
       {editable && (
         <ItemSearch
-          selectedIds={group.members}
+          dataCy="members"
           items={people}
           label="Add group members"
           noItemsText="No people found"
           onSelect={handleChangeMembers}
+          selectedIds={group.members}
           showSelected={false}
         />
       )}

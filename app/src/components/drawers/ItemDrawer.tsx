@@ -111,7 +111,7 @@ export function getSections(
     sections.push(
       {
         icon: GroupIcon,
-        id: 'group-display',
+        id: 'groups',
         title: 'Groups',
         content: (
           <GroupDisplay item={item} />
@@ -124,7 +124,7 @@ export function getSections(
     sections.push(
       {
         icon: PersonIcon,
-        id: 'member-display',
+        id: 'members',
         title: 'Members',
         content: (
           <MemberDisplay

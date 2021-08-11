@@ -71,6 +71,7 @@ function GroupDisplay({
       {editable && (
         <>
           <ItemSearch
+            dataCy="groups"
             noItemsText="No groups found"
             onSelect={handleSelectGroup}
             items={allGroups}

@@ -180,6 +180,7 @@ function ItemList<T extends Item>({
             className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
           >
             <Checkbox
+              data-cy="list-item-checkbox"
               edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
               checked={getChecked(item)}
               tabIndex={-1}
@@ -195,6 +196,7 @@ function ItemList<T extends Item>({
 
             <ListItem
               button
+              data-cy="list-item"
               disabled={!onClick && !onCheck && !onClickAction}
               selected={getHighlighted ? getHighlighted(item) : false}
               onClick={onClick ? onClick(item) : undefined}
@@ -244,6 +246,7 @@ function ItemList<T extends Item>({
                 <div className={classes.actionButton}>
                   <IconButton
                     className={!onClickAction ? classes.noHover : undefined}
+                    data-cy="list-item-action"
                     disableRipple={!onClickAction}
                     onClick={handleClickAction(item)}
                   >

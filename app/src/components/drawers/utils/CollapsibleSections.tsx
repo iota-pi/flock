@@ -114,6 +114,7 @@ function CollapsibleSections({
               expanded: classes.summaryExpanded,
               root: classes.summaryRoot,
             }}
+            data-cy={`section-${section.id}`}
             expandIcon={<ExpandMoreIcon />}
           >
             {section.icon && (

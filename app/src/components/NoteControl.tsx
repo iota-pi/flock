@@ -76,14 +76,15 @@ export interface Props<T extends ItemNote> {
 }
 
 function AddNoteButton(
-  { label, onClick }: { label: string, onClick: () => void },
+  { dataCy, label, onClick }: { dataCy?: string, label: string, onClick: () => void },
 ) {
   return (
     <Button
+      data-cy={dataCy}
       fullWidth
+      onClick={onClick}
       size="small"
       variant="outlined"
-      onClick={onClick}
     >
       {label}
     </Button>
@@ -220,6 +221,7 @@ function NoteControl<T extends ItemNote>({
   return (
     <>
       <AddNoteButton
+        dataCy={`add-${noteType}`}
         label={addNoteLabel}
         onClick={handleAddNote}
       />
@@ -278,6 +280,7 @@ function NoteControl<T extends ItemNote>({
                   control={(
                     <Checkbox
                       checked={note.sensitive || false}
+                      data-cy="sensitive-note"
                       onChange={handleChangeSensitive(note.id)}
                     />
                   )}

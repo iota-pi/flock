@@ -71,6 +71,7 @@ function ItemOption({
 
 export interface Props<T extends Item> {
   autoFocus?: boolean,
+  dataCy?: string,
   items: T[],
   label: string,
   noItemsText?: string,
@@ -85,6 +86,7 @@ export interface Props<T extends Item> {
 
 function ItemSearch<T extends Item = Item>({
   autoFocus = false,
+  dataCy,
   items,
   label,
   noItemsText,
@@ -144,6 +146,7 @@ function ItemSearch<T extends Item = Item>({
         <TextField
           {...params}
           autoFocus={autoFocus}
+          data-cy={dataCy}
           label={label}
           variant="outlined"
         />
