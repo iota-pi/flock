@@ -98,43 +98,35 @@ function ActionsPage() {
         showIcons
       />
 
-      {comingSoonActions.length > 0 && (
-        <>
-          <Container maxWidth="xl" className={classes.container}>
-            <Typography variant="h4" className={classes.heading}>
-              Coming soon actions
-            </Typography>
-          </Container>
+      <Container maxWidth="xl" className={classes.container}>
+        <Typography variant="h4" className={classes.heading}>
+          Coming soon actions
+        </Typography>
+      </Container>
 
-          <Divider />
+      <Divider />
 
-          <NoteList
-            notes={comingSoonActions}
-            noNotesText="No action items due"
-            onClick={handleClick}
-            showIcons
-          />
-        </>
-      )}
+      <NoteList
+        notes={comingSoonActions}
+        noNotesText="No action items due"
+        onClick={handleClick}
+        showIcons
+      />
 
-      {otherActions.length > 0 && (
-        <>
-          <Container maxWidth="xl" className={classes.container}>
-            <Typography variant="h4" className={classes.heading}>
-              Later actions
-            </Typography>
-          </Container>
+      <Container maxWidth="xl" className={classes.container}>
+        <Typography variant="h4" className={classes.heading}>
+          Later actions
+        </Typography>
+      </Container>
 
-          <Divider />
+      <Divider />
 
-          <NoteList
-            notes={otherActions}
-            noNotesText="No action items due"
-            onClick={handleClick}
-            showIcons
-          />
-        </>
-      )}
+      <NoteList
+        notes={otherActions}
+        noNotesText="No action items due"
+        onClick={handleClick}
+        showIcons
+      />
     </BasePage>
   );
 }
