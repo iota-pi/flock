@@ -1,7 +1,7 @@
 import Vault from './Vault';
 import { getAccountId, getItemId } from '../utils';
 import store from '../store';
-import { deleteItems, getBlankGroup, getBlankPerson, setItems, updateItems } from '../state/items';
+import { deleteItems, getBlankGroup, getBlankPerson, Item, setItems, updateItems } from '../state/items';
 import { VaultItem } from './api';
 import { AccountMetadata, setAccount } from '../state/account';
 
@@ -83,6 +83,29 @@ describe('Vault (Crypto)', () => {
       authToken: vault.authToken,
     });
     expect(apiCallParams.items.length).toEqual(items.length);
+  });
+
+  test('does not store items with missing properties', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { put: jest.fn() };
+    vault['api'] = api as any;
+    const { description, ...item } = getBlankPerson();
+
+    const promise = vault.store(item as Item);
+    await expect(promise).rejects.toThrow();
+  });
+
+  test('store multiple items', async () => {
+    const dispatch = jest.fn();
+    const vault = await getVault(dispatch);
+    const api = { putMany: jest.fn() };
+    vault['api'] = api as any;
+    const { description, ...partialItem } = getBlankPerson();
+    const items = [getBlankPerson(), getBlankGroup(), partialItem as Item];
+
+    const promise = vault.store(items);
+    await expect(promise).rejects.toThrow();
   });
 
   test('fetchAll', async () => {

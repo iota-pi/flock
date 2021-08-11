@@ -245,6 +245,30 @@ export function getBlankItem(itemType: ItemType): Item {
   return getBlankGeneral();
 }
 
+export function checkProperties(items: Item[]): { error: boolean, message: string } {
+  const ignoreProps: (keyof Item)[] = ['isNew'];
+  for (const item of items) {
+    const blank = getBlankItem(item.type);
+    const filledKeys = Object.keys(item) as (keyof Item)[];
+    for (const key of Object.keys(blank) as (keyof Item)[]) {
+      if (ignoreProps.includes(key)) {
+        continue;
+      }
+
+      if (!filledKeys.includes(key)) {
+        return {
+          error: true,
+          message: `Item ${item.id} is missing key "${key}"`,
+        };
+      }
+    }
+  }
+  return {
+    error: false,
+    message: 'Success',
+  };
+}
+
 export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   if (itemType === 'person') {
     return plural ? 'People' : 'Person';

@@ -1,7 +1,7 @@
 import VaultAPI from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
-import { deleteItems, Item, setItems, updateItems } from '../state/items';
+import { checkProperties, deleteItems, Item, setItems, updateItems } from '../state/items';
 import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
 
@@ -159,6 +159,11 @@ class Vault {
   }
 
   private async storeOne(item: Item) {
+    const checkResult = checkProperties([item]);
+    if (checkResult.error) {
+      throw new Error(checkResult.message);
+    }
+
     this.dispatch(updateItems([item]));
     const { cipher, iv } = await this.encryptObject(item);
     await this.api.put({
@@ -174,6 +179,11 @@ class Vault {
   }
 
   private async storeMany(items: Item[]) {
+    const checkResult = checkProperties(items);
+    if (checkResult.error) {
+      throw new Error(checkResult.message);
+    }
+
     this.dispatch(updateItems(items));
     const encrypted = await Promise.all(
       items.map(
