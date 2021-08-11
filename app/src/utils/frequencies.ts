@@ -34,14 +34,18 @@ export enum Due {
   overdue,
 }
 
-export function isDue(lastDate: Date, desiredFrequency: Frequency): Due {
+export function timeTillDue(lastDate: Date, desiredFrequency: Frequency) {
   const dueDate = new Date(lastDate.getTime() + frequencyToMilliseconds(desiredFrequency));
-  const timeTillDue = dueDate.getTime() - new Date().getTime();
+  return dueDate.getTime() - new Date().getTime();
+}
+
+export function isDue(lastDate: Date, desiredFrequency: Frequency): Due {
+  const remiainingTime = timeTillDue(lastDate, desiredFrequency);
   const threshold = Math.ceil(frequencyToDays(desiredFrequency) / 7) * ONE_DAY;
-  if (timeTillDue < -threshold) {
+  if (remiainingTime < -threshold) {
     return Due.overdue;
   }
-  if (timeTillDue < (desiredFrequency === 'daily' ? 0 : threshold)) {
+  if (remiainingTime < (desiredFrequency === 'daily' ? 0 : threshold)) {
     return Due.due;
   }
   return Due.fine;

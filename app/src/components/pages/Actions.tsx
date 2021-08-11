@@ -6,6 +6,8 @@ import BasePage from './BasePage';
 import { updateActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 import NoteList from '../NoteList';
+import { ONE_DAY } from '../../utils/frequencies';
+import { isSameDay } from '../../utils';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -27,7 +29,42 @@ function ActionsPage() {
   const dispatch = useAppDispatch();
   const items = useItems();
 
-  const actions = useMemo(() => getNotes(items, 'action') as ActionNote[], [items]);
+  const allActions = useMemo(() => {
+    const actions = getNotes(items, 'action') as ActionNote[];
+    const withTimes: [ActionNote, number][] = actions.map(
+      action => [action, action.date - new Date().getTime()],
+    );
+    withTimes.sort((a, b) => a[1] - b[1]);
+    return withTimes.map(([action]) => action);
+  }, [items]);
+  const todayIndex = useMemo(
+    () => allActions.findIndex(
+      action => (
+        action.date > new Date().getTime() && !isSameDay(new Date(action.date), new Date())
+      ),
+    ),
+    [allActions],
+  );
+  const comingSoonIndex = useMemo(
+    () => allActions.findIndex(
+      action => (
+        action.date > new Date().getTime() + ONE_DAY * 7
+      ),
+    ),
+    [allActions],
+  );
+  const todayActions = useMemo(
+    () => allActions.slice(0, todayIndex),
+    [allActions, todayIndex],
+  );
+  const comingSoonActions = useMemo(
+    () => allActions.slice(todayIndex, comingSoonIndex),
+    [allActions, comingSoonIndex, todayIndex],
+  );
+  const otherActions = useMemo(
+    () => allActions.slice(comingSoonIndex),
+    [allActions, comingSoonIndex],
+  );
 
   const handleClick = useCallback(
     (note: ActionNote) => () => {
@@ -48,18 +85,56 @@ function ActionsPage() {
     >
       <Container maxWidth="xl" className={classes.container}>
         <Typography variant="h4" className={classes.heading}>
-          Due Actions
+          Due actions
         </Typography>
       </Container>
 
       <Divider />
 
       <NoteList
-        notes={actions}
+        notes={todayActions}
         noNotesText="No action items due"
         onClick={handleClick}
         showIcons
       />
+
+      {comingSoonActions.length > 0 && (
+        <>
+          <Container maxWidth="xl" className={classes.container}>
+            <Typography variant="h4" className={classes.heading}>
+              Coming soon actions
+            </Typography>
+          </Container>
+
+          <Divider />
+
+          <NoteList
+            notes={comingSoonActions}
+            noNotesText="No action items due"
+            onClick={handleClick}
+            showIcons
+          />
+        </>
+      )}
+
+      {otherActions.length > 0 && (
+        <>
+          <Container maxWidth="xl" className={classes.container}>
+            <Typography variant="h4" className={classes.heading}>
+              Later actions
+            </Typography>
+          </Container>
+
+          <Divider />
+
+          <NoteList
+            notes={otherActions}
+            noNotesText="No action items due"
+            onClick={handleClick}
+            showIcons
+          />
+        </>
+      )}
     </BasePage>
   );
 }
