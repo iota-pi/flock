@@ -97,11 +97,12 @@ export function getSections(
     {
       icon: FrequencyIcon,
       id: 'frequencies',
-      title: 'Prayer and interaction frequencies',
+      title: item.type === 'person' ? 'Prayer and interaction frequencies' : 'Prayer frequency',
       content: (
         <FrequencyControls
           item={item}
           onChange={handleChange}
+          noInteractions={item.type !== 'person'}
         />
       ),
     },
