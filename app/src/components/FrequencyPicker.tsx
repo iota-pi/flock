@@ -90,6 +90,7 @@ function FrequencyPicker({
 
           <Select
             id={`frequency-selection-${id}`}
+            data-cy={`frequency-selection-${id}`}
             value={frequency}
             labelId={`frequency-selection-label-${id}`}
             onChange={handleChangeNoteType}
@@ -98,6 +99,7 @@ function FrequencyPicker({
           >
             {FREQUENCIES.map(value => (
               <MenuItem
+                data-cy={`frequency-${value}`}
                 key={FREQUENCIES_TO_LABELS[value]}
                 value={value}
               >

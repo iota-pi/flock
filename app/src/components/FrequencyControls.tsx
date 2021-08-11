@@ -73,10 +73,11 @@ function FrequencyControls({
       <Grid item xs={12} sm={noInteractions ? 12 : 6}>
         <FrequencyPicker
           frequency={item.prayerFrequency}
-          onChange={prayerFrequency => onChange({ prayerFrequency })}
-          label="Prayer Frequency"
-          icon={<PrayerIcon />}
           fullWidth
+          icon={<PrayerIcon />}
+          id="prayer"
+          label="Prayer Frequency"
+          onChange={prayerFrequency => onChange({ prayerFrequency })}
         />
 
         {lastPrayerText ? (
@@ -93,10 +94,11 @@ function FrequencyControls({
         <Grid item xs={12} sm={6}>
           <FrequencyPicker
             frequency={item.interactionFrequency}
-            onChange={interactionFrequency => onChange({ interactionFrequency })}
-            label="Interaction Frequency"
-            icon={<InteractionIcon />}
             fullWidth
+            icon={<InteractionIcon />}
+            id="frequency"
+            label="Interaction Frequency"
+            onChange={interactionFrequency => onChange({ interactionFrequency })}
           />
 
           {lastInteractionText ? (

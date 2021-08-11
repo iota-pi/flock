@@ -13,7 +13,7 @@
 // https://on.cypress.io/configuration
 // ***********************************************************
 /// <reference types="cypress" />
-import { GroupItem, ItemNote, PersonItem } from '../../src/state/items';
+import { GeneralItem, GroupItem, ItemNote, PersonItem } from '../../src/state/items';
 
 declare global {
   namespace Cypress {
@@ -27,10 +27,13 @@ declare global {
       createAccount(password: string): void;
       login(credentials: { username: string, password: string }): void;
 
-      saveDrawer(): Chainable;
       createPerson(data: Partial<PersonItem>): Chainable;
       createGroup(data: Partial<GroupItem>): Chainable;
+      createOther(data: Partial<GeneralItem>): Chainable;
+      saveDrawer(): Chainable;
+
       addNote(note: Pick<ItemNote, 'content' | 'type' | 'sensitive'>): Chainable;
+      addTag(tag: string): Chainable;
       addToGroup(group: string): Chainable;
       addMember(name: string): Chainable;
     }

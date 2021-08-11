@@ -87,31 +87,47 @@ describe('create account', () => {
     cy.contains('3 members')
   });
 
-  it('can create groups; add & remove members', () => {
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+  it('can create other items, edit frequencies', () => {
+    cy.createOther({ name: 'Athelas' })
+      .dataCy('frequency-selection-prayer').click()
+      .dataCy('frequency-weekly').click()
       .saveDrawer()
-    cy.createPerson({ firstName: 'Peregrin', lastName: 'Took' })
+    cy.createOther({ name: 'Mallorn' })
+      .dataCy('frequency-selection-prayer').click()
+      .dataCy('frequency-annually').click()
       .saveDrawer()
-    cy.createPerson({ firstName: 'Meriadoc', lastName: 'Brandybuck' })
-      .saveDrawer()
-    cy.createGroup({ name: 'The Fellowship of the Ring' })
-      .addMember('Frodo')
-      .addMember('Peregrin')
-      .addMember('Meriadoc')
-      .saveDrawer()
-    cy.createPerson({ firstName: 'Gandalf' })
-      .addToGroup('f')
+    cy.createOther({ name: 'The One Ring' })
+      .dataCy('frequency-selection-prayer').click()
+      .dataCy('frequency-daily').click()
       .saveDrawer()
 
-    cy.dataCy('page-groups').click()
-    cy.contains('4 members').click()
-    cy.dataCy('section-members').click()
-    cy.contains('Gandalf')
-      .parentsUntil('[data-cy=list-item]')
-      .parent()
-      .find('[data-cy=list-item-action]')
-      .click()
+    cy.dataCy('page-prayer').click()
+    cy.dataCy('list-item').eq(0).contains('One Ring')
+    cy.dataCy('list-item').eq(1).contains('Athelas')
+    cy.dataCy('list-item').eq(2).contains('Mallorn')
+  });
+
+  it('can add and edit tags', () => {
+    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+      .addTag('Hobbit')
       .saveDrawer()
-    cy.contains('3 members')
+    cy.createPerson({ firstName: 'Peregrin', lastName: 'Took' })
+      .addTag('h')
+      .saveDrawer()
+    cy.createPerson({ firstName: 'Boromir' })
+      .addTag('h')
+      .addTag('h')  // should remove the tag "Hobbit"
+      .addTag('Gondor')
+      .saveDrawer()
+    cy.contains('Peregrin').click()
+      .addTag('Gon')
+      .saveDrawer();
+
+    cy.dataCy('tag')
+      .filter((i, e) => /gondor/i.test(e.innerText))
+      .should('have.length', 2)
+    cy.dataCy('tag')
+      .filter((i, e) => /hobbit/i.test(e.innerText))
+      .should('have.length', 2)
   });
 });

@@ -1,4 +1,4 @@
-import { GroupItem, ItemNote, PersonItem } from '../../src/state/items';
+import { GeneralItem, GroupItem, ItemNote, PersonItem } from '../../src/state/items';
 
 Cypress.Commands.add('dataCy', (dataCy: string) => {
   return cy.get(`[data-cy=${dataCy}]`)
@@ -9,7 +9,9 @@ Cypress.Commands.add('createAccount', (password: string) => {
   cy.get('#password').type(password)
   cy.dataCy('create-account').click()
   cy.get('#current-password').type(password)
+  cy.intercept({ method: 'GET', url: '/*', times: 2 }).as('apiRequest')
   cy.dataCy('login').click()
+  cy.wait(['@apiRequest'])
   return cy;
 });
 
@@ -18,7 +20,9 @@ Cypress.Commands.add(
   ({ username, password }: { username: string, password: string }) => {
     cy.get('#username').type(username)
     cy.get('#current-password').type(password)
+    cy.intercept({ method: 'GET', url: '/*', times: 2 }).as('apiRequest')
     cy.dataCy('login').click()
+    cy.wait(['@apiRequest'])
     return cy;
   },
 );
@@ -39,6 +43,18 @@ Cypress.Commands.add(
   'createGroup',
   (data: Partial<GroupItem>) => {
     cy.dataCy('page-groups').click()
+    cy.dataCy('fab').click()
+    for (const key of Object.keys(data)) {
+      cy.dataCy(key).type(data[key])
+    }
+    return cy;
+  },
+);
+
+Cypress.Commands.add(
+  'createOther',
+  (data: Partial<GeneralItem>) => {
+    cy.dataCy('page-general').click()
     cy.dataCy('fab').click()
     for (const key of Object.keys(data)) {
       cy.dataCy(key).type(data[key])
@@ -71,8 +87,16 @@ Cypress.Commands.add(
       cy.focused().type(note.content)
     }
     if (note.sensitive) {
-      cy.dataCy(`sensitive-note`).first().click()
+      cy.dataCy('sensitive-note').first().click()
     }
+    return cy;
+  },
+);
+
+Cypress.Commands.add(
+  'addTag',
+  (tag: string) => {
+    cy.dataCy('tag-selection').type(`${tag}{enter}`)
     return cy;
   },
 );
@@ -82,7 +106,7 @@ Cypress.Commands.add(
   () => {
     cy.intercept({ method: 'PUT', url: '/*/items/*', times: 1 }).as('apiRequest')
     cy.dataCy('drawer-done').click()
-    cy.wait(['@apiRequest']);
+    cy.wait(['@apiRequest'])
     return cy;
   },
 );

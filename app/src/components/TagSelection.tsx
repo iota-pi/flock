@@ -81,6 +81,7 @@ function TagSelection({
       renderInput={params => (
         <TextField
           {...params}
+          data-cy="tag-selection"
           label={label || 'Tags'}
           variant="outlined"
           InputProps={{

@@ -58,12 +58,13 @@ function TagDisplay({
     <div className={classes.root}>
       {limitedTags.map(tag => (
         <Chip
-          key={tag}
-          label={tag}
           classes={{ label: classes.chipLabel }}
           className={classes.tagChip}
-          variant="outlined"
+          data-cy="tag"
+          key={tag}
+          label={tag}
           onClick={linked ? handleClick(tag) : undefined}
+          variant="outlined"
         />
       ))}
 
