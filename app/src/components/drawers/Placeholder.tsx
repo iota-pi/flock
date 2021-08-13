@@ -39,6 +39,7 @@ const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   interactions: 'item',
   prayer: 'item',
   actions: 'item',
+  settings: 'item',
 };
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
@@ -47,6 +48,7 @@ const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   interactions: 'interaction',
   prayer: 'prayer point',
   actions: 'action point',
+  settings: 'item',
 };
 
 function PlaceholderDrawer({

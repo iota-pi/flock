@@ -51,3 +51,9 @@ export function metadataReducer(
 
   return state;
 }
+
+export const DEFAULT_MATURITY: string[] = [
+  'Non-Christian',
+  'Young Christian',
+  'Mature Christian',
+];

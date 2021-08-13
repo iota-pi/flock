@@ -129,7 +129,9 @@ function PrayerPage() {
               Daily Goal:
             </Typography>
             <span>&nbsp;</span>
-            <Typography color="secondary">
+            <Typography
+              color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
+            >
               {completed} / {goal}
             </Typography>
             <span>&nbsp;&nbsp;</span>

@@ -8,6 +8,7 @@ import {
   GroupIcon,
   InteractionIcon,
   MuiIconType,
+  OptionsIcon,
   PersonIcon,
   PrayerIcon,
 } from '../Icons';
@@ -16,8 +17,9 @@ const ActionsPage = loadable(() => import('./Actions'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
 const InteractionsPage = loadable(() => import('./Interactions'));
 const ItemPage = loadable(() => import('./ItemPage'));
-const PrayerPage = loadable(() => import('./Prayer'));
 const LoginPage = loadable(() => import('./Login'));
+const PrayerPage = loadable(() => import('./Prayer'));
+const SettingsPage = loadable(() => import('./Settings'));
 const TagPage = loadable(() => import('./Tag'));
 
 export type InternalPageId = (
@@ -31,7 +33,8 @@ export type PageId = (
   'general' |
   'interactions' |
   'prayer' |
-  'actions'
+  'actions' |
+  'settings'
 );
 export type AnyPageId = InternalPageId | PageId;
 
@@ -119,6 +122,15 @@ export const pages: Page[] = [
     name: 'Actions',
     icon: ActionIcon,
     page: <ActionsPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'settings',
+    path: '/settings',
+    name: 'Settings',
+    icon: OptionsIcon,
+    page: <SettingsPage />,
+    dividerBefore: true,
     requiresAuth: true,
   },
 ];
