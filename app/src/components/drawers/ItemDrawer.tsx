@@ -37,7 +37,8 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { ActionIcon, FrequencyIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import { ActionIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import MaturityPicker from '../MaturityPicker';
 
 const useStyles = makeStyles(theme => ({
   alert: {
@@ -93,20 +94,7 @@ function DuplicateAlert({ item, count }: { item: Item, count: number }) {
 export function getSections(
   { item, handleChange }: ItemAndChangeCallback,
 ): CollapsibleSection[] {
-  const sections: CollapsibleSection[] = [
-    {
-      icon: FrequencyIcon,
-      id: 'frequencies',
-      title: item.type === 'person' ? 'Prayer and interaction frequencies' : 'Prayer frequency',
-      content: (
-        <FrequencyControls
-          item={item}
-          onChange={handleChange}
-          noInteractions={item.type !== 'person'}
-        />
-      ),
-    },
-  ];
+  const sections: CollapsibleSection[] = [];
 
   if (item.type === 'person') {
     sections.push(
@@ -237,6 +225,10 @@ function ItemDrawer({
       onChange(dirtyItem({ ...item, ...data }))
     ),
     [item, onChange],
+  );
+  const handleChangeMaturity = useCallback(
+    (maturity: string | null) => handleChange<PersonItem>({ maturity }),
+    [handleChange],
   );
 
   const sections = useMemo(
@@ -444,6 +436,24 @@ function ItemDrawer({
           <TagSelection
             selectedTags={item.tags}
             onChange={tags => handleChange({ tags })}
+          />
+        </Grid>
+
+        {item.type === 'person' && (
+          <Grid item xs={12}>
+            <MaturityPicker
+              fullWidth
+              maturity={item.maturity}
+              onChange={handleChangeMaturity}
+            />
+          </Grid>
+        )}
+
+        <Grid item xs={12}>
+          <FrequencyControls
+            item={item}
+            onChange={handleChange}
+            noInteractions={item.type !== 'person'}
           />
         </Grid>
 

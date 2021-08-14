@@ -43,20 +43,21 @@ export interface BaseItem {
   type: ItemType,
 }
 export interface PersonItem extends BaseItem {
-  type: 'person',
+  email: string,
   firstName: string,
   lastName: string,
-  email: string,
+  maturity: string | null,
   phone: string,
+  type: 'person',
 }
 export interface GroupItem extends BaseItem {
-  type: 'group',
-  name: string,
   members: ItemId[],
+  name: string,
+  type: 'group',
 }
 export interface GeneralItem extends BaseItem {
-  type: 'general',
   name: string,
+  type: 'general',
 }
 export type Item = PersonItem | GroupItem | GeneralItem;
 export type ItemOrNote = Item | ItemNote;
@@ -211,6 +212,7 @@ export function getBlankPerson(id?: ItemId): PersonItem {
     firstName: '',
     isNew: true,
     lastName: '',
+    maturity: null,
     phone: '',
     type: 'person',
   };
