@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { getTags, Item, ItemId, ItemOrNote } from './items';
 import { setUiState, UiOptions } from './ui';
@@ -7,12 +7,14 @@ import { setUiState, UiOptions } from './ui';
 export function useItems<T extends Item>(itemType: T['type']): T[];
 export function useItems(): Item[];
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  return useAppSelector(
-    state => (
+  const items = useAppSelector(state => state.items);
+  return useMemo(
+    () => (
       itemType
-        ? state.items.filter(i => i.type === itemType)
-        : state.items
+        ? items.filter(i => i.type === itemType)
+        : items
     ) as T[],
+    [items, itemType],
   );
 }
 export const useNoteMap = () => useAppSelector(state => state.noteToItemMap);
@@ -68,11 +70,13 @@ export const useDrawerItems = () => {
 };
 
 export const useDrawerItemIds = (): ItemId[] => {
+  const result = useRef<ItemId[]>([]);
   const items = useDrawerItems();
-  return useMemo(
-    () => items.map(item => item.id),
-    [items],
-  );
+  const ids = items.map(item => item.id);
+  if (ids.join('~') !== result.current.join('~')) {
+    result.current = ids;
+  }
+  return result.current;
 };
 
 export const useIsActive = () => {

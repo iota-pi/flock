@@ -168,15 +168,21 @@ export function drawersReducer(
     const newDrawers: typeof state = [];
     let modified = false;
     for (const drawer of state) {
-      const newDrawer: DrawerData = { ...drawer };
+      let newDrawer = drawer;
       if (drawer.item && updatedIds.includes(drawer.item.id)) {
-        newDrawer.item = action.items.find(item => item.id === drawer.item!.id);
+        newDrawer = {
+          ...newDrawer,
+          item: action.items.find(item => item.id === drawer.item!.id),
+        };
         modified = true;
       }
       if (drawer.next && drawer.next.find(next => updatedIds.includes(next.id))) {
-        newDrawer.next = drawer.next.map(
-          nextItem => action.items.find(item => item.id === nextItem.id) || nextItem,
-        );
+        newDrawer = {
+          ...newDrawer,
+          next: drawer.next.map(
+            nextItem => action.items.find(item => item.id === nextItem.id) || nextItem,
+          ),
+        };
         modified = true;
       }
       newDrawers.push(newDrawer);
