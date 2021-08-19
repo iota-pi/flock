@@ -2,7 +2,11 @@ import React, { useCallback, useMemo } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
 import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
-import { useIsActive, useItems, useOptions } from '../../state/selectors';
+import {
+  useIsActive,
+  useItems,
+  useOptions,
+} from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState, updateActive } from '../../state/ui';
@@ -16,11 +20,11 @@ function ItemPage<T extends Item>({
 }: Props<T>) {
   const dispatch = useAppDispatch();
   const isActive = useIsActive();
-  const rawPeople = useItems<T>(itemType);
+  const rawItems = useItems<T>(itemType);
   const selected = useAppSelector(state => state.ui.selected);
   const { bulkActionsOnMobile } = useOptions();
 
-  const people = useMemo(() => rawPeople.slice().sort(compareItems), [rawPeople]);
+  const items = useMemo(() => rawItems.slice().sort(compareItems), [rawItems]);
 
   const handleClickItem = useCallback(
     (item: T) => () => {
@@ -50,15 +54,15 @@ function ItemPage<T extends Item>({
     [dispatch, selected],
   );
   const allSelected = useMemo(
-    () => selected.length === people.length && selected.length > 0,
-    [people, selected],
+    () => selected.length === items.length && selected.length > 0,
+    [items.length, selected.length],
   );
   const handleSelectAll = useCallback(
     () => {
-      const newSelected = allSelected ? [] : people.map(p => p.id);
+      const newSelected = allSelected ? [] : items.map(item => item.id);
       dispatch(setUiState({ selected: newSelected }));
     },
-    [allSelected, dispatch, people],
+    [allSelected, dispatch, items],
   );
 
   const getChecked = useCallback((item: T) => selected.includes(item.id), [selected]);
@@ -94,7 +98,7 @@ function ItemPage<T extends Item>({
         getChecked={getChecked}
         getDescription={getDescription}
         getHighlighted={isActive}
-        items={people}
+        items={items}
         maxTags={maxTags}
         noItemsHint="Click the plus button to add one!"
         noItemsText={`No ${pluralLabel.toLowerCase()} found`}
