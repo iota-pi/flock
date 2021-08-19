@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { useCallback } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
 import { isItem, Item, ItemNote } from '../../state/items';
 import { removeActive, updateActive } from '../../state/ui';

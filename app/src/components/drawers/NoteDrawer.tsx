@@ -1,5 +1,6 @@
-import React, {
+import {
   ChangeEvent,
+  MouseEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -128,7 +129,7 @@ function NoteDrawer({
 
   const handleClickVisibility = useCallback(() => setShowSensitive(show => !show), []);
   const handleMouseDownVisibility = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+    (event: MouseEvent<HTMLButtonElement>) => event.preventDefault(),
     [],
   );
 

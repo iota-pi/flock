@@ -1,4 +1,4 @@
-import React, { PropsWithChildren } from 'react';
+import { PropsWithChildren } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import DrawerDisplay from './DrawerDisplay';
 import SelectedActions from '../SelectedActions';

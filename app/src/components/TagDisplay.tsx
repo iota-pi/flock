@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import { MouseEvent, useCallback } from 'react';
 import { useHistory } from 'react-router-dom';
 import { Chip, makeStyles } from '@material-ui/core';
 import { getTagPage } from './pages';
@@ -45,7 +45,7 @@ function TagDisplay({
   const history = useHistory();
 
   const handleClick = useCallback(
-    (tag: string) => (event: React.MouseEvent) => {
+    (tag: string) => (event: MouseEvent) => {
       history.push(getTagPage(tag));
       event.stopPropagation();
     },

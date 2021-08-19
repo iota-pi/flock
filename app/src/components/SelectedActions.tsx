@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import {
   Divider,
   List,
@@ -185,7 +185,7 @@ function SelectedActions() {
     >
       <List>
         {actions.map(action => (
-          <React.Fragment key={action.id}>
+          <Fragment key={action.id}>
             {action.dividerBefore && <Divider />}
 
             <ListItem
@@ -201,7 +201,7 @@ function SelectedActions() {
                 {action.label}
               </ListItemText>
             </ListItem>
-          </React.Fragment>
+          </Fragment>
         ))}
       </List>
 

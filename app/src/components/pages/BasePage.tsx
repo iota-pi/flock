@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { PropsWithChildren, ReactNode } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Fab, Fade, LinearProgress } from '@material-ui/core';
 import { AddIcon } from '../Icons';
@@ -58,7 +58,7 @@ interface NoTopBarProps {
   topBar?: false,
 }
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps);
-type Props = React.PropsWithChildren<CombinedProps>;
+type Props = PropsWithChildren<CombinedProps>;
 export type { Props as BasePageProps };
 
 

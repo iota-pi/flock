@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import { Dispatch, SetStateAction, useCallback, useMemo, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { getTags, Item, ItemId, ItemOrNote } from './items';
 import { setUiState, UiOptions } from './ui';
@@ -90,11 +90,11 @@ export const useIsActive = () => {
 export const useOptions = () => useAppSelector(state => state.ui.options);
 export function useOption<T extends keyof UiOptions>(
   optionKey: T,
-): [UiOptions[T], React.Dispatch<React.SetStateAction<UiOptions[T]>>] {
+): [UiOptions[T], Dispatch<SetStateAction<UiOptions[T]>>] {
   const option = useOptions()[optionKey];
 
   const dispatch = useAppDispatch();
-  const setOption: React.Dispatch<React.SetStateAction<UiOptions[T]>> = useCallback(
+  const setOption: Dispatch<SetStateAction<UiOptions[T]>> = useCallback(
     valueOrFunction => {
       let newValue: UiOptions[T];
       if (typeof valueOrFunction === 'function') {

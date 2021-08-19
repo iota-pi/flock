@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback, useMemo } from 'react';
+import { Fragment, ReactNode, useCallback, useMemo } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -137,7 +137,7 @@ function NoteList<T extends ItemNote = ItemNote>({
       {dividers && notes.length === 0 && <Divider />}
 
       {notes.map(([note, item]) => (
-        <React.Fragment key={note.id}>
+        <Fragment key={note.id}>
           {dividers && <Divider />}
 
           <ListItem
@@ -177,7 +177,7 @@ function NoteList<T extends ItemNote = ItemNote>({
               </ListItemSecondaryAction>
             )}
           </ListItem>
-        </React.Fragment>
+        </Fragment>
       ))}
 
       {notes.length === 0 && (

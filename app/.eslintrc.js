@@ -58,6 +58,7 @@ module.exports = {
     'react/jsx-indent': ['error', 2, {checkAttributes: true, indentLogicalExpressions: true}],
     'react/jsx-one-expression-per-line': 'off',
     'react/jsx-props-no-spreading': 'off',
+    'react/react-in-jsx-scope': 'off',
     "react/require-default-props": 'off',
   },
   overrides: [

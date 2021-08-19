@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Button, Container, IconButton, InputAdornment, TextField, Typography } from '@material-ui/core';
@@ -99,7 +99,7 @@ function LoginPage() {
     [],
   );
   const handleMouseDownVisibility = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
+    (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
   );
 

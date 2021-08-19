@@ -1,10 +1,10 @@
-import React from 'react';
+import { Component } from 'react';
 
 export interface Props {
   onUnmount?: () => void,
 }
 
-class UnmountWatcher extends React.Component<Props> {
+class UnmountWatcher extends Component<Props> {
   shouldComponentUpdate() {
     return false;
   }

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { IconButton, makeStyles, Typography } from '@material-ui/core';
 import {
   getItemName,

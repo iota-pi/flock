@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Item } from '../../state/items';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import DateFnsUtils from '@date-io/date-fns';
 import { Toolbar, useMediaQuery } from '@material-ui/core';

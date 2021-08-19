@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import NoteList from '../NoteList';
 import { useIsActive, useItems } from '../../state/selectors';
 import {

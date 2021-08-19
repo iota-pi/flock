@@ -1,4 +1,4 @@
-import React, { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
+import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
 import { BackIcon, RemoveIcon } from '../Icons';

@@ -1,4 +1,4 @@
-import React, { MouseEvent, ReactNode, useCallback } from 'react';
+import { Fragment, MouseEvent, ReactNode, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Checkbox,
@@ -191,7 +191,7 @@ function ItemList<T extends Item>({
         );
 
         return (
-          <React.Fragment key={item.id}>
+          <Fragment key={item.id}>
             {dividers && <Divider />}
 
             <ListItem
@@ -257,7 +257,7 @@ function ItemList<T extends Item>({
 
               {checkboxSide === 'right' && checkbox}
             </ListItem>
-          </React.Fragment>
+          </Fragment>
         );
       })}
 

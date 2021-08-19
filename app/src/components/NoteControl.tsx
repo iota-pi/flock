@@ -1,5 +1,7 @@
-import React, {
+import {
   ChangeEvent,
+  Fragment,
+  MouseEvent,
   useCallback,
   useMemo,
   useState,
@@ -182,7 +184,7 @@ function NoteControl<T extends ItemNote>({
     [],
   );
   const handleMouseDownVisibility = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+    (event: MouseEvent<HTMLButtonElement>) => event.preventDefault(),
     [],
   );
 
@@ -230,7 +232,7 @@ function NoteControl<T extends ItemNote>({
         <Grid item />
 
         {notes.map(note => (
-          <React.Fragment key={note.id}>
+          <Fragment key={note.id}>
             <Grid item xs={12}>
               <div className={classes.noteContentRow}>
                 <TextField
@@ -304,7 +306,7 @@ function NoteControl<T extends ItemNote>({
             <Grid item xs={12}>
               <Divider />
             </Grid>
-          </React.Fragment>
+          </Fragment>
         ))}
 
         {notes.length === 0 && (

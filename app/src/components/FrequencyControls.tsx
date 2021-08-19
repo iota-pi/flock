@@ -1,7 +1,4 @@
-import React from 'react';
-import {
-  Grid, makeStyles,
-} from '@material-ui/core';
+import { Grid, makeStyles } from '@material-ui/core';
 import {
   Item,
 } from '../state/items';

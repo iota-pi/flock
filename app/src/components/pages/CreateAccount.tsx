@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useState } from 'react';
+import { ChangeEvent, MouseEvent, useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
@@ -179,7 +179,7 @@ function CreateAccountPage() {
     [],
   );
   const handleMouseDownVisibility = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
+    (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
   );
 

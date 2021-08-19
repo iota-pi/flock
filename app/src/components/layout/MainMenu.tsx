@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback } from 'react';
+import { Fragment, ReactNode, useCallback } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
@@ -128,7 +128,7 @@ function MainMenu({
       <div className={classes.drawerContainer}>
         <List>
           {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
-            <React.Fragment key={id}>
+            <Fragment key={id}>
               {dividerBefore && (
                 <Divider />
               )}
@@ -151,7 +151,7 @@ function MainMenu({
                   }}
                 />
               </ListItem>
-            </React.Fragment>
+            </Fragment>
           ))}
         </List>
       </div>
