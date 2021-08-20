@@ -1,11 +1,14 @@
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
 import { createStore, applyMiddleware } from 'redux';
 import thunk, { ThunkMiddleware } from 'redux-thunk';
+import { composeWithDevTools } from 'redux-devtools-extension';
 import { RootState, AllActions, rootReducer } from './state';
 
 const store = createStore(
   rootReducer,
-  applyMiddleware(thunk as ThunkMiddleware<RootState, AllActions>),
+  composeWithDevTools(
+    applyMiddleware(thunk as ThunkMiddleware<RootState, AllActions>),
+  ),
 );
 
 export default store;
