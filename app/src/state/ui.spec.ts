@@ -1,6 +1,6 @@
 import { getItemId } from '../utils';
 import { deleteItems, getBlankPerson, updateItems } from './items';
-import { DrawerData, drawersReducer, pushActive, removeActive, setUiState, UIData, updateActive } from './ui';
+import { DrawerData, drawersReducer, pushActive, removeActive, setUiState, UIData, replaceActive } from './ui';
 
 describe('drawersReducer', () => {
   test('SET_UI_STATE', () => {
@@ -23,7 +23,7 @@ describe('drawersReducer', () => {
       open: true,
       item: getBlankPerson(),
     };
-    const result = drawersReducer(state, updateActive(drawer));
+    const result = drawersReducer(state, replaceActive(drawer));
     expect(result.length).toEqual(1);
     expect(result[0]).toMatchObject(drawer);
   });
@@ -38,7 +38,7 @@ describe('drawersReducer', () => {
       open: false,
       report: true,
     };
-    const result = drawersReducer(state, updateActive(drawer));
+    const result = drawersReducer(state, replaceActive(drawer));
     expect(result.length).toEqual(1);
     expect(result[0]).toMatchObject(drawer);
   });
@@ -60,7 +60,7 @@ describe('drawersReducer', () => {
       open: false,
       report: true,
     };
-    const result = drawersReducer(state, updateActive(drawer));
+    const result = drawersReducer(state, replaceActive(drawer));
     expect(result.slice(-1)[0]).toMatchObject(drawer);
   });
 

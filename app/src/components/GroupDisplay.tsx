@@ -61,7 +61,7 @@ function GroupDisplay({
   );
   const handleClickGroup = useCallback(
     (group: GroupItem) => () => {
-      dispatch(pushActive({ item: group }));
+      dispatch(pushActive({ item: group.id }));
     },
     [dispatch],
   );

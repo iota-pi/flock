@@ -1,4 +1,5 @@
-import { Dispatch, SetStateAction, useCallback, useMemo, useRef } from 'react';
+import memoize from 'proxy-memoize';
+import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { getTags, Item, ItemId, ItemOrNote } from './items';
 import { setUiState, UiOptions } from './ui';
@@ -17,7 +18,25 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
     [items, itemType],
   );
 }
+
+export const useItemMap = () => useAppSelector(state => state.itemMap);
 export const useNoteMap = () => useAppSelector(state => state.noteToItemMap);
+export const useItemOrNote = (id: ItemId) => useAppSelector(
+  memoize(
+    state => {
+      const item: Item | undefined = state.itemMap[id];
+      if (item) {
+        return item;
+      }
+      const noteItem: Item | undefined = state.itemMap[state.noteToItemMap[id]];
+      if (noteItem) {
+        return noteItem.notes.find(note => note.id === id);
+      }
+
+      return undefined;
+    },
+  ),
+);
 
 export const useVault = () => useAppSelector(state => state.vault);
 
@@ -56,34 +75,17 @@ export const useTags = () => {
   return tags;
 };
 
-export const useDrawerItems = () => {
-  const drawers = useAppSelector(state => state.ui.drawers);
-  return useMemo(
-    () => {
-      const items = drawers.map(drawer => drawer.item);
-      return items.filter(
-        (item): item is Exclude<typeof item, undefined> => item !== undefined,
-      );
-    },
-    [drawers],
-  );
-};
-
-export const useDrawerItemIds = (): ItemId[] => {
-  const result = useRef<ItemId[]>([]);
-  const items = useDrawerItems();
-  const ids = items.map(item => item.id);
-  if (ids.join('~') !== result.current.join('~')) {
-    result.current = ids;
-  }
-  return result.current;
-};
-
 export const useIsActive = () => {
-  const ids = useDrawerItemIds();
+  const drawers = useAppSelector(state => state.ui.drawers);
   return useCallback(
-    (note: ItemOrNote) => ids.includes(note.id),
-    [ids],
+    (item: ItemOrNote, report?: boolean) => (
+      drawers.findIndex(drawer => (
+        drawer.open
+        && drawer.item === item.id
+        && (report === undefined || !report === !drawer.report)
+      )) > -1
+    ),
+    [drawers],
   );
 };
 

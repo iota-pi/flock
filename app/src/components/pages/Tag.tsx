@@ -5,7 +5,7 @@ import ItemList from '../ItemList';
 import { useItems } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch } from '../../store';
-import { updateActive } from '../../state/ui';
+import { replaceActive } from '../../state/ui';
 
 
 function TagPage() {
@@ -20,7 +20,7 @@ function TagPage() {
 
   const handleClickItem = useCallback(
     (item: Item) => () => {
-      dispatch(updateActive({ item }));
+      dispatch(replaceActive({ item: item.id }));
     },
     [dispatch],
   );

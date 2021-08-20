@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { Item } from '../../state/items';
+import { Item, ItemId } from '../../state/items';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
 import { useAppDispatch } from '../../store';
@@ -11,7 +11,7 @@ import { getLastPrayedFor } from '../../utils/prayer';
 export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
   item: Item,
-  next?: Item[],
+  next?: ItemId[],
   praying?: boolean,
   onDone?: () => void,
   onSkip?: () => void,
@@ -33,7 +33,7 @@ function ReportDrawer({
 }: Props) {
   const dispatch = useAppDispatch();
   const handleEdit = useCallback(
-    () => dispatch(pushActive({ item })),
+    () => dispatch(pushActive({ item: item.id })),
     [dispatch, item],
   );
   const vault = useVault();
@@ -75,11 +75,14 @@ function ReportDrawer({
     () => {
       if (onSkip) {
         onSkip();
+      }
+      if (next.length) {
+        dispatch(updateActive({ item: next[0], next: next.slice(1) }));
       } else {
         onClose();
       }
     },
-    [onClose, onSkip],
+    [dispatch, next, onClose, onSkip],
   );
 
   return (

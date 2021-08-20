@@ -10,7 +10,7 @@ import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import BasePage from './BasePage';
-import { updateActive } from '../../state/ui';
+import { replaceActive } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -95,13 +95,13 @@ function PrayerPage() {
     (item: Item) => () => {
       const index = prayerSchedule.indexOf(item);
       const endIndex = index < goal ? goal : prayerSchedule.length;
-      const next = prayerSchedule.slice(index + 1, endIndex);
-      dispatch(updateActive({ item, next, praying: true, report: true }));
+      const next = prayerSchedule.slice(index + 1, endIndex).map(i => i.id);
+      dispatch(replaceActive({ item: item.id, next, praying: true, report: true }));
     },
     [dispatch, goal, prayerSchedule],
   );
   const handleClickAdd = useCallback(
-    () => dispatch(updateActive({ item: getBlankPrayerPoint() })),
+    () => dispatch(replaceActive({ newItem: getBlankPrayerPoint() })),
     [dispatch],
   );
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);

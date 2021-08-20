@@ -18,7 +18,7 @@ import {
 import { getIcon, SearchIcon } from '../Icons';
 import { useItems, useTags } from '../../state/selectors';
 import { getTagPage } from '../pages';
-import { updateActive } from '../../state/ui';
+import { replaceActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
@@ -205,8 +205,8 @@ function EverythingSearch({
       if (reason === 'select-option') {
         const option = value[value.length - 1];
         if (option.create) {
-          dispatch(updateActive({
-            item: {
+          dispatch(replaceActive({
+            newItem: {
               ...getBlankItem(option.type),
               ...option.default,
             } as Item,
@@ -219,7 +219,7 @@ function EverythingSearch({
           if (typeof data === 'string') {
             history.push(getTagPage(data));
           } else {
-            dispatch(updateActive({ item: data }));
+            dispatch(replaceActive({ item: data?.id }));
           }
         }
       }

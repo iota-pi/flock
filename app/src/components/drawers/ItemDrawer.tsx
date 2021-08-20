@@ -288,7 +288,7 @@ function ItemDrawer({
 
   const hasReport = item.type === 'group';
   const handleReport = useCallback(
-    () => dispatch(pushActive({ item, report: true })),
+    () => dispatch(pushActive({ item: item.id, report: true })),
     [dispatch, item],
   );
 

@@ -9,7 +9,7 @@ import {
 } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setUiState, updateActive } from '../../state/ui';
+import { setUiState, replaceActive } from '../../state/ui';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -28,15 +28,13 @@ function ItemPage<T extends Item>({
 
   const handleClickItem = useCallback(
     (item: T) => () => {
-      if (!isActive(item)) {
-        dispatch(updateActive({ item }));
-      }
+      dispatch(replaceActive({ item: item.id }));
     },
-    [dispatch, isActive],
+    [dispatch],
   );
   const handleClickAdd = useCallback(
     () => {
-      dispatch(updateActive({ item: getBlankItem(itemType) }));
+      dispatch(replaceActive({ newItem: getBlankItem(itemType) }));
     },
     [dispatch, itemType],
   );
@@ -78,6 +76,10 @@ function ItemPage<T extends Item>({
     },
     [],
   );
+  const getHighlighted = useCallback(
+    (item: Item) => isActive(item, false),
+    [isActive],
+  );
 
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
   const checkboxes = !sm || bulkActionsOnMobile;
@@ -97,7 +99,7 @@ function ItemPage<T extends Item>({
         checkboxes={checkboxes}
         getChecked={getChecked}
         getDescription={getDescription}
-        getHighlighted={isActive}
+        getHighlighted={getHighlighted}
         items={items}
         maxTags={maxTags}
         noItemsHint="Click the plus button to add one!"

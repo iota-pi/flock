@@ -28,7 +28,7 @@ import {
 } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
-import { setUiState, updateActive } from '../state/ui';
+import { setUiState, replaceActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 
 const useStyles = makeStyles(theme => ({
@@ -70,18 +70,18 @@ function SelectedActions() {
   const handleHideTags = useCallback(() => setShowTags(false), []);
   const handleInteraction = useCallback(
     () => {
-      dispatch(updateActive({
+      dispatch(replaceActive({
         initial: selectedItems.filter(item => item.type === 'person'),
-        item: getBlankInteraction(),
+        newItem: getBlankInteraction(),
       }));
     },
     [dispatch, selectedItems],
   );
   const handlePrayerPoint = useCallback(
     () => {
-      dispatch(updateActive({
+      dispatch(replaceActive({
         initial: selectedItems,
-        item: getBlankPrayerPoint(),
+        newItem: getBlankPrayerPoint(),
       }));
     },
     [dispatch, selectedItems],

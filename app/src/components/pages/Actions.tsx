@@ -3,7 +3,7 @@ import { Container, Divider, makeStyles, Typography } from '@material-ui/core';
 import { useItems } from '../../state/selectors';
 import { ActionNote, getBlankAction, getNotes } from '../../state/items';
 import BasePage from './BasePage';
-import { updateActive } from '../../state/ui';
+import { replaceActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 import NoteList from '../NoteList';
 import { ONE_DAY } from '../../utils/frequencies';
@@ -68,12 +68,12 @@ function ActionsPage() {
 
   const handleClick = useCallback(
     (note: ActionNote) => () => {
-      dispatch(updateActive({ item: note }));
+      dispatch(replaceActive({ item: note.id }));
     },
     [dispatch],
   );
   const handleClickAdd = useCallback(
-    () => dispatch(updateActive({ item: getBlankAction() })),
+    () => dispatch(replaceActive({ newItem: getBlankAction() })),
     [dispatch],
   );
 

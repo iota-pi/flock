@@ -6,7 +6,7 @@ import { getBlankInteraction, PersonItem } from '../../state/items';
 import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/interactions';
 import { formatDate } from '../../utils';
 import BasePage from './BasePage';
-import { updateActive } from '../../state/ui';
+import { replaceActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
@@ -33,7 +33,7 @@ function InteractionsPage() {
 
   const handleClick = useCallback(
     (item: PersonItem) => () => {
-      dispatch(updateActive({ item }));
+      dispatch(replaceActive({ item: item.id }));
     },
     [dispatch],
   );
@@ -48,7 +48,7 @@ function InteractionsPage() {
     [],
   );
   const handleClickAdd = useCallback(
-    () => dispatch(updateActive({ item: getBlankInteraction() })),
+    () => dispatch(replaceActive({ newItem: getBlankInteraction() })),
     [dispatch],
   );
 

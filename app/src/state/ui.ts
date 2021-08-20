@@ -1,13 +1,14 @@
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
-import { DELETE_ITEMS, Item, ItemId, ItemOrNote, UPDATE_ITEMS } from './items';
+import { DELETE_ITEMS, ItemId, ItemOrNote } from './items';
 
 export interface DrawerData {
   id: string,
   initial?: ItemOrNote[],
-  item?: ItemOrNote,
-  next?: Item[],
+  item?: string,
+  newItem?: ItemOrNote,
+  next?: string[],
   open: boolean,
   praying?: boolean,
   report?: boolean,
@@ -41,6 +42,7 @@ const initialRequests: UIData['requests'] = {
 
 export const SET_UI_STATE = 'SET_UI_STATE';
 export const REPLACE_ACTIVE = 'REPLACE_ACTIVE';
+export const UPDATE_ACTIVE = 'UPDATE_ACTIVE';
 export const PUSH_ACTIVE = 'PUSH_ACTIVE';
 export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
 export const START_REQUEST = 'START_REQUEST';
@@ -53,8 +55,12 @@ export type SetUIState = Omit<Partial<UIData>, 'options' | 'requests'> & {
 export interface SetUIAction extends Action, SetUIState {
   type: typeof SET_UI_STATE,
 }
-export interface UpdateActiveItemAction extends Action {
+export interface ReplaceActiveItemAction extends Action {
   type: typeof REPLACE_ACTIVE,
+  data: Partial<Omit<DrawerData, 'id'>>,
+}
+export interface UpdateActiveItemAction extends Action {
+  type: typeof UPDATE_ACTIVE,
   data: Partial<Omit<DrawerData, 'id'>>,
 }
 export interface PushActiveItemAction extends Action {
@@ -74,6 +80,7 @@ export interface FinishRequestAction extends Action {
 
 export type UIAction = (
   SetUIAction
+  | ReplaceActiveItemAction
   | UpdateActiveItemAction
   | PushActiveItemAction
   | RemoveActiveItemAction
@@ -88,28 +95,31 @@ export function setUiState(data: SetUIState): SetUIAction {
   };
 }
 
+export function replaceActive(
+  data: Partial<Omit<DrawerData, 'id'>>,
+): ReplaceActiveItemAction {
+  return {
+    type: REPLACE_ACTIVE,
+    data,
+  };
+}
+
 export function updateActive(
   data: Partial<Omit<DrawerData, 'id'>>,
 ): UpdateActiveItemAction {
   return {
-    type: REPLACE_ACTIVE,
-    data: {
-      ...data,
-      initial: data.initial === undefined ? [] : data.initial,
-      next: data.next === undefined ? [] : data.next,
-      open: data.open === undefined ? true : data.open,
-      praying: data.praying === undefined ? false : data.praying,
-      report: data.report === undefined ? false : data.report,
-    },
+    type: UPDATE_ACTIVE,
+    data,
   };
 }
 
-export function pushActive(
-  data: (
-    Pick<DrawerData, 'item'>
-    & Partial<Pick<DrawerData, 'initial' | 'next' | 'open' | 'praying' | 'report'>>
-  ),
-): PushActiveItemAction {
+export type PushActiveOptions = (
+  'initial' | 'newItem' | 'next' | 'open' | 'praying' | 'report'
+);
+export type PushActiveData = (
+  Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, PushActiveOptions>>
+);
+export function pushActive(data: PushActiveData): PushActiveItemAction {
   return {
     type: PUSH_ACTIVE,
     data,
@@ -145,6 +155,15 @@ export function drawersReducer(
   if (action.type === REPLACE_ACTIVE) {
     const lastItem = state.length > 0 ? state[state.length - 1] : undefined;
     const newItem: DrawerData = {
+      id: lastItem ? lastItem.id : getItemId(),
+      open: true,
+      ...action.data,
+    };
+    return [...state.slice(0, -1), newItem];
+  }
+  if (action.type === UPDATE_ACTIVE) {
+    const lastItem = state.length > 0 ? state[state.length - 1] : undefined;
+    const newItem: DrawerData = {
       id: getItemId(),
       open: true,
       ...lastItem,
@@ -163,45 +182,20 @@ export function drawersReducer(
   if (action.type === REMOVE_ACTIVE) {
     return state.slice(0, -1);
   }
-  if (action.type === UPDATE_ITEMS) {
-    const updatedIds = action.items.map(item => item.id);
-    const newDrawers: typeof state = [];
-    let modified = false;
-    for (const drawer of state) {
-      let newDrawer = drawer;
-      if (drawer.item && updatedIds.includes(drawer.item.id)) {
-        newDrawer = {
-          ...newDrawer,
-          item: action.items.find(item => item.id === drawer.item!.id),
-        };
-        modified = true;
-      }
-      if (drawer.next && drawer.next.find(next => updatedIds.includes(next.id))) {
-        newDrawer = {
-          ...newDrawer,
-          next: drawer.next.map(
-            nextItem => action.items.find(item => item.id === nextItem.id) || nextItem,
-          ),
-        };
-        modified = true;
-      }
-      newDrawers.push(newDrawer);
-    }
-    return modified ? newDrawers : state;
-  }
   if (action.type === DELETE_ITEMS) {
     const newDrawers: typeof state = [];
     let modified = false;
     for (const drawer of state) {
-      if (!drawer.item || !action.items.includes(drawer.item.id)) {
-        const newDrawer: DrawerData = { ...drawer };
-        if (drawer.next && drawer.next.find(item => !action.items.includes(item.id))) {
-          newDrawer.next = drawer.next.filter(item => !action.items.includes(item.id));
-          modified = true;
-        }
-        newDrawers.push(newDrawer);
-      } else {
+      if (drawer.item && action.items.includes(drawer.item)) {
         modified = true;
+      } else if (drawer.next && drawer.next.find(item => !action.items.includes(item))) {
+        newDrawers.push({
+          ...drawer,
+          next: drawer.next.filter(item => !action.items.includes(item)),
+        });
+        modified = true;
+      } else {
+        newDrawers.push(drawer);
       }
     }
     return modified ? newDrawers : state;

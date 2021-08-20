@@ -63,13 +63,15 @@ export type Item = PersonItem | GroupItem | GeneralItem;
 export type ItemOrNote = Item | ItemNote;
 
 export const initialItems: Item[] = [];
-export const initialNoteToItemMap: { [note: string]: ItemId } = {};
+export const initialNoteToItemMap: { [noteId: string]: ItemId } = {};
+export const initialItemMap: { [itemId: string]: Item } = {};
 
 export type DirtyItem<T extends Item> = T & { dirty?: boolean };
 
 export interface ItemsState {
-  items: Item[],
+  items: typeof initialItems,
   noteToItemMap: typeof initialNoteToItemMap,
+  itemMap: typeof initialItemMap,
 }
 
 export const SET_ITEMS = 'SET_ITEMS';
@@ -128,13 +130,35 @@ export function noteToItemMapReducer(
   action: SetItemsAction | AllActions,
 ): ItemsState['noteToItemMap'] {
   if (action.type === SET_ITEMS || action.type === UPDATE_ITEMS) {
-    const newMap = Object.fromEntries(
+    const newState = Object.fromEntries(
       action.items.flatMap(item => item.notes.map(n => [n.id, item.id])),
     );
     if (action.type === SET_ITEMS) {
-      return newMap;
+      return newState;
     }
-    return { ...state, ...newMap };
+    return { ...state, ...newState };
+  }
+
+  return state;
+}
+
+export function itemMapReducer(
+  state: ItemsState['itemMap'] = initialItemMap,
+  action: SetItemsAction | AllActions,
+): ItemsState['itemMap'] {
+  if (action.type === SET_ITEMS || action.type === UPDATE_ITEMS) {
+    const newState = Object.fromEntries(action.items.map(item => [item.id, item]));
+    if (action.type === SET_ITEMS) {
+      return newState;
+    }
+    return { ...state, ...newState };
+  }
+  if (action.type === DELETE_ITEMS) {
+    const newState = { ...state };
+    for (const id of action.items) {
+      delete newState[id];
+    }
+    return newState;
   }
 
   return state;
