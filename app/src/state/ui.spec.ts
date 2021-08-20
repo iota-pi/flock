@@ -1,5 +1,5 @@
 import { getItemId } from '../utils';
-import { deleteItems, getBlankPerson, updateItems } from './items';
+import { deleteItems, getBlankPerson } from './items';
 import { DrawerData, drawersReducer, pushActive, removeActive, setUiState, UIData, replaceActive } from './ui';
 
 describe('drawersReducer', () => {
