@@ -9,7 +9,7 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
     ];
     const result = drawersReducer(state, setUiState({ drawers: newState }));
@@ -21,7 +21,7 @@ describe('drawersReducer', () => {
     const drawer: DrawerData = {
       id: getItemId(),
       open: true,
-      item: getBlankPerson(),
+      item: getItemId(),
     };
     const result = drawersReducer(state, replaceActive(drawer));
     expect(result.length).toEqual(1);
@@ -32,7 +32,7 @@ describe('drawersReducer', () => {
     const state: UIData['drawers'] = [{
       id: getItemId(),
       open: true,
-      item: getBlankPerson(),
+      item: getItemId(),
     }];
     const drawer: Partial<Omit<DrawerData, 'id'>> = {
       open: false,
@@ -48,12 +48,12 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
     ];
     const drawer: Partial<Omit<DrawerData, 'id'>> = {
@@ -69,7 +69,7 @@ describe('drawersReducer', () => {
     const drawer: DrawerData = {
       id: getItemId(),
       open: true,
-      item: getBlankPerson(),
+      item: getItemId(),
     };
     const result = drawersReducer(state, pushActive(drawer));
     expect(result.length).toEqual(1);
@@ -81,13 +81,13 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
     ];
     const drawer: DrawerData = {
       id: getItemId(),
       open: true,
-      item: getBlankPerson(),
+      item: getItemId(),
     };
     const result = drawersReducer(state, pushActive(drawer));
     expect(result.length).toEqual(2);
@@ -106,7 +106,7 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
     ];
     const result = drawersReducer(state, removeActive());
@@ -118,40 +118,16 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
+        item: getItemId(),
       },
     ];
     const result = drawersReducer(state, removeActive());
     expect(result.length).toEqual(1);
-  });
-
-  test('UPDATE_ITEMS', () => {
-    const item1 = getBlankPerson();
-    const item2 = getBlankPerson();
-    const state: UIData['drawers'] = [
-      {
-        id: getItemId(),
-        open: true,
-        item: item1,
-        next: [getBlankPerson(), item2, getBlankPerson()],
-      },
-    ];
-    const result = drawersReducer(
-      state,
-      updateItems([
-        { ...item1, firstName: 'foo' },
-        { ...item2, firstName: 'bar' },
-      ]),
-    );
-    expect(result[0].item).toMatchObject({ firstName: 'foo' });
-    expect(result[0].next![0]).not.toMatchObject({ firstName: 'bar' });
-    expect(result[0].next![1]).toMatchObject({ firstName: 'bar' });
-    expect(result[0].next![2]).not.toMatchObject({ firstName: 'bar' });
   });
 
   test('DELETE_ITEMS', () => {
@@ -161,13 +137,13 @@ describe('drawersReducer', () => {
       {
         id: getItemId(),
         open: true,
-        item: getBlankPerson(),
-        next: [getBlankPerson(), item2, getBlankPerson()],
+        item: getItemId(),
+        next: [getItemId(), item2.id, getItemId()],
       },
       {
         id: getItemId(),
         open: true,
-        item: item1,
+        item: item1.id,
       },
     ];
     const result = drawersReducer(state, deleteItems([item1.id, item2.id]));
