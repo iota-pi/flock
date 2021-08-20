@@ -368,7 +368,7 @@ export function getTags(items: Item[]) {
 
 export function supplyMissingAttributes(item: Item): Item {
   return {
-    ...getBlankBaseItem(),
+    ...getBlankItem(item.type),
     ...item,
   };
 }
