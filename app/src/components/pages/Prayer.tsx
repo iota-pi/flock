@@ -126,13 +126,15 @@ function PrayerPage() {
 
           <Grid item xs={12} sm={6} className={classes.flexRightLarge}>
             <Typography>
-              Daily Goal:
-            </Typography>
-            <span>&nbsp;</span>
-            <Typography
-              color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
-            >
-              {completed} / {goal}
+              {'Daily Goal: '}
+              {completed}
+              {' / '}
+              <Typography
+                color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
+                component="span"
+              >
+                {goal}
+              </Typography>
             </Typography>
             <span>&nbsp;&nbsp;</span>
 
