@@ -25,6 +25,7 @@ function ReportDrawer({
   next = [],
   onClose,
   onDone,
+  onExited,
   onSkip,
   open,
   praying = false,
@@ -94,6 +95,7 @@ function ReportDrawer({
       hideBackButton
       open={open}
       onClose={onClose}
+      onExited={onExited}
       stacked={stacked}
     >
       <ItemReport
