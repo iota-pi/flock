@@ -107,8 +107,9 @@ function PrayerPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
 
+  const xs = useMediaQuery((theme: Theme) => theme.breakpoints.down('xs'));
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
-  const maxTags = sm ? 2 : 3;
+  const maxTags = sm ? (2 - +xs) : 3;
 
   return (
     <BasePage
