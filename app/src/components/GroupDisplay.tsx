@@ -4,7 +4,7 @@ import {
 } from 'react';
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareNames, GroupItem, PersonItem } from '../state/items';
+import { compareNames, GroupItem, ItemId } from '../state/items';
 import { useItems, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
@@ -20,13 +20,13 @@ const useStyles = makeStyles(() => ({
 
 export interface Props {
   editable?: boolean,
-  item: PersonItem,
+  itemId: ItemId,
 }
 
 
 function GroupDisplay({
   editable = true,
-  item,
+  itemId,
 }: Props) {
   const allGroups = useItems<GroupItem>('group').sort(compareNames);
   const classes = useStyles();
@@ -34,8 +34,8 @@ function GroupDisplay({
   const vault = useVault();
 
   const groups = useMemo(
-    () => allGroups.filter(g => g.members.includes(item.id)),
-    [allGroups, item.id],
+    () => allGroups.filter(g => g.members.includes(itemId)),
+    [allGroups, itemId],
   );
   const groupIds = useMemo(() => groups.map(g => g.id), [groups]);
 
@@ -43,21 +43,21 @@ function GroupDisplay({
     (group: GroupItem) => {
       const newGroup: GroupItem = {
         ...group,
-        members: [...group.members, item.id],
+        members: [...group.members, itemId],
       };
       vault?.store(newGroup);
     },
-    [item.id, vault],
+    [itemId, vault],
   );
   const handleRemoveGroup = useCallback(
     (group: GroupItem) => {
       const newGroup: GroupItem = {
         ...group,
-        members: group.members.filter(m => m !== item.id),
+        members: group.members.filter(m => m !== itemId),
       };
       vault?.store(newGroup);
     },
-    [item.id, vault],
+    [itemId, vault],
   );
   const handleClickGroup = useCallback(
     (group: GroupItem) => () => {

@@ -4,7 +4,7 @@ import {
 } from 'react';
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareItems, GroupItem, Item, lookupItemsById, PersonItem } from '../state/items';
+import { compareItems, GroupItem, Item, ItemId, lookupItemsById, PersonItem } from '../state/items';
 import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
@@ -20,13 +20,13 @@ const useStyles = makeStyles(() => ({
 
 export interface Props {
   editable?: boolean,
-  item: GroupItem,
+  memberIds: ItemId[],
   onChange: (item: Partial<Pick<GroupItem, 'members'>>) => void,
 }
 
 function MemberDisplay({
   editable = true,
-  item: group,
+  memberIds,
   onChange,
 }: Props) {
   const classes = useStyles();
@@ -34,8 +34,8 @@ function MemberDisplay({
   const people = useItems<PersonItem>('person').sort(compareItems);
 
   const members = useMemo(
-    () => lookupItemsById(people, group.members).sort(compareItems),
-    [group.members, people],
+    () => lookupItemsById(people, memberIds).sort(compareItems),
+    [memberIds, people],
   );
 
   const handleClickItem = useCallback(
@@ -46,17 +46,17 @@ function MemberDisplay({
   );
   const handleRemoveMember = useCallback(
     (member: PersonItem) => {
-      onChange({ members: group.members.filter(m => m !== member.id) });
+      onChange({ members: memberIds.filter(m => m !== member.id) });
     },
-    [group.members, onChange],
+    [memberIds, onChange],
   );
   const handleChangeMembers = useCallback(
     (item?: Item) => {
       if (item) {
-        onChange({ members: [...group.members, item.id] });
+        onChange({ members: [...memberIds, item.id] });
       }
     },
-    [group.members, onChange],
+    [memberIds, onChange],
   );
 
   return (
@@ -68,7 +68,7 @@ function MemberDisplay({
           label="Add group members"
           noItemsText="No people found"
           onSelect={handleChangeMembers}
-          selectedIds={group.members}
+          selectedIds={memberIds}
           showSelected={false}
         />
       )}

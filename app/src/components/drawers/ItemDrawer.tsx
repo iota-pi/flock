@@ -9,6 +9,7 @@ import {
   FormControlLabel,
   Grid,
   makeStyles,
+  styled,
   TextField,
   Typography,
 } from '@material-ui/core';
@@ -32,7 +33,6 @@ import { useItems, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
-import CollapsibleSections, { CollapsibleSection } from './utils/CollapsibleSections';
 import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
@@ -41,6 +41,7 @@ import { ActionIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
+import CollapsibleSection from './utils/CollapsibleSection';
 
 const useStyles = makeStyles(theme => ({
   alert: {
@@ -50,6 +51,10 @@ const useStyles = makeStyles(theme => ({
     fontWeight: 500,
   },
 }));
+
+const SectionHolder = styled('div')({
+  flexGrow: 1,
+});
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
@@ -91,93 +96,6 @@ function DuplicateAlert({ item, count }: { item: Item, count: number }) {
       )}
     </Alert>
   );
-}
-
-export function getSections(
-  { item, handleChange }: ItemAndChangeCallback,
-): CollapsibleSection[] {
-  const sections: CollapsibleSection[] = [];
-
-  if (item.type === 'person') {
-    sections.push(
-      {
-        icon: GroupIcon,
-        id: 'groups',
-        title: 'Groups',
-        content: (
-          <GroupDisplay item={item} />
-        ),
-      },
-    );
-  }
-
-  if (item.type === 'group') {
-    sections.push(
-      {
-        icon: PersonIcon,
-        id: 'members',
-        title: 'Members',
-        content: (
-          <MemberDisplay
-            item={item}
-            onChange={group => handleChange<GroupItem>(group)}
-          />
-        ),
-      },
-    );
-  }
-
-  sections.push(
-    {
-      icon: PrayerIcon,
-      id: 'prayer-points',
-      title: 'Prayer points',
-      content: (
-        <NoteControl
-          noNotesText="No prayer points"
-          notes={item.notes}
-          onChange={(notes: ItemNote[]) => handleChange({ notes })}
-          noteType="prayer"
-        />
-      ),
-    },
-  );
-
-  if (item.type === 'person') {
-    sections.push(
-      {
-        icon: InteractionIcon,
-        id: 'interactions',
-        title: 'Interactions',
-        content: (
-          <NoteControl
-            noNotesText="No interactions"
-            notes={item.notes}
-            onChange={(notes: ItemNote[]) => handleChange({ notes })}
-            noteType="interaction"
-          />
-        ),
-      },
-    );
-  }
-
-  sections.push(
-    {
-      icon: ActionIcon,
-      id: 'actions',
-      title: 'Actions',
-      content: (
-        <NoteControl
-          noNotesText="No actions"
-          notes={item.notes}
-          onChange={(notes: ItemNote[]) => handleChange({ notes })}
-          noteType="action"
-        />
-      ),
-    },
-  );
-
-  return sections;
 }
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -231,11 +149,6 @@ function ItemDrawer({
   const handleChangeMaturity = useCallback(
     (maturity: string | null) => handleChange<PersonItem>({ maturity }),
     [handleChange],
-  );
-
-  const sections = useMemo(
-    () => getSections({ item, handleChange }),
-    [item, handleChange],
   );
 
   const isValid = useCallback(
@@ -488,7 +401,97 @@ function ItemDrawer({
     ],
   );
 
-  // E2E tests... 1:08 without memos
+  const groupsSection = useMemo(
+    () => item.type === 'person' && (
+      <CollapsibleSection
+        content={<GroupDisplay itemId={item.id} />}
+        icon={GroupIcon}
+        id="groups"
+        initialExpanded={item.isNew}
+        title="Groups"
+      />
+    ),
+    [item.id, item.isNew, item.type],
+  );
+
+  const members = item.type === 'group' ? item.members : undefined;
+  const membersSection = useMemo(
+    () => members !== undefined && (
+      <CollapsibleSection
+        content={(
+          <MemberDisplay
+            memberIds={members}
+            onChange={group => handleChange<GroupItem>(group)}
+          />
+        )}
+        icon={PersonIcon}
+        id="members"
+        initialExpanded={item.isNew}
+        title="Members"
+      />
+    ),
+    [handleChange, item.isNew, members],
+  );
+
+  const prayerSection = useMemo(
+    () => (
+      <CollapsibleSection
+        content={(
+          <NoteControl
+            noNotesText="No prayer points"
+            notes={item.notes}
+            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            noteType="prayer"
+          />
+        )}
+        icon={PrayerIcon}
+        id="prayer-points"
+        initialExpanded={item.isNew}
+        title="Prayer points"
+      />
+    ),
+    [handleChange, item.isNew, item.notes],
+  );
+
+  const interactionSection = useMemo(
+    () => item.type === 'person' && (
+      <CollapsibleSection
+        content={(
+          <NoteControl
+            noNotesText="No interactions"
+            notes={item.notes}
+            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            noteType="interaction"
+          />
+        )}
+        icon={InteractionIcon}
+        id="interactions"
+        initialExpanded={item.isNew}
+        title="Interactions"
+      />
+    ),
+    [handleChange, item.isNew, item.notes, item.type],
+  );
+
+  const actionSection = useMemo(
+    () => (
+      <CollapsibleSection
+        content={(
+          <NoteControl
+            noNotesText="No actions"
+            notes={item.notes}
+            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            noteType="action"
+          />
+        )}
+        icon={ActionIcon}
+        id="actions"
+        initialExpanded={item.isNew}
+        title="Actions"
+      />
+    ),
+    [handleChange, item.isNew, item.notes],
+  );
 
   return (
     <BaseDrawer
@@ -535,10 +538,13 @@ function ItemDrawer({
 
         {frequencyField}
 
-        <CollapsibleSections
-          sections={sections}
-          initialExpandAll={item.isNew}
-        />
+        <SectionHolder>
+          {groupsSection}
+          {membersSection}
+          {prayerSection}
+          {interactionSection}
+          {actionSection}
+        </SectionHolder>
       </Grid>
     </BaseDrawer>
   );

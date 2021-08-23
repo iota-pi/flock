@@ -145,7 +145,7 @@ function ItemReport({
           </Typography>
 
           <GroupDisplay
-            item={item}
+            itemId={item.id}
             editable={false}
           />
         </div>
@@ -159,7 +159,7 @@ function ItemReport({
 
           <MemberDisplay
             editable={false}
-            item={item}
+            memberIds={item.members}
             onChange={() => {}}
           />
         </div>
