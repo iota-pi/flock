@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -14,10 +14,12 @@ import {
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import { useMetadata } from '../../state/selectors';
+import { useItems, useMetadata } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { DEFAULT_MATURITY } from '../../state/account';
 import { RemoveIcon } from '../Icons';
+import { PersonItem, updateItems } from '../../state/items';
+import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
   root: {},
@@ -61,14 +63,33 @@ function MaturityDialog({
   open,
 }: Props) {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
+  const people = useItems<PersonItem>('person');
+  const maturityToPeopleMap = useMemo(
+    () => {
+      const map = new Map<string, PersonItem[]>();
+      people.forEach(person => {
+        if (person.maturity) {
+          const existing = map.get(person.maturity) || [];
+          map.set(person.maturity, [...existing, person]);
+        }
+      });
+      return map;
+    },
+    [people],
+  );
 
   const [maturity, setMaturity] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
   const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
+  const [originalWithIds, setOriginalWithIds] = useState<MaturityControl[]>([]);
   const [disableAnimation, setDisableAnimation] = useState(false);
+  const [autoFocusId, setAutoFocusId] = useState<string>();
 
   useEffect(
     () => {
-      setLocalMaturity(maturity.map(m => ({ id: getItemId(), name: m })));
+      const withIds = maturity.map(m => ({ id: getItemId(), name: m }));
+      setLocalMaturity(withIds);
+      setOriginalWithIds(withIds);
     },
     [maturity],
   );
@@ -84,7 +105,9 @@ function MaturityDialog({
   const handleAdd = useCallback(
     () => {
       setDisableAnimation(true);
-      setLocalMaturity(lm => [...lm, { id: getItemId(), name: '' }]);
+      const id = getItemId();
+      setLocalMaturity(lm => [...lm, { id, name: '' }]);
+      setAutoFocusId(id);
     },
     [],
   );
@@ -132,10 +155,28 @@ function MaturityDialog({
   );
   const handleDone = useCallback(
     () => {
+      const updatedItems: PersonItem[] = [];
+      for (const stage of localMaturity) {
+        const original = originalWithIds.find(({ id }) => id === stage.id);
+        if (original) {
+          const peopleWithMaturity = maturityToPeopleMap.get(original.name) || [];
+          updatedItems.push(
+            ...peopleWithMaturity.map(p => ({ ...p, maturity: stage.name })),
+          );
+        }
+      }
+      dispatch(updateItems(updatedItems));
       setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
       onClose();
     },
-    [localMaturity, onClose, setMaturity],
+    [
+      dispatch,
+      localMaturity,
+      onClose,
+      originalWithIds,
+      maturityToPeopleMap,
+      setMaturity,
+    ],
   );
 
   return (
@@ -160,9 +201,13 @@ function MaturityDialog({
             <div key={lm.id}>
               {index === 0 && <Divider />}
 
-              <div className={classes.maturityItem}>
+              <div
+                className={classes.maturityItem}
+                data-cy="maturity-stage"
+              >
                 <div className={classes.orderControls}>
                   <IconButton
+                    data-cy="maturity-move-up"
                     disabled={index === 0}
                     onClick={handleMoveUp(lm.id)}
                     size="small"
@@ -171,6 +216,7 @@ function MaturityDialog({
                   </IconButton>
 
                   <IconButton
+                    data-cy="maturity-move-down"
                     disabled={index === localMaturity.length - 1}
                     onClick={handleMoveDown(lm.id)}
                     size="small"
@@ -184,6 +230,8 @@ function MaturityDialog({
                 </span>
 
                 <TextField
+                  autoFocus={lm.id === autoFocusId}
+                  data-cy="maturity-stage-name"
                   fullWidth
                   onChange={handleChange(lm.id)}
                   value={lm.name}
@@ -191,6 +239,7 @@ function MaturityDialog({
                     endAdornment: (
                       <InputAdornment position="end">
                         <IconButton
+                          data-cy="maturity-remove-stage"
                           onClick={handleRemove(lm.id)}
                           size="small"
                         >
@@ -209,6 +258,7 @@ function MaturityDialog({
 
         <Button
           className={classes.addButton}
+          data-cy="maturity-add-stage"
           fullWidth
           onClick={handleAdd}
           variant="outlined"
@@ -219,15 +269,17 @@ function MaturityDialog({
 
       <DialogActions>
         <Button
+          data-cy="maturity-cancel"
+          fullWidth
           onClick={onClose}
           variant="outlined"
-          fullWidth
         >
           Cancel
         </Button>
 
         <Button
           color="primary"
+          data-cy="maturity-done"
           disabled={localMaturity.length === 0}
           onClick={handleDone}
           variant="outlined"

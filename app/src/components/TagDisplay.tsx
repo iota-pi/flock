@@ -69,7 +69,7 @@ function TagDisplay({
       ))}
 
       {limitedTags.length < tags.length && (
-        <span className={classes.more}>
+        <span className={classes.more} data-cy="tag-overflow">
           {limitedTags.length > 0 ? (
             `+${tags.length - limitedTags.length} more`
           ) : (

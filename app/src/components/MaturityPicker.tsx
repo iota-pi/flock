@@ -10,6 +10,7 @@ import {
   TextField,
 } from '@material-ui/core';
 import { useMetadata } from '../state/selectors';
+import { DEFAULT_MATURITY } from '../state/account';
 
 const useStyles = makeStyles(() => ({
   faded: {
@@ -38,7 +39,7 @@ function MaturityPicker({
 }: Props) {
   const classes = useStyles();
 
-  const [maturityStages] = useMetadata<string[]>('maturity', []);
+  const [maturityStages] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
   const maturityOptions = useMemo<{ value: string, label: string, default?: boolean }[]>(
     () => [
       { value: '', label: 'Not Specified', default: true },
@@ -58,6 +59,7 @@ function MaturityPicker({
   return (
     <TextField
       className={className}
+      data-cy="maturity-selection"
       fullWidth={fullWidth}
       id={id}
       label={label || 'Maturity'}

@@ -75,6 +75,7 @@ function SettingsPage() {
       <List>
         <ListItem
           button
+          data-cy="prayer-goal"
           onClick={handleEditGoal}
         >
           <ListItemText
@@ -89,7 +90,10 @@ function SettingsPage() {
               {goal}
             </Typography>
 
-            <IconButton size="medium">
+            <IconButton
+              data-cy="edit-button"
+              size="medium"
+            >
               <EditIcon fontSize="small" />
             </IconButton>
           </div>
@@ -99,6 +103,7 @@ function SettingsPage() {
 
         <ListItem
           button
+          data-cy="maturity-stages"
           onClick={handleEditMaturity}
         >
           <div className={classes.grow}>
@@ -110,7 +115,10 @@ function SettingsPage() {
             <TagDisplay tags={maturity} />
           </div>
 
-          <IconButton size="medium">
+          <IconButton
+            data-cy="edit-button"
+            size="medium"
+          >
             <EditIcon fontSize="small" />
           </IconButton>
         </ListItem>
