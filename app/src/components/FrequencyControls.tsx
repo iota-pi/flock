@@ -1,12 +1,10 @@
 import { Grid, makeStyles } from '@material-ui/core';
 import {
-  Item,
+  Item, PersonItem,
 } from '../state/items';
 import FrequencyPicker from './FrequencyPicker';
 import { Due, isDue } from '../utils/frequencies';
 import { InteractionIcon, PrayerIcon } from './Icons';
-import { getLastPrayedFor } from '../utils/prayer';
-import { getLastInteractionDate } from '../utils/interactions';
 import { formatDate } from '../utils';
 
 
@@ -27,25 +25,29 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface Props {
-  item: Item,
-  onChange: (data: Partial<Pick<Item, 'prayerFrequency' | 'interactionFrequency'>>) => void,
+  interactionFrequency: PersonItem['interactionFrequency'],
+  lastInteraction: number,
+  lastPrayer: number,
   noInteractions?: boolean,
+  onChange: (data: Partial<Pick<Item, 'prayerFrequency' | 'interactionFrequency'>>) => void,
+  prayerFrequency: PersonItem['prayerFrequency'],
 }
 
 function FrequencyControls({
-  item,
-  onChange,
+  interactionFrequency,
+  lastInteraction,
+  lastPrayer,
   noInteractions = false,
+  onChange,
+  prayerFrequency,
 }: Props) {
   const classes = useStyles();
-  const lastPrayer = getLastPrayedFor(item);
-  const lastInteraction = item.type === 'person' ? getLastInteractionDate(item) : 0;
 
   let lastPrayerText: string = 'never';
   let lastPrayerClass: string = '';
   if (lastPrayer) {
     lastPrayerText = formatDate(new Date(lastPrayer));
-    const due = isDue(new Date(lastPrayer), item.prayerFrequency);
+    const due = isDue(new Date(lastPrayer), prayerFrequency);
     if (due === Due.due) {
       lastPrayerClass = classes.dueDate;
     } else if (due === Due.overdue) {
@@ -57,7 +59,7 @@ function FrequencyControls({
   let lastInteractionClass: string = '';
   if (lastInteraction) {
     lastInteractionText = formatDate(new Date(lastInteraction));
-    const due = isDue(new Date(lastInteraction), item.interactionFrequency);
+    const due = isDue(new Date(lastInteraction), interactionFrequency);
     if (due === Due.due) {
       lastInteractionClass = classes.dueDate;
     } else if (due === Due.overdue) {
@@ -69,12 +71,12 @@ function FrequencyControls({
     <Grid container spacing={2}>
       <Grid item xs={12} sm={noInteractions ? 12 : 6}>
         <FrequencyPicker
-          frequency={item.prayerFrequency}
+          frequency={prayerFrequency}
           fullWidth
           icon={<PrayerIcon />}
           id="prayer"
           label="Prayer Frequency"
-          onChange={prayerFrequency => onChange({ prayerFrequency })}
+          onChange={newFrequency => onChange({ prayerFrequency: newFrequency })}
         />
 
         {lastPrayerText ? (
@@ -90,12 +92,12 @@ function FrequencyControls({
       {!noInteractions && (
         <Grid item xs={12} sm={6}>
           <FrequencyPicker
-            frequency={item.interactionFrequency}
+            frequency={interactionFrequency}
             fullWidth
             icon={<InteractionIcon />}
             id="frequency"
             label="Interaction Frequency"
-            onChange={interactionFrequency => onChange({ interactionFrequency })}
+            onChange={newFrequency => onChange({ interactionFrequency: newFrequency })}
           />
 
           {lastInteractionText ? (

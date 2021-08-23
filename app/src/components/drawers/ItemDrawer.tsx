@@ -39,6 +39,8 @@ import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
 import { ActionIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
+import { getLastPrayedFor } from '../../utils/prayer';
+import { getLastInteractionDate } from '../../utils/interactions';
 
 const useStyles = makeStyles(theme => ({
   alert: {
@@ -51,7 +53,7 @@ const useStyles = makeStyles(theme => ({
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
-  onChange: (item: DirtyItem<Item>) => void,
+  onChange: (item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>>) => void,
 }
 
 export interface ItemAndChangeCallback {
@@ -222,9 +224,9 @@ function ItemDrawer({
 
   const handleChange = useCallback(
     <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => (
-      onChange(dirtyItem({ ...item, ...data }))
+      onChange(dirtyItem({ ...data }))
     ),
-    [item, onChange],
+    [onChange],
   );
   const handleChangeMaturity = useCallback(
     (maturity: string | null) => handleChange<PersonItem>({ maturity }),
@@ -301,6 +303,193 @@ function ItemDrawer({
     [handleSave, item.id, open, prevItem],
   );
 
+  const firstName = item.type === 'person' ? item.firstName : item.name;
+  const lastName = item.type === 'person' ? item.lastName : undefined;
+  const nameFields = useMemo(
+    () => (
+      lastName !== undefined ? (
+        <>
+          <Grid item xs={6}>
+            <TextField
+              autoFocus
+              data-cy="firstName"
+              fullWidth
+              key={item.id}
+              label="First Name"
+              onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
+              required
+              value={firstName}
+            />
+          </Grid>
+
+          <Grid item xs={6}>
+            <TextField
+              fullWidth
+              data-cy="lastName"
+              label="Last Name"
+              onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
+              value={lastName}
+            />
+          </Grid>
+        </>
+      ) : (
+        <Grid item xs={12}>
+          <TextField
+            autoFocus
+            data-cy="name"
+            fullWidth
+            key={item.id}
+            label="Name"
+            onChange={
+              event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
+            }
+            required
+            value={firstName}
+          />
+        </Grid>
+      )
+    ),
+    [firstName, handleChange, item.id, lastName],
+  );
+
+  const email = item.type === 'person' ? item.email : undefined;
+  const emailField = useMemo(
+    () => (
+      email !== undefined ? (
+        <Grid item xs={6}>
+          <TextField
+            data-cy="email"
+            fullWidth
+            label="Email"
+            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
+            value={email}
+          />
+        </Grid>
+      ) : null
+    ),
+    [email, handleChange],
+  );
+
+  const phone = item.type === 'person' ? item.phone : undefined;
+  const phoneField = useMemo(
+    () => (
+      phone !== undefined ? (
+        <Grid item xs={6}>
+          <TextField
+            data-cy="phone"
+            fullWidth
+            label="Phone"
+            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
+            value={phone}
+          />
+        </Grid>
+      ) : null
+    ),
+    [handleChange, phone],
+  );
+
+  const { archived, tags } = item;
+  const descriptionField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <TextField
+          data-cy="description"
+          fullWidth
+          label="Description"
+          onChange={event => handleChange({ description: getValue(event) })}
+          value={item.description}
+        />
+      </Grid>
+    ),
+    [handleChange, item.description],
+  );
+  const summaryField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <TextField
+          data-cy="summary"
+          fullWidth
+          label="Notes"
+          multiline
+          onChange={event => handleChange({ summary: getValue(event) })}
+          value={item.summary}
+        />
+      </Grid>
+    ),
+    [handleChange, item.summary],
+  );
+  const archivedField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <FormControlLabel
+          control={(
+            <Checkbox
+              checked={archived}
+              data-cy="archived"
+              onChange={(_, newArchived) => handleChange({ archived: newArchived })}
+            />
+          )}
+          label="Archived"
+        />
+      </Grid>
+    ),
+    [archived, handleChange],
+  );
+  const tagsField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <TagSelection
+          selectedTags={tags}
+          onChange={newTags => handleChange({ tags: newTags })}
+        />
+      </Grid>
+    ),
+    [handleChange, tags],
+  );
+
+  const maturity = item.type === 'person' ? item.maturity : undefined;
+  const maturityField = useMemo(
+    () => (
+      maturity !== undefined ? (
+        <Grid item xs={12}>
+          <MaturityPicker
+            fullWidth
+            maturity={maturity}
+            onChange={handleChangeMaturity}
+          />
+        </Grid>
+      ) : null
+    ),
+    [handleChangeMaturity, maturity],
+  );
+
+  const lastInteraction = item.type === 'person' ? getLastInteractionDate(item) : 0;
+  const lastPrayer = getLastPrayedFor(item);
+  const frequencyField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <FrequencyControls
+          interactionFrequency={item.interactionFrequency}
+          lastInteraction={lastInteraction}
+          lastPrayer={lastPrayer}
+          noInteractions={item.type !== 'person'}
+          onChange={handleChange}
+          prayerFrequency={item.prayerFrequency}
+        />
+      </Grid>
+    ),
+    [
+      handleChange,
+      item.interactionFrequency,
+      item.prayerFrequency,
+      item.type,
+      lastInteraction,
+      lastPrayer,
+    ],
+  );
+
+  // E2E tests... 1:08 without memos
+
   return (
     <BaseDrawer
       ActionProps={{
@@ -332,130 +521,19 @@ function ItemDrawer({
           </Grid>
         )}
 
-        {item.type === 'person' ? (
-          <>
-            <Grid item xs={6}>
-              <TextField
-                autoFocus
-                data-cy="firstName"
-                fullWidth
-                key={item.id}
-                label="First Name"
-                onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
-                required
-                value={item.firstName}
-              />
-            </Grid>
+        {nameFields}
 
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                data-cy="lastName"
-                label="Last Name"
-                onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
-                value={item.lastName}
-              />
-            </Grid>
-          </>
-        ) : (
-          <Grid item xs={12}>
-            <TextField
-              autoFocus
-              data-cy="name"
-              fullWidth
-              key={item.id}
-              label="Name"
-              onChange={
-                event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
-              }
-              required
-              value={item.name}
-            />
-          </Grid>
-        )}
+        {emailField}
+        {phoneField}
 
-        {item.type === 'person' && (
-          <>
-            <Grid item xs={6}>
-              <TextField
-                data-cy="email"
-                fullWidth
-                label="Email"
-                onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
-                value={item.email}
-              />
-            </Grid>
+        {descriptionField}
+        {summaryField}
+        {archivedField}
+        {tagsField}
 
-            <Grid item xs={6}>
-              <TextField
-                data-cy="phone"
-                fullWidth
-                label="Phone"
-                onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
-                value={item.phone}
-              />
-            </Grid>
-          </>
-        )}
+        {maturityField}
 
-        <Grid item xs={12}>
-          <TextField
-            data-cy="description"
-            fullWidth
-            label="Description"
-            onChange={event => handleChange({ description: getValue(event) })}
-            value={item.description}
-          />
-        </Grid>
-
-        <Grid item xs={12}>
-          <TextField
-            data-cy="summary"
-            fullWidth
-            label="Notes"
-            multiline
-            onChange={event => handleChange({ summary: getValue(event) })}
-            value={item.summary}
-          />
-        </Grid>
-
-        <Grid item xs={12}>
-          <FormControlLabel
-            control={(
-              <Checkbox
-                checked={item.archived}
-                data-cy="archived"
-                onChange={(_, archived) => handleChange({ archived })}
-              />
-            )}
-            label="Archived"
-          />
-        </Grid>
-
-        <Grid item xs={12}>
-          <TagSelection
-            selectedTags={item.tags}
-            onChange={tags => handleChange({ tags })}
-          />
-        </Grid>
-
-        {item.type === 'person' && (
-          <Grid item xs={12}>
-            <MaturityPicker
-              fullWidth
-              maturity={item.maturity}
-              onChange={handleChangeMaturity}
-            />
-          </Grid>
-        )}
-
-        <Grid item xs={12}>
-          <FrequencyControls
-            item={item}
-            onChange={handleChange}
-            noInteractions={item.type !== 'person'}
-          />
-        </Grid>
+        {frequencyField}
 
         <CollapsibleSections
           sections={sections}

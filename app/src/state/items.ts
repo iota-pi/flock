@@ -66,7 +66,7 @@ export const initialItems: Item[] = [];
 export const initialNoteToItemMap: { [noteId: string]: ItemId } = {};
 export const initialItemMap: { [itemId: string]: Item } = {};
 
-export type DirtyItem<T extends Item> = T & { dirty?: boolean };
+export type DirtyItem<T> = T & { dirty?: boolean };
 
 export interface ItemsState {
   items: typeof initialItems,
@@ -398,7 +398,7 @@ export function supplyMissingAttributes(item: Item): Item {
   };
 }
 
-export function dirtyItem<T extends Item>(item: T): DirtyItem<T> {
+export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
   return { ...item, dirty: true };
 }
 
