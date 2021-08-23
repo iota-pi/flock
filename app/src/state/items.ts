@@ -377,6 +377,7 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 
 export function getNotes(items: Item[], filterType?: 'prayer'): PrayerNote[];
 export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
+export function getNotes(items: Item[], filterType?: 'action'): ActionNote[];
 export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[];
 export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[] {
   const allNotes = items.flatMap(item => item.notes);
