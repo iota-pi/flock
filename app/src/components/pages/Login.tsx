@@ -71,7 +71,7 @@ function LoginPage() {
         authToken: vault.authToken,
       });
       if (success) {
-        dispatch(await setVault(vault));
+        dispatch(setVault(vault));
         dispatch(setAccount({ account: accountInput }));
         history.push(getPage('people').path);
       } else {
