@@ -154,7 +154,10 @@ function BaseDrawer({
           <>
             {showBackButton && (
               <div className={classes.backButton}>
-                <IconButton onClick={handleBack}>
+                <IconButton
+                  data-cy="back-button"
+                  onClick={handleBack}
+                >
                   <BackButtonIcon />
                 </IconButton>
               </div>

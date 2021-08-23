@@ -80,7 +80,10 @@ function ItemReport({
         </Typography>
 
         {canEdit && (
-          <IconButton onClick={onEdit}>
+          <IconButton
+            data-cy="edit-item-button"
+            onClick={onEdit}
+          >
             <EditIcon />
           </IconButton>
         )}

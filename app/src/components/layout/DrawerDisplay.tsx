@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
 import { isItem, ItemOrNote } from '../../state/items';
-import { DrawerData, removeActive, replaceActive } from '../../state/ui';
+import { DrawerData, removeActive, updateActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import ItemDrawer from '../drawers/ItemDrawer';
 import PlaceholderDrawer from '../drawers/Placeholder';
@@ -62,6 +62,7 @@ function IndividualDrawer({
       <NoteDrawer
         linkedItems={drawer.initial?.filter(isItem)}
         note={localItem}
+        onBack={onClose}
         onChange={handleChange}
         onClose={onClose}
         onExited={onExited}
@@ -81,7 +82,7 @@ function DrawerDisplay() {
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
   const handleClose = useCallback(
-    () => dispatch(replaceActive({ open: false })),
+    () => dispatch(updateActive({ open: false })),
     [dispatch],
   );
   const handleExited = useCallback(

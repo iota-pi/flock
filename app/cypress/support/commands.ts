@@ -110,7 +110,9 @@ Cypress.Commands.add(
   'saveDrawer',
   () => {
     cy.intercept({ method: 'PUT', url: '/*/items/*', times: 1 }).as('apiRequest')
-    cy.dataCy('drawer-done').click()
+    cy.dataCy('drawer-done')
+      .last()
+      .click()
     cy.wait(['@apiRequest'])
     return cy;
   },

@@ -130,4 +130,57 @@ describe('create account', () => {
       .filter((i, e) => /hobbit/i.test(e.innerText))
       .should('have.length', 2)
   });
+
+  it('opening/closing nested drawers works correctly', () => {
+    // Requires "desktop" width for testing the permanent-drawer mechanics
+    cy.viewport(1280, 720)
+
+    // Create some test items
+    cy.createGroup({ name: 'Fellowship of the Ring' })
+      .saveDrawer()
+    cy.createPerson({ firstName: 'Bilbo', lastName: 'Baggins' })
+    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+      .addToGroup('Fellowship')
+
+    // Open a nested drawer and edit it
+    cy.contains('Fellowship').click()
+    cy.dataCy('description')
+      .last()
+      .type('Nine vs. nine, who will win?')
+      .saveDrawer()
+
+    // Open a different drawer
+    cy.contains('Bilbo').click()
+
+    // Bilbo's drawer should not be stacked so we should now be able to change pages
+    cy.dataCy('page-prayer').click()
+
+    // Check prayer report for Bilbo
+    cy.dataCy('page-content')
+      .contains('Bilbo')
+      .click()
+    cy.dataCy('drawer-content')
+      .contains('Bilbo Baggins')
+    cy.dataCy('drawer-content')
+      .find('[data-cy=firstName]')
+      .should('not.exist')
+
+    // Add a prayer point for Bilbo
+    cy.dataCy('edit-item-button')
+      .click()
+    cy.dataCy('firstName')
+    cy.dataCy('section-prayer-points').click()
+    cy.addNote({ type: 'prayer', content: 'Safe travels' })
+      .saveDrawer()
+    cy.dataCy('drawer-content')
+      .first()
+      .contains('Safe travels')
+
+    // Switch to Frodo (should not nest drawer)
+    cy.contains('Frodo').click()
+    cy.dataCy('drawer-content')
+      .first()
+      .contains('Bilbo')
+      .should('not.exist')
+  })
 });
