@@ -1,8 +1,8 @@
 describe('create account', () => {
   beforeEach(() => {
     cy.visit('http://localhost:3000')
-    cy.createAccount('wellthisisverysecureisn\'tit?');
-  });
+    cy.createAccount('wellthisisverysecureisn\'tit?')
+  })
 
   it('can create and edit items', () => {
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
@@ -15,7 +15,7 @@ describe('create account', () => {
     cy.saveDrawer()
     cy.dataCy('page-content')
       .contains('Underhill')
-  });
+  })
 
   it('can add notes', () => {
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
@@ -39,7 +39,7 @@ describe('create account', () => {
     cy.dataCy('drawer-content')
       .contains('Safe travels')
     cy.dataCy('drawer-done').click()
-  });
+  })
 
   it('can add action', () => {
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
@@ -57,7 +57,7 @@ describe('create account', () => {
     cy.dataCy('page-content')
       .contains('Bully gollum')
       .should('not.exist')
-  });
+  })
 
   it('can create groups; add & remove members', () => {
     cy.createPerson({ firstName: 'Frodo' })
@@ -85,7 +85,7 @@ describe('create account', () => {
       .click()
       .saveDrawer()
     cy.contains('3 members')
-  });
+  })
 
   it('can create other items, edit frequencies', () => {
     cy.createOther({ name: 'Athelas' })
@@ -105,7 +105,7 @@ describe('create account', () => {
     cy.dataCy('list-item').eq(0).contains('One Ring')
     cy.dataCy('list-item').eq(1).contains('Athelas')
     cy.dataCy('list-item').eq(2).contains('Mallorn')
-  });
+  })
 
   it('can add and edit tags', () => {
     cy.createPerson({ firstName: 'Frodo' })
@@ -121,7 +121,7 @@ describe('create account', () => {
       .saveDrawer()
     cy.contains('Pippin').click()
       .addTag('Gon')
-      .saveDrawer();
+      .saveDrawer()
 
     cy.dataCy('tag')
       .filter((i, e) => /gondor/i.test(e.innerText))
@@ -129,7 +129,7 @@ describe('create account', () => {
     cy.dataCy('tag')
       .filter((i, e) => /hobbit/i.test(e.innerText))
       .should('have.length', 2)
-  });
+  })
 
   it('opening/closing nested drawers works correctly', () => {
     // Requires "desktop" width for testing the permanent-drawer mechanics

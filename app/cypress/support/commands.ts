@@ -1,4 +1,5 @@
 import { GeneralItem, GroupItem, ItemNote, PersonItem } from '../../src/state/items';
+import 'cypress-file-upload';
 
 Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => {
   options.delay = 5;

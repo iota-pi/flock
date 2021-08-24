@@ -151,6 +151,16 @@ class Vault {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
+  exportData(items: Item[]): Promise<CryptoResult> {
+    const data = JSON.stringify(items);
+    return this.encrypt(data);
+  }
+
+  async importData(data: CryptoResult): Promise<Item[]> {
+    const plainData = await this.decrypt(data);
+    return JSON.parse(plainData);
+  }
+
   store(data: Item | Item[]) {
     if (data instanceof Array) {
       return this.storeMany(data);
@@ -164,7 +174,7 @@ class Vault {
       throw new Error(checkResult.message);
     }
 
-    this.dispatch(updateItems([item]));
+    this.dispatch(updateItems([item], true));
     const { cipher, iv } = await this.encryptObject(item);
     await this.api.put({
       account: this.account,
@@ -184,7 +194,7 @@ class Vault {
       throw new Error(checkResult.message);
     }
 
-    this.dispatch(updateItems(items));
+    this.dispatch(updateItems(items, true));
     const encrypted = await Promise.all(
       items.map(
         item => this.encryptObject(item),
@@ -229,7 +239,7 @@ class Vault {
   }
 
   private async deleteOne(itemId: string) {
-    this.dispatch(deleteItems([itemId]));
+    this.dispatch(deleteItems([itemId], true));
     try {
       await this.api.delete({
         account: this.account,
@@ -243,7 +253,7 @@ class Vault {
   }
 
   private async deleteMany(itemIds: string[]) {
-    this.dispatch(deleteItems(itemIds));
+    this.dispatch(deleteItems(itemIds, true));
     try {
       await this.api.deleteMany({
         account: this.account,

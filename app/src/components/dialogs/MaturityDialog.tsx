@@ -14,12 +14,11 @@ import {
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import { useItems, useMetadata } from '../../state/selectors';
+import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { DEFAULT_MATURITY } from '../../state/account';
 import { RemoveIcon } from '../Icons';
-import { PersonItem, updateItems } from '../../state/items';
-import { useAppDispatch } from '../../store';
+import { PersonItem } from '../../state/items';
 
 const useStyles = makeStyles(theme => ({
   root: {},
@@ -63,8 +62,8 @@ function MaturityDialog({
   open,
 }: Props) {
   const classes = useStyles();
-  const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
+  const vault = useVault();
   const maturityToPeopleMap = useMemo(
     () => {
       const map = new Map<string, PersonItem[]>();
@@ -165,17 +164,17 @@ function MaturityDialog({
           );
         }
       }
-      dispatch(updateItems(updatedItems));
+      vault?.store(updatedItems);
       setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
       onClose();
     },
     [
-      dispatch,
       localMaturity,
       onClose,
       originalWithIds,
       maturityToPeopleMap,
       setMaturity,
+      vault,
     ],
   );
 

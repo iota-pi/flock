@@ -8,14 +8,17 @@ import {
   makeStyles,
   Typography,
 } from '@material-ui/core';
+import download from 'js-file-download';
 import BasePage from './BasePage';
-import { useItems, useMetadata } from '../../state/selectors';
+import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
-import { EditIcon } from '../Icons';
+import { DownloadIcon, EditIcon, MuiIconType, UploadIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
 import { DEFAULT_MATURITY } from '../../state/account';
+import ImportDialog from '../dialogs/ImportDialog';
+import { Item } from '../../state/items';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -48,6 +51,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface SettingsItemProps {
+  icon?: MuiIconType,
   id: string,
   onClick: () => void,
   title: string,
@@ -56,6 +60,7 @@ export interface SettingsItemProps {
 }
 
 function SettingsItem({
+  icon: Icon = EditIcon,
   id,
   onClick,
   title,
@@ -91,7 +96,7 @@ function SettingsItem({
             disableRipple
             size="medium"
           >
-            <EditIcon fontSize="small" />
+            <Icon fontSize="small" />
           </IconButton>
         </div>
       </ListItem>
@@ -104,6 +109,7 @@ function SettingsItem({
 function SettingsPage() {
   const classes = useStyles();
   const items = useItems();
+  const vault = useVault();
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
   const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
@@ -116,6 +122,26 @@ function SettingsPage() {
   const [showMaturityDialog, setShowMaturityDialog] = useState(false);
   const handleEditMaturity = useCallback(() => setShowMaturityDialog(true), []);
   const handleCloseMaturityDialog = useCallback(() => setShowMaturityDialog(false), []);
+
+  const handleExport = useCallback(
+    async () => {
+      const data = await vault?.exportData(items);
+      const json = JSON.stringify(data);
+      return download(json, 'flock.backup.json');
+    },
+    [items, vault],
+  );
+
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const handleImport = useCallback(() => setShowImportDialog(true), []);
+  const handleCloseImportDialog = useCallback(() => setShowImportDialog(false), []);
+  const handleConfirmImport = useCallback(
+    async (imported: Item[]) => {
+      setShowImportDialog(false);
+      vault?.store(imported);
+    },
+    [vault],
+  );
 
   return (
     <BasePage>
@@ -147,6 +173,18 @@ function SettingsPage() {
           title="Maturity stages"
           tags={maturity}
         />
+        <SettingsItem
+          icon={DownloadIcon}
+          id="export"
+          onClick={handleExport}
+          title="Create a backup of your data"
+        />
+        <SettingsItem
+          icon={UploadIcon}
+          id="import"
+          onClick={handleImport}
+          title="Restore from a backup"
+        />
       </List>
 
       <GoalDialog
@@ -154,10 +192,14 @@ function SettingsPage() {
         onClose={handleCloseGoalDialog}
         open={showGoalDialog}
       />
-
       <MaturityDialog
         onClose={handleCloseMaturityDialog}
         open={showMaturityDialog}
+      />
+      <ImportDialog
+        onClose={handleCloseImportDialog}
+        onConfirm={handleConfirmImport}
+        open={showImportDialog}
       />
     </BasePage>
   );

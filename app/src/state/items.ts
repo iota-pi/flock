@@ -96,11 +96,17 @@ export function setItems(items: Item[]): SetItemsAction {
   };
 }
 
-export function updateItems(items: Item[]): SetItemsAction {
+export function updateItems(items: Item[], dontUseThisDirectly: boolean): SetItemsAction {
+  if (dontUseThisDirectly !== true) {
+    throw new Error('Don\'t use updateItems directly! Use `vault.store` instead');
+  }
   return { type: UPDATE_ITEMS, items };
 }
 
-export function deleteItems(items: string[]): DeleteItemsAction {
+export function deleteItems(items: string[], dontUseThisDirectly: boolean): DeleteItemsAction {
+  if (dontUseThisDirectly !== true) {
+    throw new Error('Don\'t use updateItems directly! Use `vault.delete` instead');
+  }
   return { type: DELETE_ITEMS, items };
 }
 

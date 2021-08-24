@@ -1,8 +1,13 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "esModuleInterop": true,
     "lib": ["es5", "dom"],
-    "types": ["cypress"]
+    "target": "es5",
+    "types": [
+      "cypress",
+      "cypress-file-upload",
+      "../node_modules/@types/node"
+    ]
   },
   "include": ["**/*.ts"]
 }

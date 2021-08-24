@@ -53,7 +53,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.store(item);
 
-    expect(dispatch).toBeCalledWith(updateItems([item]));
+    expect(dispatch).toBeCalledWith(updateItems([item], true));
     const apiCallParams = api.put.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       account: vault['account'],
@@ -76,7 +76,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.store(items);
 
-    expect(dispatch).toBeCalledWith(updateItems(items));
+    expect(dispatch).toBeCalledWith(updateItems(items, true));
     const apiCallParams = api.putMany.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       account: vault['account'],
@@ -140,7 +140,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.delete(id);
 
-    expect(dispatch).toBeCalledWith(deleteItems([id]));
+    expect(dispatch).toBeCalledWith(deleteItems([id], true));
     const apiCallParams = api.delete.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       account: vault['account'],
@@ -158,7 +158,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.delete(ids);
 
-    expect(dispatch).toBeCalledWith(deleteItems(ids));
+    expect(dispatch).toBeCalledWith(deleteItems(ids, true));
     const apiCallParams = api.deleteMany.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       account: vault['account'],
