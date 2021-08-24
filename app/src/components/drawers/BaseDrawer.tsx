@@ -1,7 +1,7 @@
 import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
-import { BackIcon, RemoveIcon } from '../Icons';
+import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWrapper';
 
@@ -123,7 +123,6 @@ function BaseDrawer({
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
   const showBackButton = !hideBackButton && onBack && (xsScreen || permanentDrawer);
-  const BackButtonIcon = permanentDrawer ? RemoveIcon : BackIcon;
 
   return (
     <SwipeableDrawer
@@ -158,7 +157,7 @@ function BaseDrawer({
                   data-cy="back-button"
                   onClick={handleBack}
                 >
-                  <BackButtonIcon />
+                  <RemoveIcon />
                 </IconButton>
               </div>
             )}
