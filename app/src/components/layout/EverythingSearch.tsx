@@ -33,17 +33,6 @@ const useStyles = makeStyles(theme => ({
     alignItems: 'center',
     paddingRight: theme.spacing(2),
   },
-  notchedOutline: {},
-  focused: {},
-  label: {
-    '&$focused': {
-    },
-  },
-  inputRoot: {
-    '&$focused $notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.85)',
-    },
-  },
   whiteTextField: {
     '& .Mui-focused.MuiInputLabel-root': {
       color: theme.palette.text.primary,
@@ -253,6 +242,7 @@ function EverythingSearch({
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Autocomplete
         autoHighlight
+        disableClearable
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
         getOptionSelected={(a, b) => a.id === b.id}

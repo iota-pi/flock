@@ -4,9 +4,11 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   AppBar as MuiAppBar,
   IconButton,
+  Theme,
   Toolbar,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
 import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
@@ -23,12 +25,22 @@ const useStyles = makeStyles(theme => ({
     zIndex: theme.zIndex.drawer + 1,
   },
   toolbar: {
+    paddingLeft: theme.spacing(3),
     paddingRight: theme.spacing(2),
+
+    [theme.breakpoints.down('xs')]: {
+      paddingRight: theme.spacing(1),
+    },
   },
   searchField: {
     flexGrow: 1,
     marginLeft: theme.spacing(1),
     marginRight: theme.spacing(1),
+
+    [theme.breakpoints.down('xs')]: {
+      marginLeft: 0,
+      marginRight: 0,
+    },
   },
   menuButton: {
     marginRight: theme.spacing(2),
@@ -37,10 +49,17 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     alignItems: 'center',
     minWidth: theme.spacing(DRAWER_SPACING_FULL - 3),
-    paddingRight: theme.spacing(4),
+    paddingLeft: theme.spacing(0.5),
+    paddingRight: theme.spacing(3.5),
+    transition: theme.transitions.create(['padding', 'min-width']),
 
     '$minimised &': {
       minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
+    },
+
+    [theme.breakpoints.down('xs')]: {
+      minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
+      paddingRight: 0,
     },
   },
   minimised: {},
@@ -67,6 +86,7 @@ function AppBar({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const tag = useTagParam();
+  const showAppTitle = useMediaQuery((theme: Theme) => theme.breakpoints.up('sm'));
 
   const handleClickSignOut = useCallback(
     () => {
@@ -92,9 +112,11 @@ function AppBar({
             {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
           </IconButton>
 
-          <Typography variant="h6" color="inherit">
-            {APP_NAME}
-          </Typography>
+          {showAppTitle && (
+            <Typography variant="h6" color="inherit">
+              {APP_NAME}
+            </Typography>
+          )}
         </div>
 
         <div className={classes.searchField}>
