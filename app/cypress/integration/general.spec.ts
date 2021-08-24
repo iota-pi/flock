@@ -1,4 +1,4 @@
-describe('create account', () => {
+describe('Basic operation', () => {
   beforeEach(() => {
     cy.visit('http://localhost:3000')
     cy.createAccount('wellthisisverysecureisn\'tit?')
