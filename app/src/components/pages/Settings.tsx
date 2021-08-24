@@ -1,11 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useMemo, useState } from 'react';
 import {
   Container,
   Divider,
   IconButton,
   List,
   ListItem,
-  ListItemText,
   makeStyles,
   Typography,
 } from '@material-ui/core';
@@ -48,6 +47,60 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
+export interface SettingsItemProps {
+  id: string,
+  onClick: () => void,
+  title: string,
+  tags?: string[],
+  value?: ReactNode,
+}
+
+function SettingsItem({
+  id,
+  onClick,
+  title,
+  tags,
+  value = null,
+}: SettingsItemProps) {
+  const classes = useStyles();
+
+  return (
+    <>
+      <ListItem
+        button
+        data-cy={id}
+        onClick={onClick}
+      >
+        <div className={classes.grow}>
+          <Typography
+            className={classes.paddedText}
+          >
+            {title}
+          </Typography>
+
+          {tags && (
+            <TagDisplay tags={tags} />
+          )}
+        </div>
+
+        <div className={classes.action}>
+          {value}
+
+          <IconButton
+            data-cy="edit-button"
+            disableRipple
+            size="medium"
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </div>
+      </ListItem>
+
+      <Divider />
+    </>
+  );
+}
+
 function SettingsPage() {
   const classes = useStyles();
   const items = useItems();
@@ -60,7 +113,9 @@ function SettingsPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
 
-  const handleEditMaturity = useCallback(() => setShowGoalDialog(true), []);
+  const [showMaturityDialog, setShowMaturityDialog] = useState(false);
+  const handleEditMaturity = useCallback(() => setShowMaturityDialog(true), []);
+  const handleCloseMaturityDialog = useCallback(() => setShowMaturityDialog(false), []);
 
   return (
     <BasePage>
@@ -73,57 +128,25 @@ function SettingsPage() {
       <Divider />
 
       <List>
-        <ListItem
-          button
-          data-cy="prayer-goal"
+        <SettingsItem
+          id="prayer-goal"
           onClick={handleEditGoal}
-        >
-          <ListItemText
-            primary="Daily prayer goal"
-          />
-
-          <div className={classes.action}>
+          title="Daily prayer goal"
+          value={(
             <Typography
               className={classes.goalNumber}
               color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
             >
               {goal}
             </Typography>
-
-            <IconButton
-              data-cy="edit-button"
-              size="medium"
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </div>
-        </ListItem>
-
-        <Divider />
-
-        <ListItem
-          button
-          data-cy="maturity-stages"
+          )}
+        />
+        <SettingsItem
+          id="maturity-stages"
           onClick={handleEditMaturity}
-        >
-          <div className={classes.grow}>
-            <Typography
-              className={classes.paddedText}
-            >
-              Maturity stages
-            </Typography>
-            <TagDisplay tags={maturity} />
-          </div>
-
-          <IconButton
-            data-cy="edit-button"
-            size="medium"
-          >
-            <EditIcon fontSize="small" />
-          </IconButton>
-        </ListItem>
-
-        <Divider />
+          title="Maturity stages"
+          tags={maturity}
+        />
       </List>
 
       <GoalDialog
@@ -133,8 +156,8 @@ function SettingsPage() {
       />
 
       <MaturityDialog
-        onClose={handleCloseGoalDialog}
-        open={showGoalDialog}
+        onClose={handleCloseMaturityDialog}
+        open={showMaturityDialog}
       />
     </BasePage>
   );
