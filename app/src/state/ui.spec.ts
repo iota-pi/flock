@@ -146,7 +146,7 @@ describe('drawersReducer', () => {
         item: item1.id,
       },
     ];
-    const result = drawersReducer(state, deleteItems([item1.id, item2.id]));
+    const result = drawersReducer(state, deleteItems([item1.id, item2.id], true));
     expect(result).toHaveLength(1);
     expect(result[0].next).toHaveLength(2);
     expect(result[0].next).not.toContainEqual(item2);
