@@ -512,12 +512,6 @@ function ItemDrawer({
       stacked={stacked}
     >
       <Grid container spacing={2}>
-        <Grid item xs={12}>
-          <Typography variant="h5">
-            Basic details
-          </Typography>
-        </Grid>
-
         {duplicates.length > 0 && (
           <Grid item xs={12}>
             <DuplicateAlert item={item} count={duplicates.length} />

@@ -68,6 +68,7 @@ function PlaceholderDrawer({
     <>
       <BaseDrawer
         alwaysTemporary={alwaysTemporary}
+        hideTypeIcon
         onClose={onClose}
         open={open}
         stacked={stacked}

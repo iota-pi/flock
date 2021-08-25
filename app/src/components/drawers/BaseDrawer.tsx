@@ -4,6 +4,7 @@ import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWrapper';
+import { usePage } from '../pages';
 
 
 const useStyles = makeStyles(theme => ({
@@ -57,6 +58,12 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     flexDirection: 'column',
   },
+  typeIcon: {
+    width: theme.spacing(6),
+    height: theme.spacing(6),
+    marginBottom: theme.spacing(1),
+    opacity: 0.8,
+  },
   backButton: {
     position: 'absolute',
     display: 'flex',
@@ -77,6 +84,7 @@ interface BaseProps {
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   hideBackButton?: boolean,
+  hideTypeIcon?: boolean,
 }
 export type { BaseProps as BaseDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -87,6 +95,7 @@ function BaseDrawer({
   alwaysTemporary = false,
   children,
   hideBackButton = false,
+  hideTypeIcon = false,
   onBack,
   onClose,
   onExited,
@@ -101,6 +110,8 @@ function BaseDrawer({
   const paperClasses = [classes.defaultBackground, ...commonClasses];
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('xs'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
+
+  const page = usePage();
 
   const handleBack = useCallback(
     () => {
@@ -123,6 +134,7 @@ function BaseDrawer({
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
   const showBackButton = !hideBackButton && onBack && (xsScreen || permanentDrawer);
+  const showTypeIcon = !hideTypeIcon;
 
   return (
     <SwipeableDrawer
@@ -151,6 +163,10 @@ function BaseDrawer({
           data-cy="drawer-content"
         >
           <>
+            {showTypeIcon && (
+              <page.icon className={classes.typeIcon} />
+            )}
+
             {showBackButton && (
               <div className={classes.backButton}>
                 <IconButton
