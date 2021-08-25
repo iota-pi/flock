@@ -65,36 +65,34 @@ function PlaceholderDrawer({
   const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a';
 
   return (
-    <>
-      <BaseDrawer
-        alwaysTemporary={alwaysTemporary}
-        hideTypeIcon
-        onClose={onClose}
-        open={open}
-        stacked={stacked}
-      >
-        <div className={classes.placeholder}>
-          <LargeIcon icon={page.icon} />
+    <BaseDrawer
+      alwaysTemporary={alwaysTemporary}
+      hideTypeIcon
+      onClose={onClose}
+      open={open}
+      stacked={stacked}
+    >
+      <div className={classes.placeholder}>
+        <LargeIcon icon={page.icon} />
 
-          <Typography variant="h5" color="textSecondary" align="center">
-            Select {aOrAn} {itemName} from the list<br />
-            {canAdd ? (
-              <span>
-                or click the
-                {' '}
-                <span className={classes.bold}>+</span>
-                {' '}
-                to add a new {addName}
-              </span>
-            ) : (
-              <span>
-                to view details
-              </span>
-            )}
-          </Typography>
-        </div>
-      </BaseDrawer>
-    </>
+        <Typography variant="h5" color="textSecondary" align="center">
+          Select {aOrAn} {itemName} from the list<br />
+          {canAdd ? (
+            <span>
+              or click the
+              {' '}
+              <span className={classes.bold}>+</span>
+              {' '}
+              to add a new {addName}
+            </span>
+          ) : (
+            <span>
+              to view details
+            </span>
+          )}
+        </Typography>
+      </div>
+    </BaseDrawer>
   );
 }
 
