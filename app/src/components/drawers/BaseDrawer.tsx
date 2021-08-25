@@ -3,7 +3,7 @@ import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery }
 import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
-import UnmountWatcher from './utils/UnmountWrapper';
+import UnmountWatcher from './utils/UnmountWatcher';
 import { usePage } from '../pages';
 
 

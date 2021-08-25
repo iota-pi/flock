@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useState,
 } from 'react';
 import {
   Checkbox,
@@ -118,6 +119,8 @@ function ItemDrawer({
   const items = useItems();
   const vault = useVault();
 
+  const [cancelled, setCancelled] = useState(false);
+
   const prevItem = usePrevious(item);
 
   const memberGroups = useMemo(
@@ -177,7 +180,7 @@ function ItemDrawer({
   );
 
   const handleSave = useCallback(
-    async (itemToSave: DirtyItem<Item>) => {
+    (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
@@ -192,6 +195,7 @@ function ItemDrawer({
     },
     [handleSave, item, onClose],
   );
+  const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups();
@@ -207,6 +211,21 @@ function ItemDrawer({
     [dispatch, item],
   );
 
+  const handleUnmount = useCallback(
+    () => {
+      if (!cancelled) {
+        handleSave(item);
+      }
+    },
+    [cancelled, handleSave, item],
+  );
+
+  useEffect(
+    () => {
+      if (cancelled) onClose();
+    },
+    [cancelled, onClose],
+  );
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
@@ -499,7 +518,7 @@ function ItemDrawer({
         canSave: isValid(item),
         editing: !item.isNew,
         itemName: getItemName(item),
-        onCancel: onClose,
+        onCancel: handleCancel,
         onDelete: handleDelete,
         onReport: hasReport ? handleReport : undefined,
         onSave: handleSaveAndClose,
@@ -508,6 +527,7 @@ function ItemDrawer({
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}
+      onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
     >

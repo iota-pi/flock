@@ -235,12 +235,12 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
   };
 }
 
-export function getBlankPerson(id?: ItemId): PersonItem {
+export function getBlankPerson(id?: ItemId, isNew = true): PersonItem {
   return {
     ...getBlankBaseItem(id),
     email: '',
     firstName: '',
-    isNew: true,
+    isNew: isNew || undefined,
     lastName: '',
     maturity: null,
     phone: '',
@@ -248,33 +248,33 @@ export function getBlankPerson(id?: ItemId): PersonItem {
   };
 }
 
-export function getBlankGroup(id?: ItemId): GroupItem {
+export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   return {
     ...getBlankBaseItem(id),
-    isNew: true,
+    isNew: isNew || undefined,
     members: [],
     name: '',
     type: 'group',
   };
 }
 
-export function getBlankGeneral(id?: ItemId): GeneralItem {
+export function getBlankGeneral(id?: ItemId, isNew = true): GeneralItem {
   return {
     ...getBlankBaseItem(id),
-    isNew: true,
+    isNew: isNew || undefined,
     name: '',
     type: 'general',
   };
 }
 
-export function getBlankItem(itemType: ItemType): Item {
+export function getBlankItem(itemType: ItemType, isNew?: boolean): Item {
   if (itemType === 'person') {
-    return getBlankPerson();
+    return getBlankPerson(undefined, isNew);
   }
   if (itemType === 'group') {
-    return getBlankGroup();
+    return getBlankGroup(undefined, isNew);
   }
-  return getBlankGeneral();
+  return getBlankGeneral(undefined, isNew);
 }
 
 export function checkProperties(items: Item[]): { error: boolean, message: string } {
@@ -399,7 +399,7 @@ export function getTags(items: Item[]) {
 
 export function supplyMissingAttributes(item: Item): Item {
   return {
-    ...getBlankItem(item.type),
+    ...getBlankItem(item.type, false),
     ...item,
   };
 }
