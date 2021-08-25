@@ -219,7 +219,7 @@ function NoteDrawer({
         canSave: linkedItems.length > 0,
         editing,
         itemIsNote: true,
-        itemName: note?.type,
+        itemName: note.type,
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveAndClose,

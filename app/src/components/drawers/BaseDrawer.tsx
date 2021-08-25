@@ -1,6 +1,6 @@
-import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
+import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
 import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWrapper';

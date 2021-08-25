@@ -1,7 +1,7 @@
 import memoize from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
-import { getTags, Item, ItemId, ItemOrNote } from './items';
+import { getTags, Item, ItemId } from './items';
 import { setUiState, UiOptions } from './ui';
 
 
@@ -78,10 +78,10 @@ export const useTags = () => {
 export const useIsActive = () => {
   const drawers = useAppSelector(state => state.ui.drawers);
   return useCallback(
-    (item: ItemOrNote, report?: boolean) => (
+    (itemId: ItemId, report?: boolean) => (
       drawers.findIndex(drawer => (
         drawer.open
-        && drawer.item === item.id
+        && drawer.item === itemId
         && (report === undefined || !report === !drawer.report)
       )) > -1
     ),

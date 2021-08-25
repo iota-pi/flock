@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
+import { useCallback, useEffect, useState } from 'react';
+import { useHistory } from 'react-router-dom';
 import { isItem, ItemOrNote } from '../../state/items';
 import { DrawerData, removeActive, updateActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -8,7 +9,58 @@ import PlaceholderDrawer from '../drawers/Placeholder';
 import ReportDrawer from '../drawers/ReportDrawer';
 import NoteDrawer from '../drawers/NoteDrawer';
 import { useItemOrNote } from '../../state/selectors';
-import { getItemId } from '../../utils';
+import { getItemId, usePrevious } from '../../utils';
+
+function useDrawerRouting(drawers: DrawerData[]) {
+  const dispatch = useAppDispatch();
+  const history = useHistory();
+  const prevDrawers = usePrevious(drawers);
+
+  useEffect(
+    () => {
+      if (prevDrawers) {
+        const topIndex = drawers.length - 1;
+        const topItem = drawers[topIndex]?.item;
+        const prevTopItem = prevDrawers[prevDrawers.length - 1]?.item;
+        const currentHashItem = history.location.hash.replace(/^#/, '');
+        if (drawers.length === prevDrawers.length) {
+          if (topItem && topItem !== prevTopItem) {
+            history.replace(`#${topItem}`);
+          }
+        } else if (drawers.length < prevDrawers.length && prevTopItem === currentHashItem) {
+          history.goBack();
+        } else if (drawers.length > prevDrawers.length && topItem) {
+          history.push(`#${topItem}`);
+        }
+      }
+    },
+    [drawers, history, prevDrawers],
+  );
+
+  const secondTopItem = drawers[drawers.length - 2]?.item;
+  useEffect(
+    () => {
+      const onLocationChange = ({ hash }: { hash: string }) => {
+        const id = hash.replace(/^#/, '');
+        if (secondTopItem === id) {
+          dispatch(removeActive());
+        } else if (!hash && drawers.length > 0) {
+          dispatch(removeActive());
+        }
+      };
+      const cleanup = history.listen(onLocationChange);
+      return cleanup;
+    },
+    [dispatch, drawers.length, history, secondTopItem],
+  );
+
+  useEffect(
+    () => {
+      history.replace(history.location.pathname);
+    },
+    [history],
+  );
+}
 
 function IndividualDrawer({
   drawer,
@@ -95,6 +147,8 @@ function DrawerDisplay() {
     [dispatch],
   );
   const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose;
+
+  useDrawerRouting(drawers);
 
   return (
     <>

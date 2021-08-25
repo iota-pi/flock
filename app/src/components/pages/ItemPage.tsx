@@ -77,7 +77,7 @@ function ItemPage<T extends Item>({
     [],
   );
   const getHighlighted = useCallback(
-    (item: Item) => isActive(item, false),
+    (item: Item) => isActive(item.id, false),
     [isActive],
   );
 
