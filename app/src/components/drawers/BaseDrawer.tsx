@@ -83,6 +83,7 @@ interface BaseProps {
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
+  alwaysShowBack?: boolean,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
 }
@@ -92,6 +93,7 @@ type Props = BaseProps & SpecificProps;
 
 function BaseDrawer({
   ActionProps,
+  alwaysShowBack = false,
   alwaysTemporary = false,
   children,
   hideBackButton = false,
@@ -133,7 +135,11 @@ function BaseDrawer({
   );
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
-  const showBackButton = !hideBackButton && onBack && (xsScreen || permanentDrawer);
+  const showBackButton = onBack && (
+    alwaysShowBack || (
+      !hideBackButton && (xsScreen || permanentDrawer)
+    )
+  );
   const showTypeIcon = !hideTypeIcon;
 
   return (

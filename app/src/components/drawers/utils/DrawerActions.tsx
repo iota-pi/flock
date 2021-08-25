@@ -61,7 +61,7 @@ export interface PropsWithDone extends BaseProps {
   onNext?: undefined,
   onReport?: undefined,
   onSave?: undefined,
-  onSkip: () => void,
+  onSkip?: () => void,
 }
 
 export interface PropsWithNext extends BaseProps {

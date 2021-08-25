@@ -39,6 +39,7 @@ export const useItemOrNote = (id: ItemId) => useAppSelector(
 );
 
 export const useVault = () => useAppSelector(state => state.vault);
+export const useLoggedIn = () => useAppSelector(state => !!state.vault);
 
 export function useMetadata<T = any>(
   key: string,

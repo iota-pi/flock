@@ -9,7 +9,7 @@ import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';
 import { useAppDispatch } from './store';
 import { loadVault } from './state/vault';
-import { useVault } from './state/selectors';
+import { useLoggedIn, useVault } from './state/selectors';
 import migrateItems from './state/migrations';
 import Vault from './crypto/Vault';
 import MainLayout from './components/layout/MainLayout';
@@ -45,6 +45,7 @@ async function initialLoadFromVault(vault: Vault) {
 export default function App() {
   const classes = useStyles();
   const dispatch = useAppDispatch();
+  const loggedIn = useLoggedIn();
   const vault = useVault();
   const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
 
@@ -79,15 +80,20 @@ export default function App() {
       <MuiPickersUtilsProvider utils={DateFnsUtils}>
         <Router>
           <div className={classes.root}>
-            <AppBar
-              minimisedMenu={miniMenu}
-              onMinimiseMenu={handleShowMenu}
-            />
-
-            <MainMenu open minimised={miniMenu} />
+            {loggedIn && (
+              <>
+                <AppBar
+                  minimisedMenu={miniMenu}
+                  onMinimiseMenu={handleShowMenu}
+                />
+                <MainMenu open minimised={miniMenu} />
+              </>
+            )}
 
             <div className={classes.content}>
-              <Toolbar />
+              {loggedIn && (
+                <Toolbar />
+              )}
 
               <MainLayout>
                 <PageView />

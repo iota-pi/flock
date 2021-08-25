@@ -21,8 +21,10 @@ const LoginPage = loadable(() => import('./Login'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const SettingsPage = loadable(() => import('./Settings'));
 const TagPage = loadable(() => import('./Tag'));
+const WelcomePage = loadable(() => import('./Welcome'));
 
 export type InternalPageId = (
+  'welcome' |
   'login' |
   'signup' |
   'tag'
@@ -54,6 +56,12 @@ export interface Page extends InternalPage {
 }
 
 export const internalPages: InternalPage[] = [
+  {
+    id: 'welcome',
+    path: '/welcome',
+    page: <WelcomePage />,
+    requiresAuth: false,
+  },
   {
     id: 'login',
     path: '/login',
@@ -149,7 +157,7 @@ function PageView() {
         key={page.id}
         path={page.path}
       >
-        {!page.requiresAuth || vault ? page.page : getPage('login').page}
+        {!page.requiresAuth || vault ? page.page : getPage('welcome').page}
       </Route>
     )),
     [vault],

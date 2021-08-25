@@ -1,7 +1,7 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import { Link, useHistory, useLocation } from 'react-router-dom';
 import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Button, Container, IconButton, InputAdornment, TextField, Typography } from '@material-ui/core';
+import { Button, Container, IconButton, InputAdornment, styled, TextField, Typography } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
@@ -14,18 +14,12 @@ import { setVault } from '../../state/vault';
 
 
 const useStyles = makeStyles(theme => ({
-  root: {
-    padding: theme.spacing(4),
-    flexGrow: 1,
-  },
   alert: {
     marginBottom: theme.spacing(4),
   },
-  section: {
-    paddingBottom: theme.spacing(8),
-  },
   textFieldHolder: {
     display: 'flex',
+    flexGrow: 1,
   },
   textField: {
     marginBottom: theme.spacing(2),
@@ -36,6 +30,25 @@ const useStyles = makeStyles(theme => ({
     marginTop: theme.spacing(2),
   },
 }));
+
+const Root = styled(Container)(({ theme }) => ({
+  padding: theme.spacing(4),
+  flexGrow: 1,
+}));
+const Section = styled('div')(({ theme }) => ({
+  alignItems: 'center',
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  justifyContent: 'center',
+  paddingBottom: theme.spacing(8),
+}));
+const FormContent = styled('form')({
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  minWidth: 300,
+});
 
 const api = new VaultAPI();
 
@@ -62,6 +75,11 @@ function LoginPage() {
     },
     [location],
   );
+
+  // const handleClickHome = useCallback(
+  //   () => history.push(getPage('welcome').path),
+  //   [history],
+  // );
 
   const handleClickLogin = useCallback(
     async () => {
@@ -106,94 +124,106 @@ function LoginPage() {
   const justCreated = (location.state as { created: boolean } | undefined)?.created || false;
 
   return (
-    <Container className={classes.root}>
-      {justCreated && (
-        <Alert severity="success" className={classes.alert}>
-          Account successfully created!
-          Please record your account ID and password and login again to continue.
-        </Alert>
-      )}
+    <Root maxWidth="sm">
+      <Section>
+        <Link to={getPage('welcome').path}>
+          <img
+            src="/flock.png"
+            alt=""
+            width="300"
+            height="300"
+          />
+        </Link>
 
-      <div className={classes.section}>
-        <Typography variant="h4" gutterBottom>
-          Login to Existing Account
-        </Typography>
+        {justCreated && (
+          <Alert severity="success" className={classes.alert}>
+            Account successfully created!
+            Please record your account ID and password and login again to continue.
+          </Alert>
+        )}
 
         <form>
-          <div className={classes.textFieldHolder}>
-            <TextField
-              id="username"
-              name="username"
-              label="Account ID"
-              autoComplete="username"
-              value={accountInput}
-              onChange={handleChangeAccount}
-              className={classes.textField}
-            />
-          </div>
+          <FormContent>
+            <div className={classes.textFieldHolder}>
+              <TextField
+                autoComplete="username"
+                autoFocus
+                className={classes.textField}
+                fullWidth
+                id="username"
+                label="Account ID"
+                name="username"
+                onChange={handleChangeAccount}
+                value={accountInput}
+              />
+            </div>
 
-          <div className={classes.textFieldHolder}>
-            <TextField
-              id="current-password"
-              autoComplete="current-password"
-              name="password"
-              label="Password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={handleChangePassword}
-              className={classes.textField}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={handleClickVisibility}
-                      onMouseDown={handleMouseDownVisibility}
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </div>
+            <div className={classes.textFieldHolder}>
+              <TextField
+                autoComplete="current-password"
+                className={classes.textField}
+                fullWidth
+                id="current-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility}
+                        onMouseDown={handleMouseDownVisibility}
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+                label="Password"
+                name="password"
+                onChange={handleChangePassword}
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+              />
+            </div>
+
+            <Button
+              color="primary"
+              data-cy="login"
+              onClick={handleClickLogin}
+              size="large"
+              variant="contained"
+            >
+              Login
+            </Button>
+
+            {error && (
+              <Typography paragraph color="error" className={classes.errorMessage}>
+                {error}
+              </Typography>
+            )}
+          </FormContent>
+        </form>
+      </Section>
+
+      <Section>
+        <FormContent>
+          <Typography
+            gutterBottom
+            variant="h5"
+          >
+            Create a New Account
+          </Typography>
 
           <Button
             color="primary"
-            data-cy="login"
-            onClick={handleClickLogin}
+            data-cy="create-account"
+            onClick={handleClickCreate}
             size="large"
             variant="contained"
           >
-            Login
+            Create Account
           </Button>
-
-          {error && (
-            <Typography paragraph color="error" className={classes.errorMessage}>
-              {error}
-            </Typography>
-          )}
-        </form>
-      </div>
-
-      <div className={classes.section}>
-        <Typography
-          gutterBottom
-          variant="h5"
-        >
-          Create a New Account
-        </Typography>
-
-        <Button
-          color="primary"
-          data-cy="create-account"
-          onClick={handleClickCreate}
-          size="large"
-          variant="contained"
-        >
-          Create
-        </Button>
-      </div>
-    </Container>
+        </FormContent>
+      </Section>
+    </Root>
   );
 }
 

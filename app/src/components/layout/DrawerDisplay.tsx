@@ -8,7 +8,7 @@ import ItemDrawer from '../drawers/ItemDrawer';
 import PlaceholderDrawer from '../drawers/Placeholder';
 import ReportDrawer from '../drawers/ReportDrawer';
 import NoteDrawer from '../drawers/NoteDrawer';
-import { useItemOrNote } from '../../state/selectors';
+import { useItemOrNote, useLoggedIn } from '../../state/selectors';
 import { getItemId, usePrevious } from '../../utils';
 
 function useDrawerRouting(drawers: DrawerData[]) {
@@ -135,6 +135,7 @@ function IndividualDrawer({
 function DrawerDisplay() {
   const dispatch = useAppDispatch();
   const drawers = useAppSelector(state => state.ui.drawers);
+  const loggedIn = useLoggedIn();
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
@@ -162,7 +163,7 @@ function DrawerDisplay() {
         />
       ))}
 
-      {drawers.length === 0 && baseDrawerIsPermanent && (
+      {loggedIn && drawers.length === 0 && baseDrawerIsPermanent && (
         <PlaceholderDrawer
           open
           onClose={() => {}}

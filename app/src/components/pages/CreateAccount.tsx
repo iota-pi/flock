@@ -1,5 +1,5 @@
 import { ChangeEvent, MouseEvent, useCallback, useState } from 'react';
-import { useHistory } from 'react-router-dom';
+import { Link, useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
   alpha,
@@ -10,6 +10,7 @@ import {
   InputAdornment,
   LinearProgress,
   makeStyles,
+  styled,
   TextField,
   Typography,
 } from '@material-ui/core';
@@ -85,6 +86,23 @@ const useStyles = makeStyles(theme => ({
     marginTop: -12,
     marginLeft: -12,
   },
+}));
+
+const Root = styled(Container)(({ theme }) => ({
+  padding: theme.spacing(4),
+  flexGrow: 1,
+}));
+const CenterSection = styled('div')(({ theme }) => ({
+  alignItems: 'center',
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  justifyContent: 'center',
+  paddingBottom: theme.spacing(8),
+}));
+const Section = styled('div')(({ theme }) => ({
+  flexGrow: 1,
+  paddingBottom: theme.spacing(8),
 }));
 
 const api = new VaultAPI();
@@ -186,8 +204,19 @@ function CreateAccountPage() {
   const validPassword = !!password && !passwordError;
 
   return (
-    <Container className={classes.root}>
-      <div className={classes.section}>
+    <Root maxWidth="sm">
+      <CenterSection>
+        <Link to={getPage('welcome').path}>
+          <img
+            src="/flock.png"
+            alt=""
+            width="300"
+            height="300"
+          />
+        </Link>
+      </CenterSection>
+
+      <Section>
         <Typography variant="h4" gutterBottom>
           Create a New Account
         </Typography>
@@ -202,60 +231,59 @@ function CreateAccountPage() {
           if you forget your account ID or password.
         </Typography>
 
-        <div className={classes.textFieldHolder}>
-          <TextField
-            id="password"
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
-            autoComplete="current-password"
-            value={password}
-            onChange={handleChangePassword}
-            fullWidth
-            className={classes.textField}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickVisibility}
-                    onMouseDown={handleMouseDownVisibility}
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
+        <TextField
+          autoComplete="current-password"
+          className={classes.textField}
+          fullWidth
+          id="password"
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  onClick={handleClickVisibility}
+                  onMouseDown={handleMouseDownVisibility}
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+          label="Password"
+          onChange={handleChangePassword}
+          type={showPassword ? 'text' : 'password'}
+          value={password}
+        />
+
+        <div className={classes.meterHolder}>
+          <Typography>
+            Password Strength:
+            {' '}
+            <span className={classes.emphasis}>
+              {passwordScoreToWord(passwordScore)}
+            </span>
+          </Typography>
+
+          <LinearProgress
+            value={passwordScore * 25}
+            variant="determinate"
+            className={`${classes.meter} ${passwordScoreToClass(passwordScore, classes)}`}
+            classes={{
+              bar: passwordScoreToClass(passwordScore, classes),
             }}
           />
-
-          <div className={classes.meterHolder}>
-            <Typography>
-              Password Strength:
-              {' '}
-              <span className={classes.emphasis}>
-                {passwordScoreToWord(passwordScore)}
-              </span>
-            </Typography>
-
-            <LinearProgress
-              value={passwordScore * 25}
-              variant="determinate"
-              className={`${classes.meter} ${passwordScoreToClass(passwordScore, classes)}`}
-              classes={{
-                bar: passwordScoreToClass(passwordScore, classes),
-              }}
-            />
-          </div>
-
-          {passwordError && (
-            <Typography color="error">
-              {passwordError}
-            </Typography>
-          )}
         </div>
+
+        {passwordError && (
+          <Typography color="error">
+            {passwordError}
+          </Typography>
+        )}
 
         <Button
           color="primary"
           data-cy="create-account"
           disabled={!validPassword || waiting}
+          fullWidth
           onClick={handleClickCreate}
           size="large"
           variant="contained"
@@ -275,23 +303,24 @@ function CreateAccountPage() {
             {error}
           </Typography>
         )}
-      </div>
+      </Section>
 
-      <div className={classes.section}>
+      <Section>
         <Typography variant="h5" gutterBottom>
           Login to Existing Account
         </Typography>
 
         <Button
           color="primary"
-          variant="contained"
-          size="large"
+          fullWidth
           onClick={handleClickLogin}
+          size="large"
+          variant="contained"
         >
           Login
         </Button>
-      </div>
-    </Container>
+      </Section>
+    </Root>
   );
 }
 

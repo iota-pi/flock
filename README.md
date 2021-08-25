@@ -21,7 +21,7 @@ your data without your password (and the account ID generated when you create
 your account).
 
 As such, the security of Flock can only be as good as your own online security.
-We **strongly** recommend using a password manager to create and remember a
+We **strongly** recommend using a password manager to create and record a
 strong password and your account ID.
 
 Similarly, leaving your laptop unattended and unlocked while logged in to Flock
