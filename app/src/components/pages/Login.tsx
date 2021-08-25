@@ -23,8 +23,6 @@ const useStyles = makeStyles(theme => ({
   },
   textField: {
     marginBottom: theme.spacing(2),
-    flexGrow: 1,
-    maxWidth: 400,
   },
   errorMessage: {
     marginTop: theme.spacing(2),
@@ -35,12 +33,15 @@ const Root = styled(Container)(({ theme }) => ({
   padding: theme.spacing(4),
   flexGrow: 1,
 }));
-const Section = styled('div')(({ theme }) => ({
+const CenterSection = styled('div')({
   alignItems: 'center',
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
   justifyContent: 'center',
+});
+const Section = styled('div')(({ theme }) => ({
+  flexGrow: 1,
   paddingBottom: theme.spacing(8),
 }));
 const FormContent = styled('form')({
@@ -125,7 +126,7 @@ function LoginPage() {
 
   return (
     <Root maxWidth="sm">
-      <Section>
+      <CenterSection>
         <Link to={getPage('welcome').path}>
           <img
             src="/flock.png"
@@ -134,7 +135,9 @@ function LoginPage() {
             height="300"
           />
         </Link>
+      </CenterSection>
 
+      <Section>
         {justCreated && (
           <Alert severity="success" className={classes.alert}>
             Account successfully created!

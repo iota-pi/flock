@@ -1,6 +1,13 @@
 import { useCallback, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { Button, Container, Grid, styled, Typography } from '@material-ui/core';
+import {
+  Button,
+  Container,
+  Grid,
+  Link,
+  styled,
+  Typography,
+} from '@material-ui/core';
 import { getPage } from '.';
 import AboutDrawer from '../drawers/AboutDrawer';
 
@@ -64,13 +71,16 @@ function WelcomePage() {
             remember and care for your Flock, especially in prayer.
           </LargeText>
 
-          <Button
-            color="secondary"
-            onClick={handleClickLearnMore}
-            size="large"
-          >
-            Learn more
-          </Button>
+          <LargeText paragraph>
+            {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
+            <Link
+              component="button"
+              onClick={handleClickLearnMore}
+              variant="body1"
+            >
+              Learn more
+            </Link>
+          </LargeText>
         </div>
       </Section>
 

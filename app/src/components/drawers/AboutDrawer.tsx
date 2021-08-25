@@ -108,7 +108,14 @@ function AboutDrawer({
         If you would like to report any issues you find, make suggestions, or contribute
         to the development of Flock, please head to our
         {' '}
-        <Link href="https://github.com/iota-pi/flock">GitHub repository</Link>.
+        <Link
+          href="https://github.com/iota-pi/flock"
+          rel="noreferrer"
+          target="_blank"
+        >
+          GitHub repository
+        </Link>
+        .
       </Typography>
       <Typography paragraph>
         Use the &quot;Issues&quot; tab to report issues or make suggestions.
