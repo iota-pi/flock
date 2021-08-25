@@ -3,7 +3,7 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import { Chip, makeStyles, TextField } from '@material-ui/core';
+import { Chip, makeStyles, TextField, Typography } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
 import {
   getItemName,
@@ -50,6 +50,19 @@ function ItemOption({
   const plural = groupMembers !== 1 ? 's' : '';
   const groupMembersText = ` (${groupMembers} member${plural})`;
 
+  const clippedDescription = useMemo(
+    () => {
+      const base = item.description;
+      const clipped = base.slice(0, 100);
+      if (clipped.length < base.length) {
+        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
+        return `${clippedToWord}…`;
+      }
+      return base;
+    },
+    [item.description],
+  );
+
   return (
     <div className={classes.autocompleteOption}>
       {showIcons && (
@@ -59,11 +72,19 @@ function ItemOption({
       )}
 
       <div>
-        {getItemName(item)}
+        <Typography>
+          {getItemName(item)}
 
-        <span className={classes.faded}>
-          {showGroupMemberCount && item.type === 'group' ? groupMembersText : ''}
-        </span>
+          <span className={classes.faded}>
+            {showGroupMemberCount && item.type === 'group' ? groupMembersText : ''}
+          </span>
+        </Typography>
+
+        {clippedDescription && (
+          <Typography color="textSecondary">
+            {clippedDescription}
+          </Typography>
+        )}
       </div>
     </div>
   );
