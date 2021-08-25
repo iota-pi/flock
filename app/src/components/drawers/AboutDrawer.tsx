@@ -1,4 +1,4 @@
-import { Typography } from '@material-ui/core';
+import { Link, Typography } from '@material-ui/core';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 
 export interface Props extends BaseDrawerProps {}
@@ -47,7 +47,6 @@ function AboutDrawer({
         As such it designed to be used by multiple users, or to share data between
         users.
       </Typography>
-
       <Typography paragraph>
         Because Flock is a personal tool, the data you enter should not belong to your
         organisation or church.
@@ -69,13 +68,11 @@ function AboutDrawer({
         to read or recover your data without your password
         (and the account ID generated for you when creating your account).
       </Typography>
-
       <Typography paragraph>
         As such, the security of Flock can only be as good as your own online security.
         We <b>strongly</b> recommend using a password manager
         to create and record a strong password and your account ID.
       </Typography>
-
       <Typography paragraph>
         Similarly, leaving your laptop unattended and unlocked while logged in to Flock
         would be unwise.
@@ -94,6 +91,27 @@ function AboutDrawer({
         security, or availability. By choosing to use Flock, you agree that the
         creators and contributors shall not be liable for any damages or losses
         related to or resulting from the use of Flock.
+      </Typography>
+
+      <Typography
+        gutterBottom
+        style={{ fontWeight: 300 }}
+        variant="h5"
+      >
+        Development
+      </Typography>
+
+      <Typography paragraph>
+        Flock is open-source software created and maintained by volunteers.
+      </Typography>
+      <Typography paragraph>
+        If you would like to report any issues you find, make suggestions, or contribute
+        to the development of Flock, please head to our
+        {' '}
+        <Link href="https://github.com/iota-pi/flock">GitHub repository</Link>.
+      </Typography>
+      <Typography paragraph>
+        Use the &quot;Issues&quot; tab to report issues or make suggestions.
       </Typography>
     </BaseDrawer>
   );
