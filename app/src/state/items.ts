@@ -225,7 +225,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     created: new Date().getTime(),
     description: '',
     id: id || getItemId(),
-    interactionFrequency: 'monthly',
+    interactionFrequency: 'none',
     prayedFor: [],
     notes: [],
     prayerFrequency: 'monthly',
