@@ -62,6 +62,29 @@ class VaultAPI {
     }
   }
 
+  private async wrapMany<T, S>(
+    data: T[],
+    requestFunc: (data: T[]) => Promise<S>,
+    chunkSize = 10,
+  ): Promise<S[]> {
+    this.startRequest();
+    try {
+      const workingData = data.slice();
+      const result: S[] = [];
+      while (workingData.length > 0) {
+        const batch = workingData.splice(0, chunkSize);
+        // eslint-disable-next-line no-await-in-loop
+        const batchResult = await requestFunc(batch);
+        result.push(batchResult);
+      }
+      this.finishRequest();
+      return result;
+    } catch (error) {
+      this.finishRequest('A request to the server failed. Please retry later.');
+      throw error;
+    }
+  }
+
   private getAuth(authToken: string): AxiosRequestConfig {
     return {
       headers: { Authorization: `Basic ${authToken}` },
@@ -94,10 +117,13 @@ class VaultAPI {
   async putMany({ account, authToken, items }: VaultAuth & { items: VaultItem[] }) {
     const url = `${this.endpoint}/${account}/items`;
     const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }));
-    const result = await this.wrap(axios.put(url, data, this.getAuth(authToken)));
-    const success = result.data.success || false;
+    const result = await this.wrapMany(
+      data,
+      batch => axios.put(url, batch, this.getAuth(authToken)),
+    );
+    const success = result.filter(r => !r.data.success).length === 0;
     if (!success) {
-      throw new Error('VaultAPI put operation failed');
+      throw new Error('VaultAPI putMany operation failed');
     }
   }
 
@@ -112,8 +138,11 @@ class VaultAPI {
 
   async deleteMany({ account, authToken, items }: VaultAuth & { items: string[] }) {
     const url = `${this.endpoint}/${account}/items`;
-    const result = await this.wrap(axios.delete(url, { ...this.getAuth(authToken), data: items }));
-    const success = result.data.success || false;
+    const result = await this.wrapMany(
+      items,
+      batch => axios.delete(url, { ...this.getAuth(authToken), data: batch }),
+    );
+    const success = result.filter(r => !r.data.success).length === 0;
     if (!success) {
       throw new Error('VaultAPI deleteMany opteration failed');
     }
