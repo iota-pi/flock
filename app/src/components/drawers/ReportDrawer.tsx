@@ -95,8 +95,9 @@ function ReportDrawer({
         onDone: handleDone,
       }}
       alwaysTemporary={alwaysTemporary}
-      hideBackButton
+      itemKey={item.id}
       open={open}
+      onBack={onClose}
       onClose={onClose}
       onExited={onExited}
       stacked={stacked}

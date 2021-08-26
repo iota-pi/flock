@@ -524,6 +524,7 @@ function ItemDrawer({
         onSave: handleSaveAndClose,
       }}
       alwaysTemporary={alwaysTemporary}
+      itemKey={item.id}
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}

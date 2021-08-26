@@ -225,6 +225,7 @@ function NoteDrawer({
         onSave: handleSaveAndClose,
       }}
       alwaysTemporary={alwaysTemporary}
+      itemKey={note.id}
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}

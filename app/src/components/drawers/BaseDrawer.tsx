@@ -1,10 +1,11 @@
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
-import { KeyboardEvent, PropsWithChildren, useCallback } from 'react';
+import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect } from 'react';
 import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWatcher';
 import { usePage } from '../pages';
+import { ItemId } from '../../state/items';
 
 
 const useStyles = makeStyles(theme => ({
@@ -86,6 +87,7 @@ interface SpecificProps {
   alwaysShowBack?: boolean,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
+  itemKey?: ItemId,
 }
 export type { BaseProps as BaseDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -98,6 +100,7 @@ function BaseDrawer({
   children,
   hideBackButton = false,
   hideTypeIcon = false,
+  itemKey,
   onBack,
   onClose,
   onExited,
@@ -142,6 +145,14 @@ function BaseDrawer({
   );
   const showTypeIcon = !hideTypeIcon;
 
+  const containerRef = createRef<HTMLDivElement>();
+  useEffect(
+    () => {
+      containerRef.current?.scrollTo(0, 0);
+    },
+    [containerRef, itemKey],
+  );
+
   return (
     <SwipeableDrawer
       className={rootClasses.join(' ')}
@@ -167,6 +178,7 @@ function BaseDrawer({
         <Container
           className={classes.container}
           data-cy="drawer-content"
+          ref={containerRef}
         >
           <>
             {showTypeIcon && (
