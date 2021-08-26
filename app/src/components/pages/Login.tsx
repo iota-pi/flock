@@ -11,6 +11,7 @@ import Vault from '../../crypto/Vault';
 import { useAppDispatch } from '../../store';
 import { setAccount } from '../../state/account';
 import { setVault } from '../../state/vault';
+import { HomeIcon } from '../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -50,6 +51,11 @@ const FormContent = styled('form')({
   flexGrow: 1,
   minWidth: 300,
 });
+const HomeIconContainer = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  top: theme.spacing(2),
+  left: theme.spacing(2),
+}));
 
 const api = new VaultAPI();
 
@@ -77,10 +83,10 @@ function LoginPage() {
     [location],
   );
 
-  // const handleClickHome = useCallback(
-  //   () => history.push(getPage('welcome').path),
-  //   [history],
-  // );
+  const handleClickHome = useCallback(
+    () => history.push(getPage('welcome').path),
+    [history],
+  );
 
   const handleClickLogin = useCallback(
     async () => {
@@ -126,6 +132,15 @@ function LoginPage() {
 
   return (
     <Root maxWidth="sm">
+      <HomeIconContainer>
+        <IconButton
+          data-cy="back-button"
+          onClick={handleClickHome}
+        >
+          <HomeIcon />
+        </IconButton>
+      </HomeIconContainer>
+
       <CenterSection>
         <Link to={getPage('welcome').path}>
           <img

@@ -11,6 +11,7 @@ import EditIcon from '@material-ui/icons/Edit';
 import FrequencyIcon from '@material-ui/icons/Schedule';
 import GeneralIcon from '@material-ui/icons/MoreHoriz';
 import GroupIcon from '@material-ui/icons/Groups';
+import HomeIcon from '@material-ui/icons/Home';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import MinusIcon from '@material-ui/icons/Remove';
 import NextIcon from '@material-ui/icons/ChevronRight';
@@ -48,6 +49,7 @@ export {
   FrequencyIcon,
   GeneralIcon,
   GroupIcon,
+  HomeIcon,
   InteractionIcon,
   MinusIcon,
   NextIcon,

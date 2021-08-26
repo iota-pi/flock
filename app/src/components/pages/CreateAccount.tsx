@@ -21,6 +21,7 @@ import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';
 import { getAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
+import { HomeIcon } from '../Icons';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
@@ -103,6 +104,11 @@ const Section = styled('div')(({ theme }) => ({
   flexGrow: 1,
   paddingBottom: theme.spacing(8),
 }));
+const HomeIconContainer = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  top: theme.spacing(2),
+  left: theme.spacing(2),
+}));
 
 export interface ChecklistItem {
   id: string,
@@ -156,6 +162,11 @@ function CreateAccountPage() {
   const [passwordScore, setPasswordScore] = useState(0);
   const [waiting, setWaiting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleClickHome = useCallback(
+    () => history.push(getPage('welcome').path),
+    [history],
+  );
 
   const handleClickLogin = useCallback(
     () => history.push(getPage('login').path),
@@ -214,6 +225,15 @@ function CreateAccountPage() {
 
   return (
     <Root maxWidth="sm">
+      <HomeIconContainer>
+        <IconButton
+          data-cy="back-button"
+          onClick={handleClickHome}
+        >
+          <HomeIcon />
+        </IconButton>
+      </HomeIconContainer>
+
       <CenterSection>
         <Link to={getPage('welcome').path}>
           <img
