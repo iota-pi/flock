@@ -92,18 +92,22 @@ const Root = styled(Container)(({ theme }) => ({
   padding: theme.spacing(4),
   flexGrow: 1,
 }));
-const CenterSection = styled('div')(({ theme }) => ({
+const CenterSection = styled('div')({
   alignItems: 'center',
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
   justifyContent: 'center',
-  paddingBottom: theme.spacing(8),
-}));
+});
 const Section = styled('div')(({ theme }) => ({
   flexGrow: 1,
   paddingBottom: theme.spacing(8),
 }));
+
+export interface ChecklistItem {
+  id: string,
+  description: string,
+}
 
 const api = new VaultAPI();
 
@@ -112,6 +116,11 @@ function scorePassword(password: string): zxcvbn.ZXCVBNResult {
     'flock',
     '1peter',
     'cross-code.org',
+    'gracious',
+    'shepherd',
+    'sheep',
+    'field',
+    'pasture',
   ];
   const mainScore = zxcvbn(password, customDomainWords);
   const harshScore = zxcvbn(password.substr(3), customDomainWords);
@@ -223,7 +232,11 @@ function CreateAccountPage() {
 
         <Typography paragraph>
           When you create an account you will be given an account ID.
-          Please ensure that you store your account ID and password in a secure location.
+          Please ensure that you
+          {' '}
+          <b>store your account ID and password</b>
+          {' '}
+          in a secure location.
         </Typography>
 
         <Typography paragraph>

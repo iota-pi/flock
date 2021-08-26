@@ -138,6 +138,10 @@ function LoginPage() {
       </CenterSection>
 
       <Section>
+        <Typography variant="h4" gutterBottom>
+          Login
+        </Typography>
+
         {justCreated && (
           <Alert severity="success" className={classes.alert}>
             Account successfully created!
