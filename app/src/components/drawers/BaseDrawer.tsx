@@ -6,6 +6,7 @@ import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerAction
 import UnmountWatcher from './utils/UnmountWatcher';
 import { usePage } from '../pages';
 import { ItemId } from '../../state/items';
+import { usePrevious } from '../../utils';
 
 
 const useStyles = makeStyles(theme => ({
@@ -145,12 +146,15 @@ function BaseDrawer({
   );
   const showTypeIcon = !hideTypeIcon;
 
+  const prevKey = usePrevious(itemKey);
   const containerRef = createRef<HTMLDivElement>();
   useEffect(
     () => {
-      containerRef.current?.scrollTo(0, 0);
+      if (itemKey !== prevKey) {
+        containerRef.current?.scrollTo(0, 0);
+      }
     },
-    [containerRef, itemKey],
+    [containerRef, itemKey, prevKey],
   );
 
   return (
