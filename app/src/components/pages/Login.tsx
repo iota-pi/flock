@@ -166,65 +166,63 @@ function LoginPage() {
           </Alert>
         )}
 
-        <form>
-          <FormContent>
-            <div className={classes.textFieldHolder}>
-              <TextField
-                autoComplete="username"
-                autoFocus
-                className={classes.textField}
-                fullWidth
-                id="username"
-                label="Account ID"
-                name="username"
-                onChange={handleChangeAccount}
-                value={accountInput}
-              />
-            </div>
+        <FormContent>
+          <div className={classes.textFieldHolder}>
+            <TextField
+              autoComplete="username"
+              autoFocus
+              className={classes.textField}
+              fullWidth
+              id="username"
+              label="Account ID"
+              name="username"
+              onChange={handleChangeAccount}
+              value={accountInput}
+            />
+          </div>
 
-            <div className={classes.textFieldHolder}>
-              <TextField
-                autoComplete="current-password"
-                className={classes.textField}
-                fullWidth
-                id="current-password"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={handleClickVisibility}
-                        onMouseDown={handleMouseDownVisibility}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-                label="Password"
-                name="password"
-                onChange={handleChangePassword}
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-              />
-            </div>
+          <div className={classes.textFieldHolder}>
+            <TextField
+              autoComplete="current-password"
+              className={classes.textField}
+              fullWidth
+              id="current-password"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={handleClickVisibility}
+                      onMouseDown={handleMouseDownVisibility}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              label="Password"
+              name="password"
+              onChange={handleChangePassword}
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+            />
+          </div>
 
-            <Button
-              color="primary"
-              data-cy="login"
-              onClick={handleClickLogin}
-              size="large"
-              variant="contained"
-            >
-              Login
-            </Button>
+          <Button
+            color="primary"
+            data-cy="login"
+            onClick={handleClickLogin}
+            size="large"
+            variant="contained"
+          >
+            Login
+          </Button>
 
-            {error && (
-              <Typography paragraph color="error" className={classes.errorMessage}>
-                {error}
-              </Typography>
-            )}
-          </FormContent>
-        </form>
+          {error && (
+            <Typography paragraph color="error" className={classes.errorMessage}>
+              {error}
+            </Typography>
+          )}
+        </FormContent>
       </Section>
 
       <Section>
