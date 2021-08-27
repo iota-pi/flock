@@ -1,4 +1,4 @@
-import { Fragment, ReactNode, useCallback, useMemo } from 'react';
+import { Fragment, ReactNode, useMemo } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -10,8 +10,8 @@ import {
   ListItemText,
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
-import { getItemById, getItemName, Item, ItemNote } from '../state/items';
-import { useItems, useNoteMap } from '../state/selectors';
+import { getItemName, Item, ItemNote } from '../state/items';
+import { useItemMap, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';
 import { getIcon } from './Icons';
 
@@ -46,10 +46,108 @@ export interface Props<T extends ItemNote> {
   notes: T[],
   noNotesHint?: string,
   noNotesText?: string,
-  onClick?: (note: T) => () => void,
-  onClickAction?: (note: T) => () => void,
+  onClick?: (note: T) => void,
+  onClickAction?: (note: T) => void,
   paddingTop?: boolean,
   showIcons?: boolean,
+}
+
+export interface NoteListItemProps<T extends ItemNote> {
+  actionIcon?: ReactNode,
+  compact: boolean,
+  displayItemNames?: boolean,
+  displayNoteDate?: boolean,
+  highlighted: boolean,
+  icon: ReactNode | undefined,
+  item: Item | undefined,
+  note: T,
+  onClick: (() => void) | undefined,
+  onClickAction: (() => void) | undefined,
+}
+
+function NoteListItem<T extends ItemNote = ItemNote>({
+  actionIcon,
+  compact,
+  displayItemNames,
+  displayNoteDate,
+  highlighted = false,
+  icon,
+  item,
+  note,
+  onClick,
+  onClickAction,
+}: NoteListItemProps<T>) {
+  const classes = useStyles();
+  const primaryText = useMemo(
+    () => {
+      if (displayItemNames) {
+        return getItemName(item);
+      }
+
+      const content = note.content || '(no details)';
+      return note.sensitive ? '(sensitive)' : content;
+    },
+    [displayItemNames, item, note],
+  );
+  const secondaryText = useMemo(
+    () => {
+      const textParts = [];
+
+      if (displayNoteDate) {
+        const timeString = formatDate(new Date(note.date));
+        textParts.push(timeString);
+      }
+
+      if (displayItemNames) {
+        const content = note.sensitive ? '(sensitive)' : (note.content || '(no details)');
+        textParts.push(content);
+      }
+
+      return textParts.join('—');
+    },
+    [displayItemNames, displayNoteDate, note],
+  );
+  const handleClickAction = onClickAction || onClick;
+
+  return (
+    <ListItem
+      button
+      disabled={!onClick}
+      onClick={onClick}
+      selected={highlighted}
+      classes={{
+        disabled: classes.disabledOverride,
+      }}
+      className={!compact ? classes.consistantMinHeight : ''}
+      dense={compact}
+    >
+      {icon && (
+        <ListItemIcon>
+          {icon}
+        </ListItemIcon>
+      )}
+
+      <ListItemText
+        primary={primaryText}
+        secondary={secondaryText}
+        classes={{
+          primary: note.content ? undefined : classes.faded,
+        }}
+      />
+
+      {handleClickAction && (
+        <ListItemSecondaryAction>
+          <IconButton
+            className={!onClickAction ? classes.noHover : undefined}
+            disableRipple={!onClickAction}
+            onClick={handleClickAction}
+          >
+            {actionIcon || <ChevronRight />}
+          </IconButton>
+        </ListItemSecondaryAction>
+      )}
+    </ListItem>
+  );
 }
 
 
@@ -70,8 +168,10 @@ function NoteList<T extends ItemNote = ItemNote>({
   showIcons = false,
 }: Props<T>) {
   const classes = useStyles();
-  const items = useItems();
+  const itemMap = useItemMap();
   const noteMap = useNoteMap();
+
+  const compactList = !displayNoteDate && !displayItemNames;
 
   const notes = useMemo(
     () => {
@@ -80,54 +180,45 @@ function NoteList<T extends ItemNote = ItemNote>({
         filteredNotes = rawNotes.filter(note => !!note.content.trim());
       }
       const notesWithItems: [T, Item | undefined][] = filteredNotes.map(
-        note => [note, getItemById(items, noteMap[note.id])],
+        note => [note, itemMap[noteMap[note.id]]],
       );
       return notesWithItems;
     },
-    [hideEmpty, items, noteMap, rawNotes],
+    [hideEmpty, itemMap, noteMap, rawNotes],
+  );
+  const noteList = useMemo(
+    () => notes.map(([note, item]) => (
+      <Fragment key={note.id}>
+        {dividers && <Divider />}
+
+        <NoteListItem
+          actionIcon={actionIcon}
+          compact={compactList}
+          displayItemNames={displayItemNames}
+          displayNoteDate={displayNoteDate}
+          highlighted={getHighlighted ? getHighlighted(note) : false}
+          icon={showIcons && item ? getIcon(item.type) : null}
+          item={item}
+          note={note}
+          onClick={onClick && (() => onClick(note))}
+          onClickAction={onClickAction && (() => onClickAction(note))}
+        />
+      </Fragment>
+    )),
+    [
+      actionIcon,
+      compactList,
+      dividers,
+      displayItemNames,
+      displayNoteDate,
+      getHighlighted,
+      notes,
+      onClick,
+      onClickAction,
+      showIcons,
+    ],
   );
 
-  const handleClickAction = useCallback(
-    (note: T) => {
-      if (onClickAction) {
-        return onClickAction(note);
-      } else if (onClick) {
-        return onClick(note);
-      }
-      return undefined;
-    },
-    [onClick, onClickAction],
-  );
-  const getNotePrimaryText = useCallback(
-    (note: ItemNote, item: Item | undefined) => {
-      if (displayItemNames) {
-        return getItemName(item);
-      }
-
-      const content = note.content || '(no details)';
-      return note.sensitive ? '(sensitive)' : content;
-    },
-    [displayItemNames],
-  );
-  const getNoteSecondaryText = useCallback(
-    (note: ItemNote) => {
-      const textParts = [];
-
-      if (displayNoteDate) {
-        const timeString = formatDate(new Date(note.date));
-        textParts.push(timeString);
-      }
-
-      if (displayItemNames) {
-        const content = note.sensitive ? '(sensitive)' : (note.content || '(no details)');
-        textParts.push(content);
-      }
-
-      return textParts.join('—');
-    },
-    [displayItemNames, displayNoteDate],
-  );
-  const compactList = !displayNoteDate && !displayItemNames;
 
   return (
     <List
@@ -136,49 +227,7 @@ function NoteList<T extends ItemNote = ItemNote>({
     >
       {dividers && notes.length === 0 && <Divider />}
 
-      {notes.map(([note, item]) => (
-        <Fragment key={note.id}>
-          {dividers && <Divider />}
-
-          <ListItem
-            button
-            disabled={!onClick}
-            onClick={onClick ? onClick(note) : undefined}
-            selected={getHighlighted ? getHighlighted(note) : false}
-            classes={{
-              disabled: classes.disabledOverride,
-            }}
-            className={!compactList ? classes.consistantMinHeight : ''}
-            dense={compactList}
-          >
-            {item && showIcons && (
-              <ListItemIcon>
-                {getIcon(item.type)}
-              </ListItemIcon>
-            )}
-
-            <ListItemText
-              primary={getNotePrimaryText(note, item)}
-              secondary={getNoteSecondaryText(note)}
-              classes={{
-                primary: note.content ? undefined : classes.faded,
-              }}
-            />
-
-            {(onClick || onClickAction) && (
-              <ListItemSecondaryAction>
-                <IconButton
-                  className={!onClickAction ? classes.noHover : undefined}
-                  disableRipple={!onClickAction}
-                  onClick={handleClickAction(note)}
-                >
-                  {actionIcon || <ChevronRight />}
-                </IconButton>
-              </ListItemSecondaryAction>
-            )}
-          </ListItem>
-        </Fragment>
-      ))}
+      {noteList}
 
       {notes.length === 0 && (
         <ListItem>

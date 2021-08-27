@@ -67,7 +67,7 @@ function ActionsPage() {
   );
 
   const handleClick = useCallback(
-    (note: ActionNote) => () => {
+    (note: ActionNote) => {
       dispatch(replaceActive({ item: note.id }));
     },
     [dispatch],
