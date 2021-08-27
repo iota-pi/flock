@@ -12,7 +12,7 @@ import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
-import { DownloadIcon, EditIcon, MuiIconType, PersonIcon, UploadIcon } from '../Icons';
+import { DownloadIcon, EditIcon, MuiIconType, UploadIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
