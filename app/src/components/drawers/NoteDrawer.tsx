@@ -22,7 +22,7 @@ import {
   Item,
   ItemNote,
 } from '../../state/items';
-import { useItemMap, useItems, useNoteMap, useVault } from '../../state/selectors';
+import { useItemMap, useItems, useItemsById, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
@@ -46,18 +46,19 @@ function NoteDrawer({
   open,
   stacked,
 }: Props) {
-  const vault = useVault();
   const allItems = useItems();
+  const getItemsById = useItemsById();
   const itemMap = useItemMap();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
   const prevOpen = usePrevious(open);
+  const vault = useVault();
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
 
   const existingLinkedItem = useMemo(
-    () => itemMap[noteMap[note.id]],
+    () => itemMap[noteMap[note.id]] as Item | undefined,
     [itemMap, note.id, noteMap],
   );
   const editing = existingLinkedItem !== undefined;
@@ -98,7 +99,7 @@ function NoteDrawer({
   );
   const handleAddItem = useCallback(
     (item: Item) => {
-      const newItems = item.type === 'group' ? item.members.map(id => itemMap[id]) : [item];
+      const newItems = item.type === 'group' ? getItemsById(item.members) : [item];
 
       if (editing) {
         setLinkedItems(newItems);
@@ -109,7 +110,7 @@ function NoteDrawer({
         });
       }
     },
-    [editing, itemMap],
+    [editing, getItemsById],
   );
   const handleUnlinkItem = useCallback(
     (item: Item) => {
@@ -141,7 +142,7 @@ function NoteDrawer({
       const itemsToUpdate: Item[] = [];
       for (const linkedItem of linkedItems) {
         if (editing) {
-          const oldItem = itemMap[noteMap[noteToSave.id]];
+          const oldItem: Item | undefined = itemMap[noteMap[noteToSave.id]];
           if (oldItem && oldItem.id !== linkedItem.id) {
             itemsToUpdate.push({
               ...oldItem,
@@ -181,7 +182,7 @@ function NoteDrawer({
   const handleDelete = useCallback(
     () => {
       if (note) {
-        const oldItem = itemMap[noteMap[note.id]];
+        const oldItem: Item | undefined = itemMap[noteMap[note.id]];
         if (oldItem) {
           const newItem: Item = {
             ...oldItem,

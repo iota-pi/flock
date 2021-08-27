@@ -19,7 +19,7 @@ import {
   TagIcon,
   UnarchiveIcon,
 } from './Icons';
-import { useItemMap, useVault } from '../state/selectors';
+import { useItemsById, useVault } from '../state/selectors';
 import {
   getBlankInteraction,
   getBlankPrayerPoint,
@@ -53,13 +53,13 @@ const ACTION_HEIGHT = 48;
 function SelectedActions() {
   const classes = useStyles();
   const dispatch = useAppDispatch();
-  const itemMap = useItemMap();
+  const getItemsById = useItemsById();
   const selected = useAppSelector(state => state.ui.selected);
   const vault = useVault();
 
   const open = selected.length > 0;
 
-  const selectedItems = useMemo(() => selected.map(id => itemMap[id]), [itemMap, selected]);
+  const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected]);
   const prevSelectedItems = usePrevious(selectedItems) || [];
 
   const [showConfirm, setShowConfirm] = useState(false);

@@ -131,7 +131,7 @@ describe('Basic operation', () => {
       .should('have.length', 2)
   })
 
-  it('opening/closing nested drawers works correctly', () => {
+  it.only('opening/closing nested drawers works correctly', () => {
     // Requires "desktop" width for testing the permanent-drawer mechanics
     cy.viewport(1280, 720)
 

@@ -38,6 +38,16 @@ export const useItemOrNote = (id: ItemId) => useAppSelector(
   ),
 );
 
+export function useItemsById() {
+  const itemMap = useItemMap();
+  return useCallback(
+    <T extends Item>(ids: ItemId[]) => (
+      ids.map(id => itemMap[id] as T).filter(item => item !== undefined)
+    ),
+    [itemMap],
+  );
+}
+
 export const useVault = () => useAppSelector(state => state.vault);
 export const useLoggedIn = () => useAppSelector(state => !!state.vault);
 

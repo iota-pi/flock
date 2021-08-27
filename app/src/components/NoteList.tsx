@@ -53,16 +53,15 @@ export interface Props<T extends ItemNote> {
 }
 
 export interface NoteListItemProps<T extends ItemNote> {
-  actionIcon?: ReactNode,
+  actionIcon: ReactNode | undefined,
   compact: boolean,
   displayItemNames?: boolean,
   displayNoteDate?: boolean,
   highlighted: boolean,
-  icon: ReactNode | undefined,
-  item: Item | undefined,
   note: T,
   onClick: (() => void) | undefined,
   onClickAction: (() => void) | undefined,
+  showIcons: boolean,
 }
 
 function NoteListItem<T extends ItemNote = ItemNote>({
@@ -71,13 +70,16 @@ function NoteListItem<T extends ItemNote = ItemNote>({
   displayItemNames,
   displayNoteDate,
   highlighted = false,
-  icon,
-  item,
   note,
   onClick,
   onClickAction,
+  showIcons,
 }: NoteListItemProps<T>) {
   const classes = useStyles();
+  const itemMap = useItemMap();
+  const noteMap = useNoteMap();
+
+  const item: Item | undefined = itemMap[noteMap[note.id]];
   const primaryText = useMemo(
     () => {
       if (displayItemNames) {
@@ -108,6 +110,7 @@ function NoteListItem<T extends ItemNote = ItemNote>({
     [displayItemNames, displayNoteDate, note],
   );
   const handleClickAction = onClickAction || onClick;
+  const icon = showIcons && item ? getIcon(item.type) : null;
 
   return (
     <ListItem
@@ -168,8 +171,6 @@ function NoteList<T extends ItemNote = ItemNote>({
   showIcons = false,
 }: Props<T>) {
   const classes = useStyles();
-  const itemMap = useItemMap();
-  const noteMap = useNoteMap();
 
   const compactList = !displayNoteDate && !displayItemNames;
 
@@ -179,15 +180,12 @@ function NoteList<T extends ItemNote = ItemNote>({
       if (hideEmpty) {
         filteredNotes = rawNotes.filter(note => !!note.content.trim());
       }
-      const notesWithItems: [T, Item | undefined][] = filteredNotes.map(
-        note => [note, itemMap[noteMap[note.id]]],
-      );
-      return notesWithItems;
+      return filteredNotes;
     },
-    [hideEmpty, itemMap, noteMap, rawNotes],
+    [hideEmpty, rawNotes],
   );
   const noteList = useMemo(
-    () => notes.map(([note, item]) => (
+    () => notes.map(note => (
       <Fragment key={note.id}>
         {dividers && <Divider />}
 
@@ -197,11 +195,10 @@ function NoteList<T extends ItemNote = ItemNote>({
           displayItemNames={displayItemNames}
           displayNoteDate={displayNoteDate}
           highlighted={getHighlighted ? getHighlighted(note) : false}
-          icon={showIcons && item ? getIcon(item.type) : null}
-          item={item}
           note={note}
           onClick={onClick && (() => onClick(note))}
           onClickAction={onClickAction && (() => onClickAction(note))}
+          showIcons={showIcons}
         />
       </Fragment>
     )),

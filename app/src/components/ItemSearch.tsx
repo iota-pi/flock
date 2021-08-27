@@ -11,7 +11,7 @@ import {
   ItemId,
 } from '../state/items';
 import { getIcon } from './Icons';
-import { useItemMap } from '../state/selectors';
+import { useItemsById } from '../state/selectors';
 
 const useStyles = makeStyles(theme => ({
   autocompleteOption: {
@@ -120,7 +120,7 @@ function ItemSearch<T extends Item = Item>({
   showSelected = true,
 }: Props<T>) {
   const classes = useStyles();
-  const itemMap = useItemMap();
+  const getItemsById = useItemsById();
   const filterFunc = useMemo(
     () => createFilterOptions<T>({ trim: true }),
     [],
@@ -130,8 +130,8 @@ function ItemSearch<T extends Item = Item>({
     [items, selectedIds, showSelected],
   );
   const selectedItems = useMemo(
-    () => selectedIds.map(id => itemMap[id] as T),
-    [itemMap, selectedIds],
+    () => getItemsById<T>(selectedIds),
+    [getItemsById, selectedIds],
   );
 
   const handleChange = useCallback(

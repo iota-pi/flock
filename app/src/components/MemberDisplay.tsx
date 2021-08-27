@@ -5,7 +5,7 @@ import {
 import { makeStyles } from '@material-ui/core';
 import DeleteIcon from '@material-ui/icons/Close';
 import { compareItems, GroupItem, Item, ItemId, PersonItem } from '../state/items';
-import { useItemMap, useItems } from '../state/selectors';
+import { useItems, useItemsById } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
@@ -31,12 +31,12 @@ function MemberDisplay({
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
-  const itemMap = useItemMap();
+  const getItemsById = useItemsById();
   const people = useItems<PersonItem>('person').sort(compareItems);
 
   const members = useMemo(
-    () => memberIds.map(id => itemMap[id] as PersonItem).sort(compareItems),
-    [itemMap, memberIds],
+    () => getItemsById<PersonItem>(memberIds).sort(compareItems),
+    [getItemsById, memberIds],
   );
 
   const handleClickItem = useCallback(
