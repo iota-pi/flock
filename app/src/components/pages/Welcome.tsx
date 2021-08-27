@@ -13,8 +13,10 @@ import AboutDrawer from '../drawers/AboutDrawer';
 
 
 const Root = styled(Container)(({ theme }) => ({
-  padding: theme.spacing(4),
   flexGrow: 1,
+  overflowY: 'auto',
+  padding: theme.spacing(4),
+  position: 'relative',
 }));
 const Section = styled('div')(({ theme }) => ({
   alignItems: 'center',

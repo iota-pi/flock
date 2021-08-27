@@ -90,8 +90,10 @@ const useStyles = makeStyles(theme => ({
 }));
 
 const Root = styled(Container)(({ theme }) => ({
-  padding: theme.spacing(4),
   flexGrow: 1,
+  overflowY: 'auto',
+  padding: theme.spacing(4),
+  position: 'relative',
 }));
 const CenterSection = styled('div')({
   alignItems: 'center',
