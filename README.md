@@ -5,11 +5,11 @@ Flock will help you to care diligently for the flock of God that is among you.
 
 ## Intent
 
-Flock is intended as a tool to help you to care for and serve your people.
-As such it designed to be used by multiple users, or to share data between
-users.
+Flock is intended as a tool to help you to care for and serve the people you
+personally look after. As such it is not designed to be used by multiple users,
+or to share data between users.
 
-Because Flock is a personal tool, the data you enter should not belong to your
+Because Flock is a personal tool, any data you enter should not belong to your
 organisation or church.
 
 ## Security
