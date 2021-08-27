@@ -34,9 +34,17 @@ Cypress.Commands.add(
 );
 
 Cypress.Commands.add(
+  'page',
+  (page: string) => {
+    cy.dataCy(`page-${page}`).click()
+    return cy;
+  },
+);
+
+Cypress.Commands.add(
   'createPerson',
   (data: Partial<PersonItem>) => {
-    cy.dataCy('page-people').click()
+    cy.page('people')
     cy.dataCy('fab').click()
     for (const key of Object.keys(data)) {
       cy.dataCy(key).type(data[key])
@@ -48,7 +56,7 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'createGroup',
   (data: Partial<GroupItem>) => {
-    cy.dataCy('page-groups').click()
+    cy.page('groups')
     cy.dataCy('fab').click()
     for (const key of Object.keys(data)) {
       cy.dataCy(key).type(data[key])
@@ -60,7 +68,7 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'createOther',
   (data: Partial<GeneralItem>) => {
-    cy.dataCy('page-general').click()
+    cy.page('general')
     cy.dataCy('fab').click()
     for (const key of Object.keys(data)) {
       cy.dataCy(key).type(data[key])

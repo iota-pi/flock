@@ -17,7 +17,8 @@ describe('Basic operation', () => {
       .contains('Underhill')
   })
 
-  it('can add notes', () => {
+  it.only('can add & remove notes', () => {
+    // Create notes
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
       .addNote({ content: '', type: 'interaction' })
       .addNote({
@@ -27,7 +28,9 @@ describe('Basic operation', () => {
       })
       .addNote({ content: 'Safe travels & self control', type: 'prayer' })
       .saveDrawer()
-    cy.dataCy('page-prayer').click()
+
+    // Check notes have been created successfully
+    cy.page('prayer')
     cy.dataCy('page-content')
       .contains('Frodo Baggins')
       .click()
@@ -39,6 +42,38 @@ describe('Basic operation', () => {
     cy.dataCy('drawer-content')
       .contains('Safe travels')
     cy.dataCy('drawer-done').click()
+
+    cy.page('people')
+    cy.contains('Frodo').click()
+    cy.dataCy('section-interactions').click()
+
+    // Delete empty note
+    cy.dataCy('section-interactions')
+      .find('[data-cy=delete-note]').last()
+      .click()
+    // Wait for deletion
+    cy.dataCy('section-interactions')
+      .find('[data-cy=delete-note]')
+      .should('have.length', 1)
+
+    // Delete note with content (requires confirmation)
+    cy.dataCy('section-interactions')
+      .find('[data-cy=delete-note]')
+      .click()
+    cy.dataCy('confirm-cancel').click()
+    cy.dataCy('section-interactions')
+      .find('[data-cy=delete-note]')
+      .click()
+    cy.dataCy('confirm-confirm').click()
+      .saveDrawer()
+
+    // Check notes have been removed successfully
+    cy.page('prayer')
+    cy.dataCy('page-content')
+      .contains('Frodo Baggins')
+      .click()
+    cy.dataCy('drawer-content')
+      .contains('No interactions')
   })
 
   it('can add action', () => {
@@ -47,7 +82,7 @@ describe('Basic operation', () => {
       .addNote({ content: 'Cook taters', type: 'action' })
       .addNote({ content: 'Bully Gollum', type: 'action', sensitive: true })
       .saveDrawer()
-    cy.dataCy('page-actions').click()
+    cy.page('actions')
     cy.dataCy('page-content')
       .contains('Frodo Baggins')
     cy.dataCy('page-content')
@@ -75,7 +110,7 @@ describe('Basic operation', () => {
       .addToGroup('f')
       .saveDrawer()
 
-    cy.dataCy('page-groups').click()
+    cy.page('groups')
     cy.contains('4 members').click()
     cy.dataCy('section-members').click()
     cy.contains('Gandalf')
@@ -101,7 +136,7 @@ describe('Basic operation', () => {
       .dataCy('frequency-daily').click()
       .saveDrawer()
 
-    cy.dataCy('page-prayer').click()
+    cy.page('prayer')
     cy.dataCy('list-item').eq(0).contains('One Ring')
     cy.dataCy('list-item').eq(1).contains('Athelas')
     cy.dataCy('list-item').eq(2).contains('Mallorn')
@@ -131,7 +166,7 @@ describe('Basic operation', () => {
       .should('have.length', 2)
   })
 
-  it.only('opening/closing nested drawers works correctly', () => {
+  it('opening/closing nested drawers works correctly', () => {
     // Requires "desktop" width for testing the permanent-drawer mechanics
     cy.viewport(1280, 720)
 
@@ -153,7 +188,7 @@ describe('Basic operation', () => {
     cy.contains('Bilbo').click()
 
     // Bilbo's drawer should not be stacked so we should now be able to change pages
-    cy.dataCy('page-prayer').click()
+    cy.page('prayer')
 
     // Check prayer report for Bilbo
     cy.dataCy('page-content')

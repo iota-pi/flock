@@ -12,7 +12,7 @@ describe('Backup & restore', () => {
       .saveDrawer()
 
     // Create backup
-    cy.dataCy('page-settings').click()
+    cy.page('settings')
     cy.dataCy('export').click()
 
     // Add a new item
@@ -30,13 +30,13 @@ describe('Backup & restore', () => {
       .saveDrawer()
 
     // Restore backup
-    cy.dataCy('page-settings').click()
+    cy.page('settings')
     cy.dataCy('import').click()
     cy.get('input[type=file]').attachFile('../downloads/flock.backup.json')
     cy.dataCy('import-confirm').click()
 
     // Check restore
-    cy.dataCy('page-people').click()
+    cy.page('people')
     cy.contains('Frodo')
     cy.contains('Merry')
     cy.contains('Pippin')

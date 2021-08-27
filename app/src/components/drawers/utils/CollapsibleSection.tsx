@@ -87,6 +87,7 @@ function CollapsibleSection({
         root: classes.accordionRoot,
         expanded: classes.accordionExpanded,
       }}
+      data-cy={`section-${id}`}
       expanded={expanded}
       onChange={handleChange}
       square
@@ -98,7 +99,6 @@ function CollapsibleSection({
           expanded: classes.summaryExpanded,
           root: classes.summaryRoot,
         }}
-        data-cy={`section-${id}`}
         expandIcon={<ExpandMoreIcon />}
       >
         {Icon && (

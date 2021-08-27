@@ -11,7 +11,7 @@ describe('Maturity-related functionality', () => {
     cy.contains(/non-Christian/i)
       .click()
       .saveDrawer()
-    cy.dataCy('page-settings').click()
+    cy.page('settings')
     cy.dataCy('maturity-stages')
       .find('[data-cy=edit-button]')
       .click()
@@ -51,7 +51,7 @@ describe('Maturity-related functionality', () => {
     cy.get('@stages').eq(2).contains('Partner')
 
     // Previous maturity selection should not exist
-    cy.dataCy('page-people').click()
+    cy.page('people')
     cy.contains('Frodo').click()
     cy.dataCy('maturity-selection').find('input').should('have.value', '')
 
@@ -74,7 +74,7 @@ describe('Maturity-related functionality', () => {
     cy.dataCy('maturity-selection').click()
     cy.contains(/mature Christian/i).click()
 
-    cy.dataCy('page-settings').click()
+    cy.page('settings')
     cy.dataCy('maturity-stages')
       .find('[data-cy=edit-button]')
       .click()
@@ -83,7 +83,7 @@ describe('Maturity-related functionality', () => {
       .type('Youngster')
     cy.dataCy('maturity-done').click()
 
-    cy.dataCy('page-people').click()
+    cy.page('people')
     cy.contains('Frodo').click()
     cy.dataCy('maturity-selection').find('input').should('have.value', 'Youngster')
     cy.contains('Pippin').click()

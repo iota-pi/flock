@@ -24,8 +24,9 @@ declare global {
        */
       dataCy(value: string): Chainable<Element>;
 
-      createAccount(password: string): void;
-      login(credentials: { username: string, password: string }): void;
+      createAccount(password: string): Chainable;
+      login(credentials: { username: string, password: string }): Chainable;
+      page(page: string): Chainable;
 
       createPerson(data: Partial<PersonItem>): Chainable;
       createGroup(data: Partial<GroupItem>): Chainable;

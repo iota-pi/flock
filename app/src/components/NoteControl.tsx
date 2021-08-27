@@ -150,15 +150,25 @@ function NoteControl<T extends ItemNote>({
     ),
     [onChange, rawNotes],
   );
-  const handleDelete = useCallback((noteId: string) => () => setNoteToDelete(noteId), []);
   const handleConfirmCancel = useCallback(() => { setNoteToDelete(undefined); }, []);
   const handleConfirmDelete = useCallback(
-    () => {
-      const newNotes = rawNotes.filter(n => n.id !== noteToDelete);
+    (deleteId: ItemId) => {
+      const newNotes = rawNotes.filter(n => n.id !== deleteId);
       onChange(newNotes);
       setNoteToDelete(undefined);
     },
-    [noteToDelete, onChange, rawNotes],
+    [onChange, rawNotes],
+  );
+  const handleDelete = useCallback(
+    (noteId: string) => {
+      const content = rawNotes.filter(n => n.id === noteId)[0].content;
+      if (!content) {
+        handleConfirmDelete(noteId);
+      } else {
+        setNoteToDelete(noteId);
+      }
+    },
+    [handleConfirmDelete, rawNotes],
   );
 
   const handleAddNote = useCallback(
@@ -293,9 +303,10 @@ function NoteControl<T extends ItemNote>({
 
                 <div>
                   <IconButton
-                    onClick={handleDelete(note.id)}
-                    size="small"
                     className={classes.danger}
+                    data-cy="delete-note"
+                    onClick={() => handleDelete(note.id)}
+                    size="small"
                   >
                     <DeleteIcon />
                   </IconButton>
@@ -322,7 +333,7 @@ function NoteControl<T extends ItemNote>({
 
       <ConfirmationDialog
         open={noteToDelete !== undefined}
-        onConfirm={handleConfirmDelete}
+        onConfirm={() => noteToDelete && handleConfirmDelete(noteToDelete)}
         onCancel={handleConfirmCancel}
       >
         <Typography paragraph>
