@@ -19,12 +19,10 @@ import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { KeyboardDatePicker } from '@material-ui/pickers';
 import {
   compareItems,
-  getItemById,
   Item,
   ItemNote,
-  lookupItemsById,
 } from '../../state/items';
-import { useItems, useNoteMap, useVault } from '../../state/selectors';
+import { useItemMap, useItems, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
@@ -50,6 +48,7 @@ function NoteDrawer({
 }: Props) {
   const vault = useVault();
   const allItems = useItems();
+  const itemMap = useItemMap();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
   const prevOpen = usePrevious(open);
@@ -58,8 +57,8 @@ function NoteDrawer({
   const [showSensitive, setShowSensitive] = useState(false);
 
   const existingLinkedItem = useMemo(
-    () => getItemById(allItems, noteMap[note.id]),
-    [allItems, note.id, noteMap],
+    () => itemMap[noteMap[note.id]],
+    [itemMap, note.id, noteMap],
   );
   const editing = existingLinkedItem !== undefined;
   const autoFocusSearch = !editing && linkedItemsProp === undefined;
@@ -99,7 +98,7 @@ function NoteDrawer({
   );
   const handleAddItem = useCallback(
     (item: Item) => {
-      const newItems = item.type === 'group' ? lookupItemsById(items, item.members) : [item];
+      const newItems = item.type === 'group' ? item.members.map(id => itemMap[id]) : [item];
 
       if (editing) {
         setLinkedItems(newItems);
@@ -110,7 +109,7 @@ function NoteDrawer({
         });
       }
     },
-    [editing, items],
+    [editing, itemMap],
   );
   const handleUnlinkItem = useCallback(
     (item: Item) => {
@@ -142,7 +141,7 @@ function NoteDrawer({
       const itemsToUpdate: Item[] = [];
       for (const linkedItem of linkedItems) {
         if (editing) {
-          const oldItem = getItemById(items, noteMap[noteToSave.id]);
+          const oldItem = itemMap[noteMap[noteToSave.id]];
           if (oldItem && oldItem.id !== linkedItem.id) {
             itemsToUpdate.push({
               ...oldItem,
@@ -164,7 +163,7 @@ function NoteDrawer({
       }
       vault?.store(itemsToUpdate);
     },
-    [editing, items, linkedItems, noteMap, vault],
+    [editing, itemMap, linkedItems, noteMap, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -182,7 +181,7 @@ function NoteDrawer({
   const handleDelete = useCallback(
     () => {
       if (note) {
-        const oldItem = getItemById(items, noteMap[note.id]);
+        const oldItem = itemMap[noteMap[note.id]];
         if (oldItem) {
           const newItem: Item = {
             ...oldItem,
@@ -193,7 +192,7 @@ function NoteDrawer({
       }
       onClose();
     },
-    [items, noteMap, onClose, note, vault],
+    [itemMap, noteMap, onClose, note, vault],
   );
 
   const isVisible = useMemo(

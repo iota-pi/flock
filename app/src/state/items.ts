@@ -361,22 +361,6 @@ export function compareNotes(a: ItemNote, b: ItemNote): number {
   return b.date - a.date || compareIds(a, b);
 }
 
-export function getItemById<T extends Item>(items: T[], id: ItemId): T | undefined {
-  const result = items.find(item => item.id === id);
-  return result;
-}
-
-export function lookupItemsById<T extends Item>(items: T[], ids: ItemId[]): T[] {
-  const results: T[] = [];
-  for (let i = 0; i < ids.length; ++i) {
-    const item = getItemById(items, ids[i]);
-    if (item) {
-      results.push(item);
-    }
-  }
-  return results;
-}
-
 export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => !item.archived);
 }
