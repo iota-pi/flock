@@ -153,34 +153,37 @@ export function drawersReducer(
     return action.drawers || state;
   }
   if (action.type === REPLACE_ACTIVE) {
-    const lastItem = state.length > 0 ? state[state.length - 1] : undefined;
+    const openItems = state.filter(drawer => drawer.open);
+    const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
     const newItem: DrawerData = {
       id: lastItem ? lastItem.id : getItemId(),
       open: true,
       ...action.data,
     };
-    return [...state.slice(0, -1), newItem];
+    return [...openItems.slice(0, -1), newItem];
   }
   if (action.type === UPDATE_ACTIVE) {
-    const lastItem = state.length > 0 ? state[state.length - 1] : undefined;
+    const openItems = state.filter(drawer => drawer.open);
+    const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
     const newItem: DrawerData = {
       id: getItemId(),
       open: true,
       ...lastItem,
       ...action.data,
     };
-    return [...state.slice(0, -1), newItem];
+    return [...openItems.slice(0, -1), newItem];
   }
   if (action.type === PUSH_ACTIVE) {
+    const openItems = state.filter(drawer => drawer.open);
     const newItem: DrawerData = {
       id: getItemId(),
       open: true,
       ...action.data,
     };
-    return [...state, newItem];
+    return [...openItems, newItem];
   }
   if (action.type === REMOVE_ACTIVE) {
-    return state.slice(0, -1);
+    return state.slice(0, -1).filter(drawer => drawer.open);
   }
   if (action.type === DELETE_ITEMS) {
     const newDrawers: typeof state = [];
