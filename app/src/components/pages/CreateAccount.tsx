@@ -89,9 +89,11 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-const Root = styled(Container)(({ theme }) => ({
+const Root = styled('div')({
   flexGrow: 1,
   overflowY: 'auto',
+});
+const MainContainer = styled(Container)(({ theme }) => ({
   padding: theme.spacing(4),
   position: 'relative',
 }));
@@ -226,135 +228,137 @@ function CreateAccountPage() {
   const validPassword = !!password && !passwordError;
 
   return (
-    <Root maxWidth="sm">
-      <HomeIconContainer>
-        <IconButton
-          data-cy="back-button"
-          onClick={handleClickHome}
-        >
-          <HomeIcon />
-        </IconButton>
-      </HomeIconContainer>
+    <Root>
+      <MainContainer maxWidth="sm">
+        <HomeIconContainer>
+          <IconButton
+            data-cy="back-button"
+            onClick={handleClickHome}
+          >
+            <HomeIcon />
+          </IconButton>
+        </HomeIconContainer>
 
-      <CenterSection>
-        <Link to={getPage('welcome').path}>
-          <img
-            src="/flock.png"
-            alt=""
-            width="300"
-            height="300"
-          />
-        </Link>
-      </CenterSection>
-
-      <Section>
-        <Typography variant="h4" gutterBottom>
-          Create a New Account
-        </Typography>
-
-        <Typography paragraph>
-          When you create an account you will be given an account ID.
-          Please ensure that you
-          {' '}
-          <b>store your account ID and password</b>
-          {' '}
-          in a secure location.
-        </Typography>
-
-        <Typography paragraph>
-          Because your data is client-side encrypted, it will not be possible to recover your data
-          if you forget your account ID or password.
-        </Typography>
-
-        <TextField
-          autoComplete="current-password"
-          className={classes.textField}
-          fullWidth
-          id="password"
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  onClick={handleClickVisibility}
-                  onMouseDown={handleMouseDownVisibility}
-                >
-                  {showPassword ? <VisibilityOff /> : <Visibility />}
-                </IconButton>
-              </InputAdornment>
-            ),
-          }}
-          label="Password"
-          onChange={handleChangePassword}
-          type={showPassword ? 'text' : 'password'}
-          value={password}
-        />
-
-        <div className={classes.meterHolder}>
-          <Typography>
-            Password Strength:
-            {' '}
-            <span className={classes.emphasis}>
-              {passwordScoreToWord(passwordScore)}
-            </span>
-          </Typography>
-
-          <LinearProgress
-            value={passwordScore * 25}
-            variant="determinate"
-            className={`${classes.meter} ${passwordScoreToClass(passwordScore, classes)}`}
-            classes={{
-              bar: passwordScoreToClass(passwordScore, classes),
-            }}
-          />
-        </div>
-
-        {passwordError && (
-          <Typography color="error">
-            {passwordError}
-          </Typography>
-        )}
-
-        <Button
-          color="primary"
-          data-cy="create-account"
-          disabled={!validPassword || waiting}
-          fullWidth
-          onClick={handleClickCreate}
-          size="large"
-          variant="contained"
-        >
-          Create Account
-
-          {waiting && (
-            <CircularProgress
-              className={classes.buttonProgress}
-              size={24}
+        <CenterSection>
+          <Link to={getPage('welcome').path}>
+            <img
+              src="/flock.png"
+              alt=""
+              width="300"
+              height="300"
             />
-          )}
-        </Button>
+          </Link>
+        </CenterSection>
 
-        {error && (
-          <Typography paragraph color="error" className={classes.errorMessage}>
-            {error}
+        <Section>
+          <Typography variant="h4" gutterBottom>
+            Create a New Account
           </Typography>
-        )}
-      </Section>
 
-      <Section>
-        <Typography variant="h5" gutterBottom>
-          Login to Existing Account
-        </Typography>
+          <Typography paragraph>
+            When you create an account you will be given an account ID.
+            Please ensure that you
+            {' '}
+            <b>store your account ID and password</b>
+            {' '}
+            in a secure location.
+          </Typography>
 
-        <Button
-          color="primary"
-          fullWidth
-          onClick={handleClickLogin}
-          size="large"
-          variant="contained"
-        >
-          Login
-        </Button>
-      </Section>
+          <Typography paragraph>
+            Because your data is client-side encrypted, it will not be possible to recover your data
+            if you forget your account ID or password.
+          </Typography>
+
+          <TextField
+            autoComplete="current-password"
+            className={classes.textField}
+            fullWidth
+            id="password"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={handleClickVisibility}
+                    onMouseDown={handleMouseDownVisibility}
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            label="Password"
+            onChange={handleChangePassword}
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+          />
+
+          <div className={classes.meterHolder}>
+            <Typography>
+              Password Strength:
+              {' '}
+              <span className={classes.emphasis}>
+                {passwordScoreToWord(passwordScore)}
+              </span>
+            </Typography>
+
+            <LinearProgress
+              value={passwordScore * 25}
+              variant="determinate"
+              className={`${classes.meter} ${passwordScoreToClass(passwordScore, classes)}`}
+              classes={{
+                bar: passwordScoreToClass(passwordScore, classes),
+              }}
+            />
+          </div>
+
+          {passwordError && (
+            <Typography color="error">
+              {passwordError}
+            </Typography>
+          )}
+
+          <Button
+            color="primary"
+            data-cy="create-account"
+            disabled={!validPassword || waiting}
+            fullWidth
+            onClick={handleClickCreate}
+            size="large"
+            variant="contained"
+          >
+            Create Account
+
+            {waiting && (
+              <CircularProgress
+                className={classes.buttonProgress}
+                size={24}
+              />
+            )}
+          </Button>
+
+          {error && (
+            <Typography paragraph color="error" className={classes.errorMessage}>
+              {error}
+            </Typography>
+          )}
+        </Section>
+
+        <Section>
+          <Typography variant="h5" gutterBottom>
+            Login to Existing Account
+          </Typography>
+
+          <Button
+            color="primary"
+            fullWidth
+            onClick={handleClickLogin}
+            size="large"
+            variant="contained"
+          >
+            Login
+          </Button>
+        </Section>
+      </MainContainer>
     </Root>
   );
 }

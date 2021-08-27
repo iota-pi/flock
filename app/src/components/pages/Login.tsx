@@ -30,9 +30,11 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-const Root = styled(Container)(({ theme }) => ({
+const Root = styled('div')({
   flexGrow: 1,
   overflowY: 'auto',
+});
+const MainContainer = styled(Container)(({ theme }) => ({
   padding: theme.spacing(4),
   position: 'relative',
 }));
@@ -133,118 +135,120 @@ function LoginPage() {
   const justCreated = (location.state as { created: boolean } | undefined)?.created || false;
 
   return (
-    <Root maxWidth="sm">
-      <HomeIconContainer>
-        <IconButton
-          data-cy="back-button"
-          onClick={handleClickHome}
-        >
-          <HomeIcon />
-        </IconButton>
-      </HomeIconContainer>
-
-      <CenterSection>
-        <Link to={getPage('welcome').path}>
-          <img
-            src="/flock.png"
-            alt=""
-            width="300"
-            height="300"
-          />
-        </Link>
-      </CenterSection>
-
-      <Section>
-        <Typography variant="h4" gutterBottom>
-          Login
-        </Typography>
-
-        {justCreated && (
-          <Alert severity="success" className={classes.alert}>
-            Account successfully created!
-            Please record your account ID and password and login again to continue.
-          </Alert>
-        )}
-
-        <FormContent>
-          <div className={classes.textFieldHolder}>
-            <TextField
-              autoComplete="username"
-              autoFocus
-              className={classes.textField}
-              fullWidth
-              id="username"
-              label="Account ID"
-              name="username"
-              onChange={handleChangeAccount}
-              value={accountInput}
-            />
-          </div>
-
-          <div className={classes.textFieldHolder}>
-            <TextField
-              autoComplete="current-password"
-              className={classes.textField}
-              fullWidth
-              id="current-password"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={handleClickVisibility}
-                      onMouseDown={handleMouseDownVisibility}
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-              label="Password"
-              name="password"
-              onChange={handleChangePassword}
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-            />
-          </div>
-
-          <Button
-            color="primary"
-            data-cy="login"
-            onClick={handleClickLogin}
-            size="large"
-            variant="contained"
+    <Root>
+      <MainContainer maxWidth="sm">
+        <HomeIconContainer>
+          <IconButton
+            data-cy="back-button"
+            onClick={handleClickHome}
           >
+            <HomeIcon />
+          </IconButton>
+        </HomeIconContainer>
+
+        <CenterSection>
+          <Link to={getPage('welcome').path}>
+            <img
+              src="/flock.png"
+              alt=""
+              width="300"
+              height="300"
+            />
+          </Link>
+        </CenterSection>
+
+        <Section>
+          <Typography variant="h4" gutterBottom>
             Login
-          </Button>
-
-          {error && (
-            <Typography paragraph color="error" className={classes.errorMessage}>
-              {error}
-            </Typography>
-          )}
-        </FormContent>
-      </Section>
-
-      <Section>
-        <FormContent>
-          <Typography
-            gutterBottom
-            variant="h5"
-          >
-            Create a New Account
           </Typography>
 
-          <Button
-            color="primary"
-            data-cy="create-account"
-            onClick={handleClickCreate}
-            size="large"
-            variant="contained"
-          >
-            Create Account
-          </Button>
-        </FormContent>
-      </Section>
+          {justCreated && (
+            <Alert severity="success" className={classes.alert}>
+              Account successfully created!
+              Please record your account ID and password and login again to continue.
+            </Alert>
+          )}
+
+          <FormContent>
+            <div className={classes.textFieldHolder}>
+              <TextField
+                autoComplete="username"
+                autoFocus
+                className={classes.textField}
+                fullWidth
+                id="username"
+                label="Account ID"
+                name="username"
+                onChange={handleChangeAccount}
+                value={accountInput}
+              />
+            </div>
+
+            <div className={classes.textFieldHolder}>
+              <TextField
+                autoComplete="current-password"
+                className={classes.textField}
+                fullWidth
+                id="current-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility}
+                        onMouseDown={handleMouseDownVisibility}
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+                label="Password"
+                name="password"
+                onChange={handleChangePassword}
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+              />
+            </div>
+
+            <Button
+              color="primary"
+              data-cy="login"
+              onClick={handleClickLogin}
+              size="large"
+              variant="contained"
+            >
+              Login
+            </Button>
+
+            {error && (
+              <Typography paragraph color="error" className={classes.errorMessage}>
+                {error}
+              </Typography>
+            )}
+          </FormContent>
+        </Section>
+
+        <Section>
+          <FormContent>
+            <Typography
+              gutterBottom
+              variant="h5"
+            >
+              Create a New Account
+            </Typography>
+
+            <Button
+              color="primary"
+              data-cy="create-account"
+              onClick={handleClickCreate}
+              size="large"
+              variant="contained"
+            >
+              Create Account
+            </Button>
+          </FormContent>
+        </Section>
+      </MainContainer>
     </Root>
   );
 }
