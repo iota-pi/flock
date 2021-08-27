@@ -12,13 +12,14 @@ import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
-import { DownloadIcon, EditIcon, MuiIconType, UploadIcon } from '../Icons';
+import { DownloadIcon, EditIcon, MuiIconType, PersonIcon, UploadIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
 import { DEFAULT_MATURITY } from '../../state/account';
 import ImportDialog from '../dialogs/ImportDialog';
 import { Item } from '../../state/items';
+import { useAppSelector } from '../../store';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -53,14 +54,14 @@ const useStyles = makeStyles(theme => ({
 export interface SettingsItemProps {
   icon?: MuiIconType,
   id: string,
-  onClick: () => void,
+  onClick?: () => void,
   title: string,
   tags?: string[],
   value?: ReactNode,
 }
 
 function SettingsItem({
-  icon: Icon = EditIcon,
+  icon: Icon,
   id,
   onClick,
   title,
@@ -69,10 +70,16 @@ function SettingsItem({
 }: SettingsItemProps) {
   const classes = useStyles();
 
+  // This is a separate object because the typing for ListItem.button is a bit finicky
+  const extraListItemProps: object = {
+    button: !!onClick,
+  };
+
   return (
     <>
       <ListItem
-        button
+        {...extraListItemProps}
+        disabled={!onClick}
         data-cy={id}
         onClick={onClick}
       >
@@ -91,13 +98,15 @@ function SettingsItem({
         <div className={classes.action}>
           {value}
 
-          <IconButton
-            data-cy="edit-button"
-            disableRipple
-            size="medium"
-          >
-            <Icon fontSize="small" />
-          </IconButton>
+          {Icon && (
+            <IconButton
+              data-cy="edit-button"
+              disableRipple
+              size="medium"
+            >
+              <Icon fontSize="small" />
+            </IconButton>
+          )}
         </div>
       </ListItem>
 
@@ -107,6 +116,7 @@ function SettingsItem({
 }
 
 function SettingsPage() {
+  const account = useAppSelector(state => state.account);
   const classes = useStyles();
   const items = useItems();
   const vault = useVault();
@@ -146,15 +156,20 @@ function SettingsPage() {
   return (
     <BasePage>
       <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading}>
+        <Typography variant="h4" className={classes.heading} gutterBottom>
           Settings
+        </Typography>
+
+        <Typography color="textSecondary">
+          Account ID: {account}
         </Typography>
       </Container>
 
       <Divider />
 
-      <List>
+      <List disablePadding>
         <SettingsItem
+          icon={EditIcon}
           id="prayer-goal"
           onClick={handleEditGoal}
           title="Daily prayer goal"
@@ -168,6 +183,7 @@ function SettingsPage() {
           )}
         />
         <SettingsItem
+          icon={EditIcon}
           id="maturity-stages"
           onClick={handleEditMaturity}
           title="Maturity stages"
