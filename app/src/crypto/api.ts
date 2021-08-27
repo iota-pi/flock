@@ -166,7 +166,9 @@ class VaultAPI {
   }
 
   async checkPassword({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth) {
-    const data = await this.getAccountData({ account, authToken });
+    const data = await this.getAccountData({ account, authToken }).catch(() => ({
+      success: false,
+    }));
     return data.success as boolean || false;
   }
 
