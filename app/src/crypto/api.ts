@@ -150,7 +150,9 @@ class VaultAPI {
 
   async createAccount({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<boolean> {
     const url = `${this.endpoint}/${account}`;
-    const result = await this.wrap(axios.post(url, {}, this.getAuth(authToken)));
+    const result = await this.wrap(axios.post(url, {}, this.getAuth(authToken))).catch(() => ({
+      data: { success: false },
+    }));
     return result.data.success as boolean;
   }
 
