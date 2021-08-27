@@ -3,6 +3,7 @@ import makeStyles from '@material-ui/core/styles/makeStyles';
 import DrawerDisplay from './DrawerDisplay';
 import SelectedActions from '../SelectedActions';
 import GeneralAlert from '../GeneralAlert';
+import { useLoggedIn } from '../../state/selectors';
 
 const useStyles = makeStyles(() => ({
   root: {
@@ -33,6 +34,7 @@ const useStyles = makeStyles(() => ({
 
 function MainLayout({ children }: PropsWithChildren<{}>) {
   const classes = useStyles();
+  const loggedIn = useLoggedIn();
 
   return (
     <div className={classes.root}>
@@ -46,7 +48,9 @@ function MainLayout({ children }: PropsWithChildren<{}>) {
         </div>
       </div>
 
-      <DrawerDisplay />
+      {loggedIn && (
+        <DrawerDisplay />
+      )}
 
       <GeneralAlert />
     </div>
