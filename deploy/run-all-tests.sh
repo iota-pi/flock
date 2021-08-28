@@ -7,6 +7,11 @@ export CI=true
   cd app
   yarn test
 
+  if grep -qe 'it\.only(' cypress/integration/*.spec.ts; then
+    >&2 echo 'Cannot deploy; it.only() was found in Cypress tests'
+    exit 1
+  fi
+
   DISABLE_ESLINT_PLUGIN=true BROWSER=none yarn start >/dev/null 2>&1 &
   server=$!
   yarn run cypress run
