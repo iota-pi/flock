@@ -17,7 +17,7 @@ describe('Basic operation', () => {
       .contains('Underhill')
   })
 
-  it.only('can add & remove notes', () => {
+  it('can add & remove notes', () => {
     // Create notes
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
       .addNote({ content: '', type: 'interaction' })
@@ -105,6 +105,8 @@ describe('Basic operation', () => {
       .addMember('Frodo')
       .addMember('Pippin')
       .addMember('Merry')
+    cy.contains(/group report/i)
+      .should('be.disabled')
       .saveDrawer()
     cy.createPerson({ firstName: 'Gandalf' })
       .addToGroup('f')
@@ -120,6 +122,19 @@ describe('Basic operation', () => {
       .click()
       .saveDrawer()
     cy.contains('3 members')
+  })
+
+  it('group report only works for existing groups', () => {
+    cy.createGroup({ name: 'Fellowship of the Ring' })
+    cy.contains(/group report/i)
+      .should('be.disabled')
+    cy.saveDrawer()
+    cy.contains('Fellowship').click()
+    cy.contains(/group report/i)
+      .should('not.be.disabled')
+      .click()
+    cy.dataCy('drawer-content')
+      .should('have.length', 2)
   })
 
   it('can create other items, edit frequencies', () => {

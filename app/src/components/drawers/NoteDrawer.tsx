@@ -217,7 +217,7 @@ function NoteDrawer({
     <BaseDrawer
       ActionProps={{
         canSave: linkedItems.length > 0,
-        editing,
+        itemIsNew: !editing,
         itemIsNote: true,
         itemName: note.type,
         onCancel: handleCancel,

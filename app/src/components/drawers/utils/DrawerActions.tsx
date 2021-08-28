@@ -37,7 +37,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface BaseProps {
-  editing?: boolean,
+  itemIsNew?: boolean,
   itemIsNote?: boolean,
   itemName?: string,
 }
@@ -80,7 +80,7 @@ export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
 
 function DrawerActions({
   canSave,
-  editing,
+  itemIsNew,
   itemIsNote,
   itemName,
   onCancel,
@@ -97,13 +97,13 @@ function DrawerActions({
 
   const handleClickDelete = useCallback(
     () => {
-      if (editing) {
+      if (!itemIsNew) {
         setShowConfirm(true);
       } else if (onCancel) {
         onCancel();
       }
     },
-    [editing, onCancel],
+    [itemIsNew, onCancel],
   );
   const handleClickConfirmCancel = useCallback(() => setShowConfirm(false), []);
 
@@ -117,9 +117,10 @@ function DrawerActions({
             <Grid item xs={12}>
               <Button
                 data-cy="drawer-report"
+                disabled={itemIsNew}
                 fullWidth
                 onClick={onReport}
-                startIcon={editing ? <ReportIcon /> : undefined}
+                startIcon={itemIsNew ? undefined : <ReportIcon />}
                 variant="outlined"
               >
                 Group Report
@@ -143,14 +144,14 @@ function DrawerActions({
           {onCancel && onDelete && (
             <Grid item xs={12} sm={6}>
               <Button
-                className={editing ? classes.danger : undefined}
+                className={itemIsNew ? undefined : classes.danger}
                 data-cy="drawer-cancel"
                 fullWidth
                 onClick={handleClickDelete}
-                startIcon={editing ? <DeleteIcon /> : undefined}
+                startIcon={itemIsNew ? undefined : <DeleteIcon />}
                 variant="outlined"
               >
-                {editing ? 'Delete' : 'Cancel'}
+                {itemIsNew ? 'Cancel' : 'Delete'}
               </Button>
             </Grid>
           )}
