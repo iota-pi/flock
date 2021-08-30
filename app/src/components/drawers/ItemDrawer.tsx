@@ -120,6 +120,7 @@ function ItemDrawer({
   const vault = useVault();
 
   const [cancelled, setCancelled] = useState(false);
+  const [duplicates, setDuplicates] = useState<Item[]>([]);
 
   const prevItem = usePrevious(item);
 
@@ -132,15 +133,34 @@ function ItemDrawer({
     [item.id, item.type, groups],
   );
 
-  const duplicates = useMemo(
-    () => items.filter(
-      i => (
-        i.type === item.type
-        && i.id !== item.id
-        && getItemName(i) === getItemName(item)
-      ),
-    ),
-    [item, items],
+  const itemsByName = useMemo(
+    () => {
+      const result: { [name: string]: Item[] | undefined } = {};
+      for (const i of items) {
+        const name = getItemName(i);
+        if (result[name] === undefined) {
+          result[name] = [i];
+        } else {
+          result[name]!.push(i);
+        }
+      }
+      return result;
+    },
+    [items],
+  );
+
+  useEffect(
+    () => {
+      const potential = itemsByName[getItemName(item)];
+      if (potential) {
+        setDuplicates(
+          potential.filter(i => i.type === item.type && i.id !== item.id),
+        );
+      } else {
+        setDuplicates([]);
+      }
+    },
+    [item, itemsByName],
   );
 
   const handleChange = useCallback(
