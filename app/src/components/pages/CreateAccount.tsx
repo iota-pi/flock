@@ -1,10 +1,11 @@
-import { ChangeEvent, MouseEvent, useCallback, useState } from 'react';
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
   alpha,
   Button,
   CircularProgress,
+  Collapse,
   Container,
   IconButton,
   InputAdornment,
@@ -41,6 +42,7 @@ const useStyles = makeStyles(theme => ({
   },
   textField: {
     flexGrow: 1,
+    marginBottom: theme.spacing(1),
   },
   errorMessage: {
     marginTop: theme.spacing(2),
@@ -162,6 +164,7 @@ function CreateAccountPage() {
 
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordScore, setPasswordScore] = useState(0);
   const [waiting, setWaiting] = useState(false);
@@ -197,23 +200,11 @@ function CreateAccountPage() {
     [dispatch, history, password],
   );
   const handleChangePassword = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const newPassword = event.target.value;
-      setPassword(newPassword);
-      const passwordStrength = scorePassword(newPassword);
-      setPasswordScore(Math.max(passwordStrength.score, 1));
-      if (newPassword.length < MIN_PASSWORD_LENGTH) {
-        setPasswordError(
-          `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`,
-        );
-      } else if (passwordStrength.feedback.warning) {
-        setPasswordError(passwordStrength.feedback.warning);
-      } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
-        setPasswordError('Please choose a stronger password');
-      } else {
-        setPasswordError('');
-      }
-    },
+    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
+    [],
+  );
+  const handleChangePasswordConfirm = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setConfirmPassword(event.target.value),
     [],
   );
   const handleClickVisibility = useCallback(
@@ -225,7 +216,30 @@ function CreateAccountPage() {
     [],
   );
 
-  const validPassword = !!password && !passwordError;
+  useEffect(
+    () => {
+      if (password) {
+        const passwordStrength = scorePassword(password);
+        setPasswordScore(Math.max(passwordStrength.score, 1));
+        if (password.length < MIN_PASSWORD_LENGTH) {
+          setPasswordError(
+            `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`,
+          );
+        } else if (passwordStrength.feedback.warning) {
+          setPasswordError(passwordStrength.feedback.warning);
+        } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
+          setPasswordError('Please choose a stronger password');
+        } else if (confirmPassword && confirmPassword !== password) {
+          setPasswordError('The passwords you entered are different');
+        } else {
+          setPasswordError('');
+        }
+      }
+    },
+    [password, confirmPassword],
+  );
+
+  const validPassword = !!password && !!confirmPassword && !passwordError;
 
   return (
     <Root>
@@ -270,7 +284,7 @@ function CreateAccountPage() {
           </Typography>
 
           <TextField
-            autoComplete="current-password"
+            autoComplete="password"
             className={classes.textField}
             fullWidth
             id="password"
@@ -292,6 +306,28 @@ function CreateAccountPage() {
             value={password}
           />
 
+          <TextField
+            autoComplete="confirm-password"
+            className={classes.textField}
+            fullWidth
+            id="confirm-password"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={handleClickVisibility}
+                    onMouseDown={handleMouseDownVisibility}
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            label="Confirm Password"
+            onChange={handleChangePasswordConfirm}
+            type={showPassword ? 'text' : 'password'}
+          />
+
           <div className={classes.meterHolder}>
             <Typography>
               Password Strength:
@@ -311,11 +347,13 @@ function CreateAccountPage() {
             />
           </div>
 
-          {passwordError && (
-            <Typography color="error">
+          <Collapse in={!!passwordError}>
+            <Typography color="error" paragraph>
               {passwordError}
+              {/* non-breaking space maintains same base height, so smooths exit transition */}
+              &nbsp;
             </Typography>
-          )}
+          </Collapse>
 
           <Button
             color="primary"
