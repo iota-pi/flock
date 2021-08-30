@@ -9,13 +9,33 @@ locals {
 resource "aws_lambda_function" "vault" {
   function_name = "flock-vault-${var.environment}"
 
-  # "lambda" is the filename within the zip file (main.js) and "handler"
-  # is the name of the property under which the handler function was
-  # exported in that file.
   handler     = "lambda.handler"
   runtime     = "nodejs14.x"
   memory_size = 256
   timeout     = 5
+
+  s3_bucket = var.code_bucket
+  s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
+
+  role = aws_iam_role.vault_role.arn
+
+  environment {
+    variables = {
+      ACCOUNTS_TABLE = aws_dynamodb_table.vault_accounts_table.name
+      ITEMS_TABLE    = aws_dynamodb_table.vault_items_table.name
+    }
+  }
+
+  tags = local.standard_tags
+}
+
+resource "aws_lambda_function" "vault_migrations" {
+  function_name = "flock-vault-migrations-${var.environment}"
+
+  handler     = "lambda.migrationHandler"
+  runtime     = "nodejs14.x"
+  memory_size = 512
+  timeout     = 60
 
   s3_bucket = var.code_bucket
   s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
