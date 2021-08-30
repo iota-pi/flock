@@ -3,10 +3,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   Checkbox,
+  Collapse,
   FormControlLabel,
   Grid,
   makeStyles,
@@ -69,8 +71,15 @@ export interface ItemAndChangeCallback {
 
 function DuplicateAlert({ item, count }: { item: Item, count: number }) {
   const classes = useStyles();
+  const ref = useRef<number>(1);
+  useEffect(() => {
+    if (count > 0) {
+      ref.current = count;
+    }
+  });
+  const displayCount = count || ref.current;
 
-  const plural = count > 1;
+  const plural = displayCount !== 1;
   const areOrIs = plural ? 'are' : 'is';
 
   return (
@@ -79,7 +88,7 @@ function DuplicateAlert({ item, count }: { item: Item, count: number }) {
       severity={item.description ? 'info' : 'warning'}
     >
       <Typography paragraph={!item.description}>
-        There {areOrIs} <span className={classes.emphasis}>{count}</span>
+        There {areOrIs} <span className={classes.emphasis}>{displayCount}</span>
         {' other '}
         {getItemTypeLabel(item.type, plural).toLowerCase()}
         {' with this name.'}
@@ -553,11 +562,11 @@ function ItemDrawer({
       stacked={stacked}
     >
       <Grid container spacing={2}>
-        {duplicates.length > 0 && (
+        <Collapse in={duplicates.length > 0}>
           <Grid item xs={12}>
             <DuplicateAlert item={item} count={duplicates.length} />
           </Grid>
-        )}
+        </Collapse>
 
         {nameFields}
 
