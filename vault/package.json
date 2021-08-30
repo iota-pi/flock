@@ -24,8 +24,8 @@
     "test": "jest",
     "build": "./build.sh",
     "dev": "nodemon api/runServer.ts",
-    "docker:test": "docker-compose run --rm api npm test",
-    "docker:initdb": "docker-compose run --rm api npm run initdb"
+    "docker:test": "docker-compose run --rm api yarn test",
+    "docker:initdb": "docker-compose run --rm api yarn initdb"
   },
   "devDependencies": {
     "@types/jest": "^26.0.23",

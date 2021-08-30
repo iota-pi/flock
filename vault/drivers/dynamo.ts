@@ -85,19 +85,18 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
   }
 
   async createAccount({ account, authToken }: AuthData): Promise<boolean> {
-    // TODO: can this be atomic?
-    const response = await this.client?.get({
-      TableName: ACCOUNT_TABLE_NAME,
-      Key: { account },
-    }).promise();
-    if (response?.Item) {
-      return false;
-    }
+    let success = true;
     await this.client?.put({
         TableName: ACCOUNT_TABLE_NAME,
         Item: { account, authToken },
-    }).promise();
-    return true;
+        ConditionExpression: 'attribute_not_exists(account)',
+    }).promise().catch(reason => {
+      success = false;
+      if (reason.code !== 'ConditionalCheckFailedException') {
+        throw reason;
+      }
+    });
+    return success;
   }
 
   async getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth> {
