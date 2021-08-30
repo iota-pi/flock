@@ -79,6 +79,10 @@ function getName(option: AnySearchable) {
   return getItemName(option.data);
 }
 
+function capitalise(name: string) {
+  return name.charAt(0).toLocaleUpperCase() + name.substr(1);
+}
+
 function OptionComponent({
   option,
   showIcons,
@@ -159,8 +163,8 @@ function EverythingSearch({
             type: 'person',
             default: {
               type: 'person',
-              firstName: state.inputValue.trim().split(/\s+/, 2)[0],
-              lastName: state.inputValue.trim().split(/\s+/, 2)[1] || '',
+              firstName: capitalise(state.inputValue.trim().split(/\s+/, 2)[0]),
+              lastName: capitalise(state.inputValue.trim().split(/\s+/, 2)[1] || ''),
             },
           },
           {
@@ -169,7 +173,7 @@ function EverythingSearch({
             type: 'group',
             default: {
               type: 'group',
-              name: state.inputValue.trim(),
+              name: capitalise(state.inputValue.trim()),
             },
           },
           {
@@ -178,7 +182,7 @@ function EverythingSearch({
             type: 'general',
             default: {
               type: 'general',
-              name: state.inputValue.trim(),
+              name: capitalise(state.inputValue.trim()),
             },
           },
         );
