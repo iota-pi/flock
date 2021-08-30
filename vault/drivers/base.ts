@@ -17,7 +17,7 @@ export interface VaultData {
 
 export interface AuthData {
   account: string,
-  authToken: string,
+  authToken: Promise<string>,
 }
 
 export interface VaultAccount {
@@ -41,7 +41,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>;
   abstract connect(options?: T): BaseDriver<T>;
 
-  abstract createAccount({ authToken }: Pick<AuthData, 'authToken'>): Promise<boolean>;
+  abstract createAccount({ authToken }: AuthData): Promise<boolean>;
   abstract getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth>;
   abstract checkPassword({ account, authToken }: AuthData): Promise<boolean>;
   abstract setMetadata({ account, metadata }: VaultAccount): Promise<void>;

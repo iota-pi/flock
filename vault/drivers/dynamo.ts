@@ -88,7 +88,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     let success = true;
     await this.client?.put({
         TableName: ACCOUNT_TABLE_NAME,
-        Item: { account, authToken },
+        Item: { account, authToken: await authToken },
         ConditionExpression: 'attribute_not_exists(account)',
     }).promise().catch(reason => {
       success = false;
@@ -108,7 +108,8 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     ).promise();
     if (response?.Item) {
       const storedHash = response.Item.authToken as string;
-      if (almostConstantTimeEqual(authToken, storedHash)) {
+      const tokenHash = await authToken;
+      if (almostConstantTimeEqual(tokenHash, storedHash)) {
         return response.Item as VaultAccountWithAuth;
       }
     }

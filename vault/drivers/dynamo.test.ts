@@ -2,6 +2,10 @@ import DynamoDriver, { getConnectionParams } from './dynamo';
 import { getAccountId, getItemId } from '../../app/src/utils';
 import { VaultItemType } from './base';
 
+async function stringToPromise(s: string): Promise<string> {
+  return s;
+}
+
 const driver = new DynamoDriver();
 describe('DynamoDriver', function () {
   beforeAll(function () {
@@ -56,18 +60,22 @@ describe('DynamoDriver', function () {
 
   it('createAccount and checkPassword', async () => {
     const account = getAccountId();
-    const authToken = 'an_example_auth_token_for_testing';
+    const authToken = stringToPromise('an_example_auth_token_for_testing');
     const success = await driver.createAccount({ account, authToken });
     expect(success).toBe(true);
 
     expect(await driver.checkPassword({ account, authToken })).toBe(true);
-    expect(await driver.checkPassword({ account, authToken: '' })).toBe(false);
-    expect(await driver.checkPassword({ account, authToken: authToken + 'a' })).toBe(false);
+    expect(
+      await driver.checkPassword({ account, authToken: stringToPromise('') })
+    ).toBe(false);
+    expect(
+      await driver.checkPassword({ account, authToken: stringToPromise(authToken + 'a') })
+    ).toBe(false);
   });
 
   it('repeated createAccount calls fail', async () => {
     const account = getAccountId();
-    const authToken = 'an_example_auth_token_for_testing';
+    const authToken = stringToPromise('an_example_auth_token_for_testing');
     const result1 = await driver.createAccount({ account, authToken });
     expect(result1).toBe(true);
     const result2 = await driver.createAccount({ account, authToken });
