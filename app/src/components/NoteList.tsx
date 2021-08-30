@@ -1,4 +1,4 @@
-import { Fragment, ReactNode, useMemo } from 'react';
+import { Fragment, MouseEvent, ReactNode, useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -10,6 +10,8 @@ import {
   ListItemText,
 } from '@material-ui/core';
 import ChevronRight from '@material-ui/icons/ChevronRight';
+import Visibility from '@material-ui/icons/Visibility';
+import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { getItemName, Item, ItemNote } from '../state/items';
 import { useItemMap, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';
@@ -18,11 +20,6 @@ import { getIcon } from './Icons';
 const useStyles = makeStyles(() => ({
   root: {
     paddingBottom: 0,
-  },
-  noHover: {
-    '&:hover': {
-      backgroundColor: 'transparent',
-    },
   },
   consistantMinHeight: {
     minHeight: 72,
@@ -79,6 +76,8 @@ function NoteListItem<T extends ItemNote = ItemNote>({
   const itemMap = useItemMap();
   const noteMap = useNoteMap();
 
+  const [showSensitive, setShowSensitive] = useState(false);
+
   const item: Item | undefined = itemMap[noteMap[note.id]];
   const primaryText = useMemo(
     () => {
@@ -87,9 +86,9 @@ function NoteListItem<T extends ItemNote = ItemNote>({
       }
 
       const content = note.content || '(no details)';
-      return note.sensitive ? '(sensitive)' : content;
+      return note.sensitive && !showSensitive ? '(sensitive)' : content;
     },
-    [displayItemNames, item, note],
+    [displayItemNames, item, note, showSensitive],
   );
   const secondaryText = useMemo(
     () => {
@@ -101,16 +100,27 @@ function NoteListItem<T extends ItemNote = ItemNote>({
       }
 
       if (displayItemNames) {
-        const content = note.sensitive ? '(sensitive)' : (note.content || '(no details)');
+        const content = (
+          note.sensitive && !showSensitive
+            ? '(sensitive)'
+            : (note.content || '(no details)')
+        );
         textParts.push(content);
       }
 
       return textParts.join('—');
     },
-    [displayItemNames, displayNoteDate, note],
+    [displayItemNames, displayNoteDate, note, showSensitive],
   );
-  const handleClickAction = onClickAction || onClick;
   const icon = showIcons && item ? getIcon(item.type) : null;
+
+  const handleToggleSensitive = useCallback(
+    (event: MouseEvent) => {
+      if (0) event.stopPropagation();
+      setShowSensitive(s => !s);
+    },
+    [],
+  );
 
   return (
     <ListItem
@@ -138,13 +148,17 @@ function NoteListItem<T extends ItemNote = ItemNote>({
         }}
       />
 
-      {handleClickAction && (
+      {note.sensitive && (
         <ListItemSecondaryAction>
-          <IconButton
-            className={!onClickAction ? classes.noHover : undefined}
-            disableRipple={!onClickAction}
-            onClick={handleClickAction}
-          >
+          <IconButton onClick={handleToggleSensitive}>
+            {showSensitive ? <VisibilityOff /> : <Visibility />}
+          </IconButton>
+        </ListItemSecondaryAction>
+      )}
+
+      {onClickAction && (
+        <ListItemSecondaryAction>
+          <IconButton onClick={onClickAction}>
             {actionIcon || <ChevronRight />}
           </IconButton>
         </ListItemSecondaryAction>
