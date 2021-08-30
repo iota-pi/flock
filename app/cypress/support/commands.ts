@@ -13,6 +13,7 @@ Cypress.Commands.add('dataCy', (dataCy: string) => {
 Cypress.Commands.add('createAccount', (password: string) => {
   cy.dataCy('create-account').click()
   cy.get('#password').type(password)
+  cy.get('#confirm-password').type(password)
   cy.dataCy('create-account').click()
   cy.get('#current-password').type(password)
   cy.intercept({ method: 'GET', url: '/*', times: 2 }).as('apiRequest')
