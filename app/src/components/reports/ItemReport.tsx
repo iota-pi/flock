@@ -15,8 +15,12 @@ import { getInteractions } from '../../utils/interactions';
 const useStyles = makeStyles(theme => ({
   heading: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+  editButton: {
+    marginTop: theme.spacing(0.5),
+    marginLeft: theme.spacing(1),
   },
   section: {
     paddingTop: theme.spacing(2),
@@ -81,6 +85,7 @@ function ItemReport({
 
         {canEdit && (
           <IconButton
+            className={classes.editButton}
             data-cy="edit-item-button"
             onClick={onEdit}
           >
