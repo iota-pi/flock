@@ -1,4 +1,4 @@
-import { Fragment, MouseEvent, ReactNode, useCallback, useMemo, useState } from 'react';
+import { Fragment, ReactNode, useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/core/styles/makeStyles';
 import {
   Divider,
@@ -114,13 +114,7 @@ function NoteListItem<T extends ItemNote = ItemNote>({
   );
   const icon = showIcons && item ? getIcon(item.type) : null;
 
-  const handleToggleSensitive = useCallback(
-    (event: MouseEvent) => {
-      if (0) event.stopPropagation();
-      setShowSensitive(s => !s);
-    },
-    [],
-  );
+  const handleToggleSensitive = useCallback(() => setShowSensitive(s => !s), []);
 
   return (
     <ListItem
