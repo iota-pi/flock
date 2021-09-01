@@ -6,7 +6,7 @@ import {
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { useHistory } from 'react-router-dom';
-import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
+import { Chip, Divider, InputAdornment, makeStyles, TextField } from '@material-ui/core';
 import { Autocomplete, AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/lab';
 import {
   compareItems,
@@ -22,11 +22,14 @@ import { replaceActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
 
 const useStyles = makeStyles(theme => ({
+  optionHolder: {
+    display: 'block',
+    padding: 0,
+  },
   autocompleteOption: {
     display: 'flex',
     alignItems: 'center',
-    paddingTop: theme.spacing(1),
-    paddingBottom: theme.spacing(1),
+    padding: theme.spacing(1.75, 2),
   },
   optionIcon: {
     display: 'flex',
@@ -49,12 +52,14 @@ const useStyles = makeStyles(theme => ({
 interface SearchableItem<T extends Item = Item> {
   create?: false,
   data: T,
+  dividerBefore?: boolean,
   id: string,
   type: T['type'],
 }
 interface SearchableTag {
   create?: false,
   data: string,
+  dividerBefore?: boolean,
   id: string,
   type: 'tag',
 }
@@ -62,10 +67,15 @@ interface SearchableAddItem<T extends Item = Item> {
   create: true,
   data?: undefined,
   default: Partial<T> & Pick<T, 'type'>,
+  dividerBefore?: boolean,
   id: string,
   type: T['type'],
 }
-export type AnySearchable = SearchableItem | SearchableTag | SearchableAddItem;
+export type AnySearchable = (
+  SearchableItem
+  | SearchableTag
+  | SearchableAddItem
+);
 
 const baseFilterFunc = createFilterOptions<AnySearchable>({ trim: true });
 
@@ -95,22 +105,26 @@ function OptionComponent({
   const name = getName(option);
 
   return (
-    <div className={classes.autocompleteOption}>
-      {showIcons && (
-        <div className={classes.optionIcon}>
-          {icon}
-        </div>
-      )}
+    <>
+      {option.dividerBefore && <Divider />}
 
-      <div>
-        {option.create ? (
-          <>
-            <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-            <span className={classes.emphasis}>{name}</span>
-          </>
-        ) : name}
+      <div className={classes.autocompleteOption}>
+        {showIcons && (
+          <div className={classes.optionIcon}>
+            {icon}
+          </div>
+        )}
+
+        <div>
+          {option.create ? (
+            <>
+              <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
+              <span className={classes.emphasis}>{name}</span>
+            </>
+          ) : name}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -159,31 +173,32 @@ function EverythingSearch({
         filtered.push(
           {
             create: true,
-            id: 'add-person',
-            type: 'person',
             default: {
               type: 'person',
               firstName: capitalise(state.inputValue.trim().split(/\s+/, 2)[0]),
               lastName: capitalise(state.inputValue.trim().split(/\s+/, 2)[1] || ''),
             },
+            dividerBefore: true,
+            id: 'add-person',
+            type: 'person',
           },
           {
             create: true,
-            id: 'add-group',
-            type: 'group',
             default: {
               type: 'group',
               name: capitalise(state.inputValue.trim()),
             },
+            id: 'add-group',
+            type: 'group',
           },
           {
             create: true,
-            id: 'add-general',
-            type: 'general',
             default: {
               type: 'general',
               name: capitalise(state.inputValue.trim()),
             },
+            id: 'add-general',
+            type: 'general',
           },
         );
       }
@@ -246,6 +261,9 @@ function EverythingSearch({
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Autocomplete
         autoHighlight
+        classes={{
+          option: classes.optionHolder,
+        }}
         disableClearable
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
