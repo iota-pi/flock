@@ -16,7 +16,7 @@ import {
 } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import { KeyboardDatePicker } from '@material-ui/pickers';
+import { DatePicker } from '@material-ui/lab';
 import {
   compareItems,
   Item,
@@ -276,13 +276,14 @@ function NoteDrawer({
                   <IconButton
                     onClick={handleClickVisibility}
                     onMouseDown={handleMouseDownVisibility}
+                    size="large"
                   >
                     {showSensitive ? <Visibility /> : <VisibilityOff />}
                   </IconButton>
                 </InputAdornment>
               ) : null,
             }}
-          />
+            variant="standard" />
 
           <FormControlLabel
             control={(
@@ -297,24 +298,25 @@ function NoteDrawer({
 
         {note.type === 'interaction' && (
           <Grid item xs={12}>
-            <KeyboardDatePicker
-              value={new Date(note.date)}
-              onChange={handleDateChange}
+            <DatePicker<Date | null>
+              inputFormat="dd/MM/yyyy"
               label="Interaction Date"
               maxDate={new Date()}
-              maxDateMessage="Only past interactions can be recorded in the present"
-              format="dd/MM/yyyy"
+              onChange={handleDateChange}
+              renderInput={params => <TextField {...params} variant="standard" />}
+              value={new Date(note.date)}
             />
           </Grid>
         )}
 
         {note.type === 'action' && (
           <Grid item xs={12}>
-            <KeyboardDatePicker
-              value={new Date(note.date)}
-              onChange={handleDateChange}
+            <DatePicker<Date | null>
+              inputFormat="dd/MM/yyyy"
               label="Action Due Date"
-              format="dd/MM/yyyy"
+              onChange={handleDateChange}
+              renderInput={params => <TextField {...params} variant="standard" />}
+              value={new Date(note.date)}
             />
           </Grid>
         )}

@@ -8,9 +8,9 @@ import {
   Divider,
   IconButton,
   InputAdornment,
-  makeStyles,
   TextField,
 } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
@@ -247,7 +247,7 @@ function MaturityDialog({
                       </InputAdornment>
                     ),
                   }}
-                />
+                  variant="standard" />
               </div>
 
               <Divider />

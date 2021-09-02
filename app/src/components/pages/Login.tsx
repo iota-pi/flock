@@ -1,8 +1,16 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
 import { Link, useHistory, useLocation } from 'react-router-dom';
-import makeStyles from '@material-ui/core/styles/makeStyles';
-import { Button, Container, IconButton, InputAdornment, styled, TextField, Typography } from '@material-ui/core';
-import { Alert } from '@material-ui/lab';
+import {
+  Alert,
+  Button,
+  Container,
+  IconButton,
+  InputAdornment,
+  styled,
+  TextField,
+  Typography,
+} from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { getPage } from '.';
@@ -141,6 +149,7 @@ function LoginPage() {
           <IconButton
             data-cy="back-button"
             onClick={handleClickHome}
+            size="large"
           >
             <HomeIcon />
           </IconButton>
@@ -181,7 +190,7 @@ function LoginPage() {
                 name="username"
                 onChange={handleChangeAccount}
                 value={accountInput}
-              />
+                variant="standard" />
             </div>
 
             <div className={classes.textFieldHolder}>
@@ -196,6 +205,7 @@ function LoginPage() {
                       <IconButton
                         onClick={handleClickVisibility}
                         onMouseDown={handleMouseDownVisibility}
+                        size="large"
                       >
                         {showPassword ? <VisibilityOff /> : <Visibility />}
                       </IconButton>
@@ -207,7 +217,7 @@ function LoginPage() {
                 onChange={handleChangePassword}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-              />
+                variant="standard" />
             </div>
 
             <Button

@@ -1,15 +1,15 @@
 import {
-  ChangeEvent,
   ReactNode,
   useCallback,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   FormControl,
   InputLabel,
   MenuItem,
   Select,
+  SelectChangeEvent,
 } from '@material-ui/core';
 import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies';
 
@@ -59,7 +59,7 @@ function FrequencyPicker({
   const handleFocus = useCallback(() => setFocused(true), []);
   const handleBlur = useCallback(() => setFocused(false), []);
   const handleChangeNoteType = useCallback(
-    (event: ChangeEvent<{ value: unknown }>) => {
+    (event: SelectChangeEvent<Frequency>) => {
       if (event.target.value) {
         onChange(event.target.value as Frequency);
       }
@@ -78,10 +78,7 @@ function FrequencyPicker({
       )}
 
       <div className={classes.grow}>
-        <FormControl
-          className={className}
-          fullWidth={fullWidth}
-        >
+        <FormControl className={className} fullWidth={fullWidth} variant="standard">
           {label && (
             <InputLabel id={`frequency-selection-label-${id}`}>
               {label}
@@ -96,6 +93,7 @@ function FrequencyPicker({
             onChange={handleChangeNoteType}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            variant="standard"
           >
             {FREQUENCIES.map(value => (
               <MenuItem

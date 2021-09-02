@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useRouteMatch } from 'react-router-dom';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   AppBar as MuiAppBar,
   IconButton,
@@ -28,7 +28,7 @@ const useStyles = makeStyles(theme => ({
     paddingLeft: theme.spacing(3),
     paddingRight: theme.spacing(2),
 
-    [theme.breakpoints.down('xs')]: {
+    [theme.breakpoints.down('sm')]: {
       paddingRight: theme.spacing(1),
     },
   },
@@ -37,7 +37,7 @@ const useStyles = makeStyles(theme => ({
     marginLeft: theme.spacing(1),
     marginRight: theme.spacing(1),
 
-    [theme.breakpoints.down('xs')]: {
+    [theme.breakpoints.down('sm')]: {
       marginLeft: 0,
       marginRight: 0,
     },
@@ -57,7 +57,7 @@ const useStyles = makeStyles(theme => ({
       minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
     },
 
-    [theme.breakpoints.down('xs')]: {
+    [theme.breakpoints.down('sm')]: {
       minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
       paddingRight: 0,
     },
@@ -97,8 +97,9 @@ function AppBar({
 
   return (
     <MuiAppBar
-      position="fixed"
       className={`${classes.root} ${minimisedMenu ? classes.minimised : ''}`}
+      enableColorOnDark
+      position="fixed"
     >
       <Toolbar className={classes.toolbar}>
         <div className={classes.preSearch}>
@@ -108,6 +109,7 @@ function AppBar({
             aria-label="menu"
             onClick={onMinimiseMenu}
             className={classes.menuButton}
+            size="large"
           >
             {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
           </IconButton>
@@ -125,7 +127,7 @@ function AppBar({
 
         <div className={classes.signoutButton}>
           <Tooltip title="Sign out">
-            <IconButton onClick={handleClickSignOut}>
+            <IconButton onClick={handleClickSignOut} size="large">
               <SignOutIcon />
             </IconButton>
           </Tooltip>

@@ -6,8 +6,9 @@ import {
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { useHistory } from 'react-router-dom';
-import { Chip, Divider, InputAdornment, makeStyles, TextField } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/lab';
+import { Autocomplete, Chip, Divider, InputAdornment, TextField } from '@material-ui/core';
+import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   compareItems,
   getBlankItem,
@@ -210,7 +211,7 @@ function EverythingSearch({
 
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: AnySearchable[], reason: AutocompleteChangeReason) => {
-      if (reason === 'select-option') {
+      if (reason === 'selectOption') {
         const option = value[value.length - 1];
         if (option.create) {
           dispatch(replaceActive({
@@ -231,7 +232,7 @@ function EverythingSearch({
           }
         }
       }
-      if (reason === 'remove-option' || reason === 'clear') {
+      if (reason === 'removeOption' || reason === 'clear') {
         if (onSelect) {
           onSelect(undefined);
         }
@@ -267,7 +268,7 @@ function EverythingSearch({
         disableClearable
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
-        getOptionSelected={(a, b) => a.id === b.id}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
         multiple
         noOptionsText={noItemsText || 'No items found'}
         onChange={handleChange}
@@ -289,11 +290,13 @@ function EverythingSearch({
             }}
           />
         )}
-        renderOption={option => (
-          <OptionComponent
-            option={option}
-            showIcons={showIcons}
-          />
+        renderOption={(props, option) => (
+          <li {...props}>
+            <OptionComponent
+              option={option}
+              showIcons={showIcons}
+            />
+          </li>
         )}
         renderTags={selectedOptions => (
           selectedOptions.map(option => (

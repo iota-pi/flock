@@ -2,7 +2,7 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import { makeStyles } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import DeleteIcon from '@material-ui/icons/Close';
 import { compareItems, GroupItem, Item, ItemId, PersonItem } from '../state/items';
 import { useItems, useItemsById } from '../state/selectors';

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@material-ui/core';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay } from '../../utils';
@@ -107,8 +107,8 @@ function PrayerPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
 
-  const xs = useMediaQuery((theme: Theme) => theme.breakpoints.down('xs'));
-  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const xs = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const maxTags = sm ? (2 - +xs) : 3;
 
   return (

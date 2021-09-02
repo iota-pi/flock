@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
-import DateFnsUtils from '@date-io/date-fns';
 import { Toolbar, useMediaQuery } from '@material-ui/core';
-import { makeStyles, Theme } from '@material-ui/core/styles';
-import { MuiPickersUtilsProvider } from '@material-ui/pickers';
+import { Theme } from '@material-ui/core/styles';
+import AdapterDateFns from '@material-ui/lab/AdapterDateFns';
+import LocalizationProvider from '@material-ui/lab/LocalizationProvider';
+import makeStyles from '@material-ui/styles/makeStyles';
 import AppBar from './components/layout/AppBar';
 import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';
@@ -47,7 +48,7 @@ export default function App() {
   const dispatch = useAppDispatch();
   const loggedIn = useLoggedIn();
   const vault = useVault();
-  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
+  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
 
   const [rawMiniMenu, setMiniMenu] = useState<boolean>();
   const miniMenu = rawMiniMenu === undefined ? sm : rawMiniMenu;
@@ -77,7 +78,7 @@ export default function App() {
 
   return (
     <>
-      <MuiPickersUtilsProvider utils={DateFnsUtils}>
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
         <Router>
           <div className={classes.root}>
             {loggedIn && (
@@ -101,7 +102,7 @@ export default function App() {
             </div>
           </div>
         </Router>
-      </MuiPickersUtilsProvider>
+      </LocalizationProvider>
     </>
   );
 }

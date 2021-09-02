@@ -5,10 +5,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  makeStyles,
   Typography,
 } from '@material-ui/core';
-import { Alert } from '@material-ui/lab';
+import { Alert } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { DropzoneArea } from 'material-ui-dropzone';
 import { useCallback, useState } from 'react';
 import { Item } from '../../state/items';

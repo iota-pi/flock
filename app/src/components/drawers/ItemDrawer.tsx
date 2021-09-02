@@ -7,16 +7,16 @@ import {
   useState,
 } from 'react';
 import {
+  Alert,
   Checkbox,
   Collapse,
   FormControlLabel,
   Grid,
-  makeStyles,
   styled,
   TextField,
   Typography,
 } from '@material-ui/core';
-import { Alert } from '@material-ui/lab';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   cleanItem,
   compareNames,
@@ -280,7 +280,7 @@ function ItemDrawer({
               onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
               required
               value={firstName}
-            />
+              variant="standard" />
           </Grid>
 
           <Grid item xs={6}>
@@ -290,7 +290,7 @@ function ItemDrawer({
               label="Last Name"
               onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
               value={lastName}
-            />
+              variant="standard" />
           </Grid>
         </>
       ) : (
@@ -306,7 +306,7 @@ function ItemDrawer({
             }
             required
             value={firstName}
-          />
+            variant="standard" />
         </Grid>
       )
     ),
@@ -324,7 +324,7 @@ function ItemDrawer({
             label="Email"
             onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
             value={email}
-          />
+            variant="standard" />
         </Grid>
       ) : null
     ),
@@ -342,7 +342,7 @@ function ItemDrawer({
             label="Phone"
             onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
             value={phone}
-          />
+            variant="standard" />
         </Grid>
       ) : null
     ),
@@ -359,7 +359,7 @@ function ItemDrawer({
           label="Description"
           onChange={event => handleChange({ description: getValue(event) })}
           value={item.description}
-        />
+          variant="standard" />
       </Grid>
     ),
     [handleChange, item.description],
@@ -374,7 +374,7 @@ function ItemDrawer({
           multiline
           onChange={event => handleChange({ summary: getValue(event) })}
           value={item.summary}
-        />
+          variant="standard" />
       </Grid>
     ),
     [handleChange, item.summary],

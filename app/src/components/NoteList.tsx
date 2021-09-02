@@ -1,5 +1,5 @@
 import { Fragment, ReactNode, useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   Divider,
   IconButton,
@@ -144,7 +144,7 @@ function NoteListItem<T extends ItemNote = ItemNote>({
 
       {note.sensitive && (
         <ListItemSecondaryAction>
-          <IconButton onClick={handleToggleSensitive}>
+          <IconButton onClick={handleToggleSensitive} size="large">
             {showSensitive ? <VisibilityOff /> : <Visibility />}
           </IconButton>
         </ListItemSecondaryAction>
@@ -152,7 +152,7 @@ function NoteListItem<T extends ItemNote = ItemNote>({
 
       {onClickAction && (
         <ListItemSecondaryAction>
-          <IconButton onClick={onClickAction}>
+          <IconButton onClick={onClickAction} size="large">
             {actionIcon || <ChevronRight />}
           </IconButton>
         </ListItemSecondaryAction>

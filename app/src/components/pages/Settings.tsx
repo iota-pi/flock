@@ -5,9 +5,9 @@ import {
   IconButton,
   List,
   ListItem,
-  makeStyles,
   Typography,
 } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMetadata, useVault } from '../../state/selectors';

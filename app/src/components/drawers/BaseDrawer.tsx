@@ -1,4 +1,4 @@
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
 import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect } from 'react';
 import { RemoveIcon } from '../Icons';
@@ -20,14 +20,14 @@ const useStyles = makeStyles(theme => ({
       width: '35vw',
     },
 
-    [theme.breakpoints.down('md')]: {
+    [theme.breakpoints.down('lg')]: {
       width: '70vw',
       '&$stacked': {
         width: '55vw',
       },
     },
 
-    [theme.breakpoints.down('sm')]: {
+    [theme.breakpoints.down('md')]: {
       width: '85vw',
       '&$stacked': {
         width: '70vw',
@@ -114,7 +114,7 @@ function BaseDrawer({
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
   const paperClasses = [classes.defaultBackground, ...commonClasses];
-  const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('xs'));
+  const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
   const page = usePage();
@@ -191,10 +191,7 @@ function BaseDrawer({
 
             {showBackButton && (
               <div className={classes.backButton}>
-                <IconButton
-                  data-cy="back-button"
-                  onClick={handleBack}
-                >
+                <IconButton data-cy="back-button" onClick={handleBack} size="large">
                   <RemoveIcon />
                 </IconButton>
               </div>

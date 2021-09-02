@@ -4,7 +4,7 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   MenuItem,
   TextField,
@@ -66,7 +66,7 @@ function MaturityPicker({
       onChange={handleChange}
       select
       value={maturityWithFallback}
-    >
+      variant="standard">
       {maturityOptions.map(option => (
         <MenuItem
           className={option.default ? classes.faded : undefined}

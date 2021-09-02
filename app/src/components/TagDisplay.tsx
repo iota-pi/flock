@@ -1,6 +1,7 @@
 import { MouseEvent, useCallback } from 'react';
 import { useHistory } from 'react-router-dom';
-import { Chip, makeStyles } from '@material-ui/core';
+import { Chip } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { getTagPage } from './pages';
 
 const useStyles = makeStyles(theme => ({

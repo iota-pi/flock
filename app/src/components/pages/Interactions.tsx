@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { Container, Divider, makeStyles, Theme, Typography, useMediaQuery } from '@material-ui/core';
+import { Container, Divider, Theme, Typography, useMediaQuery } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { useItems } from '../../state/selectors';
 import ItemList from '../ItemList';
 import { getBlankInteraction, PersonItem } from '../../state/items';
@@ -52,7 +53,7 @@ function InteractionsPage() {
     [dispatch],
   );
 
-  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const maxTags = sm ? 2 : 3;
 
   return (

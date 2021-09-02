@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { Container, Divider, makeStyles, Typography } from '@material-ui/core';
+import { Container, Divider, Typography } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { useItems } from '../../state/selectors';
 import { ActionNote, getBlankAction, getNotes } from '../../state/items';
 import BasePage from './BasePage';

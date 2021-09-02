@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { Checkbox, IconButton, ListItemIcon, Menu, MenuItem, Paper, Theme, useMediaQuery } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
@@ -45,7 +45,7 @@ function TopBar({
 
   const optionsAnchor = useRef<HTMLButtonElement>(null);
 
-  const smallScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const smallScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const alwaysShowCheckbox = !smallScreen;
   const showCheckbox = onSelectAll && (alwaysShowCheckbox || bulkActions);
 
@@ -88,6 +88,7 @@ function TopBar({
           aria-haspopup="true"
           onClick={handleClickOptions}
           ref={optionsAnchor}
+          size="large"
         >
           <OptionsIcon />
         </IconButton>

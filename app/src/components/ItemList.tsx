@@ -1,5 +1,5 @@
 import { Fragment, MouseEvent, ReactNode, useCallback } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   Checkbox,
   Divider,
@@ -38,7 +38,7 @@ const useStyles = makeStyles(theme => ({
   itemTextWithTags: {
     maxWidth: '70%',
 
-    [theme.breakpoints.down('sm')]: {
+    [theme.breakpoints.down('md')]: {
       maxWidth: '60%',
     },
   },
@@ -57,7 +57,7 @@ const useStyles = makeStyles(theme => ({
     flexDirection: 'row',
     flexGrow: 1,
 
-    [theme.breakpoints.down('xs')]: {
+    [theme.breakpoints.down('sm')]: {
       flexDirection: 'column',
     },
   },
@@ -249,6 +249,7 @@ function ItemList<T extends Item>({
                     data-cy="list-item-action"
                     disableRipple={!onClickAction}
                     onClick={handleClickAction(item)}
+                    size="large"
                   >
                     {actionIcon}
                   </IconButton>

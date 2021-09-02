@@ -1,6 +1,6 @@
 import { Fragment, ReactNode, useCallback } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   alpha,
   Divider,

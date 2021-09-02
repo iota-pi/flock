@@ -10,11 +10,11 @@ import {
   IconButton,
   InputAdornment,
   LinearProgress,
-  makeStyles,
   styled,
   TextField,
   Typography,
 } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import Visibility from '@material-ui/icons/Visibility';
 import { getPage } from '.';
@@ -248,6 +248,7 @@ function CreateAccountPage() {
           <IconButton
             data-cy="back-button"
             onClick={handleClickHome}
+            size="large"
           >
             <HomeIcon />
           </IconButton>
@@ -294,6 +295,7 @@ function CreateAccountPage() {
                   <IconButton
                     onClick={handleClickVisibility}
                     onMouseDown={handleMouseDownVisibility}
+                    size="large"
                   >
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -304,7 +306,7 @@ function CreateAccountPage() {
             onChange={handleChangePassword}
             type={showPassword ? 'text' : 'password'}
             value={password}
-          />
+            variant="standard" />
 
           <TextField
             autoComplete="confirm-password"
@@ -317,6 +319,7 @@ function CreateAccountPage() {
                   <IconButton
                     onClick={handleClickVisibility}
                     onMouseDown={handleMouseDownVisibility}
+                    size="large"
                   >
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -326,7 +329,7 @@ function CreateAccountPage() {
             label="Confirm Password"
             onChange={handleChangePasswordConfirm}
             type={showPassword ? 'text' : 'password'}
-          />
+            variant="standard" />
 
           <div className={classes.meterHolder}>
             <Typography>

@@ -2,8 +2,9 @@ import {
   ChangeEvent,
   useCallback,
 } from 'react';
-import { Chip, InputAdornment, makeStyles, TextField } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/lab';
+import { Autocomplete, Chip, InputAdornment, TextField } from '@material-ui/core';
+import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { useTags } from '../state/selectors';
 import { MuiIconType } from './Icons';
 
@@ -98,14 +99,16 @@ function TagSelection({
           }}
         />
       )}
-      renderOption={tag => (
-        tags.includes(tag) ? tag : (
-          <>
-            {tag}
-            &nbsp;
-            <span className={classes.subtle}>(new tag)</span>
-          </>
-        )
+      renderOption={(props, tag) => (
+        <li {...props}>
+          {tags.includes(tag) ? tag : (
+            <>
+              {tag}
+              &nbsp;
+              <span className={classes.subtle}>(new tag)</span>
+            </>
+          )}
+        </li>
       )}
       renderTags={tagsToRender => (
         tagsToRender.map(tag => (

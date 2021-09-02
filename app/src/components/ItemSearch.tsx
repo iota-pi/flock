@@ -3,8 +3,9 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import { Chip, makeStyles, TextField, Typography } from '@material-ui/core';
-import { Autocomplete, AutocompleteChangeReason, createFilterOptions } from '@material-ui/lab';
+import { Autocomplete, Chip, TextField, Typography } from '@material-ui/core';
+import { AutocompleteChangeReason, createFilterOptions } from '@material-ui/core/useAutocomplete';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   getItemName,
   Item,
@@ -136,10 +137,10 @@ function ItemSearch<T extends Item = Item>({
 
   const handleChange = useCallback(
     (event: ChangeEvent<{}>, value: T[], reason: AutocompleteChangeReason) => {
-      if (reason === 'select-option') {
+      if (reason === 'selectOption') {
         onSelect(value[value.length - 1]);
       }
-      if (onRemove && reason === 'remove-option') {
+      if (onRemove && reason === 'removeOption') {
         const deletedItems = selectedItems.filter(item => !value.find(i => i.id === item.id));
         onRemove(deletedItems[0]);
       }
@@ -159,7 +160,7 @@ function ItemSearch<T extends Item = Item>({
       autoHighlight
       filterOptions={filterFunc}
       getOptionLabel={item => getItemName(item)}
-      getOptionSelected={(a, b) => a.id === b.id}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
       multiple
       noOptionsText={noItemsText || 'No items found'}
       onChange={handleChange}
@@ -173,12 +174,14 @@ function ItemSearch<T extends Item = Item>({
           variant="outlined"
         />
       )}
-      renderOption={item => (
-        <ItemOption
-          item={item}
-          showIcons={showIcons}
-          showGroupMemberCount={showGroupMemberCount}
-        />
+      renderOption={(props, item) => (
+        <li {...props}>
+          <ItemOption
+            item={item}
+            showIcons={showIcons}
+            showGroupMemberCount={showGroupMemberCount}
+          />
+        </li>
       )}
       renderTags={itemsToRender => (
         itemsToRender.map(item => (

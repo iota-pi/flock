@@ -1,7 +1,5 @@
-import {
-  makeStyles,
-  Typography,
-} from '@material-ui/core';
+import { Typography } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import LargeIcon from '../LargeIcon';
 import { InternalPageId, PageId, usePage } from '../pages';

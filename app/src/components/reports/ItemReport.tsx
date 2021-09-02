@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { IconButton, makeStyles, Typography } from '@material-ui/core';
+import { IconButton, Typography } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   getItemName,
   getNotes,
@@ -88,6 +89,7 @@ function ItemReport({
             className={classes.editButton}
             data-cy="edit-item-button"
             onClick={onEdit}
+            size="large"
           >
             <EditIcon />
           </IconButton>

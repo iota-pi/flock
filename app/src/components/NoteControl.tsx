@@ -6,7 +6,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/core/styles/makeStyles';
+import makeStyles from '@material-ui/styles/makeStyles';
 import {
   Button,
   Checkbox,
@@ -18,10 +18,7 @@ import {
   TextField,
   Typography,
 } from '@material-ui/core';
-import {
-  KeyboardDatePicker,
-} from '@material-ui/pickers';
-import { MaterialUiPickersDate } from '@material-ui/pickers/typings/date';
+import { DatePicker } from '@material-ui/lab';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
@@ -63,7 +60,7 @@ const useStyles = makeStyles(theme => ({
     flexGrow: 1,
     padding: theme.spacing(1),
     paddingLeft: 0,
-    color: theme.palette.text.hint,
+    color: theme.palette.text.disabled,
   },
   danger: {
     color: theme.palette.error.light,
@@ -138,7 +135,7 @@ function NoteControl<T extends ItemNote>({
   );
   const handleDateChange = useCallback(
     (noteId: string) => (
-      (date: MaterialUiPickersDate) => {
+      (date: Date | null) => {
         const defaultedDate = date || new Date();
         const index = rawNotes.findIndex(n => n.id === noteId);
         if (index > -1) {
@@ -230,122 +227,126 @@ function NoteControl<T extends ItemNote>({
     [noteType],
   );
 
-  return (
-    <>
-      <AddNoteButton
-        dataCy={`add-${noteType}`}
-        label={addNoteLabel}
-        onClick={handleAddNote}
-      />
+  return <>
+    <AddNoteButton
+      dataCy={`add-${noteType}`}
+      label={addNoteLabel}
+      onClick={handleAddNote}
+    />
 
-      <Grid container spacing={2}>
-        <Grid item />
+    <Grid container spacing={2}>
+      <Grid item />
 
-        {notes.map(note => (
-          <Fragment key={note.id}>
-            <Grid item xs={12}>
-              <div className={classes.noteContentRow}>
-                <TextField
-                  autoFocus={autoFocus === note.id}
-                  value={!isNoteVisible(note) ? '...' : note.content}
-                  onChange={handleChange(note.id)}
-                  disabled={!isNoteVisible(note)}
-                  label={noteContentLabel}
-                  InputProps={{
-                    endAdornment: note.sensitive ? (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={handleClickVisibility(note)}
-                          onMouseDown={handleMouseDownVisibility}
-                        >
-                          {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
-                        </IconButton>
-                      </InputAdornment>
-                    ) : null,
-                  }}
-                  multiline
-                  fullWidth
-                />
-              </div>
+      {notes.map(note => (
+        <Fragment key={note.id}>
+          <Grid item xs={12}>
+            <div className={classes.noteContentRow}>
+              <TextField
+                autoFocus={autoFocus === note.id}
+                value={!isNoteVisible(note) ? '...' : note.content}
+                onChange={handleChange(note.id)}
+                disabled={!isNoteVisible(note)}
+                label={noteContentLabel}
+                InputProps={{
+                  endAdornment: note.sensitive ? (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility(note)}
+                        onMouseDown={handleMouseDownVisibility}
+                        size="large"
+                      >
+                        {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                }}
+                multiline
+                fullWidth
+                variant="standard" />
+            </div>
 
-              <div className={`${classes.noteContentRow} ${classes.center}`}>
-                {note.type === 'interaction' ? (
-                  <KeyboardDatePicker
-                    value={new Date(note.date)}
-                    onChange={handleDateChange(note.id)}
-                    maxDate={new Date()}
-                    maxDateMessage="Only past interactions can be recorded in the present"
-                    format="dd/MM/yyyy"
-                    InputProps={{
-                      className: classes.firstFieldOfRow,
-                    }}
-                  />
-                ) : (
-                  <div className={classes.firstFieldOfRow}>
-                    <span className={classes.noteDate}>
-                      Date: {formatDate(new Date(note.date))}
-                    </span>
-                  </div>
-                )}
-
-                <FormControlLabel
-                  control={(
-                    <Checkbox
-                      checked={note.sensitive || false}
-                      data-cy="sensitive-note"
-                      onChange={handleChangeSensitive(note.id)}
-                    />
+            <div className={`${classes.noteContentRow} ${classes.center}`}>
+              {note.type === 'interaction' ? (
+                <DatePicker<Date | null>
+                  value={new Date(note.date) as Date | null}
+                  onChange={handleDateChange(note.id)}
+                  maxDate={new Date()}
+                  inputFormat="dd/MM/yyyy"
+                  renderInput={params => (
+                    <TextField
+                      {...params}
+                      InputProps={{
+                        ...params.InputProps,
+                        className: classes.firstFieldOfRow,
+                      }}
+                      variant="standard" />
                   )}
-                  label="Sensitive"
                 />
-
-                <div className={classes.filler} />
-
-                <div>
-                  <IconButton
-                    className={classes.danger}
-                    data-cy="delete-note"
-                    onClick={() => handleDelete(note.id)}
-                    size="small"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
+              ) : (
+                <div className={classes.firstFieldOfRow}>
+                  <span className={classes.noteDate}>
+                    Date: {formatDate(new Date(note.date))}
+                  </span>
                 </div>
+              )}
+
+              <FormControlLabel
+                control={(
+                  <Checkbox
+                    checked={note.sensitive || false}
+                    data-cy="sensitive-note"
+                    onChange={handleChangeSensitive(note.id)}
+                  />
+                )}
+                label="Sensitive"
+              />
+
+              <div className={classes.filler} />
+
+              <div>
+                <IconButton
+                  className={classes.danger}
+                  data-cy="delete-note"
+                  onClick={() => handleDelete(note.id)}
+                  size="small"
+                >
+                  <DeleteIcon />
+                </IconButton>
               </div>
-            </Grid>
+            </div>
+          </Grid>
 
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
-          </Fragment>
-        ))}
+          <Grid item xs={12}>
+            <Divider />
+          </Grid>
+        </Fragment>
+      ))}
 
-        {notes.length === 0 && (
-          <>
-            <Grid item xs={12}>
-              {noNotesText || 'No notes'}
-            </Grid>
+      {notes.length === 0 && (
+        <>
+          <Grid item xs={12}>
+            {noNotesText || 'No notes'}
+          </Grid>
 
-            <Grid item xs={12} />
-          </>
-        )}
-      </Grid>
+          <Grid item xs={12} />
+        </>
+      )}
+    </Grid>
 
-      <ConfirmationDialog
-        open={noteToDelete !== undefined}
-        onConfirm={() => noteToDelete && handleConfirmDelete(noteToDelete)}
-        onCancel={handleConfirmCancel}
-      >
-        <Typography paragraph>
-          Are you sure you want to delete this note?
-        </Typography>
+    <ConfirmationDialog
+      open={noteToDelete !== undefined}
+      onConfirm={() => noteToDelete && handleConfirmDelete(noteToDelete)}
+      onCancel={handleConfirmCancel}
+    >
+      <Typography paragraph>
+        Are you sure you want to delete this note?
+      </Typography>
 
-        <Typography paragraph>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
-    </>
-  );
+      <Typography paragraph>
+        This action cannot be undone.
+      </Typography>
+    </ConfirmationDialog>
+  </>;
 }
 
 export default NoteControl;

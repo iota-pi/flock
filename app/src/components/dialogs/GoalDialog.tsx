@@ -7,10 +7,10 @@ import {
   DialogTitle,
   IconButton,
   InputAdornment,
-  makeStyles,
   TextField,
   Typography,
 } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { useMetadata } from '../../state/selectors';
 import { ResetIcon, SaveIcon, WarningIcon } from '../Icons';
 
@@ -113,6 +113,7 @@ function GoalDialog({
                   <IconButton
                     disabled={parseInt(newGoal) === naturalGoal}
                     onClick={handleReset}
+                    size="large"
                   >
                     <ResetIcon />
                   </IconButton>

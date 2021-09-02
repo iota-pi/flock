@@ -7,8 +7,8 @@ import {
   DialogTitle,
   Divider,
   Grid,
-  makeStyles,
 } from '@material-ui/core';
+import makeStyles from '@material-ui/styles/makeStyles';
 import { useItems, useVault } from '../../state/selectors';
 import { Item } from '../../state/items';
 import { usePrevious } from '../../utils';
