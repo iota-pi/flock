@@ -13,6 +13,10 @@ const theme = createTheme({
     error: {
       main: red.A400,
     },
+    background: {
+      default: '#202020',
+      paper: '#202020',
+    },
     mode: 'dark',
   },
 });

@@ -43,6 +43,7 @@ const useStyles = makeStyles(theme => ({
   },
   defaultBackground: {
     backgroundColor: theme.palette.background.default,
+    backgroundImage: 'unset',
   },
   layout: {
     display: 'flex',
