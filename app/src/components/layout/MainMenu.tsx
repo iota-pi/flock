@@ -23,6 +23,7 @@ const useStyles = makeStyles(theme => ({
     width: theme.spacing(DRAWER_SPACING_FULL),
     flexShrink: 0,
     transition: theme.transitions.create('width'),
+    zIndex: theme.zIndex.appBar - 1,
 
     '&$minimised': {
       width: theme.spacing(DRAWER_SPACING_NARROW),

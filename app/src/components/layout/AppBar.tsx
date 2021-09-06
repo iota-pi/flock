@@ -21,9 +21,6 @@ import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
 import { SignOutIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
-  root: {
-    zIndex: theme.zIndex.drawer + 1,
-  },
   toolbar: {
     paddingLeft: theme.spacing(3),
     paddingRight: theme.spacing(2),
@@ -97,7 +94,7 @@ function AppBar({
 
   return (
     <MuiAppBar
-      className={`${classes.root} ${minimisedMenu ? classes.minimised : ''}`}
+      className={minimisedMenu ? classes.minimised : undefined}
       enableColorOnDark
       position="fixed"
     >
