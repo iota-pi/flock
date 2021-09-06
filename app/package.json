@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "build": "react-scripts build",
-    "start": "yarn vault:dev && react-scripts start",
     "lint": "./node_modules/.bin/eslint src/ --ext .ts,.tsx",
+    "postinstall": "patch-package",
+    "start": "yarn vault:dev && react-scripts start",
     "test": "react-scripts test",
     "vault:dev": "cd .. && docker-compose up -d api"
   },
@@ -28,6 +29,8 @@
     "date-fns": "^2.22.1",
     "js-file-download": "^0.4.12",
     "material-ui-dropzone": "^3.5.0",
+    "patch-package": "^6.4.7",
+    "postinstall-postinstall": "^2.1.0",
     "proxy-memoize": "^0.3.6",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
