@@ -1,7 +1,7 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import { AccountMetadata } from '../state/account';
 import { ItemType } from '../state/items';
-import { finishRequest, startRequest } from '../state/ui';
+import { finishRequest, setMessage, startRequest } from '../state/ui';
 import { AppDispatch } from '../store';
 import { CryptoResult } from './Vault';
 
@@ -45,8 +45,15 @@ class VaultAPI {
   }
 
   private finishRequest(error?: string) {
+    console.warn('finishRequest', this.dispatch);
     if (this.dispatch) {
-      this.dispatch(finishRequest(error));
+      this.dispatch(finishRequest());
+      if (error) {
+        this.dispatch(setMessage({
+          message: error,
+          severity: 'error',
+        }));
+      }
     }
   }
 

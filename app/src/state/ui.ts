@@ -1,3 +1,4 @@
+import { AlertColor } from '@material-ui/core';
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
@@ -18,27 +19,32 @@ export interface UiOptions {
 }
 export interface RequestData {
   active: number,
-  error: string,
 }
+export interface BaseUIMessage {
+  severity?: AlertColor,
+  message: string,
+}
+export interface UIMessage extends Required<BaseUIMessage> {}
 export interface UIData {
   drawers: DrawerData[],
-  selected: ItemId[],
+  message: UIMessage | null,
   options: UiOptions,
   requests: RequestData,
+  selected: ItemId[],
 }
 export interface UIState {
   ui: UIData,
 }
 
 const initialDrawers: UIData['drawers'] = [];
-const initialSelected: UIData['selected'] = [];
+const initialMessage: UIData['message'] = null;
 const initialFlags: UIData['options'] = {
   bulkActionsOnMobile: false,
 };
 const initialRequests: UIData['requests'] = {
   active: 0,
-  error: '',
 };
+const initialSelected: UIData['selected'] = [];
 
 export const SET_UI_STATE = 'SET_UI_STATE';
 export const REPLACE_ACTIVE = 'REPLACE_ACTIVE';
@@ -47,6 +53,7 @@ export const PUSH_ACTIVE = 'PUSH_ACTIVE';
 export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
 export const START_REQUEST = 'START_REQUEST';
 export const FINISH_REQUEST = 'FINISH_REQUEST';
+export const SET_MESSAGE = 'SET_MESSAGE';
 
 export type SetUIState = Omit<Partial<UIData>, 'options' | 'requests'> & {
   options?: Partial<UIData['options']>,
@@ -75,7 +82,11 @@ export interface StartRequestAction extends Action {
 }
 export interface FinishRequestAction extends Action {
   type: typeof FINISH_REQUEST,
-  error?: string,
+}
+export interface SetMessageAction extends Action {
+  type: typeof SET_MESSAGE,
+  message: string,
+  severity?: UIMessage['severity'],
 }
 
 export type UIAction = (
@@ -86,6 +97,7 @@ export type UIAction = (
   | RemoveActiveItemAction
   | StartRequestAction
   | FinishRequestAction
+  | SetMessageAction
 );
 
 export function setUiState(data: SetUIState): SetUIAction {
@@ -138,10 +150,16 @@ export function startRequest(): StartRequestAction {
   };
 }
 
-export function finishRequest(error?: string): FinishRequestAction {
+export function finishRequest(): FinishRequestAction {
   return {
     type: FINISH_REQUEST,
-    error,
+  };
+}
+
+export function setMessage(data: BaseUIMessage): SetMessageAction {
+  return {
+    type: SET_MESSAGE,
+    ...data,
   };
 }
 
@@ -248,7 +266,23 @@ export function requestsReducer(
     return {
       ...state,
       active: state.active - 1,
-      error: action.error || state.error,
+    };
+  }
+
+  return state;
+}
+
+export function messageReducer(
+  state: UIData['message'] = initialMessage,
+  action: AllActions,
+): UIData['message'] {
+  if (action.type === SET_UI_STATE && action.message) {
+    return { ...state, ...action.message };
+  }
+  if (action.type === SET_MESSAGE) {
+    return {
+      severity: action.severity || 'success',
+      message: action.message,
     };
   }
 
@@ -257,7 +291,8 @@ export function requestsReducer(
 
 export const uiReducer = combineReducers<UIData>({
   drawers: drawersReducer,
-  selected: selectedReducer,
+  message: messageReducer,
   options: optionsReducer,
   requests: requestsReducer,
+  selected: selectedReducer,
 });

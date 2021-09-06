@@ -19,7 +19,8 @@ import MaturityDialog from '../dialogs/MaturityDialog';
 import { DEFAULT_MATURITY } from '../../state/account';
 import ImportDialog from '../dialogs/ImportDialog';
 import { Item } from '../../state/items';
-import { useAppSelector } from '../../store';
+import { useAppDispatch, useAppSelector } from '../../store';
+import { setMessage } from '../../state/ui';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -118,6 +119,7 @@ function SettingsItem({
 function SettingsPage() {
   const account = useAppSelector(state => state.account);
   const classes = useStyles();
+  const dispatch = useAppDispatch();
   const items = useItems();
   const vault = useVault();
 
@@ -148,9 +150,10 @@ function SettingsPage() {
   const handleConfirmImport = useCallback(
     async (imported: Item[]) => {
       setShowImportDialog(false);
-      vault?.store(imported);
+      await vault?.store(imported);
+      dispatch(setMessage({ message: 'Import successful' }));
     },
-    [vault],
+    [dispatch, vault],
   );
 
   return (

@@ -2,7 +2,7 @@ import { PropsWithChildren } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import DrawerDisplay from './DrawerDisplay';
 import SelectedActions from '../SelectedActions';
-import GeneralAlert from '../GeneralAlert';
+import GeneralMessage from '../GeneralMessage';
 import { useLoggedIn } from '../../state/selectors';
 
 const useStyles = makeStyles(() => ({
@@ -52,7 +52,7 @@ function MainLayout({ children }: PropsWithChildren<{}>) {
         <DrawerDisplay />
       )}
 
-      <GeneralAlert />
+      <GeneralMessage />
     </div>
   );
 }

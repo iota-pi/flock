@@ -4,14 +4,15 @@ import { useAppDispatch, useAppSelector } from '../store';
 import { setUiState } from '../state/ui';
 
 
-function GeneralAlert() {
+function GeneralMessage() {
   const dispatch = useAppDispatch();
-  const message = useAppSelector(state => state.ui.requests.error);
+  const data = useAppSelector(state => state.ui.message);
+  const { message, severity } = data || {};
 
   const [open, setOpen] = useState(false);
   const handleClose = useCallback(() => setOpen(false), []);
   const handleExited = useCallback(
-    () => dispatch(setUiState({ requests: { error: '' } })),
+    () => dispatch(setUiState({ message: null })),
     [dispatch],
   );
 
@@ -33,11 +34,11 @@ function GeneralAlert() {
         onExited: handleExited,
       }}
     >
-      <Alert severity="error" onClose={handleClose}>
+      <Alert severity={severity} onClose={handleClose}>
         {message}
       </Alert>
     </Snackbar>
   );
 }
 
-export default GeneralAlert;
+export default GeneralMessage;
