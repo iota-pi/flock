@@ -1,6 +1,5 @@
 import {
   Alert,
-  alpha,
   Button,
   Dialog,
   DialogActions,
@@ -45,13 +44,6 @@ const useStyles = makeStyles(theme => ({
   },
   emphasis: {
     fontWeight: 500,
-  },
-  danger: {
-    color: alpha(theme.palette.error.main, 0.92),
-    borderColor: alpha(theme.palette.error.main, 0.7),
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.main, 0.08),
-    },
   },
 }));
 
@@ -158,7 +150,7 @@ function ImportDialog({
         </Button>
 
         <Button
-          className={classes.danger}
+          color="error"
           data-cy="import-confirm"
           disabled={importedItems.length === 0}
           fullWidth

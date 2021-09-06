@@ -4,7 +4,6 @@ import {
 } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
-  alpha,
   Button,
   Container,
   Divider,
@@ -16,14 +15,6 @@ import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({
-  danger: {
-    borderColor: theme.palette.error.light,
-    color: theme.palette.error.light,
-
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.light, 0.08),
-    },
-  },
   emphasis: {
     fontWeight: 500,
   },
@@ -144,7 +135,7 @@ function DrawerActions({
           {onCancel && onDelete && (
             <Grid item xs={12} sm={6}>
               <Button
-                className={itemIsNew ? undefined : classes.danger}
+                color={itemIsNew ? undefined : 'error'}
                 data-cy="drawer-cancel"
                 fullWidth
                 onClick={handleClickDelete}

@@ -62,9 +62,6 @@ const useStyles = makeStyles(theme => ({
     paddingLeft: 0,
     color: theme.palette.text.disabled,
   },
-  danger: {
-    color: theme.palette.error.light,
-  },
 }));
 
 export interface Props<T extends ItemNote> {
@@ -227,126 +224,130 @@ function NoteControl<T extends ItemNote>({
     [noteType],
   );
 
-  return <>
-    <AddNoteButton
-      dataCy={`add-${noteType}`}
-      label={addNoteLabel}
-      onClick={handleAddNote}
-    />
+  return (
+    <>
+      <AddNoteButton
+        dataCy={`add-${noteType}`}
+        label={addNoteLabel}
+        onClick={handleAddNote}
+      />
 
-    <Grid container spacing={2}>
-      <Grid item />
+      <Grid container spacing={2}>
+        <Grid item />
 
-      {notes.map(note => (
-        <Fragment key={note.id}>
-          <Grid item xs={12}>
-            <div className={classes.noteContentRow}>
-              <TextField
-                autoFocus={autoFocus === note.id}
-                value={!isNoteVisible(note) ? '...' : note.content}
-                onChange={handleChange(note.id)}
-                disabled={!isNoteVisible(note)}
-                label={noteContentLabel}
-                InputProps={{
-                  endAdornment: note.sensitive ? (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={handleClickVisibility(note)}
-                        onMouseDown={handleMouseDownVisibility}
-                        size="large"
-                      >
-                        {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null,
-                }}
-                multiline
-                fullWidth
-                variant="standard" />
-            </div>
-
-            <div className={`${classes.noteContentRow} ${classes.center}`}>
-              {note.type === 'interaction' ? (
-                <DatePicker<Date | null>
-                  value={new Date(note.date) as Date | null}
-                  onChange={handleDateChange(note.id)}
-                  maxDate={new Date()}
-                  inputFormat="dd/MM/yyyy"
-                  renderInput={params => (
-                    <TextField
-                      {...params}
-                      InputProps={{
-                        ...params.InputProps,
-                        className: classes.firstFieldOfRow,
-                      }}
-                      variant="standard" />
-                  )}
+        {notes.map(note => (
+          <Fragment key={note.id}>
+            <Grid item xs={12}>
+              <div className={classes.noteContentRow}>
+                <TextField
+                  autoFocus={autoFocus === note.id}
+                  value={!isNoteVisible(note) ? '...' : note.content}
+                  onChange={handleChange(note.id)}
+                  disabled={!isNoteVisible(note)}
+                  label={noteContentLabel}
+                  InputProps={{
+                    endAdornment: note.sensitive ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={handleClickVisibility(note)}
+                          onMouseDown={handleMouseDownVisibility}
+                          size="large"
+                        >
+                          {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                  multiline
+                  fullWidth
+                  variant="standard"
                 />
-              ) : (
-                <div className={classes.firstFieldOfRow}>
-                  <span className={classes.noteDate}>
-                    Date: {formatDate(new Date(note.date))}
-                  </span>
-                </div>
-              )}
-
-              <FormControlLabel
-                control={(
-                  <Checkbox
-                    checked={note.sensitive || false}
-                    data-cy="sensitive-note"
-                    onChange={handleChangeSensitive(note.id)}
-                  />
-                )}
-                label="Sensitive"
-              />
-
-              <div className={classes.filler} />
-
-              <div>
-                <IconButton
-                  className={classes.danger}
-                  data-cy="delete-note"
-                  onClick={() => handleDelete(note.id)}
-                  size="small"
-                >
-                  <DeleteIcon />
-                </IconButton>
               </div>
-            </div>
-          </Grid>
 
-          <Grid item xs={12}>
-            <Divider />
-          </Grid>
-        </Fragment>
-      ))}
+              <div className={`${classes.noteContentRow} ${classes.center}`}>
+                {note.type === 'interaction' ? (
+                  <DatePicker<Date | null>
+                    value={new Date(note.date) as Date | null}
+                    onChange={handleDateChange(note.id)}
+                    maxDate={new Date()}
+                    inputFormat="dd/MM/yyyy"
+                    renderInput={params => (
+                      <TextField
+                        {...params}
+                        InputProps={{
+                          ...params.InputProps,
+                          className: classes.firstFieldOfRow,
+                        }}
+                        variant="standard"
+                      />
+                    )}
+                  />
+                ) : (
+                  <div className={classes.firstFieldOfRow}>
+                    <span className={classes.noteDate}>
+                      Date: {formatDate(new Date(note.date))}
+                    </span>
+                  </div>
+                )}
 
-      {notes.length === 0 && (
-        <>
-          <Grid item xs={12}>
-            {noNotesText || 'No notes'}
-          </Grid>
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      checked={note.sensitive || false}
+                      data-cy="sensitive-note"
+                      onChange={handleChangeSensitive(note.id)}
+                    />
+                  )}
+                  label="Sensitive"
+                />
 
-          <Grid item xs={12} />
-        </>
-      )}
-    </Grid>
+                <div className={classes.filler} />
 
-    <ConfirmationDialog
-      open={noteToDelete !== undefined}
-      onConfirm={() => noteToDelete && handleConfirmDelete(noteToDelete)}
-      onCancel={handleConfirmCancel}
-    >
-      <Typography paragraph>
-        Are you sure you want to delete this note?
-      </Typography>
+                <div>
+                  <IconButton
+                    color="error"
+                    data-cy="delete-note"
+                    onClick={() => handleDelete(note.id)}
+                    size="small"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </div>
+              </div>
+            </Grid>
 
-      <Typography paragraph>
-        This action cannot be undone.
-      </Typography>
-    </ConfirmationDialog>
-  </>;
+            <Grid item xs={12}>
+              <Divider />
+            </Grid>
+          </Fragment>
+        ))}
+
+        {notes.length === 0 && (
+          <>
+            <Grid item xs={12}>
+              {noNotesText || 'No notes'}
+            </Grid>
+
+            <Grid item xs={12} />
+          </>
+        )}
+      </Grid>
+
+      <ConfirmationDialog
+        open={noteToDelete !== undefined}
+        onConfirm={() => noteToDelete && handleConfirmDelete(noteToDelete)}
+        onCancel={handleConfirmCancel}
+      >
+        <Typography paragraph>
+          Are you sure you want to delete this note?
+        </Typography>
+
+        <Typography paragraph>
+          This action cannot be undone.
+        </Typography>
+      </ConfirmationDialog>
+    </>
+  );
 }
 
 export default NoteControl;
