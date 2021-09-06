@@ -291,7 +291,7 @@ function EverythingSearch({
           />
         )}
         renderOption={(props, option) => (
-          <li {...props}>
+          <li {...props} key={option.id}>
             <OptionComponent
               option={option}
               showIcons={showIcons}
