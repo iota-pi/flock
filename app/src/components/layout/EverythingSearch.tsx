@@ -39,7 +39,7 @@ const useStyles = makeStyles(theme => ({
   },
   whiteTextField: {
     '& .Mui-focused.MuiInputLabel-root': {
-      color: theme.palette.text.primary,
+      color: theme.palette.primary.contrastText,
     },
     '& .Mui-focused .MuiOutlinedInput-notchedOutline': {
       borderColor: 'rgba(255, 255, 255, 0.85)',
@@ -262,9 +262,6 @@ function EverythingSearch({
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Autocomplete
         autoHighlight
-        classes={{
-          option: classes.optionHolder,
-        }}
         disableClearable
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
@@ -291,7 +288,11 @@ function EverythingSearch({
           />
         )}
         renderOption={(props, option) => (
-          <li {...props} key={option.id}>
+          <li
+            {...props}
+            className={`${classes.optionHolder} ${props.className}`}
+            key={option.id}
+          >
             <OptionComponent
               option={option}
               showIcons={showIcons}

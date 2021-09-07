@@ -23,6 +23,11 @@ const useStyles = makeStyles(theme => ({
   },
   accordionRoot: {
     margin: theme.spacing(2, 0),
+
+    // Hide grey line above accordion when not expanded
+    '&::before': {
+      content: 'unset',
+    },
   },
   accordionExpanded: {
     margin: theme.spacing(2, 0),

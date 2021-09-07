@@ -1,17 +1,16 @@
 import { red, teal, yellow } from '@material-ui/core/colors';
 import { createTheme } from '@material-ui/core/styles';
 
-// A custom theme for this app
-const theme = createTheme({
+export const dark = createTheme({
   palette: {
     primary: {
-      main: teal[700],
+      main: teal[600],
     },
     secondary: {
       main: yellow[700],
     },
     error: {
-      main: red.A400,
+      main: '#ff4569',
     },
     background: {
       default: '#202020',
@@ -20,5 +19,24 @@ const theme = createTheme({
     mode: 'dark',
   },
 });
+export const light = createTheme({
+  palette: {
+    primary: {
+      main: teal[700],
+    },
+    secondary: {
+      main: yellow[700],
+    },
+    error: {
+      main: red[600],
+    },
+    background: {
+      default: '#fafafa',
+      // paper: '#202020',
+    },
+  },
+});
 
-export default theme;
+const getTheme = (darkMode?: boolean) => (darkMode ? dark : light);
+
+export default getTheme;

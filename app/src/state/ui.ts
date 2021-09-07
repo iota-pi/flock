@@ -26,6 +26,7 @@ export interface BaseUIMessage {
 }
 export interface UIMessage extends Required<BaseUIMessage> {}
 export interface UIData {
+  darkMode: boolean,
   drawers: DrawerData[],
   message: UIMessage | null,
   options: UiOptions,
@@ -36,6 +37,7 @@ export interface UIState {
   ui: UIData,
 }
 
+const initialDarkMode: UIData['darkMode'] = false;
 const initialDrawers: UIData['drawers'] = [];
 const initialMessage: UIData['message'] = null;
 const initialFlags: UIData['options'] = {
@@ -163,12 +165,22 @@ export function setMessage(data: BaseUIMessage): SetMessageAction {
   };
 }
 
+export function darkModeReducer(
+  state: UIData['darkMode'] = initialDarkMode,
+  action: AllActions,
+): UIData['darkMode'] {
+  if (action.type === SET_UI_STATE && action.darkMode !== undefined) {
+    return action.darkMode;
+  }
+  return state;
+}
+
 export function drawersReducer(
   state: UIData['drawers'] = initialDrawers,
   action: AllActions,
 ): UIData['drawers'] {
-  if (action.type === SET_UI_STATE) {
-    return action.drawers || state;
+  if (action.type === SET_UI_STATE && action.drawers) {
+    return action.drawers;
   }
   if (action.type === REPLACE_ACTIVE) {
     const openItems = state.filter(drawer => drawer.open);
@@ -229,8 +241,8 @@ export function selectedReducer(
   state: UIData['selected'] = initialSelected,
   action: AllActions,
 ): UIData['selected'] {
-  if (action.type === SET_UI_STATE) {
-    return action.selected || state;
+  if (action.type === SET_UI_STATE && action.selected) {
+    return action.selected;
   }
   if (action.type === DELETE_ITEMS) {
     const deletedIds = action.items;
@@ -290,6 +302,7 @@ export function messageReducer(
 }
 
 export const uiReducer = combineReducers<UIData>({
+  darkMode: darkModeReducer,
   drawers: drawersReducer,
   message: messageReducer,
   options: optionsReducer,
