@@ -1,7 +1,9 @@
 import { ReactNode, useCallback, useMemo, useState } from 'react';
 import {
+  Checkbox,
   Container,
   Divider,
+  FormControlLabel,
   IconButton,
   List,
   ListItem,
@@ -20,7 +22,8 @@ import { DEFAULT_MATURITY } from '../../state/account';
 import ImportDialog from '../dialogs/ImportDialog';
 import { Item } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setMessage } from '../../state/ui';
+import { setMessage, setUiState } from '../../state/ui';
+import { getNextDarkMode } from '../../theme';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -123,6 +126,12 @@ function SettingsPage() {
   const items = useItems();
   const vault = useVault();
 
+  const darkMode = useAppSelector(state => state.ui.darkMode);
+  const handleToggleDarkMode = useCallback(
+    () => dispatch(setUiState({ darkMode: getNextDarkMode(darkMode) })),
+    [darkMode, dispatch],
+  );
+
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
   const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
   const [maturity] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
@@ -156,6 +165,9 @@ function SettingsPage() {
     [dispatch, vault],
   );
 
+  const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode';
+  const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel;
+
   return (
     <BasePage>
       <Container maxWidth="xl" className={classes.container}>
@@ -171,6 +183,23 @@ function SettingsPage() {
       <Divider />
 
       <List disablePadding>
+        <SettingsItem
+          id="import"
+          onClick={handleToggleDarkMode}
+          title="Use dark mode"
+          value={(
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  indeterminate={darkMode === null}
+                  checked={darkMode || false}
+                />
+              )}
+              label={darkModeLabel}
+              labelPlacement="start"
+            />
+          )}
+        />
         <SettingsItem
           icon={EditIcon}
           id="prayer-goal"

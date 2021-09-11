@@ -44,6 +44,15 @@ export function getDefaultDarkMode(): boolean {
   return false;
 }
 
+export function getNextDarkMode(darkMode: boolean | null) {
+  if (darkMode === null) {
+    return true;
+  } else if (darkMode === false) {
+    return null;
+  }
+  return false;
+}
+
 const getTheme = (darkMode?: boolean | null) => {
   const calculatedDarkMode = darkMode === null ? getDefaultDarkMode() : darkMode;
   return calculatedDarkMode ? dark : light;
