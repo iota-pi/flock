@@ -74,7 +74,7 @@ function AboutDrawer({
         to create and record a strong password and your account ID.
       </Typography>
       <Typography paragraph>
-        Similarly, leaving your laptop unattended and unlocked while logged in to Flock
+        Similarly, leaving your device unattended and unlocked while logged in to Flock
         would be unwise.
       </Typography>
 

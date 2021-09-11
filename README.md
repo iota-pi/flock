@@ -24,7 +24,7 @@ As such, the security of Flock can only be as good as your own online security.
 We **strongly** recommend using a password manager to create and record a
 strong password and your account ID.
 
-Similarly, leaving your laptop unattended and unlocked while logged in to Flock
+Similarly, leaving your device unattended and unlocked while logged in to Flock
 would be unwise.
 
 ## Disclaimer
