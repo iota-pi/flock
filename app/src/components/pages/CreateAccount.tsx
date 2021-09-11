@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
@@ -168,6 +168,8 @@ function CreateAccountPage() {
   const dispatch = useAppDispatch();
   const history = useHistory();
 
+  const account = useMemo(() => getAccountId(), []);
+
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -189,7 +191,6 @@ function CreateAccountPage() {
     async () => {
       setWaiting(true);
       try {
-        const account = getAccountId();
         const vault = await Vault.create(account, password, dispatch);
         const success = await api.createAccount({ account, authToken: vault.authToken });
         if (success) {
@@ -203,7 +204,7 @@ function CreateAccountPage() {
       }
       setWaiting(false);
     },
-    [dispatch, history, password],
+    [account, dispatch, history, password],
   );
   const handleChangePassword = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
@@ -277,7 +278,6 @@ function CreateAccountPage() {
           </Typography>
 
           <Typography paragraph>
-            When you create an account you will be given an account ID.
             Please ensure that you
             {' '}
             <b>store your account ID and password</b>
@@ -289,6 +289,17 @@ function CreateAccountPage() {
             Because your data is client-side encrypted, it will not be possible to recover your data
             if you forget your account ID or password.
           </Typography>
+
+          <TextField
+            autoComplete="username"
+            className={classes.textField}
+            disabled
+            fullWidth
+            id="username"
+            label="Account ID"
+            value={account}
+            variant="standard"
+          />
 
           <TextField
             autoComplete="password"
