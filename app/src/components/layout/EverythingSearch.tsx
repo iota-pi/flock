@@ -6,7 +6,7 @@ import {
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { useHistory } from 'react-router-dom';
-import { Autocomplete, Chip, Divider, InputAdornment, TextField } from '@material-ui/core';
+import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextField, ThemeProvider } from '@material-ui/core';
 import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
@@ -20,7 +20,8 @@ import { getIcon, SearchIcon } from '../Icons';
 import { useItems, useTags } from '../../state/selectors';
 import { getTagPage } from '../pages';
 import { replaceActive } from '../../state/ui';
-import { useAppDispatch } from '../../store';
+import { useAppDispatch, useAppSelector } from '../../store';
+import getTheme from '../../theme';
 
 const useStyles = makeStyles(theme => ({
   optionHolder: {
@@ -38,6 +39,9 @@ const useStyles = makeStyles(theme => ({
     paddingRight: theme.spacing(2),
   },
   whiteTextField: {
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: 'rgba(255, 255, 255, 0.45)',
+    },
     '& .Mui-focused.MuiInputLabel-root': {
       color: theme.palette.primary.contrastText,
     },
@@ -126,6 +130,19 @@ function OptionComponent({
         </div>
       </div>
     </>
+  );
+}
+
+function ThemedPaper({ children, ...props }: PaperProps) {
+  const darkMode = useAppSelector(state => state.ui.darkMode);
+  const theme = useMemo(() => getTheme(darkMode), [darkMode]);
+
+  return (
+    <ThemeProvider theme={theme}>
+      <Paper {...props}>
+        {children}
+      </Paper>
+    </ThemeProvider>
   );
 }
 
@@ -270,6 +287,7 @@ function EverythingSearch({
         noOptionsText={noItemsText || 'No items found'}
         onChange={handleChange}
         options={options}
+        PaperComponent={ThemedPaper}
         renderInput={params => (
           <TextField
             {...params}

@@ -5,6 +5,7 @@ import {
   AppBar as MuiAppBar,
   IconButton,
   Theme,
+  ThemeProvider,
   Toolbar,
   Tooltip,
   Typography,
@@ -15,6 +16,7 @@ import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
 import { clearVault } from '../../state/vault';
 import { useAppDispatch } from '../../store';
+import { dark as darkTheme } from '../../theme';
 import EverythingSearch from './EverythingSearch';
 import { getPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
@@ -119,12 +121,18 @@ function AppBar({
         </div>
 
         <div className={classes.searchField}>
-          <EverythingSearch label={tag || 'Search'} />
+          <ThemeProvider theme={darkTheme}>
+            <EverythingSearch label={tag || 'Search'} />
+          </ThemeProvider>
         </div>
 
         <div className={classes.signoutButton}>
           <Tooltip title="Sign out">
-            <IconButton onClick={handleClickSignOut} size="large">
+            <IconButton
+              color="inherit"
+              onClick={handleClickSignOut}
+              size="large"
+            >
               <SignOutIcon />
             </IconButton>
           </Tooltip>
