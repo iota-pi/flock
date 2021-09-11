@@ -93,6 +93,7 @@ function CollapsibleSection({
         expanded: classes.accordionExpanded,
       }}
       data-cy={`section-${id}`}
+      elevation={3}
       expanded={expanded}
       onChange={handleChange}
       square

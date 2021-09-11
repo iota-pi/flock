@@ -14,6 +14,7 @@ const useStyles = makeStyles(theme => ({
     flexShrink: 0,
   },
   stacked: {},
+  docked: {},
   drawerWidth: {
     width: '40vw',
     '&$stacked': {
@@ -41,9 +42,18 @@ const useStyles = makeStyles(theme => ({
       },
     },
   },
-  defaultBackground: {
-    backgroundColor: theme.palette.background.default,
+  drawerPaper: {
+    backgroundColor: (
+      theme.palette.mode === 'dark'
+        ? theme.palette.background.default
+        : theme.palette.background.paper
+    ),
     backgroundImage: 'unset',
+
+    // Docked (i.e. permanent) drawer should sit just below app bar
+    '$docked &': {
+      zIndex: theme.zIndex.appBar - 1,
+    },
   },
   layout: {
     display: 'flex',
@@ -114,7 +124,7 @@ function BaseDrawer({
   const commonClasses = [classes.drawerWidth];
   if (stacked) commonClasses.push(classes.stacked);
   const rootClasses = [classes.root, ...commonClasses];
-  const paperClasses = [classes.defaultBackground, ...commonClasses];
+  const paperClasses = [classes.drawerPaper, ...commonClasses];
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
@@ -160,18 +170,22 @@ function BaseDrawer({
 
   return (
     <SwipeableDrawer
-      className={rootClasses.join(' ')}
-      variant={permanentDrawer ? 'permanent' : 'temporary'}
-      SlideProps={{ onExited }}
-      open={open}
-      onClose={onClose}
-      onOpen={() => {}}
-      disableSwipeToOpen
       anchor="right"
       classes={{
+        root: rootClasses.join(' '),
         paper: paperClasses.join(' '),
+        docked: classes.docked,
       }}
+      disableSwipeToOpen
+      onClose={onClose}
+      onOpen={() => {}}
       onKeyDown={handleKeyDown}
+      open={open}
+      sx={{
+        zIndex: theme => (permanentDrawer ? theme.zIndex.appBar - 1 : undefined),
+      }}
+      SlideProps={{ onExited }}
+      variant={permanentDrawer ? 'permanent' : 'temporary'}
     >
       <UnmountWatcher onUnmount={onUnmount} />
 
