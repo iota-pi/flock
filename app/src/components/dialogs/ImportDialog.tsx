@@ -132,7 +132,7 @@ function ImportDialog({
         <Typography paragraph>
           <span className={classes.emphasis}>Important!</span>
           {' '}
-          Importing this backup will overwrite all changes you have made since creating it.
+          Importing a backup will overwrite all changes you have made since creating it.
           It will not remove any items you have created since the backup.
           Imports are permanent and cannot be undone.
           We strongly recommend creating another backup before continuing with the import.
