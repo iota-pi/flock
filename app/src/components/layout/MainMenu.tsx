@@ -54,7 +54,7 @@ const useStyles = makeStyles(theme => ({
     ),
     backgroundColor: (
       theme.palette.mode === 'dark'
-        ? `${alpha('#fff', 0.05)} !important`
+        ? `${alpha('#fff', 0.08)} !important`
         : `${alpha(theme.palette.primary.main, 0.08)} !important`
     ),
   },
