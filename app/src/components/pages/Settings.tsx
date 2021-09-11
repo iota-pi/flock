@@ -184,7 +184,7 @@ function SettingsPage() {
 
       <List disablePadding>
         <SettingsItem
-          id="import"
+          id="darkmode"
           onClick={handleToggleDarkMode}
           title="Use dark mode"
           value={(
