@@ -133,6 +133,12 @@ function scorePassword(password: string): zxcvbn.ZXCVBNResult {
     'sheep',
     'field',
     'pasture',
+    'among',
+    'oversight',
+    'overseer',
+    'jesus',
+    'correcthorse',
+    'batterystaple',
   ];
   const mainScore = zxcvbn(password, customDomainWords);
   const harshScore = zxcvbn(password.substr(3), customDomainWords);
@@ -306,7 +312,8 @@ function CreateAccountPage() {
             onChange={handleChangePassword}
             type={showPassword ? 'text' : 'password'}
             value={password}
-            variant="standard" />
+            variant="standard"
+          />
 
           <TextField
             autoComplete="confirm-password"
@@ -329,7 +336,8 @@ function CreateAccountPage() {
             label="Confirm Password"
             onChange={handleChangePasswordConfirm}
             type={showPassword ? 'text' : 'password'}
-            variant="standard" />
+            variant="standard"
+          />
 
           <div className={classes.meterHolder}>
             <Typography>
