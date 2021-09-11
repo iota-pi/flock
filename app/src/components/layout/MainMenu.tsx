@@ -47,8 +47,16 @@ const useStyles = makeStyles(theme => ({
     height: theme.spacing(6),
   },
   primary: {
-    color: theme.palette.primary.light,
-    backgroundColor: `${alpha('#fff', 0.05)} !important`,
+    color: (
+      theme.palette.mode === 'dark'
+        ? theme.palette.primary.light
+        : theme.palette.primary.main
+    ),
+    backgroundColor: (
+      theme.palette.mode === 'dark'
+        ? `${alpha('#fff', 0.05)} !important`
+        : `${alpha(theme.palette.primary.main, 0.08)} !important`
+    ),
   },
   menuItemIcon: {
     color: 'inherit',
