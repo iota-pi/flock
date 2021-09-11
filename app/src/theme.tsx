@@ -32,11 +32,21 @@ export const light = createTheme({
     },
     background: {
       default: '#fafafa',
-      // paper: '#202020',
     },
   },
 });
 
-const getTheme = (darkMode?: boolean) => (darkMode ? dark : light);
+export function getDefaultDarkMode(): boolean {
+  if (window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  return false;
+}
+
+const getTheme = (darkMode?: boolean | null) => {
+  const calculatedDarkMode = darkMode === null ? getDefaultDarkMode() : darkMode;
+  return calculatedDarkMode ? dark : light;
+};
 
 export default getTheme;

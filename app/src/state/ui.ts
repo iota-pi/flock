@@ -26,7 +26,7 @@ export interface BaseUIMessage {
 }
 export interface UIMessage extends Required<BaseUIMessage> {}
 export interface UIData {
-  darkMode: boolean,
+  darkMode: boolean | null,
   drawers: DrawerData[],
   message: UIMessage | null,
   options: UiOptions,
@@ -37,7 +37,7 @@ export interface UIState {
   ui: UIData,
 }
 
-const initialDarkMode: UIData['darkMode'] = false;
+const initialDarkMode: UIData['darkMode'] = null;
 const initialDrawers: UIData['drawers'] = [];
 const initialMessage: UIData['message'] = null;
 const initialFlags: UIData['options'] = {
