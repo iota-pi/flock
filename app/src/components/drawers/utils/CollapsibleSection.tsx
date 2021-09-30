@@ -37,6 +37,7 @@ const useStyles = makeStyles(theme => ({
   },
   summaryExpanded: {},
   summaryContent: {
+    alignItems: 'center',
     '&$summaryExpanded': {
       margin: theme.spacing(1.5, 0),
     },
@@ -108,9 +109,7 @@ function CollapsibleSection({
         expandIcon={<ExpandMoreIcon />}
       >
         {Icon && (
-          <div className={classes.icon}>
-            <Icon />
-          </div>
+          <Icon className={classes.icon} />
         )}
 
         <Typography>{title}</Typography>
