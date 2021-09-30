@@ -64,7 +64,7 @@ function GroupDisplay({
     [itemId, vault],
   );
   const handleClickGroup = useCallback(
-    (group: GroupItem) => () => {
+    (group: GroupItem) => {
       dispatch(pushActive({ item: group.id }));
     },
     [dispatch],

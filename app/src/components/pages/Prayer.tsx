@@ -87,12 +87,12 @@ function PrayerPage() {
     [isPrayedForToday, vault],
   );
   const handleClickPrayedFor = useCallback(
-    (item: Item) => () => recordPrayerFor(item, true),
+    (item: Item) => recordPrayerFor(item, true),
     [recordPrayerFor],
   );
 
   const handleClick = useCallback(
-    (item: Item) => () => {
+    (item: Item) => {
       const index = prayerSchedule.indexOf(item);
       const endIndex = index < goal ? goal : prayerSchedule.length;
       const next = prayerSchedule.slice(index + 1, endIndex).map(i => i.id);
@@ -152,7 +152,7 @@ function PrayerPage() {
         checkboxes
         checkboxSide="right"
         getChecked={isPrayedForToday}
-        getFaded={isPrayedForToday}
+        getForceFade={isPrayedForToday}
         items={todaysSchedule}
         maxTags={maxTags}
         onClick={handleClick}
@@ -175,7 +175,7 @@ function PrayerPage() {
             checkboxes
             checkboxSide="right"
             getChecked={isPrayedForToday}
-            getFaded={isPrayedForToday}
+            getForceFade={isPrayedForToday}
             items={upNextSchedule}
             maxTags={maxTags}
             onClick={handleClick}

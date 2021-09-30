@@ -33,7 +33,7 @@ function InteractionsPage() {
   const suggestions = useMemo(() => getInteractionSuggestions(people), [people]);
 
   const handleClick = useCallback(
-    (item: PersonItem) => () => {
+    (item: PersonItem) => {
       dispatch(replaceActive({ item: item.id }));
     },
     [dispatch],

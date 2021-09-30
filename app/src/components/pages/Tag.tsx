@@ -19,7 +19,7 @@ function TagPage() {
   );
 
   const handleClickItem = useCallback(
-    (item: Item) => () => {
+    (item: Item) => {
       dispatch(replaceActive({ item: item.id }));
     },
     [dispatch],

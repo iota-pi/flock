@@ -66,21 +66,14 @@ const useStyles = makeStyles(theme => ({
 
 export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
+  checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
-  className?: string,
   dividers?: boolean,
   fadeArchived?: boolean,
-  getChecked?: (item: T) => boolean,
-  getDescription?: (item: T) => string,
-  getFaded?: (item: T) => boolean,
-  getHighlighted?: (item: T) => boolean,
-  items: T[],
   linkTags?: boolean,
   maxTags?: number,
-  noItemsHint?: string,
-  noItemsText?: string,
-  onCheck?: (item: T) => () => void,
-  onClick?: (item: T) => () => void,
+  onCheck?: (item: T) => void,
+  onClick?: (item: T) => void,
   onClickAction?: (item: T) => void,
   showIcons?: boolean,
   showTags?: boolean,
@@ -88,14 +81,163 @@ export interface BaseProps<T extends Item> {
 
 export interface PropsNoCheckboxes<T extends Item> extends BaseProps<T> {
   checkboxes?: false,
+  checkboxSide?: undefined,
+  getChecked?: undefined,
+  onCheck?: undefined,
 }
-export interface PropsWithCheckboxes<T extends Item> extends BaseProps<T> {
-  checkboxes: true,
-  checkboxSide?: 'left' | 'right',
-  getChecked: Exclude<BaseProps<T>['getChecked'], undefined>,
-  onCheck: Exclude<BaseProps<T>['onCheck'], undefined>,
+export type Props<T extends Item> = BaseProps<T> | PropsNoCheckboxes<T>;
+export interface SingleItemProps<T extends Item> {
+  checked?: boolean,
+  description?: string,
+  faded?: boolean,
+  highlighted?: boolean,
+  item: T,
 }
-export type Props<T extends Item> = PropsNoCheckboxes<T> | PropsWithCheckboxes<T>;
+export interface MultipleItemsProps<T extends Item> {
+  className?: string,
+  getChecked?: (item: T) => boolean,
+  getDescription?: (item: T) => string,
+  getForceFade?: (item: T) => boolean,
+  getHighlighted?: (item: T) => boolean,
+  items: T[],
+  noItemsHint?: string,
+  noItemsText?: string,
+}
+
+export function ItemListItem<T extends Item>({
+  actionIcon,
+  checkboxes,
+  checkboxSide,
+  checked,
+  description,
+  dividers,
+  faded,
+  highlighted,
+  item,
+  linkTags = true,
+  maxTags,
+  onClick,
+  onClickAction,
+  onCheck,
+  showIcons = false,
+  showTags = true,
+}: Props<T> & SingleItemProps<T>) {
+  const classes = useStyles();
+
+  const handleClick = useCallback(
+    () => onClick?.(item),
+    [item, onClick],
+  );
+  const handleClickAction = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation();
+      if (onClickAction) {
+        return onClickAction(item);
+      } else if (onClick) {
+        return onClick(item);
+      }
+      return undefined;
+    },
+    [item, onClick, onClickAction],
+  );
+  const handleCheck = useCallback(
+    (event: MouseEvent) => {
+      if (onCheck) {
+        event.stopPropagation();
+        onCheck(item);
+      }
+    },
+    [item, onCheck],
+  );
+
+  const checkbox = checkboxes && onCheck && (
+    <ListItemIcon
+      className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
+    >
+      <Checkbox
+        data-cy="list-item-checkbox"
+        edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
+        checked={checked}
+        tabIndex={-1}
+        onClick={handleCheck}
+        inputProps={{ 'aria-labelledby': `${item.id}-text` }}
+      />
+    </ListItemIcon>
+  );
+
+  return (
+    <Fragment key={item.id}>
+      {dividers && <Divider />}
+
+      <ListItem
+        button
+        data-cy="list-item"
+        disabled={!onClick && !onCheck && !onClickAction}
+        selected={highlighted || false}
+        onClick={onClick ? handleClick : undefined}
+        classes={{
+          disabled: classes.disabledOverride,
+        }}
+        className={classes.consistantMinHeight}
+      >
+        {checkboxSide !== 'right' && checkbox}
+
+        {showIcons && (
+          <ListItemIcon
+            className={[
+              classes.couldFade,
+              faded ? classes.faded : undefined,
+            ].join(' ')}
+          >
+            {getIcon(item.type)}
+          </ListItemIcon>
+        )}
+
+        <div className={classes.listItemMainContent}>
+          <Box display="flex" flexDirection="column" justifyContent="center">
+            <ListItemText
+              className={([
+                classes.itemText,
+                classes.couldFade,
+                item.tags.length > 0 ? classes.itemTextWithTags : undefined,
+                faded ? classes.faded : undefined,
+              ].join(' '))}
+              id={`${item.id}-text`}
+              primary={getItemName(item)}
+              secondary={description || undefined}
+            />
+          </Box>
+
+          <div className={classes.spacer} />
+
+          {showTags && (
+            <TagDisplay
+              tags={item.tags}
+              linked={linkTags}
+              max={maxTags}
+            />
+          )}
+        </div>
+
+        {actionIcon && (
+          <div className={classes.actionButton}>
+            <IconButton
+              className={!onClickAction ? classes.noHover : undefined}
+              data-cy="list-item-action"
+              disableRipple={!onClickAction}
+              onClick={handleClickAction}
+              size="large"
+            >
+              {actionIcon}
+            </IconButton>
+          </div>
+        )}
+
+        {checkboxSide === 'right' && checkbox}
+      </ListItem>
+    </Fragment>
+  );
+}
 
 
 function ItemList<T extends Item>({
@@ -107,7 +249,7 @@ function ItemList<T extends Item>({
   fadeArchived = true,
   getChecked,
   getDescription,
-  getFaded,
+  getForceFade,
   getHighlighted,
   items,
   linkTags = true,
@@ -119,32 +261,7 @@ function ItemList<T extends Item>({
   onCheck,
   showIcons = false,
   showTags = true,
-}: Props<T>) {
-  const classes = useStyles();
-
-  const handleClickAction = useCallback(
-    (item: T) => (event: MouseEvent) => {
-      event.stopPropagation();
-      if (onClickAction) {
-        return onClickAction(item);
-      } else if (onClick) {
-        return onClick(item)();
-      }
-      return undefined;
-    },
-    [onClick, onClickAction],
-  );
-
-  const handleCheck = useCallback(
-    (item: T) => (event: MouseEvent) => {
-      if (onCheck) {
-        event.stopPropagation();
-        onCheck(item)();
-      }
-    },
-    [onCheck],
-  );
-
+}: Props<T> & MultipleItemsProps<T>) {
   const getClippedDescription = useCallback(
     (item: T) => {
       const base = getDescription ? getDescription(item) : item.description;
@@ -158,112 +275,44 @@ function ItemList<T extends Item>({
     [getDescription],
   );
 
-  const getItemFaded = useCallback(
+  const getFaded = useCallback(
     (item: T) => {
       if (item.archived && fadeArchived) {
         return true;
       }
-      if (getFaded && getFaded(item)) {
+      if (getForceFade && getForceFade(item)) {
         return true;
       }
       return false;
     },
-    [fadeArchived, getFaded],
+    [fadeArchived, getForceFade],
   );
 
   return (
     <List className={className}>
       {dividers && items.length === 0 && <Divider />}
 
-      {items.map(item => {
-        const checkbox = checkboxes && getChecked && onCheck && (
-          <ListItemIcon
-            className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
-          >
-            <Checkbox
-              data-cy="list-item-checkbox"
-              edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
-              checked={getChecked(item)}
-              tabIndex={-1}
-              onClick={handleCheck(item)}
-              inputProps={{ 'aria-labelledby': `${item.id}-text` }}
-            />
-          </ListItemIcon>
-        );
-
-        return (
-          <Fragment key={item.id}>
-            {dividers && <Divider />}
-
-            <ListItem
-              button
-              data-cy="list-item"
-              disabled={!onClick && !onCheck && !onClickAction}
-              selected={getHighlighted ? getHighlighted(item) : false}
-              onClick={onClick ? onClick(item) : undefined}
-              classes={{
-                disabled: classes.disabledOverride,
-              }}
-              className={classes.consistantMinHeight}
-            >
-              {checkboxSide !== 'right' && checkbox}
-
-              {showIcons && (
-                <ListItemIcon
-                  className={[
-                    classes.couldFade,
-                    getItemFaded(item) ? classes.faded : undefined,
-                  ].join(' ')}
-                >
-                  {getIcon(item.type)}
-                </ListItemIcon>
-              )}
-
-              <div className={classes.listItemMainContent}>
-                <Box display="flex" flexDirection="column" justifyContent="center">
-                  <ListItemText
-                    className={([
-                      classes.itemText,
-                      classes.couldFade,
-                      item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                      getItemFaded(item) ? classes.faded : undefined,
-                    ].join(' '))}
-                    id={`${item.id}-text`}
-                    primary={getItemName(item)}
-                    secondary={getClippedDescription(item) || undefined}
-                  />
-                </Box>
-
-                <div className={classes.spacer} />
-
-                {showTags && (
-                  <TagDisplay
-                    tags={item.tags}
-                    linked={linkTags}
-                    max={maxTags}
-                  />
-                )}
-              </div>
-
-              {actionIcon && (
-                <div className={classes.actionButton}>
-                  <IconButton
-                    className={!onClickAction ? classes.noHover : undefined}
-                    data-cy="list-item-action"
-                    disableRipple={!onClickAction}
-                    onClick={handleClickAction(item)}
-                    size="large"
-                  >
-                    {actionIcon}
-                  </IconButton>
-                </div>
-              )}
-
-              {checkboxSide === 'right' && checkbox}
-            </ListItem>
-          </Fragment>
-        );
-      })}
+      {items.map(item => (
+        <ItemListItem
+          actionIcon={actionIcon}
+          checkboxes={checkboxes}
+          checkboxSide={checkboxSide}
+          checked={getChecked?.(item)}
+          description={getClippedDescription(item)}
+          faded={getFaded?.(item)}
+          fadeArchived={fadeArchived}
+          highlighted={getHighlighted?.(item)}
+          item={item}
+          key={item.id}
+          linkTags={linkTags}
+          maxTags={maxTags}
+          onClick={onClick}
+          onClickAction={onClickAction}
+          onCheck={onCheck}
+          showIcons={showIcons}
+          showTags={showTags}
+        />
+      ))}
 
       {items.length === 0 && (
         <ListItem>

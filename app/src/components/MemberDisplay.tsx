@@ -40,7 +40,7 @@ function MemberDisplay({
   );
 
   const handleClickItem = useCallback(
-    (item: PersonItem) => () => {
+    (item: PersonItem) => {
       dispatch(pushActive({ item: item.id }));
     },
     [dispatch],

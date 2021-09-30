@@ -27,7 +27,7 @@ function ItemPage<T extends Item>({
   const items = useMemo(() => rawItems.slice().sort(compareItems), [rawItems]);
 
   const handleClickItem = useCallback(
-    (item: T) => () => {
+    (item: T) => {
       dispatch(replaceActive({ item: item.id }));
     },
     [dispatch],
@@ -39,7 +39,7 @@ function ItemPage<T extends Item>({
     [dispatch, itemType],
   );
   const handleCheck = useCallback(
-    (item: T) => () => {
+    (item: T) => {
       const index = selected.indexOf(item.id);
       let newSelected: typeof selected;
       if (index > -1) {
