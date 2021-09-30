@@ -45,7 +45,6 @@ class VaultAPI {
   }
 
   private finishRequest(error?: string) {
-    console.warn('finishRequest', this.dispatch);
     if (this.dispatch) {
       this.dispatch(finishRequest());
       if (error) {
