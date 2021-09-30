@@ -1,6 +1,7 @@
 import { Fragment, MouseEvent, ReactNode, useCallback } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
+  Box,
   Checkbox,
   Divider,
   IconButton,
@@ -219,17 +220,19 @@ function ItemList<T extends Item>({
               )}
 
               <div className={classes.listItemMainContent}>
-                <ListItemText
-                  primary={getItemName(item)}
-                  secondary={getClippedDescription(item)}
-                  className={([
-                    classes.itemText,
-                    classes.couldFade,
-                    item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                    getItemFaded(item) ? classes.faded : undefined,
-                  ].join(' '))}
-                  id={`${item.id}-text`}
-                />
+                <Box display="flex" flexDirection="column" justifyContent="center">
+                  <ListItemText
+                    className={([
+                      classes.itemText,
+                      classes.couldFade,
+                      item.tags.length > 0 ? classes.itemTextWithTags : undefined,
+                      getItemFaded(item) ? classes.faded : undefined,
+                    ].join(' '))}
+                    id={`${item.id}-text`}
+                    primary={getItemName(item)}
+                    secondary={getClippedDescription(item) || undefined}
+                  />
+                </Box>
 
                 <div className={classes.spacer} />
 
