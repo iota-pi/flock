@@ -11,7 +11,7 @@ resource "aws_lambda_function" "vault" {
 
   handler     = "lambda.handler"
   runtime     = "nodejs14.x"
-  memory_size = 256
+  memory_size = 512
   timeout     = 5
 
   s3_bucket = var.code_bucket
