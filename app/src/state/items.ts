@@ -351,7 +351,7 @@ export function compareItems(a: Item, b: Item) {
   } else if (a.type !== b.type) {
     return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type);
   } else if (a.type === 'person' || b.type === 'person') {
-    return comparePeopleNames(a as PersonItem, b as PersonItem);
+    return comparePeopleNames(a as PersonItem, b as PersonItem) || compareIds(a, b);
   }
   return compareNames(a, b) || compareIds(a, b);
 }
