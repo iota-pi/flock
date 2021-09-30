@@ -19,17 +19,14 @@ export function getLastPrayedFor(
 }
 
 export function getPrayerSchedule(items: Item[]) {
-  const activeItems = filterArchived(items);
-  const withNextSchedule: [Item, number, boolean][] = activeItems.map(
+  const activeItems = filterArchived(items).sort(compareItems);
+  const withNextSchedule: [Item, number][] = activeItems.map(
     item => [
       item,
       getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
-      isSameDay(new Date(), new Date(item.prayedFor[item.prayedFor.length - 1])),
     ],
   );
-  withNextSchedule.sort(
-    (a, b) => (+b[2] - +a[2]) || (a[1] - b[1]) || compareItems(a[0], b[0]),
-  );
+  withNextSchedule.sort((a, b) => a[1] - b[1]);
   const itemsBySchedule = withNextSchedule.map(x => x[0]);
   return itemsBySchedule;
 }
