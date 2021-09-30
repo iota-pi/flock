@@ -49,6 +49,7 @@ import CollapsibleSection from './utils/CollapsibleSection';
 const useStyles = makeStyles(theme => ({
   alert: {
     transition: theme.transitions.create('all'),
+    marginTop: theme.spacing(1),
   },
   emphasis: {
     fontWeight: 500,
@@ -280,7 +281,8 @@ function ItemDrawer({
               onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
               required
               value={firstName}
-              variant="standard" />
+              variant="standard"
+            />
           </Grid>
 
           <Grid item xs={6}>
@@ -290,7 +292,8 @@ function ItemDrawer({
               label="Last Name"
               onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
               value={lastName}
-              variant="standard" />
+              variant="standard"
+            />
           </Grid>
         </>
       ) : (
@@ -306,7 +309,8 @@ function ItemDrawer({
             }
             required
             value={firstName}
-            variant="standard" />
+            variant="standard"
+          />
         </Grid>
       )
     ),
@@ -324,7 +328,8 @@ function ItemDrawer({
             label="Email"
             onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
             value={email}
-            variant="standard" />
+            variant="standard"
+          />
         </Grid>
       ) : null
     ),
@@ -342,7 +347,8 @@ function ItemDrawer({
             label="Phone"
             onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
             value={phone}
-            variant="standard" />
+            variant="standard"
+          />
         </Grid>
       ) : null
     ),
@@ -359,7 +365,8 @@ function ItemDrawer({
           label="Description"
           onChange={event => handleChange({ description: getValue(event) })}
           value={item.description}
-          variant="standard" />
+          variant="standard"
+        />
       </Grid>
     ),
     [handleChange, item.description],
@@ -374,7 +381,8 @@ function ItemDrawer({
           multiline
           onChange={event => handleChange({ summary: getValue(event) })}
           value={item.summary}
-          variant="standard" />
+          variant="standard"
+        />
       </Grid>
     ),
     [handleChange, item.summary],
@@ -562,11 +570,11 @@ function ItemDrawer({
       stacked={stacked}
     >
       <Grid container spacing={2}>
-        <Collapse in={duplicates.length > 0}>
-          <Grid item xs={12}>
+        <Grid item xs={12} mt={-1}>
+          <Collapse in={duplicates.length > 0}>
             <DuplicateAlert item={item} count={duplicates.length} />
-          </Grid>
-        </Collapse>
+          </Collapse>
+        </Grid>
 
         {nameFields}
 
