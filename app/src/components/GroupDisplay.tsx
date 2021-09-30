@@ -4,7 +4,7 @@ import {
 } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareNames, GroupItem, ItemId } from '../state/items';
+import { compareItems, GroupItem, ItemId } from '../state/items';
 import { useItems, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
@@ -28,16 +28,20 @@ function GroupDisplay({
   editable = true,
   itemId,
 }: Props) {
-  const allGroups = useItems<GroupItem>('group').sort(compareNames);
+  const allGroups = useItems<GroupItem>('group').sort(compareItems);
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
 
-  const groups = useMemo(
+  const activeGroups = useMemo(
+    () => allGroups.filter(g => !g.archived),
+    [allGroups],
+  );
+  const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
     [allGroups, itemId],
   );
-  const groupIds = useMemo(() => groups.map(g => g.id), [groups]);
+  const groupIds = useMemo(() => currentGroups.map(g => g.id), [currentGroups]);
 
   const handleSelectGroup = useCallback(
     (group: GroupItem) => {
@@ -74,7 +78,7 @@ function GroupDisplay({
             dataCy="groups"
             noItemsText="No groups found"
             onSelect={handleSelectGroup}
-            items={allGroups}
+            items={activeGroups}
             label="Add to group"
             selectedIds={groupIds}
             showSelected={false}
@@ -86,7 +90,7 @@ function GroupDisplay({
         actionIcon={editable ? <DeleteIcon /> : undefined}
         className={classes.list}
         dividers
-        items={groups}
+        items={currentGroups}
         noItemsHint="Not in any groups"
         onClick={handleClickGroup}
         onClickAction={editable ? handleRemoveGroup : undefined}
