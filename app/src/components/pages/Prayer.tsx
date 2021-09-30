@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@material-ui/core';
-import { useItems, useMetadata, useVault } from '../../state/selectors';
-import { isSameDay } from '../../utils';
+import { useItemMap, useItems, useMetadata, useVault } from '../../state/selectors';
+import { isSameDay, useStringMemo } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
 import ItemList from '../ItemList';
 import { getBlankPrayerPoint, Item } from '../../state/items';
@@ -36,39 +36,37 @@ const useStyles = makeStyles(theme => ({
 }));
 
 
+function isPrayedForToday(item: Item): boolean {
+  return isSameDay(new Date(), new Date(getLastPrayedFor(item)));
+}
+
+
 function PrayerPage() {
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const items = useItems();
+  const itemMap = useItemMap();
   const vault = useVault();
 
   const [showGoalDialog, setShowGoalDialog] = useState(false);
 
-  const prayedForToday = useMemo(
-    () => (
-      items.filter(
-        item => isSameDay(new Date(), new Date(getLastPrayedFor(item))),
-      )
-    ),
+  const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
+  const rawPrayerSchedule = useMemo(() => getPrayerSchedule(items), [items]);
+  const memoisedPrayerSchedule = useStringMemo(rawPrayerSchedule);
+  const completed = useMemo(
+    () => items.filter(isPrayedForToday).length,
     [items],
   );
-  const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
-  const prayerSchedule = useMemo(() => getPrayerSchedule(items), [items]);
-  const completed = prayedForToday.length;
   const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
   const todaysSchedule = useMemo(
-    () => prayerSchedule.slice(0, goal),
-    [prayerSchedule, goal],
+    () => memoisedPrayerSchedule.slice(0, goal).map(i => itemMap[i]),
+    [goal, itemMap, memoisedPrayerSchedule],
   );
   const upNextSchedule = useMemo(
-    () => prayerSchedule.slice(goal),
-    [prayerSchedule, goal],
+    () => memoisedPrayerSchedule.slice(goal).map(i => itemMap[i]),
+    [goal, itemMap, memoisedPrayerSchedule],
   );
 
-  const isPrayedForToday = useCallback(
-    (item: Item) => prayedForToday.findIndex(i => i.id === item.id) >= 0,
-    [prayedForToday],
-  );
   const recordPrayerFor = useCallback(
     (item: Item, toggle = false) => {
       let prayedFor = item.prayedFor;
@@ -84,7 +82,7 @@ function PrayerPage() {
       const newItem: Item = { ...item, prayedFor };
       vault?.store(newItem);
     },
-    [isPrayedForToday, vault],
+    [vault],
   );
   const handleClickPrayedFor = useCallback(
     (item: Item) => recordPrayerFor(item, true),
@@ -93,12 +91,12 @@ function PrayerPage() {
 
   const handleClick = useCallback(
     (item: Item) => {
-      const index = prayerSchedule.indexOf(item);
-      const endIndex = index < goal ? goal : prayerSchedule.length;
-      const next = prayerSchedule.slice(index + 1, endIndex).map(i => i.id);
+      const index = memoisedPrayerSchedule.indexOf(item.id);
+      const endIndex = index < goal ? goal : memoisedPrayerSchedule.length;
+      const next = memoisedPrayerSchedule.slice(index + 1, endIndex);
       dispatch(replaceActive({ item: item.id, next, praying: true, report: true }));
     },
-    [dispatch, goal, prayerSchedule],
+    [dispatch, goal, memoisedPrayerSchedule],
   );
   const handleClickAdd = useCallback(
     () => dispatch(replaceActive({ newItem: getBlankPrayerPoint() })),

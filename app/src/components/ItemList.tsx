@@ -1,5 +1,4 @@
-import { Fragment, MouseEvent, ReactNode, useCallback } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Fragment, memo, MouseEvent, ReactNode, useCallback } from 'react';
 import {
   Box,
   Checkbox,
@@ -7,61 +6,34 @@ import {
   IconButton,
   List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
+  styled,
 } from '@material-ui/core';
 import { getItemName, Item } from '../state/items';
 import TagDisplay from './TagDisplay';
 import { getIcon } from './Icons';
 
-const useStyles = makeStyles(theme => ({
-  noHover: {
-    '&:hover': {
-      backgroundColor: 'transparent',
-    },
-  },
-  consistantMinHeight: {
-    minHeight: 72,
-  },
-  disabledOverride: {
+const FADED_OPACITY = 0.65;
+
+const StyledListItem = styled(ListItemButton)({
+  minHeight: 72,
+  '&.Mui-disabled': {
     opacity: '1 !important',
   },
-  couldFade: {
-    transition: theme.transitions.create('opacity'),
-  },
-  faded: {
-    opacity: 0.65,
-  },
-  itemText: {
-    flexGrow: 0,
-    paddingRight: theme.spacing(2),
-  },
-  itemTextWithTags: {
-    maxWidth: '70%',
-
-    [theme.breakpoints.down('md')]: {
-      maxWidth: '60%',
-    },
-  },
-  rightCheckbox: {
-    justifyContent: 'flex-end',
-    minWidth: theme.spacing(5),
-  },
-  spacer: {
-    flexGrow: 1,
-  },
-  actionButton: {
-    marginLeft: theme.spacing(2),
-  },
-  listItemMainContent: {
-    display: 'flex',
-    flexDirection: 'row',
-    flexGrow: 1,
-
-    [theme.breakpoints.down('sm')]: {
-      flexDirection: 'column',
-    },
-  },
+});
+const StyledListItemText = styled(ListItemText)(({ theme }) => ({
+  flexGrow: 0,
+  paddingRight: theme.spacing(2),
+  transition: theme.transitions.create('opacity'),
+}));
+const StyledListItemIcon = styled(ListItemIcon)(({ theme }) => ({
+  transition: theme.transitions.create('opacity'),
+}));
+const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
+  justifyContent: 'flex-end',
+  minWidth: theme.spacing(5),
 }));
 
 export interface BaseProps<T extends Item> {
@@ -69,7 +41,6 @@ export interface BaseProps<T extends Item> {
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
   dividers?: boolean,
-  fadeArchived?: boolean,
   linkTags?: boolean,
   maxTags?: number,
   onCheck?: (item: T) => void,
@@ -78,23 +49,16 @@ export interface BaseProps<T extends Item> {
   showIcons?: boolean,
   showTags?: boolean,
 }
-
-export interface PropsNoCheckboxes<T extends Item> extends BaseProps<T> {
-  checkboxes?: false,
-  checkboxSide?: undefined,
-  getChecked?: undefined,
-  onCheck?: undefined,
-}
-export type Props<T extends Item> = BaseProps<T> | PropsNoCheckboxes<T>;
-export interface SingleItemProps<T extends Item> {
+export interface SingleItemProps<T extends Item> extends BaseProps<T> {
   checked?: boolean,
   description?: string,
   faded?: boolean,
   highlighted?: boolean,
   item: T,
 }
-export interface MultipleItemsProps<T extends Item> {
+export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
+  fadeArchived?: boolean,
   getChecked?: (item: T) => boolean,
   getDescription?: (item: T) => string,
   getForceFade?: (item: T) => boolean,
@@ -121,9 +85,7 @@ export function ItemListItem<T extends Item>({
   onCheck,
   showIcons = false,
   showTags = true,
-}: Props<T> & SingleItemProps<T>) {
-  const classes = useStyles();
-
+}: SingleItemProps<T>) {
   const handleClick = useCallback(
     () => onClick?.(item),
     [item, onClick],
@@ -150,10 +112,9 @@ export function ItemListItem<T extends Item>({
     [item, onCheck],
   );
 
+  const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon;
   const checkbox = checkboxes && onCheck && (
-    <ListItemIcon
-      className={checkboxSide === 'right' ? classes.rightCheckbox : undefined}
-    >
+    <CheckboxHolder>
       <Checkbox
         data-cy="list-item-checkbox"
         edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
@@ -162,53 +123,49 @@ export function ItemListItem<T extends Item>({
         onClick={handleCheck}
         inputProps={{ 'aria-labelledby': `${item.id}-text` }}
       />
-    </ListItemIcon>
+    </CheckboxHolder>
   );
 
   return (
     <Fragment key={item.id}>
       {dividers && <Divider />}
 
-      <ListItem
-        button
+      <StyledListItem
         data-cy="list-item"
         disabled={!onClick && !onCheck && !onClickAction}
         selected={highlighted || false}
         onClick={onClick ? handleClick : undefined}
-        classes={{
-          disabled: classes.disabledOverride,
-        }}
-        className={classes.consistantMinHeight}
       >
         {checkboxSide !== 'right' && checkbox}
 
         {showIcons && (
-          <ListItemIcon
-            className={[
-              classes.couldFade,
-              faded ? classes.faded : undefined,
-            ].join(' ')}
+          <StyledListItemIcon
+            sx={{
+              opacity: faded ? FADED_OPACITY : undefined,
+            }}
           >
             {getIcon(item.type)}
-          </ListItemIcon>
+          </StyledListItemIcon>
         )}
 
-        <div className={classes.listItemMainContent}>
+        <Box
+          display="flex"
+          flexDirection={{ xs: 'column', md: 'row' }}
+          flexGrow={1}
+        >
           <Box display="flex" flexDirection="column" justifyContent="center">
-            <ListItemText
-              className={([
-                classes.itemText,
-                classes.couldFade,
-                item.tags.length > 0 ? classes.itemTextWithTags : undefined,
-                faded ? classes.faded : undefined,
-              ].join(' '))}
+            <StyledListItemText
               id={`${item.id}-text`}
               primary={getItemName(item)}
               secondary={description || undefined}
+              sx={{
+                maxWidth: { xs: '60%', lg: '70%' },
+                opacity: faded ? FADED_OPACITY : undefined,
+              }}
             />
           </Box>
 
-          <div className={classes.spacer} />
+          <Box flexGrow={1} />
 
           {showTags && (
             <TagDisplay
@@ -217,27 +174,32 @@ export function ItemListItem<T extends Item>({
               max={maxTags}
             />
           )}
-        </div>
+        </Box>
 
         {actionIcon && (
-          <div className={classes.actionButton}>
+          <Box ml={2}>
             <IconButton
-              className={!onClickAction ? classes.noHover : undefined}
               data-cy="list-item-action"
               disableRipple={!onClickAction}
               onClick={handleClickAction}
               size="large"
+              sx={{
+                '&:hover': !onClickAction ? {
+                  backgroundColor: 'transparent',
+                } : {},
+              }}
             >
               {actionIcon}
             </IconButton>
-          </div>
+          </Box>
         )}
 
         {checkboxSide === 'right' && checkbox}
-      </ListItem>
+      </StyledListItem>
     </Fragment>
   );
 }
+const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
 
 
 function ItemList<T extends Item>({
@@ -261,7 +223,7 @@ function ItemList<T extends Item>({
   onCheck,
   showIcons = false,
   showTags = true,
-}: Props<T> & MultipleItemsProps<T>) {
+}: MultipleItemsProps<T>) {
   const getClippedDescription = useCallback(
     (item: T) => {
       const base = getDescription ? getDescription(item) : item.description;
@@ -293,14 +255,13 @@ function ItemList<T extends Item>({
       {dividers && items.length === 0 && <Divider />}
 
       {items.map(item => (
-        <ItemListItem
+        <MemoItemListItem
           actionIcon={actionIcon}
           checkboxes={checkboxes}
           checkboxSide={checkboxSide}
           checked={getChecked?.(item)}
           description={getClippedDescription(item)}
           faded={getFaded?.(item)}
-          fadeArchived={fadeArchived}
           highlighted={getHighlighted?.(item)}
           item={item}
           key={item.id}

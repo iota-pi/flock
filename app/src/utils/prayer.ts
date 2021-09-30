@@ -18,7 +18,7 @@ export function getLastPrayedFor(
   return prayedFor[prayedFor.length - 1] || fallback;
 }
 
-export function getPrayerSchedule(items: Item[]) {
+export function getPrayerSchedule(items: Item[]): string[] {
   const activeItems = filterArchived(items).sort(compareItems);
   const withNextSchedule: [Item, number][] = activeItems.map(
     item => [
@@ -27,7 +27,7 @@ export function getPrayerSchedule(items: Item[]) {
     ],
   );
   withNextSchedule.sort((a, b) => a[1] - b[1]);
-  const itemsBySchedule = withNextSchedule.map(x => x[0]);
+  const itemsBySchedule = withNextSchedule.map(x => x[0].id);
   return itemsBySchedule;
 }
 

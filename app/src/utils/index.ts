@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 export const APP_NAME = 'Flock';
@@ -36,4 +36,18 @@ export function usePrevious<T>(state: T): T | undefined {
     ref.current = state;
   });
   return ref.current;
+}
+
+export function useStringMemo(state: string[]): string[] {
+  const prev = useRef<string[]>(state);
+  return useMemo(
+    () => {
+      const sep = '~~~';
+      if (!prev.current || prev.current.join(sep) !== state.join(sep)) {
+        prev.current = state;
+      }
+      return prev.current;
+    },
+    [prev, state],
+  );
 }
