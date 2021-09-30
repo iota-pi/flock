@@ -6,12 +6,26 @@ resource "aws_backup_plan" "dynamo_backup" {
   name = "flock_dynamo_backup_plan_${var.environment}"
 
   rule {
-    rule_name = "flock_dynamo_backup_plan_${var.environment}"
+    rule_name = "flock_dynamo_weekly_backup_plan_${var.environment}"
     target_vault_name = aws_backup_vault.backup_vault.name
-    // Backup at ~2am on Sunday morning each week
-    schedule = "cron(52 5 ? * FRI *)"
+    // Backup at ~2am (AEST) on Sunday morning each week
+    // NB: time in UTC
+    schedule = "cron(0 4 ? * SAT *)"
+
     lifecycle {
       delete_after = 30
+    }
+  }
+
+  rule {
+    rule_name = "flock_dynamo_daily_backup_plan_${var.environment}"
+    target_vault_name = aws_backup_vault.backup_vault.name
+    // Backup at ~4am (AEST) each day
+    // NB: time in UTC
+    schedule = "cron(0 6 ? * * *)"
+
+    lifecycle {
+      delete_after = 7
     }
   }
 }
