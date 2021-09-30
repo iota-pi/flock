@@ -12,6 +12,7 @@ import { EditIcon } from '../Icons';
 import NoteList from '../NoteList';
 import TagDisplay from '../TagDisplay';
 import { getInteractions } from '../../utils/interactions';
+import Markdown from '../Markdown';
 
 const useStyles = makeStyles(theme => ({
   heading: {
@@ -107,12 +108,17 @@ function ItemReport({
       </div>
 
       {item.summary && (
-        <Typography paragraph>
-          <span className={classes.subtleHeading}>
-            Notes
-          </span>
-          {item.summary}
-        </Typography>
+        <>
+          <Typography>
+            <span className={classes.subtleHeading}>
+              Notes
+            </span>
+          </Typography>
+
+          <Markdown>
+            {item.summary}
+          </Markdown>
+        </>
       )}
 
       <div className={classes.section}>
