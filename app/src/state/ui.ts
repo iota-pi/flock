@@ -56,6 +56,7 @@ export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
 export const START_REQUEST = 'START_REQUEST';
 export const FINISH_REQUEST = 'FINISH_REQUEST';
 export const SET_MESSAGE = 'SET_MESSAGE';
+export const TOGGLE_SELECTED = 'TOGGLE_SELECTED';
 
 export type SetUIState = Omit<Partial<UIData>, 'options' | 'requests'> & {
   options?: Partial<UIData['options']>,
@@ -90,6 +91,10 @@ export interface SetMessageAction extends Action {
   message: string,
   severity?: UIMessage['severity'],
 }
+export interface ToggleSelectedAction extends Action {
+  type: typeof TOGGLE_SELECTED,
+  item: ItemId,
+}
 
 export type UIAction = (
   SetUIAction
@@ -100,6 +105,7 @@ export type UIAction = (
   | StartRequestAction
   | FinishRequestAction
   | SetMessageAction
+  | ToggleSelectedAction
 );
 
 export function setUiState(data: SetUIState): SetUIAction {
@@ -162,6 +168,13 @@ export function setMessage(data: BaseUIMessage): SetMessageAction {
   return {
     type: SET_MESSAGE,
     ...data,
+  };
+}
+
+export function toggleSelected(item: ItemId): ToggleSelectedAction {
+  return {
+    type: TOGGLE_SELECTED,
+    item,
   };
 }
 
@@ -243,6 +256,13 @@ export function selectedReducer(
 ): UIData['selected'] {
   if (action.type === SET_UI_STATE && action.selected) {
     return action.selected;
+  }
+  if (action.type === TOGGLE_SELECTED) {
+    const index = state.indexOf(action.item);
+    if (index > -1) {
+      return [...state.slice(0, index), ...state.slice(index + 1)];
+    }
+    return [...state, action.item];
   }
   if (action.type === DELETE_ITEMS) {
     const deletedIds = action.items;

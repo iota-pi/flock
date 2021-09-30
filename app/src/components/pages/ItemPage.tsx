@@ -9,7 +9,7 @@ import {
 } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setUiState, replaceActive } from '../../state/ui';
+import { setUiState, replaceActive, toggleSelected } from '../../state/ui';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -39,17 +39,8 @@ function ItemPage<T extends Item>({
     [dispatch, itemType],
   );
   const handleCheck = useCallback(
-    (item: T) => {
-      const index = selected.indexOf(item.id);
-      let newSelected: typeof selected;
-      if (index > -1) {
-        newSelected = [...selected.slice(0, index), ...selected.slice(index + 1)];
-      } else {
-        newSelected = [...selected, item.id];
-      }
-      dispatch(setUiState({ selected: newSelected }));
-    },
-    [dispatch, selected],
+    (item: T) => dispatch(toggleSelected(item.id)),
+    [dispatch],
   );
   const allSelected = useMemo(
     () => selected.length === items.length && selected.length > 0,
