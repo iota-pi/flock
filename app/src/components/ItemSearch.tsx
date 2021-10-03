@@ -175,7 +175,7 @@ function ItemSearch<T extends Item = Item>({
         />
       )}
       renderOption={(props, item) => (
-        <li {...props}>
+        <li {...props} key={item.id}>
           <ItemOption
             item={item}
             showIcons={showIcons}
