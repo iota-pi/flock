@@ -39,19 +39,24 @@ function ActionsPage() {
     return withTimes.map(([action]) => action);
   }, [items]);
   const todayIndex = useMemo(
-    () => allActions.findIndex(
-      action => (
-        action.date > new Date().getTime() && !isSameDay(new Date(action.date), new Date())
-      ),
-    ),
+    () => {
+      const index = allActions.findIndex(
+        action => (
+          action.date > new Date().getTime()
+          && !isSameDay(new Date(action.date), new Date())
+        ),
+      );
+      return index > -1 ? index : allActions.length;
+    },
     [allActions],
   );
   const comingSoonIndex = useMemo(
-    () => allActions.findIndex(
-      action => (
-        action.date > new Date().getTime() + ONE_DAY * 7
-      ),
-    ),
+    () => {
+      const index = allActions.findIndex(
+        action => action.date > new Date().getTime() + ONE_DAY * 7,
+      );
+      return index > -1 ? index : allActions.length;
+    },
     [allActions],
   );
   const todayActions = useMemo(
@@ -101,7 +106,7 @@ function ActionsPage() {
 
       <Container maxWidth="xl" className={classes.container}>
         <Typography variant="h4" className={classes.heading}>
-          Coming soon actions
+          Coming soon
         </Typography>
       </Container>
 
