@@ -1,4 +1,4 @@
-import { CSSProperties, Fragment, memo, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { CSSProperties, memo, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Box,
   Breakpoint,
@@ -138,7 +138,7 @@ export function ItemListItem<T extends Item>({
   );
 
   return (
-    <Fragment key={item.id}>
+    <>
       {dividers && <Divider />}
 
       <StyledListItem
@@ -212,7 +212,7 @@ export function ItemListItem<T extends Item>({
 
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>
-    </Fragment>
+    </>
   );
 }
 const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
@@ -351,8 +351,10 @@ function ItemList<T extends Item>({
             break;
           }
         }
+        if (firstChange < length) {
+          listRef.current?.resetAfterIndex(firstChange, true);
+        }
       }
-      listRef.current?.resetAfterIndex(firstChange, true);
     },
     [listRef, memoisedHeights, prevHeights],
   );
