@@ -1,4 +1,13 @@
-import { CSSProperties, memo, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  CSSProperties,
+  memo,
+  MouseEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import {
   Box,
   Breakpoint,
@@ -14,7 +23,11 @@ import {
   Theme,
   useMediaQuery,
 } from '@material-ui/core';
-import { ListChildComponentProps, ListItemKeySelector, VariableSizeList } from 'react-window';
+import {
+  ListChildComponentProps,
+  ListItemKeySelector,
+  VariableSizeList,
+} from 'react-window';
 import { getItemName, Item } from '../state/items';
 import TagDisplay from './TagDisplay';
 import { getIcon } from './Icons';
@@ -45,6 +58,11 @@ const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
   minWidth: theme.spacing(5),
 }));
 
+export interface ItemListExtraElement {
+  content: ReactNode,
+  height: number,
+  index: number,
+}
 export interface BaseProps<T extends Item> {
   actionIcon?: ReactNode,
   checkboxes?: boolean,
@@ -61,6 +79,7 @@ export interface BaseProps<T extends Item> {
 export interface SingleItemProps<T extends Item> extends BaseProps<T> {
   checked?: boolean,
   description?: string,
+  extraElement?: ReactNode,
   faded?: boolean,
   highlighted?: boolean,
   item: T,
@@ -69,6 +88,7 @@ export interface SingleItemProps<T extends Item> extends BaseProps<T> {
 export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
   disablePadding?: boolean,
+  extraElements?: ItemListExtraElement[],
   fadeArchived?: boolean,
   getChecked?: (item: T) => boolean,
   getDescription?: (item: T) => string,
@@ -77,7 +97,6 @@ export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   items: T[],
   noItemsHint?: string,
   noItemsText?: string,
-  spaceBelow?: boolean,
   viewHeight?: number,
 }
 
@@ -88,6 +107,7 @@ export function ItemListItem<T extends Item>({
   checked,
   description,
   dividers,
+  extraElement = null,
   faded,
   highlighted,
   item,
@@ -141,14 +161,15 @@ export function ItemListItem<T extends Item>({
   );
 
   return (
-    <>
+    <div style={style}>
+      {extraElement}
+
       {dividers && <Divider />}
 
       <StyledListItem
         data-cy="list-item"
         disabled={!onClick && !onCheck && !onClickAction}
         selected={highlighted || false}
-        style={style}
         onClick={onClick ? handleClick : undefined}
       >
         {checkboxSide !== 'right' && checkbox}
@@ -215,7 +236,7 @@ export function ItemListItem<T extends Item>({
 
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>
-    </>
+    </div>
   );
 }
 const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
@@ -228,6 +249,7 @@ function ItemList<T extends Item>({
   className,
   disablePadding,
   dividers,
+  extraElements,
   fadeArchived = true,
   getChecked,
   getDescription,
@@ -276,19 +298,35 @@ function ItemList<T extends Item>({
     (index, data) => data[index].id,
     [],
   );
+  const extraElementsByIndex = useMemo(
+    () => items.map((_, index) => {
+      const elementsForIndex = extraElements?.filter(ee => ee.index === index) || [];
+      return {
+        content: elementsForIndex.map(e => e.content),
+        height: elementsForIndex.reduce((total, e) => total + e.height, 0),
+      };
+    }),
+    [extraElements, items],
+  );
   const itemHeights = useMemo(
     () => items.map(
-      item => {
+      (item, index) => {
         const textHeight = 24;
         const descriptionHeight = getClippedDescription(item) ? 20 : 0;
         const textMargin = 6 * 2;
         const tagsHeight = tagsOnSameRow || item.tags.length === 0 ? 0 : 40;
         const padding = 8 * 2;
-        const total = textHeight + descriptionHeight + textMargin + tagsHeight + padding;
+        const extraElementsHeight = extraElementsByIndex[index].height;
+        const total = (
+          textHeight + descriptionHeight + textMargin
+          + tagsHeight
+          + padding
+          + extraElementsHeight
+        );
         return Math.max(total, MIN_ROW_HEIGHT);
       },
     ),
-    [getClippedDescription, items, tagsOnSameRow],
+    [extraElementsByIndex, getClippedDescription, items, tagsOnSameRow],
   );
   const memoisedHeights = useStringMemo(itemHeights);
   const getItemSize = useCallback(
@@ -307,6 +345,7 @@ function ItemList<T extends Item>({
           checkboxSide={checkboxSide}
           checked={getChecked?.(item)}
           description={getClippedDescription(item)}
+          extraElement={extraElementsByIndex[index].content}
           faded={getFaded?.(item)}
           highlighted={getHighlighted?.(item)}
           item={item}
@@ -326,6 +365,7 @@ function ItemList<T extends Item>({
       actionIcon,
       checkboxes,
       checkboxSide,
+      extraElementsByIndex,
       getChecked,
       getClippedDescription,
       getFaded,

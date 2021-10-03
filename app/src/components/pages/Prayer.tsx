@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@material-ui/core';
+import { AutoSizer } from 'react-virtualized';
 import { useItemMap, useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay, useStringMemo } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
-import ItemList from '../ItemList';
+import ItemList, { ItemListExtraElement } from '../ItemList';
 import { getBlankPrayerPoint, Item } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
@@ -58,13 +59,9 @@ function PrayerPage() {
     [items],
   );
   const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
-  const todaysSchedule = useMemo(
-    () => memoisedPrayerSchedule.slice(0, goal).map(i => itemMap[i]),
-    [goal, itemMap, memoisedPrayerSchedule],
-  );
-  const upNextSchedule = useMemo(
-    () => memoisedPrayerSchedule.slice(goal).map(i => itemMap[i]),
-    [goal, itemMap, memoisedPrayerSchedule],
+  const schedule = useMemo(
+    () => memoisedPrayerSchedule.map(i => itemMap[i]),
+    [itemMap, memoisedPrayerSchedule],
   );
 
   const recordPrayerFor = useCallback(
@@ -109,80 +106,90 @@ function PrayerPage() {
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const maxTags = sm ? (2 - +xs) : 3;
 
+  const extraElements: ItemListExtraElement[] = useMemo(
+    () => [
+      {
+        content: (
+          <Fragment key="heading-today">
+            <Container maxWidth="xl" className={classes.container}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="h4" className={classes.heading}>
+                    Today
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12} sm={6} className={classes.flexRightLarge}>
+                  <Typography>
+                    {'Daily Goal: '}
+                    {completed}
+                    {' / '}
+                    <Typography
+                      color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
+                      component="span"
+                    >
+                      {goal}
+                    </Typography>
+                  </Typography>
+                  <span>&nbsp;&nbsp;</span>
+
+                  <IconButton size="medium" onClick={handleEditGoal}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Grid>
+              </Grid>
+            </Container>
+
+            <Divider />
+          </Fragment>
+        ),
+        height: 74,
+        index: 0,
+      },
+      {
+        content: schedule.length > goal && (
+          <Fragment key="heading-up-next">
+            <Container maxWidth="xl" className={classes.container}>
+              <Typography variant="h4" className={classes.heading}>
+                Up next
+              </Typography>
+            </Container>
+
+            <Divider />
+          </Fragment>
+        ),
+        height: 74,
+        index: goal,
+      },
+    ],
+    [classes, completed, goal, handleEditGoal, naturalGoal, schedule.length],
+  );
+
   return (
     <BasePage
       fab
       fabLabel="Add prayer point"
+      noScrollContainer
       onClickFab={handleClickAdd}
     >
-      <Container maxWidth="xl" className={classes.container}>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="h4" className={classes.heading}>
-              Today
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12} sm={6} className={classes.flexRightLarge}>
-            <Typography>
-              {'Daily Goal: '}
-              {completed}
-              {' / '}
-              <Typography
-                color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
-                component="span"
-              >
-                {goal}
-              </Typography>
-            </Typography>
-            <span>&nbsp;&nbsp;</span>
-
-            <IconButton size="medium" onClick={handleEditGoal}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Grid>
-        </Grid>
-      </Container>
-
-      <Divider />
-
-      <ItemList
-        checkboxes
-        checkboxSide="right"
-        getChecked={isPrayedForToday}
-        getForceFade={isPrayedForToday}
-        items={todaysSchedule}
-        maxTags={maxTags}
-        onClick={handleClick}
-        onCheck={handleClickPrayedFor}
-        noItemsText="No items in prayer schedule"
-        showIcons
-      />
-
-      {upNextSchedule.length > 0 && (
-        <>
-          <Container maxWidth="xl" className={classes.container}>
-            <Typography variant="h4" className={classes.heading}>
-              Up next
-            </Typography>
-          </Container>
-
-          <Divider />
-
+      <AutoSizer disableWidth>
+        {({ height }) => (
           <ItemList
             checkboxes
             checkboxSide="right"
+            extraElements={extraElements}
             getChecked={isPrayedForToday}
             getForceFade={isPrayedForToday}
-            items={upNextSchedule}
+            items={schedule}
             maxTags={maxTags}
             onClick={handleClick}
             onCheck={handleClickPrayedFor}
-            noItemsText="No more items in prayer schedule"
+            noItemsText="No items in prayer schedule"
             showIcons
+            viewHeight={height}
           />
-        </>
-      )}
+        )}
+      </AutoSizer>
 
       <GoalDialog
         naturalGoal={naturalGoal}
