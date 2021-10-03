@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { useRouteMatch } from 'react-router-dom';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
@@ -7,25 +6,21 @@ import {
   Theme,
   ThemeProvider,
   Toolbar,
-  Tooltip,
   Typography,
   useMediaQuery,
 } from '@material-ui/core';
 import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
 import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
-import { clearVault } from '../../state/vault';
-import { useAppDispatch } from '../../store';
 import { dark as darkTheme } from '../../theme';
 import EverythingSearch from './EverythingSearch';
 import { getPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
-import { SignOutIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   toolbar: {
     paddingLeft: theme.spacing(3),
-    paddingRight: theme.spacing(2),
+    paddingRight: 0,
 
     [theme.breakpoints.down('sm')]: {
       paddingRight: theme.spacing(1),
@@ -62,9 +57,6 @@ const useStyles = makeStyles(theme => ({
     },
   },
   minimised: {},
-  signoutButton: {
-    marginLeft: theme.spacing(1),
-  },
 }));
 
 export interface Props {
@@ -83,16 +75,8 @@ function AppBar({
   onMinimiseMenu,
 }: Props) {
   const classes = useStyles();
-  const dispatch = useAppDispatch();
   const tag = useTagParam();
   const showAppTitle = useMediaQuery((theme: Theme) => theme.breakpoints.up('sm'));
-
-  const handleClickSignOut = useCallback(
-    () => {
-      dispatch(clearVault());
-    },
-    [dispatch],
-  );
 
   return (
     <MuiAppBar
@@ -124,18 +108,6 @@ function AppBar({
           <ThemeProvider theme={darkTheme}>
             <EverythingSearch label={tag || 'Search'} />
           </ThemeProvider>
-        </div>
-
-        <div className={classes.signoutButton}>
-          <Tooltip title="Sign out">
-            <IconButton
-              color="inherit"
-              onClick={handleClickSignOut}
-              size="large"
-            >
-              <SignOutIcon />
-            </IconButton>
-          </Tooltip>
         </div>
       </Toolbar>
     </MuiAppBar>

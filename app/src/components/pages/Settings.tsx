@@ -14,7 +14,7 @@ import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
-import { DownloadIcon, EditIcon, MuiIconType, UploadIcon } from '../Icons';
+import { DownloadIcon, EditIcon, MuiIconType, SignOutIcon, UploadIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
@@ -24,6 +24,7 @@ import { Item } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
+import { clearVault } from '../../state/vault';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -126,6 +127,11 @@ function SettingsPage() {
   const items = useItems();
   const vault = useVault();
 
+  const handleSignOut = useCallback(
+    () => dispatch(clearVault()),
+    [dispatch],
+  );
+
   const darkMode = useAppSelector(state => state.ui.darkMode);
   const handleToggleDarkMode = useCallback(
     () => dispatch(setUiState({ darkMode: getNextDarkMode(darkMode) })),
@@ -183,6 +189,12 @@ function SettingsPage() {
       <Divider />
 
       <List disablePadding>
+        <SettingsItem
+          icon={SignOutIcon}
+          id="logout"
+          onClick={handleSignOut}
+          title="Sign out"
+        />
         <SettingsItem
           id="darkmode"
           onClick={handleToggleDarkMode}
