@@ -38,13 +38,16 @@ export function usePrevious<T>(state: T): T | undefined {
   return ref.current;
 }
 
-export function useStringMemo(state: string[]): string[] {
-  const prev = useRef<string[]>(state);
+export function useStringMemo<T>(state: T[]): T[] {
+  const prev = useRef<T[]>(state);
+  const prevKey = useRef<string>('');
   return useMemo(
     () => {
       const sep = '~~~';
-      if (!prev.current || prev.current.join(sep) !== state.join(sep)) {
+      const key = state.join(sep);
+      if (!prev.current || prevKey.current !== key) {
         prev.current = state;
+        prevKey.current = key;
       }
       return prev.current;
     },

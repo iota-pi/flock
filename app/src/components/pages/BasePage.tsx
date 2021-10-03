@@ -1,18 +1,11 @@
 import { PropsWithChildren, ReactNode } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
-import { Fab, Fade, LinearProgress } from '@material-ui/core';
+import { Fab, Fade, LinearProgress, styled } from '@material-ui/core';
 import { AddIcon } from '../Icons';
 import TopBar, { MenuItemData } from '../layout/TopBar';
 import { useAppSelector } from '../../store';
 
 const useStyles = makeStyles(theme => ({
-  pageContent: {
-    position: 'relative',
-    flexGrow: 1,
-    paddingBottom: theme.spacing(8),
-    overflowX: 'hidden',
-    overflowY: 'auto',
-  },
   fabContainer: {
     position: 'absolute',
     right: theme.spacing(4),
@@ -32,6 +25,7 @@ const useStyles = makeStyles(theme => ({
 
 interface BaseProps {
   drawer?: ReactNode,
+  noScrollContainer?: boolean,
 }
 interface FabProps {
   fab: true,
@@ -62,6 +56,21 @@ type Props = PropsWithChildren<CombinedProps>;
 export type { Props as BasePageProps };
 
 
+const ContentWithScroll = styled('div')(({ theme }) => ({
+  position: 'relative',
+  flexGrow: 1,
+  paddingBottom: theme.spacing(8),
+  overflowX: 'hidden',
+  overflowY: 'auto',
+}));
+const ContentNoScroll = styled('div')({
+  position: 'relative',
+  flexGrow: 1,
+  overflowX: 'hidden',
+  overflowY: 'hidden',
+});
+
+
 function BasePage({
   allSelected,
   children,
@@ -71,11 +80,14 @@ function BasePage({
   menuItems,
   onClickFab,
   onSelectAll,
+  noScrollContainer,
   topBar,
 }: Props) {
   const classes = useStyles();
   const activeRequests = useAppSelector(state => state.ui.requests.active);
   const loading = activeRequests > 0;
+
+  const ContentElement = noScrollContainer ? ContentNoScroll : ContentWithScroll;
 
   return (
     <>
@@ -93,12 +105,9 @@ function BasePage({
         </Fade>
       </div>
 
-      <div
-        className={classes.pageContent}
-        data-cy="page-content"
-      >
+      <ContentElement data-cy="page-content">
         {children}
-      </div>
+      </ContentElement>
 
       {fab && (
         <div className={classes.fabContainer}>

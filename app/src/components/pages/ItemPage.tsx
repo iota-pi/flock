@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
+import { AutoSizer } from 'react-virtualized';
 import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
 import {
@@ -82,22 +83,29 @@ function ItemPage<T extends Item>({
       allSelected={allSelected}
       fab
       fabLabel={`Add ${pluralLabel}`}
+      noScrollContainer
       onClickFab={handleClickAdd}
       onSelectAll={checkboxes ? handleSelectAll : undefined}
       topBar
     >
-      <ItemList
-        checkboxes={checkboxes}
-        getChecked={getChecked}
-        getDescription={getDescription}
-        getHighlighted={getHighlighted}
-        items={items}
-        maxTags={maxTags}
-        noItemsHint="Click the plus button to add one!"
-        noItemsText={`No ${pluralLabel.toLowerCase()} found`}
-        onCheck={handleCheck}
-        onClick={handleClickItem}
-      />
+      <AutoSizer disableWidth>
+        {({ height }) => (
+          <ItemList
+            checkboxes={checkboxes}
+            disablePadding
+            getChecked={getChecked}
+            getDescription={getDescription}
+            getHighlighted={getHighlighted}
+            items={items}
+            maxTags={maxTags}
+            noItemsHint="Click the plus button to add one!"
+            noItemsText={`No ${pluralLabel.toLowerCase()} found`}
+            onCheck={handleCheck}
+            onClick={handleClickItem}
+            viewHeight={height}
+          />
+        )}
+      </AutoSizer>
     </BasePage>
   );
 }
