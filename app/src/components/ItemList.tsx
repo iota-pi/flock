@@ -18,7 +18,9 @@ import {
   ListItem,
   ListItemButton,
   ListItemIcon,
+  ListItemIconProps,
   ListItemText,
+  ListItemTextProps,
   styled,
   Theme,
   useMediaQuery,
@@ -46,11 +48,23 @@ const StyledListItem = styled(ListItemButton)({
     opacity: '1 !important',
   },
 });
-const StyledListItemText = styled(ListItemText)(({ theme }) => ({
+const StyledListItemText = styled(
+  ({ faded: _, ...props }: ListItemTextProps & { faded?: boolean }) => <ListItemText {...props} />,
+)(({ faded, theme }) => ({
+  opacity: faded ? FADED_OPACITY : undefined,
   paddingRight: theme.spacing(2),
   transition: theme.transitions.create('opacity'),
+  whiteSpace: 'nowrap',
+
+  '& .MuiTypography-root': {
+    textOverflow: 'ellipsis',
+    overflow: 'hidden',
+  },
 }));
-const StyledListItemIcon = styled(ListItemIcon)(({ theme }) => ({
+const StyledListItemIcon = styled(
+  ({ faded: _, ...props }: ListItemIconProps & { faded?: boolean }) => <ListItemIcon {...props} />,
+)(({ faded, theme }) => ({
+  opacity: faded ? FADED_OPACITY : undefined,
   transition: theme.transitions.create('opacity'),
 }));
 const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
@@ -175,11 +189,7 @@ export function ItemListItem<T extends Item>({
         {checkboxSide !== 'right' && checkbox}
 
         {showIcons && (
-          <StyledListItemIcon
-            sx={{
-              opacity: faded ? FADED_OPACITY : undefined,
-            }}
-          >
+          <StyledListItemIcon faded={faded}>
             {getIcon(item.type)}
           </StyledListItemIcon>
         )}
@@ -188,20 +198,19 @@ export function ItemListItem<T extends Item>({
           display="flex"
           flexDirection={{ xs: 'column', [TAG_ROW_BREAKPOINT]: 'row' }}
           flexGrow={1}
+          minWidth={0}
         >
           <Box
             display="flex"
             alignItems="center"
             flexGrow={1}
+            minWidth={0}
           >
             <StyledListItemText
+              faded={faded}
               id={`${item.id}-text`}
               primary={getItemName(item)}
               secondary={description || undefined}
-              sx={{
-                maxWidth: { xs: '60%', lg: '70%' },
-                opacity: faded ? FADED_OPACITY : undefined,
-              }}
             />
           </Box>
 
