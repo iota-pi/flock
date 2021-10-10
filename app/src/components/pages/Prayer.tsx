@@ -143,7 +143,7 @@ function PrayerPage() {
             <Divider />
           </Fragment>
         ),
-        height: 74,
+        height: xs ? 126 : 74,
         index: 0,
       },
       {
@@ -162,7 +162,7 @@ function PrayerPage() {
         index: goal,
       },
     ],
-    [classes, completed, goal, handleEditGoal, naturalGoal, schedule.length],
+    [classes, completed, goal, handleEditGoal, naturalGoal, schedule.length, xs],
   );
 
   return (
