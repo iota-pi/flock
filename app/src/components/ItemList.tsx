@@ -38,9 +38,6 @@ import { usePrevious, useStringMemo } from '../utils';
 const FADED_OPACITY = 0.65;
 const TAG_ROW_BREAKPOINT: Breakpoint = 'md';
 const MIN_ROW_HEIGHT = 72;
-// Disable virtualisation in Cypress till this is resolved:
-// https://github.com/cypress-io/cypress/issues/7306
-const DISABLE_VIRTUALISATION = !!(window as any).Cypress;
 
 const StyledListItem = styled(ListItemButton)({
   minHeight: MIN_ROW_HEIGHT,
@@ -428,7 +425,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     >
       {dividers && items.length === 0 && <Divider />}
 
-      {!DISABLE_VIRTUALISATION && viewHeight !== undefined ? (
+      {viewHeight !== undefined ? (
         <VariableSizeList
           height={viewHeight}
           itemCount={items.length}
