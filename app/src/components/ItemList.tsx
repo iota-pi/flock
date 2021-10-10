@@ -325,14 +325,16 @@ function ItemList<T extends Item>({
         const textMargin = 6 * 2;
         const tagsHeight = tagsOnSameRow || item.tags.length === 0 ? 0 : 40;
         const padding = 8 * 2;
-        const extraElementsHeight = extraElementsByIndex[index].height;
-        const total = (
-          textHeight + descriptionHeight + textMargin
-          + tagsHeight
-          + padding
-          + extraElementsHeight
+        const total = Math.max(
+          (
+            textHeight + descriptionHeight + textMargin
+            + tagsHeight
+            + padding
+          ),
+          MIN_ROW_HEIGHT,
         );
-        return Math.max(total, MIN_ROW_HEIGHT);
+        const extraElementsHeight = extraElementsByIndex[index].height;
+        return total + extraElementsHeight;
       },
     ),
     [extraElementsByIndex, getClippedDescription, items, tagsOnSameRow],
