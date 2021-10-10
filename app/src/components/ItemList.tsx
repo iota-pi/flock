@@ -82,6 +82,13 @@ export interface BaseProps<T extends Item> {
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
   dividers?: boolean,
+  extraElements?: ItemListExtraElement[],
+  fadeArchived?: boolean,
+  getChecked?: (item: T) => boolean,
+  getDescription?: (item: T) => string,
+  getForceFade?: (item: T) => boolean,
+  getHighlighted?: (item: T) => boolean,
+  items: T[],
   linkTags?: boolean,
   maxTags?: number,
   onCheck?: (item: T) => void,
@@ -102,38 +109,35 @@ export interface SingleItemProps<T extends Item> extends BaseProps<T> {
 export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
   disablePadding?: boolean,
-  extraElements?: ItemListExtraElement[],
-  fadeArchived?: boolean,
-  getChecked?: (item: T) => boolean,
-  getDescription?: (item: T) => string,
-  getForceFade?: (item: T) => boolean,
-  getHighlighted?: (item: T) => boolean,
-  items: T[],
   noItemsHint?: string,
   noItemsText?: string,
   viewHeight?: number,
 }
 
-export function ItemListItem<T extends Item>({
-  actionIcon,
-  checkboxes,
-  checkboxSide,
-  checked,
-  description,
-  dividers,
-  extraElement = null,
-  faded,
-  highlighted,
-  item,
-  linkTags = true,
-  maxTags,
-  onClick,
-  onClickAction,
-  onCheck,
-  showIcons = false,
-  showTags = true,
-  style,
-}: SingleItemProps<T>) {
+export function ItemListItem<T extends Item>(props: ListChildComponentProps<BaseProps<T>>) {
+  const { data, index, style } = props;
+  const {
+    actionIcon,
+    checkboxes,
+    checkboxSide,
+    dividers,
+    extraElements,
+    fadeArchived,
+    getChecked,
+    getDescription,
+    getForceFade,
+    getHighlighted,
+    items,
+    linkTags = true,
+    maxTags,
+    onClick,
+    onClickAction,
+    onCheck,
+    showIcons = false,
+    showTags = true,
+  } = data;
+  const item = items[index];
+
   const handleClick = useCallback(
     () => onClick?.(item),
     [item, onClick],
@@ -160,6 +164,33 @@ export function ItemListItem<T extends Item>({
     [item, onCheck],
   );
 
+  const checked = useMemo(() => getChecked?.(item), [getChecked, item]);
+  const description = useMemo(
+    () => {
+      const base = getDescription ? getDescription(item) : item.description;
+      const clipped = base.slice(0, 100);
+      if (clipped.length < base.length) {
+        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
+        return `${clippedToWord}…`;
+      }
+      return base;
+    },
+    [getDescription, item],
+  );
+  const faded = useMemo(
+    () => {
+      if (item.archived && fadeArchived) {
+        return true;
+      }
+      if (getForceFade && getForceFade(item)) {
+        return true;
+      }
+      return false;
+    },
+    [fadeArchived, getForceFade, item],
+  );
+  const highlighted = useMemo(() => getHighlighted?.(item), [getHighlighted, item]);
+
   const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon;
   const checkbox = checkboxes && onCheck && (
     <CheckboxHolder>
@@ -174,9 +205,14 @@ export function ItemListItem<T extends Item>({
     </CheckboxHolder>
   );
 
+  const extras = useMemo(
+    () => (extraElements || []).filter(e => e.index === index).map(e => e.content),
+    [extraElements, index],
+  );
+
   return (
     <div style={style}>
-      {extraElement}
+      {extras}
 
       {dividers && <Divider />}
 
@@ -250,61 +286,79 @@ export function ItemListItem<T extends Item>({
 }
 const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
 
-
-function ItemList<T extends Item>({
-  actionIcon,
-  checkboxes,
-  checkboxSide,
-  className,
-  disablePadding,
-  dividers,
-  extraElements,
-  fadeArchived = true,
-  getChecked,
-  getDescription,
-  getForceFade,
-  getHighlighted,
-  items,
-  linkTags = true,
-  maxTags,
-  noItemsHint,
-  noItemsText,
-  onClick,
-  onClickAction,
-  onCheck,
-  showIcons = false,
-  showTags = true,
-  viewHeight,
-}: MultipleItemsProps<T>) {
+function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
+  const {
+    actionIcon,
+    checkboxes,
+    checkboxSide,
+    className,
+    disablePadding,
+    dividers,
+    extraElements,
+    fadeArchived = true,
+    getChecked,
+    getDescription,
+    getForceFade,
+    getHighlighted,
+    items,
+    linkTags = true,
+    maxTags,
+    noItemsHint,
+    noItemsText,
+    onClick,
+    onClickAction,
+    onCheck,
+    showIcons = false,
+    showTags = true,
+    viewHeight,
+  } = props;
   const tagsOnSameRow = useMediaQuery((theme: Theme) => theme.breakpoints.up(TAG_ROW_BREAKPOINT));
 
-  const getClippedDescription = useCallback(
-    (item: T) => {
-      const base = getDescription ? getDescription(item) : item.description;
-      const clipped = base.slice(0, 100);
-      if (clipped.length < base.length) {
-        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
-        return `${clippedToWord}…`;
-      }
-      return base;
-    },
-    [getDescription],
+  const itemData: BaseProps<T> = useMemo(
+    () => ({
+      items,
+      actionIcon,
+      checkboxSide,
+      checkboxes,
+      dividers,
+      extraElements,
+      fadeArchived,
+      getChecked,
+      getDescription,
+      getForceFade,
+      getHighlighted,
+      linkTags,
+      maxTags,
+      onCheck,
+      onClick,
+      onClickAction,
+      showIcons,
+      showTags,
+    }),
+    [
+      items,
+      actionIcon,
+      checkboxSide,
+      checkboxes,
+      dividers,
+      extraElements,
+      fadeArchived,
+      getChecked,
+      getDescription,
+      getForceFade,
+      getHighlighted,
+      linkTags,
+      maxTags,
+      onCheck,
+      onClick,
+      onClickAction,
+      showIcons,
+      showTags,
+    ],
   );
 
-  const getFaded = useCallback(
-    (item: T) => {
-      if (item.archived && fadeArchived) {
-        return true;
-      }
-      if (getForceFade && getForceFade(item)) {
-        return true;
-      }
-      return false;
-    },
-    [fadeArchived, getForceFade],
-  );
-  const getItemKey: ListItemKeySelector<T[]> = useCallback(
-    (index, data) => data[index].id,
+  const getItemKey: ListItemKeySelector<BaseProps<Item>> = useCallback(
+    (index, data) => data.items[index].id,
     [],
   );
   const extraElementsByIndex = useMemo(
@@ -321,7 +375,7 @@ function ItemList<T extends Item>({
     () => items.map(
       (item, index) => {
         const textHeight = 24;
-        const descriptionHeight = getClippedDescription(item) ? 20 : 0;
+        const descriptionHeight = getDescription?.(item) ? 20 : 0;
         const textMargin = 6 * 2;
         const tagsHeight = tagsOnSameRow || item.tags.length === 0 ? 0 : 40;
         const padding = 8 * 2;
@@ -337,7 +391,7 @@ function ItemList<T extends Item>({
         return total + extraElementsHeight;
       },
     ),
-    [extraElementsByIndex, getClippedDescription, items, tagsOnSameRow],
+    [extraElementsByIndex, getDescription, items, tagsOnSameRow],
   );
   const memoisedHeights = useStringMemo(itemHeights);
   const getItemSize = useCallback(
@@ -345,54 +399,8 @@ function ItemList<T extends Item>({
     [memoisedHeights],
   );
 
-  const renderRow = useCallback(
-    (props: ListChildComponentProps<T[]>) => {
-      const { data, index, style } = props;
-      const item = data[index];
-      return (
-        <MemoItemListItem
-          actionIcon={actionIcon}
-          checkboxes={checkboxes}
-          checkboxSide={checkboxSide}
-          checked={getChecked?.(item)}
-          description={getClippedDescription(item)}
-          extraElement={extraElementsByIndex[index].content}
-          faded={getFaded?.(item)}
-          highlighted={getHighlighted?.(item)}
-          item={item}
-          key={item.id}
-          linkTags={linkTags}
-          maxTags={maxTags}
-          onClick={onClick}
-          onClickAction={onClickAction}
-          onCheck={onCheck}
-          showIcons={showIcons}
-          showTags={showTags}
-          style={style as CSSProperties}
-        />
-      );
-    },
-    [
-      actionIcon,
-      checkboxes,
-      checkboxSide,
-      extraElementsByIndex,
-      getChecked,
-      getClippedDescription,
-      getFaded,
-      getHighlighted,
-      linkTags,
-      maxTags,
-      onClick,
-      onClickAction,
-      onCheck,
-      showIcons,
-      showTags,
-    ],
-  );
-
   const noStyle = useRef({});
-  const listRef = useRef<VariableSizeList<T[]>>(null);
+  const listRef = useRef<VariableSizeList<BaseProps<Item>>>(null);
 
   const prevHeights = usePrevious(memoisedHeights);
   useEffect(
@@ -424,16 +432,23 @@ function ItemList<T extends Item>({
         <VariableSizeList
           height={viewHeight}
           itemCount={items.length}
-          itemData={items}
+          itemData={itemData as unknown as BaseProps<Item>}
           itemKey={getItemKey}
           itemSize={getItemSize}
           width="100%"
           ref={listRef}
         >
-          {renderRow}
+          {MemoItemListItem}
         </VariableSizeList>
       ) : (
-        items.map((_, index) => renderRow({ index, data: items, style: noStyle.current }))
+        items.map((item, index) => (
+          <MemoItemListItem
+            data={itemData}
+            index={index}
+            key={item.id}
+            style={noStyle.current}
+          />
+        ))
       )}
 
       {items.length === 0 && (
