@@ -87,9 +87,9 @@ function GroupDisplay({
       )}
 
       <ItemList
-        actionIcon={editable ? <DeleteIcon /> : undefined}
         className={classes.list}
         dividers
+        getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={currentGroups}
         noItemsHint="Not in any groups"
         onClick={handleClickGroup}

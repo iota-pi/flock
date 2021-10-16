@@ -1,6 +1,8 @@
 import { MutableRefObject, useEffect, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
+export type MostlyRequired<T> = { [K in keyof Required<T>]: T[K] };
+
 export const APP_NAME = 'Flock';
 
 export function getAccountId() {

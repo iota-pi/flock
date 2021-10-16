@@ -75,9 +75,9 @@ function MemberDisplay({
       )}
 
       <ItemList
-        actionIcon={editable ? <DeleteIcon /> : undefined}
         className={classes.list}
         dividers
+        getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={members}
         noItemsHint="No group members"
         onClick={handleClickItem}

@@ -51,7 +51,6 @@ function NoteDrawer({
   const itemMap = useItemMap();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
-  const prevOpen = usePrevious(open);
   const vault = useVault();
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
@@ -77,7 +76,7 @@ function NoteDrawer({
 
   useEffect(
     () => {
-      if (open && !prevOpen) {
+      if (open && note.id !== prevNote?.id) {
         if (existingLinkedItem) {
           setLinkedItems([existingLinkedItem]);
         } else {
@@ -86,7 +85,7 @@ function NoteDrawer({
         setShowSensitive(false);
       }
     },
-    [existingLinkedItem, linkedItemsProp, open, prevOpen],
+    [existingLinkedItem, linkedItemsProp, note.id, open, prevNote?.id],
   );
 
   const handleClear = useCallback(() => setLinkedItems([]), []);
@@ -251,8 +250,8 @@ function NoteDrawer({
 
           {!editing && (
             <ItemList
-              actionIcon={<RemoveIcon />}
               dividers
+              getActionIcon={() => <RemoveIcon />}
               items={linkedItems}
               noItemsHint={`No ${itemsLabel.toLowerCase()} selected`}
               onClickAction={handleUnlinkItem}
@@ -283,7 +282,8 @@ function NoteDrawer({
                 </InputAdornment>
               ) : null,
             }}
-            variant="standard" />
+            variant="standard"
+          />
 
           <FormControlLabel
             control={(
