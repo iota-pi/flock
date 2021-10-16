@@ -1,7 +1,7 @@
 describe('Basic operation', () => {
   beforeEach(() => {
     cy.visit('http://localhost:3000')
-    cy.createAccount('wellthisisverysecureisn\'tit?')
+    cy.createAccount('fnG8iv4t!%Qa')
   })
 
   it('can create and edit items', () => {
@@ -11,7 +11,7 @@ describe('Basic operation', () => {
     cy.dataCy('page-content')
       .contains('Frodo Baggins')
       .click()
-    cy.dataCy('description').type('aka. Mr. Underhill')
+    cy.dataCy('description').type('Underhill')
     cy.saveDrawer()
     cy.dataCy('page-content')
       .contains('Underhill')
@@ -22,7 +22,7 @@ describe('Basic operation', () => {
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
       .addNote({ content: '', type: 'interaction' })
       .addNote({
-        content: 'Tried eavesdropping on his conversation',
+        content: 'Tried eavesdropping',
         type: 'interaction',
         sensitive: true,
       })
@@ -80,7 +80,6 @@ describe('Basic operation', () => {
     cy.viewport(1280, 720)
 
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
-      .addNote({ content: 'Simply walk into Mordor', type: 'action' })
       .addNote({ content: 'Destroy ring', type: 'action' })
       .saveDrawer()
     cy.createPerson({ firstName: 'Samwise', lastName: 'Gamgee' })
@@ -99,8 +98,6 @@ describe('Basic operation', () => {
       .contains('Frodo Baggins').first()
       .click()
     cy.dataCy('page-content')
-      .contains('Mordor')
-    cy.dataCy('page-content')
       .contains('Destroy ring')
     cy.dataCy('page-content')
       .contains('Trim hedges')
@@ -117,7 +114,7 @@ describe('Basic operation', () => {
     cy.dataCy('page-content')
       .find('[data-cy=list-item]')
       .filter((i, e) => /frodo baggins/i.test(e.innerText))
-      .should('have.length', 2)
+      .should('have.length', 1)
   })
 
   it('can create groups; add & remove members', () => {
@@ -151,11 +148,11 @@ describe('Basic operation', () => {
   })
 
   it('group report only works for existing groups', () => {
-    cy.createGroup({ name: 'Fellowship of the Ring' })
+    cy.createGroup({ name: 'FotR' })
     cy.contains(/group report/i)
       .should('be.disabled')
     cy.saveDrawer()
-    cy.contains('Fellowship').click()
+    cy.contains('FotR').click()
     cy.contains(/group report/i)
       .should('not.be.disabled')
       .click()

@@ -1,7 +1,7 @@
 describe('Backup & restore', () => {
   beforeEach(() => {
     cy.visit('http://localhost:3000')
-    cy.createAccount('wellthisisverysecureisn\'tit?')
+    cy.createAccount('fnG8iv4t!%Qa')
   })
 
   it('can backup and restore from backup', () => {
