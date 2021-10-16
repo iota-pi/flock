@@ -10,18 +10,18 @@ import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextFie
 import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
-  compareItems,
   getBlankItem,
   getItemName,
   getItemTypeLabel,
   Item,
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
-import { useItems, useTags } from '../../state/selectors';
+import { useItems, useMetadata, useTags } from '../../state/selectors';
 import { getTagPage } from '../pages';
 import { replaceActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
+import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
 
 const useStyles = makeStyles(theme => ({
   optionHolder: {
@@ -163,24 +163,23 @@ function EverythingSearch({
   const dispatch = useAppDispatch();
   const history = useHistory();
   const items = useItems();
+  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
   const tags = useTags();
 
   const options = useMemo<AnySearchable[]>(
-    () => (
-      [
-        ...items.sort(compareItems).map(item => ({
-          type: item.type,
-          id: item.id,
-          data: item,
-        } as AnySearchable)),
-        ...tags.map(tag => ({
-          type: 'tag',
-          id: tag,
-          data: tag,
-        } as AnySearchable)),
-      ]
-    ),
-    [items, tags],
+    () => [
+      ...sortItems(items, sortCriteria).map(item => ({
+        type: item.type,
+        id: item.id,
+        data: item,
+      } as AnySearchable)),
+      ...tags.map(tag => ({
+        type: 'tag',
+        id: tag,
+        data: tag,
+      } as AnySearchable)),
+    ],
+    [items, sortCriteria, tags],
   );
 
   const filterFunc = useCallback(

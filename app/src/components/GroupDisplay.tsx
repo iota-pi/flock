@@ -4,12 +4,13 @@ import {
 } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import DeleteIcon from '@material-ui/icons/Close';
-import { compareItems, GroupItem, ItemId } from '../state/items';
-import { useItems, useVault } from '../state/selectors';
+import { GroupItem, ItemId } from '../state/items';
+import { useItems, useMetadata, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
+import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort';
 
 
 const useStyles = makeStyles(() => ({
@@ -28,14 +29,15 @@ function GroupDisplay({
   editable = true,
   itemId,
 }: Props) {
-  const allGroups = useItems<GroupItem>('group').sort(compareItems);
+  const allGroups = useItems<GroupItem>('group');
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
+  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
 
   const activeGroups = useMemo(
-    () => allGroups.filter(g => !g.archived),
-    [allGroups],
+    () => sortItems(allGroups.filter(g => !g.archived), sortCriteria),
+    [allGroups, sortCriteria],
   );
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
@@ -73,17 +75,15 @@ function GroupDisplay({
   return (
     <>
       {editable && (
-        <>
-          <ItemSearch
-            dataCy="groups"
-            noItemsText="No groups found"
-            onSelect={handleSelectGroup}
-            items={activeGroups}
-            label="Add to group"
-            selectedIds={groupIds}
-            showSelected={false}
-          />
-        </>
+        <ItemSearch
+          dataCy="groups"
+          items={activeGroups}
+          label="Add to group"
+          noItemsText="No groups found"
+          onSelect={handleSelectGroup}
+          selectedIds={groupIds}
+          showSelected={false}
+        />
       )}
 
       <ItemList
