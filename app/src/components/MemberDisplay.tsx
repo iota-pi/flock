@@ -11,6 +11,7 @@ import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort';
+import { DEFAULT_MATURITY } from '../state/account';
 
 
 const useStyles = makeStyles(() => ({
@@ -35,14 +36,15 @@ function MemberDisplay({
   const getItemsById = useItemsById();
   const people = useItems<PersonItem>('person');
   const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
+  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
 
   const activePeople = useMemo(
-    () => sortItems(people.filter(p => !p.archived), sortCriteria),
-    [people, sortCriteria],
+    () => sortItems(people.filter(p => !p.archived), sortCriteria, maturity),
+    [maturity, people, sortCriteria],
   );
   const members = useMemo(
-    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria),
-    [getItemsById, memberIds, sortCriteria],
+    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria, maturity),
+    [getItemsById, maturity, memberIds, sortCriteria],
   );
 
   const handleClickItem = useCallback(

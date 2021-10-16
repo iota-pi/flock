@@ -13,6 +13,7 @@ import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState, replaceActive, toggleSelected } from '../../state/ui';
 import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
+import { DEFAULT_MATURITY } from '../../state/account';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -26,9 +27,13 @@ function ItemPage<T extends Item>({
   const rawItems = useItems<T>(itemType);
   const selected = useAppSelector(state => state.ui.selected);
   const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
+  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
   const { bulkActionsOnMobile } = useOptions();
 
-  const items = useMemo(() => sortItems(rawItems, sortCriteria), [rawItems, sortCriteria]);
+  const items = useMemo(
+    () => sortItems(rawItems, sortCriteria, maturity),
+    [maturity, rawItems, sortCriteria],
+  );
 
   const handleClickItem = useCallback(
     (item: T) => {

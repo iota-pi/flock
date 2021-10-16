@@ -22,6 +22,7 @@ import { replaceActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
 import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
+import { DEFAULT_MATURITY } from '../../state/account';
 
 const useStyles = makeStyles(theme => ({
   optionHolder: {
@@ -164,11 +165,12 @@ function EverythingSearch({
   const history = useHistory();
   const items = useItems();
   const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
+  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
   const tags = useTags();
 
   const options = useMemo<AnySearchable[]>(
     () => [
-      ...sortItems(items, sortCriteria).map(item => ({
+      ...sortItems(items, sortCriteria, maturity).map(item => ({
         type: item.type,
         id: item.id,
         data: item,
@@ -179,7 +181,7 @@ function EverythingSearch({
         data: tag,
       } as AnySearchable)),
     ],
-    [items, sortCriteria, tags],
+    [items, maturity, sortCriteria, tags],
   );
 
   const filterFunc = useCallback(

@@ -11,6 +11,7 @@ import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort';
+import { DEFAULT_MATURITY } from '../state/account';
 
 
 const useStyles = makeStyles(() => ({
@@ -34,10 +35,11 @@ function GroupDisplay({
   const dispatch = useAppDispatch();
   const vault = useVault();
   const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
+  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
 
   const activeGroups = useMemo(
-    () => sortItems(allGroups.filter(g => !g.archived), sortCriteria),
-    [allGroups, sortCriteria],
+    () => sortItems(allGroups.filter(g => !g.archived), sortCriteria, maturity),
+    [allGroups, maturity, sortCriteria],
   );
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),

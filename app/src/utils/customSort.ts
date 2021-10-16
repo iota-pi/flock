@@ -1,10 +1,15 @@
 import { compareIds, getItemName, Item, ITEM_TYPES } from '../state/items';
+import { getLastInteractionDate } from './interactions';
+import { getLastPrayedFor } from './prayer';
 
 export type CriterionName = (
   'archived' |
   'created' |
   'description' |
+  'lastInteraction' |
   'lastName' |
+  'lastPrayedFor' |
+  'maturity' |
   'name' |
   'type'
 );
@@ -22,7 +27,10 @@ export const CRITERIA_DISPLAY_MAP: Record<CriterionName, CriterionDisplay> = {
   archived: { name: 'Archived', normal: 'Archived last', reverse: 'Archived first', hide: true },
   created: { name: 'Date created', normal: 'Recent first', reverse: 'Recent last' },
   description: { name: 'Description', normal: 'Ascending', reverse: 'Descending' },
-  lastName: { name: 'Last Name', normal: 'Ascending', reverse: 'Descending' },
+  lastInteraction: { name: 'Last interaction', normal: 'Recent first', reverse: 'Recent last' },
+  lastName: { name: 'Last name', normal: 'Ascending', reverse: 'Descending' },
+  lastPrayedFor: { name: 'Last prayed for', normal: 'Recent first', reverse: 'Recent last' },
+  maturity: { name: 'Maturity', normal: 'Ascending', reverse: 'Descending' },
   name: { name: 'Name', normal: 'Ascending', reverse: 'Descending' },
   type: { name: 'Item type', normal: 'Ascending', reverse: 'Descending', hide: true },
 };
@@ -40,35 +48,56 @@ export const AUTOMATIC_CRITERIA: SortCriterion[] = [
   { type: 'type', reverse: false },
 ];
 
-const CRITERION_FUNCTIONS: Record<CriterionName, (a: Item, b: Item) => number> = {
-  archived: (a, b) => +a.archived - +b.archived,
-  created: (a, b) => b.created - a.created,
-  description: (a, b) => a.description.localeCompare(b.description),
-  lastName: (a, b) => {
-    if (a.type === 'person' && a.type === b.type) {
-      return a.lastName.localeCompare(b.lastName);
-    }
-    return 0;
-  },
-  name: (a, b) => getItemName(a).localeCompare(getItemName(b)),
-  type: (a, b) => ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type),
-};
 
-const compareItems = (criteria: SortCriterion[]) => (a: Item, b: Item) => {
+const compareItems = (
+  criteria: SortCriterion[],
+  maturityStages: string[],
+) => (itemA: Item, itemB: Item) => {
+  const funcs: Record<CriterionName, (a: Item, b: Item) => number> = {
+    archived: (a, b) => +a.archived - +b.archived,
+    created: (a, b) => b.created - a.created,
+    description: (a, b) => a.description.localeCompare(b.description),
+    lastInteraction: (a, b) => {
+      if (a.type === 'person' && a.type === b.type) {
+        return getLastInteractionDate(b) - getLastInteractionDate(a);
+      }
+      return 0;
+    },
+    lastName: (a, b) => {
+      if (a.type === 'person' && a.type === b.type) {
+        return a.lastName.localeCompare(b.lastName);
+      }
+      return 0;
+    },
+    lastPrayedFor: (a, b) => getLastPrayedFor(b) - getLastPrayedFor(a),
+    maturity: (a, b) => {
+      if (a.type === 'person' && a.type === b.type) {
+        return (
+          maturityStages.indexOf(a.maturity || '')
+          - maturityStages.indexOf(b.maturity || '')
+        );
+      }
+      return 0;
+    },
+    name: (a, b) => getItemName(a).localeCompare(getItemName(b)),
+    type: (a, b) => ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type),
+  };
+
   const allCriteria = [...AUTOMATIC_CRITERIA, ...criteria];
   for (const criterion of allCriteria) {
-    const func = CRITERION_FUNCTIONS[criterion.type];
-    const result = func(a, b);
+    const func = funcs[criterion.type];
+    const result = func(itemA, itemB);
     if (result) {
       return criterion.reverse ? -result : result;
     }
   }
-  return compareIds(a, b);
+  return compareIds(itemA, itemB);
 };
 
 export function sortItems<T extends Item>(
   items: T[],
   criteria: SortCriterion[],
+  maturity: string[],
 ) {
-  return items.slice().sort(compareItems(criteria));
+  return items.slice().sort(compareItems(criteria, maturity));
 }
