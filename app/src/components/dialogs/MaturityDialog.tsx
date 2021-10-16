@@ -247,7 +247,8 @@ function MaturityDialog({
                       </InputAdornment>
                     ),
                   }}
-                  variant="standard" />
+                  variant="standard"
+                />
               </div>
 
               <Divider />

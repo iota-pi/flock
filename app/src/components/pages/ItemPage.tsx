@@ -1,16 +1,18 @@
 import { useCallback, useMemo } from 'react';
 import { Theme, useMediaQuery } from '@material-ui/core';
 import { AutoSizer } from 'react-virtualized';
-import { compareItems, getBlankItem, getItemTypeLabel, Item } from '../../state/items';
+import { getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';
 import {
   useIsActive,
   useItems,
+  useMetadata,
   useOptions,
 } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState, replaceActive, toggleSelected } from '../../state/ui';
+import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -23,9 +25,10 @@ function ItemPage<T extends Item>({
   const isActive = useIsActive();
   const rawItems = useItems<T>(itemType);
   const selected = useAppSelector(state => state.ui.selected);
+  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
   const { bulkActionsOnMobile } = useOptions();
 
-  const items = useMemo(() => rawItems.slice().sort(compareItems), [rawItems]);
+  const items = useMemo(() => sortItems(rawItems, sortCriteria), [rawItems, sortCriteria]);
 
   const handleClickItem = useCallback(
     (item: T) => {
@@ -86,6 +89,7 @@ function ItemPage<T extends Item>({
       noScrollContainer
       onClickFab={handleClickAdd}
       onSelectAll={checkboxes ? handleSelectAll : undefined}
+      sortable
       topBar
     >
       <AutoSizer disableWidth>

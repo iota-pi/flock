@@ -43,6 +43,7 @@ interface TopBarProps {
   allSelected?: boolean,
   onSelectAll?: () => void,
   menuItems?: MenuItemData[],
+  sortable?: boolean,
   topBar: true,
 }
 interface NoTopBarProps {
@@ -50,6 +51,7 @@ interface NoTopBarProps {
   menuItems?: never,
   onSelectAll?: never,
   topBar?: false,
+  sortable?: never,
 }
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps);
 type Props = PropsWithChildren<CombinedProps>;
@@ -81,6 +83,7 @@ function BasePage({
   onClickFab,
   onSelectAll,
   noScrollContainer,
+  sortable,
   topBar,
 }: Props) {
   const classes = useStyles();
@@ -96,6 +99,7 @@ function BasePage({
           allSelected={allSelected}
           menuItems={menuItems || []}
           onSelectAll={onSelectAll}
+          sortable={sortable}
         />
       )}
 

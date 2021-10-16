@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
 import { Checkbox, IconButton, ListItemIcon, Menu, MenuItem, Paper, Theme, useMediaQuery } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import { MuiIconType, OptionsIcon } from '../Icons';
+import { MuiIconType, OptionsIcon, SortIcon } from '../Icons';
 import { useOption } from '../../state/selectors';
+import SortDialog from '../dialogs/SortDialog';
 
 const MENU_POPUP_ID = 'top-bar-menu';
 
@@ -30,6 +31,7 @@ export interface Props {
   allSelected?: boolean,
   menuItems: MenuItemData[],
   onSelectAll?: () => void,
+  sortable?: boolean,
 }
 
 
@@ -37,11 +39,13 @@ function TopBar({
   allSelected = false,
   menuItems,
   onSelectAll,
+  sortable,
 }: Props) {
   const classes = useStyles();
 
   const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile');
   const [showOptions, setShowOptions] = useState(false);
+  const [showSort, setShowSort] = useState(false);
 
   const optionsAnchor = useRef<HTMLButtonElement>(null);
 
@@ -58,16 +62,45 @@ function TopBar({
     },
     [handleCloseOptions, setBulkActions],
   );
+  const handleClickSort = useCallback(
+    () => {
+      setShowSort(true);
+      handleCloseOptions();
+    },
+    [handleCloseOptions],
+  );
+  const handleCloseSort = useCallback(() => setShowSort(false), []);
 
-  const allMenuItems = [...menuItems];
-  if (!alwaysShowCheckbox) {
-    allMenuItems.push({
-      icon: bulkActions ? VisibilityOff : Visibility,
-      key: 'bulk-actions',
-      label: `${bulkActions ? 'Hide' : 'Show'} checkboxes`,
-      onClick: handleToggleBulkActions,
-    });
-  }
+  const allMenuItems = useMemo(
+    () => {
+      const result = [...menuItems];
+      if (sortable) {
+        result.push({
+          icon: SortIcon,
+          key: 'customise-sort',
+          label: 'Custom Sort',
+          onClick: handleClickSort,
+        });
+      }
+      if (!alwaysShowCheckbox) {
+        result.push({
+          icon: bulkActions ? VisibilityOff : Visibility,
+          key: 'bulk-actions',
+          label: `${bulkActions ? 'Hide' : 'Show'} checkboxes`,
+          onClick: handleToggleBulkActions,
+        });
+      }
+      return result;
+    },
+    [
+      alwaysShowCheckbox,
+      bulkActions,
+      handleClickSort,
+      handleToggleBulkActions,
+      menuItems,
+      sortable,
+    ],
+  );
 
   return (
     <Paper className={classes.root}>
@@ -113,6 +146,11 @@ function TopBar({
           </MenuItem>
         ))}
       </Menu>
+
+      <SortDialog
+        onClose={handleCloseSort}
+        open={showSort}
+      />
     </Paper>
   );
 }

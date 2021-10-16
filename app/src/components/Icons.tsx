@@ -24,6 +24,7 @@ import ResetIcon from '@material-ui/icons/Replay';
 import SaveIcon from '@material-ui/icons/Check';
 import SearchIcon from '@material-ui/icons/Search';
 import SignOutIcon from '@material-ui/icons/ExitToApp';
+import SortIcon from '@material-ui/icons/Sort';
 import SuggestIcon from '@material-ui/icons/Update';
 import TagIcon from '@material-ui/icons/Label';
 import UnarchiveIcon from '@material-ui/icons/Unarchive';
@@ -63,6 +64,7 @@ export {
   SaveIcon,
   SearchIcon,
   SignOutIcon,
+  SortIcon,
   SuggestIcon,
   TagIcon,
   UnarchiveIcon,
