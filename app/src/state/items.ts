@@ -25,6 +25,7 @@ export interface InteractionNote extends BaseNote {
 }
 export interface ActionNote extends BaseNote {
   type: 'action',
+  completed?: number,
 }
 export type ItemNote = PrayerNote | InteractionNote | ActionNote;
 

@@ -130,6 +130,23 @@ function NoteControl<T extends ItemNote>({
     ),
     [onChange, rawNotes],
   );
+  const handleChangeCompleted = useCallback(
+    (noteId: string) => () => {
+      const index = rawNotes.findIndex(n => n.id === noteId);
+      if (index > -1) {
+        const newNotes = rawNotes.slice();
+        const note = newNotes[index];
+        if (note.type === 'action') {
+          newNotes[index] = {
+            ...newNotes[index],
+            completed: note.completed ? undefined : new Date().getTime(),
+          };
+          onChange(newNotes);
+        }
+      }
+    },
+    [onChange, rawNotes],
+  );
   const handleDateChange = useCallback(
     (noteId: string) => (
       (date: Date | null) => {
@@ -300,6 +317,19 @@ function NoteControl<T extends ItemNote>({
                   )}
                   label="Sensitive"
                 />
+
+                {note.type === 'action' && (
+                  <FormControlLabel
+                    control={(
+                      <Checkbox
+                        checked={!!note.completed}
+                        data-cy="sensitive-note"
+                        onChange={handleChangeCompleted(note.id)}
+                      />
+                    )}
+                    label="Completed"
+                  />
+                )}
 
                 <div className={classes.filler} />
 

@@ -125,6 +125,13 @@ function NoteDrawer({
     () => onChange({ ...note, sensitive: !note.sensitive }),
     [note, onChange],
   );
+  const handleChangeCompleted = useCallback(
+    () => note.type === 'action' && onChange({
+      ...note,
+      completed: note.completed ? undefined : new Date().getTime(),
+    }),
+    [note, onChange],
+  );
   const handleDateChange = useCallback(
     (date: Date | null) => onChange({ ...note, date: (date || new Date()).getTime() }),
     [note, onChange],
@@ -314,15 +321,29 @@ function NoteDrawer({
         )}
 
         {note.type === 'action' && (
-          <Grid item xs={12}>
-            <DatePicker<Date | null>
-              inputFormat="dd/MM/yyyy"
-              label="Action Due Date"
-              onChange={handleDateChange}
-              renderInput={params => <TextField {...params} variant="standard" />}
-              value={new Date(note.date)}
-            />
-          </Grid>
+          <>
+            <Grid item xs={12}>
+              <DatePicker<Date | null>
+                inputFormat="dd/MM/yyyy"
+                label="Action Due Date"
+                onChange={handleDateChange}
+                renderInput={params => <TextField {...params} variant="standard" />}
+                value={new Date(note.date)}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={(
+                  <Checkbox
+                    checked={!!note.completed}
+                    onChange={handleChangeCompleted}
+                  />
+                )}
+                label="Completed"
+              />
+            </Grid>
+          </>
         )}
       </Grid>
     </BaseDrawer>

@@ -32,7 +32,8 @@ function ActionsPage() {
 
   const allActions = useMemo(() => {
     const actions = getNotes(items, 'action') as ActionNote[];
-    const withTimes: [ActionNote, number][] = actions.map(
+    const unfinishedActions = actions.filter(a => !a.completed);
+    const withTimes: [ActionNote, number][] = unfinishedActions.map(
       action => [action, action.date - new Date().getTime()],
     );
     withTimes.sort((a, b) => a[1] - b[1]);
