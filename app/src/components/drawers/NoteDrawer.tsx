@@ -17,17 +17,15 @@ import {
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DatePicker } from '@material-ui/lab';
-import {
-  compareItems,
-  Item,
-  ItemNote,
-} from '../../state/items';
-import { useItemMap, useItems, useItemsById, useNoteMap, useVault } from '../../state/selectors';
+import { Item, ItemNote } from '../../state/items';
+import { useItemMap, useItems, useItemsById, useMetadata, useNoteMap, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
 import { RemoveIcon } from '../Icons';
 import { getItemId, usePrevious } from '../../utils';
+import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
+import { DEFAULT_MATURITY } from '../../state/account';
 
 export interface Props extends BaseDrawerProps {
   note: ItemNote,
@@ -49,8 +47,10 @@ function NoteDrawer({
   const allItems = useItems();
   const getItemsById = useItemsById();
   const itemMap = useItemMap();
+  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
+  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
   const vault = useVault();
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
@@ -64,14 +64,18 @@ function NoteDrawer({
   const autoFocusSearch = !editing && linkedItemsProp === undefined;
   const items = useMemo(
     () => (
-      allItems.filter(item => {
-        if (note.type === 'interaction') {
-          return item.type === 'person' || (!editing && item.type === 'group');
-        }
-        return true;
-      }).sort(compareItems)
+      sortItems(
+        allItems.filter(item => {
+          if (note.type === 'interaction') {
+            return item.type === 'person' || (!editing && item.type === 'group');
+          }
+          return true;
+        }),
+        sortCriteria,
+        maturity,
+      )
     ),
-    [allItems, editing, note.type],
+    [allItems, editing, maturity, note.type, sortCriteria],
   );
 
   useEffect(
