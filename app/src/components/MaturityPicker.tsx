@@ -9,8 +9,7 @@ import {
   MenuItem,
   TextField,
 } from '@material-ui/core';
-import { useMetadata } from '../state/selectors';
-import { DEFAULT_MATURITY } from '../state/account';
+import { useMaturity } from '../state/selectors';
 
 const useStyles = makeStyles(() => ({
   faded: {
@@ -39,7 +38,7 @@ function MaturityPicker({
 }: Props) {
   const classes = useStyles();
 
-  const [maturityStages] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
+  const [maturityStages] = useMaturity();
   const maturityOptions = useMemo<{ value: string, label: string, default?: boolean }[]>(
     () => [
       { value: '', label: 'Not Specified', default: true },
@@ -66,7 +65,8 @@ function MaturityPicker({
       onChange={handleChange}
       select
       value={maturityWithFallback}
-      variant="standard">
+      variant="standard"
+    >
       {maturityOptions.map(option => (
         <MenuItem
           className={option.default ? classes.faded : undefined}

@@ -6,14 +6,14 @@ import ItemList from '../ItemList';
 import {
   useIsActive,
   useItems,
-  useMetadata,
+  useMaturity,
   useOptions,
+  useSortCriteria,
 } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState, replaceActive, toggleSelected } from '../../state/ui';
-import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
-import { DEFAULT_MATURITY } from '../../state/account';
+import { sortItems } from '../../utils/customSort';
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -26,8 +26,8 @@ function ItemPage<T extends Item>({
   const isActive = useIsActive();
   const rawItems = useItems<T>(itemType);
   const selected = useAppSelector(state => state.ui.selected);
-  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
-  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
+  const [sortCriteria] = useSortCriteria();
+  const [maturity] = useMaturity();
   const { bulkActionsOnMobile } = useOptions();
 
   const items = useMemo(

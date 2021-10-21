@@ -16,13 +16,12 @@ import {
   Item,
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
-import { useItems, useMetadata, useTags } from '../../state/selectors';
+import { useItems, useMaturity, useSortCriteria, useTags } from '../../state/selectors';
 import { getTagPage } from '../pages';
 import { replaceActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
-import { DEFAULT_CRITERIA, sortItems } from '../../utils/customSort';
-import { DEFAULT_MATURITY } from '../../state/account';
+import { sortItems } from '../../utils/customSort';
 
 const useStyles = makeStyles(theme => ({
   optionHolder: {
@@ -164,8 +163,8 @@ function EverythingSearch({
   const dispatch = useAppDispatch();
   const history = useHistory();
   const items = useItems();
-  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
-  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
+  const [sortCriteria] = useSortCriteria();
+  const [maturity] = useMaturity();
   const tags = useTags();
 
   const options = useMemo<AnySearchable[]>(

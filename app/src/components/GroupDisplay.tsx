@@ -5,13 +5,12 @@ import {
 import makeStyles from '@material-ui/styles/makeStyles';
 import DeleteIcon from '@material-ui/icons/Close';
 import { GroupItem, ItemId } from '../state/items';
-import { useItems, useMetadata, useVault } from '../state/selectors';
+import { useItems, useMaturity, useSortCriteria, useVault } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
-import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort';
-import { DEFAULT_MATURITY } from '../state/account';
+import { sortItems } from '../utils/customSort';
 
 
 const useStyles = makeStyles(() => ({
@@ -34,8 +33,8 @@ function GroupDisplay({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
-  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
-  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
+  const [sortCriteria] = useSortCriteria();
+  const [maturity] = useMaturity();
 
   const activeGroups = useMemo(
     () => sortItems(allGroups.filter(g => !g.archived), sortCriteria, maturity),

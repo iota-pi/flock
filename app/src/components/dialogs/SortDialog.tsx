@@ -15,11 +15,10 @@ import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,
   CriterionName,
-  DEFAULT_CRITERIA,
   SortCriterion,
 } from '../../utils/customSort';
 import { RemoveIcon } from '../Icons';
-import { useMetadata } from '../../state/selectors';
+import { useSortCriteria } from '../../state/selectors';
 
 export interface Props {
   onClose: () => void,
@@ -31,7 +30,7 @@ function SortDialog({
   onClose,
   open,
 }: Props) {
-  const [sortCriteria, setSortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
+  const [sortCriteria, setSortCriteria] = useSortCriteria();
 
   const [localCriteria, setLocalCriteria] = useState<SortCriterion[]>([]);
 

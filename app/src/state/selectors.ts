@@ -1,6 +1,8 @@
 import memoize from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
+import { DEFAULT_CRITERIA } from '../utils/customSort';
+import { DEFAULT_MATURITY } from './account';
 import { getTags, Item, ItemId } from './items';
 import { setUiState, UiOptions } from './ui';
 
@@ -76,6 +78,9 @@ export function useMetadata<T = any>(
   );
   return [value, setValue];
 }
+
+export const useMaturity = () => useMetadata('maturity', DEFAULT_MATURITY);
+export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA);
 
 export const useTags = () => {
   const items = useItems();

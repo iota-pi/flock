@@ -12,13 +12,12 @@ import {
 import makeStyles from '@material-ui/styles/makeStyles';
 import download from 'js-file-download';
 import BasePage from './BasePage';
-import { useItems, useMetadata, useVault } from '../../state/selectors';
+import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
 import { DownloadIcon, EditIcon, MuiIconType, SignOutIcon, UploadIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
-import { DEFAULT_MATURITY } from '../../state/account';
 import ImportDialog from '../dialogs/ImportDialog';
 import { Item } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -140,7 +139,7 @@ function SettingsPage() {
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
   const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
-  const [maturity] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
+  const [maturity] = useMaturity();
 
   const [showGoalDialog, setShowGoalDialog] = useState(false);
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);

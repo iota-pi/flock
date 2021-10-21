@@ -5,13 +5,12 @@ import {
 import makeStyles from '@material-ui/styles/makeStyles';
 import DeleteIcon from '@material-ui/icons/Close';
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items';
-import { useItems, useItemsById, useMetadata } from '../state/selectors';
+import { useItems, useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
 import ItemList from './ItemList';
 import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
-import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort';
-import { DEFAULT_MATURITY } from '../state/account';
+import { sortItems } from '../utils/customSort';
 
 
 const useStyles = makeStyles(() => ({
@@ -35,8 +34,8 @@ function MemberDisplay({
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
   const people = useItems<PersonItem>('person');
-  const [sortCriteria] = useMetadata('sortCriteria', DEFAULT_CRITERIA);
-  const [maturity] = useMetadata('maturity', DEFAULT_MATURITY);
+  const [sortCriteria] = useSortCriteria();
+  const [maturity] = useMaturity();
 
   const activePeople = useMemo(
     () => sortItems(people.filter(p => !p.archived), sortCriteria, maturity),

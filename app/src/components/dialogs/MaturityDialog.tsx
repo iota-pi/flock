@@ -14,9 +14,8 @@ import makeStyles from '@material-ui/styles/makeStyles';
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
-import { useItems, useMetadata, useVault } from '../../state/selectors';
+import { useItems, useMaturity, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
-import { DEFAULT_MATURITY } from '../../state/account';
 import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
 
@@ -78,7 +77,7 @@ function MaturityDialog({
     [people],
   );
 
-  const [maturity, setMaturity] = useMetadata<string[]>('maturity', DEFAULT_MATURITY);
+  const [maturity, setMaturity] = useMaturity();
   const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
   const [originalWithIds, setOriginalWithIds] = useState<MaturityControl[]>([]);
   const [disableAnimation, setDisableAnimation] = useState(false);
