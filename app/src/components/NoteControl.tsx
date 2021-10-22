@@ -1,6 +1,7 @@
 import {
   ChangeEvent,
   Fragment,
+  memo,
   MouseEvent,
   useCallback,
   useMemo,
@@ -64,13 +65,6 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-export interface Props<T extends ItemNote> {
-  noNotesText?: string,
-  noteType: T['type'],
-  notes: T[],
-  onChange: (notes: T[]) => void,
-}
-
 function AddNoteButton(
   { dataCy, label, onClick }: { dataCy?: string, label: string, onClick: () => void },
 ) {
@@ -87,121 +81,59 @@ function AddNoteButton(
   );
 }
 
-
-function NoteControl<T extends ItemNote>({
-  noNotesText,
-  noteType,
-  notes: rawNotes,
-  onChange,
-}: Props<T>) {
+function SingleNote<T extends ItemNote>({
+  autoFocus,
+  note,
+  noteContentLabel,
+  onChangeCompleted,
+  onChangeContent,
+  onChangeDate,
+  onChangeSensitive,
+  onDelete,
+}: {
+  autoFocus: boolean,
+  note: T,
+  noteContentLabel: string,
+  onChangeCompleted: (noteId: string, completed: number | undefined) => void,
+  onChangeContent: (noteId: string, content: string) => void,
+  onChangeDate: (noteId: string, date: Date) => void,
+  onChangeSensitive: (noteId: string, sensitive: boolean) => void,
+  onDelete: (note: T) => void,
+}) {
   const classes = useStyles();
 
-  const notes = useMemo(
-    () => rawNotes.filter(note => note.type === noteType).sort(compareNotes),
-    [noteType, rawNotes],
-  );
-  const [autoFocus, setAutoFocus] = useState<string>();
-  const [noteToDelete, setNoteToDelete] = useState<ItemId>();
-  const [visibleSensitives, setVisibleSensitives] = useState<string[]>([]);
+  const [showSensitive, setShowSensitive] = useState(false);
 
-  const handleChange = useCallback(
-    (noteId: string) => (
-      (event: ChangeEvent<HTMLInputElement>) => {
-        const index = rawNotes.findIndex(n => n.id === noteId);
-        if (index > -1) {
-          const newNotes = rawNotes.slice();
-          newNotes[index] = { ...newNotes[index], content: event.target.value };
-          onChange(newNotes);
-        }
-      }
+  const handleChangeCompleted = useCallback(
+    () => note.type === 'action' && onChangeCompleted(
+      note.id,
+      note.completed ? undefined : new Date().getTime(),
     ),
-    [onChange, rawNotes],
+    [note, onChangeCompleted],
+  );
+  const handleChangeContent = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      onChangeContent(note.id, event.target.value);
+    },
+    [note, onChangeContent],
+  );
+  const handleChangeDate = useCallback(
+    (date: Date | null) => {
+      onChangeDate(note.id, date || new Date());
+    },
+    [note, onChangeDate],
   );
   const handleChangeSensitive = useCallback(
-    (noteId: string) => (
-      () => {
-        const index = rawNotes.findIndex(n => n.id === noteId);
-        if (index > -1) {
-          const newNotes = rawNotes.slice();
-          newNotes[index] = { ...newNotes[index], sensitive: !newNotes[index].sensitive };
-          onChange(newNotes);
-        }
-      }
-    ),
-    [onChange, rawNotes],
+    () => onChangeSensitive(note.id, !note.sensitive),
+    [note, onChangeSensitive],
   );
-  const handleChangeCompleted = useCallback(
-    (noteId: string) => () => {
-      const index = rawNotes.findIndex(n => n.id === noteId);
-      if (index > -1) {
-        const newNotes = rawNotes.slice();
-        const note = newNotes[index];
-        if (note.type === 'action') {
-          newNotes[index] = {
-            ...newNotes[index],
-            completed: note.completed ? undefined : new Date().getTime(),
-          };
-          onChange(newNotes);
-        }
-      }
-    },
-    [onChange, rawNotes],
-  );
-  const handleDateChange = useCallback(
-    (noteId: string) => (
-      (date: Date | null) => {
-        const defaultedDate = date || new Date();
-        const index = rawNotes.findIndex(n => n.id === noteId);
-        if (index > -1) {
-          const newNotes = rawNotes.slice();
-          newNotes[index] = { ...newNotes[index], date: defaultedDate.getTime() };
-          onChange(newNotes);
-        }
-      }
-    ),
-    [onChange, rawNotes],
-  );
-  const handleConfirmCancel = useCallback(() => { setNoteToDelete(undefined); }, []);
-  const handleConfirmDelete = useCallback(
-    (deleteId: ItemId) => {
-      const newNotes = rawNotes.filter(n => n.id !== deleteId);
-      onChange(newNotes);
-      setNoteToDelete(undefined);
-    },
-    [onChange, rawNotes],
-  );
+
   const handleDelete = useCallback(
-    (noteId: string) => {
-      const content = rawNotes.filter(n => n.id === noteId)[0].content;
-      if (!content) {
-        handleConfirmDelete(noteId);
-      } else {
-        setNoteToDelete(noteId);
-      }
-    },
-    [handleConfirmDelete, rawNotes],
+    () => onDelete(note),
+    [note, onDelete],
   );
-
-  const handleAddNote = useCallback(
-    () => {
-      const note = getBlankNote(noteType) as T;
-      onChange([...rawNotes, note]);
-      setAutoFocus(note.id);
-    },
-    [rawNotes, noteType, onChange],
-  );
-
   const handleClickVisibility = useCallback(
-    (note: ItemNote) => () => setVisibleSensitives(currentlyVisible => {
-      const index = currentlyVisible.indexOf(note.id);
-      if (index > -1) {
-        return [
-          ...currentlyVisible.slice(0, index),
-          ...currentlyVisible.slice(index + 1),
-        ];
-      }
-      return [...currentlyVisible, note.id];
-    }),
+    () => setShowSensitive(s => !s),
     [],
   );
   const handleMouseDownVisibility = useCallback(
@@ -209,9 +141,211 @@ function NoteControl<T extends ItemNote>({
     [],
   );
 
-  const isNoteVisible = useCallback(
-    (note: ItemNote) => !note.sensitive || visibleSensitives.includes(note.id),
-    [visibleSensitives],
+  const visible = !note.sensitive || showSensitive;
+
+  return (
+    <>
+      <Grid item xs={12}>
+        <div className={classes.noteContentRow}>
+          <TextField
+            autoFocus={autoFocus}
+            value={!visible ? '...' : note.content}
+            onChange={handleChangeContent}
+            disabled={!visible}
+            label={noteContentLabel}
+            InputProps={{
+              endAdornment: note.sensitive ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={handleClickVisibility}
+                    onMouseDown={handleMouseDownVisibility}
+                    size="large"
+                  >
+                    {visible ? <Visibility /> : <VisibilityOff />}
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+            multiline
+            fullWidth
+            variant="standard"
+          />
+        </div>
+
+        <div className={`${classes.noteContentRow} ${classes.center}`}>
+          {note.type === 'interaction' ? (
+            <DatePicker<Date | null>
+              value={new Date(note.date) as Date | null}
+              onChange={handleChangeDate}
+              maxDate={new Date()}
+              inputFormat="dd/MM/yyyy"
+              renderInput={params => (
+                <TextField
+                  {...params}
+                  InputProps={{
+                    ...params.InputProps,
+                    className: classes.firstFieldOfRow,
+                  }}
+                  variant="standard"
+                />
+              )}
+            />
+          ) : (
+            <div className={classes.firstFieldOfRow}>
+              <span className={classes.noteDate}>
+                Date: {formatDate(new Date(note.date))}
+              </span>
+            </div>
+          )}
+
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={note.sensitive || false}
+                data-cy="sensitive-note"
+                onChange={handleChangeSensitive}
+              />
+            )}
+            label="Sensitive"
+          />
+
+          {note.type === 'action' && (
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={!!note.completed}
+                  data-cy="sensitive-note"
+                  onChange={handleChangeCompleted}
+                />
+              )}
+              label="Completed"
+            />
+          )}
+
+          <div className={classes.filler} />
+
+          <div>
+            <IconButton
+              color="error"
+              data-cy="delete-note"
+              onClick={handleDelete}
+              size="small"
+            >
+              <DeleteIcon />
+            </IconButton>
+          </div>
+        </div>
+      </Grid>
+
+      <Grid item xs={12}>
+        <Divider />
+      </Grid>
+    </>
+  );
+}
+const MemoSingleNote = memo(SingleNote) as typeof SingleNote;
+
+
+export interface Props<T extends ItemNote> {
+  noNotesText?: string,
+  noteType: T['type'],
+  notes: T[],
+  onChange: (callback: (prevNotes: T[]) => T[]) => void,
+}
+
+function NoteControl<T extends ItemNote>({
+  noNotesText,
+  noteType,
+  notes: rawNotes,
+  onChange,
+}: Props<T>) {
+  const [autoFocus, setAutoFocus] = useState<string>();
+  const [noteToDelete, setNoteToDelete] = useState<ItemId>();
+
+  const notes = useMemo(
+    () => rawNotes.filter(note => note.type === noteType).sort(compareNotes),
+    [noteType, rawNotes],
+  );
+
+  const handleChangeCompleted = useCallback(
+    (noteId: string, completed: number | undefined) => onChange(prevNotes => {
+      const index = prevNotes.findIndex(n => n.id === noteId);
+      if (index > -1) {
+        const newNotes = prevNotes.slice();
+        const note = newNotes[index];
+        if (note.type === 'action') {
+          newNotes[index] = { ...note, completed };
+          return newNotes;
+        }
+      }
+      return prevNotes;
+    }),
+    [onChange],
+  );
+  const handleChangeContent = useCallback(
+    (noteId: string, content: string) => onChange(prevNotes => {
+      const index = prevNotes.findIndex(n => n.id === noteId);
+      if (index > -1) {
+        const newNotes = prevNotes.slice();
+        newNotes[index] = { ...newNotes[index], content };
+        return newNotes;
+      }
+      return prevNotes;
+    }),
+    [onChange],
+  );
+  const handleChangeDate = useCallback(
+    (noteId: string, date: Date | null) => onChange(prevNotes => {
+      const defaultedDate = date || new Date();
+      const index = prevNotes.findIndex(n => n.id === noteId);
+      if (index > -1) {
+        const newNotes = prevNotes.slice();
+        newNotes[index] = { ...newNotes[index], date: defaultedDate.getTime() };
+        return newNotes;
+      }
+      return prevNotes;
+    }),
+    [onChange],
+  );
+  const handleChangeSensitive = useCallback(
+    (noteId: string, sensitive: boolean) => onChange(prevNotes => {
+      const index = prevNotes.findIndex(n => n.id === noteId);
+      if (index > -1) {
+        const newNotes = prevNotes.slice();
+        newNotes[index] = { ...newNotes[index], sensitive };
+        return newNotes;
+      }
+      return prevNotes;
+    }),
+    [onChange],
+  );
+  const handleConfirmCancel = useCallback(() => setNoteToDelete(undefined), []);
+  const handleConfirmDelete = useCallback(
+    (deleteId: ItemId) => onChange(prevNotes => {
+      const newNotes = prevNotes.filter(n => n.id !== deleteId);
+      setNoteToDelete(undefined);
+      return newNotes;
+    }),
+    [onChange],
+  );
+  const handleDelete = useCallback(
+    (note: T) => {
+      if (!note.content) {
+        handleConfirmDelete(note.id);
+      } else {
+        setNoteToDelete(note.id);
+      }
+    },
+    [handleConfirmDelete],
+  );
+
+  const handleAddNote = useCallback(
+    () => {
+      const note = getBlankNote(noteType) as T;
+      onChange(ln => [...ln, note]);
+      setAutoFocus(note.id);
+    },
+    [onChange, noteType],
   );
 
   const addNoteLabel = useMemo(
@@ -254,101 +388,16 @@ function NoteControl<T extends ItemNote>({
 
         {notes.map(note => (
           <Fragment key={note.id}>
-            <Grid item xs={12}>
-              <div className={classes.noteContentRow}>
-                <TextField
-                  autoFocus={autoFocus === note.id}
-                  value={!isNoteVisible(note) ? '...' : note.content}
-                  onChange={handleChange(note.id)}
-                  disabled={!isNoteVisible(note)}
-                  label={noteContentLabel}
-                  InputProps={{
-                    endAdornment: note.sensitive ? (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={handleClickVisibility(note)}
-                          onMouseDown={handleMouseDownVisibility}
-                          size="large"
-                        >
-                          {isNoteVisible(note) ? <Visibility /> : <VisibilityOff />}
-                        </IconButton>
-                      </InputAdornment>
-                    ) : null,
-                  }}
-                  multiline
-                  fullWidth
-                  variant="standard"
-                />
-              </div>
-
-              <div className={`${classes.noteContentRow} ${classes.center}`}>
-                {note.type === 'interaction' ? (
-                  <DatePicker<Date | null>
-                    value={new Date(note.date) as Date | null}
-                    onChange={handleDateChange(note.id)}
-                    maxDate={new Date()}
-                    inputFormat="dd/MM/yyyy"
-                    renderInput={params => (
-                      <TextField
-                        {...params}
-                        InputProps={{
-                          ...params.InputProps,
-                          className: classes.firstFieldOfRow,
-                        }}
-                        variant="standard"
-                      />
-                    )}
-                  />
-                ) : (
-                  <div className={classes.firstFieldOfRow}>
-                    <span className={classes.noteDate}>
-                      Date: {formatDate(new Date(note.date))}
-                    </span>
-                  </div>
-                )}
-
-                <FormControlLabel
-                  control={(
-                    <Checkbox
-                      checked={note.sensitive || false}
-                      data-cy="sensitive-note"
-                      onChange={handleChangeSensitive(note.id)}
-                    />
-                  )}
-                  label="Sensitive"
-                />
-
-                {note.type === 'action' && (
-                  <FormControlLabel
-                    control={(
-                      <Checkbox
-                        checked={!!note.completed}
-                        data-cy="sensitive-note"
-                        onChange={handleChangeCompleted(note.id)}
-                      />
-                    )}
-                    label="Completed"
-                  />
-                )}
-
-                <div className={classes.filler} />
-
-                <div>
-                  <IconButton
-                    color="error"
-                    data-cy="delete-note"
-                    onClick={() => handleDelete(note.id)}
-                    size="small"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </div>
-              </div>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider />
-            </Grid>
+            <MemoSingleNote
+              autoFocus={autoFocus === note.id}
+              note={note}
+              noteContentLabel={noteContentLabel}
+              onChangeCompleted={handleChangeCompleted}
+              onChangeContent={handleChangeContent}
+              onChangeDate={handleChangeDate}
+              onChangeSensitive={handleChangeSensitive}
+              onDelete={handleDelete}
+            />
           </Fragment>
         ))}
 

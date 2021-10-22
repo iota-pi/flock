@@ -78,8 +78,13 @@ function IndividualDrawer({
 
   const [localItem, setLocalItem] = useState<ItemOrNote | undefined>(item);
   const handleChange = useCallback(
-    (data: Partial<Omit<ItemOrNote, 'type' | 'id'>>) => setLocalItem(prevItem => {
+    (
+      data: Partial<Omit<ItemOrNote, 'type' | 'id'>> | ((prev: ItemOrNote) => ItemOrNote),
+    ) => setLocalItem(prevItem => {
       if (prevItem) {
+        if (typeof data === 'function') {
+          return data(prevItem);
+        }
         return { ...prevItem, ...data } as ItemOrNote;
       }
       return undefined;

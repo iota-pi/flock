@@ -62,7 +62,9 @@ const SectionHolder = styled('div')({
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
-  onChange: (item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>>) => void,
+  onChange: (
+    item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+  ) => void,
 }
 
 export interface ItemAndChangeCallback {
@@ -182,6 +184,12 @@ function ItemDrawer({
   const handleChangeMaturity = useCallback(
     (maturity: string | null) => handleChange<PersonItem>({ maturity }),
     [handleChange],
+  );
+  const handleChangeNotes = useCallback(
+    (callback: (prevNotes: ItemNote[]) => ItemNote[]) => {
+      onChange(i => dirtyItem({ ...i, notes: callback(i.notes) }));
+    },
+    [onChange],
   );
 
   const isValid = useCallback(
@@ -496,7 +504,7 @@ function ItemDrawer({
           <NoteControl
             noNotesText="No prayer points"
             notes={item.notes}
-            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            onChange={handleChangeNotes}
             noteType="prayer"
           />
         )}
@@ -506,7 +514,7 @@ function ItemDrawer({
         title="Prayer points"
       />
     ),
-    [handleChange, item.isNew, item.notes],
+    [handleChangeNotes, item.isNew, item.notes],
   );
 
   const interactionSection = useMemo(
@@ -516,7 +524,7 @@ function ItemDrawer({
           <NoteControl
             noNotesText="No interactions"
             notes={item.notes}
-            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            onChange={handleChangeNotes}
             noteType="interaction"
           />
         )}
@@ -526,7 +534,7 @@ function ItemDrawer({
         title="Interactions"
       />
     ),
-    [handleChange, item.isNew, item.notes, item.type],
+    [handleChangeNotes, item.isNew, item.notes, item.type],
   );
 
   const actionSection = useMemo(
@@ -536,7 +544,7 @@ function ItemDrawer({
           <NoteControl
             noNotesText="No actions"
             notes={item.notes}
-            onChange={(notes: ItemNote[]) => handleChange({ notes })}
+            onChange={handleChangeNotes}
             noteType="action"
           />
         )}
@@ -546,7 +554,7 @@ function ItemDrawer({
         title="Actions"
       />
     ),
-    [handleChange, item.isNew, item.notes],
+    [handleChangeNotes, item.isNew, item.notes],
   );
 
   return (
