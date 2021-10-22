@@ -98,6 +98,7 @@ function CollapsibleSection({
       expanded={expanded}
       onChange={handleChange}
       square
+      TransitionProps={{ unmountOnExit: true }}
     >
       <AccordionSummary
         aria-controls={`${id}-content`}
