@@ -280,9 +280,9 @@ function MaturityDialog({
           color="primary"
           data-cy="maturity-done"
           disabled={localMaturity.length === 0}
-          onClick={handleDone}
-          variant="outlined"
           fullWidth
+          onClick={handleDone}
+          variant="contained"
         >
           Save
         </Button>

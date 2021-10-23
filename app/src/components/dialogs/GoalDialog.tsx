@@ -135,11 +135,11 @@ function GoalDialog({
 
         <Button
           disabled={error}
-          onClick={handleDone}
-          variant="outlined"
           color={warning ? 'secondary' : 'primary'}
           fullWidth
+          onClick={handleDone}
           startIcon={warning ? <WarningIcon /> : <SaveIcon />}
+          variant="contained"
         >
           Done
         </Button>

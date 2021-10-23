@@ -178,9 +178,9 @@ function SortDialog({
           color="primary"
           data-cy="sort-done"
           disabled={localCriteria.length === 0}
-          onClick={handleDone}
-          variant="outlined"
           fullWidth
+          onClick={handleDone}
+          variant="contained"
         >
           Save
         </Button>
