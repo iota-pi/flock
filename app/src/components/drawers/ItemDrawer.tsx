@@ -272,6 +272,19 @@ function ItemDrawer({
     },
     [handleSave, item.id, open, prevItem],
   );
+  useEffect(
+    () => {
+      if (item.dirty && !item.isNew) {
+        const timeout = setTimeout(
+          () => handleSave(item),
+          10000,
+        );
+        return () => clearTimeout(timeout);
+      }
+      return undefined;
+    },
+    [handleSave, item],
+  );
 
   const firstName = item.type === 'person' ? item.firstName : item.name;
   const lastName = item.type === 'person' ? item.lastName : undefined;
