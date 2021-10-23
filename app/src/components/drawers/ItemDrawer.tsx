@@ -227,11 +227,15 @@ function ItemDrawer({
     [isValid, vault],
   );
   const handleSaveAndClose = useCallback(
-    async () => {
+    () => {
       handleSave(item);
       onClose();
     },
     [handleSave, item, onClose],
+  );
+  const handleSaveButton = useCallback(
+    () => handleSave(item),
+    [handleSave, item],
   );
   const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
@@ -579,7 +583,8 @@ function ItemDrawer({
         onCancel: handleCancel,
         onDelete: handleDelete,
         onReport: hasReport ? handleReport : undefined,
-        onSave: handleSaveAndClose,
+        onSave: handleSaveButton,
+        promptSave: item.dirty,
       }}
       alwaysTemporary={alwaysTemporary}
       itemKey={item.id}

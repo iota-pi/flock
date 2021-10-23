@@ -1,6 +1,6 @@
 import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
-import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect } from 'react';
+import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect, useMemo } from 'react';
 import { RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWatcher';
@@ -130,6 +130,14 @@ function BaseDrawer({
 
   const page = usePage();
 
+  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
+  const showBackButton = onBack && (
+    alwaysShowBack || (
+      !hideBackButton && (xsScreen || permanentDrawer)
+    )
+  );
+  const showTypeIcon = !hideTypeIcon;
+
   const handleBack = useCallback(
     () => {
       if (onBack) {
@@ -148,14 +156,27 @@ function BaseDrawer({
     },
     [onClose],
   );
-
-  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
-  const showBackButton = onBack && (
-    alwaysShowBack || (
-      !hideBackButton && (xsScreen || permanentDrawer)
-    )
+  const handleSave = useMemo(
+    () => {
+      if (ActionProps?.onSave) {
+        return () => {
+          ActionProps.onSave();
+          if (!permanentDrawer) {
+            onClose();
+          }
+        };
+      }
+      return undefined;
+    },
+    [ActionProps, onClose, permanentDrawer],
   );
-  const showTypeIcon = !hideTypeIcon;
+  const modifiedActionProps = useMemo(
+    () => ActionProps && ({
+      ...ActionProps,
+      onSave: handleSave,
+    } as DrawerActionsProps),
+    [ActionProps, handleSave],
+  );
 
   const prevKey = usePrevious(itemKey);
   const containerRef = createRef<HTMLDivElement>();
@@ -216,9 +237,12 @@ function BaseDrawer({
           </>
         </Container>
 
-        {ActionProps && (
+        {modifiedActionProps && (
           <div>
-            <DrawerActions {...ActionProps} />
+            <DrawerActions
+              permanentDrawer={permanentDrawer}
+              {...modifiedActionProps}
+            />
           </div>
         )}
       </div>

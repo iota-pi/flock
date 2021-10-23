@@ -31,6 +31,8 @@ export interface BaseProps {
   itemIsNew?: boolean,
   itemIsNote?: boolean,
   itemName?: string,
+  permanentDrawer?: boolean,
+  promptSave?: boolean,
 }
 
 export interface PropsWithSave extends BaseProps {
@@ -81,6 +83,8 @@ function DrawerActions({
   onReport,
   onSave,
   onSkip,
+  permanentDrawer,
+  promptSave,
 }: Props) {
   const classes = useStyles();
 
@@ -156,9 +160,9 @@ function DrawerActions({
                 fullWidth
                 onClick={onSave}
                 startIcon={<SaveIcon />}
-                variant="contained"
+                variant={promptSave ? 'contained' : 'outlined'}
               >
-                Done
+                {permanentDrawer ? 'Save' : 'Done'}
               </Button>
             </Grid>
           )}
