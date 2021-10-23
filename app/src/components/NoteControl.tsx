@@ -173,11 +173,12 @@ function SingleNote<T extends ItemNote>({
         </div>
 
         <div className={`${classes.noteContentRow} ${classes.center}`}>
-          {note.type === 'interaction' ? (
+          {note.type !== 'prayer' ? (
             <DatePicker<Date | null>
               value={new Date(note.date) as Date | null}
               onChange={handleChangeDate}
-              maxDate={new Date()}
+              minDate={note.type === 'action' ? new Date() : undefined}
+              maxDate={note.type === 'interaction' ? new Date() : undefined}
               inputFormat="dd/MM/yyyy"
               renderInput={params => (
                 <TextField
