@@ -40,7 +40,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { ActionIcon, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import { ActionIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
@@ -594,6 +594,7 @@ function ItemDrawer({
       onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
+      typeIcon={getIconType(item.type)}
     >
       <Grid container spacing={2}>
         <Grid item xs={12} mt={-1}>

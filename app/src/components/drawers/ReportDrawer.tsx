@@ -7,6 +7,7 @@ import { pushActive, updateActive } from '../../state/ui';
 import { useVault } from '../../state/selectors';
 import { isSameDay } from '../../utils';
 import { getLastPrayedFor } from '../../utils/prayer';
+import { getIconType } from '../Icons';
 
 export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
@@ -101,6 +102,7 @@ function ReportDrawer({
       onClose={onClose}
       onExited={onExited}
       stacked={stacked}
+      typeIcon={getIconType(item.type)}
     >
       <ItemReport
         item={item}

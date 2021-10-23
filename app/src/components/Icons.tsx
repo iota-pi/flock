@@ -33,7 +33,7 @@ import WarningIcon from '@material-ui/icons/Warning';
 
 import { FaPrayingHands } from 'react-icons/fa';
 
-import { ItemType } from '../state/items';
+import { ItemOrNoteType } from '../state/items';
 
 const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
 
@@ -72,13 +72,20 @@ export {
   WarningIcon,
 };
 
-export function getIcon(itemType: ItemType | 'tag') {
-  if (itemType === 'person') {
-    return <PersonIcon />;
-  } else if (itemType === 'group') {
-    return <GroupIcon />;
-  } else if (itemType === 'tag') {
-    return <TagIcon />;
-  }
-  return <GeneralIcon />;
+export function getIconType(itemType: ItemOrNoteType | 'tag'): MuiIconType {
+  const iconTypeMap: Record<typeof itemType, MuiIconType> = {
+    person: PersonIcon,
+    group: GroupIcon,
+    action: ActionIcon,
+    interaction: InteractionIcon,
+    prayer: PrayerIcon,
+    general: GeneralIcon,
+    tag: TagIcon,
+  };
+  return iconTypeMap[itemType];
+}
+
+export function getIcon(itemType: ItemOrNoteType | 'tag') {
+  const IconType = getIconType(itemType);
+  return <IconType />;
 }

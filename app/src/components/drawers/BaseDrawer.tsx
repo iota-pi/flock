@@ -1,10 +1,9 @@
 import makeStyles from '@material-ui/styles/makeStyles';
 import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
 import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect, useMemo } from 'react';
-import { RemoveIcon } from '../Icons';
+import { MuiIconType, RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWatcher';
-import { usePage } from '../pages';
 import { ItemId } from '../../state/items';
 import { usePrevious } from '../../utils';
 
@@ -100,6 +99,7 @@ interface SpecificProps {
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
   itemKey?: ItemId,
+  typeIcon?: MuiIconType,
 }
 export type { BaseProps as BaseDrawerProps };
 type Props = BaseProps & SpecificProps;
@@ -119,6 +119,7 @@ function BaseDrawer({
   onUnmount,
   open,
   stacked,
+  typeIcon: Icon,
 }: PropsWithChildren<Props>) {
   const classes = useStyles();
   const commonClasses = [classes.drawerWidth];
@@ -127,8 +128,6 @@ function BaseDrawer({
   const paperClasses = [classes.drawerPaper, ...commonClasses];
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
-
-  const page = usePage();
 
   const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
   const showBackButton = onBack && (
@@ -221,8 +220,8 @@ function BaseDrawer({
           ref={containerRef}
         >
           <>
-            {showTypeIcon && (
-              <page.icon className={classes.typeIcon} />
+            {showTypeIcon && Icon && (
+              <Icon className={classes.typeIcon} />
             )}
 
             {showBackButton && (

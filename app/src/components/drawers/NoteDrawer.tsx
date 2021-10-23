@@ -30,7 +30,7 @@ import {
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
-import { RemoveIcon } from '../Icons';
+import { getIconType, RemoveIcon } from '../Icons';
 import { getItemId, usePrevious } from '../../utils';
 import { sortItems } from '../../utils/customSort';
 
@@ -248,6 +248,7 @@ function NoteDrawer({
       onExited={onExited}
       open={open}
       stacked={stacked}
+      typeIcon={getIconType(note.type)}
     >
       <Grid container spacing={2}>
         <Grid item xs={12}>
