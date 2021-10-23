@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from 'react';
+import React, { ComponentType, ReactNode, useMemo } from 'react';
 import { Switch, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
@@ -143,9 +143,10 @@ export const pages: Page[] = [
   },
 ];
 
+const reversedPages = pages.slice().reverse();
 const allPages: (InternalPage | Page)[] = [
   ...internalPages,
-  ...pages.slice().reverse(),
+  ...reversedPages,
 ];
 
 function PageView() {
@@ -186,7 +187,10 @@ export function getTagPage(tag: string) {
 
 export function useAnyPage() {
   const location = useLocation();
-  const page = allPages.find(p => matchPath(location.pathname, p));
+  const page = useMemo(
+    () => allPages.find(p => matchPath(location.pathname, p)),
+    [location.pathname],
+  );
   if (page) {
     return page;
   }
@@ -195,9 +199,27 @@ export function useAnyPage() {
 
 export function usePage() {
   const location = useLocation();
-  const page = pages.slice().reverse().find(p => matchPath(location.pathname, p));
+  const page = useMemo(
+    () => reversedPages.find(p => matchPath(location.pathname, p)),
+    [location.pathname],
+  );
   if (page) {
     return page;
   }
   throw new Error('Could not find matching page');
 }
+
+interface PageProps {
+  page: Page,
+}
+export type WithPage<P> = P & PageProps;
+export const withPage = <P extends PageProps>(
+  Component: ComponentType<P>,
+) => {
+  type BaseProps = Omit<P, keyof PageProps>;
+  const WithPageHOC: React.FC<BaseProps> = (props: BaseProps) => {
+    const page = usePage();
+    return <Component {...props as P} page={page} />;
+  };
+  return WithPageHOC;
+};

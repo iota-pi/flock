@@ -1,4 +1,3 @@
-import { useRouteMatch } from 'react-router-dom';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
   AppBar as MuiAppBar,
@@ -14,7 +13,6 @@ import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
 import { dark as darkTheme } from '../../theme';
 import EverythingSearch from './EverythingSearch';
-import { getPage } from '../pages';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
 
 const useStyles = makeStyles(theme => ({
@@ -64,18 +62,12 @@ export interface Props {
   onMinimiseMenu: () => void,
 }
 
-function useTagParam() {
-  const params = useRouteMatch(getPage('tag').path)?.params as { tag: string } | undefined;
-  return params?.tag ? decodeURIComponent(params?.tag) : undefined;
-}
-
 
 function AppBar({
   minimisedMenu,
   onMinimiseMenu,
 }: Props) {
   const classes = useStyles();
-  const tag = useTagParam();
   const showAppTitle = useMediaQuery((theme: Theme) => theme.breakpoints.up('sm'));
 
   return (
@@ -106,7 +98,7 @@ function AppBar({
 
         <div className={classes.searchField}>
           <ThemeProvider theme={darkTheme}>
-            <EverythingSearch label={tag || 'Search'} />
+            <EverythingSearch label="Search" />
           </ThemeProvider>
         </div>
       </Toolbar>

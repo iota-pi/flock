@@ -1,5 +1,5 @@
-import { Fragment, ReactNode, useCallback } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import { Fragment, memo, ReactNode, useCallback } from 'react';
+import { useHistory } from 'react-router-dom';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
   alpha,
@@ -11,7 +11,7 @@ import {
   ListItemText,
   Toolbar,
 } from '@material-ui/core';
-import { pages } from '../pages';
+import { Page, pages, withPage } from '../pages';
 import { useAppDispatch } from '../../store';
 import { setUiState } from '../../state/ui';
 
@@ -93,6 +93,7 @@ const useStyles = makeStyles(theme => ({
 export interface Props {
   minimised?: boolean,
   open: boolean,
+  page: Page,
 }
 
 export interface UserInterface {
@@ -105,22 +106,21 @@ export interface UserInterface {
 function MainMenu({
   minimised,
   open,
+  page,
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
-  const location = useLocation();
 
-  const currentPageId = pages.find(p => p.path === location.pathname)?.id;
   const handleClick = useCallback(
     (pageId: string) => () => {
-      if (currentPageId !== pageId) {
-        const page = pages.find(p => p.id === pageId)! || '';
-        history.push(page.path);
+      if (page.id !== pageId) {
+        const newPage = pages.find(p => p.id === pageId)! || '';
+        history.push(newPage.path);
         dispatch(setUiState({ selected: [] }));
       }
     },
-    [currentPageId, dispatch, history],
+    [page.id, dispatch, history],
   );
 
   return (
@@ -144,7 +144,7 @@ function MainMenu({
 
               <ListItem
                 button
-                className={`${classes.menuItem} ${id === currentPageId ? classes.primary : ''}`}
+                className={`${classes.menuItem} ${id === page.id ? classes.primary : ''}`}
                 data-cy={`page-${id}`}
                 onClick={handleClick(id)}
               >
@@ -167,5 +167,6 @@ function MainMenu({
     </Drawer>
   );
 }
+const MemoMainMenu = memo(MainMenu);
 
-export default MainMenu;
+export default withPage(MemoMainMenu);
