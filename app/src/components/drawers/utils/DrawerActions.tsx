@@ -84,7 +84,7 @@ function DrawerActions({
   onSave,
   onSkip,
   permanentDrawer,
-  promptSave,
+  promptSave = true,
 }: Props) {
   const classes = useStyles();
 
