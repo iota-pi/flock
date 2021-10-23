@@ -54,7 +54,7 @@ function ConfirmationDialog({
           data-cy="confirm-confirm"
           fullWidth
           onClick={onConfirm}
-          variant="outlined"
+          variant="contained"
         >
           {confirm}
         </Button>
