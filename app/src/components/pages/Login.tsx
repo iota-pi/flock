@@ -190,7 +190,8 @@ function LoginPage() {
                 name="username"
                 onChange={handleChangeAccount}
                 value={accountInput}
-                variant="standard" />
+                variant="standard"
+              />
             </div>
 
             <div className={classes.textFieldHolder}>
@@ -217,7 +218,8 @@ function LoginPage() {
                 onChange={handleChangePassword}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                variant="standard" />
+                variant="standard"
+              />
             </div>
 
             <Button
