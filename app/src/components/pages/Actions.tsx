@@ -1,6 +1,7 @@
-import { useCallback, useMemo } from 'react';
 import { Container, Divider, Typography } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
+import { useCallback, useMemo } from 'react';
+import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
 import { ActionNote, getBlankAction, getNotes } from '../../state/items';
 import BasePage from './BasePage';
@@ -9,6 +10,7 @@ import { useAppDispatch } from '../../store';
 import NoteList from '../NoteList';
 import { ONE_DAY } from '../../utils/frequencies';
 import { isSameDay } from '../../utils';
+import { ItemListExtraElement } from '../ItemList';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -39,7 +41,7 @@ function ActionsPage() {
     withTimes.sort((a, b) => a[1] - b[1]);
     return withTimes.map(([action]) => action);
   }, [items]);
-  const todayIndex = useMemo(
+  const comingSoonIndex = useMemo(
     () => {
       const index = allActions.findIndex(
         action => (
@@ -51,7 +53,7 @@ function ActionsPage() {
     },
     [allActions],
   );
-  const comingSoonIndex = useMemo(
+  const laterIndex = useMemo(
     () => {
       const index = allActions.findIndex(
         action => action.date > new Date().getTime() + ONE_DAY * 7,
@@ -59,18 +61,6 @@ function ActionsPage() {
       return index > -1 ? index : allActions.length;
     },
     [allActions],
-  );
-  const todayActions = useMemo(
-    () => allActions.slice(0, todayIndex),
-    [allActions, todayIndex],
-  );
-  const comingSoonActions = useMemo(
-    () => allActions.slice(todayIndex, comingSoonIndex),
-    [allActions, comingSoonIndex, todayIndex],
-  );
-  const otherActions = useMemo(
-    () => allActions.slice(comingSoonIndex),
-    [allActions, comingSoonIndex],
   );
 
   const handleClick = useCallback(
@@ -84,56 +74,75 @@ function ActionsPage() {
     [dispatch],
   );
 
+  const extraElements: ItemListExtraElement[] = useMemo(
+    () => [
+      {
+        content: (
+          <>
+            <Container maxWidth="xl" className={classes.container}>
+              <Typography variant="h4" className={classes.heading}>
+                Due actions
+              </Typography>
+            </Container>
+
+            <Divider />
+          </>
+        ),
+        height: 74,
+        index: 0,
+      },
+      {
+        content: comingSoonIndex < laterIndex && (
+          <>
+            <Container maxWidth="xl" className={classes.container}>
+              <Typography variant="h4" className={classes.heading}>
+                Coming soon
+              </Typography>
+            </Container>
+
+            <Divider />
+          </>
+        ),
+        height: 74,
+        index: comingSoonIndex,
+      },
+      {
+        content: laterIndex < allActions.length && (
+          <>
+            <Container maxWidth="xl" className={classes.container}>
+              <Typography variant="h4" className={classes.heading}>
+                Later actions
+              </Typography>
+            </Container>
+
+            <Divider />
+          </>
+        ),
+        height: 74,
+        index: laterIndex,
+      },
+    ],
+    [allActions.length, classes, laterIndex, comingSoonIndex],
+  );
+
   return (
     <BasePage
       fab
       fabLabel="Add action"
       onClickFab={handleClickAdd}
     >
-      <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading}>
-          Due actions
-        </Typography>
-      </Container>
-
-      <Divider />
-
-      <NoteList
-        notes={todayActions}
-        noNotesText="No action items due"
-        onClick={handleClick}
-        showIcons
-      />
-
-      <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading}>
-          Coming soon
-        </Typography>
-      </Container>
-
-      <Divider />
-
-      <NoteList
-        notes={comingSoonActions}
-        noNotesText="No action items due"
-        onClick={handleClick}
-        showIcons
-      />
-
-      <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading}>
-          Later actions
-        </Typography>
-      </Container>
-
-      <Divider />
-
-      <NoteList
-        notes={otherActions}
-        noNotesText="No action items due"
-        onClick={handleClick}
-        showIcons
-      />
+      <AutoSizer disableWidth>
+        {({ height }) => (
+          <NoteList
+            extraElements={extraElements}
+            notes={allActions}
+            onClick={handleClick}
+            noNotesText="No action items due"
+            showIcons
+            viewHeight={height}
+          />
+        )}
+      </AutoSizer>
     </BasePage>
   );
 }

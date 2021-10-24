@@ -21,6 +21,7 @@ export interface Props<T extends ItemNote> {
   onClick?: (note: T) => void,
   paddingTop?: boolean,
   showIcons?: boolean,
+  viewHeight?: number,
 }
 
 function NoteList<T extends ItemNote = ItemNote>({
@@ -37,6 +38,7 @@ function NoteList<T extends ItemNote = ItemNote>({
   noNotesText,
   onClick,
   showIcons = false,
+  viewHeight,
 }: Props<T>) {
   const compactList = !displayNoteDate && !displayItemNames;
   const [showSensitives, setShowSensitives] = useState<string[]>([]);
@@ -132,6 +134,7 @@ function NoteList<T extends ItemNote = ItemNote>({
       onClick={onClick}
       onClickAction={handleToggleSensitive}
       showIcons={showIcons}
+      viewHeight={viewHeight}
     />
   );
 }

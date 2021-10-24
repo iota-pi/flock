@@ -389,9 +389,10 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
   const extraElementsByIndex = useMemo(
     () => items.map((_, index) => {
       const elementsForIndex = extraElements?.filter(ee => ee.index === index) || [];
+      const elementsWithContent = elementsForIndex.filter(e => !!e.content);
       return {
-        content: elementsForIndex.map(e => e.content),
-        height: elementsForIndex.reduce((total, e) => total + e.height, 0),
+        content: elementsWithContent.map(e => e.content),
+        height: elementsWithContent.reduce((total, e) => total + e.height, 0),
       };
     }),
     [extraElements, items],
