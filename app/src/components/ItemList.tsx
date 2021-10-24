@@ -454,30 +454,30 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     >
       {dividers && items.length === 0 && <Divider />}
 
-      {viewHeight !== undefined ? (
-        <VariableSizeList
-          height={viewHeight}
-          itemCount={items.length}
-          itemData={itemData as unknown as BaseProps<ItemOrNote>}
-          itemKey={getItemKey}
-          itemSize={getItemSize}
-          width="100%"
-          ref={listRef}
-        >
-          {MemoItemListItem}
-        </VariableSizeList>
+      {items.length > 0 ? (
+        viewHeight !== undefined ? (
+          <VariableSizeList
+            height={viewHeight}
+            itemCount={items.length}
+            itemData={itemData as unknown as BaseProps<ItemOrNote>}
+            itemKey={getItemKey}
+            itemSize={getItemSize}
+            width="100%"
+            ref={listRef}
+          >
+            {MemoItemListItem}
+          </VariableSizeList>
+        ) : (
+          items.map((item, index) => (
+            <MemoItemListItem
+              data={itemData}
+              index={index}
+              key={item.id}
+              style={noStyle.current}
+            />
+          ))
+        )
       ) : (
-        items.map((item, index) => (
-          <MemoItemListItem
-            data={itemData}
-            index={index}
-            key={item.id}
-            style={noStyle.current}
-          />
-        ))
-      )}
-
-      {items.length === 0 && (
         <ListItem>
           <ListItemText primary={noItemsText} secondary={noItemsHint} />
         </ListItem>

@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from 'react';
 import { Container, Divider, Theme, Typography, useMediaQuery } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
+import { useCallback, useMemo } from 'react';
+import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
-import ItemList from '../ItemList';
+import ItemList, { ItemListExtraElement } from '../ItemList';
 import { getBlankInteraction, PersonItem } from '../../state/items';
 import { getInteractionSuggestions, getLastInteractionDate } from '../../utils/interactions';
 import { formatDate } from '../../utils';
@@ -56,28 +57,47 @@ function InteractionsPage() {
   const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const maxTags = sm ? 2 : 3;
 
+  const extraElements: ItemListExtraElement[] = useMemo(
+    () => [
+      {
+        content: (
+          <>
+            <Container maxWidth="xl" className={classes.container}>
+              <Typography variant="h4" className={classes.heading}>
+                Suggestions
+              </Typography>
+            </Container>
+
+            <Divider />
+          </>
+        ),
+        height: 74,
+        index: 0,
+      },
+    ],
+    [classes],
+  );
+
   return (
     <BasePage
       fab
       fabLabel="Add interaction"
       onClickFab={handleClickAdd}
     >
-      <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading}>
-          Suggestions
-        </Typography>
-      </Container>
-
-      <Divider />
-
-      <ItemList
-        getDescription={getDescription}
-        items={suggestions}
-        maxTags={maxTags}
-        noItemsText="Nice! You're all caught up"
-        onClick={handleClick}
-        showIcons
-      />
+      <AutoSizer disableWidth>
+        {({ height }) => (
+          <ItemList
+            extraElements={extraElements}
+            getDescription={getDescription}
+            items={suggestions}
+            maxTags={maxTags}
+            noItemsText="Nice! You're all caught up"
+            onClick={handleClick}
+            showIcons
+            viewHeight={height}
+          />
+        )}
+      </AutoSizer>
     </BasePage>
   );
 }

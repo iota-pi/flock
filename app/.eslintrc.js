@@ -32,6 +32,7 @@ module.exports = {
     'no-continue': 'off',
     'no-else-return': ['error', { allowElseIf: true }],
     'no-multiple-empty-lines': ['error', { 'max': 2, 'maxEOF': 1 }],
+    'no-nested-ternary': 'off',
     'no-plusplus': ['error', { 'allowForLoopAfterthoughts': true }],
     'no-underscore-dangle': 'off',
     'no-use-before-define': 'off',
