@@ -162,7 +162,7 @@ function DrawerActions({
                 startIcon={<SaveIcon />}
                 variant={promptSave ? 'contained' : 'outlined'}
               >
-                {permanentDrawer ? 'Save' : 'Done'}
+                {permanentDrawer && promptSave ? 'Save' : 'Done'}
               </Button>
             </Grid>
           )}

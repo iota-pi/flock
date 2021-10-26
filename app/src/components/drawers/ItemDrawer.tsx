@@ -584,7 +584,7 @@ function ItemDrawer({
         onDelete: handleDelete,
         onReport: hasReport ? handleReport : undefined,
         onSave: handleSaveButton,
-        promptSave: item.dirty,
+        promptSave: !!item.dirty,
       }}
       alwaysTemporary={alwaysTemporary}
       itemKey={item.id}

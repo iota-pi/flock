@@ -160,7 +160,7 @@ function BaseDrawer({
       if (ActionProps?.onSave) {
         return () => {
           ActionProps.onSave();
-          if (!permanentDrawer) {
+          if (!(permanentDrawer && ActionProps.promptSave)) {
             onClose();
           }
         };
