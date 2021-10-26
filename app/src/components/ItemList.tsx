@@ -401,9 +401,14 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     () => items.map(
       (item, index) => {
         const textHeight = 24;
-        const descriptionHeight = getDescription?.(item) ? 20 : 0;
+        const descriptionHeight = (
+          isItem(item)
+          && (getDescription?.(item) || item.description)
+            ? 20
+            : 0
+        );
         const textMargin = 6 * 2;
-        const tagsHeight = tagsOnSameRow || (isItem(item) && item.tags.length) === 0 ? 0 : 40;
+        const tagsHeight = !isItem(item) || item.tags.length === 0 || tagsOnSameRow ? 0 : 40;
         const padding = 8 * 2;
         const total = Math.max(
           (
