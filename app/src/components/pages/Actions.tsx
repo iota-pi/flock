@@ -1,6 +1,6 @@
 import { Container, Divider, Typography } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
-import { useCallback, useMemo } from 'react';
+import { Fragment, useCallback, useMemo } from 'react';
 import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
 import { ActionNote, getBlankAction, getNotes } from '../../state/items';
@@ -78,7 +78,7 @@ function ActionsPage() {
     () => [
       {
         content: (
-          <>
+          <Fragment key="heading-due">
             <Container maxWidth="xl" className={classes.container}>
               <Typography variant="h4" className={classes.heading}>
                 Due actions
@@ -86,14 +86,14 @@ function ActionsPage() {
             </Container>
 
             <Divider />
-          </>
+          </Fragment>
         ),
         height: 74,
         index: 0,
       },
       {
         content: comingSoonIndex < laterIndex && (
-          <>
+          <Fragment key="heading-soon">
             <Container maxWidth="xl" className={classes.container}>
               <Typography variant="h4" className={classes.heading}>
                 Coming soon
@@ -101,14 +101,14 @@ function ActionsPage() {
             </Container>
 
             <Divider />
-          </>
+          </Fragment>
         ),
         height: 74,
         index: comingSoonIndex,
       },
       {
         content: laterIndex < allActions.length && (
-          <>
+          <Fragment key="heading-later">
             <Container maxWidth="xl" className={classes.container}>
               <Typography variant="h4" className={classes.heading}>
                 Later actions
@@ -116,7 +116,7 @@ function ActionsPage() {
             </Container>
 
             <Divider />
-          </>
+          </Fragment>
         ),
         height: 74,
         index: laterIndex,

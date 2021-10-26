@@ -1,6 +1,6 @@
 import { Container, Divider, Theme, Typography, useMediaQuery } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
-import { useCallback, useMemo } from 'react';
+import { Fragment, useCallback, useMemo } from 'react';
 import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
 import ItemList, { ItemListExtraElement } from '../ItemList';
@@ -61,7 +61,7 @@ function InteractionsPage() {
     () => [
       {
         content: (
-          <>
+          <Fragment key="heading-suggestions">
             <Container maxWidth="xl" className={classes.container}>
               <Typography variant="h4" className={classes.heading}>
                 Suggestions
@@ -69,7 +69,7 @@ function InteractionsPage() {
             </Container>
 
             <Divider />
-          </>
+          </Fragment>
         ),
         height: 74,
         index: 0,
