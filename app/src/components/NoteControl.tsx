@@ -28,6 +28,7 @@ import { formatDate, useToday } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
+const VISIBLE_NOTE_PAGE_SIZE = 5;
 
 const useStyles = makeStyles(theme => ({
   filler: {
@@ -55,12 +56,23 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-function AddNoteButton(
-  { dataCy, label, onClick }: { dataCy?: string, label: string, onClick: () => void },
+function NoteButton(
+  {
+    dataCy,
+    disabled,
+    label,
+    onClick,
+  }: {
+    dataCy?: string,
+    disabled?: boolean,
+    label: string,
+    onClick: () => void,
+  },
 ) {
   return (
     <Button
       data-cy={dataCy}
+      disabled={disabled}
       fullWidth
       onClick={onClick}
       size="small"
@@ -259,10 +271,15 @@ function NoteControl<T extends ItemNote>({
 }: Props<T>) {
   const [autoFocus, setAutoFocus] = useState<string>();
   const [noteToDelete, setNoteToDelete] = useState<ItemId>();
+  const [visibleNotes, setVisibleNotes] = useState(VISIBLE_NOTE_PAGE_SIZE);
 
-  const notes = useMemo(
+  const notesOfType = useMemo(
     () => rawNotes.filter(note => note.type === noteType).sort(compareNotes),
     [noteType, rawNotes],
+  );
+  const notes = useMemo(
+    () => notesOfType.slice(0, visibleNotes),
+    [notesOfType, visibleNotes],
   );
 
   const handleChangeCompleted = useCallback(
@@ -345,6 +362,10 @@ function NoteControl<T extends ItemNote>({
     },
     [onChange, noteType],
   );
+  const handleShowMore = useCallback(
+    () => setVisibleNotes(vn => vn + VISIBLE_NOTE_PAGE_SIZE),
+    [],
+  );
 
   const addNoteLabel = useMemo(
     () => {
@@ -372,10 +393,11 @@ function NoteControl<T extends ItemNote>({
     },
     [noteType],
   );
+  const hiddenNotes = Math.max(notesOfType.length - visibleNotes, 0);
 
   return (
     <>
-      <AddNoteButton
+      <NoteButton
         dataCy={`add-${noteType}`}
         label={addNoteLabel}
         onClick={handleAddNote}
@@ -408,6 +430,13 @@ function NoteControl<T extends ItemNote>({
           </>
         )}
       </Grid>
+
+      <NoteButton
+        dataCy={`showMore-${noteType}`}
+        disabled={hiddenNotes <= 0}
+        label={`See more (${hiddenNotes})`}
+        onClick={handleShowMore}
+      />
 
       <ConfirmationDialog
         open={noteToDelete !== undefined}
