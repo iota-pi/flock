@@ -1,6 +1,5 @@
 import {
   ChangeEvent,
-  Fragment,
   memo,
   MouseEvent,
   useCallback,
@@ -17,6 +16,7 @@ import {
   IconButton,
   InputAdornment,
   TextField,
+  TextFieldProps,
   Typography,
 } from '@material-ui/core';
 import { DatePicker } from '@material-ui/lab';
@@ -24,7 +24,7 @@ import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { DeleteIcon } from './Icons';
 import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
-import { formatDate } from '../utils';
+import { formatDate, useToday } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 
 const NOTE_TYPE_SELECT_WIDTH = 144;
@@ -103,13 +103,14 @@ function SingleNote<T extends ItemNote>({
   const classes = useStyles();
 
   const [showSensitive, setShowSensitive] = useState(false);
+  const today = useToday();
 
   const handleChangeCompleted = useCallback(
     () => note.type === 'action' && onChangeCompleted(
       note.id,
-      note.completed ? undefined : new Date().getTime(),
+      note.completed ? undefined : today.getTime(),
     ),
-    [note, onChangeCompleted],
+    [note, onChangeCompleted, today],
   );
   const handleChangeContent = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -119,9 +120,9 @@ function SingleNote<T extends ItemNote>({
   );
   const handleChangeDate = useCallback(
     (date: Date | null) => {
-      onChangeDate(note.id, date || new Date());
+      onChangeDate(note.id, date || today);
     },
-    [note, onChangeDate],
+    [note, onChangeDate, today],
   );
   const handleChangeSensitive = useCallback(
     () => onChangeSensitive(note.id, !note.sensitive),
@@ -139,6 +140,21 @@ function SingleNote<T extends ItemNote>({
   const handleMouseDownVisibility = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => event.preventDefault(),
     [],
+  );
+
+  const date = useMemo(() => new Date(note.date), [note.date]);
+  const renderInput = useCallback(
+    (params: TextFieldProps) => (
+      <TextField
+        {...params}
+        InputProps={{
+          ...params.InputProps,
+          className: classes.firstFieldOfRow,
+        }}
+        variant="standard"
+      />
+    ),
+    [classes],
   );
 
   const visible = !note.sensitive || showSensitive;
@@ -175,26 +191,17 @@ function SingleNote<T extends ItemNote>({
         <div className={`${classes.noteContentRow} ${classes.center}`}>
           {note.type !== 'prayer' ? (
             <DatePicker<Date | null>
-              value={new Date(note.date) as Date | null}
+              value={date as Date | null}
               onChange={handleChangeDate}
-              minDate={note.type === 'action' ? new Date() : undefined}
-              maxDate={note.type === 'interaction' ? new Date() : undefined}
+              minDate={note.type === 'action' ? today : undefined}
+              maxDate={note.type === 'interaction' ? today : undefined}
               inputFormat="dd/MM/yyyy"
-              renderInput={params => (
-                <TextField
-                  {...params}
-                  InputProps={{
-                    ...params.InputProps,
-                    className: classes.firstFieldOfRow,
-                  }}
-                  variant="standard"
-                />
-              )}
+              renderInput={renderInput}
             />
           ) : (
             <div className={classes.firstFieldOfRow}>
               <span className={classes.noteDate}>
-                Date: {formatDate(new Date(note.date))}
+                Date: {formatDate(date)}
               </span>
             </div>
           )}
@@ -388,18 +395,17 @@ function NoteControl<T extends ItemNote>({
         <Grid item />
 
         {notes.map(note => (
-          <Fragment key={note.id}>
-            <MemoSingleNote
-              autoFocus={autoFocus === note.id}
-              note={note}
-              noteContentLabel={noteContentLabel}
-              onChangeCompleted={handleChangeCompleted}
-              onChangeContent={handleChangeContent}
-              onChangeDate={handleChangeDate}
-              onChangeSensitive={handleChangeSensitive}
-              onDelete={handleDelete}
-            />
-          </Fragment>
+          <MemoSingleNote
+            autoFocus={autoFocus === note.id}
+            key={note.id}
+            note={note}
+            noteContentLabel={noteContentLabel}
+            onChangeCompleted={handleChangeCompleted}
+            onChangeContent={handleChangeContent}
+            onChangeDate={handleChangeDate}
+            onChangeSensitive={handleChangeSensitive}
+            onDelete={handleDelete}
+          />
         ))}
 
         {notes.length === 0 && (

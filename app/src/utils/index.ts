@@ -36,6 +36,14 @@ export function isSameDay(d1: Date, d2: Date) {
   return formatDate(d1) === formatDate(d2);
 }
 
+export function useToday() {
+  const d = useRef(new Date());
+  if (isSameDay(d.current, new Date())) {
+    d.current = new Date();
+  }
+  return d.current;
+}
+
 export function usePreviousRef<T>(state: T): MutableRefObject<T | undefined> {
   const ref = useRef<T>();
   useEffect(() => {
