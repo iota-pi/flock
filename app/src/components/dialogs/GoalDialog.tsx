@@ -10,16 +10,8 @@ import {
   TextField,
   Typography,
 } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
 import { useMetadata } from '../../state/selectors';
 import { ResetIcon, SaveIcon, WarningIcon } from '../Icons';
-
-const useStyles = makeStyles(theme => ({
-  emphasis: {
-    fontWeight: 500,
-    color: theme.palette.secondary.main,
-  },
-}));
 
 export interface Props {
   naturalGoal: number,
@@ -33,7 +25,6 @@ function GoalDialog({
   onClose,
   open,
 }: Props) {
-  const classes = useStyles();
   const [goal, setGoal] = useMetadata<number>('prayerGoal', naturalGoal);
   const [newGoal, setNewGoal] = useState(goal.toString());
   const [hintMessage, setHintMessage] = useState<string>();
@@ -94,7 +85,7 @@ function GoalDialog({
           To get through all your prayer items in the target time,
           we recommend setting this value to at least
           {' '}
-          <span className={classes.emphasis}>{naturalGoal}</span>.
+          <Typography display="inline" fontWeight={500}>{naturalGoal}</Typography>.
         </Typography>
 
         <div>
