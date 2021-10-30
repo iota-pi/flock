@@ -68,7 +68,7 @@ function AppBar({
   onMinimiseMenu,
 }: Props) {
   const classes = useStyles();
-  const showAppTitle = useMediaQuery((theme: Theme) => theme.breakpoints.up('sm'));
+  const showAppTitle = useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'));
 
   return (
     <MuiAppBar

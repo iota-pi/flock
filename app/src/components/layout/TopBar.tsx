@@ -49,7 +49,7 @@ function TopBar({
 
   const optionsAnchor = useRef<HTMLButtonElement>(null);
 
-  const smallScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const smallScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
   const alwaysShowCheckbox = !smallScreen;
   const showCheckbox = onSelectAll && (alwaysShowCheckbox || bulkActions);
 

@@ -331,7 +331,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     showTags = true,
     viewHeight,
   } = props;
-  const tagsOnSameRow = useMediaQuery((theme: Theme) => theme.breakpoints.up(TAG_ROW_BREAKPOINT));
+  const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT));
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({

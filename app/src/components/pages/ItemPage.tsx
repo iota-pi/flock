@@ -81,7 +81,7 @@ function ItemPage<T extends Item>({
     [isActive],
   );
 
-  const sm = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
   const checkboxes = !sm || bulkActionsOnMobile;
   const pluralLabel = getItemTypeLabel(itemType, true);
   const maxTags = sm ? 2 : 3;
