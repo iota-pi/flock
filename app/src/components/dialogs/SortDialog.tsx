@@ -182,7 +182,7 @@ function SortDialog({
           onClick={handleDone}
           variant="contained"
         >
-          Save
+          Done
         </Button>
       </DialogActions>
     </Dialog>
