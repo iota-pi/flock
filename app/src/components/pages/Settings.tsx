@@ -7,7 +7,9 @@ import {
   IconButton,
   List,
   ListItem,
+  Theme,
   Typography,
+  useMediaQuery,
 } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
 import download from 'js-file-download';
@@ -79,6 +81,8 @@ function SettingsItem({
     button: !!onClick,
   };
 
+  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
+
   return (
     <>
       <ListItem
@@ -95,7 +99,10 @@ function SettingsItem({
           </Typography>
 
           {tags && (
-            <TagDisplay tags={tags} />
+            <TagDisplay
+              tags={tags}
+              vertical={sm}
+            />
           )}
         </div>
 
