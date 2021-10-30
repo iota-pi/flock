@@ -33,16 +33,6 @@ const useStyles = makeStyles(theme => ({
   filler: {
     flexGrow: 1,
   },
-  notesHeader: {
-    marginBottom: theme.spacing(2),
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  noteFilter: {
-    minWidth: NOTE_TYPE_SELECT_WIDTH,
-  },
   noteContentRow: {
     display: 'flex',
     flexDirection: 'row',
