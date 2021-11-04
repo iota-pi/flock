@@ -2,6 +2,7 @@ import { AlertColor } from '@material-ui/core';
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
+import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter';
 import { DELETE_ITEMS, ItemId, ItemOrNote } from './items';
 
 export interface DrawerData {
@@ -28,6 +29,7 @@ export interface UIMessage extends Required<BaseUIMessage> {}
 export interface UIData {
   darkMode: boolean | null,
   drawers: DrawerData[],
+  filters: FilterCriterion[],
   message: UIMessage | null,
   options: UiOptions,
   requests: RequestData,
@@ -39,6 +41,7 @@ export interface UIState {
 
 const initialDarkMode: UIData['darkMode'] = null;
 const initialDrawers: UIData['drawers'] = [];
+const initialFilters: UIData['filters'] = DEFAULT_FILTER_CRITERIA;
 const initialMessage: UIData['message'] = null;
 const initialFlags: UIData['options'] = {
   bulkActionsOnMobile: false,
@@ -321,6 +324,17 @@ export function messageReducer(
   return state;
 }
 
+export function filtersReducer(
+  state: UIData['filters'] = initialFilters,
+  action: AllActions,
+): UIData['filters'] {
+  if (action.type === SET_UI_STATE && action.filters) {
+    return action.filters.slice();
+  }
+
+  return state;
+}
+
 export const uiReducer = combineReducers<UIData>({
   darkMode: darkModeReducer,
   drawers: drawersReducer,
@@ -328,4 +342,5 @@ export const uiReducer = combineReducers<UIData>({
   options: optionsReducer,
   requests: requestsReducer,
   selected: selectedReducer,
+  filters: filtersReducer,
 });

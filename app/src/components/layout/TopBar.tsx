@@ -3,9 +3,10 @@ import makeStyles from '@material-ui/styles/makeStyles';
 import { Checkbox, IconButton, ListItemIcon, Menu, MenuItem, Paper, Theme, useMediaQuery } from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import { MuiIconType, OptionsIcon, SortIcon } from '../Icons';
+import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons';
 import { useOption } from '../../state/selectors';
 import SortDialog from '../dialogs/SortDialog';
+import FilterDialog from '../dialogs/FilterDialog';
 
 const MENU_POPUP_ID = 'top-bar-menu';
 
@@ -45,6 +46,7 @@ function TopBar({
 
   const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile');
   const [showOptions, setShowOptions] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
   const [showSort, setShowSort] = useState(false);
 
   const optionsAnchor = useRef<HTMLButtonElement>(null);
@@ -55,6 +57,8 @@ function TopBar({
 
   const handleClickOptions = useCallback(() => setShowOptions(o => !o), []);
   const handleCloseOptions = useCallback(() => setShowOptions(false), []);
+  const handleClickFilter = useCallback(() => setShowFilter(f => !f), []);
+  const handleCloseFilter = useCallback(() => setShowFilter(false), []);
   const handleToggleBulkActions = useCallback(
     () => {
       setBulkActions(b => !b);
@@ -115,6 +119,13 @@ function TopBar({
 
       <div className={classes.spacer} />
 
+      <IconButton
+        onClick={handleClickFilter}
+        size="large"
+      >
+        <FilterIcon />
+      </IconButton>
+
       {allMenuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
@@ -146,6 +157,11 @@ function TopBar({
           </MenuItem>
         ))}
       </Menu>
+
+      <FilterDialog
+        onClose={handleCloseFilter}
+        open={showFilter}
+      />
 
       <SortDialog
         onClose={handleCloseSort}

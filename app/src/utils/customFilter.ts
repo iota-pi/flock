@@ -3,6 +3,7 @@ import { getItemName, Item } from '../state/items';
 import { getLastInteractionDate } from './interactions';
 import { getLastPrayedFor } from './prayer';
 
+export type FilterFieldType = 'string' | 'number' | 'boolean' | 'date' | 'maturity';
 export type FilterBaseOperatorName = (
   'is' |
   'contains' |
@@ -21,7 +22,7 @@ export interface FilterOperator {
   inverse: boolean,
   name: string,
 }
-export const FILTER_OPERATORS_DISPLAY_MAP: Record<FilterOperatorName, FilterOperator> = {
+export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = {
   is: { name: 'Is', baseOperator: 'is', inverse: false },
   isnot: { name: 'Is not', baseOperator: 'is', inverse: true },
   contains: { name: 'Contains', baseOperator: 'contains', inverse: false },
@@ -32,7 +33,7 @@ export const FILTER_OPERATORS_DISPLAY_MAP: Record<FilterOperatorName, FilterOper
   after: { name: 'After', baseOperator: 'greater', inverse: true },
 };
 
-export type FilterCriterionName = (
+export type FilterCriterionType = (
   'archived' |
   'created' |
   'description' |
@@ -43,69 +44,78 @@ export type FilterCriterionName = (
 );
 export interface FilterCriterionDisplayData {
   name: string,
+  dataType: FilterFieldType,
   operators: FilterOperatorName[],
 }
 export interface FilterCriterion {
-  type: FilterCriterionName,
-  operator: FilterBaseOperatorName,
+  baseOperator: FilterBaseOperatorName,
   inverse: boolean,
+  operator: FilterOperatorName,
+  type: FilterCriterionType,
   value: string | number | boolean,
 }
 export const FILTER_CRITERIA_DISPLAY_MAP: (
-  Record<FilterCriterionName, FilterCriterionDisplayData>
+  Record<FilterCriterionType, FilterCriterionDisplayData>
 ) = {
   archived: {
+    dataType: 'boolean',
     name: 'Archived',
     operators: ['is', 'isnot'],
   },
   created: {
+    dataType: 'date',
     name: 'Date created',
-    operators: ['is', 'isnot'],
+    operators: ['is', 'isnot', 'after', 'before'],
   },
   description: {
+    dataType: 'string',
     name: 'Description',
     operators: ['is', 'isnot', 'contains', 'notcontains'],
   },
   lastInteraction: {
+    dataType: 'date',
     name: 'Last interaction',
     operators: ['is', 'isnot', 'after', 'before'],
   },
   lastPrayedFor: {
+    dataType: 'date',
     name: 'Last prayed for',
     operators: ['is', 'isnot', 'after', 'before'],
   },
   maturity: {
+    dataType: 'maturity',
     name: 'Maturity',
     operators: ['is', 'isnot', 'greater', 'lessthan'],
   },
   name: {
+    dataType: 'string',
     name: 'Name',
     operators: ['is', 'isnot', 'contains', 'notcontains'],
   },
 };
 export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
   ([a], [b]) => a.localeCompare(b),
-) as [FilterCriterionName, FilterCriterionDisplayData][];
+) as [FilterCriterionType, FilterCriterionDisplayData][];
 
-export const DEFAULT_CRITERIA: FilterCriterion[] = [];
+export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [];
 
 export function filterItems<T extends Item>(
   items: T[],
   criteria: FilterCriterion[],
   maturityStages: string[],
 ) {
-  const funcs: Record<FilterCriterionName, (item: Item, criterion: FilterCriterion) => boolean> = {
+  const funcs: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
     archived: (item, criterion) => {
-      if (criterion.operator === 'is') {
+      if (criterion.baseOperator === 'is') {
         return item.archived === criterion.value;
       }
       return true;
     },
     created: (item, criterion) => {
-      if (criterion.operator === 'is') {
+      if (criterion.baseOperator === 'is') {
         return isSameDay(new Date(item.created), new Date(criterion.value as number));
       }
-      if (criterion.operator === 'greater') {
+      if (criterion.baseOperator === 'greater') {
         return item.created > (criterion.value as number);
       }
       return true;
@@ -113,10 +123,10 @@ export function filterItems<T extends Item>(
     description: (item, criterion) => {
       const description = item.description.toLocaleLowerCase();
       const value = (criterion.value as string).toLocaleLowerCase();
-      if (criterion.operator === 'is') {
+      if (criterion.baseOperator === 'is') {
         return description === value;
       }
-      if (criterion.operator === 'contains') {
+      if (criterion.baseOperator === 'contains') {
         return description.includes(value);
       }
       return true;
@@ -125,10 +135,10 @@ export function filterItems<T extends Item>(
       if (item.type === 'person') {
         const lastInteraction = getLastInteractionDate(item);
         const value = criterion.value as number;
-        if (criterion.operator === 'is') {
+        if (criterion.baseOperator === 'is') {
           return isSameDay(new Date(lastInteraction), new Date(value));
         }
-        if (criterion.operator === 'greater') {
+        if (criterion.baseOperator === 'greater') {
           return item.created > value;
         }
       }
@@ -137,20 +147,20 @@ export function filterItems<T extends Item>(
     lastPrayedFor: (item, criterion) => {
       const lastPrayer = getLastPrayedFor(item);
       const value = criterion.value as number;
-      if (criterion.operator === 'is') {
+      if (criterion.baseOperator === 'is') {
         return isSameDay(new Date(lastPrayer), new Date(value));
       }
-      if (criterion.operator === 'greater') {
+      if (criterion.baseOperator === 'greater') {
         return item.created > value;
       }
       return true;
     },
     maturity: (item, criterion) => {
       if (item.type === 'person') {
-        if (criterion.operator === 'is') {
+        if (criterion.baseOperator === 'is') {
           return item.maturity === criterion.value as string;
         }
-        if (criterion.operator === 'greater') {
+        if (criterion.baseOperator === 'greater') {
           return (
             maturityStages.indexOf(item.maturity || '')
             > maturityStages.indexOf(criterion.value as string || '')
@@ -162,10 +172,10 @@ export function filterItems<T extends Item>(
     name: (item, criterion) => {
       const name = getItemName(item).toLocaleLowerCase();
       const value = (criterion.value as string).toLocaleLowerCase();
-      if (criterion.operator === 'is') {
+      if (criterion.baseOperator === 'is') {
         return name === value;
       }
-      if (criterion.operator === 'contains') {
+      if (criterion.baseOperator === 'contains') {
         return name.includes(value);
       }
       return true;
@@ -185,6 +195,18 @@ export function filterItems<T extends Item>(
         return false;
       }
     }
+    return true;
   });
   return filteredItems.length < items.length ? filteredItems : items;
+}
+
+export function getBaseValue(field: FilterCriterionType): FilterCriterion['value'] {
+  const dataType = FILTER_CRITERIA_DISPLAY_MAP[field].dataType;
+  if (dataType === 'boolean') return false;
+  if (dataType === 'date') return new Date().getTime();
+  if (dataType === 'number') return 0;
+  if (dataType === 'string') return '';
+  if (dataType === 'maturity') return -1;
+
+  throw new Error(`Unknown data type ${dataType}`);
 }
