@@ -27,10 +27,10 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
   isnot: { name: 'Is not', baseOperator: 'is', inverse: true },
   contains: { name: 'Contains', baseOperator: 'contains', inverse: false },
   notcontains: { name: 'Does not contain', baseOperator: 'contains', inverse: true },
-  greater: { name: 'Greater', baseOperator: 'greater', inverse: false },
   lessthan: { name: 'Less Than', baseOperator: 'greater', inverse: true },
-  before: { name: 'Before', baseOperator: 'greater', inverse: false },
-  after: { name: 'After', baseOperator: 'greater', inverse: true },
+  greater: { name: 'Greater', baseOperator: 'greater', inverse: false },
+  before: { name: 'Before', baseOperator: 'greater', inverse: true },
+  after: { name: 'After', baseOperator: 'greater', inverse: false },
 };
 
 export type FilterCriterionType = (
