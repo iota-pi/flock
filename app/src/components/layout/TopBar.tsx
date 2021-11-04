@@ -1,12 +1,23 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import makeStyles from '@material-ui/styles/makeStyles';
-import { Checkbox, IconButton, ListItemIcon, Menu, MenuItem, Paper, Theme, useMediaQuery } from '@material-ui/core';
+import {
+  Checkbox,
+  IconButton,
+  ListItemIcon,
+  Menu,
+  MenuItem,
+  Paper,
+  Theme,
+  Typography,
+  useMediaQuery,
+} from '@material-ui/core';
 import Visibility from '@material-ui/icons/Visibility';
 import VisibilityOff from '@material-ui/icons/VisibilityOff';
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons';
 import { useOption } from '../../state/selectors';
 import SortDialog from '../dialogs/SortDialog';
 import FilterDialog from '../dialogs/FilterDialog';
+import { useAppSelector } from '../../store';
 
 const MENU_POPUP_ID = 'top-bar-menu';
 
@@ -33,6 +44,7 @@ export interface Props {
   menuItems: MenuItemData[],
   onSelectAll?: () => void,
   sortable?: boolean,
+  title?: string,
 }
 
 
@@ -41,6 +53,7 @@ function TopBar({
   menuItems,
   onSelectAll,
   sortable,
+  title,
 }: Props) {
   const classes = useStyles();
 
@@ -48,6 +61,8 @@ function TopBar({
   const [showOptions, setShowOptions] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [showSort, setShowSort] = useState(false);
+
+  const filterCount = useAppSelector(state => state.ui.filters.length);
 
   const optionsAnchor = useRef<HTMLButtonElement>(null);
 
@@ -117,9 +132,18 @@ function TopBar({
         </div>
       )}
 
+      {title && (
+        <div>
+          <Typography color="text.secondary">
+            {title}
+          </Typography>
+        </div>
+      )}
+
       <div className={classes.spacer} />
 
       <IconButton
+        color={filterCount > 0 ? 'warning' : undefined}
         onClick={handleClickFilter}
         size="large"
       >

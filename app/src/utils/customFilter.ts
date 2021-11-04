@@ -158,7 +158,10 @@ export function filterItems<T extends Item>(
     maturity: (item, criterion) => {
       if (item.type === 'person') {
         if (criterion.baseOperator === 'is') {
-          return item.maturity === criterion.value as string;
+          if (criterion.value === -1) {
+            return item.maturity === null;
+          }
+          return item.maturity === maturityStages[criterion.value as number];
         }
         if (criterion.baseOperator === 'greater') {
           return (

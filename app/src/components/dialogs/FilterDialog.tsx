@@ -295,6 +295,14 @@ function FilterDialog({
     ),
     [],
   );
+  const handleClear = useCallback(
+    () => {
+      setLocalCriteria([]);
+      dispatch(setUiState({ filters: [] }));
+      onClose();
+    },
+    [dispatch, onClose],
+  );
   const handleDone = useCallback(
     () => {
       dispatch(setUiState({ filters: localCriteria }));
@@ -345,10 +353,10 @@ function FilterDialog({
         <Button
           data-cy="filter-cancel"
           fullWidth
-          onClick={onClose}
+          onClick={handleClear}
           variant="outlined"
         >
-          Cancel
+          Clear
         </Button>
 
         <Button
@@ -358,7 +366,7 @@ function FilterDialog({
           onClick={handleDone}
           variant="contained"
         >
-          Save
+          Done
         </Button>
       </DialogActions>
     </Dialog>

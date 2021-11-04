@@ -41,6 +41,8 @@ function ItemPage<T extends Item>({
     [filters, maturity, rawItems, sortCriteria],
   );
 
+  const hiddenItemCount = rawItems.length - items.length;
+
   const handleClickItem = useCallback(
     (item: T) => {
       dispatch(replaceActive({ item: item.id }));
@@ -90,7 +92,19 @@ function ItemPage<T extends Item>({
   const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
   const checkboxes = !sm || bulkActionsOnMobile;
   const pluralLabel = getItemTypeLabel(itemType, true);
+  const pluralLabelLower = pluralLabel.toLowerCase();
   const maxTags = sm ? 2 : 3;
+
+  const noItemsHint = (
+    hiddenItemCount
+      ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
+      : 'Click the plus button to add one!'
+  );
+  const itemCountText = (
+    filters.length > 0
+      ? `${items.length} / ${rawItems.length} ${pluralLabelLower}`
+      : undefined
+  );
 
   return (
     <BasePage
@@ -102,6 +116,7 @@ function ItemPage<T extends Item>({
       onSelectAll={checkboxes ? handleSelectAll : undefined}
       sortable
       topBar
+      topBarTitle={itemCountText}
     >
       <AutoSizer disableWidth>
         {({ height }) => (
@@ -113,8 +128,8 @@ function ItemPage<T extends Item>({
             getHighlighted={getHighlighted}
             items={items}
             maxTags={maxTags}
-            noItemsHint="Click the plus button to add one!"
-            noItemsText={`No ${pluralLabel.toLowerCase()} found`}
+            noItemsHint={noItemsHint}
+            noItemsText={`No ${pluralLabelLower} found`}
             onCheck={handleCheck}
             onClick={handleClickItem}
             viewHeight={height}

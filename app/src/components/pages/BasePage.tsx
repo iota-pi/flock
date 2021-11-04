@@ -44,14 +44,16 @@ interface TopBarProps {
   onSelectAll?: () => void,
   menuItems?: MenuItemData[],
   sortable?: boolean,
+  topBarTitle?: string,
   topBar: true,
 }
 interface NoTopBarProps {
   allSelected?: never,
   menuItems?: never,
   onSelectAll?: never,
-  topBar?: false,
   sortable?: never,
+  topBar?: false,
+  topBarTitle?: never,
 }
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps);
 type Props = PropsWithChildren<CombinedProps>;
@@ -85,6 +87,7 @@ function BasePage({
   noScrollContainer,
   sortable,
   topBar,
+  topBarTitle,
 }: Props) {
   const classes = useStyles();
   const activeRequests = useAppSelector(state => state.ui.requests.active);
@@ -100,6 +103,7 @@ function BasePage({
           menuItems={menuItems || []}
           onSelectAll={onSelectAll}
           sortable={sortable}
+          title={topBarTitle}
         />
       )}
 
