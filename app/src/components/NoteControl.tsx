@@ -127,7 +127,10 @@ function SingleNote<T extends ItemNote>({
     [note, onChangeDate, today],
   );
   const handleChangeSensitive = useCallback(
-    () => onChangeSensitive(note.id, !note.sensitive),
+    () => {
+      onChangeSensitive(note.id, !note.sensitive);
+      setShowSensitive(true);
+    },
     [note, onChangeSensitive],
   );
 
