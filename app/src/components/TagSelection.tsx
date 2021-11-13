@@ -2,7 +2,7 @@ import {
   ChangeEvent,
   useCallback,
 } from 'react';
-import { Autocomplete, Chip, InputAdornment, TextField } from '@material-ui/core';
+import { Autocomplete, AutocompleteRenderInputParams, Chip, InputAdornment, TextField, TextFieldProps } from '@material-ui/core';
 import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
 import makeStyles from '@material-ui/styles/makeStyles';
 import { useTags } from '../state/selectors';
@@ -21,29 +21,41 @@ const useStyles = makeStyles(theme => ({
 
 export interface Props {
   canAddNew?: boolean,
+  fullWidth?: boolean,
   icon?: MuiIconType,
   label?: string,
   onChange: (tags: string[]) => void,
   selectedTags: string[],
+  single?: boolean,
+  variant?: TextFieldProps['variant'],
 }
 
 const baseFilterFunc = createFilterOptions<string>({ trim: true });
 
 function TagSelection({
   canAddNew = true,
+  fullWidth,
   icon: Icon,
   label,
   onChange,
   selectedTags,
+  single,
+  variant = 'outlined',
 }: Props) {
   const classes = useStyles();
   const tags = useTags();
   const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))];
 
   const handleChange = useCallback(
-    (event: ChangeEvent<{}>, value: string[], reason: AutocompleteChangeReason) => {
+    (event: ChangeEvent<{}>, value: string | string[] | null, reason: AutocompleteChangeReason) => {
       if (reason !== 'blur') {
-        onChange(value);
+        if (typeof value === 'string') {
+          onChange([value]);
+        } else if (value === null) {
+          onChange([]);
+        } else {
+          onChange(value);
+        }
       }
     },
     [onChange],
@@ -67,61 +79,77 @@ function TagSelection({
     },
     [canAddNew],
   );
+  const getOptionLabel = useCallback((tag: string) => tag, []);
+  const renderInput = useCallback(
+    (params: AutocompleteRenderInputParams) => (
+      <TextField
+        {...params}
+        data-cy="tag-selection"
+        label={label || 'Tags'}
+        variant={variant}
+        InputProps={{
+          ...params.InputProps,
+          startAdornment: Icon ? (
+            <>
+              <InputAdornment position="start">
+                <Icon />
+              </InputAdornment>
+
+              {params.InputProps.startAdornment}
+            </>
+          ) : params.InputProps.startAdornment,
+        }}
+      />
+    ),
+    [Icon, label, variant],
+  );
+  const renderOption = useCallback(
+    (props: React.HTMLAttributes<HTMLLIElement>, tag: string) => (
+      <li {...props}>
+        {tags.includes(tag) ? tag : (
+          <>
+            {tag}
+            &nbsp;
+            <span className={classes.subtle}>(new tag)</span>
+          </>
+        )}
+      </li>
+    ),
+    [classes, tags],
+  );
+  const renderTags = useCallback(
+    (tagsToRender: string[]) => (
+      tagsToRender.map(tag => (
+        <Chip
+          key={tag}
+          label={tag}
+          onDelete={handleDelete(tag)}
+          className={classes.tagChip}
+        />
+      ))
+    ),
+    [classes, handleDelete],
+  );
+
+  const value = single ? (selectedTags[0] || null) : selectedTags;
 
   return (
     <Autocomplete
       autoHighlight
       clearOnBlur
       filterOptions={filterFunc}
-      getOptionLabel={tag => tag}
+      fullWidth={fullWidth}
+      getOptionLabel={getOptionLabel}
       handleHomeEndKeys
-      multiple
+      multiple={!single}
       noOptionsText="No tag found"
       onChange={handleChange}
       options={allTags}
-      renderInput={params => (
-        <TextField
-          {...params}
-          data-cy="tag-selection"
-          label={label || 'Tags'}
-          variant="outlined"
-          InputProps={{
-            ...params.InputProps,
-            startAdornment: Icon ? (
-              <>
-                <InputAdornment position="start">
-                  <Icon />
-                </InputAdornment>
-
-                {params.InputProps.startAdornment}
-              </>
-            ) : params.InputProps.startAdornment,
-          }}
-        />
-      )}
-      renderOption={(props, tag) => (
-        <li {...props}>
-          {tags.includes(tag) ? tag : (
-            <>
-              {tag}
-              &nbsp;
-              <span className={classes.subtle}>(new tag)</span>
-            </>
-          )}
-        </li>
-      )}
-      renderTags={tagsToRender => (
-        tagsToRender.map(tag => (
-          <Chip
-            key={tag}
-            label={tag}
-            onDelete={handleDelete(tag)}
-            className={classes.tagChip}
-          />
-        ))
-      )}
+      renderInput={renderInput}
+      renderOption={renderOption}
+      renderTags={renderTags}
       selectOnFocus
-      value={selectedTags}
+      value={value}
     />
   );
 }

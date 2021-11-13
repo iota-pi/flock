@@ -21,6 +21,7 @@ import {
   getBaseValue,
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
+  FilterBaseOperatorName,
 } from '../../utils/customFilter';
 import { RemoveIcon } from '../Icons';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -29,6 +30,7 @@ import MaturityPicker from '../MaturityPicker';
 import { useMaturity } from '../../state/selectors';
 import FrequencyPicker from '../FrequencyPicker';
 import { Frequency } from '../../utils/frequencies';
+import TagSelection from '../TagSelection';
 
 export interface Props {
   onClose: () => void,
@@ -57,9 +59,13 @@ export function FilterCriterionDisplay({
           ? criterion.value
           : getBaseValue(newCriterionType)
       );
+      const operator = FILTER_CRITERIA_DISPLAY_MAP[newCriterionType].operators[0];
+      const baseOperator = FILTER_OPERATORS_MAP[operator].baseOperator;
       onChange(criterion.type, {
         ...criterion,
         type: newCriterionType,
+        operator,
+        baseOperator,
         value,
       });
     },
@@ -121,6 +127,18 @@ export function FilterCriterionDisplay({
     },
     [criterion, onChange],
   );
+  const handleChangeTagValue = useCallback(
+    (tags: string[]) => {
+      onChange(
+        criterion.type,
+        {
+          ...criterion,
+          value: tags[tags.length - 1] || '',
+        },
+      );
+    },
+    [criterion, onChange],
+  );
   const handleRemove = useCallback(
     () => onRemove(criterion.type),
     [criterion.type, onRemove],
@@ -135,6 +153,20 @@ export function FilterCriterionDisplay({
       />
     ),
     [],
+  );
+
+  const currentDate = useMemo(
+    () => (criterionDetails.dataType === 'date' ? new Date(criterion.value as number) : null),
+    [criterion, criterionDetails],
+  );
+  const currentTags = useMemo(
+    () => (
+      criterionDetails.dataType === 'tag'
+      && criterion.value
+        ? [criterion.value as string]
+        : []
+    ),
+    [criterion, criterionDetails],
   );
 
   return (
@@ -225,7 +257,7 @@ export function FilterCriterionDisplay({
           label="Value"
           onChange={handleChangeDateValue}
           renderInput={renderDateInput}
-          value={new Date(criterion.value as number) as Date | null}
+          value={currentDate}
         />
       )}
       {criterionDetails.dataType === 'maturity' && (
@@ -244,6 +276,17 @@ export function FilterCriterionDisplay({
           onChange={handleChangeFrequencyValue}
           label="Value"
           frequency={criterion.value as Frequency}
+        />
+      )}
+      {criterionDetails.dataType === 'tag' && (
+        <TagSelection
+          canAddNew={false}
+          fullWidth
+          label="Value"
+          onChange={handleChangeTagValue}
+          selectedTags={currentTags}
+          single
+          variant="standard"
         />
       )}
 
@@ -283,12 +326,13 @@ function FilterDialog({
         cd => !chosenCriteria.has(cd[0]),
       );
       const newCriterionType = notChosen[0][0];
+      const newCriterionDetails = notChosen[0][1];
       return [
         ...lc,
         {
-          baseOperator: 'is',
+          baseOperator: newCriterionDetails.operators[0] as FilterBaseOperatorName,
           inverse: false,
-          operator: 'is',
+          operator: newCriterionDetails.operators[0],
           type: newCriterionType,
           value: getBaseValue(newCriterionType),
         },

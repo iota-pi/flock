@@ -4,7 +4,9 @@ import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies';
 import { getLastInteractionDate } from './interactions';
 import { getLastPrayedFor } from './prayer';
 
-export type FilterFieldType = 'string' | 'number' | 'boolean' | 'date' | 'maturity' | 'frequency';
+export type FilterFieldType = (
+  'string' | 'number' | 'boolean' | 'date' | 'maturity' | 'frequency' | 'tag'
+);
 export type FilterBaseOperatorName = (
   'is' |
   'contains' |
@@ -43,7 +45,8 @@ export type FilterCriterionType = (
   'lastPrayedFor' |
   'maturity' |
   'name' |
-  'prayerFrequency'
+  'prayerFrequency' |
+  'tags'
 );
 export interface FilterCriterionDisplayData {
   name: string,
@@ -104,6 +107,11 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     dataType: 'frequency',
     name: 'Prayer Frequency',
     operators: ['is', 'isnot', 'greater', 'lessthan'],
+  },
+  tags: {
+    dataType: 'tag',
+    name: 'Tags',
+    operators: ['contains', 'notcontains'],
   },
 };
 export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
@@ -221,6 +229,16 @@ export function filterItems<T extends Item>(
       }
       return true;
     },
+    tags: (item, criterion) => {
+      if (criterion.baseOperator === 'contains') {
+        const tags = item.tags.map(t => t.toLocaleLowerCase());
+        const tagToCheck = (criterion.value as string).toLocaleLowerCase();
+        if (tagToCheck) {
+          return tags.includes(tagToCheck);
+        }
+      }
+      return true;
+    },
   };
 
   if (!criteria.length) {
@@ -249,6 +267,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'string') return '';
   if (dataType === 'maturity') return -1;
   if (dataType === 'frequency') return 'monthly' as Frequency;
+  if (dataType === 'tag') return '';
 
   throw new Error(`Unknown data type ${dataType}`);
 }
