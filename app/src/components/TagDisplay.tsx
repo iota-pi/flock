@@ -1,8 +1,8 @@
 import { MouseEvent, useCallback } from 'react';
-import { useHistory } from 'react-router-dom';
 import { Chip, Stack } from '@material-ui/core';
 import makeStyles from '@material-ui/styles/makeStyles';
-import { getTagPage } from './pages';
+import { setTagFilter } from '../state/ui';
+import { useAppDispatch } from '../store';
 
 const useStyles = makeStyles(theme => ({
   tagChip: {
@@ -36,14 +36,14 @@ function TagDisplay({
   vertical = false,
 }: Props) {
   const classes = useStyles();
-  const history = useHistory();
+  const dispatch = useAppDispatch();
 
   const handleClick = useCallback(
     (tag: string) => (event: MouseEvent) => {
-      history.push(getTagPage(tag));
+      dispatch(setTagFilter(tag));
       event.stopPropagation();
     },
-    [history],
+    [dispatch],
   );
 
   const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags;

@@ -20,14 +20,12 @@ const ItemPage = loadable(() => import('./ItemPage'));
 const LoginPage = loadable(() => import('./Login'));
 const PrayerPage = loadable(() => import('./Prayer'));
 const SettingsPage = loadable(() => import('./Settings'));
-const TagPage = loadable(() => import('./Tag'));
 const WelcomePage = loadable(() => import('./Welcome'));
 
 export type InternalPageId = (
   'welcome' |
   'login' |
-  'signup' |
-  'tag'
+  'signup'
 );
 export type PageId = (
   'people' |
@@ -73,12 +71,6 @@ export const internalPages: InternalPage[] = [
     path: '/signup',
     page: <CreateAccountPage />,
     requiresAuth: false,
-  },
-  {
-    id: 'tag',
-    path: '/tag/:tag',
-    page: <TagPage />,
-    requiresAuth: true,
   },
 ];
 
@@ -179,10 +171,6 @@ export function getPage(page: AnyPageId) {
     throw new Error(`Unknown page id ${page}`);
   }
   return result;
-}
-
-export function getTagPage(tag: string) {
-  return getPage('tag').path.replace(':tag', encodeURIComponent(tag));
 }
 
 export function useAnyPage() {

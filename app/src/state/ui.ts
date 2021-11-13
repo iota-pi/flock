@@ -60,6 +60,7 @@ export const START_REQUEST = 'START_REQUEST';
 export const FINISH_REQUEST = 'FINISH_REQUEST';
 export const SET_MESSAGE = 'SET_MESSAGE';
 export const TOGGLE_SELECTED = 'TOGGLE_SELECTED';
+export const SET_TAG_FILTER = 'SET_TAG_FILTER';
 
 export type SetUIState = Omit<Partial<UIData>, 'options' | 'requests'> & {
   options?: Partial<UIData['options']>,
@@ -98,6 +99,10 @@ export interface ToggleSelectedAction extends Action {
   type: typeof TOGGLE_SELECTED,
   item: ItemId,
 }
+export interface SetTagFilterAction extends Action {
+  type: typeof SET_TAG_FILTER,
+  tag: string,
+}
 
 export type UIAction = (
   SetUIAction
@@ -109,6 +114,7 @@ export type UIAction = (
   | FinishRequestAction
   | SetMessageAction
   | ToggleSelectedAction
+  | SetTagFilterAction
 );
 
 export function setUiState(data: SetUIState): SetUIAction {
@@ -178,6 +184,13 @@ export function toggleSelected(item: ItemId): ToggleSelectedAction {
   return {
     type: TOGGLE_SELECTED,
     item,
+  };
+}
+
+export function setTagFilter(tag: string) {
+  return {
+    type: SET_TAG_FILTER,
+    tag,
   };
 }
 
@@ -330,6 +343,29 @@ export function filtersReducer(
 ): UIData['filters'] {
   if (action.type === SET_UI_STATE && action.filters) {
     return action.filters.slice();
+  }
+  if (action.type === SET_TAG_FILTER) {
+    const index = state.findIndex(c => c.type === 'tags');
+    if (index > -1) {
+      return [
+        ...state.slice(0, index),
+        {
+          ...state[index],
+          value: action.tag,
+        },
+        ...state.slice(index + 1),
+      ];
+    }
+    return [
+      ...state,
+      {
+        type: 'tags',
+        baseOperator: 'contains',
+        operator: 'contains',
+        inverse: false,
+        value: action.tag,
+      },
+    ];
   }
 
   return state;

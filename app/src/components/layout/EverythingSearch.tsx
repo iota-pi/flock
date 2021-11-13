@@ -5,7 +5,6 @@ import {
   useRef,
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
-import { useHistory } from 'react-router-dom';
 import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextField, ThemeProvider } from '@material-ui/core';
 import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
 import makeStyles from '@material-ui/styles/makeStyles';
@@ -17,8 +16,7 @@ import {
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
 import { useItems, useMaturity, useSortCriteria, useTags } from '../../state/selectors';
-import { getTagPage } from '../pages';
-import { replaceActive } from '../../state/ui';
+import { replaceActive, setTagFilter } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
 import { sortItems } from '../../utils/customSort';
@@ -161,7 +159,6 @@ function EverythingSearch({
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
-  const history = useHistory();
   const items = useItems();
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();
@@ -243,7 +240,7 @@ function EverythingSearch({
             onSelect(data);
           }
           if (typeof data === 'string') {
-            history.push(getTagPage(data));
+            dispatch(setTagFilter(data));
           } else {
             dispatch(replaceActive({ item: data?.id }));
           }
@@ -255,7 +252,7 @@ function EverythingSearch({
         }
       }
     },
-    [dispatch, history, onSelect],
+    [dispatch, onSelect],
   );
 
   const searchInput = useRef<HTMLInputElement>();
