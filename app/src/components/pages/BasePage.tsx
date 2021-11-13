@@ -43,7 +43,6 @@ interface TopBarProps {
   allSelected?: boolean,
   onSelectAll?: () => void,
   menuItems?: MenuItemData[],
-  sortable?: boolean,
   topBarTitle?: string,
   topBar: true,
 }
@@ -51,7 +50,6 @@ interface NoTopBarProps {
   allSelected?: never,
   menuItems?: never,
   onSelectAll?: never,
-  sortable?: never,
   topBar?: false,
   topBarTitle?: never,
 }
@@ -85,7 +83,6 @@ function BasePage({
   onClickFab,
   onSelectAll,
   noScrollContainer,
-  sortable,
   topBar,
   topBarTitle,
 }: Props) {
@@ -102,7 +99,6 @@ function BasePage({
           allSelected={allSelected}
           menuItems={menuItems || []}
           onSelectAll={onSelectAll}
-          sortable={sortable}
           title={topBarTitle}
         />
       )}

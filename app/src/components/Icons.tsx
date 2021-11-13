@@ -8,7 +8,7 @@ import BackIcon from '@material-ui/icons/ChevronLeft';
 import DeleteIcon from '@material-ui/icons/DeleteOutline';
 import DownloadIcon from '@material-ui/icons/Download';
 import EditIcon from '@material-ui/icons/Edit';
-import FilterIcon from '@material-ui/icons/FilterList';
+import FilterIcon from '@material-ui/icons/FilterAlt';
 import FrequencyIcon from '@material-ui/icons/Schedule';
 import GeneralIcon from '@material-ui/icons/MoreHoriz';
 import GroupIcon from '@material-ui/icons/Groups';

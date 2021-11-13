@@ -41,6 +41,7 @@ export interface MenuItemData {
 
 export interface Props {
   allSelected?: boolean,
+  filterable?: boolean,
   menuItems: MenuItemData[],
   onSelectAll?: () => void,
   sortable?: boolean,
@@ -50,9 +51,10 @@ export interface Props {
 
 function TopBar({
   allSelected = false,
+  filterable = true,
   menuItems,
   onSelectAll,
-  sortable,
+  sortable = true,
   title,
 }: Props) {
   const classes = useStyles();
@@ -93,14 +95,6 @@ function TopBar({
   const allMenuItems = useMemo(
     () => {
       const result = [...menuItems];
-      if (sortable) {
-        result.push({
-          icon: SortIcon,
-          key: 'customise-sort',
-          label: 'Custom Sort',
-          onClick: handleClickSort,
-        });
-      }
       if (!alwaysShowCheckbox) {
         result.push({
           icon: bulkActions ? VisibilityOff : Visibility,
@@ -114,10 +108,8 @@ function TopBar({
     [
       alwaysShowCheckbox,
       bulkActions,
-      handleClickSort,
       handleToggleBulkActions,
       menuItems,
-      sortable,
     ],
   );
 
@@ -142,13 +134,24 @@ function TopBar({
 
       <div className={classes.spacer} />
 
-      <IconButton
-        color={filterCount > 0 ? 'warning' : undefined}
-        onClick={handleClickFilter}
-        size="large"
-      >
-        <FilterIcon />
-      </IconButton>
+      {filterable && (
+        <IconButton
+          color={filterCount > 0 ? 'warning' : undefined}
+          onClick={handleClickFilter}
+          size="large"
+        >
+          <FilterIcon />
+        </IconButton>
+      )}
+
+      {sortable && (
+        <IconButton
+          onClick={handleClickSort}
+          size="large"
+        >
+          <SortIcon />
+        </IconButton>
+      )}
 
       {allMenuItems.length > 0 && (
         <IconButton

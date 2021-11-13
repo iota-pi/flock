@@ -114,7 +114,6 @@ function ItemPage<T extends Item>({
       noScrollContainer
       onClickFab={handleClickAdd}
       onSelectAll={checkboxes ? handleSelectAll : undefined}
-      sortable
       topBar
       topBarTitle={itemCountText}
     >
