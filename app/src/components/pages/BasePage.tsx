@@ -24,7 +24,6 @@ const useStyles = makeStyles(theme => ({
 }));
 
 interface BaseProps {
-  drawer?: ReactNode,
   noScrollContainer?: boolean,
 }
 interface FabProps {
