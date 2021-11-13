@@ -15,6 +15,7 @@ import {
   Grid,
   IconButton,
   InputAdornment,
+  Stack,
   TextField,
   TextFieldProps,
   Typography,
@@ -194,46 +195,52 @@ function SingleNote<T extends ItemNote>({
         </div>
 
         <div className={`${classes.noteContentRow} ${classes.center}`}>
-          {note.type !== 'prayer' ? (
-            <DatePicker<Date | null>
-              value={date as Date | null}
-              onChange={handleChangeDate}
-              minDate={note.type === 'action' ? today : undefined}
-              maxDate={note.type === 'interaction' ? today : undefined}
-              inputFormat="dd/MM/yyyy"
-              renderInput={renderInput}
-            />
-          ) : (
-            <div className={classes.firstFieldOfRow}>
-              <span className={classes.noteDate}>
-                Date: {formatDate(date)}
-              </span>
-            </div>
-          )}
-
-          <FormControlLabel
-            control={(
-              <Checkbox
-                checked={note.sensitive || false}
-                data-cy="sensitive-note"
-                onChange={handleChangeSensitive}
+          <Stack
+            alignItems={{ sm: 'center' }}
+            direction={{ xs: 'column', sm: 'row' }}
+            paddingTop={{ xs: 1, sm: 0 }}
+          >
+            {note.type !== 'prayer' ? (
+              <DatePicker<Date | null>
+                value={date as Date | null}
+                onChange={handleChangeDate}
+                minDate={note.type === 'action' ? today : undefined}
+                maxDate={note.type === 'interaction' ? today : undefined}
+                inputFormat="dd/MM/yyyy"
+                renderInput={renderInput}
               />
+            ) : (
+              <div className={classes.firstFieldOfRow}>
+                <span className={classes.noteDate}>
+                  Date: {formatDate(date)}
+                </span>
+              </div>
             )}
-            label="Sensitive"
-          />
 
-          {note.type === 'action' && (
             <FormControlLabel
               control={(
                 <Checkbox
-                  checked={!!note.completed}
+                  checked={note.sensitive || false}
                   data-cy="sensitive-note"
-                  onChange={handleChangeCompleted}
+                  onChange={handleChangeSensitive}
                 />
               )}
-              label="Completed"
+              label="Sensitive"
             />
-          )}
+
+            {note.type === 'action' && (
+              <FormControlLabel
+                control={(
+                  <Checkbox
+                    checked={!!note.completed}
+                    data-cy="sensitive-note"
+                    onChange={handleChangeCompleted}
+                  />
+                )}
+                label="Completed"
+              />
+            )}
+          </Stack>
 
           <div className={classes.filler} />
 
