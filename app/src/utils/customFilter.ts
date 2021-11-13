@@ -1,9 +1,10 @@
 import { isSameDay } from '.';
 import { getItemName, Item } from '../state/items';
+import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies';
 import { getLastInteractionDate } from './interactions';
 import { getLastPrayedFor } from './prayer';
 
-export type FilterFieldType = 'string' | 'number' | 'boolean' | 'date' | 'maturity';
+export type FilterFieldType = 'string' | 'number' | 'boolean' | 'date' | 'maturity' | 'frequency';
 export type FilterBaseOperatorName = (
   'is' |
   'contains' |
@@ -37,10 +38,12 @@ export type FilterCriterionType = (
   'archived' |
   'created' |
   'description' |
+  'interactionFrequency' |
   'lastInteraction' |
   'lastPrayedFor' |
   'maturity' |
-  'name'
+  'name' |
+  'prayerFrequency'
 );
 export interface FilterCriterionDisplayData {
   name: string,
@@ -72,6 +75,11 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     name: 'Description',
     operators: ['is', 'isnot', 'contains', 'notcontains'],
   },
+  interactionFrequency: {
+    dataType: 'frequency',
+    name: 'Interaction Frequency',
+    operators: ['is', 'isnot', 'greater', 'lessthan'],
+  },
   lastInteraction: {
     dataType: 'date',
     name: 'Last interaction',
@@ -91,6 +99,11 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     dataType: 'string',
     name: 'Name',
     operators: ['is', 'isnot', 'contains', 'notcontains'],
+  },
+  prayerFrequency: {
+    dataType: 'frequency',
+    name: 'Prayer Frequency',
+    operators: ['is', 'isnot', 'greater', 'lessthan'],
   },
 };
 export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
@@ -129,6 +142,20 @@ export function filterItems<T extends Item>(
       if (criterion.baseOperator === 'contains') {
         return description.includes(value);
       }
+      return true;
+    },
+    interactionFrequency: (item, criterion) => {
+      if (item.type === 'person') {
+        if (criterion.baseOperator === 'is') {
+          return item.interactionFrequency === criterion.value;
+        }
+        if (criterion.baseOperator === 'greater') {
+          const daysItem = FREQUENCIES_TO_DAYS[item.interactionFrequency];
+          const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency];
+          return daysItem < daysCriterion;
+        }
+      }
+
       return true;
     },
     lastInteraction: (item, criterion) => {
@@ -183,6 +210,17 @@ export function filterItems<T extends Item>(
       }
       return true;
     },
+    prayerFrequency: (item, criterion) => {
+      if (criterion.baseOperator === 'is') {
+        return item.prayerFrequency === criterion.value;
+      }
+      if (criterion.baseOperator === 'greater') {
+        const daysItem = FREQUENCIES_TO_DAYS[item.prayerFrequency];
+        const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency];
+        return daysItem < daysCriterion;
+      }
+      return true;
+    },
   };
 
   if (!criteria.length) {
@@ -210,6 +248,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'number') return 0;
   if (dataType === 'string') return '';
   if (dataType === 'maturity') return -1;
+  if (dataType === 'frequency') return 'monthly' as Frequency;
 
   throw new Error(`Unknown data type ${dataType}`);
 }

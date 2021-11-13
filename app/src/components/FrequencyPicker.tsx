@@ -17,6 +17,10 @@ const useStyles = makeStyles(theme => ({
   root: {
     display: 'flex',
     alignItems: 'flex-end',
+
+    '&$grow': {
+      width: '100%',
+    },
   },
   icon: {
     paddingRight: theme.spacing(1),
@@ -67,8 +71,13 @@ function FrequencyPicker({
     [onChange],
   );
 
+  const rootClasses = [classes.root];
+  if (fullWidth) {
+    rootClasses.push(classes.grow);
+  }
+
   return (
-    <div className={classes.root}>
+    <div className={rootClasses.join(' ')}>
       {icon && (
         <div
           className={`${classes.icon} ${focused ? classes.highlighted : ''}`}

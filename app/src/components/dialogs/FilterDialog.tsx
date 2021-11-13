@@ -27,6 +27,8 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState } from '../../state/ui';
 import MaturityPicker from '../MaturityPicker';
 import { useMaturity } from '../../state/selectors';
+import FrequencyPicker from '../FrequencyPicker';
+import { Frequency } from '../../utils/frequencies';
 
 export interface Props {
   onClose: () => void,
@@ -106,6 +108,18 @@ export function FilterCriterionDisplay({
       );
     },
     [criterion, maturityStages, onChange],
+  );
+  const handleChangeFrequencyValue = useCallback(
+    (frequency: Frequency) => {
+      onChange(
+        criterion.type,
+        {
+          ...criterion,
+          value: frequency,
+        },
+      );
+    },
+    [criterion, onChange],
   );
   const handleRemove = useCallback(
     () => onRemove(criterion.type),
@@ -221,6 +235,15 @@ export function FilterCriterionDisplay({
           onChange={handleChangeMaturityValue}
           label="Value"
           maturity={maturityStages[criterion.value as number] || null}
+        />
+      )}
+      {criterionDetails.dataType === 'frequency' && (
+        <FrequencyPicker
+          fullWidth
+          id="prayer"
+          onChange={handleChangeFrequencyValue}
+          label="Value"
+          frequency={criterion.value as Frequency}
         />
       )}
 
