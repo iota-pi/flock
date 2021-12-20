@@ -21,8 +21,9 @@ resource "aws_lambda_function" "vault" {
 
   environment {
     variables = {
-      ACCOUNTS_TABLE = aws_dynamodb_table.vault_accounts_table.name
-      ITEMS_TABLE    = aws_dynamodb_table.vault_items_table.name
+      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
+      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
+      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
     }
   }
 
@@ -44,8 +45,36 @@ resource "aws_lambda_function" "vault_migrations" {
 
   environment {
     variables = {
-      ACCOUNTS_TABLE = aws_dynamodb_table.vault_accounts_table.name
-      ITEMS_TABLE    = aws_dynamodb_table.vault_items_table.name
+      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
+      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
+      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
+    }
+  }
+
+  tags = local.standard_tags
+}
+
+resource "aws_lambda_function" "vault_notifications" {
+  function_name = "flock-vault-notifications-${var.environment}"
+
+  handler     = "lambda.notifierHandler"
+  runtime     = "nodejs14.x"
+  memory_size = 512
+  timeout     = 60
+
+  s3_bucket = var.code_bucket
+  s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
+
+  role = aws_iam_role.vault_role.arn
+
+  environment {
+    variables = {
+      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
+      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
+      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
+      PROD_APP_URL        = "https://${var.full_domain}"
+
+      GOOGLE_APPLICATION_CREDENTIALS = "gcp-service-credentials.json"
     }
   }
 
@@ -103,7 +132,8 @@ resource "aws_iam_policy" "vault_policy" {
       ],
       "Resource": [
         "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_accounts_table.name}",
-        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_items_table.name}"
+        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_items_table.name}",
+        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_subscriptions_table.name}"
       ]
     }
   ]
@@ -136,7 +166,6 @@ resource "aws_dynamodb_table" "vault_accounts_table" {
   tags = local.standard_tags
 }
 
-
 resource "aws_dynamodb_table" "vault_items_table" {
   name         = "FlockItems_${var.environment}"
   billing_mode = "PAY_PER_REQUEST"
@@ -150,6 +179,25 @@ resource "aws_dynamodb_table" "vault_items_table" {
 
   attribute {
     name = "item"
+    type = "S"
+  }
+
+  tags = local.standard_tags
+}
+
+resource "aws_dynamodb_table" "vault_subscriptions_table" {
+  name         = "FlockSubscriptions_${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "token"
+  range_key    = "account"
+
+  attribute {
+    name = "token"
+    type = "S"
+  }
+
+  attribute {
+    name = "account"
     type = "S"
   }
 

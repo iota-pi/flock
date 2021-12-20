@@ -4,6 +4,7 @@ import { TextEncoder, TextDecoder } from './_util';
 import { checkProperties, deleteItems, Item, setItems, updateItems } from '../state/items';
 import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
+import { FlockPushSubscription } from '../utils/firebase-types';
 
 
 function fromBytes(array: ArrayBuffer): string {
@@ -291,6 +292,17 @@ class Vault {
     const accountData: AccountState = { account: this.account, metadata };
     this.dispatch(setAccount(accountData));
     return accountData;
+  }
+
+  async setSubscription(subscription: FlockPushSubscription): Promise<void> {
+    const result = await this.api.setSubscription({
+      account: this.account,
+      authToken: this.authToken,
+      subscription,
+    });
+    if (!result) {
+      throw new Error('Failed to save push notification token to server');
+    }
   }
 }
 

@@ -7,6 +7,10 @@ variable code_bucket {
   default = "crossangles-lambda-code"
 }
 
+variable full_domain {
+  type = string
+}
+
 variable git_version {
   type = string
 }

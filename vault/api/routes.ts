@@ -1,4 +1,5 @@
 import { FastifyPluginCallback } from 'fastify';
+import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 import getDriver from '../drivers';
 import { asItemType } from '../drivers/base';
 import { getAuthToken } from './util';
@@ -193,6 +194,32 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       reply.code(403);
       return { success: false };
     }
+  });
+
+  fastify.put('/subscription', async (request, reply) => {
+    const authToken = getAuthToken(request);
+    const { account, failures, hours, timezone, token } = (
+      request.body as { account: string } & FlockPushSubscription
+    );
+    const valid = await vault.checkPassword({
+      account,
+      authToken,
+    });
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
+    }
+    try {
+      await vault.setSubscription({
+        account,
+        subscription: { failures, hours, timezone, token },
+      });
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
+    return { success: true };
   });
 
   next();

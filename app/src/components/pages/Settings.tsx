@@ -26,6 +26,7 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
 import { clearVault } from '../../state/vault';
+import { subscribe } from '../../utils/firebase';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -177,6 +178,16 @@ function SettingsPage() {
     [dispatch, vault],
   );
 
+  const handleSubscribe = useCallback(
+    () => {
+      if (vault) {
+        console.warn('About to subscribe');
+        subscribe(vault);
+      }
+    },
+    [vault],
+  );
+
   const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode';
   const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel;
 
@@ -250,6 +261,11 @@ function SettingsPage() {
           id="import"
           onClick={handleImport}
           title="Restore from a backup"
+        />
+        <SettingsItem
+          id="reminders"
+          onClick={handleSubscribe}
+          title="Subscribe for prayer reminders"
         />
       </List>
 

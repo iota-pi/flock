@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$(realpath "$0")")"
 source .env
 
+GREEN="\033[0;32m"
+NC="\033[0m"
 function stage() {
   echo -e "--- ${GREEN}${1}${NC}"
 }
@@ -27,10 +29,15 @@ do
 done
 export FORCE_UPDATE
 
-GREEN="\033[0;32m"
-NC="\033[0m"
+(
+  if [[ -f "./.secrets.sh" ]]; then
+    source ./.secrets.sh
+  fi
+  docker-compose up -d
+)
+
 stage "Running tests"
-./run-all-tests.sh
+# ./run-all-tests.sh
 
 stage "Setting workspace"
 current_workspace="$(./tf.sh workspace show)"

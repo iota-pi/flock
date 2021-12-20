@@ -19,6 +19,8 @@ services:
       - dynamodb
     environment:
       - DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - PROD_APP_URL=https://flock.cross-code.org
+      - GOOGLE_APPLICATION_CREDENTIALS=gcp-service-credentials.json
     ports:
       - 4000:4000
     volumes:
@@ -26,6 +28,8 @@ services:
 
   terraform:
     image: hashicorp/terraform:1.0.1
+    command: tail -f /dev/null
+    entrypoint: []
     environment:
       - CLOUDFLARE_ACCOUNT_ID
       - CLOUDFLARE_API_TOKEN

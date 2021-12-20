@@ -1,4 +1,3 @@
-import BaseDriver from './base';
 import DynamoDriver from './dynamo';
 
 

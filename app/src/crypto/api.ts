@@ -3,6 +3,7 @@ import { AccountMetadata } from '../state/account';
 import { ItemType } from '../state/items';
 import { finishRequest, setMessage, startRequest } from '../state/ui';
 import { AppDispatch } from '../store';
+import { FlockPushSubscription } from '../utils/firebase-types';
 import { CryptoResult } from './Vault';
 
 
@@ -27,6 +28,10 @@ export interface VaultAuth {
 export interface VaultAccount {
   account: string,
   metadata: Record<string, any>,
+}
+
+export interface VaultSubscription {
+  subscription: FlockPushSubscription,
 }
 
 
@@ -183,6 +188,16 @@ class VaultAPI {
   async setMetadata({ account, authToken, metadata }: VaultAccount & VaultAuth) {
     const url = `${this.endpoint}/${account}`;
     const result = await this.wrap(axios.patch(url, { metadata }, this.getAuth(authToken)));
+    return result.data.success as boolean;
+  }
+
+  async setSubscription({ account, authToken, subscription }: VaultAuth & VaultSubscription) {
+    const url = `${this.endpoint}/subscription`;
+    const result = await this.wrap(axios.put(
+      url,
+      { account, ...subscription },
+      this.getAuth(authToken),
+    ));
     return result.data.success as boolean;
   }
 }

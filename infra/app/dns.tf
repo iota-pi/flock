@@ -70,3 +70,7 @@ resource "cloudflare_page_rule" "redirect_to_root" {
     }
   }
 }
+
+output "full_domain" {
+  value = local.domain
+}
