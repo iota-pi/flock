@@ -13,6 +13,10 @@ function fromBytes(array: ArrayBuffer): string {
   return btoa(asString);
 }
 
+function fromBytesUrlSafe(array: ArrayBuffer): string {
+  return fromBytes(array).replace(/\//g, '_').replace(/\+/g, '-');
+}
+
 function toBytes(str: string): Uint8Array {
   return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0)));
 }
@@ -294,10 +298,25 @@ class Vault {
     return accountData;
   }
 
+  private async getSubscriptionId(subscriptionToken: string): Promise<string> {
+    const buffer = await crypto.subtle.digest('SHA-512', Buffer.from(subscriptionToken));
+    return fromBytesUrlSafe(buffer);
+  }
+
+  async getSubscription(subscriptionToken: string): Promise<FlockPushSubscription | null> {
+    const result = await this.api.getSubscription({
+      account: this.account,
+      authToken: this.authToken,
+      subscriptionId: await this.getSubscriptionId(subscriptionToken),
+    });
+    return result;
+  }
+
   async setSubscription(subscription: FlockPushSubscription): Promise<void> {
     const result = await this.api.setSubscription({
       account: this.account,
       authToken: this.authToken,
+      subscriptionId: await this.getSubscriptionId(subscription.token),
       subscription,
     });
     if (!result) {

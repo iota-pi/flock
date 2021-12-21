@@ -26,7 +26,7 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
 import { clearVault } from '../../state/vault';
-import { subscribe } from '../../utils/firebase';
+import { checkSubscription, subscribe } from '../../utils/firebase';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -179,10 +179,14 @@ function SettingsPage() {
   );
 
   const handleSubscribe = useCallback(
-    () => {
+    async () => {
       if (vault) {
-        console.warn('About to subscribe');
-        subscribe(vault);
+        const subscription = await checkSubscription(vault);
+        if (subscription) {
+          console.warn('already subscrbed');
+        } else {
+          await subscribe(vault);
+        }
       }
     },
     [vault],

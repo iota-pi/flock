@@ -1,6 +1,6 @@
 import AWS from 'aws-sdk';
 import { almostConstantTimeEqual } from '../util';
-import BaseDriver, { AuthData, VaultAccountWithAuth, VaultData, VaultItem, VaultKey, VaultSubscriptionWithAccount } from './base';
+import BaseDriver, { AuthData, VaultAccountWithAuth, VaultData, VaultItem, VaultKey, VaultSubscriptionFull } from './base';
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts';
@@ -83,7 +83,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
           TableName: SUBSCRIPTION_TABLE_NAME,
           KeySchema: [
             {
-              AttributeName: 'token',
+              AttributeName: 'id',
               KeyType: 'HASH',
             },
             {
@@ -93,7 +93,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
           ],
           AttributeDefinitions: [
             {
-              AttributeName: 'token',
+              AttributeName: 'id',
               AttributeType: 'S',
             },
             {
@@ -167,11 +167,18 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
   };
 
   async setSubscription(
-    { account, subscription }: Pick<AuthData, 'account'> & { subscription: FlockPushSubscription },
+    {
+      account,
+      id,
+      subscription,
+    }: Pick<AuthData, 'account'> & {
+      id: string,
+      subscription: FlockPushSubscription,
+    },
   ) {
     await this.client?.put({
       TableName: SUBSCRIPTION_TABLE_NAME,
-      Item: { account, ...subscription },
+      Item: { account, id, ...subscription },
     }).promise();
   }
 
@@ -207,12 +214,12 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
   }
 
   async getSubscription(
-    { account, token }: Pick<AuthData, 'account'> & { token: string },
-  ): Promise<FlockPushSubscription> {
+    { account, id }: Pick<AuthData, 'account'> & { id: string },
+  ): Promise<FlockPushSubscription | null> {
     const response = await this.client?.get(
       {
         TableName: SUBSCRIPTION_TABLE_NAME,
-        Key: { account, token },
+        Key: { account, id },
       },
     ).promise();
     if (response?.Item) {
@@ -221,7 +228,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
         hours,
         timezone,
         token,
-      } = response.Item as VaultSubscriptionWithAccount;
+      } = response.Item as VaultSubscriptionFull;
       return {
         failures,
         hours,
@@ -229,13 +236,13 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
         token,
       };
     }
-    throw new Error(`Could not find subscription ${token} for account ${account}`);
+    return null;
   }
 
   async getEverySubscription() {
     // Warning: uses full table scan
     const maxItems = 1000;
-    const items: VaultSubscriptionWithAccount[] = [];
+    const items: VaultSubscriptionFull[] = [];
     let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
     while (items.length < maxItems) {
       try {
@@ -245,7 +252,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
         };
         const response = await this.client?.scan(scanOptions).promise();
         if (response?.Items) {
-          items.push(...response?.Items as VaultSubscriptionWithAccount[]);
+          items.push(...response?.Items as VaultSubscriptionFull[]);
         }
         lastEvaluatedKey = response?.LastEvaluatedKey;
         if (!lastEvaluatedKey) {

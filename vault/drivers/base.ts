@@ -31,8 +31,9 @@ export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
 
 export interface VaultItem extends VaultKey, VaultData {}
 
-export interface VaultSubscriptionWithAccount extends FlockPushSubscription {
+export interface VaultSubscriptionFull extends FlockPushSubscription {
   account: string,
+  id: string,
 }
 
 export function asItemType(type: string): VaultItemType {

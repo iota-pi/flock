@@ -196,10 +196,35 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   });
 
-  fastify.put('/subscription', async (request, reply) => {
+  fastify.get('/:account/subscriptions/:subscription', async (request, reply) => {
     const authToken = getAuthToken(request);
-    const { account, failures, hours, timezone, token } = (
-      request.body as { account: string } & FlockPushSubscription
+    const { account, subscription } = request.params as { account: string, subscription: string };
+    const valid = await vault.checkPassword({
+      account,
+      authToken,
+    });
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
+    }
+    try {
+      const result = await vault.getSubscription({
+        account,
+        id: subscription,
+      });
+      return { success: true, subscription: result };
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
+  });
+
+  fastify.put('/:account/subscriptions/:subscription', async (request, reply) => {
+    const authToken = getAuthToken(request);
+    const { account, subscription } = request.params as { account: string, subscription: string };
+    const { failures, hours, timezone, token } = (
+      request.body as FlockPushSubscription
     );
     const valid = await vault.checkPassword({
       account,
@@ -212,6 +237,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     try {
       await vault.setSubscription({
         account,
+        id: subscription,
         subscription: { failures, hours, timezone, token },
       });
     } catch (error) {

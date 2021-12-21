@@ -1,24 +1,37 @@
 import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken } from 'firebase/messaging';
+import { getMessaging, getToken as firebaseGetToken } from 'firebase/messaging';
 import Vault from '../crypto/Vault';
 import firebaseConfig from './firebase-config';
 
 export const app = initializeApp(firebaseConfig);
 
-export async function subscribe(vault: Vault) {
+async function getToken() {
   const messaging = getMessaging();
-  const token = await getToken(
+  return firebaseGetToken(
     messaging,
     {
       vapidKey: process.env.REACT_APP_VAPID_PUBLIC_KEY,
       serviceWorkerRegistration: await navigator.serviceWorker.getRegistration(),
     },
   );
-  console.warn(`Received token: ${token}`);
+}
+
+export async function subscribe(vault: Vault) {
+  const token = await getToken();
   await vault.setSubscription({
     failures: 0,
     hours: [9],
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     token,
   });
+}
+
+export async function checkSubscription(vault: Vault) {
+  const authorized = Notification.permission === 'granted';
+  if (!authorized) {
+    return null;
+  }
+  const token = await getToken();
+  const existing = await vault.getSubscription(token);
+  return existing;
 }

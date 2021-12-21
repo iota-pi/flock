@@ -188,11 +188,11 @@ resource "aws_dynamodb_table" "vault_items_table" {
 resource "aws_dynamodb_table" "vault_subscriptions_table" {
   name         = "FlockSubscriptions_${var.environment}"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "token"
+  hash_key     = "id"
   range_key    = "account"
 
   attribute {
-    name = "token"
+    name = "id"
     type = "S"
   }
 

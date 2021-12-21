@@ -191,14 +191,37 @@ class VaultAPI {
     return result.data.success as boolean;
   }
 
-  async setSubscription({ account, authToken, subscription }: VaultAuth & VaultSubscription) {
-    const url = `${this.endpoint}/subscription`;
+  async setSubscription(
+    {
+      account,
+      authToken,
+      subscriptionId,
+      subscription,
+    }: VaultAuth & VaultSubscription & {
+      subscriptionId: string,
+    },
+  ) {
+    const url = `${this.endpoint}/${account}/subscriptions/${subscriptionId}`;
     const result = await this.wrap(axios.put(
       url,
       { account, ...subscription },
       this.getAuth(authToken),
     ));
     return result.data.success as boolean;
+  }
+
+  async getSubscription(
+    { account, authToken, subscriptionId }: VaultAuth & { subscriptionId: string },
+  ) {
+    const url = `${this.endpoint}/${account}/subscriptions/${subscriptionId}`;
+    const result = await this.wrap(axios.get(
+      url,
+      this.getAuth(authToken),
+    ));
+    if (!result.data.success) {
+      throw new Error(`Could not get subscription info from server: ${subscriptionId}`);
+    }
+    return result.data.subscription as FlockPushSubscription | null;
   }
 }
 

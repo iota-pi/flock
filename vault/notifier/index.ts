@@ -2,7 +2,7 @@ import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 import { App, initializeApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import getDriver from '../drivers';
-import { VaultSubscriptionWithAccount } from '../drivers/base';
+import { VaultSubscriptionFull } from '../drivers/base';
 
 const driver = getDriver('dynamo');
 let app: App;
@@ -49,7 +49,7 @@ function pushToSubscription(subscription: FlockPushSubscription) {
   });
 }
 
-function countPushError(subscription: VaultSubscriptionWithAccount) {
+function countPushError(subscription: VaultSubscriptionFull) {
   return driver.countSubscriptionFailure({ ...subscription, maxFailures: 3 });
 }
 
