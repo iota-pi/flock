@@ -17,8 +17,11 @@ export interface VaultItem extends VaultKey {
   metadata: {
     type: ItemType,
     iv: string,
+    modified: number,
   },
 }
+
+export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>;
 
 export interface VaultAuth {
   account: string,
@@ -102,8 +105,17 @@ class VaultAPI {
     };
   }
 
-  async fetchAll({ account, authToken }: Pick<VaultKey, 'account'> & VaultAuth): Promise<VaultItem[]> {
-    const url = `${this.endpoint}/${account}/items`;
+  async fetchAll(
+    {
+      account,
+      authToken,
+      cacheTime,
+    }: Pick<VaultKey, 'account'> & VaultAuth & { cacheTime?: number | null },
+  ): Promise<VaultItem[]> {
+    let url = `${this.endpoint}/${account}/items`;
+    if (cacheTime) {
+      url = `${url}?since=${cacheTime}`;
+    }
     const result = await this.wrap(axios.get(url, this.getAuth(authToken)));
     return result.data.items;
   }

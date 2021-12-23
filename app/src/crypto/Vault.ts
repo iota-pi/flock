@@ -1,4 +1,4 @@
-import VaultAPI from './api';
+import VaultAPI, { CachedVaultItem, VaultItem } from './api';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
 import { checkProperties, deleteItems, Item, setItems, updateItems } from '../state/items';
@@ -6,6 +6,9 @@ import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
 import { FlockPushSubscription } from '../utils/firebase-types';
 
+
+const VAULT_ITEM_CACHE = 'vaultItemCache';
+const VAULT_ITEM_CACHE_TIME = 'vaultItemCacheTime';
 
 function fromBytes(array: ArrayBuffer): string {
   const byteArray = Array.from(new Uint8Array(array));
@@ -189,6 +192,7 @@ class Vault {
       metadata: {
         iv,
         type: item.type,
+        modified: new Date().getTime(),
       },
     });
   }
@@ -205,6 +209,7 @@ class Vault {
         item => this.encryptObject(item),
       ),
     );
+    const modifiedTime = new Date().getTime();
 
     await this.api.putMany({
       account: this.account,
@@ -216,24 +221,70 @@ class Vault {
         metadata: {
           iv,
           type: items[i].type,
+          modified: modifiedTime,
         },
       })),
     });
   }
 
+  private getItemCacheTime() {
+    const raw = localStorage.getItem(VAULT_ITEM_CACHE_TIME);
+    if (raw) {
+      return parseInt(raw);
+    }
+    return null;
+  }
+
+  private async mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
+    const rawCache = localStorage.getItem(VAULT_ITEM_CACHE);
+    if (rawCache) {
+      const cachedItems: VaultItem[] = JSON.parse(rawCache);
+      const cachedMap = new Map(cachedItems.map(item => [item.item, item]));
+      const items = await itemsPromise;
+      const result = items.map(
+        item => (item.cipher ? (item as VaultItem) : cachedMap.get(item.item)),
+      );
+      const filteredResult = result.filter(
+        (item): item is NonNullable<typeof item> => item !== undefined,
+      );
+      if (filteredResult.length !== result.length) {
+        console.warn('Some items were missing from the cache!');
+      } else {
+        this.setItemCache(filteredResult);
+      }
+      return filteredResult;
+    }
+    const items = await itemsPromise;
+    if (items.find(item => !item.cipher)) {
+      console.warn('Some items were missing from the cache!');
+    } else {
+      this.setItemCache(items as VaultItem[]);
+    }
+    return items as VaultItem[];
+  }
+
+  private setItemCache(items: VaultItem[]) {
+    const raw = JSON.stringify(items);
+    localStorage.setItem(VAULT_ITEM_CACHE, raw);
+    localStorage.setItem(VAULT_ITEM_CACHE_TIME, new Date().getTime().toString());
+  }
+
   async fetchAll(): Promise<Item[]> {
-    const result = await this.api.fetchAll({
+    const cacheTime = this.getItemCacheTime();
+    const fetchPromise = this.api.fetchAll({
       account: this.account,
       authToken: this.authToken,
+      cacheTime,
     });
-    const promise = Promise.all(result.map(
+    const mergedFetch = await this.mergeWithItemCache(fetchPromise);
+    const resultPromise = Promise.all(mergedFetch.map(
       item => this.decryptObject({
         cipher: item.cipher,
         iv: item.metadata.iv,
       }) as Promise<Item>,
     ));
-    promise.then(items => this.dispatch(setItems(items)));
-    return promise;
+    resultPromise.then(items => this.dispatch(setItems(items)));
+    return resultPromise;
   }
 
   delete(data: string | string[]) {

@@ -12,6 +12,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get('/:account/items', async (request, reply) => {
     const account = (request.params as { account: string }).account;
+    const cacheTime = parseInt((request.query as { since: string }).since) || undefined;
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
     if (!valid) {
@@ -19,7 +20,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       return { success: false };
     }
     try {
-      const results = await vault.fetchAll({ account });
+      const results = await vault.fetchAll({ account, cacheTime });
       return { success: true, items: results };
     } catch (error) {
       fastify.log.error(error);
@@ -55,11 +56,17 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       return { details: [], success: false };
     }
 
-    const items = request.body as { cipher: string, id: string, iv: string, type: string }[];
+    const items = request.body as {
+      cipher: string,
+      id: string,
+      iv: string,
+      modified: number,
+      type: string,
+    }[];
     const promises: Promise<void>[] = [];
     const results: { item: string, success: boolean }[] = [];
     for (const item of items) {
-      const { cipher, id, iv, type } = item;
+      const { cipher, id, iv, modified, type } = item;
       const _type = asItemType(type);
       promises.push(
         vault.set({
@@ -69,6 +76,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
           metadata: {
             type: _type,
             iv,
+            modified,
           },
         }).then(() => {
           results.push({ item: id, success: true });
@@ -84,7 +92,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string };
-    const { cipher, iv, type } = request.body as { cipher: string, iv: string, type: string };
+    const { cipher, iv, modified, type } = request.body as {
+      cipher: string,
+      iv: string,
+      modified: number,
+      type: string,
+    };
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
     if (!valid) {
@@ -93,7 +106,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
     try {
       const _type = asItemType(type);
-      await vault.set({ account, item, cipher, metadata: { type: _type, iv } });
+      await vault.set({ account, item, cipher, metadata: { type: _type, iv, modified } });
     } catch (error) {
       fastify.log.error(error);
       reply.code(500);

@@ -10,6 +10,7 @@ export interface VaultKey {
 export interface VaultMetaData {
   type: VaultItemType,
   iv: string,
+  modified: number,
 }
 
 export interface VaultData {
@@ -30,6 +31,8 @@ export interface VaultAccount {
 export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
 
 export interface VaultItem extends VaultKey, VaultData {}
+
+export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>;
 
 export interface VaultSubscriptionFull extends FlockPushSubscription {
   account: string,
@@ -54,8 +57,10 @@ export default abstract class BaseDriver<T = unknown> {
   abstract setMetadata({ account, metadata }: VaultAccount): Promise<void>;
 
   abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>;
-  abstract get({ account, item }: VaultKey): Promise<VaultData>;
-  abstract fetchAll({ account }: Pick<VaultKey, 'account'>): Promise<VaultData[]>;
+  abstract get({ account, item }: VaultKey): Promise<VaultItem>;
+  abstract fetchAll(
+    { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime: number },
+  ): Promise<CachedVaultItem[]>;
 
   abstract delete({ account, item }: VaultKey): Promise<void>;
 }

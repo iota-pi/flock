@@ -2,6 +2,7 @@ import AWS from 'aws-sdk';
 import { almostConstantTimeEqual } from '../util';
 import BaseDriver, {
   AuthData,
+  CachedVaultItem,
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
@@ -333,7 +334,15 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     }
   };
 
-  async fetchAll({ account }: { account: string }): Promise<VaultItem[]> {
+  async fetchAll(
+    {
+      account,
+      cacheTime,
+    }: {
+      account: string,
+      cacheTime?: number,
+    },
+  ): Promise<CachedVaultItem[]> {
     const items: VaultItem[] = [];
     let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
     while (items.length < MAX_ITEMS_FETCH) {
@@ -358,7 +367,14 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
         break;
       }
     }
-    return items;
+    const updatedItems = items.map(item => {
+      if (!cacheTime || item.metadata.modified > cacheTime) {
+        return item;
+      } else {
+        return { item: item.item } as CachedVaultItem;
+      }
+    });
+    return updatedItems;
   }
 
   async delete({ account, item }: VaultKey) {
