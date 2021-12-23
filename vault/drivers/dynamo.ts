@@ -368,7 +368,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
       }
     }
     const updatedItems = items.map(item => {
-      if (!cacheTime || item.metadata.modified > cacheTime) {
+      if (!cacheTime || !item.metadata.modified || item.metadata.modified > cacheTime) {
         return item;
       } else {
         return { item: item.item } as CachedVaultItem;
