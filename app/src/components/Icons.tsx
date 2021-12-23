@@ -16,6 +16,7 @@ import HomeIcon from '@material-ui/icons/Home';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
 import MinusIcon from '@material-ui/icons/Remove';
 import NextIcon from '@material-ui/icons/ChevronRight';
+import NotificationIcon from '@material-ui/icons/Notifications';
 import OptionsIcon from '@material-ui/icons/Settings';
 import PersonIcon from '@material-ui/icons/Person';
 import PrayerPointIcon from '@material-ui/icons/FormatListBulleted';
@@ -56,6 +57,7 @@ export {
   InteractionIcon,
   MinusIcon,
   NextIcon,
+  NotificationIcon,
   OptionsIcon,
   PersonIcon,
   PrayerIcon,

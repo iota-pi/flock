@@ -182,6 +182,20 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     }).promise();
   }
 
+  async deleteSubscription(
+    {
+      account,
+      id,
+    }: Pick<AuthData, 'account'> & {
+      id: string,
+    },
+  ) {
+    await this.client?.delete({
+      TableName: SUBSCRIPTION_TABLE_NAME,
+      Key: { account, id },
+    }).promise();
+  }
+
   async countSubscriptionFailure(
     { account, token, maxFailures }: Pick<AuthData, 'account'> & { token: string, maxFailures: number },
   ) {

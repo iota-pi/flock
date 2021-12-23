@@ -248,6 +248,30 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     return { success: true };
   });
 
+  fastify.delete('/:account/subscriptions/:subscription', async (request, reply) => {
+    const authToken = getAuthToken(request);
+    const { account, subscription } = request.params as { account: string, subscription: string };
+    const valid = await vault.checkPassword({
+      account,
+      authToken,
+    });
+    if (!valid) {
+      reply.code(403);
+      return { success: false };
+    }
+    try {
+      await vault.deleteSubscription({
+        account,
+        id: subscription,
+      });
+    } catch (error) {
+      fastify.log.error(error);
+      reply.code(500);
+      return { success: false };
+    }
+    return { success: true };
+  });
+
   next();
 }
 

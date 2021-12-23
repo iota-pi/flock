@@ -204,7 +204,24 @@ class VaultAPI {
     const url = `${this.endpoint}/${account}/subscriptions/${subscriptionId}`;
     const result = await this.wrap(axios.put(
       url,
-      { account, ...subscription },
+      { ...subscription },
+      this.getAuth(authToken),
+    ));
+    return result.data.success as boolean;
+  }
+
+  async deleteSubscription(
+    {
+      account,
+      authToken,
+      subscriptionId,
+    }: VaultAuth & {
+      subscriptionId: string,
+    },
+  ) {
+    const url = `${this.endpoint}/${account}/subscriptions/${subscriptionId}`;
+    const result = await this.wrap(axios.delete(
+      url,
       this.getAuth(authToken),
     ));
     return result.data.success as boolean;

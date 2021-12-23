@@ -323,6 +323,17 @@ class Vault {
       throw new Error('Failed to save push notification token to server');
     }
   }
+
+  async deleteSubscription(subscriptionToken: string): Promise<void> {
+    const result = await this.api.deleteSubscription({
+      account: this.account,
+      authToken: this.authToken,
+      subscriptionId: await this.getSubscriptionId(subscriptionToken),
+    });
+    if (!result) {
+      throw new Error('Failed to delete push notification token from server');
+    }
+  }
 }
 
 export default Vault;

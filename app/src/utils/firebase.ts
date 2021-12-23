@@ -16,14 +16,19 @@ async function getToken() {
   );
 }
 
-export async function subscribe(vault: Vault) {
+export async function subscribe(vault: Vault, hours: number[]) {
   const token = await getToken();
   await vault.setSubscription({
     failures: 0,
-    hours: [9],
+    hours,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     token,
   });
+}
+
+export async function unsubscribe(vault: Vault) {
+  const token = await getToken();
+  await vault.deleteSubscription(token);
 }
 
 export async function checkSubscription(vault: Vault) {

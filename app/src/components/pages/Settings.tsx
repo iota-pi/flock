@@ -7,6 +7,7 @@ import {
   IconButton,
   List,
   ListItem,
+  styled,
   Theme,
   Typography,
   useMediaQuery,
@@ -16,7 +17,14 @@ import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
-import { DownloadIcon, EditIcon, MuiIconType, SignOutIcon, UploadIcon } from '../Icons';
+import {
+  DownloadIcon,
+  EditIcon,
+  MuiIconType,
+  NotificationIcon,
+  SignOutIcon,
+  UploadIcon,
+} from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
@@ -26,7 +34,8 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
 import { clearVault } from '../../state/vault';
-import { checkSubscription, subscribe } from '../../utils/firebase';
+import { subscribe, unsubscribe } from '../../utils/firebase';
+import SubscriptionDialog from '../dialogs/SubscriptionDialog';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -66,6 +75,14 @@ export interface SettingsItemProps {
   tags?: string[],
   value?: ReactNode,
 }
+
+const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
+  marginRight: 0,
+
+  '& .MuiCheckbox-root': {
+    marginLeft: theme.spacing(1),
+  },
+}));
 
 function SettingsItem({
   icon: Icon,
@@ -157,6 +174,10 @@ function SettingsPage() {
   const handleEditMaturity = useCallback(() => setShowMaturityDialog(true), []);
   const handleCloseMaturityDialog = useCallback(() => setShowMaturityDialog(false), []);
 
+  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
+  const handleEditSubscription = useCallback(() => setShowSubscriptionDialog(true), []);
+  const handleCloseSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), []);
+
   const handleExport = useCallback(
     async () => {
       const data = await vault?.exportData(items);
@@ -179,13 +200,13 @@ function SettingsPage() {
   );
 
   const handleSubscribe = useCallback(
-    async () => {
+    async (hours: number[] | null) => {
+      setShowSubscriptionDialog(false);
       if (vault) {
-        const subscription = await checkSubscription(vault);
-        if (subscription) {
-          console.warn('already subscrbed');
+        if (hours) {
+          await subscribe(vault, hours);
         } else {
-          await subscribe(vault);
+          await unsubscribe(vault);
         }
       }
     },
@@ -221,11 +242,12 @@ function SettingsPage() {
           onClick={handleToggleDarkMode}
           title="Use dark mode"
           value={(
-            <FormControlLabel
+            <LeftCheckboxLabel
               control={(
                 <Checkbox
-                  indeterminate={darkMode === null}
                   checked={darkMode || false}
+                  indeterminate={darkMode === null}
+                  size="small"
                 />
               )}
               label={darkModeLabel}
@@ -248,6 +270,12 @@ function SettingsPage() {
           )}
         />
         <SettingsItem
+          icon={NotificationIcon}
+          id="reminders"
+          onClick={handleEditSubscription}
+          title="Prayer reminder notifications"
+        />
+        <SettingsItem
           icon={EditIcon}
           id="maturity-stages"
           onClick={handleEditMaturity}
@@ -266,11 +294,6 @@ function SettingsPage() {
           onClick={handleImport}
           title="Restore from a backup"
         />
-        <SettingsItem
-          id="reminders"
-          onClick={handleSubscribe}
-          title="Subscribe for prayer reminders"
-        />
       </List>
 
       <GoalDialog
@@ -286,6 +309,11 @@ function SettingsPage() {
         onClose={handleCloseImportDialog}
         onConfirm={handleConfirmImport}
         open={showImportDialog}
+      />
+      <SubscriptionDialog
+        onClose={handleCloseSubscriptionDialog}
+        onSave={handleSubscribe}
+        open={showSubscriptionDialog}
       />
     </BasePage>
   );
