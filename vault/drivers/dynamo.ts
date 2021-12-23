@@ -1,14 +1,22 @@
 import AWS from 'aws-sdk';
 import { almostConstantTimeEqual } from '../util';
-import BaseDriver, { AuthData, VaultAccountWithAuth, VaultData, VaultItem, VaultKey, VaultSubscriptionFull } from './base';
+import BaseDriver, {
+  AuthData,
+  VaultAccountWithAuth,
+  VaultItem,
+  VaultKey,
+  VaultSubscriptionFull,
+} from './base';
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts';
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems';
 export const SUBSCRIPTION_TABLE_NAME = process.env.SUBSCRIPTIONS_TABLE || 'FlockSubscriptions';
 const DATA_ATTRIBUTES = ['metadata', 'cipher'];
+const ITEM_KEY_ATTRIBUTES = ['item'];
 
 export const MAX_ITEM_SIZE = 50000;
+export const MAX_ITEMS_FETCH = 5000;
 
 export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}
 
@@ -315,7 +323,7 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
       {
         TableName: ITEM_TABLE_NAME,
         Key: { account, item },
-        AttributesToGet: DATA_ATTRIBUTES,
+        ProjectionExpression: DATA_ATTRIBUTES.join(','),
       },
     ).promise();
     if (response?.Item) {
@@ -325,20 +333,32 @@ export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
     }
   };
 
-  async fetchAll({ account }: { account: string }) {
-    const response = await this.client?.query(
-      {
-        TableName: ITEM_TABLE_NAME,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeValues: {
-          ':accountid': account,
+  async fetchAll({ account }: { account: string }): Promise<VaultItem[]> {
+    const items: VaultItem[] = [];
+    let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
+    while (items.length < MAX_ITEMS_FETCH) {
+      const response = await this.client?.query(
+        {
+          TableName: ITEM_TABLE_NAME,
+          KeyConditionExpression: 'account = :accountid',
+          ExpressionAttributeNames: {
+            '#itemKey': 'item',
+          },
+          ExpressionAttributeValues: {
+            ':accountid': account,
+          },
+          ProjectionExpression: ['#itemKey', ...DATA_ATTRIBUTES].join(','),
         },
-      },
-    ).promise();
-    if (!response) {
-      throw new Error(`Response object is not defined ${account}`);
+      ).promise();
+      if (response?.Items) {
+        items.push(...response?.Items as VaultItem[]);
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey;
+      if (!lastEvaluatedKey) {
+        break;
+      }
     }
-    return response?.Items as VaultData[];
+    return items;
   }
 
   async delete({ account, item }: VaultKey) {
