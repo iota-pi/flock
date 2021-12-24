@@ -97,17 +97,21 @@ const migrations: { [name: string]: () => Promise<void> } = {
       }
     }
     const now = new Date().getTime();
+    let updated = 0;
     for (const item of items) {
-      await client.update({
-        TableName: ITEM_TABLE_NAME,
-        Key: { account: item.account, item: item.item },
-        UpdateExpression: 'SET metadata.modified = :modified',
-        ExpressionAttributeValues: {
-          ':modified': now,
-        },
-      }).promise();
+      if (!item.metadata.modified) {
+        await client.update({
+          TableName: ITEM_TABLE_NAME,
+          Key: { account: item.account, item: item.item },
+          UpdateExpression: 'SET metadata.modified = :modified',
+          ExpressionAttributeValues: {
+            ':modified': now,
+          },
+        }).promise();
+        ++updated;
+      }
     }
-    console.log(`Updated ${items.length} items`);
+    console.log(`Updated ${updated} items`);
   },
 };
 
