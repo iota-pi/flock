@@ -79,7 +79,7 @@ function SubscriptionDialog({
           } else {
             setHours([]);
           }
-        });
+        }).catch(console.error);
       }
     },
     [vault],
