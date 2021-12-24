@@ -3,6 +3,7 @@ import {
   memo,
   MouseEvent,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -106,7 +107,20 @@ function SingleNote<T extends ItemNote>({
   const classes = useStyles();
 
   const [showSensitive, setShowSensitive] = useState(false);
+  const [localContent, setLocalContent] = useState(note.content);
   const today = useToday();
+
+  useEffect(() => setLocalContent(note.content), [note.content]);
+  useEffect(
+    () => {
+      const timeout = setTimeout(
+        () => onChangeContent(note.id, localContent),
+        100,
+      );
+      return () => clearTimeout(timeout);
+    },
+    [localContent, onChangeContent, note.id],
+  );
 
   const handleChangeCompleted = useCallback(
     () => note.type === 'action' && onChangeCompleted(
@@ -116,10 +130,8 @@ function SingleNote<T extends ItemNote>({
     [note, onChangeCompleted, today],
   );
   const handleChangeContent = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      onChangeContent(note.id, event.target.value);
-    },
-    [note, onChangeContent],
+    (event: ChangeEvent<HTMLInputElement>) => setLocalContent(event.target.value),
+    [],
   );
   const handleChangeDate = useCallback(
     (date: Date | null) => {
@@ -171,9 +183,8 @@ function SingleNote<T extends ItemNote>({
         <div className={classes.noteContentRow}>
           <TextField
             autoFocus={autoFocus}
-            value={!visible ? '...' : note.content}
-            onChange={handleChangeContent}
             disabled={!visible}
+            fullWidth
             label={noteContentLabel}
             InputProps={{
               endAdornment: note.sensitive ? (
@@ -189,7 +200,8 @@ function SingleNote<T extends ItemNote>({
               ) : null,
             }}
             multiline
-            fullWidth
+            onChange={handleChangeContent}
+            value={!visible ? '...' : localContent}
             variant="standard"
           />
         </div>
