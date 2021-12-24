@@ -18,8 +18,9 @@ describe('DynamoDriver', function () {
     const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
+    const modified = new Date().getTime();
 
-    await driver.set({ account, item, cipher, metadata: { type, iv } });
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     const result = await driver.get({ account, item });
     expect(result).toEqual({ cipher, metadata: { type, iv } });
 
@@ -34,11 +35,12 @@ describe('DynamoDriver', function () {
     const type: VaultItemType = 'person';
     let cipher = 'hello';
     let iv = 'there';
+    const modified = new Date().getTime();
 
-    await driver.set({ account, item, cipher, metadata: { type, iv } });
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     cipher = 'good';
     iv = 'bye';
-    await driver.set({ account, item, cipher, metadata: { type, iv } });
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     const result = await driver.get({ account, item });
     expect(result).toEqual({ cipher, metadata: { type, iv } });
   });
@@ -49,10 +51,11 @@ describe('DynamoDriver', function () {
     const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
+    const modified = new Date().getTime();
     for (let i = 0; i < 10; ++i) {
       const item = getItemId();
       individuals.push(item);
-      await driver.set({ account, item, cipher, metadata: { type, iv } });
+      await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     }
     const result = await driver.fetchAll({ account });
     expect(result.length).toEqual(10);
