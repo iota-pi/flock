@@ -1,6 +1,6 @@
 describe('Maturity-related functionality', () => {
   beforeEach(() => {
-    cy.visit('http://localhost:3000')
+    cy.visit('/')
     cy.createAccount('fnG8iv4t!%Qa')
   })
 

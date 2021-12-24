@@ -40,11 +40,6 @@ if [[ $environment == production ]]; then
 fi
 
 cd ../app
-if [[ -n ${CI:-} ]]; then
-  npm ci --production
-fi
-
-echo "Building app"
 yarn build
 
 key_base="s3://$app_bucket"

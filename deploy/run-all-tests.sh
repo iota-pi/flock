@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$(realpath "$0")")/.."
 
+docker-compose up -d api
 export CI=true
 (
   cd app
@@ -12,12 +13,14 @@ export CI=true
     exit 1
   fi
 
-  DISABLE_ESLINT_PLUGIN=true BROWSER=none yarn start >/dev/null 2>&1 &
+  yarn build
+  port=8080
+  yarn run serve build -p ${port} >/dev/null 2>&1 &
   server=$!
-  yarn run cypress run
+  yarn run cypress run --config "baseUrl=http://localhost:${port}"
   kill $! >/dev/null 2>&1 || true
 )
 (
   cd vault
-  # yarn test
+  yarn docker:test
 )

@@ -22,7 +22,7 @@ describe('DynamoDriver', function () {
 
     await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     const result = await driver.get({ account, item });
-    expect(result).toEqual({ cipher, metadata: { type, iv } });
+    expect(result).toEqual({ cipher, metadata: { type, iv, modified } });
 
     await driver.delete({ account, item });
     const p = driver.get({ account, item });
@@ -42,7 +42,7 @@ describe('DynamoDriver', function () {
     iv = 'bye';
     await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     const result = await driver.get({ account, item });
-    expect(result).toEqual({ cipher, metadata: { type, iv } });
+    expect(result).toEqual({ cipher, metadata: { type, iv, modified } });
   });
 
   it('fetchAll works', async () => {
