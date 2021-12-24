@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -18,6 +18,7 @@ import { useItems, useMaturity, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
+import Vault from '../../crypto/Vault';
 
 const useStyles = makeStyles(theme => ({
   root: {},
@@ -55,6 +56,31 @@ export interface MaturityControl {
   name: string,
 }
 
+export function updateMaturityForPeople(
+  vault: Vault,
+  people: PersonItem[],
+  original: MaturityControl[],
+  updated: MaturityControl[],
+) {
+  const map = new Map<string, PersonItem[]>();
+  people.forEach(person => {
+    if (person.maturity) {
+      const existing = map.get(person.maturity) || [];
+      map.set(person.maturity, [...existing, person]);
+    }
+  });
+  const updatedPeople: PersonItem[] = [];
+  for (const stage of updated) {
+    const originalStage = original.find(({ id }) => id === stage.id);
+    if (originalStage && stage.name !== originalStage.name) {
+      const peopleWithMaturity = map.get(originalStage.name) || [];
+      updatedPeople.push(
+        ...peopleWithMaturity.map(p => ({ ...p, maturity: stage.name.trim() })),
+      );
+    }
+  }
+  vault.store(updatedPeople);
+}
 
 function MaturityDialog({
   onClose,
@@ -63,23 +89,10 @@ function MaturityDialog({
   const classes = useStyles();
   const people = useItems<PersonItem>('person');
   const vault = useVault();
-  const maturityToPeopleMap = useMemo(
-    () => {
-      const map = new Map<string, PersonItem[]>();
-      people.forEach(person => {
-        if (person.maturity) {
-          const existing = map.get(person.maturity) || [];
-          map.set(person.maturity, [...existing, person]);
-        }
-      });
-      return map;
-    },
-    [people],
-  );
 
   const [maturity, setMaturity] = useMaturity();
   const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
-  const [originalWithIds, setOriginalWithIds] = useState<MaturityControl[]>([]);
+  const [original, setOriginalWithIds] = useState<MaturityControl[]>([]);
   const [disableAnimation, setDisableAnimation] = useState(false);
   const [autoFocusId, setAutoFocusId] = useState<string>();
 
@@ -153,25 +166,15 @@ function MaturityDialog({
   );
   const handleDone = useCallback(
     () => {
-      const updatedItems: PersonItem[] = [];
-      for (const stage of localMaturity) {
-        const original = originalWithIds.find(({ id }) => id === stage.id);
-        if (original) {
-          const peopleWithMaturity = maturityToPeopleMap.get(original.name) || [];
-          updatedItems.push(
-            ...peopleWithMaturity.map(p => ({ ...p, maturity: stage.name })),
-          );
-        }
-      }
-      vault?.store(updatedItems);
+      updateMaturityForPeople(vault!, people, original, localMaturity);
       setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
       onClose();
     },
     [
       localMaturity,
       onClose,
-      originalWithIds,
-      maturityToPeopleMap,
+      original,
+      people,
       setMaturity,
       vault,
     ],
