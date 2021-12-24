@@ -33,20 +33,28 @@ function filterDueSubscriptions<T extends FlockPushSubscription>(subscriptions: 
   return results;
 }
 
-function pushToSubscription(subscription: FlockPushSubscription) {
-  return getMessaging().send({
-    token: subscription.token,
-    notification: {
-      title: 'Prayer reminder',
-      body: 'Let\'s pray for the flock',
-      imageUrl: `${process.env.PROD_APP_URL}/flock.png`,
-    },
-    webpush: {
-      fcmOptions: {
-        link: process.env.PROD_APP_URL,
-      },
-    },
-  });
+function pushToSubscriptions(subscriptions: FlockPushSubscription[]) {
+  const promises = [];
+  for (let i = 0; i < subscriptions.length; i += 100) {
+    const subscriptionsSlice = subscriptions.slice(i, i + 100);
+    const tokens = subscriptionsSlice.map(subscription => subscription.token);
+    promises.push(
+      getMessaging().sendMulticast({
+        tokens,
+        notification: {
+          title: 'Prayer reminder',
+          body: 'Let\'s pray for the flock',
+          imageUrl: `${process.env.PROD_APP_URL}/flock.png`,
+        },
+        webpush: {
+          fcmOptions: {
+            link: process.env.PROD_APP_URL,
+          },
+        },
+      }),
+    );
+  }
+  return Promise.all(promises);
 }
 
 function countPushError(subscription: VaultSubscriptionFull) {
@@ -55,17 +63,26 @@ function countPushError(subscription: VaultSubscriptionFull) {
 
 export const handler = async () => {
   init();
-  console.warn('About to fetch subscriptions');
   const allSubscriptions = await driver.getEverySubscription();
-  console.warn(`Found ${allSubscriptions.length} subscriptions`);
+  console.log(`Found ${allSubscriptions.length} subscriptions`);
   const subscriptions = filterDueSubscriptions(allSubscriptions);
-  for (const subscription of subscriptions) {
-    console.warn(`About to send to subscription`);
-    try {
-      console.log('Result:', await pushToSubscription(subscription));
-    } catch (error) {
-      await countPushError(subscription);
-      console.error(error);
+  const responseSets = await pushToSubscriptions(subscriptions);
+  let totalFailures = 0;
+  let index = 0;
+  for (const responseSet of responseSets) {
+    if (responseSet.failureCount > 0) {
+      for (const response of responseSet.responses) {
+        if (!response.success) {
+          await countPushError(subscriptions[index]);
+          ++totalFailures;
+        }
+        ++index;
+      }
+    } else {
+      index += responseSet.successCount;
     }
   }
+  console.log(
+    `Sent notifications to ${subscriptions.length} devices (${totalFailures} failures)`,
+  );
 }
