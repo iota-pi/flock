@@ -90,17 +90,19 @@ describe('Vault (Crypto)', () => {
     const vault = await getVault(dispatch);
     const api = { put: jest.fn() };
     vault['api'] = api as any;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { description, ...item } = getBlankPerson();
 
     const promise = vault.store(item as Item);
     await expect(promise).rejects.toThrow();
   });
 
-  test('store multiple items', async () => {
+  test('does not store items with missing properties (putMany)', async () => {
     const dispatch = jest.fn();
     const vault = await getVault(dispatch);
     const api = { putMany: jest.fn() };
     vault['api'] = api as any;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { description, ...partialItem } = getBlankPerson();
     const items = [getBlankPerson(), getBlankGroup(), partialItem as Item];
 
@@ -120,6 +122,7 @@ describe('Vault (Crypto)', () => {
       metadata: {
         iv: item.iv,
         type: original[i].type,
+        modified: new Date().getTime(),
       },
     }));
     const api = { fetchAll: jest.fn().mockReturnValue(asAPIItems) };

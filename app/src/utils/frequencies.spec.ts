@@ -8,5 +8,5 @@ test.each([
   [new Date(new Date().getTime() - ONE_DAY), 'weekly' as Frequency, Due.fine],
 ])('isDue(%s, "%s") = %s', (lastDate, frequency, expected) => {
   const result = isDue(lastDate, frequency);
-  expect(result).toEqual(expected)
+  expect(result).toEqual(expected);
 });

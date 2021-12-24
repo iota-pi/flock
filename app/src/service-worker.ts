@@ -10,8 +10,7 @@ declare const self: ServiceWorkerGlobalScope;
 function initServiceWorker() {
   const app = initializeApp(firebaseConfig);
   const messaging = getMessaging(app);
-  onBackgroundMessage(messaging, async payload => {
-    console.log('[service worker] Received background message', payload);
+  onBackgroundMessage(messaging, async () => {
     // Customize notification here
     const notificationTitle = 'Prayer reminder';
     const notificationOptions = {
@@ -29,4 +28,5 @@ function initServiceWorker() {
 initServiceWorker();
 
 // @ts-ignore
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ignored = self.__WB_MANIFEST;
