@@ -1,6 +1,7 @@
 import AWS from 'aws-sdk';
 import { createHash } from 'crypto';
-import { ACCOUNT_TABLE_NAME, getConnectionParams } from '../drivers/dynamo';
+import { VaultItem } from '../drivers/base';
+import { ACCOUNT_TABLE_NAME, getConnectionParams, ITEM_TABLE_NAME } from '../drivers/dynamo';
 
 const client = new AWS.DynamoDB.DocumentClient(getConnectionParams());
 
@@ -80,6 +81,33 @@ const migrations: { [name: string]: () => Promise<void> } = {
       }
       console.log(`Updated ${items.length} items`);
     }
+  },
+  async addModifiedTime () {
+    const maxItems = 10000;
+    const items: VaultItem[] = [];
+    let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
+    while (items.length < maxItems) {
+      const response = await client.scan({ TableName: ITEM_TABLE_NAME }).promise();
+      if (response?.Items) {
+        items.push(...response?.Items as VaultItem[]);
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey;
+      if (!lastEvaluatedKey) {
+        break;
+      }
+    }
+    const now = new Date().getTime();
+    for (const item of items) {
+      await client.update({
+        TableName: ITEM_TABLE_NAME,
+        Key: { account: item.account, item: item.item },
+        UpdateExpression: 'SET metadata.modified = :modified',
+        ExpressionAttributeValues: {
+          ':modified': now,
+        },
+      }).promise();
+    }
+    console.log(`Updated ${items.length} items`);
   },
 };
 
