@@ -221,9 +221,10 @@ function ItemDrawer({
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
+        onChange(clean);
       }
     },
-    [isValid, vault],
+    [isValid, onChange, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
