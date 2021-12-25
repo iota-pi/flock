@@ -4,19 +4,6 @@ describe('Basic operation', () => {
     cy.createAccount('fnG8iv4t!%Qa')
   })
 
-  it('can create and edit items', () => {
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
-      .saveDrawer()
-      .reload()
-    cy.dataCy('page-content')
-      .contains('Frodo Baggins')
-      .click()
-    cy.dataCy('description').type('Underhill')
-    cy.saveDrawer()
-    cy.dataCy('page-content')
-      .contains('Underhill')
-  })
-
   it('can add & remove notes', () => {
     // Create notes
     cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
@@ -27,6 +14,8 @@ describe('Basic operation', () => {
         sensitive: true,
       })
       .addNote({ content: 'Safe travels & self control', type: 'prayer' })
+      .addNote({ content: 'Destroy ring', type: 'action', sensitive: true })
+      .addNote({ content: 'Look after Sam', type: 'action' })
       .saveDrawer()
 
     // Check notes have been created successfully
@@ -74,47 +63,15 @@ describe('Basic operation', () => {
       .click()
     cy.dataCy('drawer-content')
       .contains('No interactions')
-  })
-
-  it('can add & edit actions', () => {
-    cy.viewport(1280, 720)
-
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
-      .addNote({ content: 'Destroy ring', type: 'action' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Samwise', lastName: 'Gamgee' })
-      .addNote({ content: 'Trim hedges', type: 'action' })
-      .addNote({ content: 'Cook taters', type: 'action' })
-      .addNote({ content: 'Bully Gollum', type: 'action', sensitive: true })
-      .saveDrawer()
+
+    // Check actions were created successfully
     cy.page('actions')
     cy.dataCy('page-content')
-      .contains('Frodo Baggins').first()
-      .click()
-    cy.dataCy('page-content')
-      .contains('Samwise Gamgee').first()
-      .click()
-    cy.dataCy('page-content')
-      .contains('Frodo Baggins').first()
-      .click()
-    cy.dataCy('page-content')
       .contains('Destroy ring')
-    cy.dataCy('page-content')
-      .contains('Trim hedges')
-    cy.dataCy('page-content')
-      .contains('Cook taters')
-    cy.dataCy('page-content')
-      .contains('Bully gollum')
       .should('not.exist')
-
     cy.dataCy('page-content')
-      .find('[data-cy=list-item]')
-      .filter((i, e) => /samwise gamgee/i.test(e.innerText))
-      .should('have.length', 3)
-    cy.dataCy('page-content')
-      .find('[data-cy=list-item]')
-      .filter((i, e) => /frodo baggins/i.test(e.innerText))
-      .should('have.length', 1)
+      .contains('Look after Sam')
   })
 
   it('can create groups; add & remove members', () => {
@@ -137,6 +94,8 @@ describe('Basic operation', () => {
 
     cy.page('groups')
     cy.contains('4 members').click()
+    cy.contains(/group report/i)
+      .should('not.be.disabled')
     cy.dataCy('section-members').click()
     cy.contains('Gandalf')
       .parentsUntil('[data-cy=list-item]')
@@ -147,61 +106,41 @@ describe('Basic operation', () => {
     cy.contains('3 members')
   })
 
-  it('group report only works for existing groups', () => {
-    cy.createGroup({ name: 'FotR' })
-    cy.contains(/group report/i)
-      .should('be.disabled')
-    cy.saveDrawer()
-    cy.contains('FotR').click()
-    cy.contains(/group report/i)
-      .should('not.be.disabled')
-      .click()
-    cy.dataCy('drawer-content')
-      .should('have.length', 2)
-  })
-
-  it('can create other items, edit frequencies', () => {
+  it('can create other items, edit tags and frequencies', () => {
     cy.createOther({ name: 'Athelas' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-weekly').click()
+      .addTag('Plant')
       .saveDrawer()
-    cy.createOther({ name: 'Mallorn' })
+      cy.createOther({ name: 'Mallorn' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-annually').click()
+      .addTag('Plant')
+      .addTag('Shiny')
       .saveDrawer()
-    cy.createOther({ name: 'The One Ring' })
+      cy.createOther({ name: 'The One Ring' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-daily').click()
+      .addTag('p')
+      .addTag('p')  // should add and remove "Plant"
+      .addTag('s')
+      .addTag('Evil')
       .saveDrawer()
+
+    cy.dataCy('tag')
+      .filter((i, e) => /plant/i.test(e.innerText))
+      .should('have.length', 2)
+    cy.dataCy('tag')
+      .filter((i, e) => /shiny/i.test(e.innerText))
+      .should('have.length', 2)
+    cy.dataCy('tag')
+      .filter((i, e) => /evil/i.test(e.innerText))
+      .should('have.length', 1)
 
     cy.page('prayer')
     cy.dataCy('list-item').eq(0).contains('One Ring')
     cy.dataCy('list-item').eq(1).contains('Athelas')
     cy.dataCy('list-item').eq(2).contains('Mallorn')
-  })
-
-  it('can add and edit tags', () => {
-    cy.createPerson({ firstName: 'Frodo' })
-      .addTag('Hobbit')
-      .saveDrawer()
-    cy.createPerson({ firstName: 'Pippin' })
-      .addTag('h')
-      .saveDrawer()
-    cy.createPerson({ firstName: 'Boromir' })
-      .addTag('h')
-      .addTag('h')  // should remove the tag "Hobbit"
-      .addTag('Gondor')
-      .saveDrawer()
-    cy.contains('Pippin').click()
-      .addTag('Gon')
-      .saveDrawer()
-
-    cy.dataCy('tag')
-      .filter((i, e) => /gondor/i.test(e.innerText))
-      .should('have.length', 2)
-    cy.dataCy('tag')
-      .filter((i, e) => /hobbit/i.test(e.innerText))
-      .should('have.length', 2)
   })
 
   it('opening/closing nested drawers works correctly', () => {

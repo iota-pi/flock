@@ -233,7 +233,7 @@ function SingleNote<T extends ItemNote>({
               control={(
                 <Checkbox
                   checked={note.sensitive || false}
-                  data-cy="sensitive-note"
+                  data-cy={`sensitive-note-${note.type}`}
                   onChange={handleChangeSensitive}
                 />
               )}
@@ -245,7 +245,7 @@ function SingleNote<T extends ItemNote>({
                 control={(
                   <Checkbox
                     checked={!!note.completed}
-                    data-cy="sensitive-note"
+                    data-cy={`sensitive-note-${note.type}`}
                     onChange={handleChangeCompleted}
                   />
                 )}

@@ -102,7 +102,7 @@ Cypress.Commands.add(
       cy.focused().type(note.content)
     }
     if (note.sensitive) {
-      cy.dataCy('sensitive-note').first().click()
+      cy.dataCy(`sensitive-note-${note.type}`).first().click()
     }
     return cy;
   },
