@@ -8,9 +8,8 @@ import {
 } from 'react';
 import {
   Alert,
-  Checkbox,
+  Button,
   Collapse,
-  FormControlLabel,
   Grid,
   styled,
   TextField,
@@ -40,7 +39,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { ActionIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon } from '../Icons';
+import { ActionIcon, ArchiveIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon, UnarchiveIcon } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
@@ -415,16 +414,14 @@ function ItemDrawer({
   const archivedField = useMemo(
     () => (
       <Grid item xs={12}>
-        <FormControlLabel
-          control={(
-            <Checkbox
-              checked={archived}
-              data-cy="archived"
-              onChange={(_, newArchived) => handleChange({ archived: newArchived })}
-            />
-          )}
-          label="Archived"
-        />
+        <Button
+          color="inherit"
+          data-cy="archived"
+          onClick={() => handleChange({ archived: !archived })}
+          startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+        >
+          {archived ? 'Unarchive' : 'Archive'}
+        </Button>
       </Grid>
     ),
     [archived, handleChange],
@@ -610,7 +607,6 @@ function ItemDrawer({
 
         {descriptionField}
         {summaryField}
-        {archivedField}
         {tagsField}
 
         {maturityField}
@@ -624,6 +620,8 @@ function ItemDrawer({
           {interactionSection}
           {actionSection}
         </SectionHolder>
+
+        {archivedField}
       </Grid>
     </BaseDrawer>
   );
