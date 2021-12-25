@@ -26,6 +26,89 @@ export interface Props {
 }
 
 
+function SortCriterionField({
+  chosenCriteria,
+  criterion,
+  index,
+  onChangeKey,
+  onChangeReverse,
+  onRemove,
+}: {
+  chosenCriteria: Set<CriterionName>,
+  criterion: SortCriterion,
+  index: number,
+  onChangeKey: (index: number, key: CriterionName) => void,
+  onChangeReverse: (index: number, reverse: boolean) => void,
+  onRemove: (index: number) => void,
+}) {
+  const handleChangeKey = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => (
+      onChangeKey(index, event.target.value as CriterionName)
+    ),
+    [index, onChangeKey],
+  );
+  const handleChangeReverse = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => (
+      onChangeReverse(index, !!parseInt(event.target.value))
+    ),
+    [index, onChangeReverse],
+  );
+  const handleRemove = useCallback(
+    () => onRemove(index),
+    [index, onRemove],
+  );
+
+  return (
+    <Stack
+      data-cy="sort-criterion"
+      direction="row"
+      alignItems="center"
+      spacing={2}
+      py={2}
+    >
+      <TextField
+        data-cy="sort-criterion-name"
+        fullWidth
+        onChange={handleChangeKey}
+        value={criterion.type}
+        label="Field"
+        select
+        variant="standard"
+      >
+        {CRITERIA_DISPLAY.filter(
+          cd => criterion.type === cd[0] || !chosenCriteria.has(cd[0]),
+        ).map(([key, display]) => (
+          <MenuItem key={key} value={key}>
+            {display.name}
+          </MenuItem>
+        ))}
+      </TextField>
+
+      <TextField
+        data-cy="sort-criterion-order"
+        fullWidth
+        onChange={handleChangeReverse}
+        value={+criterion.reverse}
+        label="Order"
+        select
+        variant="standard"
+      >
+        <MenuItem value={0}>
+          {CRITERIA_DISPLAY_MAP[criterion.type].normal}
+        </MenuItem>
+        <MenuItem value={1}>
+          {CRITERIA_DISPLAY_MAP[criterion.type].reverse}
+        </MenuItem>
+      </TextField>
+
+      <IconButton onClick={handleRemove}>
+        <RemoveIcon />
+      </IconButton>
+    </Stack>
+  );
+}
+
+
 function SortDialog({
   onClose,
   open,
@@ -57,23 +140,23 @@ function SortDialog({
     [chosenCriteria],
   );
   const handleChangeKey = useCallback(
-    (index: number) => (event: ChangeEvent<HTMLInputElement>) => setLocalCriteria(lc => [
+    (index: number, key: CriterionName) => setLocalCriteria(lc => [
       ...lc.slice(0, index),
-      { ...lc[index], type: event.target.value as CriterionName },
+      { ...lc[index], type: key },
       ...lc.slice(index + 1),
     ]),
     [],
   );
   const handleChangeReverse = useCallback(
-    (index: number) => (event: ChangeEvent<HTMLInputElement>) => setLocalCriteria(lc => [
+    (index: number, reverse: boolean) => setLocalCriteria(lc => [
       ...lc.slice(0, index),
-      { ...lc[index], reverse: !!parseInt(event.target.value) },
+      { ...lc[index], reverse },
       ...lc.slice(index + 1),
     ]),
     [],
   );
   const handleRemove = useCallback(
-    (index: number) => () => setLocalCriteria(
+    (index: number) => setLocalCriteria(
       lc => [...lc.slice(0, index), ...lc.slice(index + 1)],
     ),
     [],
@@ -102,52 +185,14 @@ function SortDialog({
           <div key={lc.type}>
             {index === 0 && <Divider />}
 
-            <Stack
-              data-cy="sort-criterion"
-              direction="row"
-              alignItems="center"
-              spacing={2}
-              py={2}
-            >
-              <TextField
-                data-cy="sort-criterion-name"
-                fullWidth
-                onChange={handleChangeKey(index)}
-                value={lc.type}
-                label="Field"
-                select
-                variant="standard"
-              >
-                {CRITERIA_DISPLAY.filter(
-                  cd => lc.type === cd[0] || !chosenCriteria.has(cd[0]),
-                ).map(([key, display]) => (
-                  <MenuItem key={key} value={key}>
-                    {display.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-
-              <TextField
-                data-cy="sort-criterion-order"
-                fullWidth
-                onChange={handleChangeReverse(index)}
-                value={+lc.reverse}
-                label="Order"
-                select
-                variant="standard"
-              >
-                <MenuItem value={0}>
-                  {CRITERIA_DISPLAY_MAP[lc.type].normal}
-                </MenuItem>
-                <MenuItem value={1}>
-                  {CRITERIA_DISPLAY_MAP[lc.type].reverse}
-                </MenuItem>
-              </TextField>
-
-              <IconButton onClick={handleRemove(index)}>
-                <RemoveIcon />
-              </IconButton>
-            </Stack>
+            <SortCriterionField
+              chosenCriteria={chosenCriteria}
+              criterion={lc}
+              index={index}
+              onChangeKey={handleChangeKey}
+              onChangeReverse={handleChangeReverse}
+              onRemove={handleRemove}
+            />
 
             <Divider />
           </div>
