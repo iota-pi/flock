@@ -19,7 +19,7 @@ export function getLastPrayedFor(
 }
 
 export function getPrayerSchedule(items: Item[]): string[] {
-  const activeItems = filterArchived(items).sort(compareItems);
+  const activeItems = filterNoTarget(filterArchived(items)).sort(compareItems);
   const withNextSchedule: [Item, number][] = activeItems.map(
     item => [
       item,
@@ -36,4 +36,8 @@ export function getNaturalPrayerGoal(items: Item[]) {
   const inverseFrequencies = activeItems.map(item => 1 / frequencyToDays(item.prayerFrequency));
   const sum = inverseFrequencies.reduce((acc, x) => acc + x, 0);
   return Math.ceil(sum);
+}
+
+export function filterNoTarget(items: Item[]) {
+  return items.filter(item => item.prayerFrequency !== 'none');
 }
