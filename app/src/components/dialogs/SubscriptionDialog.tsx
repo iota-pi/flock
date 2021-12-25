@@ -57,6 +57,58 @@ const DialogContentNarrowPadding = styled(DialogContent)(({ theme }) => ({
   padding: theme.spacing(2),
 }));
 
+export interface SubscriptionTimeProps {
+  id: number,
+  hour: number,
+  onChange: (id: number, value: number) => void,
+  onRemove: (id: number) => void,
+}
+
+function SubscriptionTime({
+  id,
+  hour,
+  onChange,
+  onRemove,
+}: SubscriptionTimeProps) {
+  const handleChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => onChange(id, +event.target.value),
+    [id, onChange],
+  );
+  const handleRemove = useCallback(
+    () => onRemove(id),
+    [id, onRemove],
+  );
+
+  return (
+    <Box
+      alignItems="center"
+      display="flex"
+      key={id}
+    >
+      <TextField
+        fullWidth
+        label="Notification time"
+        select
+        onChange={handleChange}
+        value={hour}
+      >
+        {hourOptions.map(hourOption => (
+          <MenuItem
+            key={hourOption.text}
+            value={hourOption.value}
+          >
+            {hourOption.text}
+          </MenuItem>
+        ))}
+      </TextField>
+
+      <IconButton onClick={handleRemove}>
+        <RemoveIcon />
+      </IconButton>
+    </Box>
+  );
+}
+
 function SubscriptionDialog({
   onClose,
   onSave,
@@ -97,18 +149,15 @@ function SubscriptionDialog({
     [hours, onSave],
   );
   const handleChange = useCallback(
-    (id: number) => (
-      (event: ChangeEvent<HTMLInputElement>) => setHours(
-        oldHours => {
-          const index = oldHours.findIndex(h => h.id === id);
-          const hour = +event.target.value;
-          return [
-            ...oldHours.slice(0, index),
-            { ...oldHours[index], hour },
-            ...oldHours.slice(index + 1),
-          ];
-        },
-      )
+    (id: number, hour: number) => setHours(
+      oldHours => {
+        const index = oldHours.findIndex(h => h.id === id);
+        return [
+          ...oldHours.slice(0, index),
+          { ...oldHours[index], hour },
+          ...oldHours.slice(index + 1),
+        ];
+      },
     ),
     [],
   );
@@ -122,7 +171,7 @@ function SubscriptionDialog({
     [],
   );
   const handleRemove = useCallback(
-    (id: number) => () => setHours(oldHours => {
+    (id: number) => setHours(oldHours => {
       const index = oldHours.findIndex(hour => hour.id === id);
       return [
         ...oldHours.slice(0, index),
@@ -149,32 +198,13 @@ function SubscriptionDialog({
           paddingY={2}
         >
           {hours.map(({ hour, id }) => (
-            <Box
-              alignItems="center"
-              display="flex"
+            <SubscriptionTime
+              hour={hour}
+              id={id}
               key={id}
-            >
-              <TextField
-                fullWidth
-                label="Notification time"
-                select
-                onChange={handleChange(id)}
-                value={hour}
-              >
-                {hourOptions.map(hourOption => (
-                  <MenuItem
-                    key={hourOption.text}
-                    value={hourOption.value}
-                  >
-                    {hourOption.text}
-                  </MenuItem>
-                ))}
-              </TextField>
-
-              <IconButton onClick={handleRemove(id)}>
-                <RemoveIcon />
-              </IconButton>
-            </Box>
+              onChange={handleChange}
+              onRemove={handleRemove}
+            />
           ))}
         </Stack>
 
