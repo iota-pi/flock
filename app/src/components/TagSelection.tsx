@@ -2,8 +2,20 @@ import {
   ChangeEvent,
   useCallback,
 } from 'react';
-import { Autocomplete, AutocompleteRenderInputParams, Chip, InputAdornment, TextField, TextFieldProps } from '@material-ui/core';
-import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
+import {
+  Autocomplete,
+  AutocompleteRenderInputParams,
+  Chip,
+  InputAdornment,
+  styled,
+  TextField,
+  TextFieldProps,
+} from '@material-ui/core';
+import {
+  AutocompleteChangeReason,
+  createFilterOptions,
+  FilterOptionsState,
+} from '@material-ui/core/useAutocomplete';
 import makeStyles from '@material-ui/styles/makeStyles';
 import { useTags } from '../state/selectors';
 import { MuiIconType } from './Icons';
@@ -11,11 +23,6 @@ import { MuiIconType } from './Icons';
 const useStyles = makeStyles(theme => ({
   subtle: {
     color: theme.palette.text.secondary,
-  },
-  tagChip: {
-    marginRight: theme.spacing(1),
-    marginTop: theme.spacing(0.25),
-    marginBottom: theme.spacing(0.25),
   },
 }));
 
@@ -28,6 +35,31 @@ export interface Props {
   selectedTags: string[],
   single?: boolean,
   variant?: TextFieldProps['variant'],
+}
+
+export interface TagChipProps {
+  tag: string,
+  onDelete: (tag: string) => void,
+}
+
+const StyledChip = styled(Chip)(({ theme }) => ({
+  marginRight: theme.spacing(1),
+  marginTop: theme.spacing(0.25),
+  marginBottom: theme.spacing(0.25),
+}));
+
+function TagChip({
+  tag,
+  onDelete,
+}: TagChipProps) {
+  const handleDelete = useCallback(() => onDelete(tag), [onDelete, tag]);
+
+  return (
+    <StyledChip
+      label={tag}
+      onDelete={handleDelete}
+    />
+  );
 }
 
 const baseFilterFunc = createFilterOptions<string>({ trim: true });
@@ -61,7 +93,7 @@ function TagSelection({
     [onChange],
   );
   const handleDelete = useCallback(
-    (deletedTag: string) => () => {
+    (deletedTag: string) => {
       onChange(selectedTags.filter(t => t !== deletedTag));
     },
     [onChange, selectedTags],
@@ -120,15 +152,14 @@ function TagSelection({
   const renderTags = useCallback(
     (tagsToRender: string[]) => (
       tagsToRender.map(tag => (
-        <Chip
+        <TagChip
           key={tag}
-          label={tag}
-          onDelete={handleDelete(tag)}
-          className={classes.tagChip}
+          tag={tag}
+          onDelete={handleDelete}
         />
       ))
     ),
-    [classes, handleDelete],
+    [handleDelete],
   );
 
   const value = single ? (selectedTags[0] || null) : selectedTags;

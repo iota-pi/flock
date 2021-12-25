@@ -29,6 +29,38 @@ export interface Props {
   vertical?: boolean,
 }
 
+export interface TagChipProps {
+  tag: string,
+  linked: boolean,
+}
+
+function TagChip({
+  tag,
+  linked,
+}: TagChipProps) {
+  const classes = useStyles();
+  const dispatch = useAppDispatch();
+
+  const handleClick = useCallback(
+    (event: MouseEvent) => {
+      dispatch(setTagFilter(tag));
+      event.stopPropagation();
+    },
+    [dispatch, tag],
+  );
+
+  return (
+    <Chip
+      classes={{ label: classes.chipLabel }}
+      className={classes.tagChip}
+      data-cy="tag"
+      label={tag}
+      onClick={linked ? handleClick : undefined}
+      variant="outlined"
+    />
+  );
+}
+
 function TagDisplay({
   tags,
   linked = false,
@@ -36,16 +68,6 @@ function TagDisplay({
   vertical = false,
 }: Props) {
   const classes = useStyles();
-  const dispatch = useAppDispatch();
-
-  const handleClick = useCallback(
-    (tag: string) => (event: MouseEvent) => {
-      dispatch(setTagFilter(tag));
-      event.stopPropagation();
-    },
-    [dispatch],
-  );
-
   const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags;
 
   return (
@@ -55,14 +77,10 @@ function TagDisplay({
       spacing={1}
     >
       {limitedTags.map(tag => (
-        <Chip
-          classes={{ label: classes.chipLabel }}
-          className={classes.tagChip}
-          data-cy="tag"
+        <TagChip
+          linked={linked}
           key={tag}
-          label={tag}
-          onClick={linked ? handleClick(tag) : undefined}
-          variant="outlined"
+          tag={tag}
         />
       ))}
 

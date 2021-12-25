@@ -151,7 +151,7 @@ function ItemSearch<T extends Item = Item>({
     [onClear, onRemove, onSelect, selectedItems],
   );
   const handleRemove = useCallback(
-    (item: T) => () => (onRemove ? onRemove(item) : undefined),
+    (item: T) => (onRemove ? onRemove(item) : undefined),
     [onRemove],
   );
 

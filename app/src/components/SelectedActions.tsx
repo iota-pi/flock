@@ -78,13 +78,15 @@ function SelectedActions() {
     },
     [dispatch, selectedItems],
   );
-  const handleArchive = useCallback(
-    (archived: boolean) => () => {
+  const handleSetArchived = useCallback(
+    (archived: boolean) => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
       vault?.store(newItems);
     },
     [selectedItems, vault],
   );
+  const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived]);
+  const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived]);
   const handleInitialDelete = useCallback(() => setShowConfirm(true), []);
   const handleConfirmDelete = useCallback(
     () => {
@@ -129,7 +131,7 @@ function SelectedActions() {
           id: 'archive',
           icon: ArchiveIcon,
           label: 'Archive',
-          onClick: handleArchive(true),
+          onClick: handleArchive,
         });
       }
       if (workingItems.find(item => item.archived)) {
@@ -137,7 +139,7 @@ function SelectedActions() {
           id: 'unarchive',
           icon: UnarchiveIcon,
           label: 'Unarchive',
-          onClick: handleArchive(false),
+          onClick: handleUnarchive,
         });
       }
       result.push(
@@ -164,6 +166,7 @@ function SelectedActions() {
       handleInteraction,
       handlePrayerPoint,
       handleShowTags,
+      handleUnarchive,
       workingItems,
     ],
   );
