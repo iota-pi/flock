@@ -3,18 +3,20 @@ import { useHistory } from 'react-router-dom';
 import makeStyles from '@material-ui/styles/makeStyles';
 import {
   alpha,
+  Box,
   Divider,
   Drawer,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
+  styled,
   Toolbar,
 } from '@material-ui/core';
 import { Page, PageId, pages, withPage } from '../pages';
 import { useAppDispatch } from '../../store';
 import { setUiState } from '../../state/ui';
-import { MuiIconType } from '../Icons';
+import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons';
 
 export const DRAWER_SPACING_FULL = 30;
 export const DRAWER_SPACING_NARROW = 10;
@@ -29,6 +31,9 @@ const useStyles = makeStyles(theme => ({
     '&$minimised': {
       width: theme.spacing(DRAWER_SPACING_NARROW),
     },
+    '&$closed': {
+      width: 0,
+    },
   },
   drawerPaper: {
     width: theme.spacing(DRAWER_SPACING_FULL),
@@ -39,6 +44,8 @@ const useStyles = makeStyles(theme => ({
     },
   },
   drawerContainer: {
+    display: 'flex',
+    flexGrow: 1,
     overflowX: 'hidden',
     overflowY: 'auto',
   },
@@ -76,6 +83,7 @@ const useStyles = makeStyles(theme => ({
       height: theme.spacing(8),
     },
   },
+  closed: {},
   menuItemText: {
     whiteSpace: 'nowrap',
     overflowX: 'hidden',
@@ -91,8 +99,15 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
+const FlexList = styled(List)({
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+});
+
 export interface Props {
   minimised?: boolean,
+  onMinimise: () => void,
   open: boolean,
   page: Page,
 }
@@ -103,12 +118,14 @@ export interface UserInterface {
   icon: ReactNode,
 }
 
+type MenuActionId = 'minimise';
+
 export interface MainMenuItemProps {
   dividerBefore?: boolean,
   icon: MuiIconType,
-  id: PageId,
+  id: PageId | MenuActionId,
   name: string,
-  onClick: (pageId: PageId) => void,
+  onClick: (pageId?: PageId) => void,
   selected: boolean,
 }
 
@@ -124,7 +141,7 @@ function MainMenuItem({
   const classes = useStyles();
 
   const handleClick = useCallback(
-    () => onClick(id),
+    () => (id !== 'minimise' ? onClick(id) : onClick()),
     [id, onClick],
   );
 
@@ -159,6 +176,7 @@ function MainMenuItem({
 
 function MainMenu({
   minimised,
+  onMinimise,
   open,
   page,
 }: Props) {
@@ -167,9 +185,9 @@ function MainMenu({
   const history = useHistory();
 
   const handleClick = useCallback(
-    (pageId: PageId) => {
-      if (page.id !== pageId) {
-        const newPage = pages.find(p => p.id === pageId)! || '';
+    (pageId?: PageId) => {
+      if (pageId && page.id !== pageId) {
+        const newPage = pages.find(p => p.id === pageId)!;
         history.push(newPage.path);
         dispatch(setUiState({ selected: [] }));
       }
@@ -179,7 +197,9 @@ function MainMenu({
 
   return (
     <Drawer
-      className={`${classes.drawer} ${minimised ? classes.minimised : ''}`}
+      className={
+        `${classes.drawer} ${minimised ? classes.minimised : ''} ${open ? '' : classes.closed}`
+      }
       variant="persistent"
       open={open}
       classes={{
@@ -189,7 +209,7 @@ function MainMenu({
       <Toolbar />
 
       <div className={classes.drawerContainer}>
-        <List>
+        <FlexList>
           {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
             <MainMenuItem
               key={id}
@@ -201,7 +221,18 @@ function MainMenu({
               selected={id === page.id}
             />
           ))}
-        </List>
+
+          <Box flexGrow={1} />
+
+          <MainMenuItem
+            // dividerBefore
+            icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
+            id="minimise"
+            name="Collapse Menu"
+            onClick={onMinimise}
+            selected={false}
+          />
+        </FlexList>
       </div>
     </Drawer>
   );

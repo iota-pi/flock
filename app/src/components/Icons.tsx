@@ -14,6 +14,7 @@ import GeneralIcon from '@material-ui/icons/MoreHoriz';
 import GroupIcon from '@material-ui/icons/Groups';
 import HomeIcon from '@material-ui/icons/Home';
 import InteractionIcon from '@material-ui/icons/QuestionAnswer';
+import MenuIcon from '@material-ui/icons/Menu';
 import MinusIcon from '@material-ui/icons/Remove';
 import NextIcon from '@material-ui/icons/ChevronRight';
 import NotificationIcon from '@material-ui/icons/Notifications';
@@ -46,6 +47,7 @@ export {
   AddIcon,
   ArchiveIcon,
   BackIcon,
+  BackIcon as ContractMenuIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,
@@ -55,8 +57,10 @@ export {
   GroupIcon,
   HomeIcon,
   InteractionIcon,
+  MenuIcon,
   MinusIcon,
   NextIcon,
+  NextIcon as ExpandMenuIcon,
   NotificationIcon,
   OptionsIcon,
   PersonIcon,

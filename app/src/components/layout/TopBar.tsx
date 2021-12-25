@@ -26,6 +26,10 @@ const useStyles = makeStyles(theme => ({
     display: 'flex',
     alignItems: 'center',
     padding: theme.spacing(2),
+
+    [theme.breakpoints.down('md')]: {
+      padding: theme.spacing(1),
+    },
   },
   spacer: {
     flexGrow: 1,

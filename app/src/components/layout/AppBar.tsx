@@ -8,12 +8,11 @@ import {
   Typography,
   useMediaQuery,
 } from '@material-ui/core';
-import ExpandMenuIcon from '@material-ui/icons/ChevronRight';
-import ContractMenuIcon from '@material-ui/icons/ChevronLeft';
 import { APP_NAME } from '../../utils';
 import { dark as darkTheme } from '../../theme';
 import EverythingSearch from './EverythingSearch';
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
+import { MenuIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   toolbar: {
@@ -59,13 +58,13 @@ const useStyles = makeStyles(theme => ({
 
 export interface Props {
   minimisedMenu: boolean,
-  onMinimiseMenu: () => void,
+  onToggleMenu: () => void,
 }
 
 
 function AppBar({
   minimisedMenu,
-  onMinimiseMenu,
+  onToggleMenu,
 }: Props) {
   const classes = useStyles();
   const showAppTitle = useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'));
@@ -82,11 +81,11 @@ function AppBar({
             edge="start"
             color="inherit"
             aria-label="menu"
-            onClick={onMinimiseMenu}
+            onClick={onToggleMenu}
             className={classes.menuButton}
             size="large"
           >
-            {minimisedMenu ? <ExpandMenuIcon /> : <ContractMenuIcon />}
+            <MenuIcon />
           </IconButton>
 
           {showAppTitle && (

@@ -45,17 +45,16 @@ export default function App() {
   const dispatch = useAppDispatch();
   const loggedIn = useLoggedIn();
   const vault = useVault();
-  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
+  const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
+  const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
 
   const [rawMiniMenu, setMiniMenu] = useState<boolean>();
-  const miniMenu = rawMiniMenu === undefined ? sm : rawMiniMenu;
+  const [rawOpenMenu, setOpenMenu] = useState<boolean>();
+  const miniMenu = rawMiniMenu === undefined ? small : rawMiniMenu;
+  const openMenu = rawOpenMenu === undefined ? !xs : rawOpenMenu;
 
-  const handleShowMenu = useCallback(
-    () => {
-      setMiniMenu(!miniMenu);
-    },
-    [miniMenu],
-  );
+  const handleToggleMiniMenu = useCallback(() => setMiniMenu(m => !m), []);
+  const handleToggleShowMenu = useCallback(() => setOpenMenu(o => !o), []);
 
   useEffect(
     () => {
@@ -82,9 +81,13 @@ export default function App() {
               <>
                 <AppBar
                   minimisedMenu={miniMenu}
-                  onMinimiseMenu={handleShowMenu}
+                  onToggleMenu={handleToggleShowMenu}
                 />
-                <MainMenu open minimised={miniMenu} />
+                <MainMenu
+                  open={openMenu}
+                  minimised={miniMenu}
+                  onMinimise={handleToggleMiniMenu}
+                />
               </>
             )}
 
