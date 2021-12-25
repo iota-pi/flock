@@ -82,6 +82,89 @@ export function updateMaturityForPeople(
   vault.store(updatedPeople);
 }
 
+function MaturitySingleStage({
+  autoFocus,
+  index,
+  lastIndex,
+  onChange,
+  onMoveDown,
+  onMoveUp,
+  onRemove,
+  stage,
+}: {
+  autoFocus: boolean,
+  index: number,
+  lastIndex: number,
+  onChange: (id: string, name: string) => void,
+  onMoveDown: (id: string) => void,
+  onMoveUp: (id: string) => void,
+  onRemove: (id: string) => void,
+  stage: MaturityControl,
+}) {
+  const classes = useStyles();
+
+  const handleRemove = useCallback(() => onRemove(stage.id), [onRemove, stage.id]);
+  const handleMoveDown = useCallback(() => onMoveDown(stage.id), [onMoveDown, stage.id]);
+  const handleMoveUp = useCallback(() => onMoveUp(stage.id), [onMoveUp, stage.id]);
+  const handleChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => onChange(stage.id, event.target.value),
+    [onChange, stage.id],
+  );
+
+  return (
+    <div
+      className={classes.maturityItem}
+      data-cy="maturity-stage"
+    >
+      <div className={classes.orderControls}>
+        <IconButton
+          data-cy="maturity-move-up"
+          disabled={index === 0}
+          onClick={handleMoveUp}
+          size="small"
+        >
+          <ExpandLessIcon />
+        </IconButton>
+
+        <IconButton
+          data-cy="maturity-move-down"
+          disabled={index === lastIndex}
+          onClick={handleMoveDown}
+          size="small"
+        >
+          <ExpandMoreIcon />
+        </IconButton>
+      </div>
+
+      <span className={classes.indexNumber}>
+        {index + 1}.
+      </span>
+
+      <TextField
+        autoFocus={autoFocus}
+        data-cy="maturity-stage-name"
+        fullWidth
+        onChange={handleChange}
+        value={stage.name}
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <IconButton
+                data-cy="maturity-remove-stage"
+                onClick={handleRemove}
+                size="small"
+              >
+                <RemoveIcon />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+        variant="standard"
+      />
+    </div>
+  );
+}
+
 function MaturityDialog({
   onClose,
   open,
@@ -92,7 +175,7 @@ function MaturityDialog({
 
   const [maturity, setMaturity] = useMaturity();
   const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
-  const [original, setOriginalWithIds] = useState<MaturityControl[]>([]);
+  const [original, setOriginal] = useState<MaturityControl[]>([]);
   const [disableAnimation, setDisableAnimation] = useState(false);
   const [autoFocusId, setAutoFocusId] = useState<string>();
 
@@ -100,7 +183,7 @@ function MaturityDialog({
     () => {
       const withIds = maturity.map(m => ({ id: getItemId(), name: m }));
       setLocalMaturity(withIds);
-      setOriginalWithIds(withIds);
+      setOriginal(withIds);
     },
     [maturity],
   );
@@ -123,25 +206,30 @@ function MaturityDialog({
     [],
   );
   const handleChange = useCallback(
-    (id: string) => (event: ChangeEvent<HTMLInputElement>) => setLocalMaturity(lm => {
+    (id: string, name: string) => setLocalMaturity(lm => {
       const index = lm.findIndex(m => m.id === id);
       return [
         ...lm.slice(0, index),
-        { ...lm[index], name: event.target.value },
+        { ...lm[index], name },
         ...lm.slice(index + 1),
       ];
     }),
     [],
   );
-  const handleRemove = useCallback(
-    (id: string) => () => {
-      setDisableAnimation(true);
-      setLocalMaturity(lm => lm.filter(m => m.id !== id));
-    },
+  const handleMoveDown = useCallback(
+    (id: string) => setLocalMaturity(lm => {
+      const index = lm.findIndex(m => m.id === id);
+      return [
+        ...lm.slice(0, index),
+        lm[index + 1],
+        lm[index],
+        ...lm.slice(index + 2),
+      ];
+    }),
     [],
   );
   const handleMoveUp = useCallback(
-    (id: string) => () => setLocalMaturity(lm => {
+    (id: string) => setLocalMaturity(lm => {
       const index = lm.findIndex(m => m.id === id);
       return [
         ...lm.slice(0, index - 1),
@@ -152,16 +240,11 @@ function MaturityDialog({
     }),
     [],
   );
-  const handleMoveDown = useCallback(
-    (id: string) => () => setLocalMaturity(lm => {
-      const index = lm.findIndex(m => m.id === id);
-      return [
-        ...lm.slice(0, index),
-        lm[index + 1],
-        lm[index],
-        ...lm.slice(index + 2),
-      ];
-    }),
+  const handleRemove = useCallback(
+    (id: string) => {
+      setDisableAnimation(true);
+      setLocalMaturity(lm => lm.filter(m => m.id !== id));
+    },
     [],
   );
   const handleDone = useCallback(
@@ -202,56 +285,16 @@ function MaturityDialog({
             <div key={lm.id}>
               {index === 0 && <Divider />}
 
-              <div
-                className={classes.maturityItem}
-                data-cy="maturity-stage"
-              >
-                <div className={classes.orderControls}>
-                  <IconButton
-                    data-cy="maturity-move-up"
-                    disabled={index === 0}
-                    onClick={handleMoveUp(lm.id)}
-                    size="small"
-                  >
-                    <ExpandLessIcon />
-                  </IconButton>
-
-                  <IconButton
-                    data-cy="maturity-move-down"
-                    disabled={index === localMaturity.length - 1}
-                    onClick={handleMoveDown(lm.id)}
-                    size="small"
-                  >
-                    <ExpandMoreIcon />
-                  </IconButton>
-                </div>
-
-                <span className={classes.indexNumber}>
-                  {index + 1}.
-                </span>
-
-                <TextField
-                  autoFocus={lm.id === autoFocusId}
-                  data-cy="maturity-stage-name"
-                  fullWidth
-                  onChange={handleChange(lm.id)}
-                  value={lm.name}
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          data-cy="maturity-remove-stage"
-                          onClick={handleRemove(lm.id)}
-                          size="small"
-                        >
-                          <RemoveIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                  variant="standard"
-                />
-              </div>
+              <MaturitySingleStage
+                autoFocus={lm.id === autoFocusId}
+                index={index}
+                lastIndex={localMaturity.length - 1}
+                onChange={handleChange}
+                onMoveDown={handleMoveDown}
+                onMoveUp={handleMoveUp}
+                onRemove={handleRemove}
+                stage={lm}
+              />
 
               <Divider />
             </div>
