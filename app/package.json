@@ -26,6 +26,7 @@
     "@types/react-virtualized": "^9.21.13",
     "@types/react-window": "^1.8.5",
     "@types/zxcvbn": "^4.4.1",
+    "@typescript-eslint/parser": "^5.8.0",
     "axios": "^0.21.1",
     "cypress": "8.5",
     "cypress-file-upload": "^5.0.8",
