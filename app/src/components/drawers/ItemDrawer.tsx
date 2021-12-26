@@ -221,10 +221,11 @@ function ItemDrawer({
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
         vault?.store(clean);
-        onChange(clean);
+        return clean;
       }
+      return undefined;
     },
-    [isValid, onChange, vault],
+    [isValid, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -234,8 +235,13 @@ function ItemDrawer({
     [handleSave, item, onClose],
   );
   const handleSaveButton = useCallback(
-    () => handleSave(item),
-    [handleSave, item],
+    () => {
+      const clean = handleSave(item);
+      if (clean) {
+        onChange(clean);
+      }
+    },
+    [handleSave, item, onChange],
   );
   const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
