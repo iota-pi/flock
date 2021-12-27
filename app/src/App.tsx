@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
-import { Toolbar, useMediaQuery } from '@material-ui/core';
-import { Theme } from '@material-ui/core/styles';
-import AdapterDateFns from '@material-ui/lab/AdapterDateFns';
-import LocalizationProvider from '@material-ui/lab/LocalizationProvider';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Toolbar, useMediaQuery } from '@mui/material';
+import { Theme } from '@mui/material/styles';
+import AdapterDateFns from '@mui/lab/AdapterDateFns';
+import LocalizationProvider from '@mui/lab/LocalizationProvider';
+import makeStyles from '@mui/styles/makeStyles';
 import AppBar from './components/layout/AppBar';
 import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';

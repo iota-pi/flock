@@ -4,11 +4,11 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   MenuItem,
   TextField,
-} from '@material-ui/core';
+} from '@mui/material';
 import { useMaturity } from '../state/selectors';
 
 const useStyles = makeStyles(() => ({

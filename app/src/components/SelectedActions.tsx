@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useMemo, useState } from 'react';
-import { Divider, List, ListItem, ListItemIcon, ListItemText, Typography } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Divider, List, ListItem, ListItemIcon, ListItemText, Typography } from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import { useAppDispatch, useAppSelector } from '../store';
 import {
   ArchiveIcon,

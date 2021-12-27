@@ -13,10 +13,10 @@ import {
   styled,
   TextField,
   Typography,
-} from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
-import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import Visibility from '@material-ui/icons/Visibility';
+} from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import Visibility from '@mui/icons-material/Visibility';
 import { getPage } from '.';
 import VaultAPI from '../../crypto/api';
 import Vault from '../../crypto/Vault';

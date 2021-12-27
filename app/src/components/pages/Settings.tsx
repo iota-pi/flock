@@ -11,8 +11,8 @@ import {
   Theme,
   Typography,
   useMediaQuery,
-} from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+} from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';

@@ -3,14 +3,14 @@ import {
   useCallback,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   SelectChangeEvent,
-} from '@material-ui/core';
+} from '@mui/material';
 import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies';
 
 const useStyles = makeStyles(theme => ({

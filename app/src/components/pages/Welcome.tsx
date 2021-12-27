@@ -7,7 +7,7 @@ import {
   Link,
   styled,
   Typography,
-} from '@material-ui/core';
+} from '@mui/material';
 import { getPage } from '.';
 import AboutDrawer from '../drawers/AboutDrawer';
 

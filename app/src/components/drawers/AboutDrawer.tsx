@@ -1,4 +1,4 @@
-import { Link, Typography } from '@material-ui/core';
+import { Link, Typography } from '@mui/material';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 
 export interface Props extends BaseDrawerProps {}

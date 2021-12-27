@@ -1,4 +1,4 @@
-import { AlertColor } from '@material-ui/core';
+import { AlertColor } from '@mui/material';
 import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';

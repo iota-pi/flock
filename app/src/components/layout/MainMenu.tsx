@@ -1,6 +1,6 @@
 import { memo, ReactNode, useCallback } from 'react';
 import { useHistory } from 'react-router-dom';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   alpha,
   Box,
@@ -12,7 +12,7 @@ import {
   ListItemText,
   styled,
   Toolbar,
-} from '@material-ui/core';
+} from '@mui/material';
 import { Page, PageId, pages, withPage } from '../pages';
 import { useAppDispatch } from '../../store';
 import { setUiState } from '../../state/ui';

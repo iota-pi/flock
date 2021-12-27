@@ -3,13 +3,13 @@ import {
   Theme,
   ThemeProvider,
   StyledEngineProvider,
-} from '@material-ui/core';
+} from '@mui/material';
 import { useMemo } from 'react';
 import App from './App';
 import { useAppSelector } from './store';
 import getTheme from './theme';
 
-declare module '@material-ui/styles/defaultTheme' {
+declare module '@mui/styles/defaultTheme' {
   interface DefaultTheme extends Theme {}
 }
 

@@ -9,11 +9,11 @@ import {
   IconButton,
   InputAdornment,
   TextField,
-} from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+} from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import FlipMove from 'react-flip-move';
-import ExpandLessIcon from '@material-ui/icons/ExpandLess';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useItems, useMaturity, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { RemoveIcon } from '../Icons';

@@ -3,7 +3,7 @@ import {
   Box,
   Link,
   Typography,
-} from '@material-ui/core';
+} from '@mui/material';
 
 function MarkdownListItem(props: any) {
   return <Box component="li" sx={{ typography: 'body1' }} {...props} />;

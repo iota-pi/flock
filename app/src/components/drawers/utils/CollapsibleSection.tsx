@@ -4,7 +4,7 @@ import {
   useEffect,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   Accordion,
   AccordionSummary,
@@ -12,8 +12,8 @@ import {
   AccordionActions,
   Typography,
   Divider,
-} from '@material-ui/core';
-import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+} from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { MuiIconType } from '../../Icons';
 
 

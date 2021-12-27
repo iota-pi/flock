@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Snackbar } from '@material-ui/core';
+import { Alert, Snackbar } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../store';
 import { setUiState } from '../state/ui';
 

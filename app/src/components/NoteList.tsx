@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import Visibility from '@material-ui/icons/Visibility';
-import VisibilityOff from '@material-ui/icons/VisibilityOff';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { getItemName, ItemNote } from '../state/items';
 import { useItemMap, useNoteMap } from '../state/selectors';
 import { formatDate } from '../utils';

@@ -1,5 +1,5 @@
-import { Grid } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Grid } from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   Item, PersonItem,
 } from '../state/items';

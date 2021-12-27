@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { Theme, useMediaQuery } from '@material-ui/core';
+import { Theme, useMediaQuery } from '@mui/material';
 import { AutoSizer } from 'react-virtualized';
 import { getBlankItem, getItemTypeLabel, Item } from '../../state/items';
 import ItemList from '../ItemList';

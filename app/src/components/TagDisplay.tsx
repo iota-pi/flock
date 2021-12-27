@@ -1,6 +1,6 @@
 import { MouseEvent, useCallback } from 'react';
-import { Chip, Stack } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Chip, Stack } from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import { setTagFilter } from '../state/ui';
 import { useAppDispatch } from '../store';
 

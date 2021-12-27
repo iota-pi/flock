@@ -2,8 +2,8 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
-import DeleteIcon from '@material-ui/icons/Close';
+import makeStyles from '@mui/styles/makeStyles';
+import DeleteIcon from '@mui/icons-material/Close';
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items';
 import { useItems, useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
 import ItemList from './ItemList';

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { IconButton, Typography } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { IconButton, Typography } from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   getItemName,
   getNotes,

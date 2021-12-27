@@ -24,7 +24,7 @@ import {
   styled,
   Theme,
   useMediaQuery,
-} from '@material-ui/core';
+} from '@mui/material';
 import {
   ListChildComponentProps,
   ListItemKeySelector,

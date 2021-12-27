@@ -9,7 +9,7 @@ import {
   InputAdornment,
   TextField,
   Typography,
-} from '@material-ui/core';
+} from '@mui/material';
 import { useMetadata } from '../../state/selectors';
 import { ResetIcon, SaveIcon, WarningIcon } from '../Icons';
 

@@ -1,6 +1,6 @@
 import { PropsWithChildren, ReactNode } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
-import { Fab, Fade, LinearProgress, styled } from '@material-ui/core';
+import makeStyles from '@mui/styles/makeStyles';
+import { Fab, Fade, LinearProgress, styled } from '@mui/material';
 import { AddIcon } from '../Icons';
 import TopBar, { MenuItemData } from '../layout/TopBar';
 import { useAppSelector } from '../../store';

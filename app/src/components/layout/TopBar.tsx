@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   Checkbox,
   IconButton,
@@ -10,9 +10,9 @@ import {
   Theme,
   Typography,
   useMediaQuery,
-} from '@material-ui/core';
-import Visibility from '@material-ui/icons/Visibility';
-import VisibilityOff from '@material-ui/icons/VisibilityOff';
+} from '@mui/material';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons';
 import { useOption } from '../../state/selectors';
 import SortDialog from '../dialogs/SortDialog';

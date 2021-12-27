@@ -11,8 +11,8 @@ import {
   Stack,
   TextField,
   TextFieldProps,
-} from '@material-ui/core';
-import { DatePicker } from '@material-ui/lab';
+} from '@mui/material';
+import { DatePicker } from '@mui/lab';
 import {
   FILTER_CRITERIA_DISPLAY,
   FILTER_CRITERIA_DISPLAY_MAP,

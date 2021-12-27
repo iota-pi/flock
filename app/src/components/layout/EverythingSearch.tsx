@@ -5,9 +5,9 @@ import {
   useRef,
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
-import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextField, ThemeProvider } from '@material-ui/core';
-import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@material-ui/core/useAutocomplete';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextField, ThemeProvider } from '@mui/material';
+import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@mui/material/useAutocomplete';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   getBlankItem,
   getItemName,

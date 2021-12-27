@@ -3,9 +3,9 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import { Autocomplete, Chip, TextField, Typography } from '@material-ui/core';
-import { AutocompleteChangeReason, createFilterOptions } from '@material-ui/core/useAutocomplete';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Autocomplete, Chip, TextField, Typography } from '@mui/material';
+import { AutocompleteChangeReason, createFilterOptions } from '@mui/material/useAutocomplete';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   getItemName,
   Item,

@@ -10,7 +10,7 @@ import {
   MenuItem,
   Stack,
   TextField,
-} from '@material-ui/core';
+} from '@mui/material';
 import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,

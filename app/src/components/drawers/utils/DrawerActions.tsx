@@ -2,14 +2,14 @@ import {
   useCallback,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   Button,
   Container,
   Divider,
   Grid,
   Typography,
-} from '@material-ui/core';
+} from '@mui/material';
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
 import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 

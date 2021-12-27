@@ -1,5 +1,5 @@
-import makeStyles from '@material-ui/styles/makeStyles';
-import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@material-ui/core';
+import makeStyles from '@mui/styles/makeStyles';
+import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@mui/material';
 import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect, useMemo } from 'react';
 import { MuiIconType, RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';

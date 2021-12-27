@@ -7,7 +7,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   Button,
   Checkbox,
@@ -20,10 +20,10 @@ import {
   TextField,
   TextFieldProps,
   Typography,
-} from '@material-ui/core';
-import { DatePicker } from '@material-ui/lab';
-import Visibility from '@material-ui/icons/Visibility';
-import VisibilityOff from '@material-ui/icons/VisibilityOff';
+} from '@mui/material';
+import { DatePicker } from '@mui/lab';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { DeleteIcon } from './Icons';
 import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
 import { formatDate, useToday } from '../utils';

@@ -10,13 +10,13 @@ import {
   styled,
   TextField,
   TextFieldProps,
-} from '@material-ui/core';
+} from '@mui/material';
 import {
   AutocompleteChangeReason,
   createFilterOptions,
   FilterOptionsState,
-} from '@material-ui/core/useAutocomplete';
-import makeStyles from '@material-ui/styles/makeStyles';
+} from '@mui/material/useAutocomplete';
+import makeStyles from '@mui/styles/makeStyles';
 import { useTags } from '../state/selectors';
 import { MuiIconType } from './Icons';
 

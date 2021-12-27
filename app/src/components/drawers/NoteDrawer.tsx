@@ -13,10 +13,10 @@ import {
   IconButton,
   InputAdornment,
   TextField,
-} from '@material-ui/core';
-import Visibility from '@material-ui/icons/Visibility';
-import VisibilityOff from '@material-ui/icons/VisibilityOff';
-import { DatePicker } from '@material-ui/lab';
+} from '@mui/material';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import { DatePicker } from '@mui/lab';
 import { Item, ItemNote } from '../../state/items';
 import {
   useItemMap,

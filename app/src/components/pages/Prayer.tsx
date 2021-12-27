@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useMemo, useState } from 'react';
-import makeStyles from '@material-ui/styles/makeStyles';
-import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@material-ui/core';
+import makeStyles from '@mui/styles/makeStyles';
+import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material';
 import { AutoSizer } from 'react-virtualized';
 import { useItemMap, useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay, useStringMemo } from '../../utils';

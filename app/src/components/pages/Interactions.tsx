@@ -1,5 +1,5 @@
-import { Container, Divider, Theme, Typography, useMediaQuery } from '@material-ui/core';
-import makeStyles from '@material-ui/styles/makeStyles';
+import { Container, Divider, Theme, Typography, useMediaQuery } from '@mui/material';
+import makeStyles from '@mui/styles/makeStyles';
 import { Fragment, useCallback, useMemo } from 'react';
 import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';

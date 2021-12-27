@@ -9,7 +9,7 @@ import {
   Stack,
   styled,
   TextField,
-} from '@material-ui/core';
+} from '@mui/material';
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { useVault } from '../../state/selectors';
 import { checkSubscription } from '../../utils/firebase';

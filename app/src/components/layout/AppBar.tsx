@@ -1,4 +1,4 @@
-import makeStyles from '@material-ui/styles/makeStyles';
+import makeStyles from '@mui/styles/makeStyles';
 import {
   AppBar as MuiAppBar,
   IconButton,
@@ -7,7 +7,7 @@ import {
   Toolbar,
   Typography,
   useMediaQuery,
-} from '@material-ui/core';
+} from '@mui/material';
 import { APP_NAME } from '../../utils';
 import { dark as darkTheme } from '../../theme';
 import EverythingSearch from './EverythingSearch';
