@@ -33,6 +33,19 @@ function filterDueSubscriptions<T extends FlockPushSubscription>(subscriptions: 
   return results;
 }
 
+function getMessageBody() {
+  const options = [
+    'Let\'s pray for the flock!',
+    'Time to pray for the flock',
+    'Come in humble prayer to God Almighty',
+    'We depend on God in everything 🙏',
+    'To God be the glory!',
+    'Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.\nPhilippians 4:6 (NIV)',
+    'Devote yourselves to prayer, being watchful and thankful.\nColossians 4:2 (NIV)',
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 function pushToSubscriptions(subscriptions: FlockPushSubscription[]) {
   const promises = [];
   for (let i = 0; i < subscriptions.length; i += 100) {
@@ -43,7 +56,7 @@ function pushToSubscriptions(subscriptions: FlockPushSubscription[]) {
         tokens,
         notification: {
           title: 'Prayer reminder',
-          body: 'Let\'s pray for the flock',
+          body: getMessageBody(),
         },
         webpush: {
           fcmOptions: {
