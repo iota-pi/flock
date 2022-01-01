@@ -54,7 +54,7 @@ resource "aws_lambda_function" "vault_migrations" {
   tags = local.standard_tags
 }
 
-resource "aws_lambda_function" "vault_notifications" {
+resource "aws_lambda_function" "vault_notifier" {
   function_name = "flock-vault-notifications-${var.environment}"
 
   handler     = "lambda.notifierHandler"
@@ -289,4 +289,23 @@ resource "aws_cloudwatch_log_group" "debugging" {
 
 output "invoke_url" {
   value = aws_api_gateway_deployment.vault_deployment.invoke_url
+}
+
+resource "aws_cloudwatch_event_rule" "notifier_trigger" {
+  schedule_expression = "cron(0 * * * ? *)"
+
+  description = "Run notifier each hour"
+  tags        = local.standard_tags
+}
+
+resource "aws_cloudwatch_event_target" "notifier_target" {
+  rule  = aws_cloudwatch_event_rule.notifier_trigger.name
+  arn   = aws_lambda_function.vault_notifier.arn
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_to_call_notifier" {
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.vault_notifier.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.notifier_trigger.arn
 }
