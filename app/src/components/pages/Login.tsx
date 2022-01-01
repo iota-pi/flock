@@ -225,6 +225,7 @@ function LoginPage() {
             <Button
               color="primary"
               data-cy="login"
+              disabled={!accountInput || !password}
               onClick={handleClickLogin}
               size="large"
               variant="contained"
