@@ -44,11 +44,13 @@ function pushToSubscriptions(subscriptions: FlockPushSubscription[]) {
         notification: {
           title: 'Prayer reminder',
           body: 'Let\'s pray for the flock',
-          imageUrl: `${process.env.PROD_APP_URL}/flock.png`,
         },
         webpush: {
           fcmOptions: {
             link: process.env.PROD_APP_URL,
+          },
+          notification: {
+            icon: `${process.env.PROD_APP_URL}/flock.png`,
           },
         },
       }),
