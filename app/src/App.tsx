@@ -53,8 +53,8 @@ export default function App() {
   const miniMenu = rawMiniMenu === undefined ? small : rawMiniMenu;
   const openMenu = rawOpenMenu === undefined ? !xs : rawOpenMenu;
 
-  const handleToggleMiniMenu = useCallback(() => setMiniMenu(m => !m), []);
-  const handleToggleShowMenu = useCallback(() => setOpenMenu(o => !o), []);
+  const handleToggleMiniMenu = useCallback(() => setMiniMenu(!miniMenu), [miniMenu]);
+  const handleToggleShowMenu = useCallback(() => setOpenMenu(!openMenu), [openMenu]);
 
   useEffect(
     () => {
