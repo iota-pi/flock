@@ -167,6 +167,7 @@ const NoteOptions = memo(({
               checked={!!completed}
               data-cy={`sensitive-note-${noteType}`}
               onChange={onChangeCompleted}
+              edge="start"
             />
 
             Completed
