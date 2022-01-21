@@ -111,6 +111,7 @@ const NoteOptions = memo(({
       <IconButton
         aria-controls={`${MENU_POPUP_ID}-${noteId}`}
         aria-haspopup="true"
+        data-cy={`note-options-${noteType}`}
         onClick={handleClickMenu}
         ref={menuAnchor}
       >
@@ -132,6 +133,7 @@ const NoteOptions = memo(({
         onClose={handleCloseMenu}
       >
         <MenuItem
+          data-cy="delete-note"
           key="delete"
           onClick={handleDelete}
         >
@@ -149,7 +151,7 @@ const NoteOptions = memo(({
           <ListItemIcon>
             <Checkbox
               checked={sensitive || false}
-              data-cy={`sensitive-note-${noteType}`}
+              data-cy="sensitive-note"
               onChange={onChangeSensitive}
               edge="start"
             />
@@ -160,12 +162,12 @@ const NoteOptions = memo(({
 
         {noteType === 'action' && (
           <MenuItem
-            key="sensitive"
+            key="completed"
             onClick={onChangeCompleted}
           >
             <Checkbox
               checked={!!completed}
-              data-cy={`sensitive-note-${noteType}`}
+              data-cy="completed-note"
               onChange={onChangeCompleted}
               edge="start"
             />
@@ -266,6 +268,7 @@ function SingleNote<T extends ItemNote>({
       <Stack direction="row" alignItems="flex-end">
         <TextField
           autoFocus={autoFocus}
+          data-cy={`note-content-${note.type}`}
           disabled={!visible}
           fullWidth
           label={noteContentLabel}
