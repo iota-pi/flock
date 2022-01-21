@@ -2,12 +2,17 @@
 /* eslint-disable no-restricted-globals */
 
 import { initializeApp } from 'firebase/app';
+import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw';
 import firebaseConfig from './utils/firebase-config';
 
 declare const self: ServiceWorkerGlobalScope;
 
 function initServiceWorker() {
-  initializeApp(firebaseConfig);
+  const app = initializeApp(firebaseConfig);
+  const messaging = getMessaging(app);
+  onBackgroundMessage(messaging, async () => {
+    console.log('Sent notification');
+  });
 }
 
 initServiceWorker();
