@@ -27,8 +27,8 @@ import {
 import { CalendarPicker } from '@mui/lab';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { CalendarIcon, DeleteIcon, MuiIconType, OptionsIcon } from './Icons';
-import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
+import { CalendarIcon, DeleteIcon, OptionsIcon } from './Icons';
+import { compareNotes, getBlankNote, ItemId, ItemNote, ItemNoteType } from '../state/items';
 import { formatDate, useToday } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 
@@ -50,7 +50,7 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-function NoteButton(
+const NoteButton = memo((
   {
     dataCy,
     disabled,
@@ -62,27 +62,121 @@ function NoteButton(
     label: string,
     onClick: () => void,
   },
-) {
-  return (
-    <Button
-      data-cy={dataCy}
-      disabled={disabled}
-      fullWidth
-      onClick={onClick}
-      size="small"
-      variant="outlined"
-    >
-      {label}
-    </Button>
-  );
-}
+) => (
+  <Button
+    data-cy={dataCy}
+    disabled={disabled}
+    fullWidth
+    onClick={onClick}
+    size="small"
+    variant="outlined"
+  >
+    {label}
+  </Button>
+));
+NoteButton.displayName = 'NoteButton';
 
-export interface MenuItemData {
-  icon: MuiIconType,
-  key: string,
-  label: string,
-  onClick: () => void,
-}
+const NoteOptions = memo(({
+  completed,
+  noteId,
+  noteType,
+  onDelete,
+  onChangeCompleted,
+  onChangeSensitive,
+  sensitive,
+}: {
+  completed: number | undefined,
+  noteId: string,
+  noteType: ItemNoteType,
+  onDelete: () => void,
+  onChangeCompleted: () => void,
+  onChangeSensitive: () => void,
+  sensitive: boolean | undefined,
+}) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuAnchor = useRef<HTMLButtonElement>(null);
+  const handleClickMenu = useCallback(() => setShowMenu(o => !o), []);
+  const handleCloseMenu = useCallback(() => setShowMenu(false), []);
+
+  const handleDelete = useCallback(
+    () => {
+      handleCloseMenu();
+      onDelete();
+    },
+    [handleCloseMenu, onDelete],
+  );
+
+  return (
+    <>
+      <IconButton
+        aria-controls={`${MENU_POPUP_ID}-${noteId}`}
+        aria-haspopup="true"
+        onClick={handleClickMenu}
+        ref={menuAnchor}
+      >
+        <OptionsIcon />
+      </IconButton>
+
+      <Menu
+        anchorEl={menuAnchor.current}
+        id={MENU_POPUP_ID}
+        open={showMenu}
+        anchorOrigin={{
+          horizontal: 'right',
+          vertical: 'bottom',
+        }}
+        transformOrigin={{
+          horizontal: 'right',
+          vertical: 'top',
+        }}
+        onClose={handleCloseMenu}
+      >
+        <MenuItem
+          key="delete"
+          onClick={handleDelete}
+        >
+          <ListItemIcon>
+            <DeleteIcon />
+          </ListItemIcon>
+
+          Delete
+        </MenuItem>
+
+        <MenuItem
+          key="sensitive"
+          onClick={onChangeSensitive}
+        >
+          <ListItemIcon>
+            <Checkbox
+              checked={sensitive || false}
+              data-cy={`sensitive-note-${noteType}`}
+              onChange={onChangeSensitive}
+              edge="start"
+            />
+          </ListItemIcon>
+
+          Sensitive
+        </MenuItem>
+
+        {noteType === 'action' && (
+          <MenuItem
+            key="sensitive"
+            onClick={onChangeCompleted}
+          >
+            <Checkbox
+              checked={!!completed}
+              data-cy={`sensitive-note-${noteType}`}
+              onChange={onChangeCompleted}
+            />
+
+            Completed
+          </MenuItem>
+        )}
+      </Menu>
+    </>
+  );
+});
+NoteOptions.displayName = 'NoteOptions';
 
 function SingleNote<T extends ItemNote>({
   autoFocus,
@@ -101,17 +195,15 @@ function SingleNote<T extends ItemNote>({
   onChangeContent: (noteId: string, content: string) => void,
   onChangeDate: (noteId: string, date: Date) => void,
   onChangeSensitive: (noteId: string, sensitive: boolean) => void,
-  onDelete: (note: T) => void,
+  onDelete: (noteId: string, requireConfirm: boolean) => void,
 }) {
   const classes = useStyles();
 
-  const [showMenu, setShowMenu] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [localContent, setLocalContent] = useState(note.content);
   const today = useToday();
 
-  const menuAnchor = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setLocalContent(note.content), [note.content]);
   useEffect(
@@ -125,15 +217,13 @@ function SingleNote<T extends ItemNote>({
     [localContent, onChangeContent, note.id],
   );
 
-  const handleClickMenu = useCallback(() => setShowMenu(o => !o), []);
-  const handleCloseMenu = useCallback(() => setShowMenu(false), []);
-
+  const completed = note.type === 'action' ? note.completed : undefined;
   const handleChangeCompleted = useCallback(
-    () => note.type === 'action' && onChangeCompleted(
+    () => onChangeCompleted(
       note.id,
-      note.completed ? undefined : today.getTime(),
+      completed ? undefined : today.getTime(),
     ),
-    [note, onChangeCompleted, today],
+    [completed, note.id, onChangeCompleted, today],
   );
   const handleChangeContent = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setLocalContent(event.target.value),
@@ -143,22 +233,20 @@ function SingleNote<T extends ItemNote>({
     (date: Date | null) => {
       onChangeDate(note.id, date || today);
     },
-    [note, onChangeDate, today],
+    [note.id, onChangeDate, today],
   );
   const handleChangeSensitive = useCallback(
     () => {
       onChangeSensitive(note.id, !note.sensitive);
       setShowSensitive(true);
     },
-    [note, onChangeSensitive],
+    [note.id, note.sensitive, onChangeSensitive],
   );
 
+  const emptyNote = !note.content;
   const handleDelete = useCallback(
-    () => {
-      handleCloseMenu();
-      onDelete(note);
-    },
-    [handleCloseMenu, note, onDelete],
+    () => onDelete(note.id, !emptyNote),
+    [emptyNote, note.id, onDelete],
   );
   const handleClickVisibility = useCallback(() => setShowSensitive(s => !s), []);
   const handleMouseDownVisibility = useCallback(
@@ -198,71 +286,15 @@ function SingleNote<T extends ItemNote>({
           variant="standard"
         />
 
-        <IconButton
-          aria-controls={`${MENU_POPUP_ID}-${note.id}`}
-          aria-haspopup="true"
-          onClick={handleClickMenu}
-          ref={menuAnchor}
-        >
-          <OptionsIcon />
-        </IconButton>
-
-        <Menu
-          anchorEl={menuAnchor.current}
-          id={MENU_POPUP_ID}
-          open={showMenu}
-          anchorOrigin={{
-            horizontal: 'right',
-            vertical: 'bottom',
-          }}
-          transformOrigin={{
-            horizontal: 'right',
-            vertical: 'top',
-          }}
-          onClose={handleCloseMenu}
-        >
-          <MenuItem
-            key="delete"
-            onClick={handleDelete}
-          >
-            <ListItemIcon>
-              <DeleteIcon />
-            </ListItemIcon>
-
-            Delete
-          </MenuItem>
-
-          <MenuItem
-            key="sensitive"
-            onClick={handleChangeSensitive}
-          >
-            <ListItemIcon>
-              <Checkbox
-                checked={note.sensitive || false}
-                data-cy={`sensitive-note-${note.type}`}
-                onChange={handleChangeSensitive}
-                edge="start"
-              />
-            </ListItemIcon>
-
-            Sensitive
-          </MenuItem>
-
-          {note.type === 'action' && (
-            <MenuItem
-              key="sensitive"
-              onClick={handleChangeCompleted}
-            >
-              <Checkbox
-                checked={!!note.completed}
-                data-cy={`sensitive-note-${note.type}`}
-                onChange={handleChangeCompleted}
-              />
-
-              Completed
-            </MenuItem>
-          )}
-        </Menu>
+        <NoteOptions
+          completed={note.type === 'action' ? note.completed : undefined}
+          noteId={note.id}
+          noteType={note.type}
+          onDelete={handleDelete}
+          onChangeCompleted={handleChangeCompleted}
+          onChangeSensitive={handleChangeSensitive}
+          sensitive={note.sensitive}
+        />
       </Stack>
 
       <div className={`${classes.noteDateContainer}`}>
@@ -398,11 +430,11 @@ function NoteControl<T extends ItemNote>({
     [onChange],
   );
   const handleDelete = useCallback(
-    (note: T) => {
-      if (!note.content) {
-        handleConfirmDelete(note.id);
+    (noteId: string, requireConfirm: boolean) => {
+      if (!requireConfirm) {
+        handleConfirmDelete(noteId);
       } else {
-        setNoteToDelete(note.id);
+        setNoteToDelete(noteId);
       }
     },
     [handleConfirmDelete],
