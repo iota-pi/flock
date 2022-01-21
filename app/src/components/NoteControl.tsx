@@ -5,56 +5,48 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import makeStyles from '@mui/styles/makeStyles';
 import {
   Button,
   Checkbox,
+  Dialog,
+  DialogActions,
   Divider,
-  FormControlLabel,
-  Grid,
   IconButton,
   InputAdornment,
+  ListItemIcon,
+  Menu,
+  MenuItem,
   Stack,
   TextField,
-  TextFieldProps,
   Typography,
 } from '@mui/material';
-import { DatePicker } from '@mui/lab';
+import { CalendarPicker } from '@mui/lab';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { DeleteIcon } from './Icons';
+import { CalendarIcon, DeleteIcon, MuiIconType, OptionsIcon } from './Icons';
 import { compareNotes, getBlankNote, ItemId, ItemNote } from '../state/items';
 import { formatDate, useToday } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 
-const NOTE_TYPE_SELECT_WIDTH = 144;
 const VISIBLE_NOTE_PAGE_SIZE = 5;
+const MENU_POPUP_ID = 'note-control-menu-';
+const CALENDAR_POPUP_ID = 'note-control-calendar-';
 
 const useStyles = makeStyles(theme => ({
-  filler: {
-    flexGrow: 1,
-  },
-  noteContentRow: {
+  noteDateContainer: {
     display: 'flex',
-    flexDirection: 'row',
-
-    '&$center': {
-      alignItems: 'center',
-    },
-  },
-  center: {},
-  firstFieldOfRow: {
-    marginRight: theme.spacing(2),
-    minWidth: NOTE_TYPE_SELECT_WIDTH,
-    width: NOTE_TYPE_SELECT_WIDTH,
+    alignItems: 'center',
   },
   noteDate: {
-    flexGrow: 1,
     padding: theme.spacing(1),
     paddingLeft: 0,
     color: theme.palette.text.disabled,
+    fontWeight: theme.typography.caption.fontWeight,
+    fontSize: theme.typography.caption.fontSize,
   },
 }));
 
@@ -85,6 +77,13 @@ function NoteButton(
   );
 }
 
+export interface MenuItemData {
+  icon: MuiIconType,
+  key: string,
+  label: string,
+  onClick: () => void,
+}
+
 function SingleNote<T extends ItemNote>({
   autoFocus,
   note,
@@ -106,9 +105,13 @@ function SingleNote<T extends ItemNote>({
 }) {
   const classes = useStyles();
 
+  const [showMenu, setShowMenu] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [localContent, setLocalContent] = useState(note.content);
   const today = useToday();
+
+  const menuAnchor = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setLocalContent(note.content), [note.content]);
   useEffect(
@@ -121,6 +124,9 @@ function SingleNote<T extends ItemNote>({
     },
     [localContent, onChangeContent, note.id],
   );
+
+  const handleClickMenu = useCallback(() => setShowMenu(o => !o), []);
+  const handleCloseMenu = useCallback(() => setShowMenu(false), []);
 
   const handleChangeCompleted = useCallback(
     () => note.type === 'action' && onChangeCompleted(
@@ -148,131 +154,157 @@ function SingleNote<T extends ItemNote>({
   );
 
   const handleDelete = useCallback(
-    () => onDelete(note),
-    [note, onDelete],
+    () => {
+      handleCloseMenu();
+      onDelete(note);
+    },
+    [handleCloseMenu, note, onDelete],
   );
-  const handleClickVisibility = useCallback(
-    () => setShowSensitive(s => !s),
-    [],
-  );
+  const handleClickVisibility = useCallback(() => setShowSensitive(s => !s), []);
   const handleMouseDownVisibility = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => event.preventDefault(),
     [],
   );
+  const handleClickCalendar = useCallback(() => setShowCalendar(true), []);
+  const handleCloseCalendar = useCallback(() => setShowCalendar(false), []);
 
   const date = useMemo(() => new Date(note.date), [note.date]);
-  const renderInput = useCallback(
-    (params: TextFieldProps) => (
-      <TextField
-        {...params}
-        InputProps={{
-          ...params.InputProps,
-          className: classes.firstFieldOfRow,
-        }}
-        variant="standard"
-      />
-    ),
-    [classes],
-  );
 
   const visible = !note.sensitive || showSensitive;
 
   return (
-    <>
-      <Grid item xs={12}>
-        <div className={classes.noteContentRow}>
-          <TextField
-            autoFocus={autoFocus}
-            disabled={!visible}
-            fullWidth
-            label={noteContentLabel}
-            InputProps={{
-              endAdornment: note.sensitive ? (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickVisibility}
-                    onMouseDown={handleMouseDownVisibility}
-                    size="large"
-                  >
-                    {visible ? <Visibility /> : <VisibilityOff />}
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-            multiline
-            onChange={handleChangeContent}
-            value={!visible ? '...' : localContent}
-            variant="standard"
-          />
-        </div>
+    <div>
+      <Stack direction="row" alignItems="flex-end">
+        <TextField
+          autoFocus={autoFocus}
+          disabled={!visible}
+          fullWidth
+          label={noteContentLabel}
+          InputProps={{
+            endAdornment: note.sensitive ? (
+              <InputAdornment position="end">
+                <IconButton
+                  onClick={handleClickVisibility}
+                  onMouseDown={handleMouseDownVisibility}
+                >
+                  {visible ? <Visibility /> : <VisibilityOff />}
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          }}
+          multiline
+          onChange={handleChangeContent}
+          value={!visible ? '...' : localContent}
+          variant="standard"
+        />
 
-        <div className={`${classes.noteContentRow} ${classes.center}`}>
-          <Stack
-            alignItems={{ sm: 'center' }}
-            direction={{ xs: 'column', sm: 'row' }}
-            paddingTop={{ xs: 1, sm: 0 }}
+        <IconButton
+          aria-controls={`${MENU_POPUP_ID}-${note.id}`}
+          aria-haspopup="true"
+          onClick={handleClickMenu}
+          ref={menuAnchor}
+        >
+          <OptionsIcon />
+        </IconButton>
+
+        <Menu
+          anchorEl={menuAnchor.current}
+          id={MENU_POPUP_ID}
+          open={showMenu}
+          anchorOrigin={{
+            horizontal: 'right',
+            vertical: 'bottom',
+          }}
+          transformOrigin={{
+            horizontal: 'right',
+            vertical: 'top',
+          }}
+          onClose={handleCloseMenu}
+        >
+          <MenuItem
+            key="delete"
+            onClick={handleDelete}
           >
-            {note.type !== 'prayer' ? (
-              <DatePicker<Date | null>
-                value={date as Date | null}
-                onChange={handleChangeDate}
-                minDate={note.type === 'action' ? today : undefined}
-                maxDate={note.type === 'interaction' ? today : undefined}
-                inputFormat="dd/MM/yyyy"
-                renderInput={renderInput}
-              />
-            ) : (
-              <div className={classes.firstFieldOfRow}>
-                <span className={classes.noteDate}>
-                  Date: {formatDate(date)}
-                </span>
-              </div>
-            )}
-
-            <FormControlLabel
-              control={(
-                <Checkbox
-                  checked={note.sensitive || false}
-                  data-cy={`sensitive-note-${note.type}`}
-                  onChange={handleChangeSensitive}
-                />
-              )}
-              label="Sensitive"
-            />
-
-            {note.type === 'action' && (
-              <FormControlLabel
-                control={(
-                  <Checkbox
-                    checked={!!note.completed}
-                    data-cy={`sensitive-note-${note.type}`}
-                    onChange={handleChangeCompleted}
-                  />
-                )}
-                label="Completed"
-              />
-            )}
-          </Stack>
-
-          <div className={classes.filler} />
-
-          <div>
-            <IconButton
-              color="error"
-              data-cy="delete-note"
-              onClick={handleDelete}
-              size="small"
-            >
+            <ListItemIcon>
               <DeleteIcon />
-            </IconButton>
-          </div>
-        </div>
-      </Grid>
+            </ListItemIcon>
 
-      <Grid item xs={12}>
-        <Divider />
-      </Grid>
-    </>
+            Delete
+          </MenuItem>
+
+          <MenuItem
+            key="sensitive"
+            onClick={handleChangeSensitive}
+          >
+            <ListItemIcon>
+              <Checkbox
+                checked={note.sensitive || false}
+                data-cy={`sensitive-note-${note.type}`}
+                onChange={handleChangeSensitive}
+                edge="start"
+              />
+            </ListItemIcon>
+
+            Sensitive
+          </MenuItem>
+
+          {note.type === 'action' && (
+            <MenuItem
+              key="sensitive"
+              onClick={handleChangeCompleted}
+            >
+              <Checkbox
+                checked={!!note.completed}
+                data-cy={`sensitive-note-${note.type}`}
+                onChange={handleChangeCompleted}
+              />
+
+              Completed
+            </MenuItem>
+          )}
+        </Menu>
+      </Stack>
+
+      <div className={`${classes.noteDateContainer}`}>
+        <div className={classes.noteDate}>
+          {formatDate(date)}
+        </div>
+
+        <IconButton
+          aria-controls={`${CALENDAR_POPUP_ID}-${note.id}`}
+          aria-haspopup="true"
+          onClick={handleClickCalendar}
+          size="small"
+        >
+          <CalendarIcon fontSize="small" />
+        </IconButton>
+      </div>
+
+      <Dialog
+        id={`${CALENDAR_POPUP_ID}-${note.id}`}
+        open={showCalendar}
+        onClose={handleCloseCalendar}
+      >
+        <CalendarPicker<Date | null>
+          date={date as Date | null}
+          onChange={handleChangeDate}
+          minDate={note.type === 'action' ? today : undefined}
+          maxDate={note.type === 'interaction' ? today : undefined}
+        />
+
+        <DialogActions>
+          <Button
+            fullWidth
+            onClick={handleCloseCalendar}
+            variant="outlined"
+          >
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Divider />
+    </div>
   );
 }
 const MemoSingleNote = memo(SingleNote) as typeof SingleNote;
@@ -418,47 +450,39 @@ function NoteControl<T extends ItemNote>({
   const hiddenNotes = Math.max(notesOfType.length - visibleNotes, 0);
 
   return (
-    <>
+    <Stack spacing={2}>
       <NoteButton
         dataCy={`add-${noteType}`}
         label={addNoteLabel}
         onClick={handleAddNote}
       />
 
-      <Grid container spacing={2}>
-        <Grid item />
+      {notes.map(note => (
+        <MemoSingleNote
+          autoFocus={autoFocus === note.id}
+          key={note.id}
+          note={note}
+          noteContentLabel={noteContentLabel}
+          onChangeCompleted={handleChangeCompleted}
+          onChangeContent={handleChangeContent}
+          onChangeDate={handleChangeDate}
+          onChangeSensitive={handleChangeSensitive}
+          onDelete={handleDelete}
+        />
+      ))}
 
-        {notes.map(note => (
-          <MemoSingleNote
-            autoFocus={autoFocus === note.id}
-            key={note.id}
-            note={note}
-            noteContentLabel={noteContentLabel}
-            onChangeCompleted={handleChangeCompleted}
-            onChangeContent={handleChangeContent}
-            onChangeDate={handleChangeDate}
-            onChangeSensitive={handleChangeSensitive}
-            onDelete={handleDelete}
-          />
-        ))}
+      {notes.length === 0 && noNotesText && (
+        <div>{noNotesText}</div>
+      )}
 
-        {notes.length === 0 && (
-          <>
-            <Grid item xs={12}>
-              {noNotesText || 'No notes'}
-            </Grid>
-
-            <Grid item xs={12} />
-          </>
-        )}
-      </Grid>
-
-      <NoteButton
-        dataCy={`showMore-${noteType}`}
-        disabled={hiddenNotes <= 0}
-        label={`See more (${hiddenNotes})`}
-        onClick={handleShowMore}
-      />
+      {notes.length > 0 && (
+        <NoteButton
+          dataCy={`showMore-${noteType}`}
+          disabled={hiddenNotes <= 0}
+          label={`See more (${hiddenNotes})`}
+          onClick={handleShowMore}
+        />
+      )}
 
       <ConfirmationDialog
         open={noteToDelete !== undefined}
@@ -473,7 +497,7 @@ function NoteControl<T extends ItemNote>({
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
-    </>
+    </Stack>
   );
 }
 

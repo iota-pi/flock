@@ -523,7 +523,6 @@ function ItemDrawer({
       <CollapsibleSection
         content={(
           <NoteControl
-            noNotesText="No prayer points"
             notes={item.notes}
             onChange={handleChangeNotes}
             noteType="prayer"
@@ -543,7 +542,6 @@ function ItemDrawer({
       <CollapsibleSection
         content={(
           <NoteControl
-            noNotesText="No interactions"
             notes={item.notes}
             onChange={handleChangeNotes}
             noteType="interaction"
@@ -563,7 +561,6 @@ function ItemDrawer({
       <CollapsibleSection
         content={(
           <NoteControl
-            noNotesText="No actions"
             notes={item.notes}
             onChange={handleChangeNotes}
             noteType="action"

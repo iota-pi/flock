@@ -5,6 +5,7 @@ import ActionIcon from '@mui/icons-material/ArrowForward';
 import AddIcon from '@mui/icons-material/Add';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import BackIcon from '@mui/icons-material/ChevronLeft';
+import CalendarIcon from '@mui/icons-material/Today';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
@@ -48,6 +49,7 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CalendarIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,
