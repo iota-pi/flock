@@ -38,7 +38,7 @@ export function isSameDay(d1: Date, d2: Date) {
 
 export function useToday() {
   const d = useRef(new Date());
-  if (isSameDay(d.current, new Date())) {
+  if (!isSameDay(d.current, new Date())) {
     d.current = new Date();
   }
   return d.current;
