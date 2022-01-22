@@ -28,7 +28,7 @@ module.exports = {
     'class-methods-use-this': 'off',
     'import/no-cycle': 'off',
     'no-bitwise': 'off',
-    'no-console': ['error', { allow: ['warn', 'error'] }],
+    'no-console': ['off', { allow: ['warn', 'error'] }],
     'no-continue': 'off',
     'no-else-return': ['error', { allowElseIf: true }],
     'no-multiple-empty-lines': ['error', { 'max': 2, 'maxEOF': 1 }],

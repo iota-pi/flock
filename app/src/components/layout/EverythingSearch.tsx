@@ -1,12 +1,36 @@
 import {
   ChangeEvent,
+  createContext,
+  ForwardedRef,
+  forwardRef,
+  HTMLAttributes,
+  memo,
+  PropsWithChildren,
   useCallback,
+  useContext,
   useMemo,
   useRef,
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
-import { Autocomplete, Chip, Divider, InputAdornment, Paper, PaperProps, TextField, ThemeProvider } from '@mui/material';
-import { AutocompleteChangeReason, createFilterOptions, FilterOptionsState } from '@mui/material/useAutocomplete';
+import { ListChildComponentProps, VariableSizeList } from 'react-window';
+import {
+  Autocomplete,
+  autocompleteClasses,
+  Chip,
+  Divider,
+  InputAdornment,
+  Paper,
+  PaperProps,
+  Popper,
+  styled,
+  TextField,
+  ThemeProvider,
+} from '@mui/material';
+import {
+  AutocompleteChangeReason,
+  createFilterOptions,
+  FilterOptionsState,
+} from '@mui/material/useAutocomplete';
 import makeStyles from '@mui/styles/makeStyles';
 import {
   getBlankItem,
@@ -20,6 +44,9 @@ import { replaceActive, setTagFilter } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
 import { sortItems } from '../../utils/customSort';
+import { useResetCache } from '../../utils/virtualisation';
+
+const LISTBOX_PADDING = 8;
 
 const useStyles = makeStyles(theme => ({
   optionHolder: {
@@ -93,15 +120,15 @@ function getName(option: AnySearchable) {
 }
 
 function capitalise(name: string) {
-  return name.charAt(0).toLocaleUpperCase() + name.substr(1);
+  return name.charAt(0).toLocaleUpperCase() + name.slice(1);
 }
 
 function OptionComponent({
   option,
-  showIcons,
+  showIcons = true,
 }: {
   option: AnySearchable,
-  showIcons: boolean,
+  showIcons?: boolean,
 }) {
   const classes = useStyles();
   const icon = getIcon(option.type);
@@ -131,6 +158,88 @@ function OptionComponent({
   );
 }
 
+type PropsAndOptionList = [HTMLAttributes<HTMLLIElement>, AnySearchable][];
+
+const SearchableRow = memo((
+  props: ListChildComponentProps<PropsAndOptionList>,
+) => {
+  const classes = useStyles();
+  const { data, index, style } = props;
+  const [optionProps, option] = data[index];
+  const inlineStyle = {
+    ...style,
+    top: (style.top as number) + LISTBOX_PADDING,
+  };
+
+  return (
+    <li
+      {...optionProps}
+      className={`${optionProps.className} ${classes.optionHolder}`}
+      key={option.id}
+      style={inlineStyle}
+    >
+      <OptionComponent option={option} />
+    </li>
+  );
+});
+SearchableRow.displayName = 'SearchableRow';
+
+const OuterElementContext = createContext({});
+
+const OuterElementType = forwardRef<HTMLDivElement>((props, ref) => {
+  const outerProps = useContext(OuterElementContext);
+  return <div ref={ref} {...props} {...outerProps} />;
+});
+OuterElementType.displayName = 'OuterElementType';
+
+const ListBoxComponent = forwardRef(
+  (
+    props: PropsWithChildren<HTMLAttributes<HTMLElement>>,
+    ref: ForwardedRef<HTMLDivElement>,
+  ) => {
+    const { children, ...otherProps } = props;
+    const itemData = children as PropsAndOptionList;
+    const itemSize = 56;
+
+    const gridRef = useResetCache(itemData.length);
+    const getHeight = useCallback(
+      () => itemSize * Math.min(itemData.length, 6),
+      [itemData, itemSize],
+    );
+
+    return (
+      <div ref={ref}>
+        <OuterElementContext.Provider value={otherProps}>
+          <VariableSizeList<PropsAndOptionList>
+            itemData={itemData}
+            height={getHeight() + 2 * LISTBOX_PADDING}
+            width="100%"
+            ref={gridRef}
+            outerElementType={OuterElementType}
+            innerElementType="ul"
+            itemSize={() => itemSize}
+            overscanCount={2}
+            itemCount={itemData.length}
+          >
+            {SearchableRow}
+          </VariableSizeList>
+        </OuterElementContext.Provider>
+      </div>
+    );
+  },
+);
+ListBoxComponent.displayName = 'ListBoxComponent';
+
+const StyledPopper = styled(Popper)({
+  [`& .${autocompleteClasses.listbox}`]: {
+    boxSizing: 'border-box',
+    '& ul': {
+      padding: 0,
+      margin: 0,
+    },
+  },
+});
+
 function ThemedPaper({ children, ...props }: PaperProps) {
   const darkMode = useAppSelector(state => state.ui.darkMode);
   const theme = useMemo(() => getTheme(darkMode), [darkMode]);
@@ -148,14 +257,12 @@ export interface Props {
   label: string,
   noItemsText?: string,
   onSelect?: (item?: Item | string) => void,
-  showIcons?: boolean,
 }
 
 function EverythingSearch({
   label,
   noItemsText,
   onSelect,
-  showIcons = true,
 }: Props) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
@@ -277,14 +384,17 @@ function EverythingSearch({
       <Autocomplete
         autoHighlight
         disableClearable
+        disableListWrap
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
+        ListboxComponent={ListBoxComponent}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         multiple
         noOptionsText={noItemsText || 'No items found'}
         onChange={handleChange}
         options={options}
         PaperComponent={ThemedPaper}
+        PopperComponent={StyledPopper}
         renderInput={params => (
           <TextField
             {...params}
@@ -302,18 +412,7 @@ function EverythingSearch({
             }}
           />
         )}
-        renderOption={(props, option) => (
-          <li
-            {...props}
-            className={`${classes.optionHolder} ${props.className}`}
-            key={option.id}
-          >
-            <OptionComponent
-              option={option}
-              showIcons={showIcons}
-            />
-          </li>
-        )}
+        renderOption={(props, option) => [props, option]}
         renderTags={selectedOptions => (
           selectedOptions.map(option => (
             <Chip
