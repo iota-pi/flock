@@ -424,7 +424,9 @@ function ItemDrawer({
         <Button
           color="inherit"
           data-cy="archived"
+          fullWidth
           onClick={() => handleChange({ archived: !archived })}
+          size="large"
           startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
         >
           {archived ? 'Unarchive' : 'Archive'}
