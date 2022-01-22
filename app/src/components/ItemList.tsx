@@ -1,5 +1,4 @@
 import {
-  CSSProperties,
   memo,
   MouseEvent,
   ReactNode,
