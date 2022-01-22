@@ -28,10 +28,10 @@ import {
 } from '@mui/material';
 import {
   AutocompleteChangeReason,
-  createFilterOptions,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete';
 import makeStyles from '@mui/styles/makeStyles';
+import { matchSorter } from 'match-sorter';
 import {
   getBlankItem,
   getItemName,
@@ -106,8 +106,6 @@ export type AnySearchable = (
   | SearchableTag
   | SearchableAddItem
 );
-
-const baseFilterFunc = createFilterOptions<AnySearchable>({ trim: true });
 
 function getName(option: AnySearchable) {
   if (option.type === 'tag') {
@@ -289,7 +287,22 @@ function EverythingSearch({
 
   const filterFunc = useCallback(
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
-      const filtered = baseFilterFunc(allOptions, state);
+      console.log(state.inputValue);
+      const filtered = matchSorter(
+        allOptions,
+        state.inputValue.trim(),
+        {
+          keys: [
+            'data.firstName',
+            'data.lastName',
+            'data.name',
+            { key: 'data.description', threshold: matchSorter.rankings.CONTAINS },
+            { key: 'data.summary', threshold: matchSorter.rankings.CONTAINS },
+            { key: 'data.notes.*.content', threshold: matchSorter.rankings.CONTAINS },
+          ],
+          threshold: matchSorter.rankings.MATCHES,
+        },
+      );
 
       if (state.inputValue.trim()) {
         filtered.push(
