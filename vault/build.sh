@@ -12,6 +12,5 @@ set -euo pipefail
 cp ./gcp-service-credentials.json build/bundled/
 (
   cd build/bundled
-  rm *.LICENSE.txt
   zip -r ../lambda.zip .
 )
