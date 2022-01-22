@@ -75,9 +75,9 @@ export interface ItemListExtraElement {
   index: number,
 }
 export interface BaseProps<T extends ItemOrNote> {
-  compact?: boolean,
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
+  compact?: boolean,
   dividers?: boolean,
   extraElements?: ItemListExtraElement[],
   fadeArchived?: boolean,
@@ -97,14 +97,6 @@ export interface BaseProps<T extends ItemOrNote> {
   showIcons?: boolean,
   showTags?: boolean,
 }
-export interface SingleItemProps<T extends ItemOrNote> extends BaseProps<T> {
-  checked?: boolean,
-  description?: string,
-  faded?: boolean,
-  highlighted?: boolean,
-  item: T,
-  style: CSSProperties,
-}
 export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
   className?: string,
   disablePadding?: boolean,
@@ -116,9 +108,9 @@ export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
 export function ItemListItem<T extends ItemOrNote>(props: ListChildComponentProps<BaseProps<T>>) {
   const { data, index, style } = props;
   const {
-    compact,
     checkboxes,
     checkboxSide,
+    compact,
     dividers,
     extraElements,
     fadeArchived,
