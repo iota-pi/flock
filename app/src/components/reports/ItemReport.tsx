@@ -133,6 +133,7 @@ function ItemReport({
           dividers
           hideEmpty
           noNotesHint="No prayer points"
+          wrapText
         />
       </div>
 
@@ -147,6 +148,7 @@ function ItemReport({
             displayItemNames={false}
             dividers
             noNotesHint="No interactions"
+            wrapText
           />
         </div>
       )}

@@ -38,25 +38,32 @@ const FADED_OPACITY = 0.65;
 const TAG_ROW_BREAKPOINT: Breakpoint = 'md';
 const MIN_ROW_HEIGHT = 72;
 
-const StyledListItem = styled(ListItemButton)({
-  minHeight: MIN_ROW_HEIGHT,
-  '&.Mui-disabled': {
-    opacity: '1 !important',
-  },
-});
+const StyledListItem = styled(ListItemButton)(
+  ({ dense }) => ({
+    minHeight: !dense ? MIN_ROW_HEIGHT : undefined,
+    '&.Mui-disabled': {
+      opacity: '1 !important',
+    },
+  }),
+);
 const StyledListItemText = styled(
-  ({ faded: _, ...props }: ListItemTextProps & { faded?: boolean }) => <ListItemText {...props} />,
-)(({ faded, theme }) => ({
-  opacity: faded ? FADED_OPACITY : undefined,
-  paddingRight: theme.spacing(2),
-  transition: theme.transitions.create('opacity'),
-  whiteSpace: 'nowrap',
-
-  '& .MuiTypography-root': {
-    textOverflow: 'ellipsis',
-    overflow: 'hidden',
+  ListItemText,
+  {
+    shouldForwardProp: prop => prop !== 'faded' && prop !== 'wrapText',
   },
-}));
+)<ListItemTextProps & { faded?: boolean, wrapText: boolean }>(
+  ({ faded, theme, wrapText }) => ({
+    opacity: faded ? FADED_OPACITY : undefined,
+    paddingRight: theme.spacing(2),
+    transition: theme.transitions.create('opacity'),
+    whiteSpace: !wrapText ? 'nowrap' : undefined,
+
+    '& .MuiTypography-root': {
+      textOverflow: !wrapText ? 'ellipsis' : undefined,
+      overflow: !wrapText ? 'hidden' : undefined,
+    },
+  }),
+);
 const StyledListItemIcon = styled(
   ({ faded: _, ...props }: ListItemIconProps & { faded?: boolean }) => <ListItemIcon {...props} />,
 )(({ faded, theme }) => ({
@@ -95,6 +102,7 @@ export interface BaseProps<T extends ItemOrNote> {
   onClickAction?: (item: T) => void,
   showIcons?: boolean,
   showTags?: boolean,
+  wrapText?: boolean,
 }
 export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
   className?: string,
@@ -128,6 +136,7 @@ export function ItemListItem<T extends ItemOrNote>(props: ListChildComponentProp
     onCheck,
     showIcons = false,
     showTags = true,
+    wrapText = false,
   } = data;
   const item = items[index];
 
@@ -251,6 +260,7 @@ export function ItemListItem<T extends ItemOrNote>(props: ListChildComponentProp
           >
             <StyledListItemText
               faded={faded}
+              wrapText={wrapText}
               id={`${item.id}-text`}
               primary={title}
               secondary={description || undefined}
@@ -321,6 +331,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     showIcons = false,
     showTags = true,
     viewHeight,
+    wrapText,
   } = props;
   const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT));
 
@@ -347,6 +358,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
       onClickAction,
       showIcons,
       showTags,
+      wrapText,
     }),
     [
       getActionIcon,
@@ -370,6 +382,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
       onClickAction,
       showIcons,
       showTags,
+      wrapText,
     ],
   );
 
