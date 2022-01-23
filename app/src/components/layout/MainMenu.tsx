@@ -107,6 +107,7 @@ const FlexList = styled(List)({
 
 export interface Props {
   minimised?: boolean,
+  onClick: () => void,
   onMinimise: () => void,
   open: boolean,
   page: Page,
@@ -176,6 +177,7 @@ function MainMenuItem({
 
 function MainMenu({
   minimised,
+  onClick,
   onMinimise,
   open,
   page,
@@ -191,8 +193,9 @@ function MainMenu({
         history.push(newPage.path);
         dispatch(setUiState({ selected: [] }));
       }
+      onClick();
     },
-    [page.id, dispatch, history],
+    [page.id, dispatch, history, onClick],
   );
 
   return (
@@ -225,7 +228,6 @@ function MainMenu({
           <Box flexGrow={1} />
 
           <MainMenuItem
-            // dividerBefore
             icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
             id="minimise"
             name="Collapse Menu"

@@ -50,11 +50,31 @@ export default function App() {
 
   const [rawMiniMenu, setMiniMenu] = useState<boolean>();
   const [rawOpenMenu, setOpenMenu] = useState<boolean>();
-  const miniMenu = rawMiniMenu === undefined ? small : rawMiniMenu;
-  const openMenu = rawOpenMenu === undefined ? !xs : rawOpenMenu;
+  const defaultMini = small;
+  const defaultOpen = !xs;
+  const miniMenu = rawMiniMenu === undefined ? defaultMini : rawMiniMenu;
+  const openMenu = rawOpenMenu === undefined ? defaultOpen : rawOpenMenu;
 
-  const handleToggleMiniMenu = useCallback(() => setMiniMenu(!miniMenu), [miniMenu]);
-  const handleToggleShowMenu = useCallback(() => setOpenMenu(!openMenu), [openMenu]);
+  const handleToggleMiniMenu = useCallback(
+    () => setMiniMenu(m => (
+      m !== undefined && miniMenu !== defaultMini ? undefined : !miniMenu
+    )),
+    [defaultMini, miniMenu],
+  );
+  const handleToggleShowMenu = useCallback(
+    () => setOpenMenu(o => (
+      o !== undefined && openMenu !== defaultOpen ? undefined : !openMenu
+    )),
+    [defaultOpen, openMenu],
+  );
+  const handleMenuClick = useCallback(
+    () => {
+      if (xs) {
+        setOpenMenu(undefined);
+      }
+    },
+    [xs],
+  );
 
   useEffect(
     () => {
@@ -84,8 +104,9 @@ export default function App() {
                   onToggleMenu={handleToggleShowMenu}
                 />
                 <MainMenu
-                  open={openMenu}
                   minimised={miniMenu}
+                  open={openMenu}
+                  onClick={handleMenuClick}
                   onMinimise={handleToggleMiniMenu}
                 />
               </>
