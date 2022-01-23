@@ -18,6 +18,7 @@ import BasePage from './BasePage';
 import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
 import {
+  DeleteIcon,
   DownloadIcon,
   EditIcon,
   MuiIconType,
@@ -68,6 +69,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface SettingsItemProps {
+  disabled?: boolean,
   icon?: MuiIconType,
   id: string,
   onClick?: () => void,
@@ -85,6 +87,7 @@ const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
 }));
 
 function SettingsItem({
+  disabled,
   icon: Icon,
   id,
   onClick,
@@ -105,7 +108,7 @@ function SettingsItem({
     <>
       <ListItem
         {...extraListItemProps}
-        disabled={!onClick}
+        disabled={disabled || !onClick}
         data-cy={id}
         onClick={onClick}
       >
@@ -177,6 +180,19 @@ function SettingsPage() {
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
   const handleEditSubscription = useCallback(() => setShowSubscriptionDialog(true), []);
   const handleCloseSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), []);
+
+  const [cacheClearCounter, setCacheClearCounter] = useState(1);
+  const itemCacheExists = useMemo(
+    () => (cacheClearCounter ? vault?.checkItemCache() : false),
+    [cacheClearCounter, vault],
+  );
+  const handleClearCache = useCallback(
+    () => {
+      vault?.clearItemCache();
+      setCacheClearCounter(c => c + 1);
+    },
+    [vault],
+  );
 
   const handleExport = useCallback(
     async () => {
@@ -281,6 +297,13 @@ function SettingsPage() {
           onClick={handleEditMaturity}
           title="Maturity stages"
           tags={maturity}
+        />
+        <SettingsItem
+          disabled={!itemCacheExists}
+          icon={DeleteIcon}
+          id="clear-cache"
+          onClick={handleClearCache}
+          title="Clear item cache"
         />
         <SettingsItem
           icon={DownloadIcon}

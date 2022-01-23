@@ -269,6 +269,15 @@ class Vault {
     localStorage.setItem(VAULT_ITEM_CACHE_TIME, new Date().getTime().toString());
   }
 
+  clearItemCache() {
+    localStorage.removeItem(VAULT_ITEM_CACHE);
+    localStorage.removeItem(VAULT_ITEM_CACHE_TIME);
+  }
+
+  checkItemCache() {
+    return !!localStorage.getItem(VAULT_ITEM_CACHE_TIME);
+  }
+
   async fetchAll(): Promise<Item[]> {
     const cacheTime = this.getItemCacheTime();
     const fetchPromise = this.api.fetchAll({
