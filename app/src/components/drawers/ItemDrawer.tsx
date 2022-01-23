@@ -620,11 +620,11 @@ function ItemDrawer({
         {frequencyField}
 
         <SectionHolder>
-          {groupsSection}
           {membersSection}
           {prayerSection}
           {interactionSection}
           {actionSection}
+          {groupsSection}
         </SectionHolder>
 
         {archivedField}
