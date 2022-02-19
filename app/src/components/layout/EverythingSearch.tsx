@@ -289,7 +289,6 @@ function EverythingSearch({
 
   const filterFunc = useCallback(
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
-      console.log(state.inputValue);
       const filtered = matchSorter(
         allOptions,
         state.inputValue.trim(),
