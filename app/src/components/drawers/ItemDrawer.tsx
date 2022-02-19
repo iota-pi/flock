@@ -444,6 +444,7 @@ function ItemDrawer({
         <Button
           color="inherit"
           data-cy="archived"
+          disabled={item.isNew}
           fullWidth
           onClick={() => handleChange({ archived: !archived })}
           size="large"
@@ -454,7 +455,7 @@ function ItemDrawer({
         </Button>
       </Grid>
     ),
-    [archived, handleChange],
+    [archived, handleChange, item.isNew],
   );
   const changeTypeButtons = useMemo(
     () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
