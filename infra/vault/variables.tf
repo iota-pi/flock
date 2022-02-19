@@ -4,7 +4,6 @@ variable environment {
 
 variable code_bucket {
   type    = string
-  default = "crossangles-lambda-code"
 }
 
 variable full_domain {
