@@ -153,7 +153,7 @@ function SelectedActions() {
           dividerBefore: true,
           id: 'clear',
           icon: RemoveIcon,
-          label: 'Clear Selection',
+          label: `Clear Selection (${workingItems.length} items)`,
           onClick: handleClear,
         },
       );
