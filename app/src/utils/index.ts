@@ -73,3 +73,7 @@ export function useStringMemo<T>(state: T[]): T[] {
     [prev, prevKey, state],
   );
 }
+
+export function capitalise(name: string) {
+  return name.charAt(0).toLocaleUpperCase() + name.slice(1);
+}

@@ -37,6 +37,7 @@ import {
   getItemName,
   getItemTypeLabel,
   Item,
+  splitName,
 } from '../../state/items';
 import { getIcon, SearchIcon } from '../Icons';
 import { useItems, useMaturity, useSortCriteria, useTags } from '../../state/selectors';
@@ -45,6 +46,7 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import getTheme from '../../theme';
 import { sortItems } from '../../utils/customSort';
 import { useResetCache } from '../../utils/virtualisation';
+import { capitalise } from '../../utils';
 
 const LISTBOX_PADDING = 8;
 
@@ -115,10 +117,6 @@ function getName(option: AnySearchable) {
     return getItemName(option.default);
   }
   return getItemName(option.data);
-}
-
-function capitalise(name: string) {
-  return name.charAt(0).toLocaleUpperCase() + name.slice(1);
 }
 
 function OptionComponent({
@@ -310,8 +308,7 @@ function EverythingSearch({
             create: true,
             default: {
               type: 'person',
-              firstName: capitalise(state.inputValue.trim().split(/\s+/, 2)[0]),
-              lastName: capitalise(state.inputValue.trim().split(/\s+/, 2)[1] || ''),
+              ...splitName(state.inputValue.trim()),
             },
             dividerBefore: true,
             id: 'add-person',

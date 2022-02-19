@@ -328,6 +328,13 @@ export function getItemName(item?: Partial<Item> & Pick<Item, 'type'>): string {
   return (item.name || '').trim();
 }
 
+export function splitName(name: string): Pick<PersonItem, 'firstName' | 'lastName'> {
+  return {
+    firstName: name.split(/\s+/, 2)[0],
+    lastName: name.split(/\s+/, 2)[1] || '',
+  };
+}
+
 export function comparePeopleNames(a: PersonItem, b: PersonItem) {
   return (
     (+(a.lastName > b.lastName) - +(a.lastName < b.lastName))
@@ -395,4 +402,20 @@ export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
 
 export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
   return { ...item, dirty: undefined, isNew: undefined };
+}
+
+export function convertItem<T extends Item, S extends Item>(item: T, type: S['type']): S {
+  let result = {
+    ...getBlankItem(type, false),
+    ...item,
+    type,
+  } as S;
+  if (result.type === 'person') {
+    if (item.type !== 'person') {
+      result = { ...result, ...splitName(item.name) };
+    }
+  } else if (item.type === 'person') {
+    result.name = getItemName(item);
+  }
+  return result;
 }

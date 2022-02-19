@@ -19,6 +19,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import {
   cleanItem,
   compareNames,
+  convertItem,
   dirtyItem,
   DirtyItem,
   GeneralItem,
@@ -27,6 +28,7 @@ import {
   GroupItem,
   Item,
   ItemNote,
+  ITEM_TYPES,
   PersonItem,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
@@ -39,7 +41,7 @@ import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { ActionIcon, ArchiveIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon, UnarchiveIcon } from '../Icons';
+import { ActionIcon, ArchiveIcon, getIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon, UnarchiveIcon } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
@@ -175,9 +177,12 @@ function ItemDrawer({
   );
 
   const handleChange = useCallback(
-    <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => (
-      onChange(dirtyItem({ ...data }))
-    ),
+    <T extends Item>(data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item)) => {
+      if (typeof data === 'function') {
+        return onChange(originalItem => dirtyItem(data(originalItem)));
+      }
+      return onChange(dirtyItem({ ...data }));
+    },
     [onChange],
   );
   const handleChangeMaturity = useCallback(
@@ -380,23 +385,6 @@ function ItemDrawer({
     ),
     [handleChange, item.summary],
   );
-  const archivedField = useMemo(
-    () => (
-      <Grid item xs={12}>
-        <Button
-          color="inherit"
-          data-cy="archived"
-          fullWidth
-          onClick={() => handleChange({ archived: !archived })}
-          size="large"
-          startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-        >
-          {archived ? 'Unarchive' : 'Archive'}
-        </Button>
-      </Grid>
-    ),
-    [archived, handleChange],
-  );
   const tagsField = useMemo(
     () => (
       <Grid item xs={12}>
@@ -448,6 +436,47 @@ function ItemDrawer({
       lastInteraction,
       lastPrayer,
     ],
+  );
+
+  const archivedButton = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <Button
+          color="inherit"
+          data-cy="archived"
+          fullWidth
+          onClick={() => handleChange({ archived: !archived })}
+          size="large"
+          startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+          variant="outlined"
+        >
+          {archived ? 'Unarchive' : 'Archive'}
+        </Button>
+      </Grid>
+    ),
+    [archived, handleChange],
+  );
+  const changeTypeButtons = useMemo(
+    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
+      <Grid
+        item
+        key={itemType}
+        xs={12 / (ITEM_TYPES.length - 1)}
+      >
+        <Button
+          color="inherit"
+          data-cy="archived"
+          fullWidth
+          onClick={() => handleChange(i => convertItem(i, itemType))}
+          size="large"
+          startIcon={getIcon(itemType)}
+          variant="outlined"
+        >
+          Convert to {getItemTypeLabel(itemType)}
+        </Button>
+      </Grid>
+    )),
+    [item.type, handleChange],
   );
 
   const groupsSection = useMemo(
@@ -585,8 +614,11 @@ function ItemDrawer({
           {actionSection}
           {groupsSection}
         </SectionHolder>
+      </Grid>
 
-        {archivedField}
+      <Grid container spacing={1}>
+        {archivedButton}
+        {changeTypeButtons}
       </Grid>
     </BaseDrawer>
   );
