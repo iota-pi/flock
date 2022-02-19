@@ -616,7 +616,7 @@ function ItemDrawer({
         </SectionHolder>
       </Grid>
 
-      <Grid container spacing={1}>
+      <Grid container spacing={1} mt={1}>
         {archivedButton}
         {changeTypeButtons}
       </Grid>
