@@ -85,6 +85,7 @@ interface SearchableItem<T extends Item = Item> {
   create?: false,
   data: T,
   dividerBefore?: boolean,
+  name: string,
   id: string,
   type: T['type'],
 }
@@ -92,6 +93,7 @@ interface SearchableTag {
   create?: false,
   data: string,
   dividerBefore?: boolean,
+  name: string,
   id: string,
   type: 'tag',
 }
@@ -273,11 +275,13 @@ function EverythingSearch({
         type: item.type,
         id: item.id,
         data: item,
+        name: getItemName(item),
       } as AnySearchable)),
       ...tags.map(tag => ({
         type: 'tag',
         id: tag,
         data: tag,
+        name: tag,
       } as AnySearchable)),
     ],
     [items, maturity, sortCriteria, tags],
@@ -291,9 +295,7 @@ function EverythingSearch({
         state.inputValue.trim(),
         {
           keys: [
-            'data.firstName',
-            'data.lastName',
-            'data.name',
+            'name',
             { key: 'data.description', threshold: matchSorter.rankings.CONTAINS },
             { key: 'data.summary', threshold: matchSorter.rankings.CONTAINS },
             { key: 'data.notes.*.content', threshold: matchSorter.rankings.CONTAINS },
