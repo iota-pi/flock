@@ -3,17 +3,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import {
-  Alert,
   Button,
   Collapse,
   Grid,
   styled,
   TextField,
-  Typography,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
 import {
@@ -39,15 +36,16 @@ import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
 import GroupDisplay from '../GroupDisplay';
 import MemberDisplay from '../MemberDisplay';
+import CollapsibleSection from './utils/CollapsibleSection';
+import DuplicateAlert from './utils/DuplicateAlert';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
 import { ActionIcon, ArchiveIcon, getIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon, UnarchiveIcon } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
-import CollapsibleSection from './utils/CollapsibleSection';
 
-const useStyles = makeStyles(theme => ({
+export const useStyles = makeStyles(theme => ({
   alert: {
     transition: theme.transitions.create('all'),
     marginTop: theme.spacing(1),
@@ -71,45 +69,6 @@ export interface Props extends BaseDrawerProps {
 export interface ItemAndChangeCallback {
   item: Item,
   handleChange: <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => void,
-}
-
-function DuplicateAlert({ item, count }: { item: Item, count: number }) {
-  const classes = useStyles();
-  const ref = useRef<number>(1);
-  useEffect(() => {
-    if (count > 0) {
-      ref.current = count;
-    }
-  });
-  const displayCount = count || ref.current;
-
-  const plural = displayCount !== 1;
-  const areOrIs = plural ? 'are' : 'is';
-
-  return (
-    <Alert
-      className={classes.alert}
-      severity={item.description ? 'info' : 'warning'}
-    >
-      <Typography paragraph={!item.description}>
-        There {areOrIs} <span className={classes.emphasis}>{displayCount}</span>
-        {' other '}
-        {getItemTypeLabel(item.type, plural).toLowerCase()}
-        {' with this name.'}
-      </Typography>
-
-      {!item.description && (
-        <Typography>
-          Please check if this is a duplicate.
-          Otherwise, it may be helpful to
-          {' '}
-          <span className={classes.emphasis}>add a description</span>
-          {' '}
-          to help distinguish between these {getItemTypeLabel(item.type, true).toLowerCase()}.
-        </Typography>
-      )}
-    </Alert>
-  );
 }
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -301,6 +260,22 @@ function ItemDrawer({
     [handleSave, item],
   );
 
+  const hasDescription = !!item.description;
+  const duplicateAlert = useMemo(
+    () => (
+      <Grid item xs={12} mt={-1}>
+        <Collapse in={duplicates.length > 0}>
+          <DuplicateAlert
+            count={duplicates.length}
+            hasDescription={hasDescription}
+            itemType={item.type}
+          />
+        </Collapse>
+      </Grid>
+    ),
+    [duplicates, hasDescription, item.type],
+  );
+
   const firstName = item.type === 'person' ? item.firstName : item.name;
   const lastName = item.type === 'person' ? item.lastName : undefined;
   const nameFields = useMemo(
@@ -466,7 +441,7 @@ function ItemDrawer({
       >
         <Button
           color="inherit"
-          data-cy="archived"
+          data-cy="change-type"
           fullWidth
           onClick={() => handleChange(i => convertItem(i, itemType))}
           size="large"
@@ -592,11 +567,7 @@ function ItemDrawer({
       typeIcon={getIconType(item.type)}
     >
       <Grid container spacing={2}>
-        <Grid item xs={12} mt={-1}>
-          <Collapse in={duplicates.length > 0}>
-            <DuplicateAlert item={item} count={duplicates.length} />
-          </Collapse>
-        </Grid>
+        {duplicateAlert}
 
         {nameFields}
 
