@@ -31,7 +31,7 @@ describe('Backup & restore', () => {
 
     // Restore backup
     cy.page('settings')
-    cy.dataCy('import').click()
+    cy.dataCy('restore').click()
     cy.get('input[type=file]').attachFile('../downloads/flock.backup.json')
     cy.dataCy('import-confirm').click()
 
