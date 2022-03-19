@@ -319,6 +319,44 @@ function ItemDrawer({
     [firstName, handleChange, item.id, lastName],
   );
 
+  const email = item.type === 'person' ? item.email : undefined;
+  const emailField = useMemo(
+    () => (
+      email !== undefined ? (
+        <Grid item xs={6}>
+          <TextField
+            data-cy="email"
+            fullWidth
+            label="Email"
+            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
+            value={email}
+            variant="standard"
+          />
+        </Grid>
+      ) : null
+    ),
+    [email, handleChange],
+  );
+
+  const phone = item.type === 'person' ? item.phone : undefined;
+  const phoneField = useMemo(
+    () => (
+      phone !== undefined ? (
+        <Grid item xs={6}>
+          <TextField
+            data-cy="phone"
+            fullWidth
+            label="Phone"
+            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
+            value={phone}
+            variant="standard"
+          />
+        </Grid>
+      ) : null
+    ),
+    [handleChange, phone],
+  );
+
   const { archived, tags } = item;
   const descriptionField = useMemo(
     () => (
@@ -561,6 +599,9 @@ function ItemDrawer({
         {duplicateAlert}
 
         {nameFields}
+
+        {emailField}
+        {phoneField}
 
         {descriptionField}
         {summaryField}
