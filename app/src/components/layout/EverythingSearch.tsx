@@ -309,7 +309,7 @@ function EverythingSearch({
             create: true,
             default: {
               type: 'person',
-              ...splitName(state.inputValue.trim()),
+              ...splitName(state.inputValue.trim(), true),
             },
             dividerBefore: true,
             id: 'add-person',

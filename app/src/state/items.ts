@@ -1,6 +1,6 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import { getItemId } from '../utils';
+import { capitalise, getItemId } from '../utils';
 import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
@@ -328,11 +328,14 @@ export function getItemName(item?: Partial<Item> & Pick<Item, 'type'>): string {
   return (item.name || '').trim();
 }
 
-export function splitName(name: string): Pick<PersonItem, 'firstName' | 'lastName'> {
-  return {
-    firstName: name.split(/\s+/, 2)[0],
-    lastName: name.split(/\s+/, 2)[1] || '',
-  };
+export function splitName(
+  name: string,
+  shouldCapitalise = false,
+): Pick<PersonItem, 'firstName' | 'lastName'> {
+  const nameParts = name.split(/\s+/, 2);
+  const firstName = shouldCapitalise ? capitalise(nameParts[0]) : nameParts[0];
+  const lastName = shouldCapitalise ? capitalise(nameParts[1] || '') : nameParts[1] || '';
+  return { firstName, lastName };
 }
 
 export function comparePeopleNames(a: PersonItem, b: PersonItem) {
