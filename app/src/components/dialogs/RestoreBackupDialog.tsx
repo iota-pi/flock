@@ -16,28 +16,6 @@ import { UploadIcon } from '../Icons';
 
 const useStyles = makeStyles(theme => ({
   root: {},
-  listItemContainer: {
-    position: 'relative',
-  },
-  maturityItem: {
-    display: 'flex',
-    alignItems: 'center',
-    flexGrow: 1,
-    paddingTop: theme.spacing(1),
-    paddingBottom: theme.spacing(1),
-  },
-  indexNumber: {
-    fontWeight: 500,
-    marginRight: theme.spacing(2),
-  },
-  orderControls: {
-    display: 'flex',
-    flexDirection: 'column',
-    marginRight: theme.spacing(2),
-  },
-  addButton: {
-    marginTop: theme.spacing(2),
-  },
   alert: {
     marginTop: theme.spacing(2),
     marginBottom: theme.spacing(2),
