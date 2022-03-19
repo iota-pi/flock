@@ -3,8 +3,10 @@ import { Divider, List, ListItem, ListItemIcon, ListItemText, Typography } from 
 import makeStyles from '@mui/styles/makeStyles';
 import { useAppDispatch, useAppSelector } from '../store';
 import {
+  ActionIcon,
   ArchiveIcon,
   DeleteIcon,
+  GroupIcon,
   InteractionIcon,
   MuiIconType,
   PrayerPointIcon,
@@ -14,6 +16,7 @@ import {
 } from './Icons';
 import { useItemsById, useVault } from '../state/selectors';
 import {
+  getBlankAction,
   getBlankInteraction,
   getBlankPrayerPoint,
   Item,
@@ -22,6 +25,7 @@ import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUiState, replaceActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
+import GroupDialog from './dialogs/GroupDialog';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -56,10 +60,22 @@ function SelectedActions() {
   const prevSelectedItems = usePrevious(selectedItems) || [];
 
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showGroup, setShowGroup] = useState(false);
   const [showTags, setShowTags] = useState(false);
 
+  const handleShowGroup = useCallback(() => setShowGroup(true), []);
+  const handleHideGroup = useCallback(() => setShowGroup(false), []);
   const handleShowTags = useCallback(() => setShowTags(true), []);
   const handleHideTags = useCallback(() => setShowTags(false), []);
+  const handlePrayerPoint = useCallback(
+    () => {
+      dispatch(replaceActive({
+        initial: selectedItems,
+        newItem: getBlankPrayerPoint(),
+      }));
+    },
+    [dispatch, selectedItems],
+  );
   const handleInteraction = useCallback(
     () => {
       dispatch(replaceActive({
@@ -69,11 +85,11 @@ function SelectedActions() {
     },
     [dispatch, selectedItems],
   );
-  const handlePrayerPoint = useCallback(
+  const handleAction = useCallback(
     () => {
       dispatch(replaceActive({
         initial: selectedItems,
-        newItem: getBlankPrayerPoint(),
+        newItem: getBlankAction(),
       }));
     },
     [dispatch, selectedItems],
@@ -104,7 +120,16 @@ function SelectedActions() {
   const workingItems = open ? selectedItems : prevSelectedItems;
   const actions = useMemo<BulkAction[]>(
     () => {
-      const result: BulkAction[] = [
+      const result: BulkAction[] = [];
+      if (workingItems.find(item => item.type === 'person')) {
+        result.push({
+          id: 'group',
+          icon: GroupIcon,
+          label: 'Add/Remove from Group',
+          onClick: handleShowGroup,
+        });
+      }
+      result.push(
         {
           id: 'tags',
           icon: TagIcon,
@@ -114,18 +139,24 @@ function SelectedActions() {
         {
           id: 'prayer-point',
           icon: PrayerPointIcon,
-          label: 'Add Prayer Point',
+          label: 'New Prayer Point',
           onClick: handlePrayerPoint,
         },
-      ];
+      );
       if (workingItems.find(item => item.type === 'person')) {
         result.push({
           id: 'interaction',
           icon: InteractionIcon,
-          label: 'Add Interaction',
+          label: 'New Interaction',
           onClick: handleInteraction,
         });
       }
+      result.push({
+        id: 'action',
+        icon: ActionIcon,
+        label: 'New Action Item',
+        onClick: handleAction,
+      });
       if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
@@ -165,6 +196,8 @@ function SelectedActions() {
       handleInitialDelete,
       handleInteraction,
       handlePrayerPoint,
+      handleAction,
+      handleShowGroup,
       handleShowTags,
       handleUnarchive,
       workingItems,
@@ -218,6 +251,12 @@ function SelectedActions() {
         items={selectedItems}
         onClose={handleHideTags}
         open={showTags}
+      />
+
+      <GroupDialog
+        items={selectedItems}
+        onClose={handleHideGroup}
+        open={showGroup}
       />
     </div>
   );
