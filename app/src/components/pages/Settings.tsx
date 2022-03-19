@@ -29,7 +29,7 @@ import {
 import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
-import ImportDialog from '../dialogs/ImportDialog';
+import RestoreBackupDialog from '../dialogs/RestoreBackupDialog';
 import { Item } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
@@ -328,7 +328,7 @@ function SettingsPage() {
         onClose={handleCloseMaturityDialog}
         open={showMaturityDialog}
       />
-      <ImportDialog
+      <RestoreBackupDialog
         onClose={handleCloseImportDialog}
         onConfirm={handleConfirmImport}
         open={showImportDialog}

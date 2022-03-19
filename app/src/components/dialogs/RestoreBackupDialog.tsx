@@ -53,7 +53,7 @@ export interface Props {
   open: boolean,
 }
 
-function ImportDialog({
+function RestoreBackupDialog({
   onClose,
   onConfirm,
   open,
@@ -165,4 +165,4 @@ function ImportDialog({
   );
 }
 
-export default ImportDialog;
+export default RestoreBackupDialog;
