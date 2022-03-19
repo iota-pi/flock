@@ -422,3 +422,10 @@ export function convertItem<T extends Item, S extends Item>(item: T, type: S['ty
   }
   return result;
 }
+
+export function isValid<T extends Item>(item: T) {
+  if (item.type === 'person') {
+    return !!item.firstName.trim();
+  }
+  return !!getItemName(item).trim();
+}

@@ -23,6 +23,7 @@ import {
   getItemName,
   getItemTypeLabel,
   GroupItem,
+  isValid,
   Item,
   ItemNote,
   ITEM_TYPES,
@@ -155,16 +156,6 @@ function ItemDrawer({
     [onChange],
   );
 
-  const isValid = useCallback(
-    (currentItem: Item) => {
-      if (currentItem.type === 'person') {
-        return !!currentItem.firstName.trim();
-      }
-      return !!getItemName(currentItem).trim();
-    },
-    [],
-  );
-
   const removeFromAllGroups = useCallback(
     () => {
       const updatedGroupItems: GroupItem[] = [];
@@ -189,7 +180,7 @@ function ItemDrawer({
       }
       return undefined;
     },
-    [isValid, vault],
+    [vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
