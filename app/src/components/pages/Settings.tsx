@@ -23,6 +23,7 @@ import {
   EditIcon,
   MuiIconType,
   NotificationIcon,
+  PersonIcon,
   SignOutIcon,
   UploadIcon,
 } from '../Icons';
@@ -30,13 +31,14 @@ import GoalDialog from '../dialogs/GoalDialog';
 import TagDisplay from '../TagDisplay';
 import MaturityDialog from '../dialogs/MaturityDialog';
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog';
-import { Item } from '../../state/items';
+import { Item, PersonItem } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
 import { clearVault } from '../../state/vault';
 import { subscribe, unsubscribe } from '../../utils/firebase';
 import SubscriptionDialog from '../dialogs/SubscriptionDialog';
+import ImportPeopleDialog from '../dialogs/ImportPeopleDialog';
 
 const useStyles = makeStyles(theme => ({
   container: {
@@ -203,11 +205,23 @@ function SettingsPage() {
     [items, vault],
   );
 
+  const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+  const handleRestore = useCallback(() => setShowRestoreDialog(true), []);
+  const handleCloseRestoreDialog = useCallback(() => setShowRestoreDialog(false), []);
+  const handleConfirmRestore = useCallback(
+    async (restored: Item[]) => {
+      setShowRestoreDialog(false);
+      await vault?.store(restored);
+      dispatch(setMessage({ message: 'Restore successful' }));
+    },
+    [dispatch, vault],
+  );
+
   const [showImportDialog, setShowImportDialog] = useState(false);
   const handleImport = useCallback(() => setShowImportDialog(true), []);
   const handleCloseImportDialog = useCallback(() => setShowImportDialog(false), []);
   const handleConfirmImport = useCallback(
-    async (imported: Item[]) => {
+    async (imported: PersonItem[]) => {
       setShowImportDialog(false);
       await vault?.store(imported);
       dispatch(setMessage({ message: 'Import successful' }));
@@ -313,9 +327,15 @@ function SettingsPage() {
         />
         <SettingsItem
           icon={UploadIcon}
-          id="import"
-          onClick={handleImport}
+          id="restore"
+          onClick={handleRestore}
           title="Restore from a backup"
+        />
+        <SettingsItem
+          icon={PersonIcon}
+          id="import-people"
+          onClick={handleImport}
+          title="Import people from CSV"
         />
       </List>
 
@@ -329,6 +349,11 @@ function SettingsPage() {
         open={showMaturityDialog}
       />
       <RestoreBackupDialog
+        onClose={handleCloseRestoreDialog}
+        onConfirm={handleConfirmRestore}
+        open={showRestoreDialog}
+      />
+      <ImportPeopleDialog
         onClose={handleCloseImportDialog}
         onConfirm={handleConfirmImport}
         open={showImportDialog}

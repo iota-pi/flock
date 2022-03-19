@@ -429,3 +429,33 @@ export function isValid<T extends Item>(item: T) {
   }
   return !!getItemName(item).trim();
 }
+
+export function importPeople(data: Record<string, string>[]): PersonItem[] {
+  const d = new Date();
+  const todaysDate = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  const results: PersonItem[] = [];
+  for (const row of data) {
+    const { firstName, lastName } = (
+      row.name
+        ? splitName(row.name)
+        : { firstName: row.firstname || '', lastName: row.lastname || '' }
+    );
+    if (`${firstName}${lastName}`.trim() === '') {
+      // Skip rows without a name
+      continue;
+    }
+
+    const blankPerson = getBlankPerson();
+    results.push({
+      ...blankPerson,
+      firstName,
+      lastName,
+      email: row.email || blankPerson.email,
+      phone: row.phone || blankPerson.phone,
+      description: row.description || blankPerson.description,
+      summary: row.summary || blankPerson.summary,
+      tags: [`Imported ${todaysDate}`],
+    });
+  }
+  return results;
+}
