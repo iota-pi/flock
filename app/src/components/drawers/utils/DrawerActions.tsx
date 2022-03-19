@@ -160,7 +160,7 @@ function DrawerActions({
                 fullWidth
                 onClick={onSave}
                 startIcon={<SaveIcon />}
-                variant={promptSave ? 'contained' : 'outlined'}
+                variant={promptSave || itemIsNew ? 'contained' : 'outlined'}
               >
                 {permanentDrawer && promptSave ? 'Save' : 'Done'}
               </Button>
