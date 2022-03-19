@@ -84,7 +84,7 @@ function CollapsibleSection({
         setExpanded(true);
       }
     },
-    [initialExpanded, id],
+    [initialExpanded],
   );
 
   return (

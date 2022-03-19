@@ -212,12 +212,16 @@ function SingleNote<T extends ItemNote>({
   useEffect(
     () => {
       const timeout = setTimeout(
-        () => onChangeContent(note.id, localContent),
+        () => {
+          if (localContent !== note.content) {
+            onChangeContent(note.id, localContent);
+          }
+        },
         100,
       );
       return () => clearTimeout(timeout);
     },
-    [localContent, onChangeContent, note.id],
+    [localContent, onChangeContent, note.content, note.id],
   );
 
   const completed = note.type === 'action' ? note.completed : undefined;
@@ -389,6 +393,7 @@ function NoteControl<T extends ItemNote>({
   );
   const handleChangeContent = useCallback(
     (noteId: string, content: string) => onChange(prevNotes => {
+      console.log('handleChangeContent');
       const index = prevNotes.findIndex(n => n.id === noteId);
       if (index > -1) {
         const newNotes = prevNotes.slice();

@@ -455,19 +455,6 @@ function ItemDrawer({
     [item.type, handleChange],
   );
 
-  const groupsSection = useMemo(
-    () => item.type === 'person' && (
-      <CollapsibleSection
-        content={<GroupDisplay itemId={item.id} />}
-        icon={GroupIcon}
-        id="groups"
-        initialExpanded={item.isNew}
-        title="Groups"
-      />
-    ),
-    [item.id, item.isNew, item.type],
-  );
-
   const members = item.type === 'group' ? item.members : undefined;
   const membersSection = useMemo(
     () => members !== undefined && (
@@ -542,6 +529,19 @@ function ItemDrawer({
       />
     ),
     [handleChangeNotes, item.isNew, item.notes],
+  );
+
+  const groupsSection = useMemo(
+    () => item.type === 'person' && (
+      <CollapsibleSection
+        content={<GroupDisplay itemId={item.id} />}
+        icon={GroupIcon}
+        id="groups"
+        initialExpanded={item.isNew}
+        title="Groups"
+      />
+    ),
+    [item.id, item.isNew, item.type],
   );
 
   return (
