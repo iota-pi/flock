@@ -33,6 +33,9 @@ const useStyles = makeStyles(theme => ({
     backgroundColor: theme.palette.background.paper,
     transition: theme.transitions.create('all'),
   },
+  actionIcon: {
+    minWidth: theme.spacing(5),
+  },
 }));
 
 export interface BulkAction {
@@ -44,8 +47,8 @@ export interface BulkAction {
   onClick: () => void,
 }
 
-const PADDING_HEIGHT = 16;
-const ACTION_HEIGHT = 48;
+const PADDING_HEIGHT = 2;
+const ACTION_HEIGHT = 36.02;
 
 function SelectedActions() {
   const classes = useStyles();
@@ -204,14 +207,16 @@ function SelectedActions() {
     ],
   );
 
-  const height = PADDING_HEIGHT + ACTION_HEIGHT * actions.length;
+  const height = Math.ceil(PADDING_HEIGHT + ACTION_HEIGHT * actions.length);
 
   return (
     <div
       className={classes.root}
       style={{ height: open ? height : 0 }}
     >
-      <List>
+      <Divider />
+
+      <List disablePadding>
         {actions.map(action => (
           <Fragment key={action.id}>
             {action.dividerBefore && <Divider />}
@@ -220,8 +225,11 @@ function SelectedActions() {
               button
               className={action.classes?.join(' ')}
               onClick={action.onClick}
+              dense
             >
-              <ListItemIcon className={action.classes?.join(' ')}>
+              <ListItemIcon
+                className={[classes.actionIcon, ...(action.classes || [])].join(' ')}
+              >
                 <action.icon />
               </ListItemIcon>
 
