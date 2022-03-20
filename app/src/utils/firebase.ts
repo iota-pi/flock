@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken as firebaseGetToken } from 'firebase/messaging';
-import Vault from '../crypto/Vault';
+import Vault from '../api/Vault';
 import firebaseConfig from './firebase-config';
 
 export const app = initializeApp(firebaseConfig);

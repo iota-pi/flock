@@ -1,6 +1,6 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
-import Vault, { VaultImportExportData } from '../crypto/Vault';
+import Vault, { VaultImportExportData } from '../api/Vault';
 import { AppDispatch } from '../store';
 
 export interface VaultState {

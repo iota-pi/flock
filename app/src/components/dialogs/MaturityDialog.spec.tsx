@@ -1,4 +1,4 @@
-import Vault from '../../crypto/Vault';
+import Vault from '../../api/Vault';
 import { getBlankPerson, PersonItem } from '../../state/items';
 import { MaturityControl, updateMaturityForPeople } from './MaturityDialog';
 

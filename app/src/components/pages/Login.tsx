@@ -14,8 +14,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { getPage } from '.';
-import VaultAPI from '../../crypto/api';
-import Vault from '../../crypto/Vault';
+import Vault from '../../api/Vault';
 import { useAppDispatch } from '../../store';
 import { setAccount } from '../../state/account';
 import { setVault } from '../../state/vault';
@@ -69,8 +68,6 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
   left: theme.spacing(2),
 }));
 
-const api = new VaultAPI();
-
 
 function LoginPage() {
   const classes = useStyles();
@@ -103,10 +100,7 @@ function LoginPage() {
   const handleClickLogin = useCallback(
     async () => {
       const vault = await Vault.create(accountInput, password, dispatch);
-      const success = await api.checkPassword({
-        account: accountInput,
-        authToken: vault.authToken,
-      });
+      const success = await vault.api.checkPassword();
       if (success) {
         dispatch(setVault(vault));
         dispatch(setAccount({ account: accountInput }));

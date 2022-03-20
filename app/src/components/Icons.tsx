@@ -9,6 +9,7 @@ import CalendarIcon from '@mui/icons-material/Today';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
+import EmailIcon from '@mui/icons-material/Send';
 import FilterIcon from '@mui/icons-material/FilterAlt';
 import FrequencyIcon from '@mui/icons-material/Schedule';
 import GeneralIcon from '@mui/icons-material/MoreHoriz';
@@ -37,7 +38,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 
 import { FaPrayingHands } from 'react-icons/fa';
 
-import { ItemOrNoteType } from '../state/items';
+import { TypedFlockItem } from '../state/items';
 
 const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
 
@@ -53,6 +54,7 @@ export {
   DeleteIcon,
   DownloadIcon,
   EditIcon,
+  EmailIcon,
   FilterIcon,
   FrequencyIcon,
   GeneralIcon,
@@ -82,7 +84,7 @@ export {
   WarningIcon,
 };
 
-export function getIconType(itemType: ItemOrNoteType | 'tag'): MuiIconType {
+export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
@@ -90,12 +92,13 @@ export function getIconType(itemType: ItemOrNoteType | 'tag'): MuiIconType {
     interaction: InteractionIcon,
     prayer: PrayerIcon,
     general: GeneralIcon,
+    message: EmailIcon,
     tag: TagIcon,
   };
   return iconTypeMap[itemType];
 }
 
-export function getIcon(itemType: ItemOrNoteType | 'tag') {
+export function getIcon(itemType: TypedFlockItem['type'] | 'tag') {
   const IconType = getIconType(itemType);
   return <IconType />;
 }

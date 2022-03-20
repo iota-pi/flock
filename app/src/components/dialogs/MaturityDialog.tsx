@@ -18,7 +18,7 @@ import { useItems, useMaturity, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
-import Vault from '../../crypto/Vault';
+import Vault from '../../api/Vault';
 
 const useStyles = makeStyles(theme => ({
   root: {},

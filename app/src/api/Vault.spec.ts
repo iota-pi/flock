@@ -2,7 +2,7 @@ import Vault from './Vault';
 import { getAccountId, getItemId } from '../utils';
 import store from '../store';
 import { deleteItems, getBlankGroup, getBlankPerson, Item, setItems, updateItems } from '../state/items';
-import { VaultItem } from './api';
+import { VaultItem } from './VaultAPI';
 import { AccountMetadata, setAccount } from '../state/account';
 
 function getVault(dispatch?: any) {

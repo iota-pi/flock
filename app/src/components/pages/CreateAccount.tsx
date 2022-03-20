@@ -18,8 +18,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Visibility from '@mui/icons-material/Visibility';
 import { getPage } from '.';
-import VaultAPI from '../../crypto/api';
-import Vault from '../../crypto/Vault';
+import Vault from '../../api/Vault';
 import { getAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
 import { HomeIcon } from '../Icons';
@@ -121,8 +120,6 @@ export interface ChecklistItem {
   description: string,
 }
 
-const api = new VaultAPI();
-
 function scorePassword(password: string): zxcvbn.ZXCVBNResult {
   const customDomainWords: string[] = [
     'flock',
@@ -192,7 +189,7 @@ function CreateAccountPage() {
       setWaiting(true);
       try {
         const vault = await Vault.create(account, password, dispatch);
-        const success = await api.createAccount({ account, authToken: vault.authToken });
+        const success = await vault.api.createAccount();
         if (success) {
           setError('');
           history.push(getPage('login').path, { created: true, account });

@@ -1,10 +1,11 @@
-import VaultAPI, { CachedVaultItem, VaultItem } from './api';
+import VaultAPI, { CachedVaultItem, VaultItem } from './VaultAPI';
 import crypto from './_crypto';
 import { TextEncoder, TextDecoder } from './_util';
 import { checkProperties, deleteItems, Item, setItems, updateItems } from '../state/items';
 import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
 import { FlockPushSubscription } from '../utils/firebase-types';
+import KoinoniaAPI from './KoinoniaAPI';
 
 
 const VAULT_ITEM_CACHE = 'vaultItemCache';
@@ -43,17 +44,19 @@ export interface VaultConstructorData {
 
 class Vault {
   private account: string;
-  private api: VaultAPI;
+  readonly api: VaultAPI;
   private dispatch: AppDispatch;
   private key: CryptoKey;
   private keyHash: string;
+  readonly koinonia: KoinoniaAPI;
 
   constructor({ account, dispatch, key, keyHash }: VaultConstructorData) {
-    this.api = new VaultAPI(dispatch);
-    this.dispatch = dispatch;
     this.account = account;
+    this.api = new VaultAPI(account, keyHash, dispatch);
+    this.dispatch = dispatch;
     this.key = key;
     this.keyHash = keyHash;
+    this.koinonia = new KoinoniaAPI(account, keyHash, dispatch);
   }
 
   static async create(
@@ -185,8 +188,6 @@ class Vault {
     this.dispatch(updateItems([item], true));
     const { cipher, iv } = await this.encryptObject(item);
     await this.api.put({
-      account: this.account,
-      authToken: this.keyHash,
       cipher,
       item: item.id,
       metadata: {
@@ -212,8 +213,6 @@ class Vault {
     const modifiedTime = new Date().getTime();
 
     await this.api.putMany({
-      account: this.account,
-      authToken: this.keyHash,
       items: encrypted.map(({ cipher, iv }, i) => ({
         account: this.account,
         cipher,
@@ -281,8 +280,6 @@ class Vault {
   async fetchAll(): Promise<Item[]> {
     const cacheTime = this.getItemCacheTime();
     const fetchPromise = this.api.fetchAll({
-      account: this.account,
-      authToken: this.authToken,
       cacheTime,
     });
     const mergedFetch = await this.mergeWithItemCache(fetchPromise);
@@ -307,8 +304,6 @@ class Vault {
     this.dispatch(deleteItems([itemId], true));
     try {
       await this.api.delete({
-        account: this.account,
-        authToken: this.authToken,
         item: itemId,
       });
     } catch (error) {
@@ -321,8 +316,6 @@ class Vault {
     this.dispatch(deleteItems(itemIds, true));
     try {
       await this.api.deleteMany({
-        account: this.account,
-        authToken: this.authToken,
         items: itemIds,
       });
     } catch (error) {
@@ -335,17 +328,12 @@ class Vault {
     this.dispatch(setAccount({ metadata }));
     const { cipher, iv } = await this.encryptObject(metadata);
     return this.api.setMetadata({
-      account: this.account,
-      authToken: this.authToken,
       metadata: { cipher, iv },
     });
   }
 
   async getMetadata(): Promise<AccountState> {
-    const result = await this.api.getMetadata({
-      account: this.account,
-      authToken: this.authToken,
-    });
+    const result = await this.api.getMetadata();
     let metadata: AccountMetadata;
     try {
       metadata = await this.decryptObject(result as CryptoResult);
@@ -365,8 +353,6 @@ class Vault {
 
   async getSubscription(subscriptionToken: string): Promise<FlockPushSubscription | null> {
     const result = await this.api.getSubscription({
-      account: this.account,
-      authToken: this.authToken,
       subscriptionId: await this.getSubscriptionId(subscriptionToken),
     });
     return result;
@@ -374,8 +360,6 @@ class Vault {
 
   async setSubscription(subscription: FlockPushSubscription): Promise<void> {
     const result = await this.api.setSubscription({
-      account: this.account,
-      authToken: this.authToken,
       subscriptionId: await this.getSubscriptionId(subscription.token),
       subscription,
     });
@@ -386,8 +370,6 @@ class Vault {
 
   async deleteSubscription(subscriptionToken: string): Promise<void> {
     const result = await this.api.deleteSubscription({
-      account: this.account,
-      authToken: this.authToken,
       subscriptionId: await this.getSubscriptionId(subscriptionToken),
     });
     if (!result) {

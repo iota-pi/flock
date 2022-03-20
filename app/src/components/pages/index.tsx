@@ -4,6 +4,7 @@ import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
   ActionIcon,
+  EmailIcon,
   GeneralIcon,
   GroupIcon,
   InteractionIcon,
@@ -12,6 +13,7 @@ import {
   PersonIcon,
   PrayerIcon,
 } from '../Icons';
+import CommunicationPage from './Communication';
 
 const ActionsPage = loadable(() => import('./Actions'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
@@ -34,6 +36,7 @@ export type PageId = (
   'interactions' |
   'prayer' |
   'actions' |
+  'communication' |
   'settings'
 );
 export type AnyPageId = InternalPageId | PageId;
@@ -122,6 +125,15 @@ export const pages: Page[] = [
     name: 'Actions',
     icon: ActionIcon,
     page: <ActionsPage />,
+    requiresAuth: true,
+  },
+  {
+    id: 'communication',
+    path: '/communication',
+    name: 'Communication',
+    icon: EmailIcon,
+    page: <CommunicationPage />,
+    dividerBefore: true,
     requiresAuth: true,
   },
   {

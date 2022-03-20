@@ -1,4 +1,4 @@
-import Vault from '../../crypto/Vault';
+import Vault from '../../api/Vault';
 import store from '../../store';
 import { Item } from '../items';
 

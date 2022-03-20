@@ -3,13 +3,13 @@ import { Action, combineReducers } from 'redux';
 import { AllActions } from '.';
 import { getItemId } from '../utils';
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter';
-import { DELETE_ITEMS, ItemId, ItemOrNote } from './items';
+import { DELETE_ITEMS, ItemId, TypedFlockItem } from './items';
 
 export interface DrawerData {
   id: string,
-  initial?: ItemOrNote[],
+  initial?: TypedFlockItem[],
   item?: string,
-  newItem?: ItemOrNote,
+  newItem?: TypedFlockItem,
   next?: string[],
   open: boolean,
   praying?: boolean,

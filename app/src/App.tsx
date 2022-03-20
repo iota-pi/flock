@@ -12,7 +12,7 @@ import { useAppDispatch } from './store';
 import { loadVault } from './state/vault';
 import { useLoggedIn, useVault } from './state/selectors';
 import migrateItems from './state/migrations';
-import Vault from './crypto/Vault';
+import Vault from './api/Vault';
 import MainLayout from './components/layout/MainLayout';
 
 

@@ -36,6 +36,7 @@ const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   interactions: 'item',
   prayer: 'item',
   actions: 'item',
+  communication: 'message',
   settings: 'item',
 };
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
@@ -45,6 +46,7 @@ const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   interactions: 'interaction',
   prayer: 'prayer point',
   actions: 'action point',
+  communication: 'message',
   settings: 'item',
 };
 

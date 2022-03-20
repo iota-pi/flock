@@ -7,8 +7,10 @@ export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
 export type ItemNoteType = 'interaction' | 'prayer' | 'action';
 export type ItemOrNoteType = ItemType | ItemNoteType;
+export type MessageType = 'message';
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
 export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer', 'action'];
+export const MESSAGE_TYPES: MessageType[] = ['message'];
 
 export interface BaseNote {
   content: string,
@@ -60,8 +62,14 @@ export interface GeneralItem extends BaseItem {
   name: string,
   type: 'general',
 }
+export interface MessageItem {
+  type: MessageType,
+  message: string,
+  name: string,
+}
 export type Item = PersonItem | GroupItem | GeneralItem;
 export type ItemOrNote = Item | ItemNote;
+export type TypedFlockItem = Item | ItemNote | MessageItem;
 
 export const initialItems: Item[] = [];
 export const initialNoteToItemMap: { [noteId: string]: ItemId } = {};
@@ -171,12 +179,16 @@ export function itemMapReducer(
   return state;
 }
 
-export function isItem(itemOrNote: ItemOrNote): itemOrNote is Item {
-  return (ITEM_TYPES as ItemOrNoteType[]).includes(itemOrNote.type);
+export function isItem(itemOrNote: TypedFlockItem): itemOrNote is Item {
+  return (ITEM_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
 }
 
-export function isNote(itemOrNote: ItemOrNote): itemOrNote is ItemNote {
-  return (NOTE_TYPES as ItemOrNoteType[]).includes(itemOrNote.type);
+export function isNote(itemOrNote: TypedFlockItem): itemOrNote is ItemNote {
+  return (NOTE_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
+}
+
+export function isMessage(itemOrNote: TypedFlockItem): itemOrNote is MessageItem {
+  return (MESSAGE_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
 }
 
 export function getBlankBaseNote(): BaseNote {
