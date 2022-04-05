@@ -119,9 +119,10 @@ function SubscriptionDialog({
 
   useEffect(
     () => {
+      let cancelled = false;
       if (vault) {
         checkSubscription(vault).then(existing => {
-          if (existing) {
+          if (!cancelled && existing) {
             setHours(
               existing.hours.map(hour => ({
                 hour,
@@ -133,6 +134,7 @@ function SubscriptionDialog({
           }
         }).catch(console.error);
       }
+      return () => { cancelled = true; };
     },
     [vault],
   );
