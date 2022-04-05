@@ -577,6 +577,7 @@ function ItemDrawer({
     <BaseDrawer
       ActionProps={{
         canSave: isValid(item),
+        itemHasNotes: true,
         itemIsNew: item.isNew,
         itemName: getItemName(item),
         onCancel: handleCancel,

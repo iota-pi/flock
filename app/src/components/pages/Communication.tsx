@@ -1,5 +1,5 @@
 import { List, ListItemButton, ListItemText } from '@mui/material';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { useVault } from '../../state/selectors';
@@ -11,9 +11,9 @@ interface MessageSummary {
 }
 
 function CommunicationPage() {
-  const [messages, setMessages] = useState<MessageSummary[]>([]);
   const account = useAppSelector(state => state.account);
   const dispatch = useAppDispatch();
+  const messages = useAppSelector(state => state.messages);
   const vault = useVault();
 
   const handleClick = useCallback(
@@ -45,12 +45,7 @@ function CommunicationPage() {
   useEffect(
     () => {
       if (account) {
-        vault?.koinonia.listMessages().then(
-          results => {
-            console.log(results);
-            setMessages(results);
-          },
-        );
+        vault?.koinonia.listMessages();
       }
     },
     [account, vault],

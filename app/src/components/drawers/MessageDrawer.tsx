@@ -1,10 +1,11 @@
 import {
+  ChangeEvent,
   useCallback,
   useEffect,
   useState,
 } from 'react';
 import {
-  Grid,
+  Stack, TextField,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
 import {
@@ -13,6 +14,7 @@ import {
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
+import { MessageContent, MessageSummary } from '../../state/koinonia';
 
 export const useStyles = makeStyles(theme => ({
   alert: {
@@ -48,13 +50,19 @@ function MessageDrawer({
     [message.name],
   );
 
+  const handleChangeName = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
+    [],
+  );
   const handleSave = useCallback(
     () => {
-      vault?.koinonia.saveMessage({
+      const newMessage: MessageSummary & MessageContent = {
         message: message.message,
         name,
         data: {},
-      });
+        created: new Date().getTime(),
+      };
+      vault?.koinonia.saveMessage(newMessage);
     },
     [message.message, name, vault],
   );
@@ -72,10 +80,11 @@ function MessageDrawer({
   const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
     () => {
-      // vault?.koinonia.deleteMessage({ message: message.message });
+      vault?.koinonia.deleteMessage({ message: message.message });
+      setCancelled(true);
       onClose();
     },
-    [onClose],
+    [message.message, onClose, vault],
   );
 
   const handleUnmount = useCallback(
@@ -132,9 +141,19 @@ function MessageDrawer({
       stacked={stacked}
       typeIcon={getIconType(message.type)}
     >
-      <Grid container spacing={2}>
-        Hi
-      </Grid>
+      <Stack spacing={2}>
+        <TextField
+          autoFocus
+          data-cy="name"
+          fullWidth
+          key={message.message}
+          label="Message Name"
+          onChange={handleChangeName}
+          required
+          value={name}
+          variant="standard"
+        />
+      </Stack>
     </BaseDrawer>
   );
 }

@@ -29,7 +29,7 @@ const useStyles = makeStyles(theme => ({
 
 export interface BaseProps {
   itemIsNew?: boolean,
-  itemIsNote?: boolean,
+  itemHasNotes?: boolean,
   itemName?: string,
   permanentDrawer?: boolean,
   promptSave?: boolean,
@@ -74,7 +74,7 @@ export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
 function DrawerActions({
   canSave,
   itemIsNew,
-  itemIsNote,
+  itemHasNotes,
   itemName,
   onCancel,
   onDelete,
@@ -207,16 +207,10 @@ function DrawerActions({
           <Typography paragraph>
             Are you sure you want to delete
             {' '}
-            {itemIsNote ? (
-              ` this ${itemName}?`
-            ) : (
-              <>
-                <span className={classes.emphasis}>
-                  {itemName}
-                </span>
-                , and all associated notes?
-              </>
-            )}
+            <span className={classes.emphasis}>
+              {itemName}
+            </span>
+            {itemHasNotes ? ', and all associated notes?' : '?'}
           </Typography>
 
           <Typography paragraph>

@@ -235,8 +235,7 @@ function NoteDrawer({
       ActionProps={{
         canSave: linkedItems.length > 0,
         itemIsNew: !editing,
-        itemIsNote: true,
-        itemName: note.type,
+        itemName: `this ${note.type}`,
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveAndClose,
