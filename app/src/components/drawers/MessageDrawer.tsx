@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import {
@@ -14,7 +15,8 @@ import {
 import { useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
-import { MessageContent, MessageSummary } from '../../state/koinonia';
+import { MessageFull } from '../../state/koinonia';
+import { useAppSelector } from '../../store';
 
 export const useStyles = makeStyles(theme => ({
   alert: {
@@ -33,38 +35,60 @@ export interface Props extends BaseDrawerProps {
 
 function MessageDrawer({
   alwaysTemporary,
-  message,
+  message: messageItem,
   onBack,
   onClose,
   onExited,
   open,
   stacked,
 }: Props) {
+  const messages = useAppSelector(state => state.messages);
   const vault = useVault();
 
-  const [name, setName] = useState<string>(message.name);
+  const message = useMemo(
+    () => messages.find(m => m.message === messageItem.message),
+    [messages, messageItem.message],
+  );
+
+  const [name, setName] = useState<string>(message?.name || '');
   const [cancelled, setCancelled] = useState(false);
 
+  const [content, setContent] = useState<string>();
+
   useEffect(
-    () => setName(message.name),
-    [message.name],
+    () => setName(message?.name || ''),
+    [message?.name],
+  );
+  useEffect(
+    () => setCancelled(false),
+    [message?.message],
+  );
+  useEffect(
+    () => setContent(message?.data.html || ''),
+    [message?.data.html],
   );
 
   const handleChangeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
     [],
   );
+  const handleChangeContent = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setContent(event.target.value),
+    [],
+  );
   const handleSave = useCallback(
     () => {
-      const newMessage: MessageSummary & MessageContent = {
-        message: message.message,
-        name,
-        data: {},
-        created: new Date().getTime(),
-      };
-      vault?.koinonia.saveMessage(newMessage);
+      if (message?.message) {
+        const newMessage: MessageFull = {
+          message: message.message,
+          name,
+          data: { html: content },
+          created: new Date().getTime(),
+        };
+        vault?.koinonia.saveMessage(newMessage);
+      }
     },
-    [message.message, name, vault],
+    [content, message?.message, name, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -80,11 +104,12 @@ function MessageDrawer({
   const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
     () => {
-      vault?.koinonia.deleteMessage({ message: message.message });
+      if (message?.message) {
+        vault?.koinonia.deleteMessage({ message: message.message });
+      }
       setCancelled(true);
-      onClose();
     },
-    [message.message, onClose, vault],
+    [message?.message, vault],
   );
 
   const handleUnmount = useCallback(
@@ -126,31 +151,39 @@ function MessageDrawer({
       ActionProps={{
         canSave: true,
         itemIsNew: false,
-        itemName: message.name,
+        itemName: name,
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
       }}
       alwaysTemporary={alwaysTemporary}
-      itemKey={message.message}
+      itemKey={message?.message}
       onBack={onBack}
       onClose={handleSaveAndClose}
       onExited={onExited}
       onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
-      typeIcon={getIconType(message.type)}
+      typeIcon={getIconType(messageItem.type)}
     >
       <Stack spacing={2}>
         <TextField
           autoFocus
           data-cy="name"
           fullWidth
-          key={message.message}
           label="Message Name"
           onChange={handleChangeName}
           required
           value={name}
+          variant="standard"
+        />
+
+        <TextField
+          fullWidth
+          label="Message Content (HTML)"
+          multiline
+          onChange={handleChangeContent}
+          value={content}
           variant="standard"
         />
       </Stack>

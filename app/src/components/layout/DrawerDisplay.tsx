@@ -76,7 +76,6 @@ function IndividualDrawer({
 }) {
   const existingItem = useItemOrNote(drawer.item || getItemId());
   const item = existingItem || drawer.newItem;
-  console.log(item);
 
   const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item);
   const handleChange = useCallback(

@@ -15,10 +15,12 @@ export interface MessageSummary {
 
 export interface MessageContent {
   name: string,
-  data: object,
+  data: { html?: string },
 }
 
-export const initialMessages: MessageSummary[] = [];
+export interface MessageFull extends MessageSummary, MessageContent {}
+
+export const initialMessages: MessageFull[] = [];
 
 export interface KoinoniaState {
   messages: typeof initialMessages,
@@ -30,7 +32,7 @@ export const DELETE_MESSAGES = 'DELETE_MESSAGES';
 
 export interface SetMessagesAction extends Action {
   type: typeof SET_MESSAGES | typeof UPDATE_MESSAGES,
-  messages: MessageSummary[],
+  messages: MessageFull[],
 }
 export interface DeleteMessagesAction extends Action {
   type: typeof DELETE_MESSAGES,
@@ -39,7 +41,7 @@ export interface DeleteMessagesAction extends Action {
 
 export type MessagesAction = SetMessagesAction | DeleteMessagesAction;
 
-export function setMessages(messages: MessageSummary[]): SetMessagesAction {
+export function setMessages(messages: MessageFull[]): SetMessagesAction {
   return {
     type: SET_MESSAGES,
     messages,
@@ -47,7 +49,7 @@ export function setMessages(messages: MessageSummary[]): SetMessagesAction {
 }
 
 export function updateMessages(
-  messages: MessageSummary[],
+  messages: MessageFull[],
   dontUseThisDirectly: boolean,
 ): SetMessagesAction {
   if (dontUseThisDirectly !== true) {
@@ -71,14 +73,16 @@ export function messagesReducer(
   action: MessagesAction | AllActions,
 ): KoinoniaState['messages'] {
   if (action.type === SET_MESSAGES) {
-    return action.messages.slice();
+    return action.messages.slice().sort((a, b) => b.created - a.created);
   } else if (action.type === UPDATE_MESSAGES) {
     const updatedIds = new Set(action.messages.map(message => message.message));
     const untouchedMessages = state.filter(message => !updatedIds.has(message.message));
     const unqiueMessages = action.messages.filter(
       (i1, index) => index === action.messages.findIndex(i2 => i2.message === i1.message),
     );
-    return [...untouchedMessages, ...unqiueMessages];
+    const newMessages = [...untouchedMessages, ...unqiueMessages];
+    newMessages.sort((a, b) => b.created - a.created);
+    return newMessages;
   } else if (action.type === DELETE_MESSAGES) {
     const deletedIds = new Set(action.messages);
     return state.filter(message => !deletedIds.has(message.message));
