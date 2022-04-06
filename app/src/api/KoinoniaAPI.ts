@@ -7,6 +7,7 @@ import {
   updateMessages,
 } from '../state/koinonia';
 import BaseAPI from './BaseAPI';
+import { SendMailRequest } from '../../../../koinonia/sender/types';
 
 
 class KoinoniaAPI extends BaseAPI {
@@ -53,6 +54,16 @@ class KoinoniaAPI extends BaseAPI {
     const url = `${this.endpoint}/${this.account}/messages/${message}`;
     await this.wrap(this.axios.delete(url));
     this.dispatch?.(deleteMessages([message], true));
+  }
+
+  async sendMessage(
+    {
+      message,
+      details,
+    }: Pick<MessageSummary, 'message'> & { details: SendMailRequest },
+  ): Promise<void> {
+    const url = `${this.endpoint}/${this.account}/messages/${message}/send`;
+    await this.wrap(this.axios.post(url, details));
   }
 }
 

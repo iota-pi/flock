@@ -1,5 +1,7 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
+import { Recipient } from '../../../../koinonia/sender/types';
+import { getItemName, PersonItem } from './items';
 
 
 export interface MessageKey {
@@ -89,4 +91,17 @@ export function messagesReducer(
   }
 
   return state;
+}
+
+export function getRecipientFields(people: PersonItem[]): Recipient[] {
+  return people.map(person => ({
+    id: person.id,
+    email: person.email,
+    fields: {
+      firstName: person.firstName,
+      lastName: person.lastName,
+      fullName: getItemName(person),
+      email: person.email,
+    },
+  }));
 }

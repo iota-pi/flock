@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
-import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
+import { DeleteIcon, EmailIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -33,17 +33,18 @@ export interface BaseProps {
   itemName?: string,
   permanentDrawer?: boolean,
   promptSave?: boolean,
+  onSend?: () => void,
 }
 
 export interface PropsWithSave extends BaseProps {
   canSave: boolean,
   onCancel: () => void,
   onDelete: () => void,
-  onSkip?: undefined,
   onDone?: undefined,
   onNext?: undefined,
   onReport?: () => void,
   onSave: () => void,
+  onSkip?: undefined,
 }
 
 export interface PropsWithDone extends BaseProps {
@@ -82,6 +83,7 @@ function DrawerActions({
   onNext,
   onReport,
   onSave,
+  onSend,
   onSkip,
   permanentDrawer,
   promptSave = true,
@@ -108,6 +110,20 @@ function DrawerActions({
 
       <Container className={classes.container}>
         <Grid container spacing={2}>
+          {onSend && (
+            <Grid item xs={12}>
+              <Button
+                data-cy="drawer-send"
+                fullWidth
+                onClick={onSend}
+                startIcon={<EmailIcon />}
+                variant="outlined"
+              >
+                Send Message
+              </Button>
+            </Grid>
+          )}
+
           {onReport && (
             <Grid item xs={12}>
               <Button

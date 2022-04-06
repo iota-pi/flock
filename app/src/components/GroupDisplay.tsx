@@ -77,7 +77,7 @@ function GroupDisplay({
     <>
       {editable && (
         <ItemSearch
-          dataCy="groups"
+          data-cy="groups"
           items={activeGroups}
           label="Add to group"
           noItemsText="No groups found"

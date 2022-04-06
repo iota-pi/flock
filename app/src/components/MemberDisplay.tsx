@@ -71,7 +71,7 @@ function MemberDisplay({
     <>
       {editable && (
         <ItemSearch
-          dataCy="members"
+          data-cy="members"
           items={activePeople}
           label="Add group members"
           noItemsText="No people found"

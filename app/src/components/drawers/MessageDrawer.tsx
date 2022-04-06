@@ -17,6 +17,7 @@ import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
 import { MessageFull } from '../../state/koinonia';
 import { useAppSelector } from '../../store';
+import SendMessageDialog from '../dialogs/SendMessageDialog';
 
 export const useStyles = makeStyles(theme => ({
   alert: {
@@ -52,6 +53,7 @@ function MessageDrawer({
 
   const [name, setName] = useState<string>(message?.name || '');
   const [cancelled, setCancelled] = useState(false);
+  const [showSend, setShowSend] = useState(false);
 
   const [content, setContent] = useState<string>();
 
@@ -111,7 +113,8 @@ function MessageDrawer({
     },
     [message?.message, vault],
   );
-
+  const handleShowSend = useCallback(() => setShowSend(true), []);
+  const handleCloseSend = useCallback(() => setShowSend(false), []);
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
@@ -155,6 +158,7 @@ function MessageDrawer({
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
+        onSend: handleShowSend,
       }}
       alwaysTemporary={alwaysTemporary}
       itemKey={message?.message}
@@ -187,6 +191,12 @@ function MessageDrawer({
           variant="standard"
         />
       </Stack>
+
+      <SendMessageDialog
+        message={message!}
+        onClose={handleCloseSend}
+        open={showSend}
+      />
     </BaseDrawer>
   );
 }
