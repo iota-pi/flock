@@ -35,9 +35,15 @@ const useStyles = makeStyles(theme => ({
 async function initialLoadFromVault(vault: Vault) {
   const accountDataPromise = vault.getMetadata();
   const itemsPromise = vault.fetchAll();
+  const messagesPromise = vault.koinonia.listMessages();
+
+  // Note: account metadata needs to be available before migrating items
   await accountDataPromise;
+
   const items = await itemsPromise;
   await migrateItems(items);
+
+  await messagesPromise;
 }
 
 export default function App() {

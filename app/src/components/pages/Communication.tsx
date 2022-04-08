@@ -1,5 +1,5 @@
 import { List, ListItemButton, ListItemText } from '@mui/material';
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { useVault } from '../../state/selectors';
@@ -11,7 +11,6 @@ interface MessageSummary {
 }
 
 function CommunicationPage() {
-  const account = useAppSelector(state => state.account);
   const dispatch = useAppDispatch();
   const messages = useAppSelector(state => state.messages);
   const vault = useVault();
@@ -40,15 +39,6 @@ function CommunicationPage() {
       }
     },
     [dispatch, vault],
-  );
-
-  useEffect(
-    () => {
-      if (account) {
-        vault?.koinonia.listMessages();
-      }
-    },
-    [account, vault],
   );
 
   return (
