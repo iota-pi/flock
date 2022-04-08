@@ -64,7 +64,7 @@ export interface GeneralItem extends BaseItem {
 }
 export interface MessageItem {
   type: MessageType,
-  message: string,
+  id: string,
   name: string,
 }
 export type Item = PersonItem | GroupItem | GeneralItem;
@@ -331,7 +331,9 @@ export function getNoteTypeLabel(itemType: ItemNoteType, plural?: boolean): stri
   return plural ? 'Prayer Points' : 'Prayer Point';
 }
 
-export function getItemName(item?: Partial<Item> & Pick<Item, 'type'>): string {
+export function getItemName(
+  item?: Partial<Item | MessageItem> & Pick<Item | MessageItem, 'type'>,
+): string {
   if (item === undefined) return '';
 
   if (item.type === 'person') {

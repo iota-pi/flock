@@ -8,7 +8,7 @@ import ItemDrawer from '../drawers/ItemDrawer';
 import PlaceholderDrawer from '../drawers/Placeholder';
 import ReportDrawer from '../drawers/ReportDrawer';
 import NoteDrawer from '../drawers/NoteDrawer';
-import { useItemOrNote, useLoggedIn } from '../../state/selectors';
+import { useItemOrNote, useLoggedIn, useMessageItem } from '../../state/selectors';
 import { getItemId, usePrevious } from '../../utils';
 import MessageDrawer from '../drawers/MessageDrawer';
 
@@ -75,7 +75,8 @@ function IndividualDrawer({
   stacked: boolean,
 }) {
   const existingItem = useItemOrNote(drawer.item || getItemId());
-  const item = existingItem || drawer.newItem;
+  const existingMessage = useMessageItem(drawer.item || '');
+  const item = existingItem || existingMessage || drawer.newItem;
 
   const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item);
   const handleChange = useCallback(

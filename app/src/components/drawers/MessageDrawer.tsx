@@ -47,8 +47,8 @@ function MessageDrawer({
   const vault = useVault();
 
   const message = useMemo(
-    () => messages.find(m => m.message === messageItem.message),
-    [messages, messageItem.message],
+    () => messages.find(m => m.message === messageItem.id),
+    [messages, messageItem.id],
   );
 
   const [name, setName] = useState<string>(message?.name || '');

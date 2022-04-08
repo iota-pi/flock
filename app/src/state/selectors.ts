@@ -3,7 +3,7 @@ import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
 import { DEFAULT_MATURITY } from './account';
-import { getTags, Item, ItemId } from './items';
+import { getTags, Item, ItemId, MessageItem } from './items';
 import { setUiState, UiOptions } from './ui';
 
 
@@ -38,6 +38,20 @@ export const useItemOrNote = (id: ItemId) => useAppSelector(
       return undefined;
     },
   ),
+);
+
+export const useMessageItem = (id: string): MessageItem | undefined => useAppSelector(
+  memoize(state => {
+    const message = state.messages.find(m => m.message === id);
+    if (message) {
+      return {
+        type: 'message',
+        id: message.message,
+        name: message.name,
+      };
+    }
+    return undefined;
+  }),
 );
 
 export function useItemsById() {

@@ -17,10 +17,7 @@ function CommunicationPage() {
 
   const handleClick = useCallback(
     (m: MessageSummary) => {
-      dispatch(replaceActive({
-        item: m.message,
-        newItem: { type: 'message', ...m },
-      }));
+      dispatch(replaceActive({ item: m.message }));
     },
     [dispatch],
   );
@@ -34,7 +31,7 @@ function CommunicationPage() {
       if (message) {
         dispatch(replaceActive({
           item: message,
-          newItem: { type: 'message', message, name },
+          newItem: { type: 'message', id: message, name },
         }));
       }
     },
