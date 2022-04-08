@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
 import { DEFAULT_MATURITY } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
+import { getMessageItem } from './koinonia';
 import { setUiState, UiOptions } from './ui';
 
 
@@ -44,11 +45,7 @@ export const useMessageItem = (id: string): MessageItem | undefined => useAppSel
   memoize(state => {
     const message = state.messages.find(m => m.message === id);
     if (message) {
-      return {
-        type: 'message',
-        id: message.message,
-        name: message.name,
-      };
+      return getMessageItem(message);
     }
     return undefined;
   }),
