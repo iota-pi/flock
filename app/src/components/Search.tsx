@@ -44,8 +44,7 @@ import {
 } from '../state/items';
 import { getIcon, MuiIconType } from './Icons';
 import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors';
-import { replaceActive, setTagFilter } from '../state/ui';
-import { useAppDispatch, useAppSelector } from '../store';
+import { useAppSelector } from '../store';
 import getTheme from '../theme';
 import { sortItems } from '../utils/customSort';
 import { useResetCache } from '../utils/virtualisation';
@@ -382,6 +381,7 @@ export interface Props<T> {
   placeholder?: string,
   noItemsText?: string,
   onClear?: () => void,
+  onCreate?: (item: Item) => void,
   onRemove?: (item: T) => void,
   onSelect?: (item: T) => void,
   selectedItems?: T[],
@@ -409,9 +409,10 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   placeholder,
   noItemsText = 'No items found',
   onClear,
+  onCreate,
   onRemove,
   onSelect,
-  selectedItems,
+  selectedItems = [],
   searchDescription = false,
   searchSummary = false,
   searchNotes = false,
@@ -422,16 +423,20 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
   const classes = useStyles();
-  const dispatch = useAppDispatch();
   const items = useItems();
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();
   const messages = useAppSelector(state => state.messages);
   const tags = useTags();
 
+  const selectedIds = useMemo(
+    () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
+    [selectedItems],
+  );
+
   const selectedSearchables: AnySearchable[] = useMemo(
     () => (
-      showSelected && selectedItems?.map(
+      showSelected && selectedItems.map(
         (item): AnySearchable => {
           if (typeof item === 'string') {
             return {
@@ -461,15 +466,24 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     [selectedItems, showSelected],
   );
 
+  const filteredItems = useMemo(
+    () => sortItems(
+      items.filter(item => (
+        types[item.type]
+        && (includeArchived || !item.archived)
+        && !selectedIds.has(item.id)
+      )),
+      sortCriteria,
+      maturity,
+    ),
+    [includeArchived, items, maturity, selectedIds, sortCriteria, types],
+  );
+
   const options = useMemo<AnySearchable[]>(
     () => {
       const results: AnySearchable[] = [];
-      const filteredItems = items.filter(item => (
-        types[item.type]
-        && (includeArchived || !item.archived)
-      ));
       results.push(
-        ...sortItems(filteredItems, sortCriteria, maturity).map((item): AnySearchable => ({
+        ...filteredItems.map((item): AnySearchable => ({
           type: item.type,
           id: item.id,
           data: item,
@@ -498,7 +512,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       }
       return results;
     },
-    [includeArchived, items, maturity, messages, sortCriteria, tags, types],
+    [filteredItems, messages, tags, types],
   );
 
   const matchSorterKeys = useMemo(
@@ -535,7 +549,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           : allOptions
       );
 
-      if (state.inputValue.trim()) {
+      if (onCreate && state.inputValue.trim()) {
         filtered.push(
           {
             create: true,
@@ -570,7 +584,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
       return filtered;
     },
-    [matchSorterKeys],
+    [matchSorterKeys, onCreate],
   );
 
   const handleChange = useCallback(
@@ -578,21 +592,16 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       if (reason === 'selectOption') {
         const option = value[value.length - 1];
         if (option.create) {
-          dispatch(replaceActive({
-            newItem: {
+          if (onCreate) {
+            onCreate({
               ...getBlankItem(option.type),
               ...option.default,
-            } as Item,
-          }));
+            } as Item);
+          }
         } else {
           const data = option.data as T;
           if (onSelect) {
             onSelect(data);
-          }
-          if (typeof data === 'string') {
-            dispatch(setTagFilter(data));
-          } else {
-            dispatch(replaceActive({ item: data.id }));
           }
         }
       }
@@ -604,7 +613,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onClear();
       }
     },
-    [dispatch, onClear, onRemove, onSelect, selectedItems],
+    [onClear, onCreate, onRemove, onSelect, selectedItems],
   );
 
   const handleRemove = useCallback(
