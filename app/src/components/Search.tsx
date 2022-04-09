@@ -151,6 +151,10 @@ export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
   ['person', 'group', 'general', 'message', 'tag']
 );
 
+export function getSearchableDataId(s: AnySearchableData): string {
+  return typeof s === 'string' ? s : s.id;
+}
+
 function isSearchableStandardItem(s: AnySearchable): s is SearchableItem {
   return s.type === 'person' || s.type === 'group' || s.type === 'general';
 }
@@ -422,7 +426,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showSelectedOptions = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  // const classes = useStyles();
   const items = useItems();
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();

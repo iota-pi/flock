@@ -1,8 +1,10 @@
 import {
   useCallback,
+  useMemo,
   useState,
 } from 'react';
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -12,14 +14,14 @@ import {
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
 import {
+  GroupItem,
   PersonItem,
 } from '../../state/items';
-import { useVault } from '../../state/selectors';
-import { DeleteIcon, EmailIcon } from '../Icons';
+import { useItems, useItemsById, useVault } from '../../state/selectors';
+import { EmailIcon } from '../Icons';
 import { getRecipientFields, MessageFull } from '../../state/koinonia';
-import ItemList from '../ItemList';
 import smtp from '../../utils/smtp';
-import Search from '../Search';
+import Search, { getSearchableDataId } from '../Search';
 
 export const useStyles = makeStyles(() => ({
   root: {},
@@ -34,6 +36,7 @@ export interface Props {
   open: boolean,
 }
 
+type RecipientTypes = PersonItem | GroupItem | string;
 
 function SendMessageDialog({
   message,
@@ -41,22 +44,52 @@ function SendMessageDialog({
   open,
 }: Props) {
   const classes = useStyles();
+  const people = useItems<PersonItem>('person');
+  const getItemsById = useItemsById();
   const vault = useVault();
 
-  const [recipients, setRecipients] = useState<PersonItem[]>([]);
+  const [recipients, setRecipients] = useState<RecipientTypes[]>([]);
 
   const handleClearRecipients = useCallback(() => setRecipients([]), []);
   const handleAddRecipient = useCallback(
-    (recipient: PersonItem) => setRecipients(
+    (recipient: RecipientTypes) => setRecipients(
       oldRecipients => [...oldRecipients, recipient],
     ),
     [],
   );
   const handleRemoveRecipient = useCallback(
-    (recipient: PersonItem) => setRecipients(
-      oldRecipients => oldRecipients.filter(r => r.id !== recipient.id),
+    (recipient: RecipientTypes) => setRecipients(
+      oldRecipients => oldRecipients.filter(
+        r => getSearchableDataId(r) !== getSearchableDataId(recipient),
+      ),
     ),
     [],
+  );
+
+  const recipientIndividuals = useMemo(
+    () => recipients.filter((r): r is PersonItem => typeof r !== 'string' && r.type === 'person'),
+    [recipients],
+  );
+  const recipientGroups = useMemo(
+    () => recipients.filter((r): r is GroupItem => typeof r !== 'string' && r.type === 'group'),
+    [recipients],
+  );
+  const recipientTags = useMemo(
+    () => recipients.filter((r): r is string => typeof r === 'string'),
+    [recipients],
+  );
+  const recipientPeople = useMemo(
+    () => {
+      const results = [...recipientIndividuals];
+      results.push(...getItemsById<PersonItem>(recipientGroups.flatMap(g => g.members)));
+      results.push(...people.filter(p => p.tags.some(t => recipientTags.includes(t))));
+      return Array.from(new Set(results));
+    },
+    [getItemsById, people, recipientIndividuals, recipientGroups, recipientTags],
+  );
+  const recipientsWithEmail = useMemo(
+    () => recipientPeople.filter(p => !!p.email),
+    [recipientPeople],
   );
 
   const handleSend = useCallback(
@@ -65,7 +98,7 @@ function SendMessageDialog({
         message: message.message,
         details: {
           content: message.data.html || '',
-          recipients: getRecipientFields(recipients),
+          recipients: getRecipientFields(recipientsWithEmail),
           subject: message.name,
           from: smtp.from,
           smtp: smtp.smtp,
@@ -73,7 +106,7 @@ function SendMessageDialog({
       });
       onClose();
     },
-    [message, onClose, recipients, vault],
+    [message, onClose, recipientsWithEmail, vault],
   );
 
   return (
@@ -89,27 +122,30 @@ function SendMessageDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Stack spacing={2} paddingTop={2}>
-          <Search<PersonItem>
+        <Stack spacing={2} paddingTop={1}>
+          <Search<RecipientTypes>
             autoFocus
             label="Select message recipients"
-            noItemsText="No people found"
+            noItemsText="No items found"
             onClear={handleClearRecipients}
             onRemove={handleRemoveRecipient}
             onSelect={handleAddRecipient}
             selectedItems={recipients}
-            types={{ person: true, group: true, general: true }}
+            showSelectedChips
+            types={{ person: true, group: true, tag: true }}
           />
 
-          <ItemList
-            className={classes.list}
-            dividers
-            getActionIcon={() => <DeleteIcon />}
-            items={recipients}
-            noItemsHint="No recipients selected"
-            onClickAction={handleRemoveRecipient}
-            showIcons
-          />
+          {recipientPeople.length > 0 && (
+            <Alert
+              severity={recipientsWithEmail.length === recipientPeople.length ? 'info' : 'warning'}
+            >
+              {recipientPeople.length} recipients selected
+              {' '}
+              (
+              {recipientPeople.length - recipientsWithEmail.length}
+              {' recipients don\'t have an email address)'}
+            </Alert>
+          )}
         </Stack>
       </DialogContent>
 
@@ -130,7 +166,7 @@ function SendMessageDialog({
           startIcon={<EmailIcon />}
           variant="contained"
         >
-          Send
+          Send to {recipientsWithEmail.length} recipients
         </Button>
       </DialogActions>
     </Dialog>
