@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useMemo,
   useState,
 } from 'react';
 import {
@@ -15,13 +14,12 @@ import makeStyles from '@mui/styles/makeStyles';
 import {
   PersonItem,
 } from '../../state/items';
-import { useItems, useMaturity, useSortCriteria, useVault } from '../../state/selectors';
+import { useVault } from '../../state/selectors';
 import { DeleteIcon, EmailIcon } from '../Icons';
 import { getRecipientFields, MessageFull } from '../../state/koinonia';
-import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
-import { sortItems } from '../../utils/customSort';
 import smtp from '../../utils/smtp';
+import Search from '../Search';
 
 export const useStyles = makeStyles(() => ({
   root: {},
@@ -43,23 +41,12 @@ function SendMessageDialog({
   open,
 }: Props) {
   const classes = useStyles();
-  const people = useItems<PersonItem>('person');
-  const [sortCriteria] = useSortCriteria();
-  const [maturity] = useMaturity();
   const vault = useVault();
 
-  const activePeople = useMemo(
-    () => sortItems(people.filter(p => !p.archived), sortCriteria, maturity),
-    [maturity, people, sortCriteria],
-  );
-
   const [recipients, setRecipients] = useState<PersonItem[]>([]);
-  const recipientIds = useMemo(
-    () => recipients.map(r => r.id),
-    [recipients],
-  );
 
-  const handleAddRecipients = useCallback(
+  const handleClearRecipients = useCallback(() => setRecipients([]), []);
+  const handleAddRecipient = useCallback(
     (recipient: PersonItem) => setRecipients(
       oldRecipients => [...oldRecipients, recipient],
     ),
@@ -103,13 +90,15 @@ function SendMessageDialog({
 
       <DialogContent>
         <Stack spacing={2} paddingTop={2}>
-          <ItemSearch
-            items={activePeople}
-            label="Add group members"
+          <Search<PersonItem>
+            autoFocus
+            label="Select message recipients"
             noItemsText="No people found"
-            onSelect={handleAddRecipients}
-            selectedIds={recipientIds}
-            showSelected={false}
+            onClear={handleClearRecipients}
+            onRemove={handleRemoveRecipient}
+            onSelect={handleAddRecipient}
+            selectedItems={recipients}
+            types={{ person: true, group: true, general: true }}
           />
 
           <ItemList
@@ -119,6 +108,7 @@ function SendMessageDialog({
             items={recipients}
             noItemsHint="No recipients selected"
             onClickAction={handleRemoveRecipient}
+            showIcons
           />
         </Stack>
       </DialogContent>
