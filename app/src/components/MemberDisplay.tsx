@@ -71,7 +71,6 @@ function MemberDisplay({
           noItemsText="No people found"
           onSelect={handleChangeMembers}
           selectedItems={members}
-          showSelected={false}
           types={{ person: true }}
           searchDescription
         />

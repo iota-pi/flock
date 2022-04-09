@@ -9,10 +9,10 @@ import {
   Grid,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
-import { useItems, useVault } from '../../state/selectors';
+import { useVault } from '../../state/selectors';
 import { GroupItem, Item } from '../../state/items';
 import { usePrevious } from '../../utils';
-import ItemSearch from '../ItemSearch';
+import Search from '../Search';
 
 const useStyles = makeStyles(() => ({
   root: {},
@@ -30,8 +30,6 @@ function GroupDialog({
   onClose,
   open,
 }: Props) {
-  const allItems = useItems();
-  const groups = useItems<GroupItem>('group');
   const classes = useStyles();
   const prevOpen = usePrevious(open);
   const vault = useVault();
@@ -40,7 +38,6 @@ function GroupDialog({
   const [addGroups, setAddGroups] = useState<GroupItem[]>([]);
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([]);
 
-  const addGroupsIds = useMemo(() => addGroups.map(g => g.id), [addGroups]);
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups]);
   const selectedIds = useMemo(() => selected.map(item => item.id), [selected]);
 
@@ -55,7 +52,7 @@ function GroupDialog({
     [items, open, prevOpen],
   );
 
-  const handleClear = useCallback(() => setSelected([]), []);
+  const handleClearItems = useCallback(() => setSelected([]), []);
   const handleSelectItem = useCallback(
     (item: Item) => {
       setSelected(s => [...s, item]);
@@ -68,12 +65,22 @@ function GroupDialog({
     },
     [],
   );
+  const handleClearAdd = useCallback(() => setAddGroups([]), []);
   const handleSelectAdd = useCallback(
-    (group: GroupItem) => setAddGroups(g => [...g, group]),
+    (group: GroupItem) => setAddGroups(ag => [...ag, group]),
     [],
   );
+  const handleRemoveAdd = useCallback(
+    (group: GroupItem) => setAddGroups(ag => ag.filter(g => g.id !== group.id)),
+    [],
+  );
+  const handleClearRemove = useCallback(() => setRemoveGroups([]), []);
   const handleSelectRemove = useCallback(
-    (group: GroupItem) => setRemoveGroups(g => [...g, group]),
+    (group: GroupItem) => setRemoveGroups(rg => [...rg, group]),
+    [],
+  );
+  const handleRemoveRemove = useCallback(
+    (group: GroupItem) => setRemoveGroups(rg => rg.filter(g => g.id !== group.id)),
     [],
   );
   const handleDone = useCallback(
@@ -111,18 +118,18 @@ function GroupDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Grid container spacing={2}>
+        <Grid container spacing={2} paddingTop={1}>
           <Grid item xs={12}>
-            <ItemSearch
+            <Search<Item>
               autoFocus={items.length === 0}
-              items={allItems}
               label="Items"
-              onClear={handleClear}
+              onClear={handleClearItems}
               onRemove={handleRemoveItem}
               onSelect={handleSelectItem}
-              selectedIds={selectedIds}
+              selectedItems={selected}
               showIcons
-              showSelected
+              showSelectedTags
+              types={{ person: true, group: true, general: true }}
             />
           </Grid>
 
@@ -131,21 +138,29 @@ function GroupDialog({
           </Grid>
 
           <Grid item xs={12}>
-            <ItemSearch
+            <Search<GroupItem>
               autoFocus={items.length > 0}
-              items={groups}
               label="Add to Groups"
+              onClear={handleClearAdd}
+              onRemove={handleRemoveAdd}
               onSelect={handleSelectAdd}
-              selectedIds={addGroupsIds}
+              selectedItems={addGroups}
+              showIcons
+              showSelectedTags
+              types={{ group: true }}
             />
           </Grid>
 
           <Grid item xs={12}>
-            <ItemSearch
-              items={groups}
+            <Search<GroupItem>
               label="Remove from Groups"
+              onClear={handleClearRemove}
+              onRemove={handleRemoveRemove}
               onSelect={handleSelectRemove}
-              selectedIds={removeGroupsIds}
+              selectedItems={removeGroups}
+              showIcons
+              showSelectedTags
+              types={{ group: true }}
             />
           </Grid>
         </Grid>

@@ -74,7 +74,6 @@ function GroupDisplay({
           noItemsText="No groups found"
           onSelect={handleSelectGroup}
           selectedItems={currentGroups}
-          showSelected={false}
           types={{ group: true }}
           searchDescription
         />

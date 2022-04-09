@@ -372,7 +372,6 @@ function ThemedPaper({ children, ...props }: PaperProps) {
 export interface Props<T> {
   autoFocus?: boolean,
   dataCy?: string,
-  disableClearable?: boolean,
   forceDarkTheme?: boolean,
   includeArchived?: boolean,
   inputIcon?: MuiIconType,
@@ -391,7 +390,8 @@ export interface Props<T> {
   showDescriptions?: boolean,
   showGroupMemberCounts?: boolean,
   showIcons?: boolean,
-  showSelected?: boolean,
+  showSelectedTags?: boolean,
+  showSelectedOptions?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
@@ -400,7 +400,6 @@ const DARK_THEME = getTheme(true);
 function Search<T extends AnySearchableData = AnySearchableData>({
   autoFocus,
   dataCy,
-  disableClearable = false,
   forceDarkTheme = false,
   includeArchived = false,
   inputIcon: InputIcon,
@@ -419,10 +418,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showDescriptions = true,
   showGroupMemberCounts = true,
   showIcons = true,
-  showSelected,
+  showSelectedTags = false,
+  showSelectedOptions = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const classes = useStyles();
+  // const classes = useStyles();
   const items = useItems();
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();
@@ -436,7 +436,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
   const selectedSearchables: AnySearchable[] = useMemo(
     () => (
-      showSelected && selectedItems.map(
+      showSelectedTags && selectedItems.map(
         (item): AnySearchable => {
           if (typeof item === 'string') {
             return {
@@ -463,7 +463,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         },
       )
     ) || [],
-    [selectedItems, showSelected],
+    [selectedItems, showSelectedTags],
   );
 
   const filteredItems = useMemo(
@@ -471,12 +471,12 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       items.filter(item => (
         types[item.type]
         && (includeArchived || !item.archived)
-        && !selectedIds.has(item.id)
+        && (showSelectedTags || !selectedIds.has(item.id))
       )),
       sortCriteria,
       maturity,
     ),
-    [includeArchived, items, maturity, selectedIds, sortCriteria, types],
+    [includeArchived, items, maturity, selectedIds, showSelectedTags, sortCriteria, types],
   );
 
   const options = useMemo<AnySearchable[]>(
@@ -605,20 +605,19 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           }
         }
       }
-      if (onRemove && selectedItems && reason === 'removeOption') {
-        const deletedItems = selectedItems.filter(itemId => !value.find(i => i.id === itemId));
-        onRemove(deletedItems[0]);
+      if (onRemove && reason === 'removeOption') {
+        const deletedItems = selectedSearchables.filter(item => !value.find(i => i.id === item.id));
+        if (deletedItems.length && deletedItems[0].data) {
+          onRemove(deletedItems[0].data as T);
+        } else {
+          console.warn(`No data found for deleted item ${deletedItems[0]}`);
+        }
       }
       if (onClear && reason === 'clear') {
         onClear();
       }
     },
-    [onClear, onCreate, onRemove, onSelect, selectedItems],
-  );
-
-  const handleRemove = useCallback(
-    (item: AnySearchable) => (onRemove && item.data ? onRemove(item.data as T) : undefined),
-    [onRemove],
+    [onClear, onCreate, onRemove, onSelect, selectedSearchables],
   );
 
   const theme = useMemo(
@@ -630,9 +629,10 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     <ThemeProvider theme={theme}>
       <Autocomplete
         autoHighlight
-        disableClearable={disableClearable}
+        disableClearable={!onClear}
         disableListWrap
         filterOptions={filterFunc}
+        filterSelectedOptions={!showSelectedOptions}
         getOptionLabel={option => getName(option)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         ListboxComponent={ListBoxComponent}
@@ -650,10 +650,16 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             inputRef={inputRef}
             InputProps={{
               ...params.InputProps,
-              startAdornment: InputIcon && (
-                <InputAdornment position="start">
-                  <InputIcon />
-                </InputAdornment>
+              startAdornment: (
+                <>
+                  {InputIcon && (
+                    <InputAdornment position="start">
+                      <InputIcon />
+                    </InputAdornment>
+                  )}
+
+                  {params.InputProps.startAdornment}
+                </>
               ),
             }}
             label={label}
@@ -668,14 +674,13 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             { showDescriptions, showGroupMemberCounts, showIcons },
           ])
         }
-        renderTags={selectedOptions => (
-          selectedOptions.map(option => (
+        renderTags={(selectedOptions, getTagProps) => (
+          selectedOptions.map((option, index) => (
+            // eslint-disable-next-line react/jsx-key
             <Chip
-              key={option.id}
+              {...getTagProps({ index })}
               label={getName(option)}
               icon={getIcon(option.type)}
-              onDelete={handleRemove}
-              className={classes.itemChip}
             />
           ))
         )}

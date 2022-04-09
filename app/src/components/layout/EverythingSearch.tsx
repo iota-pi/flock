@@ -64,7 +64,6 @@ function EverythingSearch({
     <>
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Search
-        disableClearable
         forceDarkTheme
         inputIcon={SearchIcon}
         inputRef={searchInput}
