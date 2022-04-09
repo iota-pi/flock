@@ -56,8 +56,6 @@ describe('Vault (Crypto)', () => {
     expect(dispatch).toBeCalledWith(updateItems([item], true));
     const apiCallParams = api.put.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
-      account: vault['account'],
-      authToken: vault.authToken,
       item: item.id,
       metadata: {
         type: item.type,
@@ -78,10 +76,7 @@ describe('Vault (Crypto)', () => {
 
     expect(dispatch).toBeCalledWith(updateItems(items, true));
     const apiCallParams = api.putMany.mock.calls[0][0];
-    expect(apiCallParams).toMatchObject({
-      account: vault['account'],
-      authToken: vault.authToken,
-    });
+    expect(apiCallParams).toMatchObject({});
     expect(apiCallParams.items.length).toEqual(items.length);
   });
 
@@ -146,8 +141,6 @@ describe('Vault (Crypto)', () => {
     expect(dispatch).toBeCalledWith(deleteItems([id], true));
     const apiCallParams = api.delete.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
-      account: vault['account'],
-      authToken: vault.authToken,
       item: id,
     });
   });
@@ -164,8 +157,6 @@ describe('Vault (Crypto)', () => {
     expect(dispatch).toBeCalledWith(deleteItems(ids, true));
     const apiCallParams = api.deleteMany.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
-      account: vault['account'],
-      authToken: vault.authToken,
       items: ids,
     });
   });
@@ -175,16 +166,13 @@ describe('Vault (Crypto)', () => {
     const vault = await getVault(dispatch);
     const api = { setMetadata: jest.fn() };
     vault['api'] = api as any;
-    const metadata: AccountMetadata = { foo: 'bar', baz: 'far' };
+    const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] };
 
     await vault.setMetadata(metadata);
 
     expect(dispatch).toBeCalledWith(setAccount({ metadata }));
     const apiCallParams = api.setMetadata.mock.calls[0][0];
-    expect(apiCallParams).toMatchObject({
-      account: vault['account'],
-      authToken: vault.authToken,
-    });
+    expect(apiCallParams).toMatchObject({});
     const decrypted = await vault.decryptObject(apiCallParams.metadata);
     expect(decrypted).toMatchObject(metadata);
   });
@@ -192,7 +180,7 @@ describe('Vault (Crypto)', () => {
   test('getMetadata encrypted', async () => {
     const dispatch = jest.fn();
     const vault = await getVault(dispatch);
-    const original: AccountMetadata = { foo: 'bar', baz: 'far' };
+    const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
     const encrypted = await vault.encryptObject(original);
     const api = { getMetadata: jest.fn().mockReturnValue(encrypted) };
     vault['api'] = api as any;
@@ -206,7 +194,7 @@ describe('Vault (Crypto)', () => {
   test('getMetadata plain', async () => {
     const dispatch = jest.fn();
     const vault = await getVault(dispatch);
-    const original: AccountMetadata = { foo: 'bar', baz: 'far' };
+    const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
     const api = { getMetadata: jest.fn().mockReturnValue(original) };
     vault['api'] = api as any;
 
