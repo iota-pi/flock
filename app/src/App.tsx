@@ -35,7 +35,9 @@ const useStyles = makeStyles(theme => ({
 async function initialLoadFromVault(vault: Vault) {
   const accountDataPromise = vault.getMetadata();
   const itemsPromise = vault.fetchAll();
-  const messagesPromise = vault.koinonia.listMessages();
+  const messagesPromise = vault.koinonia.listMessages().catch(
+    error => console.warn('Failed to get messages', error),
+  );
 
   // Note: account metadata needs to be available before migrating items
   await accountDataPromise;
