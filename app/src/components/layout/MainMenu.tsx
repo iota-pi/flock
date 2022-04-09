@@ -1,4 +1,4 @@
-import { memo, ReactNode, useCallback } from 'react';
+import { memo, ReactNode, useCallback, useMemo } from 'react';
 import { useHistory } from 'react-router-dom';
 import makeStyles from '@mui/styles/makeStyles';
 import {
@@ -14,7 +14,7 @@ import {
   Toolbar,
 } from '@mui/material';
 import { Page, PageId, pages, withPage } from '../pages';
-import { useAppDispatch } from '../../store';
+import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState } from '../../state/ui';
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons';
 
@@ -185,6 +185,7 @@ function MainMenu({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
+  const metadata = useAppSelector(state => state.metadata);
 
   const handleClick = useCallback(
     (pageId?: PageId) => {
@@ -196,6 +197,11 @@ function MainMenu({
       onClick();
     },
     [page.id, dispatch, history, onClick],
+  );
+
+  const pagesToShow = useMemo(
+    () => pages.filter(p => (p.metadataControl ? p.metadataControl(metadata) : true)),
+    [metadata],
   );
 
   return (
@@ -213,7 +219,7 @@ function MainMenu({
 
       <div className={classes.drawerContainer}>
         <FlexList>
-          {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
+          {pagesToShow.map(({ id, name, icon: Icon, dividerBefore }) => (
             <MainMenuItem
               key={id}
               dividerBefore={dividerBefore}

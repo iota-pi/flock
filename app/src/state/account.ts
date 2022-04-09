@@ -2,7 +2,10 @@ import { Action } from 'redux';
 import { AllActions } from '.';
 
 export type AccountId = string;
-export type AccountMetadata = Record<string, any>;
+export type AccountMetadata = Record<string, MetadataType>;
+export type MetadataType = (
+  string | number | boolean | Array<any> | Record<string, any>
+);
 export const initialAccount: AccountId = '';
 export const initialMetadata: AccountMetadata = {};
 

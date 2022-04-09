@@ -2,7 +2,7 @@ import memoize from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
-import { DEFAULT_MATURITY } from './account';
+import { DEFAULT_MATURITY, MetadataType } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
 import { getMessageItem } from './koinonia';
 import { setUiState, UiOptions } from './ui';
@@ -64,28 +64,28 @@ export function useItemsById() {
 export const useVault = () => useAppSelector(state => state.vault);
 export const useLoggedIn = () => useAppSelector(state => !!state.vault);
 
-export function useMetadata<T = any>(
+export function useMetadata<T extends MetadataType>(
   key: string,
   defaultValue: T,
-): [T, (value: T) => Promise<boolean | undefined>];
-export function useMetadata<T = any>(
+): [T, (value: T | ((prev: T) => T)) => Promise<void>];
+export function useMetadata<T extends MetadataType>(
   key: string,
-): [T | undefined, (value: T) => Promise<boolean | undefined>];
-export function useMetadata<T = any>(
+): [T | undefined, (value: T | ((prev: T | undefined) => T)) => Promise<void>];
+export function useMetadata<T extends MetadataType>(
   key: string,
   defaultValue?: T,
-): [T, (value: T) => Promise<boolean | undefined>] {
+): [T | undefined, (value: T | ((prev: T | undefined) => T)) => Promise<void>] {
   const metadata = useAppSelector(state => state.metadata);
   const vault = useVault();
 
-  const value = metadata[key] === undefined ? defaultValue : metadata[key];
+  const value = metadata[key] === undefined ? defaultValue : metadata[key] as T;
   const setValue = useCallback(
-    async (newValue: T) => {
+    async (newValueOrFunc: T | ((prev: T | undefined) => T)) => {
+      const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc;
       const newMetadata = { ...metadata, [key]: newValue };
       await vault?.setMetadata(newMetadata);
-      return false;
     },
-    [key, metadata, vault],
+    [key, metadata, value, vault],
   );
   return [value, setValue];
 }

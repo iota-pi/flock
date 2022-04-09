@@ -14,6 +14,7 @@ import {
   PrayerIcon,
 } from '../Icons';
 import CommunicationPage from './Communication';
+import { AccountMetadata } from '../../state/account';
 
 const ActionsPage = loadable(() => import('./Actions'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
@@ -48,6 +49,7 @@ export interface InternalPage {
   requiresAuth: boolean,
   dividerBefore?: boolean,
   visible?: boolean,
+  metadataControl?: (metadata: AccountMetadata) => boolean,
 }
 
 export interface Page extends InternalPage {
@@ -135,6 +137,7 @@ export const pages: Page[] = [
     page: <CommunicationPage />,
     dividerBefore: true,
     requiresAuth: true,
+    metadataControl: metadata => !!metadata.showCommPage,
   },
   {
     id: 'settings',

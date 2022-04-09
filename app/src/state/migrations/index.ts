@@ -17,7 +17,7 @@ async function migrateItems(items: Item[]) {
   // (assuming new migrations are added to the top of the array)
   const reversedMigrations = migrations.slice().reverse();
   const { metadata, vault } = store.getState();
-  const previousMigrations: string[] = metadata.completedMigrations || [];
+  const previousMigrations = (metadata.completedMigrations as string[]) || [];
   const completedMigrations = previousMigrations.slice();
   if (!vault) {
     console.warn('Vault not initialised, skipping migrations');

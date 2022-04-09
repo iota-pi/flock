@@ -154,11 +154,11 @@ class Vault {
     return dec.decode(plaintext);
   }
 
-  encryptObject(obj: object) {
+  encryptObject(obj: Record<string, any>) {
     return this.encrypt(JSON.stringify(obj));
   }
 
-  async decryptObject({ iv, cipher }: CryptoResult): Promise<object> {
+  async decryptObject({ iv, cipher }: CryptoResult): Promise<Record<string, any>> {
     return JSON.parse(await this.decrypt({ iv, cipher }));
   }
 
@@ -339,7 +339,7 @@ class Vault {
       metadata = await this.decryptObject(result as CryptoResult);
     } catch (error) {
       // Backwards compatibility (10/07/21)
-      metadata = result;
+      metadata = result as AccountMetadata;
     }
     const accountData: AccountState = { account: this.account, metadata };
     this.dispatch(setAccount(accountData));
