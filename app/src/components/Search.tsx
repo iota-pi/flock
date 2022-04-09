@@ -630,7 +630,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         multiple
         noOptionsText={noItemsText}
         onChange={handleChange}
-        open
         options={options}
         PaperComponent={ThemedPaper}
         PopperComponent={StyledPopper}
