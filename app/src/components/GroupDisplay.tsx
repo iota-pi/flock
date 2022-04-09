@@ -69,7 +69,7 @@ function GroupDisplay({
     <>
       {editable && (
         <Search<GroupItem>
-          data-cy="groups"
+          dataCy="groups"
           label="Add to group"
           noItemsText="No groups found"
           onSelect={handleSelectGroup}

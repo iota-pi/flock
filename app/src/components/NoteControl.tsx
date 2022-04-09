@@ -492,7 +492,7 @@ function NoteControl<T extends ItemNote>({
   return (
     <Stack spacing={2}>
       <NoteButton
-        data-cy={`add-${noteType}`}
+        dataCy={`add-${noteType}`}
         label={addNoteLabel}
         onClick={handleAddNote}
       />
@@ -517,7 +517,7 @@ function NoteControl<T extends ItemNote>({
 
       {notes.length > 0 && (
         <NoteButton
-          data-cy={`showMore-${noteType}`}
+          dataCy={`showMore-${noteType}`}
           disabled={hiddenNotes <= 0}
           label={`See more (${hiddenNotes})`}
           onClick={handleShowMore}
