@@ -5,12 +5,12 @@ import {
 import makeStyles from '@mui/styles/makeStyles';
 import DeleteIcon from '@mui/icons-material/Close';
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items';
-import { useItems, useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
+import { useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
 import ItemList from './ItemList';
-import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
 import { sortItems } from '../utils/customSort';
+import Search from './Search';
 
 
 const useStyles = makeStyles(() => ({
@@ -33,14 +33,9 @@ function MemberDisplay({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
-  const people = useItems<PersonItem>('person');
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();
 
-  const activePeople = useMemo(
-    () => sortItems(people.filter(p => !p.archived), sortCriteria, maturity),
-    [maturity, people, sortCriteria],
-  );
   const members = useMemo(
     () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria, maturity),
     [getItemsById, maturity, memberIds, sortCriteria],
@@ -70,25 +65,28 @@ function MemberDisplay({
   return (
     <>
       {editable && (
-        <ItemSearch
+        <Search<PersonItem>
           data-cy="members"
-          items={activePeople}
           label="Add group members"
           noItemsText="No people found"
           onSelect={handleChangeMembers}
-          selectedIds={memberIds}
+          selectedItems={members}
           showSelected={false}
+          types={{ person: true }}
+          searchDescription
         />
       )}
 
       <ItemList
         className={classes.list}
+        compact
         dividers
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={members}
         noItemsHint="No group members"
         onClick={handleClickItem}
         onClickAction={editable ? handleRemoveMember : undefined}
+        showIcons
       />
     </>
   );

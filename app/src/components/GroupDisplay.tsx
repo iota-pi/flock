@@ -82,12 +82,14 @@ function GroupDisplay({
 
       <ItemList
         className={classes.list}
+        compact
         dividers
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={currentGroups}
         noItemsHint="Not in any groups"
         onClick={handleClickGroup}
         onClickAction={editable ? handleRemoveGroup : undefined}
+        showIcons
       />
     </>
   );
