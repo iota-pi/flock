@@ -240,7 +240,7 @@ function NoteDrawer({
             selectedItems={linkedItems}
             showGroupMemberCounts
             showIcons
-            showSelectedTags={editing}
+            showSelectedChips={editing}
             types={(
               note.type === 'interaction' ? {
                 person: true,

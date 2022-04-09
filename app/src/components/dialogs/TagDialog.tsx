@@ -109,7 +109,7 @@ function TagDialog({
               onSelect={handleSelectItem}
               selectedItems={selected}
               showIcons
-              showSelectedTags
+              showSelectedChips
               types={{ person: true, group: true, general: true }}
             />
           </Grid>

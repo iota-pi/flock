@@ -390,7 +390,7 @@ export interface Props<T> {
   showDescriptions?: boolean,
   showGroupMemberCounts?: boolean,
   showIcons?: boolean,
-  showSelectedTags?: boolean,
+  showSelectedChips?: boolean,
   showSelectedOptions?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
@@ -418,7 +418,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showDescriptions = true,
   showGroupMemberCounts = true,
   showIcons = true,
-  showSelectedTags = false,
+  showSelectedChips = false,
   showSelectedOptions = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
@@ -436,7 +436,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
   const selectedSearchables: AnySearchable[] = useMemo(
     () => (
-      showSelectedTags && selectedItems.map(
+      showSelectedChips && selectedItems.map(
         (item): AnySearchable => {
           if (typeof item === 'string') {
             return {
@@ -463,7 +463,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         },
       )
     ) || [],
-    [selectedItems, showSelectedTags],
+    [selectedItems, showSelectedChips],
   );
 
   const filteredItems = useMemo(
@@ -471,12 +471,12 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       items.filter(item => (
         types[item.type]
         && (includeArchived || !item.archived)
-        && (showSelectedTags || !selectedIds.has(item.id))
+        && (showSelectedChips || !selectedIds.has(item.id))
       )),
       sortCriteria,
       maturity,
     ),
-    [includeArchived, items, maturity, selectedIds, showSelectedTags, sortCriteria, types],
+    [includeArchived, items, maturity, selectedIds, showSelectedChips, sortCriteria, types],
   );
 
   const options = useMemo<AnySearchable[]>(

@@ -128,7 +128,7 @@ function GroupDialog({
               onSelect={handleSelectItem}
               selectedItems={selected}
               showIcons
-              showSelectedTags
+              showSelectedChips
               types={{ person: true, group: true, general: true }}
             />
           </Grid>
@@ -146,7 +146,7 @@ function GroupDialog({
               onSelect={handleSelectAdd}
               selectedItems={addGroups}
               showIcons
-              showSelectedTags
+              showSelectedChips
               types={{ group: true }}
             />
           </Grid>
@@ -159,7 +159,7 @@ function GroupDialog({
               onSelect={handleSelectRemove}
               selectedItems={removeGroups}
               showIcons
-              showSelectedTags
+              showSelectedChips
               types={{ group: true }}
             />
           </Grid>
