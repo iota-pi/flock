@@ -30,7 +30,7 @@ import {
   FilterOptionsState,
 } from '@mui/material/useAutocomplete';
 import makeStyles from '@mui/styles/makeStyles';
-import { matchSorter } from 'match-sorter';
+import { KeyOption, matchSorter } from 'match-sorter';
 import {
   getBlankItem,
   getItemName,
@@ -128,6 +128,28 @@ export const ALL_SEARCHABLE_TYPES: Record<AnySearchableType, boolean> = {
   person: true,
   tag: true,
 };
+export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
+  ['person', 'group', 'general', 'message', 'tag']
+);
+
+function isSearchableStandardItem(s: AnySearchable): s is SearchableItem {
+  return s.type === 'person' || s.type === 'group' || s.type === 'general';
+}
+
+function sortSearchables(a: AnySearchable, b: AnySearchable): number {
+  const typeIndexA = SEARCHABLE_BASE_SORT_ORDER.indexOf(a.type);
+  const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type);
+  if (typeIndexA - typeIndexB) {
+    return typeIndexA - typeIndexB;
+  }
+  if (a.type === 'message' && b.type === 'message') {
+    return +(a.data.name < b.data.name) - +(a.data.name > b.data.name);
+  }
+  if (isSearchableStandardItem(a) && isSearchableStandardItem(b)) {
+    return compareItems(a.data, b.data);
+  }
+  return +(a.id > b.id) - +(a.id < b.id);
+}
 
 function getName(option: AnySearchable) {
   if (option.type === 'tag') {
@@ -281,6 +303,9 @@ export interface Props {
   label: string,
   noItemsText?: string,
   onSelect?: (item?: Item | MessageItem | string) => void,
+  searchDescription?: boolean,
+  searchSummary?: boolean,
+  searchNotes?: boolean,
   showIcons?: boolean,
   types?: Record<AnySearchableType, boolean | undefined>,
 }
@@ -339,20 +364,38 @@ function Search({
     [items, maturity, messages, sortCriteria, tags, types],
   );
 
+  const matchSorterKeys = useMemo(
+    () => {
+      const result: KeyOption<AnySearchable>[] = ['name'];
+      const threshold = matchSorter.rankings.CONTAINS;
+      if (searchDescription) {
+        result.push({ key: 'data.description', threshold });
+      }
+      if (searchSummary) {
+        result.push({ key: 'data.summary', threshold });
+      }
+      if (searchNotes) {
+        result.push({ key: 'data.notes.*.content', threshold });
+      }
+      return result;
+    },
+    [searchDescription, searchSummary, searchNotes],
+  );
+
   const filterFunc = useCallback(
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
-      const filtered = matchSorter(
-        allOptions,
-        state.inputValue.trim(),
-        {
-          keys: [
-            'name',
-            { key: 'data.description', threshold: matchSorter.rankings.CONTAINS },
-            { key: 'data.summary', threshold: matchSorter.rankings.CONTAINS },
-            { key: 'data.notes.*.content', threshold: matchSorter.rankings.CONTAINS },
-          ],
-          threshold: matchSorter.rankings.MATCHES,
-        },
+      const filtered = (
+        state.inputValue.trim()
+          ? matchSorter(
+            allOptions,
+            state.inputValue.trim(),
+            {
+              baseSort: (a, b) => sortSearchables(a.item, b.item),
+              keys: matchSorterKeys,
+              threshold: matchSorter.rankings.MATCHES,
+            },
+          )
+          : allOptions
       );
 
       if (state.inputValue.trim()) {
@@ -390,7 +433,7 @@ function Search({
 
       return filtered;
     },
-    [],
+    [matchSorterKeys],
   );
 
   const handleChange = useCallback(
