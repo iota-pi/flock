@@ -60,32 +60,39 @@ const useStyles = makeStyles(theme => ({
     padding: 0,
   },
   autocompleteOption: {
-    display: 'flex',
     alignItems: 'center',
-    padding: theme.spacing(1.75, 2),
+    display: 'flex',
+    minWidth: 0,
+    padding: theme.spacing(1.75, 0),
   },
   optionIcon: {
     display: 'flex',
     alignItems: 'center',
     paddingRight: theme.spacing(2),
   },
-  whiteTextField: {
-    '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.45)',
-    },
-    '& .Mui-focused.MuiInputLabel-root': {
-      color: theme.palette.primary.contrastText,
-    },
-    '& .Mui-focused .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.85)',
-    },
-  },
   emphasis: {
     fontWeight: 500,
   },
-  faded: {
+  nameHolder: {
+    minWidth: 0,
+  },
+  optionName: {
+    flexGrow: 1,
+    minWidth: 0,
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+  },
+  groupMembers: {
     opacity: 0.85,
     fontWeight: 300,
+    whiteSpace: 'pre',
+  },
+  description: {
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    fontSize: theme.typography.caption.fontSize,
   },
   itemChip: {
     marginRight: theme.spacing(1),
@@ -228,30 +235,30 @@ function OptionComponent({
           </div>
         )}
 
-        <div>
-          {option.create ? (
-            <>
-              <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-              <span className={classes.emphasis}>{name}</span>
-            </>
-          ) : (
-            <>
-              <Typography>
+        {option.create ? (
+          <div>
+            <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
+            <span className={classes.emphasis}>{name}</span>
+          </div>
+        ) : (
+          <div className={classes.nameHolder}>
+            <Typography display="flex" alignItems="center">
+              <span className={classes.optionName}>
                 {name}
+              </span>
 
-                <span className={classes.faded}>
-                  {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
-                </span>
+              <span className={classes.groupMembers}>
+                {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
+              </span>
+            </Typography>
+
+            {showDescription && clippedDescription && (
+              <Typography color="textSecondary" className={classes.description}>
+                {clippedDescription}
               </Typography>
-
-              {showDescription && clippedDescription && (
-                <Typography color="textSecondary">
-                  {clippedDescription}
-                </Typography>
-              )}
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   );
@@ -623,6 +630,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         multiple
         noOptionsText={noItemsText}
         onChange={handleChange}
+        open
         options={options}
         PaperComponent={ThemedPaper}
         PopperComponent={StyledPopper}
@@ -630,7 +638,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           <TextField
             {...params}
             autoFocus={autoFocus}
-            // className={classes.whiteTextField}
             data-cy={dataCy}
             inputRef={inputRef}
             InputProps={{
