@@ -42,6 +42,8 @@ interface TopBarProps {
   allSelected?: boolean,
   onSelectAll?: () => void,
   menuItems?: MenuItemData[],
+  showFilter?: boolean,
+  showSort?: boolean,
   topBarTitle?: string,
   topBar: true,
 }
@@ -49,6 +51,8 @@ interface NoTopBarProps {
   allSelected?: never,
   menuItems?: never,
   onSelectAll?: never,
+  showFilter?: never,
+  showSort?: never,
   topBar?: false,
   topBarTitle?: never,
 }
@@ -73,7 +77,7 @@ const ContentNoScroll = styled('div')({
 
 
 function BasePage({
-  allSelected,
+  allSelected = false,
   children,
   fab,
   fabIcon,
@@ -82,6 +86,8 @@ function BasePage({
   onClickFab,
   onSelectAll,
   noScrollContainer,
+  showFilter = false,
+  showSort = false,
   topBar,
   topBarTitle,
 }: Props) {
@@ -96,8 +102,10 @@ function BasePage({
       {topBar && (
         <TopBar
           allSelected={allSelected}
+          filterable={showFilter}
           menuItems={menuItems || []}
           onSelectAll={onSelectAll}
+          sortable={showSort}
           title={topBarTitle}
         />
       )}

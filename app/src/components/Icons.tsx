@@ -9,7 +9,8 @@ import CalendarIcon from '@mui/icons-material/Today';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
-import EmailIcon from '@mui/icons-material/Send';
+import EmailAddressIcon from '@mui/icons-material/AlternateEmail';
+import EmailIcon from '@mui/icons-material/Email';
 import FilterIcon from '@mui/icons-material/FilterAlt';
 import FrequencyIcon from '@mui/icons-material/Schedule';
 import GeneralIcon from '@mui/icons-material/MoreHoriz';
@@ -17,10 +18,12 @@ import GroupIcon from '@mui/icons-material/Groups';
 import HomeIcon from '@mui/icons-material/Home';
 import InteractionIcon from '@mui/icons-material/QuestionAnswer';
 import MenuIcon from '@mui/icons-material/Menu';
+import MessageIcon from '@mui/icons-material/Send';
 import MinusIcon from '@mui/icons-material/Remove';
 import NextIcon from '@mui/icons-material/ChevronRight';
 import NotificationIcon from '@mui/icons-material/Notifications';
 import OptionsIcon from '@mui/icons-material/Settings';
+import PasswordIcon from '@mui/icons-material/Password';
 import PersonIcon from '@mui/icons-material/Person';
 import PrayerPointIcon from '@mui/icons-material/FormatListBulleted';
 import RemoveIcon from '@mui/icons-material/Close';
@@ -28,6 +31,7 @@ import ReportIcon from '@mui/icons-material/Description';
 import ResetIcon from '@mui/icons-material/Replay';
 import SaveIcon from '@mui/icons-material/Check';
 import SearchIcon from '@mui/icons-material/Search';
+import ServerIcon from '@mui/icons-material/Dns';
 import SignOutIcon from '@mui/icons-material/ExitToApp';
 import SortIcon from '@mui/icons-material/Sort';
 import SuggestIcon from '@mui/icons-material/Update';
@@ -54,6 +58,7 @@ export {
   DeleteIcon,
   DownloadIcon,
   EditIcon,
+  EmailAddressIcon,
   EmailIcon,
   FilterIcon,
   FrequencyIcon,
@@ -62,11 +67,13 @@ export {
   HomeIcon,
   InteractionIcon,
   MenuIcon,
+  MessageIcon,
   MinusIcon,
   NextIcon,
   NextIcon as ExpandMenuIcon,
   NotificationIcon,
   OptionsIcon,
+  PasswordIcon,
   PersonIcon,
   PrayerIcon,
   PrayerPointIcon,
@@ -75,6 +82,7 @@ export {
   ResetIcon,
   SaveIcon,
   SearchIcon,
+  ServerIcon,
   SignOutIcon,
   SortIcon,
   SuggestIcon,
@@ -92,7 +100,7 @@ export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconTy
     interaction: InteractionIcon,
     prayer: PrayerIcon,
     general: GeneralIcon,
-    message: EmailIcon,
+    message: MessageIcon,
     tag: TagIcon,
   };
   return iconTypeMap[itemType];

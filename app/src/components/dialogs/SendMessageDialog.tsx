@@ -17,11 +17,12 @@ import {
   GroupItem,
   PersonItem,
 } from '../../state/items';
-import { useItems, useItemsById, useVault } from '../../state/selectors';
-import { EmailIcon } from '../Icons';
+import { useItems, useItemsById, useMetadata, useVault } from '../../state/selectors';
+import { MessageIcon } from '../Icons';
 import { getRecipientFields, MessageFull } from '../../state/koinonia';
-import smtp from '../../utils/smtp';
 import Search, { getSearchableDataId } from '../Search';
+import { useAppDispatch } from '../../store';
+import { setMessage } from '../../state/ui';
 
 export const useStyles = makeStyles(() => ({
   root: {},
@@ -44,8 +45,10 @@ function SendMessageDialog({
   open,
 }: Props) {
   const classes = useStyles();
+  const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
   const getItemsById = useItemsById();
+  const [emailSettings] = useMetadata('emailSettings');
   const vault = useVault();
 
   const [recipients, setRecipients] = useState<RecipientTypes[]>([]);
@@ -94,19 +97,30 @@ function SendMessageDialog({
 
   const handleSend = useCallback(
     () => {
-      vault?.koinonia.sendMessage({
-        message: message.message,
-        details: {
-          content: message.data.html || '',
-          recipients: getRecipientFields(recipientsWithEmail),
-          subject: message.name,
-          from: smtp.from,
-          smtp: smtp.smtp,
-        },
-      });
+      if (emailSettings) {
+        vault?.koinonia.sendMessage({
+          message: message.message,
+          details: {
+            content: message.data.html || '',
+            recipients: getRecipientFields(recipientsWithEmail),
+            subject: message.name,
+            from: `${emailSettings.name} <${emailSettings.email}>`,
+            smtp: {
+              host: emailSettings.host,
+              pass: emailSettings.pass,
+              user: emailSettings.user,
+            },
+          },
+        });
+      } else {
+        dispatch(setMessage({
+          message: 'Email settings have not yet been set.',
+          severity: 'error',
+        }));
+      }
       onClose();
     },
-    [message, onClose, recipientsWithEmail, vault],
+    [dispatch, emailSettings, message, onClose, recipientsWithEmail, vault],
   );
 
   return (
@@ -163,7 +177,7 @@ function SendMessageDialog({
           disabled={recipients.length === 0}
           fullWidth
           onClick={handleSend}
-          startIcon={<EmailIcon />}
+          startIcon={<MessageIcon />}
           variant="contained"
         >
           Send to {recipientsWithEmail.length} recipients

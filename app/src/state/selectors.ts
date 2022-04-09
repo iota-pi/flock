@@ -41,15 +41,15 @@ export const useItemOrNote = (id: ItemId) => useAppSelector(
   ),
 );
 
-export const useMessageItem = (id: string): MessageItem | undefined => useAppSelector(
-  memoize(state => {
-    const message = state.messages.find(m => m.message === id);
-    if (message) {
-      return getMessageItem(message);
-    }
-    return undefined;
-  }),
-);
+export const useMessageItem = (id: string): MessageItem | undefined => {
+  const message = useAppSelector(memoize(
+    state => state.messages.find(m => m.message === id),
+  ));
+  return useMemo(
+    () => (message ? getMessageItem(message) : undefined),
+    [message],
+  );
+};
 
 export function useItemsById() {
   const itemMap = useItemMap();

@@ -12,7 +12,7 @@ import makeStyles from '@mui/styles/makeStyles';
 import {
   MessageItem,
 } from '../../state/items';
-import { useVault } from '../../state/selectors';
+import { useMetadata, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
 import { MessageFull } from '../../state/koinonia';
@@ -43,6 +43,7 @@ function MessageDrawer({
   open,
   stacked,
 }: Props) {
+  const [emailSettings] = useMetadata('emailSettings');
   const messages = useAppSelector(state => state.messages);
   const vault = useVault();
 
@@ -132,14 +133,6 @@ function MessageDrawer({
   );
   useEffect(
     () => {
-      // if (open && prevItem && prevItem.id !== item.id) {
-      //   handleSave(prevItem);
-      // }
-    },
-    [],
-  );
-  useEffect(
-    () => {
       const timeout = setTimeout(
         () => handleSave(),
         10000,
@@ -153,6 +146,7 @@ function MessageDrawer({
     <BaseDrawer
       ActionProps={{
         canSave: true,
+        canSend: !!emailSettings && Object.entries(emailSettings).every(s => !!s),
         itemIsNew: false,
         itemName: name,
         onCancel: handleCancel,

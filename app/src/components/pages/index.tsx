@@ -4,7 +4,7 @@ import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
   ActionIcon,
-  EmailIcon,
+  MessageIcon,
   GeneralIcon,
   GroupIcon,
   InteractionIcon,
@@ -133,7 +133,7 @@ export const pages: Page[] = [
     id: 'communication',
     path: '/communication',
     name: 'Communication',
-    icon: EmailIcon,
+    icon: MessageIcon,
     page: <CommunicationPage />,
     dividerBefore: true,
     requiresAuth: true,

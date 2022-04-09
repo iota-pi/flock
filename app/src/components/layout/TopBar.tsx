@@ -37,6 +37,7 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface MenuItemData {
+  closeOnClick?: boolean,
   icon: MuiIconType,
   key: string,
   label: string,
@@ -44,7 +45,7 @@ export interface MenuItemData {
 }
 
 export interface Props {
-  allSelected?: boolean,
+  allSelected: boolean,
   filterable?: boolean,
   menuItems: MenuItemData[],
   onSelectAll?: () => void,
@@ -54,11 +55,11 @@ export interface Props {
 
 
 function TopBar({
-  allSelected = false,
-  filterable = true,
+  allSelected,
+  filterable,
   menuItems,
   onSelectAll,
-  sortable = true,
+  sortable,
   title,
 }: Props) {
   const classes = useStyles();
@@ -115,6 +116,16 @@ function TopBar({
       handleToggleBulkActions,
       menuItems,
     ],
+  );
+
+  const handleClick = useCallback(
+    (item: MenuItemData) => () => {
+      item.onClick();
+      if (item.closeOnClick) {
+        handleCloseOptions();
+      }
+    },
+    [handleCloseOptions],
   );
 
   return (
@@ -178,7 +189,7 @@ function TopBar({
         {allMenuItems.map(menuItem => (
           <MenuItem
             key={menuItem.key}
-            onClick={menuItem.onClick}
+            onClick={handleClick(menuItem)}
           >
             <ListItemIcon>
               <menuItem.icon />

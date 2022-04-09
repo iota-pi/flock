@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material';
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
-import { DeleteIcon, EmailIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
+import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
 const useStyles = makeStyles(theme => ({
@@ -28,12 +28,13 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export interface BaseProps {
+  canSend?: boolean,
   itemIsNew?: boolean,
   itemHasNotes?: boolean,
   itemName?: string,
+  onSend?: () => void,
   permanentDrawer?: boolean,
   promptSave?: boolean,
-  onSend?: () => void,
 }
 
 export interface PropsWithSave extends BaseProps {
@@ -116,7 +117,7 @@ function DrawerActions({
                 data-cy="drawer-send"
                 fullWidth
                 onClick={onSend}
-                startIcon={<EmailIcon />}
+                startIcon={<MessageIcon />}
                 variant="outlined"
               >
                 Send Message

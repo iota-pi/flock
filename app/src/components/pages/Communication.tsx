@@ -1,9 +1,11 @@
 import { List, ListItemButton, ListItemText } from '@mui/material';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { useVault } from '../../state/selectors';
 import { replaceActive } from '../../state/ui';
+import { EmailIcon } from '../Icons';
+import SMTPDialog from '../dialogs/SMTPDialog';
 
 interface MessageSummary {
   message: string,
@@ -14,6 +16,8 @@ function CommunicationPage() {
   const dispatch = useAppDispatch();
   const messages = useAppSelector(state => state.messages);
   const vault = useVault();
+
+  const [showSMTP, setShowSMTP] = useState(false);
 
   const handleClick = useCallback(
     (m: MessageSummary) => {
@@ -37,12 +41,24 @@ function CommunicationPage() {
     },
     [dispatch, vault],
   );
+  const handleShowSMTP = useCallback(() => setShowSMTP(true), []);
+  const handleHideSMTP = useCallback(() => setShowSMTP(false), []);
 
   return (
     <BasePage
       fab
       fabLabel="Add action"
       onClickFab={handleClickAdd}
+      topBar
+      menuItems={[
+        {
+          closeOnClick: true,
+          icon: EmailIcon,
+          key: 'smtp-settings',
+          label: 'Email (SMTP) settings',
+          onClick: handleShowSMTP,
+        },
+      ]}
     >
       <List>
         {messages.map(message => (
@@ -57,6 +73,11 @@ function CommunicationPage() {
           </ListItemButton>
         ))}
       </List>
+
+      <SMTPDialog
+        onClose={handleHideSMTP}
+        open={showSMTP}
+      />
     </BasePage>
   );
 }
