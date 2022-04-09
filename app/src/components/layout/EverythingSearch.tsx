@@ -7,6 +7,7 @@ import {
   Item,
   MessageItem,
 } from '../../state/items';
+import { SearchIcon } from '../Icons';
 import Search from '../Search';
 
 export interface Props {
@@ -40,10 +41,16 @@ function EverythingSearch({
     <>
       <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
       <Search
+        disableClearable
+        forceDarkTheme
+        inputIcon={SearchIcon}
         inputRef={searchInput}
-        label={label}
+        placeholder={label}
         onSelect={onSelect}
         noItemsText={noItemsText}
+        searchDescription
+        searchSummary
+        searchNotes
         showIcons
       />
     </>

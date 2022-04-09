@@ -5,12 +5,11 @@ import {
 import makeStyles from '@mui/styles/makeStyles';
 import DeleteIcon from '@mui/icons-material/Close';
 import { GroupItem, ItemId } from '../state/items';
-import { useItems, useMaturity, useSortCriteria, useVault } from '../state/selectors';
+import { useItems, useVault } from '../state/selectors';
 import ItemList from './ItemList';
-import ItemSearch from './ItemSearch';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
-import { sortItems } from '../utils/customSort';
+import Search from './Search';
 
 
 const useStyles = makeStyles(() => ({
@@ -33,18 +32,11 @@ function GroupDisplay({
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const vault = useVault();
-  const [sortCriteria] = useSortCriteria();
-  const [maturity] = useMaturity();
 
-  const activeGroups = useMemo(
-    () => sortItems(allGroups.filter(g => !g.archived), sortCriteria, maturity),
-    [allGroups, maturity, sortCriteria],
-  );
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
     [allGroups, itemId],
   );
-  const groupIds = useMemo(() => currentGroups.map(g => g.id), [currentGroups]);
 
   const handleSelectGroup = useCallback(
     (group: GroupItem) => {
@@ -76,14 +68,15 @@ function GroupDisplay({
   return (
     <>
       {editable && (
-        <ItemSearch
+        <Search<GroupItem>
           data-cy="groups"
-          items={activeGroups}
           label="Add to group"
           noItemsText="No groups found"
           onSelect={handleSelectGroup}
-          selectedIds={groupIds}
+          selectedItems={currentGroups}
           showSelected={false}
+          types={{ group: true }}
+          searchDescription
         />
       )}
 

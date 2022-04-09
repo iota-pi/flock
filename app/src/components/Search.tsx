@@ -24,6 +24,7 @@ import {
   styled,
   TextField,
   ThemeProvider,
+  Typography,
 } from '@mui/material';
 import {
   AutocompleteChangeReason,
@@ -32,14 +33,16 @@ import {
 import makeStyles from '@mui/styles/makeStyles';
 import { KeyOption, matchSorter } from 'match-sorter';
 import {
+  compareItems,
   getBlankItem,
   getItemName,
   getItemTypeLabel,
+  isItem,
   Item,
   MessageItem,
   splitName,
 } from '../state/items';
-import { getIcon, SearchIcon } from './Icons';
+import { getIcon, MuiIconType } from './Icons';
 import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors';
 import { replaceActive, setTagFilter } from '../state/ui';
 import { useAppDispatch, useAppSelector } from '../store';
@@ -79,6 +82,15 @@ const useStyles = makeStyles(theme => ({
   },
   emphasis: {
     fontWeight: 500,
+  },
+  faded: {
+    opacity: 0.85,
+    fontWeight: 300,
+  },
+  itemChip: {
+    marginRight: theme.spacing(1),
+    marginTop: theme.spacing(0.25),
+    marginBottom: theme.spacing(0.25),
   },
 }));
 
@@ -120,8 +132,9 @@ export type AnySearchable = (
   | SearchableTag
   | SearchableAddItem
 );
+export type AnySearchableData = Exclude<AnySearchable['data'], undefined>;
 export type AnySearchableType = AnySearchable['type'];
-export const ALL_SEARCHABLE_TYPES: Record<AnySearchableType, boolean> = {
+export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
   general: true,
   group: true,
   message: true,
@@ -163,21 +176,53 @@ function getName(option: AnySearchable) {
 
 function OptionComponent({
   option,
-  showIcons = true,
+  showDescription,
+  showGroupMemberCount,
+  showIcon,
 }: {
   option: AnySearchable,
-  showIcons?: boolean,
+  showDescription: boolean,
+  showGroupMemberCount: boolean,
+  showIcon: boolean,
 }) {
   const classes = useStyles();
   const icon = getIcon(option.type);
   const name = getName(option);
+  const item = isSearchableStandardItem(option) ? option.data : undefined;
+
+  const groupMembersText = useMemo(
+    () => {
+      if (item && item.type === 'group') {
+        const count = item.members.length;
+        const s = count !== 1 ? 's' : '';
+        return ` (${count} member${s})`;
+      }
+      return '';
+    },
+    [item],
+  );
+  const clippedDescription = useMemo(
+    () => {
+      if (item && isItem(item)) {
+        const base = item.description;
+        const clipped = base.slice(0, 100);
+        if (clipped.length < base.length) {
+          const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
+          return `${clippedToWord}…`;
+        }
+        return base;
+      }
+      return null;
+    },
+    [item],
+  );
 
   return (
     <>
       {option.dividerBefore && <Divider />}
 
       <div className={classes.autocompleteOption}>
-        {showIcons && (
+        {showIcon && (
           <div className={classes.optionIcon}>
             {icon}
           </div>
@@ -189,7 +234,23 @@ function OptionComponent({
               <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
               <span className={classes.emphasis}>{name}</span>
             </>
-          ) : name}
+          ) : (
+            <>
+              <Typography>
+                {name}
+
+                <span className={classes.faded}>
+                  {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
+                </span>
+              </Typography>
+
+              {showDescription && clippedDescription && (
+                <Typography color="textSecondary">
+                  {clippedDescription}
+                </Typography>
+              )}
+            </>
+          )}
         </div>
       </div>
     </>
@@ -197,7 +258,9 @@ function OptionComponent({
 }
 
 interface SearchableRowSettings {
-  showIcons?: boolean,
+  showDescriptions: boolean,
+  showGroupMemberCounts: boolean,
+  showIcons: boolean,
 }
 type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings];
 type PropsAndOptionList = PropsAndOption[];
@@ -222,7 +285,9 @@ const SearchableRow = memo((
     >
       <OptionComponent
         option={option}
-        showIcons={settings.showIcons}
+        showDescription={settings.showDescriptions}
+        showGroupMemberCount={settings.showGroupMemberCounts}
+        showIcon={settings.showIcons}
       />
     </li>
   );
@@ -298,26 +363,57 @@ function ThemedPaper({ children, ...props }: PaperProps) {
   );
 }
 
-export interface Props {
+export interface Props<T> {
+  autoFocus?: boolean,
+  dataCy?: string,
+  disableClearable?: boolean,
+  forceDarkTheme?: boolean,
+  includeArchived?: boolean,
+  inputIcon?: MuiIconType,
   inputRef?: Ref<HTMLInputElement>,
-  label: string,
+  label?: string,
+  placeholder?: string,
   noItemsText?: string,
-  onSelect?: (item?: Item | MessageItem | string) => void,
+  onClear?: () => void,
+  onRemove?: (item: T) => void,
+  onSelect?: (item: T) => void,
+  selectedItems?: T[],
   searchDescription?: boolean,
   searchSummary?: boolean,
   searchNotes?: boolean,
+  showDescriptions?: boolean,
+  showGroupMemberCounts?: boolean,
   showIcons?: boolean,
-  types?: Record<AnySearchableType, boolean | undefined>,
+  showSelected?: boolean,
+  types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
-function Search({
+const DARK_THEME = getTheme(true);
+
+function Search<T extends AnySearchableData = AnySearchableData>({
+  autoFocus,
+  dataCy,
+  disableClearable = false,
+  forceDarkTheme = false,
+  includeArchived = false,
+  inputIcon: InputIcon,
   inputRef,
   label,
-  noItemsText,
+  placeholder,
+  noItemsText = 'No items found',
+  onClear,
+  onRemove,
   onSelect,
-  showIcons,
-  types: rawTypes,
-}: Props) {
+  selectedItems,
+  searchDescription = false,
+  searchSummary = false,
+  searchNotes = false,
+  showDescriptions = true,
+  showGroupMemberCounts = true,
+  showIcons = true,
+  showSelected,
+  types = ALL_SEARCHABLE_TYPES,
+}: Props<T>) {
   const classes = useStyles();
   const dispatch = useAppDispatch();
   const items = useItems();
@@ -325,12 +421,46 @@ function Search({
   const [maturity] = useMaturity();
   const messages = useAppSelector(state => state.messages);
   const tags = useTags();
-  const types = rawTypes || ALL_SEARCHABLE_TYPES;
+
+  const selectedSearchables: AnySearchable[] = useMemo(
+    () => (
+      showSelected && selectedItems?.map(
+        (item): AnySearchable => {
+          if (typeof item === 'string') {
+            return {
+              data: item,
+              id: item,
+              name: item,
+              type: 'tag',
+            };
+          }
+          if (item.type === 'message') {
+            return {
+              data: item,
+              id: item.id,
+              name: getItemName(item),
+              type: 'message',
+            };
+          }
+          return {
+            data: item,
+            id: item.id,
+            name: getItemName(item),
+            type: item.type,
+          };
+        },
+      )
+    ) || [],
+    [selectedItems, showSelected],
+  );
 
   const options = useMemo<AnySearchable[]>(
     () => {
       const results: AnySearchable[] = [];
-      const filteredItems = items.filter(item => types[item.type]);
+      const filteredItems = items.filter(item => (
+        types[item.type]
+        && (includeArchived || !item.archived)
+      ));
       results.push(
         ...sortItems(filteredItems, sortCriteria, maturity).map((item): AnySearchable => ({
           type: item.type,
@@ -361,7 +491,7 @@ function Search({
       }
       return results;
     },
-    [items, maturity, messages, sortCriteria, tags, types],
+    [includeArchived, items, maturity, messages, sortCriteria, tags, types],
   );
 
   const matchSorterKeys = useMemo(
@@ -448,38 +578,50 @@ function Search({
             } as Item,
           }));
         } else {
-          const data = value[value.length - 1].data;
+          const data = option.data as T;
           if (onSelect) {
             onSelect(data);
           }
           if (typeof data === 'string') {
             dispatch(setTagFilter(data));
           } else {
-            dispatch(replaceActive({ item: data?.id }));
+            dispatch(replaceActive({ item: data.id }));
           }
         }
       }
-      if (reason === 'removeOption' || reason === 'clear') {
-        if (onSelect) {
-          onSelect(undefined);
-        }
+      if (onRemove && selectedItems && reason === 'removeOption') {
+        const deletedItems = selectedItems.filter(itemId => !value.find(i => i.id === itemId));
+        onRemove(deletedItems[0]);
+      }
+      if (onClear && reason === 'clear') {
+        onClear();
       }
     },
-    [dispatch, onSelect],
+    [dispatch, onClear, onRemove, onSelect, selectedItems],
+  );
+
+  const handleRemove = useCallback(
+    (item: AnySearchable) => (onRemove && item.data ? onRemove(item.data as T) : undefined),
+    [onRemove],
+  );
+
+  const theme = useMemo(
+    () => (forceDarkTheme ? DARK_THEME : {}),
+    [forceDarkTheme],
   );
 
   return (
-    <>
+    <ThemeProvider theme={theme}>
       <Autocomplete
         autoHighlight
-        disableClearable
+        disableClearable={disableClearable}
         disableListWrap
         filterOptions={filterFunc}
         getOptionLabel={option => getName(option)}
-        ListboxComponent={ListBoxComponent}
         isOptionEqualToValue={(a, b) => a.id === b.id}
+        ListboxComponent={ListBoxComponent}
         multiple
-        noOptionsText={noItemsText || 'No items found'}
+        noOptionsText={noItemsText}
         onChange={handleChange}
         options={options}
         PaperComponent={ThemedPaper}
@@ -487,33 +629,44 @@ function Search({
         renderInput={params => (
           <TextField
             {...params}
-            placeholder={label}
-            variant="outlined"
-            className={classes.whiteTextField}
+            autoFocus={autoFocus}
+            // className={classes.whiteTextField}
+            data-cy={dataCy}
             inputRef={inputRef}
             InputProps={{
               ...params.InputProps,
-              startAdornment: (
+              startAdornment: InputIcon && (
                 <InputAdornment position="start">
-                  <SearchIcon />
+                  <InputIcon />
                 </InputAdornment>
               ),
             }}
+            label={label}
+            placeholder={placeholder}
+            variant="outlined"
           />
         )}
-        renderOption={(props, option): PropsAndOption => [props, option, { showIcons }]}
+        renderOption={
+          (props, option): PropsAndOption => ([
+            props,
+            option,
+            { showDescriptions, showGroupMemberCounts, showIcons },
+          ])
+        }
         renderTags={selectedOptions => (
           selectedOptions.map(option => (
             <Chip
               key={option.id}
               label={getName(option)}
               icon={getIcon(option.type)}
+              onDelete={handleRemove}
+              className={classes.itemChip}
             />
           ))
         )}
-        value={[]}
+        value={selectedSearchables}
       />
-    </>
+    </ThemeProvider>
   );
 }
 
