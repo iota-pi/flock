@@ -23,7 +23,7 @@ import {
   FilterOperatorName,
   FilterBaseOperatorName,
 } from '../../utils/customFilter';
-import { RemoveIcon } from '../Icons';
+import { FilterIcon, RemoveIcon } from '../Icons';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setUiState } from '../../state/ui';
 import MaturityPicker from '../MaturityPicker';
@@ -366,9 +366,8 @@ function FilterDialog({
     () => {
       setLocalCriteria([]);
       dispatch(setUiState({ filters: [] }));
-      onClose();
     },
-    [dispatch, onClose],
+    [dispatch],
   );
   const handleDone = useCallback(
     () => {
@@ -419,8 +418,10 @@ function FilterDialog({
       <DialogActions>
         <Button
           data-cy="filter-cancel"
+          disabled={localCriteria.length === 0}
           fullWidth
           onClick={handleClear}
+          startIcon={<RemoveIcon />}
           variant="outlined"
         >
           Clear
@@ -431,6 +432,7 @@ function FilterDialog({
           data-cy="filter-done"
           fullWidth
           onClick={handleDone}
+          startIcon={undefined && <FilterIcon />}
           variant="contained"
         >
           Done
