@@ -393,7 +393,6 @@ function NoteControl<T extends ItemNote>({
   );
   const handleChangeContent = useCallback(
     (noteId: string, content: string) => onChange(prevNotes => {
-      console.log('handleChangeContent');
       const index = prevNotes.findIndex(n => n.id === noteId);
       if (index > -1) {
         const newNotes = prevNotes.slice();
