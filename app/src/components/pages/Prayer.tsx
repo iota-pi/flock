@@ -58,7 +58,7 @@ function PrayerPage() {
     () => items.filter(isPrayedForToday).length,
     [items],
   );
-  const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
+  const [goal] = useMetadata('prayerGoal', naturalGoal);
   const schedule = useMemo(
     () => memoisedPrayerSchedule.map(i => itemMap[i]),
     [itemMap, memoisedPrayerSchedule],

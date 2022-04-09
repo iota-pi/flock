@@ -1,11 +1,17 @@
 import { Action } from 'redux';
 import { AllActions } from '.';
+import { SortCriterion } from '../utils/customSort';
 
 export type AccountId = string;
-export type AccountMetadata = Record<string, MetadataType>;
-export type MetadataType = (
-  string | number | boolean | Array<any> | Record<string, any>
-);
+
+export interface AccountMetadata {
+  completedMigrations?: string[],
+  maturity?: string[],
+  showCommPage?: boolean,
+  prayerGoal?: number,
+  sortCriteria?: SortCriterion[];
+}
+export type MetadataKey = keyof AccountMetadata;
 export const initialAccount: AccountId = '';
 export const initialMetadata: AccountMetadata = {};
 

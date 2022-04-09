@@ -2,7 +2,7 @@ import memoize from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
-import { DEFAULT_MATURITY, MetadataType } from './account';
+import { AccountMetadata as Metadata, DEFAULT_MATURITY, MetadataKey } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
 import { getMessageItem } from './koinonia';
 import { setUiState, UiOptions } from './ui';
@@ -64,23 +64,26 @@ export function useItemsById() {
 export const useVault = () => useAppSelector(state => state.vault);
 export const useLoggedIn = () => useAppSelector(state => !!state.vault);
 
-export function useMetadata<T extends MetadataType>(
-  key: string,
-  defaultValue: T,
-): [T, (value: T | ((prev: T) => T)) => Promise<void>];
-export function useMetadata<T extends MetadataType>(
-  key: string,
-): [T | undefined, (value: T | ((prev: T | undefined) => T)) => Promise<void>];
-export function useMetadata<T extends MetadataType>(
-  key: string,
-  defaultValue?: T,
-): [T | undefined, (value: T | ((prev: T | undefined) => T)) => Promise<void>] {
+export function useMetadata<K extends MetadataKey>(
+  key: K,
+  defaultValue: Metadata[K],
+): [
+  Exclude<Metadata[K], undefined>,
+  (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
+];
+export function useMetadata<K extends MetadataKey>(
+  key: K,
+): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>];
+export function useMetadata<K extends MetadataKey>(
+  key: K,
+  defaultValue?: Metadata[K],
+): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
   const metadata = useAppSelector(state => state.metadata);
   const vault = useVault();
 
-  const value = metadata[key] === undefined ? defaultValue : metadata[key] as T;
+  const value = metadata[key] === undefined ? defaultValue : metadata[key];
   const setValue = useCallback(
-    async (newValueOrFunc: T | ((prev: T | undefined) => T)) => {
+    async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
       const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc;
       const newMetadata = { ...metadata, [key]: newValue };
       await vault?.setMetadata(newMetadata);

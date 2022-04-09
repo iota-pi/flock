@@ -25,7 +25,7 @@ function GoalDialog({
   onClose,
   open,
 }: Props) {
-  const [goal, setGoal] = useMetadata<number>('prayerGoal', naturalGoal);
+  const [goal, setGoal] = useMetadata('prayerGoal', naturalGoal);
   const [newGoal, setNewGoal] = useState(goal.toString());
   const [hintMessage, setHintMessage] = useState<string>();
   const error = !!hintMessage;

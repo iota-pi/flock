@@ -167,14 +167,14 @@ function SettingsPage() {
     [darkMode, dispatch],
   );
 
-  const [showCommunication, setShowCommunication] = useMetadata<boolean>('showCommPage', false);
+  const [showCommunication, setShowCommunication] = useMetadata('showCommPage', false);
   const handleToggleCommunication = useCallback(
     () => setShowCommunication(c => !c),
     [setShowCommunication],
   );
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
-  const [goal] = useMetadata<number>('prayerGoal', naturalGoal);
+  const [goal] = useMetadata('prayerGoal', naturalGoal);
   const [maturity] = useMaturity();
 
   const [showGoalDialog, setShowGoalDialog] = useState(false);
