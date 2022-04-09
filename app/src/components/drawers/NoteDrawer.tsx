@@ -20,19 +20,15 @@ import { DatePicker } from '@mui/lab';
 import { Item, ItemNote } from '../../state/items';
 import {
   useItemMap,
-  useItems,
   useItemsById,
-  useMaturity,
   useNoteMap,
-  useSortCriteria,
   useVault,
 } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
-import ItemSearch from '../ItemSearch';
 import ItemList from '../ItemList';
 import { getIconType, RemoveIcon } from '../Icons';
 import { getItemId, usePrevious } from '../../utils';
-import { sortItems } from '../../utils/customSort';
+import Search from '../Search';
 
 export interface Props extends BaseDrawerProps {
   note: ItemNote,
@@ -51,13 +47,10 @@ function NoteDrawer({
   open,
   stacked,
 }: Props) {
-  const allItems = useItems();
   const getItemsById = useItemsById();
   const itemMap = useItemMap();
-  const [maturity] = useMaturity();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
-  const [sortCriteria] = useSortCriteria();
   const vault = useVault();
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
@@ -69,21 +62,6 @@ function NoteDrawer({
   );
   const editing = existingLinkedItem !== undefined;
   const autoFocusSearch = !editing && linkedItemsProp === undefined;
-  const items = useMemo(
-    () => (
-      sortItems(
-        allItems.filter(item => {
-          if (note.type === 'interaction') {
-            return item.type === 'person' || (!editing && item.type === 'group');
-          }
-          return true;
-        }),
-        sortCriteria,
-        maturity,
-      )
-    ),
-    [allItems, editing, maturity, note.type, sortCriteria],
-  );
 
   useEffect(
     () => {
@@ -251,19 +229,29 @@ function NoteDrawer({
     >
       <Grid container spacing={2}>
         <Grid item xs={12}>
-          <ItemSearch
+          <Search<Item>
             autoFocus={autoFocusSearch}
-            items={items}
             key={note.id}
             label={itemsLabel}
             noItemsText={`No ${itemsLabel.toLowerCase()} found`}
             onClear={handleClear}
             onRemove={handleUnlinkItem}
             onSelect={handleAddItem}
-            selectedIds={linkedItems.map(item => item.id)}
-            showGroupMemberCount
+            selectedItems={linkedItems}
+            showGroupMemberCounts
             showIcons
-            showSelected={editing}
+            showSelectedTags={editing}
+            types={(
+              note.type === 'interaction' ? {
+                person: true,
+                group: !editing,
+                general: false,
+              } : {
+                person: true,
+                group: true,
+                general: true,
+              }
+            )}
           />
 
           {!editing && (

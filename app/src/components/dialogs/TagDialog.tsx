@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -9,12 +9,12 @@ import {
   Grid,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
-import { useItems, useVault } from '../../state/selectors';
+import { useVault } from '../../state/selectors';
 import { Item } from '../../state/items';
 import { usePrevious } from '../../utils';
-import ItemSearch from '../ItemSearch';
 import TagSelection from '../TagSelection';
 import { AddIcon, MinusIcon } from '../Icons';
+import Search from '../Search';
 
 const useStyles = makeStyles(() => ({
   root: {},
@@ -32,7 +32,6 @@ function TagDialog({
   onClose,
   open,
 }: Props) {
-  const allItems = useItems();
   const classes = useStyles();
   const prevOpen = usePrevious(open);
   const vault = useVault();
@@ -40,8 +39,6 @@ function TagDialog({
   const [selected, setSelected] = useState<Item[]>([]);
   const [addTags, setAddTags] = useState<string[]>([]);
   const [removeTags, setRemoveTags] = useState<string[]>([]);
-
-  const selectedIds = useMemo(() => selected.map(item => item.id), [selected]);
 
   useEffect(
     () => {
@@ -104,16 +101,16 @@ function TagDialog({
       <DialogContent>
         <Grid container spacing={2}>
           <Grid item xs={12}>
-            <ItemSearch
+            <Search<Item>
               autoFocus={items.length === 0}
-              items={allItems}
               label="Items"
               onClear={handleClear}
               onRemove={handleRemoveItem}
               onSelect={handleSelectItem}
-              selectedIds={selectedIds}
+              selectedItems={selected}
               showIcons
-              showSelected
+              showSelectedTags
+              types={{ person: true, group: true, general: true }}
             />
           </Grid>
 
