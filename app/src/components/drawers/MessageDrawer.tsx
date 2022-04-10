@@ -68,8 +68,9 @@ function MessageDrawer({
   const handleEditorReady = useCallback(
     () => {
       const data = message?.data || {} as Design;
-      console.log(data);
+      console.log('Loading...', data);
       emailEditorRef.current?.loadDesign(data);
+      console.log('Loaded design');
     },
     [emailEditorRef, message?.data],
   );
