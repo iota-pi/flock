@@ -10,7 +10,7 @@ import {
   Stack, TextField,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
-import EmailEditor, { Design } from 'react-email-editor';
+import EmailEditor from 'react-email-editor';
 import { MessageItem } from '../../state/items';
 import { useMetadata, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
@@ -67,10 +67,10 @@ function MessageDrawer({
 
   const handleEditorReady = useCallback(
     () => {
-      const data = message?.data || {} as Design;
-      console.log('Loading...', data);
-      emailEditorRef.current?.loadDesign(data);
-      console.log('Loaded design');
+      const data = message?.data;
+      if (data) {
+        emailEditorRef.current?.loadDesign(data);
+      }
     },
     [emailEditorRef, message?.data],
   );
@@ -81,9 +81,7 @@ function MessageDrawer({
   const handleSave = useCallback(
     (callback?: () => void) => {
       if (message?.message) {
-        console.log('Saving...');
         emailEditorRef.current?.saveDesign(data => {
-          console.log('Data', data);
           const newMessage: MessageFull = {
             message: message.message,
             name,
