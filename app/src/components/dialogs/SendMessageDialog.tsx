@@ -32,6 +32,7 @@ export const useStyles = makeStyles(() => ({
 }));
 
 export interface Props {
+  html: string,
   message: MessageFull,
   onClose: () => void,
   open: boolean,
@@ -40,6 +41,7 @@ export interface Props {
 type RecipientTypes = PersonItem | GroupItem | string;
 
 function SendMessageDialog({
+  html,
   message,
   onClose,
   open,
@@ -101,7 +103,7 @@ function SendMessageDialog({
         vault?.koinonia.sendMessage({
           message: message.message,
           details: {
-            content: message.data.html || '',
+            content: html,
             recipients: getRecipientFields(recipientsWithEmail),
             subject: message.name,
             from: `${emailSettings.name} <${emailSettings.email}>`,
@@ -120,7 +122,7 @@ function SendMessageDialog({
       }
       onClose();
     },
-    [dispatch, emailSettings, message, onClose, recipientsWithEmail, vault],
+    [dispatch, emailSettings, html, message, onClose, recipientsWithEmail, vault],
   );
 
   return (

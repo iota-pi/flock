@@ -30,7 +30,7 @@ function CommunicationPage() {
       const name = 'New message';
       const message = await vault?.koinonia.createMessage({
         name,
-        data: {},
+        data: null,
       });
       if (message) {
         dispatch(replaceActive({

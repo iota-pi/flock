@@ -3,15 +3,15 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   Stack, TextField,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
-import {
-  MessageItem,
-} from '../../state/items';
+import EmailEditor, { Design } from 'react-email-editor';
+import { MessageItem } from '../../state/items';
 import { useMetadata, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
@@ -35,7 +35,6 @@ export interface Props extends BaseDrawerProps {
 
 
 function MessageDrawer({
-  alwaysTemporary,
   message: messageItem,
   onBack,
   onClose,
@@ -43,6 +42,7 @@ function MessageDrawer({
   open,
   stacked,
 }: Props) {
+  const emailEditorRef = useRef<EmailEditor>(null);
   const [emailSettings] = useMetadata('emailSettings');
   const messages = useAppSelector(state => state.messages);
   const vault = useVault();
@@ -54,9 +54,7 @@ function MessageDrawer({
 
   const [name, setName] = useState<string>(message?.name || '');
   const [cancelled, setCancelled] = useState(false);
-  const [showSend, setShowSend] = useState(false);
-
-  const [content, setContent] = useState<string>();
+  const [htmlToSend, setHTMLToSend] = useState('');
 
   useEffect(
     () => setName(message?.name || ''),
@@ -66,37 +64,41 @@ function MessageDrawer({
     () => setCancelled(false),
     [message?.message],
   );
-  useEffect(
-    () => setContent(message?.data.html || ''),
-    [message?.data.html],
-  );
 
+  const handleEditorReady = useCallback(
+    () => {
+      const data = message?.data || {} as Design;
+      console.log(data);
+      emailEditorRef.current?.loadDesign(data);
+    },
+    [emailEditorRef, message?.data],
+  );
   const handleChangeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
     [],
   );
-  const handleChangeContent = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setContent(event.target.value),
-    [],
-  );
   const handleSave = useCallback(
-    () => {
+    (callback?: () => void) => {
       if (message?.message) {
-        const newMessage: MessageFull = {
-          message: message.message,
-          name,
-          data: { html: content },
-          created: new Date().getTime(),
-        };
-        vault?.koinonia.saveMessage(newMessage);
+        console.log('Saving...');
+        emailEditorRef.current?.saveDesign(data => {
+          console.log('Data', data);
+          const newMessage: MessageFull = {
+            message: message.message,
+            name,
+            data,
+            created: new Date().getTime(),
+          };
+          vault?.koinonia.saveMessage(newMessage);
+          callback?.();
+        });
       }
     },
-    [content, message?.message, name, vault],
+    [emailEditorRef, message?.message, name, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
-      handleSave();
-      onClose();
+      handleSave(onClose);
     },
     [handleSave, onClose],
   );
@@ -114,8 +116,13 @@ function MessageDrawer({
     },
     [message?.message, vault],
   );
-  const handleShowSend = useCallback(() => setShowSend(true), []);
-  const handleCloseSend = useCallback(() => setShowSend(false), []);
+  const handleShowSend = useCallback(
+    () => {
+      emailEditorRef.current?.exportHtml(({ html }) => setHTMLToSend(html));
+    },
+    [emailEditorRef, setHTMLToSend],
+  );
+  const handleCloseSend = useCallback(() => setHTMLToSend(''), []);
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
@@ -131,16 +138,6 @@ function MessageDrawer({
     },
     [cancelled, onClose],
   );
-  useEffect(
-    () => {
-      const timeout = setTimeout(
-        () => handleSave(),
-        10000,
-      );
-      return () => clearTimeout(timeout);
-    },
-    [handleSave],
-  );
 
   return (
     <BaseDrawer
@@ -154,7 +151,9 @@ function MessageDrawer({
         onSave: handleSaveButton,
         onSend: handleShowSend,
       }}
-      alwaysTemporary={alwaysTemporary}
+      alwaysTemporary
+      alwaysShowBack
+      fullScreen
       itemKey={message?.message}
       onBack={onBack}
       onClose={handleSaveAndClose}
@@ -164,7 +163,7 @@ function MessageDrawer({
       stacked={stacked}
       typeIcon={getIconType(messageItem.type)}
     >
-      <Stack spacing={2}>
+      <Stack spacing={2} flexGrow={1}>
         <TextField
           autoFocus
           data-cy="name"
@@ -176,21 +175,38 @@ function MessageDrawer({
           variant="standard"
         />
 
-        <TextField
-          fullWidth
-          label="Message Content (HTML)"
-          multiline
-          onChange={handleChangeContent}
-          value={content}
-          variant="standard"
+        <EmailEditor
+          onReady={handleEditorReady}
+          options={{
+            displayMode: 'email',
+            mergeTags: [
+              {
+                name: 'First Name',
+                value: '{firstName}',
+              },
+              {
+                name: 'Last Name',
+                value: '{lastName}',
+              },
+              {
+                name: 'Full Name',
+                value: '{fullName}',
+              },
+            ],
+          }}
+          projectId={70208}
+          ref={emailEditorRef}
         />
       </Stack>
 
-      <SendMessageDialog
-        message={message!}
-        onClose={handleCloseSend}
-        open={showSend}
-      />
+      {message && (
+        <SendMessageDialog
+          html={htmlToSend}
+          message={message}
+          onClose={handleCloseSend}
+          open={!!htmlToSend}
+        />
+      )}
     </BaseDrawer>
   );
 }

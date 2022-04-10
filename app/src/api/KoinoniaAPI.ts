@@ -65,6 +65,15 @@ class KoinoniaAPI extends BaseAPI {
     const url = `${this.endpoint}/${this.account}/messages/${message}/send`;
     await this.wrap(this.axios.post(url, details));
   }
+
+  getOpenCallbackURI(
+    {
+      message,
+      recipient,
+    }: Pick<MessageSummary, 'message'> & { recipient: string },
+  ) {
+    return `${this.endpoint}/o/${this.account}/${message}/${recipient}`;
+  }
 }
 
 export default KoinoniaAPI;

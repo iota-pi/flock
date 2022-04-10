@@ -1,3 +1,4 @@
+import { Design } from 'react-email-editor';
 import { Action } from 'redux';
 import { AllActions } from '.';
 import { Recipient } from '../../../../koinonia/sender/types';
@@ -17,7 +18,7 @@ export interface MessageSummary {
 
 export interface MessageContent {
   name: string,
-  data: { html?: string },
+  data: Design | null,
 }
 
 export interface MessageFull extends MessageSummary, MessageContent {}

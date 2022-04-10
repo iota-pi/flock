@@ -14,10 +14,14 @@ const useStyles = makeStyles(theme => ({
   },
   stacked: {},
   docked: {},
+  fullScreen: {},
   drawerWidth: {
     width: '40vw',
     '&$stacked': {
       width: '35vw',
+    },
+    '&$fullScreen': {
+      width: '100vw !important',
     },
 
     [theme.breakpoints.down('lg')]: {
@@ -96,6 +100,7 @@ interface BaseProps {
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   alwaysShowBack?: boolean,
+  fullScreen?: boolean,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
   itemKey?: ItemId,
@@ -110,6 +115,7 @@ function BaseDrawer({
   alwaysShowBack = false,
   alwaysTemporary = false,
   children,
+  fullScreen,
   hideBackButton = false,
   hideTypeIcon = false,
   itemKey,
@@ -124,6 +130,7 @@ function BaseDrawer({
   const classes = useStyles();
   const commonClasses = [classes.drawerWidth];
   if (stacked) commonClasses.push(classes.stacked);
+  if (fullScreen) commonClasses.push(classes.fullScreen);
   const rootClasses = [classes.root, ...commonClasses];
   const paperClasses = [classes.drawerPaper, ...commonClasses];
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
