@@ -294,7 +294,7 @@ function SettingsPage() {
         <SettingsItem
           id="communication"
           onClick={handleToggleCommunication}
-          title="Show Communication Page"
+          title="Show Communication Page (experimental)"
           value={(
             <Checkbox
               checked={showCommunication || false}
