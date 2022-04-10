@@ -18,6 +18,7 @@ import { getIconType } from '../Icons';
 import { MessageFull } from '../../state/koinonia';
 import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
+import template from '../../utils/unlayer-template.json';
 
 export const useStyles = makeStyles(theme => ({
   alert: {
@@ -70,6 +71,8 @@ function MessageDrawer({
       const data = message?.data;
       if (data) {
         emailEditorRef.current?.loadDesign(data);
+      } else {
+        emailEditorRef.current?.loadDesign(template);
       }
     },
     [emailEditorRef, message?.data],

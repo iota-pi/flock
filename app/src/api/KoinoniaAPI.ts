@@ -16,19 +16,14 @@ class KoinoniaAPI extends BaseAPI {
   async listMessages(): Promise<MessageFull[]> {
     const url = `${this.endpoint}/${this.account}/messages`;
     const result = await this.wrap(this.axios.get(url));
-    const messages: MessageFull[] = result.data.messages.map(
-      (m: any) => ({ ...m, data: JSON.parse(m.data) }),
-    );
+    const messages: MessageFull[] = result.data.messages;
     this.dispatch?.(setMessages(messages));
     return messages;
   }
 
   async createMessage({ name, data }: MessageContent): Promise<string> {
     const url = `${this.endpoint}/${this.account}/messages`;
-    const result = await this.wrap(this.axios.post(url, {
-      name,
-      data: JSON.stringify(data),
-    }));
+    const result = await this.wrap(this.axios.post(url, { name, data }));
     await this.getMessage({ message: result.data.messageId as string });
     return result.data.messageId;
   }
@@ -44,10 +39,7 @@ class KoinoniaAPI extends BaseAPI {
     const { created, data, message, name } = messageData;
     const url = `${this.endpoint}/${this.account}/messages/${message}`;
     this.dispatch?.(updateMessages([{ created, message, name, data }], true));
-    await this.wrap(this.axios.patch(url, {
-      name,
-      data: JSON.stringify(data),
-    }));
+    await this.wrap(this.axios.patch(url, { name, data }));
   }
 
   async deleteMessage({ message }: Pick<MessageSummary, 'message'>): Promise<void> {
