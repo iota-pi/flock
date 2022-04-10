@@ -177,23 +177,6 @@ function MessageDrawer({
 
         <EmailEditor
           onReady={handleEditorReady}
-          options={{
-            displayMode: 'email',
-            mergeTags: [
-              {
-                name: 'First Name',
-                value: '{firstName}',
-              },
-              {
-                name: 'Last Name',
-                value: '{lastName}',
-              },
-              {
-                name: 'Full Name',
-                value: '{fullName}',
-              },
-            ],
-          }}
           projectId={70208}
           ref={emailEditorRef}
         />
