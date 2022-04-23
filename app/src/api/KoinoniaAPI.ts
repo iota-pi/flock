@@ -55,7 +55,16 @@ class KoinoniaAPI extends BaseAPI {
     }: Pick<MessageSummary, 'message'> & { details: SendMailRequest },
   ): Promise<void> {
     const url = `${this.endpoint}/${this.account}/messages/${message}/send`;
-    await this.wrap(this.axios.post(url, details));
+    await this.wrapMany(
+      details.recipients,
+      recipientsChunk => this.axios.post(
+        url,
+        {
+          ...details,
+          recipients: recipientsChunk,
+        } as SendMailRequest,
+      ),
+    );
   }
 
   getOpenCallbackURI(
