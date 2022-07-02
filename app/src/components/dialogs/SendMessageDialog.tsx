@@ -23,6 +23,7 @@ import { getRecipientFields, MessageFull } from '../../state/koinonia';
 import Search, { getSearchableDataId } from '../Search';
 import { useAppDispatch } from '../../store';
 import { setMessage } from '../../state/ui';
+import { SendProgressCallback } from '../../api/KoinoniaAPI';
 
 export const useStyles = makeStyles(() => ({
   root: {},
@@ -35,6 +36,7 @@ export interface Props {
   html: string,
   message: MessageFull,
   onClose: () => void,
+  onSendProgress: SendProgressCallback,
   open: boolean,
 }
 
@@ -44,6 +46,7 @@ function SendMessageDialog({
   html,
   message,
   onClose,
+  onSendProgress,
   open,
 }: Props) {
   const classes = useStyles();
@@ -113,6 +116,7 @@ function SendMessageDialog({
               user: emailSettings.user,
             },
           },
+          progressCallback: onSendProgress,
         });
       } else {
         dispatch(setMessage({
@@ -122,7 +126,7 @@ function SendMessageDialog({
       }
       onClose();
     },
-    [dispatch, emailSettings, html, message, onClose, recipientsWithEmail, vault],
+    [dispatch, emailSettings, html, message, onClose, onSendProgress, recipientsWithEmail, vault],
   );
 
   return (

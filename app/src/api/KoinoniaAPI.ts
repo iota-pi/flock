@@ -10,6 +10,13 @@ import BaseAPI from './BaseAPI';
 import { SendMailRequest } from '../../../../koinonia/sender/types';
 
 
+export type SendProgressCallback = (data: {
+  success: boolean,
+  successCount: number,
+  errorCount: number,
+}) => void;
+
+
 class KoinoniaAPI extends BaseAPI {
   readonly endpoint = process.env.REACT_APP_KOINONIA_ENDPOINT!;
 
@@ -35,10 +42,12 @@ class KoinoniaAPI extends BaseAPI {
     return result.data.message as MessageSummary;
   }
 
-  async saveMessage(messageData: MessageSummary & MessageContent): Promise<void> {
-    const { created, data, message, name } = messageData;
+  async saveMessage(messageData: MessageFull): Promise<void> {
+    const { created, data, message, name, sentTo } = messageData;
     const url = `${this.endpoint}/${this.account}/messages/${message}`;
-    this.dispatch?.(updateMessages([{ created, message, name, data }], true));
+    this.dispatch?.(updateMessages([
+      { created, message, name, data, sentTo },
+    ], true));
     await this.wrap(this.axios.patch(url, { name, data }));
   }
 
@@ -52,18 +61,26 @@ class KoinoniaAPI extends BaseAPI {
     {
       message,
       details,
-    }: Pick<MessageSummary, 'message'> & { details: SendMailRequest },
+      progressCallback,
+    }: Pick<MessageSummary, 'message'> & {
+      details: SendMailRequest,
+      progressCallback?: SendProgressCallback,
+    },
   ): Promise<void> {
     const url = `${this.endpoint}/${this.account}/messages/${message}/send`;
     await this.wrapMany(
       details.recipients,
-      recipientsChunk => this.axios.post(
-        url,
-        {
-          ...details,
-          recipients: recipientsChunk,
-        } as SendMailRequest,
-      ),
+      async recipientsChunk => {
+        const response = await this.axios.post(
+          url,
+          {
+            ...details,
+            recipients: recipientsChunk,
+          } as SendMailRequest,
+        );
+        progressCallback?.(response.data);
+        return response;
+      },
     );
   }
 

@@ -19,6 +19,7 @@ export interface MessageSummary {
 export interface MessageContent {
   name: string,
   data: Design | null,
+  sentTo: string[],
 }
 
 export interface MessageFull extends MessageSummary, MessageContent {}

@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 import {
+  Alert,
   Stack, TextField,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
@@ -19,6 +20,7 @@ import { MessageFull } from '../../state/koinonia';
 import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
 import template from '../../utils/unlayer-template.json';
+import { SendProgressCallback } from '../../api/KoinoniaAPI';
 
 export const useStyles = makeStyles(theme => ({
   alert: {
@@ -47,6 +49,7 @@ function MessageDrawer({
   const [emailSettings] = useMetadata('emailSettings');
   const messages = useAppSelector(state => state.messages);
   const vault = useVault();
+  const [sendStats, setSendStats] = useState({ successCount: 0, errorCount: 0 });
 
   const message = useMemo(
     () => messages.find(m => m.message === messageItem.id),
@@ -86,17 +89,18 @@ function MessageDrawer({
       if (message?.message) {
         emailEditorRef.current?.saveDesign(data => {
           const newMessage: MessageFull = {
+            created: new Date().getTime(),
+            data,
             message: message.message,
             name,
-            data,
-            created: new Date().getTime(),
+            sentTo: message.sentTo,
           };
           vault?.koinonia.saveMessage(newMessage);
           callback?.();
         });
       }
     },
-    [emailEditorRef, message?.message, name, vault],
+    [emailEditorRef, message?.message, message?.sentTo, name, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -125,6 +129,15 @@ function MessageDrawer({
     [emailEditorRef, setHTMLToSend],
   );
   const handleCloseSend = useCallback(() => setHTMLToSend(''), []);
+  const handleSendProgress: SendProgressCallback = useCallback(
+    progress => {
+      setSendStats(stats => ({
+        successCount: stats.successCount + progress.successCount,
+        errorCount: stats.errorCount + progress.errorCount,
+      }));
+    },
+    [],
+  );
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
@@ -182,6 +195,14 @@ function MessageDrawer({
           projectId={70208}
           ref={emailEditorRef}
         />
+
+        {sendStats.successCount + sendStats.errorCount > 0 && (
+          <Alert severity={sendStats.errorCount === 0 ? 'success' : 'warning'}>
+            Successfully sent to {sendStats.successCount} recipients
+            {sendStats.errorCount > 0 ? ` (${sendStats.errorCount} errors)` : ''}
+            .
+          </Alert>
+        )}
       </Stack>
 
       {message && (
@@ -189,6 +210,7 @@ function MessageDrawer({
           html={htmlToSend}
           message={message}
           onClose={handleCloseSend}
+          onSendProgress={handleSendProgress}
           open={!!htmlToSend}
         />
       )}
