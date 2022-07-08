@@ -153,7 +153,7 @@ function DrawerActions({
             </Grid>
           )}
 
-          {onCancel && onDelete && (
+          {onCancel && (
             <Grid item xs={12} sm={6}>
               <Button
                 color={itemIsNew ? undefined : 'error'}
