@@ -1,6 +1,5 @@
 import {
   ChangeEvent,
-  ReactNode,
   useCallback,
   useMemo,
 } from 'react';
@@ -20,7 +19,6 @@ const useStyles = makeStyles(() => ({
 export interface Props {
   className?: string,
   fullWidth?: boolean,
-  icon?: ReactNode,
   id?: string,
   label?: string,
   maturity: string | null,
