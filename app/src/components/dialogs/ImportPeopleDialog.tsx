@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
-import { DropzoneArea } from 'material-ui-dropzone';
+import { DropzoneArea } from 'mui-file-dropzone';
 import neatCsv from 'neat-csv';
 import { useCallback, useState } from 'react';
 import { importPeople, PersonItem } from '../../state/items';
@@ -107,8 +107,9 @@ function ImportPeopleDialog({
       <DialogContent>
         <DropzoneArea
           acceptedFiles={['.csv']}
-          filesLimit={1}
           dropzoneText="Upload a CSV file here"
+          fileObjects={null} // Shouldn't be needed, seems to be a TS glitch
+          filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}
           maxFileSize={10000000}
