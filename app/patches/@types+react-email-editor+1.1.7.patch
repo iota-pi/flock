@@ -1,0 +1,12 @@
+diff --git a/node_modules/@types/react-email-editor/index.d.ts b/node_modules/@types/react-email-editor/index.d.ts
+index 5b28907..a3bf55c 100755
+--- a/node_modules/@types/react-email-editor/index.d.ts
++++ b/node_modules/@types/react-email-editor/index.d.ts
+@@ -180,6 +180,7 @@ export default class Component extends ReactComponent<EmailEditorProps> {
+     registerCallback(type: 'image', callback: FileUploadCallback): void;
+     registerCallback(type: 'displayCondition', callback: DisplayConditionCallback): void;
+     addEventListener(type: string, callback: EventCallback): void;
++    removeEventListener(type: string, callback: EventCallback): void;
+     loadDesign(design: Design): void;
+     saveDesign(callback: SaveDesignCallback): void;
+     exportHtml(callback: ExportHtmlCallback): void;

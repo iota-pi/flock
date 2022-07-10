@@ -39,6 +39,7 @@ export interface BaseProps {
 
 export interface PropsWithSave extends BaseProps {
   canSave: boolean,
+  disableAutoCloseOnSave?: boolean,
   onCancel: () => void,
   onDelete: () => void,
   onDone?: undefined,
@@ -50,6 +51,7 @@ export interface PropsWithSave extends BaseProps {
 
 export interface PropsWithDone extends BaseProps {
   canSave?: undefined,
+  disableAutoCloseOnSave?: undefined,
   onCancel?: undefined,
   onDelete?: undefined,
   onDone: () => void,
@@ -61,6 +63,7 @@ export interface PropsWithDone extends BaseProps {
 
 export interface PropsWithNext extends BaseProps {
   canSave?: undefined,
+  disableAutoCloseOnSave?: undefined,
   onCancel?: undefined,
   onDelete?: undefined,
   onDone?: undefined,
@@ -75,6 +78,7 @@ export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
 
 function DrawerActions({
   canSave,
+  disableAutoCloseOnSave,
   itemIsNew,
   itemHasNotes,
   itemName,
@@ -179,7 +183,7 @@ function DrawerActions({
                 startIcon={<SaveIcon />}
                 variant={promptSave || itemIsNew ? 'contained' : 'outlined'}
               >
-                {permanentDrawer && promptSave ? 'Save' : 'Done'}
+                {(permanentDrawer || disableAutoCloseOnSave) && promptSave ? 'Save' : 'Done'}
               </Button>
             </Grid>
           )}

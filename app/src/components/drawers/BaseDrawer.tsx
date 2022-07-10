@@ -100,6 +100,7 @@ interface BaseProps {
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   alwaysShowBack?: boolean,
+  disableAutoCloseOnSave?: boolean,
   fullScreen?: boolean,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
@@ -115,6 +116,7 @@ function BaseDrawer({
   alwaysShowBack = false,
   alwaysTemporary = false,
   children,
+  disableAutoCloseOnSave = false,
   fullScreen,
   hideBackButton = false,
   hideTypeIcon = false,
@@ -167,14 +169,14 @@ function BaseDrawer({
       if (ActionProps?.onSave) {
         return () => {
           ActionProps.onSave();
-          if (!(permanentDrawer && ActionProps.promptSave)) {
+          if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
             onClose();
           }
         };
       }
       return undefined;
     },
-    [ActionProps, onClose, permanentDrawer],
+    [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
   );
   const modifiedActionProps = useMemo(
     () => ActionProps && ({

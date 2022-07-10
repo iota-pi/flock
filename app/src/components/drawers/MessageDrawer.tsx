@@ -11,6 +11,8 @@ import {
   Stack, TextField,
 } from '@mui/material';
 import makeStyles from '@mui/styles/makeStyles';
+import debounce from 'debounce';
+import objectHash from 'object-hash';
 import EmailEditor from 'react-email-editor';
 import { MessageItem } from '../../state/items';
 import { useMetadata, useVault } from '../../state/selectors';
@@ -47,7 +49,9 @@ function MessageDrawer({
 }: Props) {
   const emailEditorRef = useRef<EmailEditor>(null);
   const [emailSettings] = useMetadata('emailSettings');
+  const lastDesignHash = useRef<string>();
   const messages = useAppSelector(state => state.messages);
+  const [pendingSave, setPendingSave] = useState(false);
   const vault = useVault();
   const [sendStats, setSendStats] = useState({ successCount: 0, errorCount: 0 });
 
@@ -72,13 +76,18 @@ function MessageDrawer({
   const handleEditorReady = useCallback(
     () => {
       const data = message?.data;
-      if (data) {
-        emailEditorRef.current?.loadDesign(data);
+      const editor = emailEditorRef.current;
+      if (editor) {
+        if (data && Object.keys(data).length > 0) {
+          editor.loadDesign(data);
+        } else {
+          editor.loadDesign(template);
+        }
       } else {
-        emailEditorRef.current?.loadDesign(template);
+        console.warn('Email editor ready event called while ref is not set');
       }
     },
-    [emailEditorRef, message?.data],
+    [message?.data],
   );
   const handleChangeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
@@ -87,20 +96,23 @@ function MessageDrawer({
   const handleSave = useCallback(
     (callback?: () => void) => {
       if (message?.message) {
-        emailEditorRef.current?.saveDesign(data => {
-          const newMessage: MessageFull = {
-            created: new Date().getTime(),
-            data,
-            message: message.message,
-            name,
-            sentTo: message.sentTo,
-          };
-          vault?.koinonia.saveMessage(newMessage);
-          callback?.();
+        emailEditorRef.current?.exportHtml(({ design }) => {
+          if (design && Object.keys(design).length > 0) {
+            const newMessage: MessageFull = {
+              created: message.created || new Date().getTime(),
+              data: design,
+              message: message.message,
+              name,
+              sentTo: message.sentTo,
+            };
+            vault?.koinonia.saveMessage(newMessage);
+            callback?.();
+            setPendingSave(false);
+          }
         });
       }
     },
-    [emailEditorRef, message?.message, message?.sentTo, name, vault],
+    [message?.created, message?.message, message?.sentTo, name, vault],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -109,8 +121,14 @@ function MessageDrawer({
     [handleSave, onClose],
   );
   const handleSaveButton = useCallback(
-    () => handleSave(),
-    [handleSave],
+    () => {
+      if (pendingSave) {
+        handleSave();
+      } else {
+        handleSaveAndClose();
+      }
+    },
+    [handleSave, handleSaveAndClose, pendingSave],
   );
   const handleCancel = useCallback(() => setCancelled(true), []);
   const handleDelete = useCallback(
@@ -147,6 +165,41 @@ function MessageDrawer({
     [cancelled, handleSave],
   );
 
+  const autoSave = useMemo(
+    () => debounce(handleSave, 10000),
+    [handleSave],
+  );
+  const handleDesignUpdate = useCallback(
+    () => {
+      console.log('design updated');
+      setPendingSave(true);
+      autoSave();
+    },
+    [autoSave],
+  );
+  useEffect(
+    () => {
+      const interval = setInterval(
+        () => {
+          if (emailEditorRef.current) {
+            emailEditorRef.current.exportHtml(({ design }) => {
+              if (design) {
+                const currentDesignHash = objectHash(design);
+                if (lastDesignHash.current !== currentDesignHash) {
+                  lastDesignHash.current = currentDesignHash;
+                  handleDesignUpdate();
+                }
+              }
+            });
+          }
+        },
+        100,
+      );
+      return () => clearInterval(interval);
+    },
+    [handleDesignUpdate],
+  );
+
   useEffect(
     () => {
       if (cancelled) onClose();
@@ -159,8 +212,10 @@ function MessageDrawer({
       ActionProps={{
         canSave: true,
         canSend: !!emailSettings && Object.entries(emailSettings).every(s => !!s),
+        disableAutoCloseOnSave: true,
         itemIsNew: false,
         itemName: name,
+        promptSave: pendingSave,
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
@@ -168,6 +223,7 @@ function MessageDrawer({
       }}
       alwaysTemporary
       alwaysShowBack
+      disableAutoCloseOnSave
       fullScreen
       itemKey={message?.message}
       onBack={onBack}
