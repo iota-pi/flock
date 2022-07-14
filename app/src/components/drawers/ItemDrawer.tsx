@@ -9,7 +9,6 @@ import {
   Button,
   Collapse,
   Grid,
-  styled,
   TextField,
 } from '@mui/material';
 import {
@@ -40,15 +39,21 @@ import CollapsibleSection from './utils/CollapsibleSection';
 import DuplicateAlert from './utils/DuplicateAlert';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
-import { ActionIcon, ArchiveIcon, getIcon, getIconType, GroupIcon, InteractionIcon, PersonIcon, PrayerIcon, UnarchiveIcon } from '../Icons';
+import {
+  ActionIcon,
+  ArchiveIcon,
+  getIcon,
+  getIconType,
+  GroupIcon,
+  InteractionIcon,
+  PersonIcon,
+  PrayerIcon,
+  UnarchiveIcon,
+} from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
 
-
-const SectionHolder = styled('div')({
-  flexGrow: 1,
-});
 
 export interface Props extends BaseDrawerProps {
   item: DirtyItem<Item>,
@@ -263,7 +268,7 @@ function ItemDrawer({
     () => (
       lastName !== undefined ? (
         <>
-          <Grid item xs={6}>
+          <Grid item xs={6} lg={3}>
             <TextField
               autoFocus
               data-cy="firstName"
@@ -277,7 +282,7 @@ function ItemDrawer({
             />
           </Grid>
 
-          <Grid item xs={6}>
+          <Grid item xs={6} lg={3}>
             <TextField
               fullWidth
               data-cy="lastName"
@@ -289,7 +294,7 @@ function ItemDrawer({
           </Grid>
         </>
       ) : (
-        <Grid item xs={12}>
+        <Grid item xs={12} lg={6}>
           <TextField
             autoFocus
             data-cy="name"
@@ -350,11 +355,11 @@ function ItemDrawer({
   const { archived, tags } = item;
   const descriptionField = useMemo(
     () => (
-      <Grid item xs={12}>
+      <Grid item xs={12} lg={6}>
         <TextField
           data-cy="description"
           fullWidth
-          label="Description"
+          label="Short Description"
           onChange={event => handleChange({ description: getValue(event) })}
           value={item.description}
           variant="standard"
@@ -591,24 +596,24 @@ function ItemDrawer({
 
         {nameFields}
 
-        {emailField}
-        {phoneField}
-
         {descriptionField}
         {summaryField}
         {tagsField}
 
         {maturityField}
 
-        {frequencyField}
-
-        <SectionHolder>
+        <Grid item xs={12}>
           {membersSection}
           {prayerSection}
           {interactionSection}
           {actionSection}
           {groupsSection}
-        </SectionHolder>
+        </Grid>
+
+        {emailField}
+        {phoneField}
+
+        {frequencyField}
       </Grid>
 
       <Grid container spacing={1} mt={1}>
