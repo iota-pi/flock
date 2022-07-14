@@ -9,8 +9,35 @@ import { usePrevious } from '../../utils';
 
 const noOp = () => {};
 
-const StyledDrawer = styled(SwipeableDrawer)({
-  flexShrink: 0,
+const StyledDrawer = styled(
+  SwipeableDrawer,
+  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'stacked' },
+)<{ fullScreen: boolean, stacked: boolean }>(({ fullScreen, stacked, theme }) => {
+  const drawerWidth = (
+    fullScreen ? {
+      width: '100vw',
+    } : {
+      width: stacked ? '35vw' : '45vw',
+      [theme.breakpoints.down('lg')]: {
+        width: stacked ? '55vw' : '70vw',
+      },
+      [theme.breakpoints.down('md')]: {
+        width: stacked ? '70vw' : '85vw',
+      },
+      [theme.breakpoints.only('xs')]: {
+        width: '100vw',
+      },
+    }
+  );
+  return {
+    ...drawerWidth,
+    flexShrink: 0,
+
+    '& .MuiDrawer-paper': {
+      ...drawerWidth,
+      boxSizing: 'border-box',
+    },
+  };
 });
 const Layout = styled('div')({
   display: 'flex',
@@ -71,7 +98,7 @@ function BaseDrawer({
   alwaysTemporary = false,
   children,
   disableAutoCloseOnSave = false,
-  fullScreen,
+  fullScreen = false,
   hideBackButton = false,
   hideTypeIcon = false,
   itemKey,
@@ -80,7 +107,7 @@ function BaseDrawer({
   onExited,
   onUnmount,
   open,
-  stacked,
+  stacked = false,
   typeIcon: Icon,
 }: PropsWithChildren<Props>) {
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
@@ -94,37 +121,14 @@ function BaseDrawer({
   );
   const showTypeIcon = !hideTypeIcon;
 
-  const drawerWidth: SxProps = useMemo(
-    () => (
-      fullScreen ? {
-        width: '100vw',
-      } : {
-        xs: {
-          width: '100vw',
-        },
-        md: {
-          width: stacked ? '70vw' : '85vw',
-        },
-        lg: {
-          width: stacked ? '55vw' : '70vw',
-        },
-        xl: {
-          width: stacked ? '40vw' : '35vw',
-        },
-      }
-    ),
-    [fullScreen, stacked],
-  );
   const rootSx: SxProps<Theme> = useMemo(
     () => ({
-      ...drawerWidth,
       zIndex: theme => (permanentDrawer ? theme.zIndex.appBar - 1 : undefined),
     }),
-    [drawerWidth, permanentDrawer],
+    [permanentDrawer],
   );
   const paperSx: SxProps<Theme> = useMemo(
     () => ({
-      ...drawerWidth,
       backgroundColor: theme => (
         theme.palette.mode === 'dark'
           ? theme.palette.background.default
@@ -137,7 +141,7 @@ function BaseDrawer({
         zIndex: theme.zIndex.appBar - 1,
       }))),
     }),
-    [drawerWidth, permanentDrawer],
+    [permanentDrawer],
   );
   const paperProps: Partial<PaperProps> = useMemo(() => ({ sx: paperSx }), [paperSx]);
 
@@ -195,14 +199,16 @@ function BaseDrawer({
   return (
     <StyledDrawer
       anchor="right"
-      PaperProps={paperProps}
       disableSwipeToOpen
+      fullScreen={fullScreen}
       onClose={onClose}
       onOpen={noOp}
       onKeyDown={handleKeyDown}
       open={open}
-      sx={rootSx}
+      PaperProps={paperProps}
       SlideProps={{ onExited }}
+      stacked={stacked}
+      sx={rootSx}
       variant={permanentDrawer ? 'permanent' : 'temporary'}
     >
       <UnmountWatcher onUnmount={onUnmount} />
