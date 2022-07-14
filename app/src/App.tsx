@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
-import { Toolbar, useMediaQuery } from '@mui/material';
+import { styled, Toolbar, useMediaQuery } from '@mui/material';
 import { Theme } from '@mui/material/styles';
-import AdapterDateFns from '@mui/lab/AdapterDateFns';
-import LocalizationProvider from '@mui/lab/LocalizationProvider';
-import makeStyles from '@mui/styles/makeStyles';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import AppBar from './components/layout/AppBar';
 import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';
@@ -15,22 +14,15 @@ import migrateItems from './state/migrations';
 import Vault from './api/Vault';
 import MainLayout from './components/layout/MainLayout';
 
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    display: 'flex',
-    height: '100vh',
-  },
-  section: {
-    paddingTop: theme.spacing(4),
-    paddingBottom: theme.spacing(4),
-  },
-  content: {
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-}));
+const Root = styled('div')({
+  display: 'flex',
+  height: '100vh',
+});
+const Content = styled('div')({
+  flexGrow: 1,
+  display: 'flex',
+  flexDirection: 'column',
+});
 
 async function initialLoadFromVault(vault: Vault) {
   const accountDataPromise = vault.getMetadata();
@@ -49,7 +41,6 @@ async function initialLoadFromVault(vault: Vault) {
 }
 
 export default function App() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const loggedIn = useLoggedIn();
   const vault = useVault();
@@ -104,7 +95,7 @@ export default function App() {
     <>
       <LocalizationProvider dateAdapter={AdapterDateFns}>
         <Router>
-          <div className={classes.root}>
+          <Root>
             {loggedIn && (
               <>
                 <AppBar
@@ -120,7 +111,7 @@ export default function App() {
               </>
             )}
 
-            <div className={classes.content}>
+            <Content>
               {loggedIn && (
                 <Toolbar />
               )}
@@ -128,8 +119,8 @@ export default function App() {
               <MainLayout>
                 <PageView />
               </MainLayout>
-            </div>
-          </div>
+            </Content>
+          </Root>
         </Router>
       </LocalizationProvider>
     </>

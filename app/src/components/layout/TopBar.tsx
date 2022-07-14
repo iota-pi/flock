@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
+  Box,
   Checkbox,
   IconButton,
   ListItemIcon,
   Menu,
   MenuItem,
   Paper,
+  styled,
   Theme,
   Typography,
   useMediaQuery,
@@ -21,18 +22,13 @@ import { useAppSelector } from '../../store';
 
 const MENU_POPUP_ID = 'top-bar-menu';
 
-const useStyles = makeStyles(theme => ({
-  root: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: theme.spacing(2),
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  padding: theme.spacing(2),
 
-    [theme.breakpoints.down('md')]: {
-      padding: theme.spacing(1),
-    },
-  },
-  spacer: {
-    flexGrow: 1,
+  [theme.breakpoints.down('md')]: {
+    padding: theme.spacing(1),
   },
 }));
 
@@ -62,8 +58,6 @@ function TopBar({
   sortable,
   title,
 }: Props) {
-  const classes = useStyles();
-
   const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile');
   const [showOptions, setShowOptions] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
@@ -129,7 +123,7 @@ function TopBar({
   );
 
   return (
-    <Paper className={classes.root}>
+    <StyledPaper>
       {showCheckbox && (
         <div>
           <Checkbox
@@ -147,7 +141,7 @@ function TopBar({
         </div>
       )}
 
-      <div className={classes.spacer} />
+      <Box flexGrow={1} />
 
       {filterable && (
         <IconButton
@@ -209,7 +203,7 @@ function TopBar({
         onClose={handleCloseSort}
         open={showSort}
       />
-    </Paper>
+    </StyledPaper>
   );
 }
 

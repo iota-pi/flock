@@ -2,7 +2,6 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import DeleteIcon from '@mui/icons-material/Close';
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items';
 import { useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
@@ -12,12 +11,6 @@ import { pushActive } from '../state/ui';
 import { sortItems } from '../utils/customSort';
 import Search from './Search';
 
-
-const useStyles = makeStyles(() => ({
-  list: {
-    paddingBottom: 0,
-  },
-}));
 
 export interface Props {
   editable?: boolean,
@@ -30,7 +23,6 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
   const [sortCriteria] = useSortCriteria();
@@ -77,7 +69,6 @@ function MemberDisplay({
       )}
 
       <ItemList
-        className={classes.list}
         compact
         dividers
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
@@ -85,6 +76,7 @@ function MemberDisplay({
         noItemsHint="No group members"
         onClick={handleClickItem}
         onClickAction={editable ? handleRemoveMember : undefined}
+        paddingBottom={0}
         showIcons
       />
     </>

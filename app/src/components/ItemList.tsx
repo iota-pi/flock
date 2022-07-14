@@ -21,6 +21,7 @@ import {
   ListItemText,
   ListItemTextProps,
   styled,
+  SxProps,
   Theme,
   useMediaQuery,
 } from '@mui/material';
@@ -109,6 +110,7 @@ export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
   disablePadding?: boolean,
   noItemsHint?: string,
   noItemsText?: string,
+  paddingBottom?: number,
   viewHeight?: number,
 }
 
@@ -328,6 +330,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     onClick,
     onClickAction,
     onCheck,
+    paddingBottom,
     showIcons = false,
     showTags = true,
     viewHeight,
@@ -456,10 +459,13 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     [listRef, memoisedHeights, prevHeights],
   );
 
+  const rootStyles: SxProps = useMemo(() => ({ paddingBottom }), [paddingBottom]);
+
   return (
     <List
       className={className}
       disablePadding={disablePadding}
+      sx={rootStyles}
     >
       {dividers && items.length === 0 && <Divider />}
 

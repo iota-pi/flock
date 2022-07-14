@@ -1,7 +1,13 @@
 import { memo, useEffect, useRef } from 'react';
-import { Alert, Typography } from '@mui/material';
+import { Alert, styled, Typography } from '@mui/material';
 import { getItemTypeLabel, ItemType } from '../../../state/items';
-import { useStyles } from '../ItemDrawer';
+import InlineText from '../../InlineText';
+
+const StyledAlert = styled(Alert)(({ theme }) => ({
+  transition: theme.transitions.create('all'),
+  marginTop: theme.spacing(1),
+}));
+
 
 const DuplicateAlert = memo(({
   count, hasDescription, itemType,
@@ -10,7 +16,6 @@ const DuplicateAlert = memo(({
   hasDescription: boolean;
   itemType: ItemType;
 }) => {
-  const classes = useStyles();
   const ref = useRef<number>(1);
   useEffect(() => {
     if (count > 0) {
@@ -23,12 +28,11 @@ const DuplicateAlert = memo(({
   const areOrIs = plural ? 'are' : 'is';
 
   return (
-    <Alert
-      className={classes.alert}
+    <StyledAlert
       severity={hasDescription ? 'info' : 'warning'}
     >
       <Typography paragraph={!hasDescription}>
-        There {areOrIs} <span className={classes.emphasis}>{displayCount}</span>
+        There {areOrIs} <InlineText fontWeight={500}>{displayCount}</InlineText>
         {' other '}
         {getItemTypeLabel(itemType, plural).toLowerCase()}
         {' with this name.'}
@@ -39,12 +43,12 @@ const DuplicateAlert = memo(({
           Please check if this is a duplicate.
           Otherwise, it may be helpful to
           {' '}
-          <span className={classes.emphasis}>add a description</span>
+          <InlineText fontWeight={500}>add a description</InlineText>
           {' '}
           to help distinguish between these {getItemTypeLabel(itemType, true).toLowerCase()}.
         </Typography>
       )}
-    </Alert>
+    </StyledAlert>
   );
 });
 DuplicateAlert.displayName = 'DuplicateAlert';

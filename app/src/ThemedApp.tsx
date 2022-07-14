@@ -1,6 +1,5 @@
 import {
   CssBaseline,
-  Theme,
   ThemeProvider,
   StyledEngineProvider,
 } from '@mui/material';
@@ -9,9 +8,6 @@ import App from './App';
 import { useAppSelector } from './store';
 import getTheme from './theme';
 
-declare module '@mui/styles/defaultTheme' {
-  interface DefaultTheme extends Theme {}
-}
 
 export default function ThemedApp() {
   const darkMode = useAppSelector(state => state.ui.darkMode);

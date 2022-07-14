@@ -2,6 +2,7 @@ import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react
 import { Link, useHistory, useLocation } from 'react-router-dom';
 import {
   Alert,
+  Box,
   Button,
   Container,
   IconButton,
@@ -10,7 +11,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { getPage } from '.';
@@ -20,22 +20,6 @@ import { setAccount } from '../../state/account';
 import { setVault } from '../../state/vault';
 import { HomeIcon } from '../Icons';
 
-
-const useStyles = makeStyles(theme => ({
-  alert: {
-    marginBottom: theme.spacing(4),
-  },
-  textFieldHolder: {
-    display: 'flex',
-    flexGrow: 1,
-  },
-  textField: {
-    marginBottom: theme.spacing(2),
-  },
-  errorMessage: {
-    marginTop: theme.spacing(2),
-  },
-}));
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -70,7 +54,6 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 
 function LoginPage() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
   const location = useLocation();
@@ -166,18 +149,19 @@ function LoginPage() {
           </Typography>
 
           {justCreated && (
-            <Alert severity="success" className={classes.alert}>
-              Account successfully created!
-              Please record your account ID and password and login again to continue.
-            </Alert>
+            <Box mb={4}>
+              <Alert severity="success">
+                Account successfully created!
+                Please record your account ID and password and login again to continue.
+              </Alert>
+            </Box>
           )}
 
           <FormContent>
-            <div className={classes.textFieldHolder}>
+            <Box display="flex" flexGrow={1} mb={2}>
               <TextField
                 autoComplete="username"
                 autoFocus
-                className={classes.textField}
                 fullWidth
                 id="username"
                 label="Account ID"
@@ -186,12 +170,11 @@ function LoginPage() {
                 value={accountInput}
                 variant="standard"
               />
-            </div>
+            </Box>
 
-            <div className={classes.textFieldHolder}>
+            <Box display="flex" flexGrow={1} mb={2}>
               <TextField
                 autoComplete="current-password"
-                className={classes.textField}
                 fullWidth
                 id="current-password"
                 InputProps={{
@@ -214,7 +197,7 @@ function LoginPage() {
                 value={password}
                 variant="standard"
               />
-            </div>
+            </Box>
 
             <Button
               color="primary"
@@ -228,7 +211,7 @@ function LoginPage() {
             </Button>
 
             {error && (
-              <Typography paragraph color="error" className={classes.errorMessage}>
+              <Typography paragraph color="error" mt={2}>
                 {error}
               </Typography>
             )}

@@ -15,6 +15,7 @@ import { ListChildComponentProps, VariableSizeList } from 'react-window';
 import {
   Autocomplete,
   autocompleteClasses,
+  Box,
   Chip,
   Divider,
   InputAdornment,
@@ -23,6 +24,7 @@ import {
   Popper,
   styled,
   TextField,
+  Theme,
   ThemeProvider,
   Typography,
 } from '@mui/material';
@@ -30,7 +32,6 @@ import {
   AutocompleteChangeReason,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete';
-import makeStyles from '@mui/styles/makeStyles';
 import { KeyOption, matchSorter } from 'match-sorter';
 import {
   compareItems,
@@ -42,6 +43,7 @@ import {
   MessageItem,
   splitName,
 } from '../state/items';
+import InlineText from './InlineText';
 import { getIcon, MuiIconType } from './Icons';
 import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors';
 import { useAppSelector } from '../store';
@@ -53,52 +55,25 @@ import { getMessageItem } from '../state/koinonia';
 
 const LISTBOX_PADDING = 8;
 
-const useStyles = makeStyles(theme => ({
-  optionHolder: {
-    display: 'block',
-    padding: 0,
-  },
-  autocompleteOption: {
-    alignItems: 'center',
-    display: 'flex',
-    minWidth: 0,
-    padding: theme.spacing(1.75, 0),
-  },
-  optionIcon: {
-    display: 'flex',
-    alignItems: 'center',
-    paddingRight: theme.spacing(2),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-  nameHolder: {
-    minWidth: 0,
-  },
-  optionName: {
-    flexGrow: 1,
-    minWidth: 0,
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-  },
-  groupMembers: {
-    opacity: 0.85,
-    fontWeight: 300,
-    whiteSpace: 'pre',
-  },
-  description: {
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    fontSize: theme.typography.caption.fontSize,
-  },
-  itemChip: {
-    marginRight: theme.spacing(1),
-    marginTop: theme.spacing(0.25),
-    marginBottom: theme.spacing(0.25),
-  },
+const OptionHolder = styled('li')({
+  display: 'block',
+  padding: 0,
+});
+const AutocompleteOption = styled('div')(({ theme }) => ({
+  alignItems: 'center',
+  display: 'flex',
+  minWidth: 0,
+  padding: theme.spacing(1.75, 0),
 }));
+const OptionIconHolder = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  paddingRight: theme.spacing(2),
+}));
+const OptionName = styled(Typography)({
+  flexGrow: 1,
+  minWidth: 0,
+});
 
 interface SearchableItem<T extends Item = Item> {
   create?: false,
@@ -195,7 +170,6 @@ function OptionComponent({
   showGroupMemberCount: boolean,
   showIcon: boolean,
 }) {
-  const classes = useStyles();
   const icon = getIcon(option.type);
   const name = getName(option);
   const item = isSearchableStandardItem(option) ? option.data : undefined;
@@ -227,42 +201,57 @@ function OptionComponent({
     [item],
   );
 
+  const getFontSize = useCallback(
+    (theme: Theme) => theme.typography.caption.fontSize,
+    [],
+  );
+
   return (
     <>
       {option.dividerBefore && <Divider />}
 
-      <div className={classes.autocompleteOption}>
+      <AutocompleteOption>
         {showIcon && (
-          <div className={classes.optionIcon}>
+          <OptionIconHolder>
             {icon}
-          </div>
+          </OptionIconHolder>
         )}
 
         {option.create ? (
           <div>
             <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-            <span className={classes.emphasis}>{name}</span>
+            <Typography fontWeight={500}>
+              {name}
+            </Typography>
           </div>
         ) : (
-          <div className={classes.nameHolder}>
+          <Box minWidth={0}>
             <Typography display="flex" alignItems="center">
-              <span className={classes.optionName}>
+              <OptionName noWrap>
                 {name}
-              </span>
+              </OptionName>
 
-              <span className={classes.groupMembers}>
+              <InlineText
+                color="text.secondary"
+                fontWeight={300}
+                whiteSpace="pre"
+              >
                 {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
-              </span>
+              </InlineText>
             </Typography>
 
             {showDescription && clippedDescription && (
-              <Typography color="textSecondary" className={classes.description}>
+              <InlineText
+                color="text.secondary"
+                fontSize={getFontSize}
+                noWrap
+              >
                 {clippedDescription}
-              </Typography>
+              </InlineText>
             )}
-          </div>
+          </Box>
         )}
-      </div>
+      </AutocompleteOption>
     </>
   );
 }
@@ -278,7 +267,6 @@ type PropsAndOptionList = PropsAndOption[];
 const SearchableRow = memo((
   props: ListChildComponentProps<PropsAndOptionList>,
 ) => {
-  const classes = useStyles();
   const { data, index, style } = props;
   const [optionProps, option, settings] = data[index];
   const inlineStyle = {
@@ -287,9 +275,8 @@ const SearchableRow = memo((
   };
 
   return (
-    <li
+    <OptionHolder
       {...optionProps}
-      className={`${optionProps.className} ${classes.optionHolder}`}
       key={option.id}
       style={inlineStyle}
     >
@@ -299,7 +286,7 @@ const SearchableRow = memo((
         showGroupMemberCount={settings.showGroupMemberCounts}
         showIcon={settings.showIcons}
       />
-    </li>
+    </OptionHolder>
   );
 });
 SearchableRow.displayName = 'SearchableRow';

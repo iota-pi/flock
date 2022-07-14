@@ -1,6 +1,5 @@
-import { useMemo } from 'react';
-import { IconButton, Typography } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { memo, useMemo } from 'react';
+import { Box, BoxProps, IconButton, Typography } from '@mui/material';
 import {
   getItemName,
   getNotes,
@@ -14,32 +13,12 @@ import TagDisplay from '../TagDisplay';
 import { getInteractions } from '../../utils/interactions';
 import Markdown from '../Markdown';
 
-const useStyles = makeStyles(theme => ({
-  heading: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  editButton: {
-    marginTop: theme.spacing(0.5),
-    marginLeft: theme.spacing(1),
-  },
-  section: {
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-
-    '&$lessPadding': {
-      paddingTop: theme.spacing(1),
-      paddingBottom: theme.spacing(1),
-    },
-  },
-  lessPadding: {},
-  subtleHeading: {
-    display: 'block',
-    fontWeight: 500,
-    marginTop: theme.spacing(1),
-  },
-}));
+const Section = memo(
+  ({ lessPadding, ...props }: BoxProps & { lessPadding?: boolean }) => (
+    <Box py={lessPadding ? 1 : 2} {...props} />
+  ),
+);
+Section.displayName = 'Section';
 
 interface BaseProps {
   item: Item,
@@ -63,8 +42,6 @@ function ItemReport({
   item,
   onEdit,
 }: Props) {
-  const classes = useStyles();
-
   const prayerPoints = useMemo(
     () => getNotes([item], 'prayer').sort((a, b) => b.date - a.date),
     [item],
@@ -80,22 +57,27 @@ function ItemReport({
 
   return (
     <>
-      <div className={classes.heading}>
+      <Box
+        display="flex"
+        alignItems="flex-start"
+        justifyContent="space-between"
+      >
         <Typography variant="h3">
           {getItemName(item)}
         </Typography>
 
         {canEdit && (
-          <IconButton
-            className={classes.editButton}
-            data-cy="edit-item-button"
-            onClick={onEdit}
-            size="large"
-          >
-            <EditIcon />
-          </IconButton>
+          <Box mt={0.5} ml={1}>
+            <IconButton
+              data-cy="edit-item-button"
+              onClick={onEdit}
+              size="large"
+            >
+              <EditIcon />
+            </IconButton>
+          </Box>
         )}
-      </div>
+      </Box>
 
       {item.description && (
         <Typography color="textSecondary">
@@ -103,16 +85,14 @@ function ItemReport({
         </Typography>
       )}
 
-      <div className={`${classes.section} ${classes.lessPadding}`}>
+      <Section lessPadding>
         <TagDisplay tags={item.tags} />
-      </div>
+      </Section>
 
       {item.summary && (
         <>
-          <Typography>
-            <span className={classes.subtleHeading}>
-              Notes
-            </span>
+          <Typography display="block" mt={1} fontWeight={500}>
+            Notes
           </Typography>
 
           <Markdown>
@@ -121,7 +101,7 @@ function ItemReport({
         </>
       )}
 
-      <div className={classes.section}>
+      <Section>
         <Typography variant="h4">
           Prayer Points
         </Typography>
@@ -135,10 +115,10 @@ function ItemReport({
           noNotesHint="No prayer points"
           wrapText
         />
-      </div>
+      </Section>
 
       {item.type === 'person' && (
-        <div className={classes.section}>
+        <Section>
           <Typography variant="h4">
             Interactions
           </Typography>
@@ -150,11 +130,11 @@ function ItemReport({
             noNotesHint="No interactions"
             wrapText
           />
-        </div>
+        </Section>
       )}
 
       {item.type === 'person' && (
-        <div className={classes.section}>
+        <Section>
           <Typography variant="h4">
             Groups
           </Typography>
@@ -163,11 +143,11 @@ function ItemReport({
             itemId={item.id}
             editable={false}
           />
-        </div>
+        </Section>
       )}
 
       {item.type === 'group' && (
-        <div className={classes.section}>
+        <Section>
           <Typography variant="h4">
             Members
           </Typography>
@@ -177,7 +157,7 @@ function ItemReport({
             memberIds={item.members}
             onChange={() => {}}
           />
-        </div>
+        </Section>
       )}
     </>
   );

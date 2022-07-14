@@ -4,7 +4,6 @@ import zxcvbn from 'zxcvbn';
 import {
   alpha,
   Button,
-  CircularProgress,
   Collapse,
   Container,
   IconButton,
@@ -12,83 +11,21 @@ import {
   LinearProgress,
   styled,
   TextField,
+  Theme,
   Typography,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { LoadingButton } from '@mui/lab';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Visibility from '@mui/icons-material/Visibility';
 import { getPage } from '.';
+import { HomeIcon } from '../Icons';
 import Vault from '../../api/Vault';
 import { getAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
-import { HomeIcon } from '../Icons';
+import customDomainWords from '../../utils/customDomainWords';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    padding: theme.spacing(4),
-    flexGrow: 1,
-  },
-  section: {
-    paddingBottom: theme.spacing(8),
-  },
-  textFieldHolder: {
-    display: 'flex',
-    flexDirection: 'column',
-    marginBottom: theme.spacing(2),
-  },
-  textField: {
-    flexGrow: 1,
-    marginBottom: theme.spacing(1),
-  },
-  errorMessage: {
-    marginTop: theme.spacing(2),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-  meterHolder: {
-    marginTop: theme.spacing(1),
-    marginBottom: theme.spacing(1),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  meter: {
-    height: 2,
-    flexGrow: 1,
-    marginLeft: theme.spacing(2),
-
-    '&$meterBad': {
-      backgroundColor: alpha(theme.palette.error.main, 0.5),
-    },
-    '&$meterOkay': {
-      backgroundColor: alpha(theme.palette.warning.main, 0.5),
-    },
-    '&$meterGood': {
-      backgroundColor: alpha(theme.palette.success.main, 0.5),
-    },
-  },
-  meterBad: {
-    backgroundColor: theme.palette.error.main,
-  },
-  meterOkay: {
-    backgroundColor: theme.palette.warning.main,
-  },
-  meterGood: {
-    backgroundColor: theme.palette.success.main,
-  },
-  buttonProgress: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginTop: -12,
-    marginLeft: -12,
-  },
-}));
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -114,6 +51,30 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
   top: theme.spacing(2),
   left: theme.spacing(2),
 }));
+const StyledTextField = styled(TextField)(({ theme }) => ({
+  marginBottom: theme.spacing(1),
+}));
+const MeterHolder = styled(TextField)(({ theme }) => ({
+  marginTop: theme.spacing(1),
+  marginBottom: theme.spacing(1),
+  flexGrow: 1,
+  display: 'flex',
+  flexDirection: 'row',
+  alignItems: 'center',
+}));
+const PasswordMeter = styled(LinearProgress)<{ strength: number }>(({ strength, theme }) => {
+  const colour = passwordScoreToColour(strength, theme);
+  return {
+    height: 2,
+    flexGrow: 1,
+    marginLeft: theme.spacing(2),
+
+    backgroundColor: alpha(colour, 0.5),
+    '& .MuiLinearProgress-bar': {
+      backgroundColor: colour,
+    },
+  };
+});
 
 export interface ChecklistItem {
   id: string,
@@ -121,24 +82,8 @@ export interface ChecklistItem {
 }
 
 function scorePassword(password: string): zxcvbn.ZXCVBNResult {
-  const customDomainWords: string[] = [
-    'flock',
-    '1peter',
-    'cross-code.org',
-    'gracious',
-    'shepherd',
-    'sheep',
-    'field',
-    'pasture',
-    'among',
-    'oversight',
-    'overseer',
-    'jesus',
-    'correcthorse',
-    'batterystaple',
-  ];
   const mainScore = zxcvbn(password, customDomainWords);
-  const harshScore = zxcvbn(password.substr(3), customDomainWords);
+  const harshScore = zxcvbn(password.slice(3), customDomainWords);
   mainScore.score = Math.min(mainScore.score, harshScore.score) as zxcvbn.ZXCVBNScore;
   return mainScore;
 }
@@ -148,20 +93,19 @@ function passwordScoreToWord(score: number) {
   return words[Math.min(score, words.length - 1)];
 }
 
-function passwordScoreToClass(score: number, classes: ReturnType<typeof useStyles>) {
+function passwordScoreToColour(score: number, theme: Theme) {
   const words = [
-    classes.meterBad,
-    classes.meterBad,
-    classes.meterBad,
-    classes.meterOkay,
-    classes.meterGood,
+    theme.palette.error.main,
+    theme.palette.error.main,
+    theme.palette.error.main,
+    theme.palette.warning.main,
+    theme.palette.success.main,
   ];
   return words[Math.min(score, words.length - 1)];
 }
 
 
 function CreateAccountPage() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
 
@@ -287,9 +231,8 @@ function CreateAccountPage() {
             if you forget your account ID or password.
           </Typography>
 
-          <TextField
+          <StyledTextField
             autoComplete="username"
-            className={classes.textField}
             disabled
             fullWidth
             id="username"
@@ -298,9 +241,8 @@ function CreateAccountPage() {
             variant="standard"
           />
 
-          <TextField
+          <StyledTextField
             autoComplete="password"
-            className={classes.textField}
             fullWidth
             id="password"
             InputProps={{
@@ -323,9 +265,8 @@ function CreateAccountPage() {
             variant="standard"
           />
 
-          <TextField
+          <StyledTextField
             autoComplete="confirm-password"
-            className={classes.textField}
             fullWidth
             id="confirm-password"
             InputProps={{
@@ -347,24 +288,21 @@ function CreateAccountPage() {
             variant="standard"
           />
 
-          <div className={classes.meterHolder}>
+          <MeterHolder>
             <Typography>
               Password Strength:
               {' '}
-              <span className={classes.emphasis}>
+              <Typography fontWeight={500}>
                 {passwordScoreToWord(passwordScore)}
-              </span>
+              </Typography>
             </Typography>
 
-            <LinearProgress
+            <PasswordMeter
+              strength={passwordScore}
               value={passwordScore * 25}
               variant="determinate"
-              className={`${classes.meter} ${passwordScoreToClass(passwordScore, classes)}`}
-              classes={{
-                bar: passwordScoreToClass(passwordScore, classes),
-              }}
             />
-          </div>
+          </MeterHolder>
 
           <Collapse in={!!passwordError}>
             <Typography color="error" paragraph>
@@ -374,7 +312,7 @@ function CreateAccountPage() {
             </Typography>
           </Collapse>
 
-          <Button
+          <LoadingButton
             color="primary"
             data-cy="create-account"
             disabled={!validPassword || waiting}
@@ -382,19 +320,13 @@ function CreateAccountPage() {
             onClick={handleClickCreate}
             size="large"
             variant="contained"
+            loading={waiting}
           >
             Create Account
-
-            {waiting && (
-              <CircularProgress
-                className={classes.buttonProgress}
-                size={24}
-              />
-            )}
-          </Button>
+          </LoadingButton>
 
           {error && (
-            <Typography paragraph color="error" className={classes.errorMessage}>
+            <Typography paragraph color="error" mt={2}>
               {error}
             </Typography>
           )}

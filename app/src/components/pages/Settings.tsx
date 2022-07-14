@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from 'react';
 import {
+  Box,
   Checkbox,
-  Container,
   Divider,
   FormControlLabel,
   IconButton,
@@ -12,7 +12,6 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import download from 'js-file-download';
 import BasePage from './BasePage';
 import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';
@@ -39,36 +38,7 @@ import { clearVault } from '../../state/vault';
 import { subscribe, unsubscribe } from '../../utils/firebase';
 import SubscriptionDialog from '../dialogs/SubscriptionDialog';
 import ImportPeopleDialog from '../dialogs/ImportPeopleDialog';
-
-const useStyles = makeStyles(theme => ({
-  container: {
-    flexGrow: 1,
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-
-    '&:not(:first-child)': {
-      marginTop: theme.spacing(2),
-    },
-  },
-  heading: {
-    fontWeight: 300,
-  },
-  action: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  grow: {
-    flexGrow: 1,
-  },
-  goalNumber: {
-    marginRight: theme.spacing(2),
-    fontWeight: 500,
-  },
-  paddedText: {
-    marginTop: theme.spacing(1),
-    marginBottom: theme.spacing(1),
-  },
-}));
+import PageContainer from '../PageContainer';
 
 export interface SettingsItemProps {
   disabled?: boolean,
@@ -97,8 +67,6 @@ function SettingsItem({
   tags,
   value = null,
 }: SettingsItemProps) {
-  const classes = useStyles();
-
   // This is a separate object because the typing for ListItem.button is a bit finicky
   const extraListItemProps: object = {
     button: !!onClick,
@@ -114,12 +82,12 @@ function SettingsItem({
         data-cy={id}
         onClick={onClick}
       >
-        <div className={classes.grow}>
-          <Typography
-            className={classes.paddedText}
-          >
-            {title}
-          </Typography>
+        <Box flexGrow={1}>
+          <Box py={1}>
+            <Typography>
+              {title}
+            </Typography>
+          </Box>
 
           {tags && (
             <TagDisplay
@@ -127,9 +95,9 @@ function SettingsItem({
               vertical={sm}
             />
           )}
-        </div>
+        </Box>
 
-        <div className={classes.action}>
+        <Box display="flex" alignItems="center">
           {value}
 
           {Icon && (
@@ -141,7 +109,7 @@ function SettingsItem({
               <Icon fontSize="small" />
             </IconButton>
           )}
-        </div>
+        </Box>
       </ListItem>
 
       <Divider />
@@ -151,7 +119,6 @@ function SettingsItem({
 
 function SettingsPage() {
   const account = useAppSelector(state => state.account);
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const items = useItems();
   const vault = useVault();
@@ -254,15 +221,15 @@ function SettingsPage() {
 
   return (
     <BasePage>
-      <Container maxWidth="xl" className={classes.container}>
-        <Typography variant="h4" className={classes.heading} gutterBottom>
+      <PageContainer maxWidth="xl">
+        <Typography variant="h4" fontWeight={300} gutterBottom>
           Settings
         </Typography>
 
         <Typography color="textSecondary">
           Account ID: {account}
         </Typography>
-      </Container>
+      </PageContainer>
 
       <Divider />
 
@@ -309,8 +276,9 @@ function SettingsPage() {
           title="Daily prayer goal"
           value={(
             <Typography
-              className={classes.goalNumber}
               color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
+              fontWeight={500}
+              sx={{ mr: 2 }}
             >
               {goal}
             </Typography>

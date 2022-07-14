@@ -1,6 +1,13 @@
 import { Fragment, useCallback, useMemo, useState } from 'react';
-import { Divider, List, ListItem, ListItemIcon, ListItemText, Typography } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import {
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  styled,
+  Typography,
+} from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../store';
 import {
   ActionIcon,
@@ -27,15 +34,13 @@ import { setUiState, replaceActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 import GroupDialog from './dialogs/GroupDialog';
 
-const useStyles = makeStyles(theme => ({
-  root: {
-    zIndex: theme.zIndex.drawer,
-    backgroundColor: theme.palette.background.paper,
-    transition: theme.transitions.create('all'),
-  },
-  actionIcon: {
-    minWidth: theme.spacing(5),
-  },
+const Root = styled('div')(({ theme }) => ({
+  zIndex: theme.zIndex.drawer,
+  backgroundColor: theme.palette.background.paper,
+  transition: theme.transitions.create('all'),
+}));
+const ActionIconComponent = styled(ListItemIcon)(({ theme }) => ({
+  minWidth: theme.spacing(5),
 }));
 
 export interface BulkAction {
@@ -51,7 +56,6 @@ const PADDING_HEIGHT = 2;
 const ACTION_HEIGHT = 36.02;
 
 function SelectedActions() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
   const selected = useAppSelector(state => state.ui.selected);
@@ -210,10 +214,7 @@ function SelectedActions() {
   const height = Math.ceil(PADDING_HEIGHT + ACTION_HEIGHT * actions.length);
 
   return (
-    <div
-      className={classes.root}
-      style={{ height: open ? height : 0 }}
-    >
+    <Root style={{ height: open ? height : 0 }}>
       <Divider />
 
       <List disablePadding>
@@ -227,11 +228,11 @@ function SelectedActions() {
               onClick={action.onClick}
               dense
             >
-              <ListItemIcon
-                className={[classes.actionIcon, ...(action.classes || [])].join(' ')}
+              <ActionIconComponent
+                className={(action.classes || []).join(' ')}
               >
                 <action.icon />
-              </ListItemIcon>
+              </ActionIconComponent>
 
               <ListItemText>
                 {action.label}
@@ -266,7 +267,7 @@ function SelectedActions() {
         onClose={handleHideGroup}
         open={showGroup}
       />
-    </div>
+    </Root>
   );
 }
 

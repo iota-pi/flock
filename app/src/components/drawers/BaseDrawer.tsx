@@ -1,5 +1,4 @@
-import makeStyles from '@mui/styles/makeStyles';
-import { Container, IconButton, SwipeableDrawer, Theme, Toolbar, useMediaQuery } from '@mui/material';
+import { Container, IconButton, PaperProps, styled, SwipeableDrawer, SxProps, Theme, Toolbar, useMediaQuery } from '@mui/material';
 import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect, useMemo } from 'react';
 import { MuiIconType, RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
@@ -8,85 +7,40 @@ import { ItemId } from '../../state/items';
 import { usePrevious } from '../../utils';
 
 
-const useStyles = makeStyles(theme => ({
-  root: {
-    flexShrink: 0,
-  },
-  stacked: {},
-  docked: {},
-  fullScreen: {},
-  drawerWidth: {
-    width: '40vw',
-    '&$stacked': {
-      width: '35vw',
-    },
-    '&$fullScreen': {
-      width: '100vw !important',
-    },
+const noOp = () => {};
 
-    [theme.breakpoints.down('lg')]: {
-      width: '70vw',
-      '&$stacked': {
-        width: '55vw',
-      },
-    },
-
-    [theme.breakpoints.down('md')]: {
-      width: '85vw',
-      '&$stacked': {
-        width: '70vw',
-      },
-    },
-
-    [theme.breakpoints.only('xs')]: {
-      width: '100vw',
-      '&$stacked': {
-        width: '100vw',
-      },
-    },
-  },
-  drawerPaper: {
-    backgroundColor: (
-      theme.palette.mode === 'dark'
-        ? theme.palette.background.default
-        : theme.palette.background.paper
-    ),
-    backgroundImage: 'unset',
-
-    // Docked (i.e. permanent) drawer should sit just below app bar
-    '$docked &': {
-      zIndex: theme.zIndex.appBar - 1,
-    },
-  },
-  layout: {
-    display: 'flex',
-    flexGrow: 1,
-    flexDirection: 'column',
-    overflow: 'hidden',
-  },
-  container: {
-    position: 'relative',
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  typeIcon: {
-    width: theme.spacing(6),
-    height: theme.spacing(6),
-    marginBottom: theme.spacing(1),
-    opacity: 0.8,
-  },
-  backButton: {
-    position: 'absolute',
-    display: 'flex',
-    top: theme.spacing(2),
-    right: theme.spacing(2),
-  },
+const StyledDrawer = styled(SwipeableDrawer)({
+  flexShrink: 0,
+});
+const Layout = styled('div')({
+  display: 'flex',
+  flexGrow: 1,
+  flexDirection: 'column',
+  overflow: 'hidden',
+});
+const StyledContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
+  overflowX: 'hidden',
+  overflowY: 'auto',
+  paddingTop: theme.spacing(2),
+  paddingBottom: theme.spacing(2),
+  flexGrow: 1,
+  display: 'flex',
+  flexDirection: 'column',
 }));
+const IconHolder = styled('div')(({ theme }) => ({
+  width: theme.spacing(6),
+  height: theme.spacing(6),
+  marginBottom: theme.spacing(1),
+  opacity: 0.8,
+}));
+const BackButtonHolder = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  display: 'flex',
+  top: theme.spacing(2),
+  right: theme.spacing(2),
+}));
+
 
 interface BaseProps {
   onBack?: () => void,
@@ -129,12 +83,6 @@ function BaseDrawer({
   stacked,
   typeIcon: Icon,
 }: PropsWithChildren<Props>) {
-  const classes = useStyles();
-  const commonClasses = [classes.drawerWidth];
-  if (stacked) commonClasses.push(classes.stacked);
-  if (fullScreen) commonClasses.push(classes.fullScreen);
-  const rootClasses = [classes.root, ...commonClasses];
-  const paperClasses = [classes.drawerPaper, ...commonClasses];
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
@@ -145,6 +93,53 @@ function BaseDrawer({
     )
   );
   const showTypeIcon = !hideTypeIcon;
+
+  const drawerWidth: SxProps = useMemo(
+    () => (
+      fullScreen ? {
+        width: '100vw',
+      } : {
+        xs: {
+          width: '100vw',
+        },
+        md: {
+          width: stacked ? '70vw' : '85vw',
+        },
+        lg: {
+          width: stacked ? '55vw' : '70vw',
+        },
+        xl: {
+          width: stacked ? '40vw' : '35vw',
+        },
+      }
+    ),
+    [fullScreen, stacked],
+  );
+  const rootSx: SxProps<Theme> = useMemo(
+    () => ({
+      ...drawerWidth,
+      zIndex: theme => (permanentDrawer ? theme.zIndex.appBar - 1 : undefined),
+    }),
+    [drawerWidth, permanentDrawer],
+  );
+  const paperSx: SxProps<Theme> = useMemo(
+    () => ({
+      ...drawerWidth,
+      backgroundColor: theme => (
+        theme.palette.mode === 'dark'
+          ? theme.palette.background.default
+          : theme.palette.background.paper
+      ),
+      backgroundImage: 'unset',
+
+      // Permanent drawer should sit just below app bar
+      ...(permanentDrawer && (theme => ({
+        zIndex: theme.zIndex.appBar - 1,
+      }))),
+    }),
+    [drawerWidth, permanentDrawer],
+  );
+  const paperProps: Partial<PaperProps> = useMemo(() => ({ sx: paperSx }), [paperSx]);
 
   const handleBack = useCallback(
     () => {
@@ -198,21 +193,15 @@ function BaseDrawer({
   );
 
   return (
-    <SwipeableDrawer
+    <StyledDrawer
       anchor="right"
-      classes={{
-        root: rootClasses.join(' '),
-        paper: paperClasses.join(' '),
-        docked: classes.docked,
-      }}
+      PaperProps={paperProps}
       disableSwipeToOpen
       onClose={onClose}
-      onOpen={() => {}}
+      onOpen={noOp}
       onKeyDown={handleKeyDown}
       open={open}
-      sx={{
-        zIndex: theme => (permanentDrawer ? theme.zIndex.appBar - 1 : undefined),
-      }}
+      sx={rootSx}
       SlideProps={{ onExited }}
       variant={permanentDrawer ? 'permanent' : 'temporary'}
     >
@@ -222,28 +211,29 @@ function BaseDrawer({
         <Toolbar />
       )}
 
-      <div className={classes.layout}>
-        <Container
-          className={classes.container}
+      <Layout>
+        <StyledContainer
           data-cy="drawer-content"
           ref={containerRef}
         >
           <>
             {showTypeIcon && Icon && (
-              <Icon className={classes.typeIcon} />
+              <IconHolder>
+                <Icon />
+              </IconHolder>
             )}
 
             {showBackButton && (
-              <div className={classes.backButton}>
+              <BackButtonHolder>
                 <IconButton data-cy="back-button" onClick={handleBack} size="large">
                   <RemoveIcon />
                 </IconButton>
-              </div>
+              </BackButtonHolder>
             )}
 
             {children}
           </>
-        </Container>
+        </StyledContainer>
 
         {modifiedActionProps && (
           <div>
@@ -253,8 +243,8 @@ function BaseDrawer({
             />
           </div>
         )}
-      </div>
-    </SwipeableDrawer>
+      </Layout>
+    </StyledDrawer>
   );
 }
 

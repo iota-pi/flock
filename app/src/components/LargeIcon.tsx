@@ -1,13 +1,7 @@
-import makeStyles from '@mui/styles/makeStyles';
+import { Theme } from '@mui/material';
+import { useCallback } from 'react';
 import { MuiIconType } from './Icons';
 
-
-const useStyles = makeStyles(theme => ({
-  root: {
-    width: theme.typography.h1.fontSize,
-    height: theme.typography.h1.fontSize,
-  },
-}));
 
 interface Props {
   icon: MuiIconType,
@@ -16,10 +10,16 @@ interface Props {
 function LargeIcon({
   icon: Icon,
 }: Props) {
-  const classes = useStyles();
+  const getStyle = useCallback(
+    (theme: Theme) => ({
+      width: theme.typography.h1.fontSize,
+      height: theme.typography.h1.fontSize,
+    }),
+    [],
+  );
 
   return (
-    <Icon className={classes.root} />
+    <Icon sx={getStyle} />
   );
 }
 

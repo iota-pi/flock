@@ -1,59 +1,47 @@
 import { PropsWithChildren } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
+import { Box } from '@mui/material';
 import DrawerDisplay from './DrawerDisplay';
 import SelectedActions from '../SelectedActions';
 import GeneralMessage from '../GeneralMessage';
 import { useLoggedIn } from '../../state/selectors';
 
-const useStyles = makeStyles(() => ({
-  root: {
-    display: 'flex',
-    flexGrow: 1,
-    overflow: 'hidden',
-  },
-  layout: {
-    display: 'flex',
-    flexDirection: 'column',
-    flexGrow: 1,
-    position: 'relative',
-  },
-  bottomDrawer: {
-    flexShrink: 0,
-    overflow: 'hidden',
-  },
-  pageContentHolder: {
-    display: 'flex',
-    flexDirection: 'column',
-    flexGrow: 1,
-    overflowX: 'hidden',
-    overflowY: 'hidden',
-    position: 'relative',
-  },
-}));
-
 
 function MainLayout({ children }: PropsWithChildren<{}>) {
-  const classes = useStyles();
   const loggedIn = useLoggedIn();
 
   return (
-    <div className={classes.root}>
-      <div className={classes.layout}>
-        <div className={classes.pageContentHolder}>
+    <Box
+      display="flex"
+      flexGrow={1}
+      overflow="hidden"
+    >
+      <Box
+        display="flex"
+        flexDirection="column"
+        flexGrow={1}
+        position="relative"
+      >
+        <Box
+          display="flex"
+          flexDirection="column"
+          flexGrow={1}
+          overflow="hidden"
+          position="relative"
+        >
           {children}
-        </div>
+        </Box>
 
-        <div className={classes.bottomDrawer}>
+        <Box flexShrink={0} overflow="hidden">
           <SelectedActions />
-        </div>
-      </div>
+        </Box>
+      </Box>
 
       {loggedIn && (
         <DrawerDisplay />
       )}
 
       <GeneralMessage />
-    </div>
+    </Box>
   );
 }
 

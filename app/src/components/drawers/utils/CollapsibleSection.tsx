@@ -4,7 +4,6 @@ import {
   useEffect,
   useState,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   Accordion,
   AccordionSummary,
@@ -12,16 +11,14 @@ import {
   AccordionActions,
   Typography,
   Divider,
+  Box,
+  styled,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { MuiIconType } from '../../Icons';
 
-
-const useStyles = makeStyles(theme => ({
-  details: {
-    flexGrow: 1,
-  },
-  accordionRoot: {
+const StyledAccordion = styled(Accordion)(({ theme }) => ({
+  '& .MuiAccordion-root': {
     margin: theme.spacing(2, 0),
 
     // Hide grey line above accordion when not expanded
@@ -29,30 +26,29 @@ const useStyles = makeStyles(theme => ({
       content: 'unset',
     },
   },
-  accordionExpanded: {
+  '& .Mui-expanded': {
     margin: theme.spacing(2, 0),
-    '&$accordionRoot:first-child': {
+    '&.MuiAccordion-root:first-of-type': {
       marginTop: theme.spacing(2),
     },
   },
-  summaryExpanded: {},
-  summaryContent: {
+}));
+const StyledAccordionSummary = styled(AccordionSummary)(({ theme }) => ({
+  '& .MuiAccordionSummary-content': {
     alignItems: 'center',
-    '&$summaryExpanded': {
+
+    '&.Mui-expanded': {
       margin: theme.spacing(1.5, 0),
     },
   },
-  summaryRoot: {
-    '&$summaryExpanded': {
+  '& .MuiAccordionSummary-root': {
+    '&.Mui-expanded': {
       minHeight: theme.spacing(6),
     },
   },
-  detailsRoot: {
-    padding: theme.spacing(2),
-  },
-  icon: {
-    marginRight: theme.spacing(2),
-  },
+}));
+const StyledAccordionDetails = styled(AccordionDetails)(({ theme }) => ({
+  padding: theme.spacing(2),
 }));
 
 export interface Props {
@@ -73,7 +69,6 @@ function CollapsibleSection({
   content,
   actions,
 }: Props) {
-  const classes = useStyles();
   const [expanded, setExpanded] = useState<boolean>(false);
 
   const handleChange = useCallback(() => setExpanded(e => !e), []);
@@ -88,11 +83,7 @@ function CollapsibleSection({
   );
 
   return (
-    <Accordion
-      classes={{
-        root: classes.accordionRoot,
-        expanded: classes.accordionExpanded,
-      }}
+    <StyledAccordion
       data-cy={`section-${id}`}
       elevation={3}
       expanded={expanded}
@@ -100,36 +91,33 @@ function CollapsibleSection({
       square
       TransitionProps={{ unmountOnExit: true }}
     >
-      <AccordionSummary
+      <StyledAccordionSummary
         aria-controls={`${id}-content`}
-        classes={{
-          content: classes.summaryContent,
-          expanded: classes.summaryExpanded,
-          root: classes.summaryRoot,
-        }}
         expandIcon={<ExpandMoreIcon />}
       >
-        {Icon && (
-          <Icon className={classes.icon} />
-        )}
+        <Box mr={2}>
+          {Icon && (
+            <Icon />
+          )}
+        </Box>
 
         <Typography>{title}</Typography>
-      </AccordionSummary>
+      </StyledAccordionSummary>
 
       <Divider />
 
-      <AccordionDetails className={classes.detailsRoot}>
-        <div className={classes.details}>
+      <StyledAccordionDetails>
+        <Box flexGrow={1}>
           {content}
-        </div>
-      </AccordionDetails>
+        </Box>
+      </StyledAccordionDetails>
 
       {actions && (
         <AccordionActions>
           {actions}
         </AccordionActions>
       )}
-    </Accordion>
+    </StyledAccordion>
   );
 }
 

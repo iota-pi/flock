@@ -1,22 +1,8 @@
-import { Typography } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { useMemo } from 'react';
+import { Box, Typography } from '@mui/material';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import LargeIcon from '../LargeIcon';
 import { InternalPageId, PageId, usePage } from '../pages';
-
-const useStyles = makeStyles(() => ({
-  placeholder: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexGrow: 1,
-    opacity: 0.75,
-  },
-  bold: {
-    fontWeight: 700,
-  },
-}));
 
 export interface Props extends BaseDrawerProps {}
 
@@ -56,13 +42,17 @@ function PlaceholderDrawer({
   open,
   stacked,
 }: Props) {
-  const classes = useStyles();
   const page = usePage();
 
   const canAdd = pagesWithAddButton.includes(page.id);
   const itemName = itemNameMap[page.id] || 'item';
   const addName = addNameMap[page.id] || 'item';
   const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a';
+
+  const styles = useMemo(
+    () => ({ opacity: 0.75 }),
+    [],
+  );
 
   return (
     <BaseDrawer
@@ -72,7 +62,14 @@ function PlaceholderDrawer({
       open={open}
       stacked={stacked}
     >
-      <div className={classes.placeholder}>
+      <Box
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        justifyContent="center"
+        flexGrow={1}
+        sx={styles}
+      >
         <LargeIcon icon={page.icon} />
 
         <Typography variant="h5" color="textSecondary" align="center">
@@ -81,7 +78,7 @@ function PlaceholderDrawer({
             <span>
               or click the
               {' '}
-              <span className={classes.bold}>+</span>
+              <Typography fontWeight={700}>+</Typography>
               {' '}
               to add a new {addName}
             </span>
@@ -91,7 +88,7 @@ function PlaceholderDrawer({
             </span>
           )}
         </Typography>
-      </div>
+      </Box>
     </BaseDrawer>
   );
 }

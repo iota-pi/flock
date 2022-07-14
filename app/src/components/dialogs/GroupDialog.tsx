@@ -8,15 +8,11 @@ import {
   Divider,
   Grid,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import { useVault } from '../../state/selectors';
 import { GroupItem, Item } from '../../state/items';
 import { usePrevious } from '../../utils';
 import Search from '../Search';
 
-const useStyles = makeStyles(() => ({
-  root: {},
-}));
 
 export interface Props {
   items: Item[],
@@ -30,7 +26,6 @@ function GroupDialog({
   onClose,
   open,
 }: Props) {
-  const classes = useStyles();
   const prevOpen = usePrevious(open);
   const vault = useVault();
 
@@ -107,7 +102,6 @@ function GroupDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth

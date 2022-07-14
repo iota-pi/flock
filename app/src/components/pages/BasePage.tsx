@@ -1,27 +1,8 @@
 import { PropsWithChildren, ReactNode } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
-import { Fab, Fade, LinearProgress, styled } from '@mui/material';
+import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material';
 import { AddIcon } from '../Icons';
 import TopBar, { MenuItemData } from '../layout/TopBar';
 import { useAppSelector } from '../../store';
-
-const useStyles = makeStyles(theme => ({
-  fabContainer: {
-    position: 'absolute',
-    right: theme.spacing(4),
-    bottom: theme.spacing(3),
-    zIndex: theme.zIndex.speedDial,
-  },
-  loadingBarHolder: {
-    position: 'relative',
-  },
-  loadingBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-  },
-}));
 
 interface BaseProps {
   noScrollContainer?: boolean,
@@ -74,6 +55,18 @@ const ContentNoScroll = styled('div')({
   overflowX: 'hidden',
   overflowY: 'hidden',
 });
+const FabContainer = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  right: theme.spacing(4),
+  bottom: theme.spacing(3),
+  zIndex: theme.zIndex.speedDial,
+}));
+const StyledProgress = styled(LinearProgress)({
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  height: 2,
+});
 
 
 function BasePage({
@@ -91,7 +84,6 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const classes = useStyles();
   const activeRequests = useAppSelector(state => state.ui.requests.active);
   const loading = activeRequests > 0;
 
@@ -110,18 +102,18 @@ function BasePage({
         />
       )}
 
-      <div className={classes.loadingBarHolder}>
+      <Box position="relative">
         <Fade in={loading}>
-          <LinearProgress className={classes.loadingBar} />
+          <StyledProgress />
         </Fade>
-      </div>
+      </Box>
 
       <ContentElement data-cy="page-content">
         {children}
       </ContentElement>
 
       {fab && (
-        <div className={classes.fabContainer}>
+        <FabContainer>
           <Fab
             aria-label={fabLabel}
             data-cy="fab"
@@ -130,7 +122,7 @@ function BasePage({
           >
             {fabIcon || <AddIcon />}
           </Fab>
-        </div>
+        </FabContainer>
       )}
     </>
   );

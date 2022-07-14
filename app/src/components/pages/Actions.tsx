@@ -1,5 +1,4 @@
-import { Container, Divider, Typography } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { Divider, Typography } from '@mui/material';
 import { Fragment, useCallback, useMemo } from 'react';
 import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
@@ -11,24 +10,10 @@ import NoteList from '../NoteList';
 import { ONE_DAY } from '../../utils/frequencies';
 import { isSameDay } from '../../utils';
 import { ItemListExtraElement } from '../ItemList';
+import PageContainer from '../PageContainer';
 
-const useStyles = makeStyles(theme => ({
-  container: {
-    flexGrow: 1,
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-
-    '&:not(:first-child)': {
-      marginTop: theme.spacing(2),
-    },
-  },
-  heading: {
-    fontWeight: 300,
-  },
-}));
 
 function ActionsPage() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const items = useItems();
 
@@ -79,11 +64,11 @@ function ActionsPage() {
       {
         content: (
           <Fragment key="heading-due">
-            <Container maxWidth="xl" className={classes.container}>
-              <Typography variant="h4" className={classes.heading}>
+            <PageContainer maxWidth="xl">
+              <Typography variant="h4" fontWeight={300}>
                 Due actions
               </Typography>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -94,11 +79,11 @@ function ActionsPage() {
       {
         content: comingSoonIndex < laterIndex && (
           <Fragment key="heading-soon">
-            <Container maxWidth="xl" className={classes.container}>
-              <Typography variant="h4" className={classes.heading}>
+            <PageContainer maxWidth="xl">
+              <Typography variant="h4" fontWeight={300}>
                 Coming soon
               </Typography>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -109,11 +94,11 @@ function ActionsPage() {
       {
         content: laterIndex < allActions.length && (
           <Fragment key="heading-later">
-            <Container maxWidth="xl" className={classes.container}>
-              <Typography variant="h4" className={classes.heading}>
+            <PageContainer maxWidth="xl">
+              <Typography variant="h4" fontWeight={300}>
                 Later actions
               </Typography>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -122,7 +107,7 @@ function ActionsPage() {
         index: laterIndex,
       },
     ],
-    [allActions.length, classes, laterIndex, comingSoonIndex],
+    [allActions.length, laterIndex, comingSoonIndex],
   );
 
   return (

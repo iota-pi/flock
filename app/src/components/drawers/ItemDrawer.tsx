@@ -12,7 +12,6 @@ import {
   styled,
   TextField,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   cleanItem,
   compareNames,
@@ -46,15 +45,6 @@ import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
 
-export const useStyles = makeStyles(theme => ({
-  alert: {
-    transition: theme.transitions.create('all'),
-    marginTop: theme.spacing(1),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-}));
 
 const SectionHolder = styled('div')({
   flexGrow: 1,

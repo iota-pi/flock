@@ -10,7 +10,6 @@ import {
   Alert,
   Stack, TextField,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import debounce from 'debounce';
 import objectHash from 'object-hash';
 import EmailEditor from 'react-email-editor';
@@ -23,16 +22,6 @@ import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
 import template from '../../utils/unlayer-template.json';
 import { SendProgressCallback } from '../../api/KoinoniaAPI';
-
-export const useStyles = makeStyles(theme => ({
-  alert: {
-    transition: theme.transitions.create('all'),
-    marginTop: theme.spacing(1),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-}));
 
 export interface Props extends BaseDrawerProps {
   message: MessageItem,

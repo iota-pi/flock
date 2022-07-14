@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { DatePicker } from '@mui/lab';
+import { DatePicker } from '@mui/x-date-pickers';
 import { Item, ItemNote } from '../../state/items';
 import {
   useItemMap,

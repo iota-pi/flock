@@ -1,12 +1,12 @@
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import { DropzoneArea } from 'mui-file-dropzone';
 import neatCsv from 'neat-csv';
 import { useCallback, useState } from 'react';
@@ -14,16 +14,6 @@ import { importPeople, PersonItem } from '../../state/items';
 import { useVault } from '../../state/selectors';
 import { UploadIcon } from '../Icons';
 
-const useStyles = makeStyles(theme => ({
-  root: {},
-  alert: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-}));
 
 export interface Props {
   onClose: () => void,
@@ -36,7 +26,6 @@ function ImportPeopleDialog({
   onConfirm,
   open,
 }: Props) {
-  const classes = useStyles();
   const vault = useVault();
   const [importedItems, setImportedItems] = useState<PersonItem[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
@@ -94,7 +83,6 @@ function ImportPeopleDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth
@@ -116,22 +104,23 @@ function ImportPeopleDialog({
           onChange={handleChange}
         />
 
-        <Alert
-          className={classes.alert}
-          severity={(
-            (errorMessage && 'error')
-            || (importedItems.length > 0 && 'success')
-            || 'info'
-          )}
-        >
-          {errorMessage}
+        <Box my={2}>
+          <Alert
+            severity={(
+              (errorMessage && 'error')
+              || (importedItems.length > 0 && 'success')
+              || 'info'
+            )}
+          >
+            {errorMessage}
 
-          {!errorMessage && (
-            importedItems.length > 0
-              ? `Ready to import ${importedItems.length} items from CSV`
-              : 'Upload a CSV file here'
-          )}
-        </Alert>
+            {!errorMessage && (
+              importedItems.length > 0
+                ? `Ready to import ${importedItems.length} items from CSV`
+                : 'Upload a CSV file here'
+            )}
+          </Alert>
+        </Box>
       </DialogContent>
 
       <DialogActions>

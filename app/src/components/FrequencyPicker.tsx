@@ -3,37 +3,21 @@ import {
   useCallback,
   useState,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
+  Box,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   SelectChangeEvent,
+  styled,
 } from '@mui/material';
 import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies';
 
-const useStyles = makeStyles(theme => ({
-  root: {
-    display: 'flex',
-    alignItems: 'flex-end',
 
-    '&$grow': {
-      width: '100%',
-    },
-  },
-  icon: {
-    paddingRight: theme.spacing(1),
-    transition: theme.transitions.create('color'),
-
-    '&$highlighted': {
-      color: theme.palette.primary.main,
-    },
-  },
-  highlighted: {},
-  grow: {
-    flexGrow: 1,
-  },
+const IconHolder = styled('div')(({ theme }) => ({
+  paddingRight: theme.spacing(1),
+  transition: theme.transitions.create('color'),
 }));
 
 export interface Props {
@@ -56,8 +40,6 @@ function FrequencyPicker({
   label,
   onChange,
 }: Props) {
-  const classes = useStyles();
-
   const [focused, setFocused] = useState(false);
 
   const handleFocus = useCallback(() => setFocused(true), []);
@@ -71,22 +53,20 @@ function FrequencyPicker({
     [onChange],
   );
 
-  const rootClasses = [classes.root];
-  if (fullWidth) {
-    rootClasses.push(classes.grow);
-  }
-
   return (
-    <div className={rootClasses.join(' ')}>
+    <Box
+      display="flex"
+      alignItems="flex-end"
+      flexGrow={fullWidth ? 1 : undefined}
+      width={fullWidth ? '100%' : undefined}
+    >
       {icon && (
-        <div
-          className={`${classes.icon} ${focused ? classes.highlighted : ''}`}
-        >
+        <IconHolder color={focused ? 'primary' : undefined}>
           {icon}
-        </div>
+        </IconHolder>
       )}
 
-      <div className={classes.grow}>
+      <Box flexGrow={1}>
         <FormControl className={className} fullWidth={fullWidth} variant="standard">
           {label && (
             <InputLabel id={`frequency-selection-label-${id}`}>
@@ -115,8 +95,8 @@ function FrequencyPicker({
             ))}
           </Select>
         </FormControl>
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 

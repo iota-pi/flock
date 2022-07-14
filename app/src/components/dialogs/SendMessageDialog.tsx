@@ -12,7 +12,6 @@ import {
   DialogTitle,
   Stack,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   GroupItem,
   PersonItem,
@@ -24,13 +23,6 @@ import Search, { getSearchableDataId } from '../Search';
 import { useAppDispatch } from '../../store';
 import { setMessage } from '../../state/ui';
 import { SendProgressCallback } from '../../api/KoinoniaAPI';
-
-export const useStyles = makeStyles(() => ({
-  root: {},
-  list: {
-    paddingBottom: 0,
-  },
-}));
 
 export interface Props {
   html: string,
@@ -49,7 +41,6 @@ function SendMessageDialog({
   onSendProgress,
   open,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
   const getItemsById = useItemsById();
@@ -131,7 +122,6 @@ function SendMessageDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth

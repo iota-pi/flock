@@ -1,5 +1,6 @@
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import {
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -8,9 +9,10 @@ import {
   Divider,
   IconButton,
   InputAdornment,
+  Stack,
   TextField,
+  Typography,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -20,31 +22,6 @@ import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
 import Vault from '../../api/Vault';
 
-const useStyles = makeStyles(theme => ({
-  root: {},
-  listItemContainer: {
-    position: 'relative',
-  },
-  maturityItem: {
-    display: 'flex',
-    alignItems: 'center',
-    flexGrow: 1,
-    paddingTop: theme.spacing(1),
-    paddingBottom: theme.spacing(1),
-  },
-  indexNumber: {
-    fontWeight: 500,
-    marginRight: theme.spacing(2),
-  },
-  orderControls: {
-    display: 'flex',
-    flexDirection: 'column',
-    marginRight: theme.spacing(2),
-  },
-  addButton: {
-    marginTop: theme.spacing(2),
-  },
-}));
 
 export interface Props {
   onClose: () => void,
@@ -101,8 +78,6 @@ function MaturitySingleStage({
   onRemove: (id: string) => void,
   stage: MaturityControl,
 }) {
-  const classes = useStyles();
-
   const handleRemove = useCallback(() => onRemove(stage.id), [onRemove, stage.id]);
   const handleMoveDown = useCallback(() => onMoveDown(stage.id), [onMoveDown, stage.id]);
   const handleMoveUp = useCallback(() => onMoveUp(stage.id), [onMoveUp, stage.id]);
@@ -112,11 +87,17 @@ function MaturitySingleStage({
   );
 
   return (
-    <div
-      className={classes.maturityItem}
+    <Box
+      display="flex"
+      alignItems="center"
+      flexGrow={1}
       data-cy="maturity-stage"
     >
-      <div className={classes.orderControls}>
+      <Box
+        display="flex"
+        flexDirection="column"
+        mr={2}
+      >
         <IconButton
           data-cy="maturity-move-up"
           disabled={index === 0}
@@ -134,11 +115,13 @@ function MaturitySingleStage({
         >
           <ExpandMoreIcon />
         </IconButton>
-      </div>
+      </Box>
 
-      <span className={classes.indexNumber}>
-        {index + 1}.
-      </span>
+      <Box mr={2}>
+        <Typography fontWeight={500}>
+          {index + 1}.
+        </Typography>
+      </Box>
 
       <TextField
         autoFocus={autoFocus}
@@ -161,7 +144,7 @@ function MaturitySingleStage({
         }}
         variant="standard"
       />
-    </div>
+    </Box>
   );
 }
 
@@ -169,7 +152,6 @@ function MaturityDialog({
   onClose,
   open,
 }: Props) {
-  const classes = useStyles();
   const people = useItems<PersonItem>('person');
   const vault = useVault();
 
@@ -265,7 +247,6 @@ function MaturityDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth
@@ -276,40 +257,41 @@ function MaturityDialog({
       </DialogTitle>
 
       <DialogContent>
-        <FlipMove
-          enterAnimation="none"
-          leaveAnimation="none"
-          disableAllAnimations={disableAnimation}
-        >
-          {localMaturity.map((lm, index) => (
-            <div key={lm.id}>
-              {index === 0 && <Divider />}
+        <Stack spacing={2}>
+          <FlipMove
+            enterAnimation="none"
+            leaveAnimation="none"
+            disableAllAnimations={disableAnimation}
+          >
+            {localMaturity.map((lm, index) => (
+              <div key={lm.id}>
+                {index === 0 && <Divider />}
 
-              <MaturitySingleStage
-                autoFocus={lm.id === autoFocusId}
-                index={index}
-                lastIndex={localMaturity.length - 1}
-                onChange={handleChange}
-                onMoveDown={handleMoveDown}
-                onMoveUp={handleMoveUp}
-                onRemove={handleRemove}
-                stage={lm}
-              />
+                <MaturitySingleStage
+                  autoFocus={lm.id === autoFocusId}
+                  index={index}
+                  lastIndex={localMaturity.length - 1}
+                  onChange={handleChange}
+                  onMoveDown={handleMoveDown}
+                  onMoveUp={handleMoveUp}
+                  onRemove={handleRemove}
+                  stage={lm}
+                />
 
-              <Divider />
-            </div>
-          ))}
-        </FlipMove>
+                <Divider />
+              </div>
+            ))}
+          </FlipMove>
 
-        <Button
-          className={classes.addButton}
-          data-cy="maturity-add-stage"
-          fullWidth
-          onClick={handleAdd}
-          variant="outlined"
-        >
-          Add maturity stage
-        </Button>
+          <Button
+            data-cy="maturity-add-stage"
+            fullWidth
+            onClick={handleAdd}
+            variant="outlined"
+          >
+            Add maturity stage
+          </Button>
+        </Stack>
       </DialogContent>
 
       <DialogActions>

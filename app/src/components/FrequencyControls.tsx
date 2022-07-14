@@ -1,5 +1,4 @@
-import { Grid } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { Grid, styled, Typography } from '@mui/material';
 import {
   Item, PersonItem,
 } from '../state/items';
@@ -9,20 +8,8 @@ import { InteractionIcon, PrayerIcon } from './Icons';
 import { formatDate } from '../utils';
 
 
-const useStyles = makeStyles(theme => ({
-  subscript: {
-    paddingTop: theme.spacing(1),
-    color: theme.palette.text.secondary,
-  },
-  baseDate: {
-    transition: theme.transitions.create('color'),
-  },
-  dueDate: {
-    color: theme.palette.secondary.main,
-  },
-  overdueDate: {
-    color: theme.palette.error.main,
-  },
+const TextColorTransition = styled('span')(({ theme }) => ({
+  transition: theme.transitions.create('color'),
 }));
 
 export interface Props {
@@ -42,7 +29,8 @@ function FrequencyControls({
   onChange,
   prayerFrequency,
 }: Props) {
-  const classes = useStyles();
+  const dueClass = 'secondary';
+  const overdueClass = 'main';
 
   let lastPrayerText: string = 'never';
   let lastPrayerClass: string = '';
@@ -50,9 +38,9 @@ function FrequencyControls({
     lastPrayerText = formatDate(new Date(lastPrayer));
     const due = isDue(new Date(lastPrayer), prayerFrequency);
     if (due === Due.due) {
-      lastPrayerClass = classes.dueDate;
+      lastPrayerClass = dueClass;
     } else if (due === Due.overdue) {
-      lastPrayerClass = classes.overdueDate;
+      lastPrayerClass = overdueClass;
     }
   }
 
@@ -62,9 +50,9 @@ function FrequencyControls({
     lastInteractionText = formatDate(new Date(lastInteraction));
     const due = isDue(new Date(lastInteraction), interactionFrequency);
     if (due === Due.due) {
-      lastInteractionClass = classes.dueDate;
+      lastInteractionClass = dueClass;
     } else if (due === Due.overdue) {
-      lastInteractionClass = classes.overdueDate;
+      lastInteractionClass = overdueClass;
     }
   }
 
@@ -81,12 +69,12 @@ function FrequencyControls({
         />
 
         {lastPrayerText ? (
-          <div className={classes.subscript}>
+          <Typography pt={1} color="secondary">
             {'Last prayed for: '}
-            <span className={`${classes.baseDate} ${lastPrayerClass}`}>
+            <TextColorTransition className={lastPrayerClass}>
               {lastPrayerText}
-            </span>
-          </div>
+            </TextColorTransition>
+          </Typography>
         ) : null}
       </Grid>
 
@@ -102,12 +90,12 @@ function FrequencyControls({
           />
 
           {lastInteractionText ? (
-            <div className={classes.subscript}>
+            <Typography pt={1} color="secondary">
               {'Last interaction: '}
-              <span className={`${classes.baseDate} ${lastInteractionClass}`}>
+              <TextColorTransition className={lastInteractionClass}>
                 {lastInteractionText}
-              </span>
-            </div>
+              </TextColorTransition>
+            </Typography>
           ) : null}
         </Grid>
       )}

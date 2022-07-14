@@ -1,5 +1,6 @@
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -7,23 +8,11 @@ import {
   DialogTitle,
   Typography,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import { DropzoneArea } from 'mui-file-dropzone';
 import { useCallback, useState } from 'react';
 import { Item } from '../../state/items';
 import { useVault } from '../../state/selectors';
 import { UploadIcon } from '../Icons';
-
-const useStyles = makeStyles(theme => ({
-  root: {},
-  alert: {
-    marginTop: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-  },
-  emphasis: {
-    fontWeight: 500,
-  },
-}));
 
 export interface Props {
   onClose: () => void,
@@ -36,7 +25,6 @@ function RestoreBackupDialog({
   onConfirm,
   open,
 }: Props) {
-  const classes = useStyles();
   const vault = useVault();
   const [importedItems, setImportedItems] = useState<Item[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
@@ -69,7 +57,6 @@ function RestoreBackupDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth
@@ -91,25 +78,26 @@ function RestoreBackupDialog({
           onChange={handleChange}
         />
 
-        <Alert
-          className={classes.alert}
-          severity={(
-            (errorMessage && 'error')
-            || (importedItems.length > 0 && 'success')
-            || 'info'
-          )}
-        >
-          {errorMessage}
+        <Box my={2}>
+          <Alert
+            severity={(
+              (errorMessage && 'error')
+              || (importedItems.length > 0 && 'success')
+              || 'info'
+            )}
+          >
+            {errorMessage}
 
-          {!errorMessage && (
-            importedItems.length > 0
-              ? `Ready to restore ${importedItems.length} items from backup`
-              : 'Upload a Flock backup file'
-          )}
-        </Alert>
+            {!errorMessage && (
+              importedItems.length > 0
+                ? `Ready to restore ${importedItems.length} items from backup`
+                : 'Upload a Flock backup file'
+            )}
+          </Alert>
+        </Box>
 
         <Typography paragraph>
-          <span className={classes.emphasis}>Important!</span>
+          <Typography fontWeight={500}>Important!</Typography>
           {' '}
           Importing a backup will overwrite all changes you have made since creating it.
           It will not remove any items you have created since the backup.

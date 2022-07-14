@@ -1,5 +1,4 @@
-import { Container, Divider, Theme, Typography, useMediaQuery } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { Divider, Theme, Typography, useMediaQuery } from '@mui/material';
 import { Fragment, useCallback, useMemo } from 'react';
 import { AutoSizer } from 'react-virtualized';
 import { useItems } from '../../state/selectors';
@@ -10,24 +9,10 @@ import { formatDate } from '../../utils';
 import BasePage from './BasePage';
 import { replaceActive } from '../../state/ui';
 import { useAppDispatch } from '../../store';
+import PageContainer from '../PageContainer';
 
-const useStyles = makeStyles(theme => ({
-  container: {
-    flexGrow: 1,
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-
-    '&:not(:first-child)': {
-      marginTop: theme.spacing(2),
-    },
-  },
-  heading: {
-    fontWeight: 300,
-  },
-}));
 
 function InteractionsPage() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const people = useItems<PersonItem>('person');
 
@@ -62,11 +47,11 @@ function InteractionsPage() {
       {
         content: (
           <Fragment key="heading-suggestions">
-            <Container maxWidth="xl" className={classes.container}>
-              <Typography variant="h4" className={classes.heading}>
+            <PageContainer maxWidth="xl">
+              <Typography variant="h4" fontWeight={300}>
                 Suggestions
               </Typography>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -75,7 +60,7 @@ function InteractionsPage() {
         index: 0,
       },
     ],
-    [classes],
+    [],
   );
 
   return (

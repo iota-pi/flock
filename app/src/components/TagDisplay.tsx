@@ -1,24 +1,15 @@
 import { MouseEvent, useCallback } from 'react';
-import { Chip, Stack } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
+import { Box, Chip, Stack, styled, Typography } from '@mui/material';
 import { setTagFilter } from '../state/ui';
 import { useAppDispatch } from '../store';
 
-const useStyles = makeStyles(theme => ({
-  tagChip: {
-    marginTop: theme.spacing(0.5),
-    marginBottom: theme.spacing(0.5),
-  },
-  chipLabel: {
+const StyledChip = styled(Chip)(({ theme }) => ({
+  marginTop: theme.spacing(0.5),
+  marginBottom: theme.spacing(0.5),
+
+  '& .MuiChip-label': {
     paddingLeft: theme.spacing(2),
     paddingRight: theme.spacing(2),
-  },
-  more: {
-    color: theme.palette.text.secondary,
-
-    '$tagChip + * > &': {
-      marginLeft: theme.spacing(0.5),
-    },
   },
 }));
 
@@ -38,7 +29,6 @@ function TagChip({
   tag,
   linked,
 }: TagChipProps) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
 
   const handleClick = useCallback(
@@ -50,14 +40,14 @@ function TagChip({
   );
 
   return (
-    <Chip
-      classes={{ label: classes.chipLabel }}
-      className={classes.tagChip}
-      data-cy="tag"
-      label={tag}
-      onClick={linked ? handleClick : undefined}
-      variant="outlined"
-    />
+    <Box my={0.5}>
+      <StyledChip
+        data-cy="tag"
+        label={tag}
+        onClick={linked ? handleClick : undefined}
+        variant="outlined"
+      />
+    </Box>
   );
 }
 
@@ -67,7 +57,6 @@ function TagDisplay({
   max,
   vertical = false,
 }: Props) {
-  const classes = useStyles();
   const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags;
 
   return (
@@ -85,15 +74,18 @@ function TagDisplay({
       ))}
 
       {limitedTags.length < tags.length && (
-        <div>
-          <span className={classes.more} data-cy="tag-overflow">
+        <Box ml={limitedTags.length > 0 ? 0.5 : undefined}>
+          <Typography
+            color="text.secondary"
+            data-cy="tag-overflow"
+          >
             {limitedTags.length > 0 ? (
               `+${tags.length - limitedTags.length} more`
             ) : (
               `${tags.length} tags`
             )}
-          </span>
-        </div>
+          </Typography>
+        </Box>
       )}
     </Stack>
   );

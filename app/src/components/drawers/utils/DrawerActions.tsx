@@ -2,29 +2,21 @@ import {
   useCallback,
   useState,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   Button,
   Container,
   Divider,
   Grid,
+  styled,
   Typography,
 } from '@mui/material';
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
 import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
 
 
-const useStyles = makeStyles(theme => ({
-  emphasis: {
-    fontWeight: 500,
-  },
-  filler: {
-    flexGrow: 1,
-  },
-  container: {
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-  },
+const StyledContainer = styled(Container)(({ theme }) => ({
+  paddingTop: theme.spacing(2),
+  paddingBottom: theme.spacing(2),
 }));
 
 export interface BaseProps {
@@ -93,8 +85,6 @@ function DrawerActions({
   permanentDrawer,
   promptSave = true,
 }: Props) {
-  const classes = useStyles();
-
   const [showConfirm, setShowConfirm] = useState(false);
 
   const handleClickDelete = useCallback(
@@ -113,7 +103,7 @@ function DrawerActions({
     <>
       <Divider />
 
-      <Container className={classes.container}>
+      <StyledContainer>
         <Grid container spacing={2}>
           {onSend && (
             <Grid item xs={12}>
@@ -217,7 +207,7 @@ function DrawerActions({
             </Grid>
           )}
         </Grid>
-      </Container>
+      </StyledContainer>
 
       {onDelete && (
         <ConfirmationDialog
@@ -228,9 +218,9 @@ function DrawerActions({
           <Typography paragraph>
             Are you sure you want to delete
             {' '}
-            <span className={classes.emphasis}>
+            <Typography fontWeight={500}>
               {itemName}
-            </span>
+            </Typography>
             {itemHasNotes ? ', and all associated notes?' : '?'}
           </Typography>
 

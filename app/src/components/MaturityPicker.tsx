@@ -3,18 +3,12 @@ import {
   useCallback,
   useMemo,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   MenuItem,
   TextField,
 } from '@mui/material';
 import { useMaturity } from '../state/selectors';
 
-const useStyles = makeStyles(() => ({
-  faded: {
-    opacity: 0.8,
-  },
-}));
 
 export interface Props {
   className?: string,
@@ -34,8 +28,6 @@ function MaturityPicker({
   maturity,
   onChange,
 }: Props) {
-  const classes = useStyles();
-
   const [maturityStages] = useMaturity();
   const maturityOptions = useMemo<{ value: string, label: string, default?: boolean }[]>(
     () => [
@@ -67,9 +59,9 @@ function MaturityPicker({
     >
       {maturityOptions.map(option => (
         <MenuItem
-          className={option.default ? classes.faded : undefined}
           key={option.value}
           value={option.value || ''}
+          sx={{ opacity: option.default ? 0.8 : undefined }}
         >
           {option.label}
         </MenuItem>

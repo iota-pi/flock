@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
 import {
   Button,
   Checkbox,
@@ -21,10 +20,12 @@ import {
   Menu,
   MenuItem,
   Stack,
+  styled,
   TextField,
   Typography,
 } from '@mui/material';
-import { CalendarPicker } from '@mui/lab';
+import { CalendarPicker } from '@mui/x-date-pickers';
+import '@mui/lab';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { CalendarIcon, DeleteIcon, OptionsIcon } from './Icons';
@@ -36,18 +37,16 @@ const VISIBLE_NOTE_PAGE_SIZE = 5;
 const MENU_POPUP_ID = 'note-control-menu-';
 const CALENDAR_POPUP_ID = 'note-control-calendar-';
 
-const useStyles = makeStyles(theme => ({
-  noteDateContainer: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  noteDate: {
-    padding: theme.spacing(1),
-    paddingLeft: 0,
-    color: theme.palette.text.disabled,
-    fontWeight: theme.typography.caption.fontWeight,
-    fontSize: theme.typography.caption.fontSize,
-  },
+const NoteDateContainer = styled('div')({
+  display: 'flex',
+  alignItems: 'center',
+});
+const NoteDate = styled('div')(({ theme }) => ({
+  padding: theme.spacing(1),
+  paddingLeft: 0,
+  color: theme.palette.text.disabled,
+  fontWeight: theme.typography.caption.fontWeight,
+  fontSize: theme.typography.caption.fontSize,
 }));
 
 const NoteButton = memo((
@@ -200,8 +199,6 @@ function SingleNote<T extends ItemNote>({
   onChangeSensitive: (noteId: string, sensitive: boolean) => void,
   onDelete: (noteId: string, requireConfirm: boolean) => void,
 }) {
-  const classes = useStyles();
-
   const [showSensitive, setShowSensitive] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [localContent, setLocalContent] = useState(note.content);
@@ -305,10 +302,10 @@ function SingleNote<T extends ItemNote>({
         />
       </Stack>
 
-      <div className={`${classes.noteDateContainer}`}>
-        <div className={classes.noteDate}>
+      <NoteDateContainer>
+        <NoteDate>
           {formatDate(date)}
-        </div>
+        </NoteDate>
 
         <IconButton
           aria-controls={`${CALENDAR_POPUP_ID}-${note.id}`}
@@ -318,7 +315,7 @@ function SingleNote<T extends ItemNote>({
         >
           <CalendarIcon fontSize="small" />
         </IconButton>
-      </div>
+      </NoteDateContainer>
 
       <Dialog
         id={`${CALENDAR_POPUP_ID}-${note.id}`}

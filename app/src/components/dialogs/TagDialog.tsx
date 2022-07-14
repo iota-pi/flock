@@ -8,7 +8,6 @@ import {
   Divider,
   Grid,
 } from '@mui/material';
-import makeStyles from '@mui/styles/makeStyles';
 import { useVault } from '../../state/selectors';
 import { Item } from '../../state/items';
 import { usePrevious } from '../../utils';
@@ -16,9 +15,6 @@ import TagSelection from '../TagSelection';
 import { AddIcon, MinusIcon } from '../Icons';
 import Search from '../Search';
 
-const useStyles = makeStyles(() => ({
-  root: {},
-}));
 
 export interface Props {
   items: Item[],
@@ -26,13 +22,11 @@ export interface Props {
   open: boolean,
 }
 
-
 function TagDialog({
   items,
   onClose,
   open,
 }: Props) {
-  const classes = useStyles();
   const prevOpen = usePrevious(open);
   const vault = useVault();
 
@@ -88,7 +82,6 @@ function TagDialog({
 
   return (
     <Dialog
-      className={classes.root}
       onClose={onClose}
       open={open}
       fullWidth

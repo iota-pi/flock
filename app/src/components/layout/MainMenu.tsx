@@ -1,13 +1,11 @@
 import { memo, ReactNode, useCallback, useMemo } from 'react';
 import { useHistory } from 'react-router-dom';
-import makeStyles from '@mui/styles/makeStyles';
 import {
-  alpha,
   Box,
   Divider,
   Drawer,
   List,
-  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   styled,
@@ -21,89 +19,79 @@ import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons';
 export const DRAWER_SPACING_FULL = 30;
 export const DRAWER_SPACING_NARROW = 10;
 
-const useStyles = makeStyles(theme => ({
-  drawer: {
-    width: theme.spacing(DRAWER_SPACING_FULL),
+interface MinimisedProp {
+  minimised: boolean,
+}
+const StyledDrawer = styled(
+  Drawer,
+  {
+    shouldForwardProp: p => p !== 'minimised',
+  },
+)<MinimisedProp>(
+  ({ minimised, open, theme }) => ({
+    width: open ? (
+      theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL)
+    ) : 0,
     flexShrink: 0,
     transition: theme.transitions.create('width'),
     zIndex: theme.zIndex.appBar - 1,
 
-    '&$minimised': {
-      width: theme.spacing(DRAWER_SPACING_NARROW),
+    '& .MuiDrawer-paper': {
+      transition: theme.transitions.create('width'),
+      width: theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL),
     },
-    '&$closed': {
-      width: 0,
-    },
-  },
-  drawerPaper: {
-    width: theme.spacing(DRAWER_SPACING_FULL),
-    transition: theme.transitions.create('width'),
-
-    '$minimised &': {
-      width: theme.spacing(DRAWER_SPACING_NARROW),
-    },
-  },
-  drawerContainer: {
-    display: 'flex',
-    flexGrow: 1,
-    overflowX: 'hidden',
-    overflowY: 'auto',
-  },
-  menuItem: {
-    transition: theme.transitions.create(['color', 'height']),
-    justifyContent: 'center',
-    height: theme.spacing(6),
-  },
-  primary: {
-    color: (
-      theme.palette.mode === 'dark'
-        ? theme.palette.primary.light
-        : theme.palette.primary.main
-    ),
-    backgroundColor: (
-      theme.palette.mode === 'dark'
-        ? `${alpha('#fff', 0.08)} !important`
-        : `${alpha(theme.palette.primary.main, 0.08)} !important`
-    ),
-  },
-  menuItemIcon: {
-    color: 'inherit',
-    minWidth: 0,
-    paddingLeft: theme.spacing(0.5),
-    paddingRight: theme.spacing(3),
-    transition: theme.transitions.create('padding'),
-  },
-  minimised: {
-    '& $menuItemIcon': {
-      paddingLeft: theme.spacing(1.5),
-      paddingRight: theme.spacing(0),
-    },
-
-    '& $menuItem': {
-      height: theme.spacing(8),
-    },
-  },
-  closed: {},
-  menuItemText: {
-    whiteSpace: 'nowrap',
-    overflowX: 'hidden',
-    textOverflow: 'ellipsis',
-    transition: theme.transitions.create('opacity'),
-
-    '$minimised &': {
-      opacity: 0,
-    },
-  },
-  menuItemTextTypography: {
-    display: 'inline',
-  },
-}));
-
+  }),
+);
+const DrawerContent = styled('div')({
+  display: 'flex',
+  flexGrow: 1,
+  overflowX: 'hidden',
+  overflowY: 'auto',
+});
 const FlexList = styled(List)({
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
 });
+const StyledListItemButton = styled(
+  ListItemButton,
+  {
+    shouldForwardProp: p => p !== 'minimised',
+  },
+)<MinimisedProp>(({ minimised, theme }) => ({
+  flexGrow: 0,
+  height: theme.spacing(minimised ? 8 : 6),
+  justifyContent: 'center',
+  transition: theme.transitions.create(['color', 'height']),
+}));
+const MenuItemIcon = styled(
+  ListItemIcon,
+  {
+    shouldForwardProp: p => p !== 'minimised',
+  },
+)<MinimisedProp>(({ minimised, theme }) => ({
+  color: 'inherit',
+  minWidth: 0,
+  paddingLeft: theme.spacing(minimised ? 1.5 : 0.5),
+  paddingRight: theme.spacing(minimised ? 0 : 3),
+  transition: theme.transitions.create('padding'),
+}));
+const MenuItemText = styled(
+  ListItemText,
+  {
+    shouldForwardProp: p => p !== 'minimised',
+  },
+)<MinimisedProp>(({ minimised, theme }) => ({
+  whiteSpace: 'nowrap',
+  overflowX: 'hidden',
+  textOverflow: 'ellipsis',
+  transition: theme.transitions.create('opacity'),
+  opacity: minimised ? 0 : undefined,
+
+  '& .MuiListItemText-secondary': {
+    display: 'inline',
+  },
+}));
 
 export interface Props {
   minimised?: boolean,
@@ -125,6 +113,7 @@ export interface MainMenuItemProps {
   dividerBefore?: boolean,
   icon: MuiIconType,
   id: PageId | MenuActionId,
+  minimisedMenu: boolean,
   name: string,
   onClick: (pageId?: PageId) => void,
   selected: boolean,
@@ -135,12 +124,11 @@ function MainMenuItem({
   dividerBefore,
   icon: Icon,
   id,
+  minimisedMenu,
   name,
   onClick,
   selected,
 }: MainMenuItemProps) {
-  const classes = useStyles();
-
   const handleClick = useCallback(
     () => (id !== 'minimise' ? onClick(id) : onClick()),
     [id, onClick],
@@ -152,37 +140,33 @@ function MainMenuItem({
         <Divider />
       )}
 
-      <ListItem
-        button
-        className={`${classes.menuItem} ${selected ? classes.primary : ''}`}
+      <StyledListItemButton
         data-cy={`page-${id}`}
+        minimised={minimisedMenu}
         onClick={handleClick}
+        selected={selected}
       >
-        <ListItemIcon className={classes.menuItemIcon}>
+        <MenuItemIcon minimised={minimisedMenu}>
           <Icon />
-        </ListItemIcon>
+        </MenuItemIcon>
 
-        <ListItemText
+        <MenuItemText
+          minimised={minimisedMenu}
           primary={name}
-          className={classes.menuItemText}
-          classes={{
-            primary: classes.menuItemTextTypography,
-          }}
         />
-      </ListItem>
+      </StyledListItemButton>
     </>
   );
 }
 
 
 function MainMenu({
-  minimised,
+  minimised = false,
   onClick,
   onMinimise,
   open,
   page,
 }: Props) {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const history = useHistory();
   const metadata = useAppSelector(state => state.metadata);
@@ -205,19 +189,14 @@ function MainMenu({
   );
 
   return (
-    <Drawer
-      className={
-        `${classes.drawer} ${minimised ? classes.minimised : ''} ${open ? '' : classes.closed}`
-      }
-      variant="persistent"
+    <StyledDrawer
+      minimised={minimised}
       open={open}
-      classes={{
-        paper: classes.drawerPaper,
-      }}
+      variant="persistent"
     >
       <Toolbar />
 
-      <div className={classes.drawerContainer}>
+      <DrawerContent>
         <FlexList>
           {pagesToShow.map(({ id, name, icon: Icon, dividerBefore }) => (
             <MainMenuItem
@@ -225,6 +204,7 @@ function MainMenu({
               dividerBefore={dividerBefore}
               icon={Icon}
               id={id}
+              minimisedMenu={minimised}
               name={name}
               onClick={handleClick}
               selected={id === page.id}
@@ -236,13 +216,14 @@ function MainMenu({
           <MainMenuItem
             icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
             id="minimise"
+            minimisedMenu={minimised}
             name="Collapse Menu"
             onClick={onMinimise}
             selected={false}
           />
         </FlexList>
-      </div>
-    </Drawer>
+      </DrawerContent>
+    </StyledDrawer>
   );
 }
 const MemoMainMenu = memo(MainMenu);

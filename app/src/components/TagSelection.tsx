@@ -10,21 +10,16 @@ import {
   styled,
   TextField,
   TextFieldProps,
+  Typography,
 } from '@mui/material';
 import {
   AutocompleteChangeReason,
   createFilterOptions,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete';
-import makeStyles from '@mui/styles/makeStyles';
 import { useTags } from '../state/selectors';
 import { MuiIconType } from './Icons';
 
-const useStyles = makeStyles(theme => ({
-  subtle: {
-    color: theme.palette.text.secondary,
-  },
-}));
 
 export interface Props {
   canAddNew?: boolean,
@@ -74,7 +69,6 @@ function TagSelection({
   single,
   variant = 'outlined',
 }: Props) {
-  const classes = useStyles();
   const tags = useTags();
   const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))];
 
@@ -142,12 +136,14 @@ function TagSelection({
           <>
             {tag}
             &nbsp;
-            <span className={classes.subtle}>(new tag)</span>
+            <Typography color="text.secondary">
+              (new tag)
+            </Typography>
           </>
         )}
       </li>
     ),
-    [classes, tags],
+    [tags],
   );
   const renderTags = useCallback(
     (tagsToRender: string[]) => (

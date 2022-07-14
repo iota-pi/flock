@@ -12,7 +12,8 @@ import {
   TextField,
   TextFieldProps,
 } from '@mui/material';
-import { DatePicker } from '@mui/lab';
+import { DatePicker } from '@mui/x-date-pickers';
+import '@mui/lab';
 import {
   FILTER_CRITERIA_DISPLAY,
   FILTER_CRITERIA_DISPLAY_MAP,

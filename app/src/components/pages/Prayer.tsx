@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useMemo, useState } from 'react';
-import makeStyles from '@mui/styles/makeStyles';
-import { Container, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material';
+import { Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material';
 import { AutoSizer } from 'react-virtualized';
 import { useItemMap, useItems, useMetadata, useVault } from '../../state/selectors';
 import { isSameDay, useStringMemo } from '../../utils';
@@ -12,29 +11,7 @@ import { EditIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
 import BasePage from './BasePage';
 import { replaceActive } from '../../state/ui';
-
-const useStyles = makeStyles(theme => ({
-  container: {
-    flexGrow: 1,
-    paddingTop: theme.spacing(2),
-    paddingBottom: theme.spacing(2),
-
-    '&:not(:first-child)': {
-      marginTop: theme.spacing(2),
-    },
-  },
-  heading: {
-    fontWeight: 300,
-  },
-  flexRightLarge: {
-    display: 'flex',
-    alignItems: 'center',
-
-    [theme.breakpoints.up('sm')]: {
-      justifyContent: 'flex-end',
-    },
-  },
-}));
+import PageContainer from '../PageContainer';
 
 
 function isPrayedForToday(item: Item): boolean {
@@ -43,7 +20,6 @@ function isPrayedForToday(item: Item): boolean {
 
 
 function PrayerPage() {
-  const classes = useStyles();
   const dispatch = useAppDispatch();
   const items = useItems();
   const itemMap = useItemMap();
@@ -111,15 +87,26 @@ function PrayerPage() {
       {
         content: (
           <Fragment key="heading-today">
-            <Container maxWidth="xl" className={classes.container}>
+            <PageContainer maxWidth="xl">
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
-                  <Typography variant="h4" className={classes.heading}>
+                  <Typography variant="h4" fontWeight={300}>
                     Today
                   </Typography>
                 </Grid>
 
-                <Grid item xs={12} sm={6} className={classes.flexRightLarge}>
+                <Grid
+                  item
+                  xs={12}
+                  sm={6}
+                  display="flex"
+                  alignItems="center"
+                  sx={{
+                    justifyContent: {
+                      sm: 'flex-end',
+                    },
+                  }}
+                >
                   <Typography>
                     {'Daily Goal: '}
                     {completed}
@@ -138,7 +125,7 @@ function PrayerPage() {
                   </IconButton>
                 </Grid>
               </Grid>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -149,11 +136,11 @@ function PrayerPage() {
       {
         content: schedule.length > goal && (
           <Fragment key="heading-up-next">
-            <Container maxWidth="xl" className={classes.container}>
-              <Typography variant="h4" className={classes.heading}>
+            <PageContainer maxWidth="xl">
+              <Typography variant="h4" fontWeight={300}>
                 Up next
               </Typography>
-            </Container>
+            </PageContainer>
 
             <Divider />
           </Fragment>
@@ -162,7 +149,7 @@ function PrayerPage() {
         index: goal,
       },
     ],
-    [classes, completed, goal, handleEditGoal, naturalGoal, schedule.length, xs],
+    [completed, goal, handleEditGoal, naturalGoal, schedule.length, xs],
   );
 
   return (
