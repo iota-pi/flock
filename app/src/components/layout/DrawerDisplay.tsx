@@ -11,6 +11,7 @@ import NoteDrawer from '../drawers/NoteDrawer';
 import { useItemOrNote, useLoggedIn, useMessageItem } from '../../state/selectors';
 import { getItemId, usePrevious } from '../../utils';
 import MessageDrawer from '../drawers/MessageDrawer';
+import { usePage } from '../pages';
 
 function useDrawerRouting(drawers: DrawerData[]) {
   const dispatch = useAppDispatch();
@@ -155,6 +156,7 @@ function DrawerDisplay() {
   const dispatch = useAppDispatch();
   const drawers = useAppSelector(state => state.ui.drawers);
   const loggedIn = useLoggedIn();
+  const page = usePage();
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
 
@@ -170,6 +172,13 @@ function DrawerDisplay() {
 
   useDrawerRouting(drawers);
 
+  const showPlaceholder = (
+    loggedIn
+    && drawers.length === 0
+    && baseDrawerIsPermanent
+    && !page.noPlaceholderDrawer
+  );
+
   return (
     <>
       {drawers.map((drawer, i) => (
@@ -182,7 +191,7 @@ function DrawerDisplay() {
         />
       ))}
 
-      {loggedIn && drawers.length === 0 && baseDrawerIsPermanent && (
+      {showPlaceholder && (
         <PlaceholderDrawer
           open
           onClose={() => {}}
