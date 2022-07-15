@@ -44,7 +44,6 @@ function FrequencyControls({
       lastPrayerClass = overdueColour;
     }
   }
-  console.log(lastPrayerClass);
 
   let lastInteractionText: string = 'never';
   let lastInteractionClass: string = '';
