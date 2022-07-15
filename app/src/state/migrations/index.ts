@@ -12,8 +12,8 @@ export interface ItemMigration {
 const migrations: ItemMigration[] = [
   {
     dependencies: [],
-    id: 'migrate-prayer-points-to-notes',
-    description: 'Deprecating prayer-points feature; just use the notes field instead',
+    id: 'migrate-prayer-points-to-summary',
+    description: 'Deprecating prayer-points feature; just use the summary/notes field instead',
     migrate: async ({ items, vault }) => {
       let success = true;
       const updatedItems: Item[] = [];
