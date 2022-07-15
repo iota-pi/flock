@@ -170,17 +170,15 @@ function MessageDrawer({
     () => {
       const interval = setInterval(
         () => {
-          if (emailEditorRef.current) {
-            emailEditorRef.current.exportHtml(({ design }) => {
-              if (design) {
-                const currentDesignHash = objectHash(design);
-                if (lastDesignHash.current !== currentDesignHash) {
-                  lastDesignHash.current = currentDesignHash;
-                  handleDesignUpdate();
-                }
+          emailEditorRef.current?.exportHtml(({ design }) => {
+            if (design) {
+              const currentDesignHash = objectHash(design);
+              if (lastDesignHash.current !== currentDesignHash) {
+                lastDesignHash.current = currentDesignHash;
+                handleDesignUpdate();
               }
-            });
-          }
+            }
+          });
         },
         100,
       );
