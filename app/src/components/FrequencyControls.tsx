@@ -6,9 +6,10 @@ import FrequencyPicker from './FrequencyPicker';
 import { Due, isDue } from '../utils/frequencies';
 import { InteractionIcon, PrayerIcon } from './Icons';
 import { formatDate } from '../utils';
+import InlineText from './InlineText';
 
 
-const TextColorTransition = styled('span')(({ theme }) => ({
+const TextColorTransition = styled(InlineText)(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }));
 
@@ -29,8 +30,8 @@ function FrequencyControls({
   onChange,
   prayerFrequency,
 }: Props) {
-  const dueClass = 'secondary';
-  const overdueClass = 'main';
+  const dueColour = 'secondary';
+  const overdueColour = 'error';
 
   let lastPrayerText: string = 'never';
   let lastPrayerClass: string = '';
@@ -38,11 +39,12 @@ function FrequencyControls({
     lastPrayerText = formatDate(new Date(lastPrayer));
     const due = isDue(new Date(lastPrayer), prayerFrequency);
     if (due === Due.due) {
-      lastPrayerClass = dueClass;
+      lastPrayerClass = dueColour;
     } else if (due === Due.overdue) {
-      lastPrayerClass = overdueClass;
+      lastPrayerClass = overdueColour;
     }
   }
+  console.log(lastPrayerClass);
 
   let lastInteractionText: string = 'never';
   let lastInteractionClass: string = '';
@@ -50,9 +52,9 @@ function FrequencyControls({
     lastInteractionText = formatDate(new Date(lastInteraction));
     const due = isDue(new Date(lastInteraction), interactionFrequency);
     if (due === Due.due) {
-      lastInteractionClass = dueClass;
+      lastInteractionClass = dueColour;
     } else if (due === Due.overdue) {
-      lastInteractionClass = overdueClass;
+      lastInteractionClass = overdueColour;
     }
   }
 
@@ -69,9 +71,9 @@ function FrequencyControls({
         />
 
         {lastPrayerText ? (
-          <Typography pt={1} color="secondary">
+          <Typography pt={1} color="text.secondary">
             {'Last prayed for: '}
-            <TextColorTransition className={lastPrayerClass}>
+            <TextColorTransition color={lastPrayerClass}>
               {lastPrayerText}
             </TextColorTransition>
           </Typography>
@@ -90,9 +92,9 @@ function FrequencyControls({
           />
 
           {lastInteractionText ? (
-            <Typography pt={1} color="secondary">
+            <Typography pt={1} color="text.secondary">
               {'Last interaction: '}
-              <TextColorTransition className={lastInteractionClass}>
+              <TextColorTransition color={lastInteractionClass}>
                 {lastInteractionText}
               </TextColorTransition>
             </Typography>
