@@ -13,7 +13,6 @@ describe('Basic operation', () => {
         type: 'interaction',
         sensitive: true,
       })
-      .addNote({ content: 'Safe travels & self control', type: 'prayer' })
       .addNote({ content: 'Destroy ring', type: 'action', sensitive: true })
       .addNote({ content: 'Look after Sam', type: 'action' })
       .saveDrawer()
@@ -28,8 +27,6 @@ describe('Basic operation', () => {
     cy.dataCy('drawer-content')
       .contains('eavesdropping')
       .should('not.exist')
-    cy.dataCy('drawer-content')
-      .contains('Safe travels')
     cy.dataCy('drawer-done').click()
 
     cy.page('people')
@@ -162,6 +159,7 @@ describe('Basic operation', () => {
 
     // Open a nested drawer and edit it
     cy.contains('Fellowship').click()
+    cy.dataCy('add-description').click()
     cy.dataCy('description')
       .last()
       .type('Nine vs. nine, who will win?')
@@ -188,11 +186,11 @@ describe('Basic operation', () => {
       .click()
     cy.dataCy('firstName')
     cy.dataCy('section-prayer-points').click()
-    cy.addNote({ type: 'prayer', content: 'Safe travels' })
+    cy.addNote({ type: 'interaction', content: 'Met on travels' })
       .saveDrawer()
     cy.dataCy('drawer-content')
       .first()
-      .contains('Safe travels')
+      .contains('travels')
 
     // Switch to Frodo (should not nest drawer)
     cy.contains('Frodo').click()

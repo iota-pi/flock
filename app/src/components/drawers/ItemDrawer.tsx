@@ -352,7 +352,10 @@ function ItemDrawer({
           justifyContent="center"
         >
           <Tooltip title="Add description">
-            <IconButton onClick={handleClickAddDescription}>
+            <IconButton
+              data-cy="add-description"
+              onClick={handleClickAddDescription}
+            >
               <NotesIcon />
             </IconButton>
           </Tooltip>

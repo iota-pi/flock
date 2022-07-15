@@ -45,10 +45,6 @@ describe('Maturity-related functionality', () => {
       .type('Regular')
     cy.dataCy('maturity-done').click()
     cy.dataCy('page-content').contains('Christian').should('not.exist')
-    cy.dataCy('page-content').find('[data-cy=tag]').as('stages')
-    cy.get('@stages').eq(0).contains('Attended')
-    cy.get('@stages').eq(1).contains('Regular')
-    cy.get('@stages').eq(2).contains('Partner')
 
     // Previous maturity selection should not exist
     cy.page('people')
