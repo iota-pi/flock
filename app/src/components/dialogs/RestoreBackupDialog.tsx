@@ -13,6 +13,7 @@ import { useCallback, useState } from 'react';
 import { Item } from '../../state/items';
 import { useVault } from '../../state/selectors';
 import { UploadIcon } from '../Icons';
+import InlineText from '../InlineText';
 
 export interface Props {
   onClose: () => void,
@@ -97,7 +98,7 @@ function RestoreBackupDialog({
         </Box>
 
         <Typography paragraph>
-          <Typography fontWeight={500}>Important!</Typography>
+          <InlineText fontWeight={500}>Important!</InlineText>
           {' '}
           Importing a backup will overwrite all changes you have made since creating it.
           It will not remove any items you have created since the backup.
