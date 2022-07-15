@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import LargeIcon from '../LargeIcon';
 import { InternalPageId, PageId, usePage } from '../pages';
+import InlineText from '../InlineText';
 
 export interface Props extends BaseDrawerProps {}
 
@@ -78,7 +79,12 @@ function PlaceholderDrawer({
             <span>
               or click the
               {' '}
-              <Typography fontWeight={700}>+</Typography>
+              <InlineText
+                fontSize="h5.fontSize"
+                fontWeight={700}
+              >
+                +
+              </InlineText>
               {' '}
               to add a new {addName}
             </span>
