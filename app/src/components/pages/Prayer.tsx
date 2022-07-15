@@ -5,7 +5,7 @@ import { useItemMap, useItems, useMetadata, useVault } from '../../state/selecto
 import { isSameDay, useStringMemo } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
 import ItemList, { ItemListExtraElement } from '../ItemList';
-import { getBlankPrayerPoint, Item } from '../../state/items';
+import { Item } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import { EditIcon } from '../Icons';
 import GoalDialog from '../dialogs/GoalDialog';
@@ -70,10 +70,6 @@ function PrayerPage() {
       dispatch(replaceActive({ item: item.id, next, praying: true, report: true }));
     },
     [dispatch, goal, memoisedPrayerSchedule],
-  );
-  const handleClickAdd = useCallback(
-    () => dispatch(replaceActive({ newItem: getBlankPrayerPoint() })),
-    [dispatch],
   );
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), []);
@@ -153,12 +149,7 @@ function PrayerPage() {
   );
 
   return (
-    <BasePage
-      fab
-      fabLabel="Add prayer point"
-      noScrollContainer
-      onClickFab={handleClickAdd}
-    >
+    <BasePage noScrollContainer>
       <AutoSizer disableWidth>
         {({ height }) => (
           <ItemList

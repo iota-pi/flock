@@ -50,7 +50,6 @@ import {
   InteractionIcon,
   NotesIcon,
   PersonIcon,
-  PrayerIcon,
   UnarchiveIcon,
 } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
@@ -532,25 +531,6 @@ function ItemDrawer({
     [handleChange, item.isNew, members],
   );
 
-  const prayerSection = useMemo(
-    () => (
-      <CollapsibleSection
-        content={(
-          <NoteControl
-            notes={item.notes}
-            onChange={handleChangeNotes}
-            noteType="prayer"
-          />
-        )}
-        icon={PrayerIcon}
-        id="prayer-points"
-        initialExpanded={item.isNew}
-        title="Prayer points"
-      />
-    ),
-    [handleChangeNotes, item.isNew, item.notes],
-  );
-
   const interactionSection = useMemo(
     () => item.type === 'person' && (
       <CollapsibleSection
@@ -638,7 +618,6 @@ function ItemDrawer({
 
         <Grid item xs={12}>
           {membersSection}
-          {prayerSection}
           {interactionSection}
           {actionSection}
           {groupsSection}

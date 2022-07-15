@@ -1,6 +1,6 @@
 import Vault from '../../api/Vault';
 import store from '../../store';
-import { Item } from '../items';
+import { Item, ItemNoteType } from '../items';
 
 export interface ItemMigration {
   dependencies: string[],
@@ -19,9 +19,13 @@ const migrations: ItemMigration[] = [
       const updatedItems: Item[] = [];
       for (const item of items) {
         try {
-          const prayerPoints = item.notes.filter(n => n.type === 'prayer');
+          const prayerPoints = item.notes.filter(
+            n => (n.type as ItemNoteType | 'prayer') === 'prayer',
+          );
           if (prayerPoints.length > 0) {
-            const otherNotes = item.notes.filter(n => n.type !== 'prayer');
+            const otherNotes = item.notes.filter(
+              n => (n.type as ItemNoteType | 'prayer') !== 'prayer',
+            );
             const prayerPointString = prayerPoints.map(p => `* ${p.content}`).join('\n');
             updatedItems.push({
               ...item,

@@ -5,11 +5,11 @@ import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
-export type ItemNoteType = 'interaction' | 'prayer' | 'action';
+export type ItemNoteType = 'interaction' | 'action';
 export type ItemOrNoteType = ItemType | ItemNoteType;
 export type MessageType = 'message';
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
-export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'prayer', 'action'];
+export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'action'];
 export const MESSAGE_TYPES: MessageType[] = ['message'];
 
 export interface BaseNote {
@@ -19,9 +19,6 @@ export interface BaseNote {
   sensitive?: boolean,
   type: ItemNoteType,
 }
-export interface PrayerNote extends BaseNote {
-  type: 'prayer',
-}
 export interface InteractionNote extends BaseNote {
   type: 'interaction',
 }
@@ -29,7 +26,7 @@ export interface ActionNote extends BaseNote {
   type: 'action',
   completed?: number,
 }
-export type ItemNote = PrayerNote | InteractionNote | ActionNote;
+export type ItemNote = InteractionNote | ActionNote;
 
 export interface BaseItem {
   archived: boolean,
@@ -200,13 +197,6 @@ export function getBlankBaseNote(): BaseNote {
   };
 }
 
-export function getBlankPrayerPoint(): PrayerNote {
-  return {
-    ...getBlankBaseNote(),
-    type: 'prayer',
-  };
-}
-
 export function getBlankInteraction(): InteractionNote {
   return {
     ...getBlankBaseNote(),
@@ -224,8 +214,6 @@ export function getBlankAction(): ActionNote {
 export function getBlankNote(noteType: ItemNoteType): ItemNote {
   if (noteType === 'interaction') {
     return getBlankInteraction();
-  } else if (noteType === 'prayer') {
-    return getBlankPrayerPoint();
   } else if (noteType === 'action') {
     return getBlankAction();
   }
@@ -390,7 +378,6 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => !item.archived);
 }
 
-export function getNotes(items: Item[], filterType?: 'prayer'): PrayerNote[];
 export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
 export function getNotes(items: Item[], filterType?: 'action'): ActionNote[];
 export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[];

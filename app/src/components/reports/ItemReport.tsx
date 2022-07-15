@@ -2,7 +2,6 @@ import { memo, useMemo } from 'react';
 import { Box, BoxProps, IconButton, Typography } from '@mui/material';
 import {
   getItemName,
-  getNotes,
   Item,
 } from '../../state/items';
 import MemberDisplay from '../MemberDisplay';
@@ -42,10 +41,6 @@ function ItemReport({
   item,
   onEdit,
 }: Props) {
-  const prayerPoints = useMemo(
-    () => getNotes([item], 'prayer').sort((a, b) => b.date - a.date),
-    [item],
-  );
   const interactions = useMemo(
     () => (
       item.type === 'person'
@@ -100,22 +95,6 @@ function ItemReport({
           </Markdown>
         </>
       )}
-
-      <Section>
-        <Typography variant="h4">
-          Prayer Points
-        </Typography>
-
-        <NoteList
-          notes={prayerPoints}
-          displayItemNames={false}
-          displayNoteDate={false}
-          dividers
-          hideEmpty
-          noNotesHint="No prayer points"
-          wrapText
-        />
-      </Section>
 
       {item.type === 'person' && (
         <Section>

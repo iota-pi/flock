@@ -1,10 +1,6 @@
 import { isSameDay } from '.';
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies';
-import { compareItems, filterArchived, Item, PrayerNote } from '../state/items';
-
-export function getPrayerPoints(item: Item): PrayerNote[] {
-  return item.notes.filter(n => n.type === 'prayer') as PrayerNote[];
-}
+import { compareItems, filterArchived, Item } from '../state/items';
 
 export function getLastPrayedFor(
   item: Item,

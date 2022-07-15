@@ -462,8 +462,6 @@ function NoteControl<T extends ItemNote>({
     () => {
       if (noteType === 'interaction') {
         return 'Add Interaction';
-      } else if (noteType === 'prayer') {
-        return 'Add Prayer Point';
       } else if (noteType === 'action') {
         return 'Add Action';
       }
@@ -475,8 +473,6 @@ function NoteControl<T extends ItemNote>({
     () => {
       if (noteType === 'interaction') {
         return 'Details';
-      } else if (noteType === 'prayer') {
-        return 'Prayer point';
       } else if (noteType === 'action') {
         return 'Action';
       }

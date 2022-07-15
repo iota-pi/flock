@@ -16,7 +16,6 @@ import {
   GroupIcon,
   InteractionIcon,
   MuiIconType,
-  PrayerPointIcon,
   RemoveIcon,
   TagIcon,
   UnarchiveIcon,
@@ -25,7 +24,6 @@ import { useItemsById, useVault } from '../state/selectors';
 import {
   getBlankAction,
   getBlankInteraction,
-  getBlankPrayerPoint,
   Item,
 } from '../state/items';
 import { usePrevious } from '../utils';
@@ -74,15 +72,6 @@ function SelectedActions() {
   const handleHideGroup = useCallback(() => setShowGroup(false), []);
   const handleShowTags = useCallback(() => setShowTags(true), []);
   const handleHideTags = useCallback(() => setShowTags(false), []);
-  const handlePrayerPoint = useCallback(
-    () => {
-      dispatch(replaceActive({
-        initial: selectedItems,
-        newItem: getBlankPrayerPoint(),
-      }));
-    },
-    [dispatch, selectedItems],
-  );
   const handleInteraction = useCallback(
     () => {
       dispatch(replaceActive({
@@ -143,12 +132,6 @@ function SelectedActions() {
           label: 'Add/Remove Tags',
           onClick: handleShowTags,
         },
-        {
-          id: 'prayer-point',
-          icon: PrayerPointIcon,
-          label: 'New Prayer Point',
-          onClick: handlePrayerPoint,
-        },
       );
       if (workingItems.find(item => item.type === 'person')) {
         result.push({
@@ -202,7 +185,6 @@ function SelectedActions() {
       handleClear,
       handleInitialDelete,
       handleInteraction,
-      handlePrayerPoint,
       handleAction,
       handleShowGroup,
       handleShowTags,

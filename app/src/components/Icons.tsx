@@ -100,7 +100,6 @@ export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconTy
     group: GroupIcon,
     action: ActionIcon,
     interaction: InteractionIcon,
-    prayer: PrayerIcon,
     general: GeneralIcon,
     message: MessageIcon,
     tag: TagIcon,

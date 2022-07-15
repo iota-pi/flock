@@ -206,7 +206,6 @@ function NoteDrawer({
   );
 
   const itemsLabel = note.type === 'interaction' ? 'People' : 'Items';
-  const contentLabel = note.type !== 'prayer' ? 'Comment' : 'Prayer Point';
 
   return (
     <BaseDrawer
@@ -271,7 +270,7 @@ function NoteDrawer({
             disabled={!isVisible}
             fullWidth
             key={note.id}
-            label={contentLabel}
+            label="Comment"
             multiline={note.content.length > 30}
             onChange={handleChange}
             value={!isVisible ? '...' : note.content}
