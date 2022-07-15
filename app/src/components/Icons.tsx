@@ -21,6 +21,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import MessageIcon from '@mui/icons-material/Send';
 import MinusIcon from '@mui/icons-material/Remove';
 import NextIcon from '@mui/icons-material/ChevronRight';
+import NotesIcon from '@mui/icons-material/Notes';
 import NotificationIcon from '@mui/icons-material/Notifications';
 import OptionsIcon from '@mui/icons-material/Settings';
 import PasswordIcon from '@mui/icons-material/Password';
@@ -71,6 +72,7 @@ export {
   MinusIcon,
   NextIcon,
   NextIcon as ExpandMenuIcon,
+  NotesIcon,
   NotificationIcon,
   OptionsIcon,
   PasswordIcon,

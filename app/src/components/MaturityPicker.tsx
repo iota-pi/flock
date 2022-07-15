@@ -6,6 +6,7 @@ import {
 import {
   MenuItem,
   TextField,
+  TextFieldProps,
 } from '@mui/material';
 import { useMaturity } from '../state/selectors';
 
@@ -17,6 +18,7 @@ export interface Props {
   label?: string,
   maturity: string | null,
   onChange: (maturity: string | null) => void,
+  variant?: TextFieldProps['variant'],
 }
 
 
@@ -27,6 +29,7 @@ function MaturityPicker({
   label,
   maturity,
   onChange,
+  variant = 'standard',
 }: Props) {
   const [maturityStages] = useMaturity();
   const maturityOptions = useMemo<{ value: string, label: string, default?: boolean }[]>(
@@ -55,7 +58,7 @@ function MaturityPicker({
       onChange={handleChange}
       select
       value={maturityWithFallback}
-      variant="standard"
+      variant={variant}
     >
       {maturityOptions.map(option => (
         <MenuItem

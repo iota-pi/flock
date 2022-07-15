@@ -9,7 +9,9 @@ import {
   Button,
   Collapse,
   Grid,
+  IconButton,
   TextField,
+  Tooltip,
 } from '@mui/material';
 import {
   cleanItem,
@@ -46,6 +48,7 @@ import {
   getIconType,
   GroupIcon,
   InteractionIcon,
+  NotesIcon,
   PersonIcon,
   PrayerIcon,
   UnarchiveIcon,
@@ -89,6 +92,7 @@ function ItemDrawer({
 
   const [cancelled, setCancelled] = useState(false);
   const [duplicates, setDuplicates] = useState<Item[]>([]);
+  const [forceShowDescription, setShowDescription] = useState(false);
 
   const prevItem = usePrevious(item);
 
@@ -119,6 +123,16 @@ function ItemDrawer({
 
   useEffect(
     () => {
+      if (prevItem?.id !== item.id) {
+        setShowDescription(!!item.description);
+      }
+    },
+    [item.description, item.id, prevItem?.id],
+  );
+  const showDescription = forceShowDescription || !!item.description;
+
+  useEffect(
+    () => {
       const potential = itemsByName[getItemName(item)];
       if (potential) {
         setDuplicates(
@@ -131,6 +145,7 @@ function ItemDrawer({
     [item, itemsByName],
   );
 
+  const handleClickAddDescription = useCallback(() => setShowDescription(true), []);
   const handleChange = useCallback(
     <T extends Item>(data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item)) => {
       if (typeof data === 'function') {
@@ -268,7 +283,7 @@ function ItemDrawer({
     () => (
       lastName !== undefined ? (
         <>
-          <Grid item xs={6} lg={3}>
+          <Grid item xs={showDescription ? 6 : 5} lg={showDescription ? 3 : 6}>
             <TextField
               autoFocus
               data-cy="firstName"
@@ -282,7 +297,7 @@ function ItemDrawer({
             />
           </Grid>
 
-          <Grid item xs={6} lg={3}>
+          <Grid item xs={showDescription ? 6 : 5} lg={showDescription ? 3 : 5}>
             <TextField
               fullWidth
               data-cy="lastName"
@@ -294,7 +309,7 @@ function ItemDrawer({
           </Grid>
         </>
       ) : (
-        <Grid item xs={12} lg={6}>
+        <Grid item xs={showDescription ? 12 : 10} lg={showDescription ? 12 : 11}>
           <TextField
             autoFocus
             data-cy="name"
@@ -311,7 +326,86 @@ function ItemDrawer({
         </Grid>
       )
     ),
-    [firstName, handleChange, item.id, lastName],
+    [firstName, handleChange, item.id, lastName, showDescription],
+  );
+
+  const { archived, tags } = item;
+  const descriptionField = useMemo(
+    () => (
+      item.description || showDescription ? (
+        <Grid item xs={12} lg={6}>
+          <TextField
+            data-cy="description"
+            fullWidth
+            label="Short Description"
+            onChange={event => handleChange({ description: getValue(event) })}
+            value={item.description}
+            variant="standard"
+          />
+        </Grid>
+      ) : (
+        <Grid
+          item
+          xs={2}
+          lg={1}
+          display="flex"
+          align-items="flex-end"
+          justifyContent="center"
+        >
+          <Tooltip title="Add description">
+            <IconButton onClick={handleClickAddDescription}>
+              <NotesIcon />
+            </IconButton>
+          </Tooltip>
+        </Grid>
+      )
+    ),
+    [handleChange, handleClickAddDescription, item.description, showDescription],
+  );
+  const summaryField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <TextField
+          data-cy="summary"
+          fullWidth
+          label="Notes"
+          multiline
+          minRows={3}
+          onChange={event => handleChange({ summary: getValue(event) })}
+          value={item.summary}
+          variant="outlined"
+        />
+      </Grid>
+    ),
+    [handleChange, item.summary],
+  );
+  const tagsField = useMemo(
+    () => (
+      <Grid item xs={12}>
+        <TagSelection
+          selectedTags={tags}
+          onChange={newTags => handleChange({ tags: newTags })}
+        />
+      </Grid>
+    ),
+    [handleChange, tags],
+  );
+
+  const maturity = item.type === 'person' ? item.maturity : undefined;
+  const maturityField = useMemo(
+    () => (
+      maturity !== undefined ? (
+        <Grid item xs={12}>
+          <MaturityPicker
+            fullWidth
+            maturity={maturity}
+            onChange={handleChangeMaturity}
+            variant="outlined"
+          />
+        </Grid>
+      ) : null
+    ),
+    [handleChangeMaturity, maturity],
   );
 
   const email = item.type === 'person' ? item.email : undefined;
@@ -350,66 +444,6 @@ function ItemDrawer({
       ) : null
     ),
     [handleChange, phone],
-  );
-
-  const { archived, tags } = item;
-  const descriptionField = useMemo(
-    () => (
-      <Grid item xs={12} lg={6}>
-        <TextField
-          data-cy="description"
-          fullWidth
-          label="Short Description"
-          onChange={event => handleChange({ description: getValue(event) })}
-          value={item.description}
-          variant="standard"
-        />
-      </Grid>
-    ),
-    [handleChange, item.description],
-  );
-  const summaryField = useMemo(
-    () => (
-      <Grid item xs={12}>
-        <TextField
-          data-cy="summary"
-          fullWidth
-          label="Notes"
-          multiline
-          onChange={event => handleChange({ summary: getValue(event) })}
-          value={item.summary}
-          variant="standard"
-        />
-      </Grid>
-    ),
-    [handleChange, item.summary],
-  );
-  const tagsField = useMemo(
-    () => (
-      <Grid item xs={12}>
-        <TagSelection
-          selectedTags={tags}
-          onChange={newTags => handleChange({ tags: newTags })}
-        />
-      </Grid>
-    ),
-    [handleChange, tags],
-  );
-
-  const maturity = item.type === 'person' ? item.maturity : undefined;
-  const maturityField = useMemo(
-    () => (
-      maturity !== undefined ? (
-        <Grid item xs={12}>
-          <MaturityPicker
-            fullWidth
-            maturity={maturity}
-            onChange={handleChangeMaturity}
-          />
-        </Grid>
-      ) : null
-    ),
-    [handleChangeMaturity, maturity],
   );
 
   const lastInteraction = item.type === 'person' ? getLastInteractionDate(item) : 0;
