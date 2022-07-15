@@ -23,6 +23,7 @@ import Vault from '../../api/Vault';
 import { getAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
 import customDomainWords from '../../utils/customDomainWords';
+import InlineText from '../InlineText';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
@@ -54,7 +55,7 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),
 }));
-const MeterHolder = styled(TextField)(({ theme }) => ({
+const MeterHolder = styled('div')(({ theme }) => ({
   marginTop: theme.spacing(1),
   marginBottom: theme.spacing(1),
   flexGrow: 1,
@@ -292,9 +293,9 @@ function CreateAccountPage() {
             <Typography>
               Password Strength:
               {' '}
-              <Typography fontWeight={500}>
+              <InlineText fontWeight={500}>
                 {passwordScoreToWord(passwordScore)}
-              </Typography>
+              </InlineText>
             </Typography>
 
             <PasswordMeter
