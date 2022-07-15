@@ -26,11 +26,8 @@ const StyledAccordion = styled(Accordion)(({ theme }) => ({
       content: 'unset',
     },
   },
-  '& .Mui-expanded': {
+  '&.Mui-expanded': {
     margin: theme.spacing(2, 0),
-    '&.MuiAccordion-root:first-of-type': {
-      marginTop: theme.spacing(2),
-    },
   },
 }));
 const StyledAccordionSummary = styled(AccordionSummary)(({ theme }) => ({
