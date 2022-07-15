@@ -159,7 +159,7 @@ describe('Basic operation', () => {
 
     // Open a nested drawer and edit it
     cy.contains('Fellowship').click()
-    cy.dataCy('add-description').click()
+    cy.dataCy('add-description').last().click()
     cy.dataCy('description')
       .last()
       .type('Nine vs. nine, who will win?')
@@ -185,7 +185,7 @@ describe('Basic operation', () => {
     cy.dataCy('edit-item-button')
       .click()
     cy.dataCy('firstName')
-    cy.dataCy('section-prayer-points').click()
+    cy.dataCy('section-interactions').click()
     cy.addNote({ type: 'interaction', content: 'Met on travels' })
       .saveDrawer()
     cy.dataCy('drawer-content')

@@ -349,7 +349,7 @@ function ItemDrawer({
           lg={1}
           display="flex"
           align-items="flex-end"
-          justifyContent="center"
+          justifyContent="flex-end"
         >
           <Tooltip title="Add description">
             <IconButton
