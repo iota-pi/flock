@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import download from 'js-file-download';
 import BasePage from './BasePage';
-import { useItems, useMaturity, useMetadata, useVault } from '../../state/selectors';
+import { useItems, useMetadata, useVault } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
 import {
   DeleteIcon,
@@ -142,7 +142,6 @@ function SettingsPage() {
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items]);
   const [goal] = useMetadata('prayerGoal', naturalGoal);
-  const [maturity] = useMaturity();
 
   const [showGoalDialog, setShowGoalDialog] = useState(false);
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), []);
@@ -295,7 +294,6 @@ function SettingsPage() {
           id="maturity-stages"
           onClick={handleEditMaturity}
           title="Maturity stages"
-          tags={maturity}
         />
         <SettingsItem
           disabled={!itemCacheExists}
