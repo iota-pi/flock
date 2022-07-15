@@ -1,5 +1,21 @@
-import { Container, IconButton, PaperProps, styled, SwipeableDrawer, SxProps, Theme, Toolbar, useMediaQuery } from '@mui/material';
-import { createRef, KeyboardEvent, PropsWithChildren, useCallback, useEffect, useMemo } from 'react';
+import {
+  Container,
+  CSSObject,
+  IconButton,
+  styled,
+  SwipeableDrawer,
+  Theme,
+  Toolbar,
+  useMediaQuery,
+} from '@mui/material';
+import {
+  createRef,
+  KeyboardEvent,
+  PropsWithChildren,
+  useCallback,
+  useEffect,
+  useMemo,
+} from 'react';
 import { MuiIconType, RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWatcher';
@@ -11,34 +27,48 @@ const noOp = () => {};
 
 const StyledDrawer = styled(
   SwipeableDrawer,
-  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'stacked' },
-)<{ fullScreen: boolean, stacked: boolean }>(({ fullScreen, stacked, theme }) => {
-  const drawerWidth = (
-    fullScreen ? {
-      width: '100vw',
-    } : {
-      width: stacked ? '35vw' : '45vw',
-      [theme.breakpoints.down('lg')]: {
-        width: stacked ? '55vw' : '70vw',
-      },
-      [theme.breakpoints.down('md')]: {
-        width: stacked ? '70vw' : '85vw',
-      },
-      [theme.breakpoints.only('xs')]: {
+  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'stacked' && p !== 'permanent' },
+)<{ fullScreen: boolean, permanent: boolean, stacked: boolean }>(
+  ({ fullScreen, permanent, stacked, theme }): CSSObject => {
+    const drawerWidth: CSSObject = (
+      fullScreen ? {
         width: '100vw',
-      },
-    }
-  );
-  return {
-    ...drawerWidth,
-    flexShrink: 0,
+      } : {
+        width: stacked ? '35vw' : '45vw',
+        [theme.breakpoints.down('lg')]: {
+          width: stacked ? '55vw' : '70vw',
+        },
+        [theme.breakpoints.down('md')]: {
+          width: stacked ? '70vw' : '85vw',
+        },
+        [theme.breakpoints.only('xs')]: {
+          width: '100vw',
+        },
+      }
+    );
+    // Permanent drawer should sit just below app bar
+    const zIndex: CSSObject = {
+      zIndex: permanent ? theme.zIndex.appBar - 1 : undefined,
+    };
+    const commonStyles: CSSObject = { ...drawerWidth, ...zIndex };
 
-    '& .MuiDrawer-paper': {
-      ...drawerWidth,
-      boxSizing: 'border-box',
-    },
-  };
-});
+    return {
+      ...commonStyles,
+      flexShrink: 0,
+
+      '& .MuiDrawer-paper': {
+        ...commonStyles,
+        boxSizing: 'border-box',
+        backgroundColor: (
+          theme.palette.mode === 'dark'
+            ? theme.palette.background.default
+            : theme.palette.background.paper
+        ),
+        backgroundImage: 'unset',
+      },
+    };
+  },
+);
 const Layout = styled('div')({
   display: 'flex',
   flexGrow: 1,
@@ -121,30 +151,6 @@ function BaseDrawer({
   );
   const showTypeIcon = !hideTypeIcon;
 
-  const rootSx: SxProps<Theme> = useMemo(
-    () => ({
-      zIndex: theme => (permanentDrawer ? theme.zIndex.appBar - 1 : undefined),
-    }),
-    [permanentDrawer],
-  );
-  const paperSx: SxProps<Theme> = useMemo(
-    () => ({
-      backgroundColor: theme => (
-        theme.palette.mode === 'dark'
-          ? theme.palette.background.default
-          : theme.palette.background.paper
-      ),
-      backgroundImage: 'unset',
-
-      // Permanent drawer should sit just below app bar
-      ...(permanentDrawer && (theme => ({
-        zIndex: theme.zIndex.appBar - 1,
-      }))),
-    }),
-    [permanentDrawer],
-  );
-  const paperProps: Partial<PaperProps> = useMemo(() => ({ sx: paperSx }), [paperSx]);
-
   const handleBack = useCallback(
     () => {
       if (onBack) {
@@ -205,10 +211,9 @@ function BaseDrawer({
       onOpen={noOp}
       onKeyDown={handleKeyDown}
       open={open}
-      PaperProps={paperProps}
+      permanent={permanentDrawer}
       SlideProps={{ onExited }}
       stacked={stacked}
-      sx={rootSx}
       variant={permanentDrawer ? 'permanent' : 'temporary'}
     >
       <UnmountWatcher onUnmount={onUnmount} />
