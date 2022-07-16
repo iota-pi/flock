@@ -36,6 +36,7 @@ function MessageDrawer({
   open,
   stacked,
 }: Props) {
+  const [editorReady, setEditorReady] = useState(false);
   const emailEditorRef = useRef<EmailEditor>(null);
   const [emailSettings] = useMetadata('emailSettings');
   const lastDesignHash = useRef<string>();
@@ -72,6 +73,7 @@ function MessageDrawer({
         } else {
           editor.loadDesign(template);
         }
+        setEditorReady(true);
       } else {
         console.warn('Email editor ready event called while ref is not set');
       }
@@ -160,7 +162,6 @@ function MessageDrawer({
   );
   const handleDesignUpdate = useCallback(
     () => {
-      console.log('design updated');
       setPendingSave(true);
       autoSave();
     },
@@ -170,21 +171,23 @@ function MessageDrawer({
     () => {
       const interval = setInterval(
         () => {
-          emailEditorRef.current?.exportHtml(({ design }) => {
-            if (design) {
-              const currentDesignHash = objectHash(design);
-              if (lastDesignHash.current !== currentDesignHash) {
-                lastDesignHash.current = currentDesignHash;
-                handleDesignUpdate();
+          if (editorReady) {
+            emailEditorRef.current?.exportHtml(({ design }) => {
+              if (design) {
+                const currentDesignHash = objectHash(design);
+                if (lastDesignHash.current !== currentDesignHash) {
+                  lastDesignHash.current = currentDesignHash;
+                  handleDesignUpdate();
+                }
               }
-            }
-          });
+            });
+          }
         },
         100,
       );
       return () => clearInterval(interval);
     },
-    [handleDesignUpdate],
+    [editorReady, handleDesignUpdate],
   );
 
   useEffect(
