@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   useRef,
 } from 'react';
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
@@ -33,12 +34,18 @@ function EverythingSearch({
     },
     [searchInput],
   );
-  const keyMap: KeyMap = {
-    SEARCH: { sequence: '/', action: 'keyup' },
-  };
-  const handlers = {
-    SEARCH: focusSearch,
-  };
+  const keyMap: KeyMap = useMemo(
+    () => ({
+      SEARCH: { sequence: '/', action: 'keyup' },
+    }),
+    [],
+  );
+  const handlers = useMemo(
+    () => ({
+      SEARCH: focusSearch,
+    }),
+    [focusSearch],
+  );
 
   const handleCreate = useCallback(
     (newItem: Item) => {

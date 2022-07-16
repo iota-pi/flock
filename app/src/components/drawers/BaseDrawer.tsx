@@ -10,12 +10,13 @@ import {
 } from '@mui/material';
 import {
   createRef,
-  KeyboardEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   PropsWithChildren,
   useCallback,
   useEffect,
   useMemo,
 } from 'react';
+import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
 import { MuiIconType, RemoveIcon } from '../Icons';
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
 import UnmountWatcher from './utils/UnmountWatcher';
@@ -162,7 +163,7 @@ function BaseDrawer({
     [onBack, onClose],
   );
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
+    (event: ReactKeyboardEvent) => {
       if (event.ctrlKey && event.key === 'Enter') {
         onClose();
       }
@@ -202,60 +203,88 @@ function BaseDrawer({
     [containerRef, itemKey, prevKey],
   );
 
+  const handleSaveHotkey = useCallback(
+    (event?: KeyboardEvent) => {
+      if (event && ActionProps?.canSave !== false && ActionProps?.onSave) {
+        event.preventDefault();
+        ActionProps.onSave();
+      }
+    },
+    [ActionProps],
+  );
+  const keyMap: KeyMap = useMemo(
+    () => ({
+      SAVE: [
+        { sequence: 'ctrl+s', action: 'keydown' },
+        { sequence: 'command+s', action: 'keydown' },
+      ],
+    }),
+    [],
+  );
+  const handlers = useMemo(
+    () => ({
+      SAVE: handleSaveHotkey,
+    }),
+    [handleSaveHotkey],
+  );
+
   return (
-    <StyledDrawer
-      anchor="right"
-      disableSwipeToOpen
-      fullScreen={fullScreen}
-      onClose={onClose}
-      onOpen={noOp}
-      onKeyDown={handleKeyDown}
-      open={open}
-      permanent={permanentDrawer}
-      SlideProps={{ onExited }}
-      stacked={stacked}
-      variant={permanentDrawer ? 'permanent' : 'temporary'}
-    >
-      <UnmountWatcher onUnmount={onUnmount} />
+    <>
+      <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
+      <StyledDrawer
+        anchor="right"
+        disableSwipeToOpen
+        fullScreen={fullScreen}
+        onClose={onClose}
+        onOpen={noOp}
+        onKeyDown={handleKeyDown}
+        open={open}
+        permanent={permanentDrawer}
+        SlideProps={{ onExited }}
+        stacked={stacked}
+        variant={permanentDrawer ? 'permanent' : 'temporary'}
+      >
+        <UnmountWatcher onUnmount={onUnmount} />
 
-      {permanentDrawer && (
-        <Toolbar />
-      )}
-
-      <Layout>
-        <StyledContainer
-          data-cy="drawer-content"
-          ref={containerRef}
-        >
-          <>
-            {showTypeIcon && Icon && (
-              <IconHolder>
-                <Icon />
-              </IconHolder>
-            )}
-
-            {showBackButton && (
-              <BackButtonHolder>
-                <IconButton data-cy="back-button" onClick={handleBack} size="large">
-                  <RemoveIcon />
-                </IconButton>
-              </BackButtonHolder>
-            )}
-
-            {children}
-          </>
-        </StyledContainer>
-
-        {modifiedActionProps && (
-          <div>
-            <DrawerActions
-              permanentDrawer={permanentDrawer}
-              {...modifiedActionProps}
-            />
-          </div>
+        {permanentDrawer && (
+          <Toolbar />
         )}
-      </Layout>
-    </StyledDrawer>
+
+        <Layout>
+          <StyledContainer
+            data-cy="drawer-content"
+            ref={containerRef}
+          >
+            <>
+              {showTypeIcon && Icon && (
+                <IconHolder>
+                  <Icon />
+                </IconHolder>
+              )}
+
+              {showBackButton && (
+                <BackButtonHolder>
+                  <IconButton data-cy="back-button" onClick={handleBack} size="large">
+                    <RemoveIcon />
+                  </IconButton>
+                </BackButtonHolder>
+              )}
+
+              {children}
+            </>
+          </StyledContainer>
+
+          {modifiedActionProps && (
+            <div>
+              <DrawerActions
+                permanentDrawer={permanentDrawer}
+                {...modifiedActionProps}
+              />
+            </div>
+          )}
+        </Layout>
+      </StyledDrawer>
+    </>
   );
 }
 
