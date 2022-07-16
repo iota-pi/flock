@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
 import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
+import InlineText from '../../InlineText';
 
 
 const StyledContainer = styled(Container)(({ theme }) => ({
@@ -218,9 +219,9 @@ function DrawerActions({
           <Typography paragraph>
             Are you sure you want to delete
             {' '}
-            <Typography fontWeight={500}>
+            <InlineText fontWeight={500}>
               {itemName}
-            </Typography>
+            </InlineText>
             {itemHasNotes ? ', and all associated notes?' : '?'}
           </Typography>
 
