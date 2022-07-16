@@ -70,7 +70,7 @@ const OptionIconHolder = styled('div')(({ theme }) => ({
   alignItems: 'center',
   paddingRight: theme.spacing(2),
 }));
-const OptionName = styled(Typography)({
+const OptionName = styled(InlineText)({
   flexGrow: 1,
   minWidth: 0,
 });
