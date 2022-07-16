@@ -28,7 +28,7 @@ export interface Props extends BaseDrawerProps {
 }
 
 
-function MessageDrawer({
+function EditMessageDrawer({
   message: messageItem,
   onBack,
   onClose,
@@ -264,4 +264,4 @@ function MessageDrawer({
   );
 }
 
-export default MessageDrawer;
+export default EditMessageDrawer;

@@ -10,7 +10,7 @@ import ReportDrawer from '../drawers/ReportDrawer';
 import NoteDrawer from '../drawers/NoteDrawer';
 import { useItemOrNote, useLoggedIn, useMessageItem } from '../../state/selectors';
 import { getItemId, usePrevious } from '../../utils';
-import MessageDrawer from '../drawers/MessageDrawer';
+import EditMessageDrawer from '../drawers/EditMessageDrawer';
 import { usePage } from '../pages';
 
 function useDrawerRouting(drawers: DrawerData[]) {
@@ -139,7 +139,7 @@ function IndividualDrawer({
     }
 
     return (
-      <MessageDrawer
+      <EditMessageDrawer
         message={localItem}
         onBack={onClose}
         onClose={onClose}
