@@ -7,7 +7,7 @@ import {
   updateMessages,
 } from '../state/koinonia';
 import BaseAPI from './BaseAPI';
-import { SendMailRequest } from '../../../../koinonia/sender/types';
+import { SendMailRequest, TrackingItem } from '../../../../koinonia/sender/types';
 
 
 export type SendProgressCallback = (data: {
@@ -82,6 +82,15 @@ class KoinoniaAPI extends BaseAPI {
         return response;
       },
     );
+  }
+
+  async getStats({ message }: Pick<MessageSummary, 'message'>) {
+    const url = `${this.endpoint}/${this.account}/messages/${message}/stats`;
+    const results = await this.wrap(this.axios.get(url));
+    if (results.data.success) {
+      return results.data.stats as TrackingItem;
+    }
+    return undefined;
   }
 
   getOpenCallbackURI(

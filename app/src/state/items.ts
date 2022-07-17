@@ -63,6 +63,7 @@ export interface MessageItem {
   type: MessageType,
   id: string,
   name: string,
+  isNew?: boolean,
 }
 export type Item = PersonItem | GroupItem | GeneralItem;
 export type ItemOrNote = Item | ItemNote;

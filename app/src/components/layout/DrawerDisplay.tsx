@@ -12,6 +12,7 @@ import { useItemOrNote, useLoggedIn, useMessageItem } from '../../state/selector
 import { getItemId, usePrevious } from '../../utils';
 import EditMessageDrawer from '../drawers/EditMessageDrawer';
 import { usePage } from '../pages';
+import MessageDrawer from '../drawers/MessageDrawer';
 
 function useDrawerRouting(drawers: DrawerData[]) {
   const dispatch = useAppDispatch();
@@ -132,6 +133,18 @@ function IndividualDrawer({
           onChange={handleChange}
           onClose={onClose}
           onExited={onExited}
+          open={drawer.open}
+          stacked={stacked}
+        />
+      );
+    }
+
+    if (drawer.report) {
+      return (
+        <MessageDrawer
+          message={localItem}
+          onBack={onClose}
+          onClose={onClose}
           open={drawer.open}
           stacked={stacked}
         />

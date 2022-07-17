@@ -81,7 +81,10 @@ function EditMessageDrawer({
     [message?.data],
   );
   const handleChangeName = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setName(event.target.value);
+      setPendingSave(true);
+    },
     [],
   );
   const handleSave = useCallback(
