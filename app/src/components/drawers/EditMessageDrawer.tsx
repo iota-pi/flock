@@ -90,7 +90,7 @@ function EditMessageDrawer({
   const handleSave = useCallback(
     (callback?: () => void) => {
       if (message?.message) {
-        emailEditorRef.current?.exportHtml(({ design }) => {
+        emailEditorRef.current?.saveDesign(design => {
           if (design && Object.keys(design).length > 0) {
             const newMessage: MessageFull = {
               created: message.created || new Date().getTime(),
