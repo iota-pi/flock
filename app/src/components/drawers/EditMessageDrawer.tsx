@@ -8,20 +8,21 @@ import {
 } from 'react';
 import {
   Alert,
-  Stack, TextField,
+  Stack,
+  TextField,
 } from '@mui/material';
 import debounce from 'debounce';
 import objectHash from 'object-hash';
-import EmailEditor from 'react-email-editor';
-import { MessageItem } from '../../state/items';
+import EmailEditor, { Design } from 'react-email-editor';
+import type { MessageItem } from '../../state/items';
 import { useMetadata, useVault } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
-import { MessageFull } from '../../state/koinonia';
+import type { MessageFull } from '../../state/koinonia';
 import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
 import template from '../../utils/unlayer-template.json';
-import { SendProgressCallback } from '../../api/KoinoniaAPI';
+import type { SendProgressCallback } from '../../api/KoinoniaAPI';
 
 export interface Props extends BaseDrawerProps {
   message: MessageItem,
@@ -175,7 +176,7 @@ function EditMessageDrawer({
       const interval = setInterval(
         () => {
           if (editorReady) {
-            emailEditorRef.current?.exportHtml(({ design }) => {
+            emailEditorRef.current?.saveDesign((design: Design | undefined) => {
               if (design) {
                 const currentDesignHash = objectHash(design);
                 if (lastDesignHash.current !== currentDesignHash) {
