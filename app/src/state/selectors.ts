@@ -2,11 +2,17 @@ import { memoize } from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
-import { AccountMetadata as Metadata, DEFAULT_MATURITY, MetadataKey } from './account';
+import { AccountMetadata as Metadata, MetadataKey } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
 import { getMessageItem } from './koinonia';
 import { setUiState, UiOptions } from './ui';
 
+// TODO: where should this live?
+export const DEFAULT_MATURITY: string[] = [
+  'Non-Christian',
+  'Young Christian',
+  'Mature Christian',
+];
 
 export function useItems<T extends Item>(itemType: T['type']): T[];
 export function useItems(): Item[];

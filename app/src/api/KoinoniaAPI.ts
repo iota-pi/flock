@@ -8,7 +8,7 @@ import {
 } from '../state/koinonia';
 import BaseAPI from './BaseAPI';
 import env from '../env';
-import { SendMailRequest, TrackingItem } from '../../../../koinonia/sender/types';
+import { SendMailRequest, TrackingItem } from '../../../koinonia/sender/types';
 
 
 export type SendProgressCallback = (data: {

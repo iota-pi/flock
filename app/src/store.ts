@@ -1,12 +1,22 @@
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
-import { createStore } from 'redux';
-import { devToolsEnhancer } from 'redux-devtools-extension';
-import { RootState, rootReducer } from './state';
+import { configureStore } from '@reduxjs/toolkit';
+import type { RootState } from './state';
 
-const store = createStore(
-  rootReducer,
-  devToolsEnhancer,
-);
+import account from './state/account';
+import items from './state/items';
+import { vaultReducer } from './state/vault';
+import messages from './state/koinonia';
+import { uiReducer } from './state/ui';
+
+const store = configureStore({
+  reducer: {
+    account,
+    items,
+    messages,
+    vault: vaultReducer,
+    ui: uiReducer,
+  },
+});
 
 export default store;
 export type AppDispatch = typeof store.dispatch;

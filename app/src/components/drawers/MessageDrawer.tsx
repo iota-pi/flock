@@ -19,7 +19,7 @@ import { usePrevious } from '../../utils';
 import { getIconType } from '../Icons';
 import { MessageFull } from '../../state/koinonia';
 import { pushActive } from '../../state/ui';
-import { TrackingItem } from '../../../../../koinonia/sender/types';
+import { TrackingItem } from '../../../../koinonia/sender/types';
 import ItemList from '../ItemList';
 
 

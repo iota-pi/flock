@@ -1,5 +1,4 @@
-import { Action } from 'redux';
-import { AllActions } from '.';
+import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { capitalise, getItemId } from '../utils';
 import { Frequency } from '../utils/frequencies';
 
@@ -81,101 +80,29 @@ export interface ItemsState {
   itemMap: typeof initialItemMap,
 }
 
-export const SET_ITEMS = 'SET_ITEMS';
-export const UPDATE_ITEMS = 'UPDATE_ITEMS';
-export const DELETE_ITEMS = 'DELETE_ITEMS';
+const itemsAdapter = createEntityAdapter({
+  sortComparer: compareItems,
+})
 
-export interface SetItemsAction extends Action {
-  type: typeof SET_ITEMS | typeof UPDATE_ITEMS,
-  items: Item[],
-}
-export interface DeleteItemsAction extends Action {
-  type: typeof DELETE_ITEMS,
-  items: string[],
-}
+const itemsSlice = createSlice({
+  name: 'items',
+  initialState: itemsAdapter.getInitialState(),
+  reducers: {
+    setItems(state, action: PayloadAction<Item[]>) {
+      const newItems = action.payload.map(item => supplyMissingAttributes(item));
+      itemsAdapter.setAll(state, newItems);
+    },
+    updateItems(state, action: PayloadAction<Item[]>) {
+      itemsAdapter.setMany(state, action.payload);
+    },
+    deleteItems(state, payload: PayloadAction<ItemId[]>) {
+      itemsAdapter.removeMany(state, payload);
+    },
+  },
+});
 
-export type ItemsAction = SetItemsAction | DeleteItemsAction;
-
-export function setItems(items: Item[]): SetItemsAction {
-  return {
-    type: SET_ITEMS,
-    items: items.map(item => supplyMissingAttributes(item)),
-  };
-}
-
-export function updateItems(items: Item[], dontUseThisDirectly: boolean): SetItemsAction {
-  if (dontUseThisDirectly !== true) {
-    throw new Error('Don\'t use updateItems directly! Use `vault.store` instead');
-  }
-  return { type: UPDATE_ITEMS, items };
-}
-
-export function deleteItems(items: string[], dontUseThisDirectly: boolean): DeleteItemsAction {
-  if (dontUseThisDirectly !== true) {
-    throw new Error('Don\'t use updateItems directly! Use `vault.delete` instead');
-  }
-  return { type: DELETE_ITEMS, items };
-}
-
-export function itemsReducer(
-  state: ItemsState['items'] = initialItems,
-  action: SetItemsAction | AllActions,
-): ItemsState['items'] {
-  if (action.type === SET_ITEMS) {
-    return action.items.slice();
-  } else if (action.type === UPDATE_ITEMS) {
-    const updatedIds = new Set(action.items.map(item => item.id));
-    const untouchedItems = state.filter(item => !updatedIds.has(item.id));
-    const unqiueItems = action.items.filter(
-      (i1, index) => index === action.items.findIndex(i2 => i2.id === i1.id),
-    );
-    return [...untouchedItems, ...unqiueItems];
-  } else if (action.type === DELETE_ITEMS) {
-    const deletedIds = new Set(action.items);
-    return state.filter(item => !deletedIds.has(item.id));
-  }
-
-  return state;
-}
-
-export function noteToItemMapReducer(
-  state: ItemsState['noteToItemMap'] = initialNoteToItemMap,
-  action: SetItemsAction | AllActions,
-): ItemsState['noteToItemMap'] {
-  if (action.type === SET_ITEMS || action.type === UPDATE_ITEMS) {
-    const newState = Object.fromEntries(
-      action.items.flatMap(item => item.notes.map(n => [n.id, item.id])),
-    );
-    if (action.type === SET_ITEMS) {
-      return newState;
-    }
-    return { ...state, ...newState };
-  }
-
-  return state;
-}
-
-export function itemMapReducer(
-  state: ItemsState['itemMap'] = initialItemMap,
-  action: SetItemsAction | AllActions,
-): ItemsState['itemMap'] {
-  if (action.type === SET_ITEMS || action.type === UPDATE_ITEMS) {
-    const newState = Object.fromEntries(action.items.map(item => [item.id, item]));
-    if (action.type === SET_ITEMS) {
-      return newState;
-    }
-    return { ...state, ...newState };
-  }
-  if (action.type === DELETE_ITEMS) {
-    const newState = { ...state };
-    for (const id of action.items) {
-      delete newState[id];
-    }
-    return newState;
-  }
-
-  return state;
-}
+export const { setItems, updateItems, deleteItems } = itemsSlice.actions;
+export default itemsSlice.reducer;
 
 export function isItem(itemOrNote: TypedFlockItem): itemOrNote is Item {
   return (ITEM_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
