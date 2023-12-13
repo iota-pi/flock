@@ -2,10 +2,10 @@ import { List, ListItemButton, ListItemText } from '@mui/material';
 import { useCallback, useState } from 'react';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { useVault } from '../../state/selectors';
 import { replaceActive } from '../../state/ui';
 import { EmailIcon } from '../Icons';
 import SMTPDialog from '../dialogs/SMTPDialog';
+import { createMessage } from '../../api/KoinoniaAPI';
 
 interface MessageSummary {
   message: string,
@@ -15,7 +15,6 @@ interface MessageSummary {
 function CommunicationPage() {
   const dispatch = useAppDispatch();
   const messages = useAppSelector(state => state.messages);
-  const vault = useVault();
 
   const [showSMTP, setShowSMTP] = useState(false);
 
@@ -28,7 +27,7 @@ function CommunicationPage() {
   const handleClickAdd = useCallback(
     async () => {
       const name = 'New message';
-      const message = await vault?.koinonia.createMessage({
+      const message = await createMessage({
         name,
         data: null,
         sentTo: [],
@@ -40,7 +39,7 @@ function CommunicationPage() {
         }));
       }
     },
-    [dispatch, vault],
+    [dispatch],
   );
   const handleShowSMTP = useCallback(() => setShowSMTP(true), []);
   const handleHideSMTP = useCallback(() => setShowSMTP(false), []);

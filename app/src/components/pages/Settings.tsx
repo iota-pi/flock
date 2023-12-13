@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import download from 'js-file-download';
 import BasePage from './BasePage';
-import { useItems, useMetadata, useVault } from '../../state/selectors';
+import { useItems, useMetadata } from '../../state/selectors';
 import { getNaturalPrayerGoal } from '../../utils/prayer';
 import {
   DeleteIcon,
@@ -34,11 +34,12 @@ import { Item, PersonItem } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { setMessage, setUiState } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
-import { clearVault } from '../../state/vault';
 import { subscribe, unsubscribe } from '../../utils/firebase';
 import SubscriptionDialog from '../dialogs/SubscriptionDialog';
 import ImportPeopleDialog from '../dialogs/ImportPeopleDialog';
 import PageContainer from '../PageContainer';
+import { checkItemCache, clearItemCache, exportData, storeItems } from '../../api/Vault';
+import { setAccount } from '../../state/account';
 
 export interface SettingsItemProps {
   disabled?: boolean,
@@ -118,13 +119,12 @@ function SettingsItem({
 }
 
 function SettingsPage() {
-  const account = useAppSelector(state => state.account);
+  const account = useAppSelector(state => state.account.account);
   const dispatch = useAppDispatch();
   const items = useItems();
-  const vault = useVault();
 
   const handleSignOut = useCallback(
-    () => dispatch(clearVault()),
+    () => dispatch(setAccount({ loggedIn: false })),
     [dispatch],
   );
 
@@ -157,24 +157,24 @@ function SettingsPage() {
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1);
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? vault?.checkItemCache() : false),
-    [cacheClearCounter, vault],
+    () => (cacheClearCounter ? checkItemCache() : false),
+    [cacheClearCounter],
   );
   const handleClearCache = useCallback(
     () => {
-      vault?.clearItemCache();
+      clearItemCache();
       setCacheClearCounter(c => c + 1);
     },
-    [vault],
+    [],
   );
 
   const handleExport = useCallback(
     async () => {
-      const data = await vault?.exportData(items);
+      const data = await exportData(items);
       const json = JSON.stringify(data);
       return download(json, 'flock.backup.json');
     },
-    [items, vault],
+    [items],
   );
 
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
@@ -183,10 +183,10 @@ function SettingsPage() {
   const handleConfirmRestore = useCallback(
     async (restored: Item[]) => {
       setShowRestoreDialog(false);
-      await vault?.store(restored);
+      await storeItems(restored);
       dispatch(setMessage({ message: 'Restore successful' }));
     },
-    [dispatch, vault],
+    [dispatch],
   );
 
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -195,24 +195,22 @@ function SettingsPage() {
   const handleConfirmImport = useCallback(
     async (imported: PersonItem[]) => {
       setShowImportDialog(false);
-      await vault?.store(imported);
+      await storeItems(imported);
       dispatch(setMessage({ message: 'Import successful' }));
     },
-    [dispatch, vault],
+    [dispatch],
   );
 
   const handleSubscribe = useCallback(
     async (hours: number[] | null) => {
       setShowSubscriptionDialog(false);
-      if (vault) {
-        if (hours) {
-          await subscribe(vault, hours);
-        } else {
-          await unsubscribe(vault);
-        }
+      if (hours) {
+        await subscribe(hours);
+      } else {
+        await unsubscribe();
       }
     },
-    [vault],
+    [],
   );
 
   const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode';

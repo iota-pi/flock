@@ -8,12 +8,12 @@ import {
   Divider,
   Grid,
 } from '@mui/material';
-import { useVault } from '../../state/selectors';
 import { Item } from '../../state/items';
 import { usePrevious } from '../../utils';
 import TagSelection from '../TagSelection';
 import { AddIcon, MinusIcon } from '../Icons';
 import Search from '../Search';
+import { storeItems } from '../../api/Vault';
 
 
 export interface Props {
@@ -28,7 +28,6 @@ function TagDialog({
   open,
 }: Props) {
   const prevOpen = usePrevious(open);
-  const vault = useVault();
 
   const [selected, setSelected] = useState<Item[]>([]);
   const [addTags, setAddTags] = useState<string[]>([]);
@@ -74,10 +73,10 @@ function TagDialog({
           updated.push(newItem);
         }
       }
-      vault?.store(updated);
+      storeItems(updated);
       onClose();
     },
-    [addTags, onClose, removeTags, selected, vault],
+    [addTags, onClose, removeTags, selected],
   );
 
   return (

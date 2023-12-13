@@ -31,7 +31,7 @@ import {
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
 import NoteControl from '../NoteControl';
-import { useItems, useVault } from '../../state/selectors';
+import { useItems } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import FrequencyControls from '../FrequencyControls';
 import TagSelection from '../TagSelection';
@@ -55,6 +55,7 @@ import {
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getLastInteractionDate } from '../../utils/interactions';
+import { deleteItems, storeItems } from '../../api/Vault';
 
 
 export interface Props extends BaseDrawerProps {
@@ -87,7 +88,6 @@ function ItemDrawer({
   const dispatch = useAppDispatch();
   const groups = useItems<GroupItem>('group');
   const items = useItems();
-  const vault = useVault();
 
   const [cancelled, setCancelled] = useState(false);
   const [duplicates, setDuplicates] = useState<Item[]>([]);
@@ -175,21 +175,21 @@ function ItemDrawer({
         };
         updatedGroupItems.push(newGroup);
       }
-      vault?.store(updatedGroupItems);
+      storeItems(updatedGroupItems);
     },
-    [item.id, memberGroups, vault],
+    [item.id, memberGroups],
   );
 
   const handleSave = useCallback(
     (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
-        vault?.store(clean);
+        storeItems(clean);
         return clean;
       }
       return undefined;
     },
-    [vault],
+    [],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -211,10 +211,10 @@ function ItemDrawer({
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups();
-      vault?.delete(item.id);
+      deleteItems(item.id);
       onClose();
     },
-    [onClose, item.id, removeFromAllGroups, vault],
+    [onClose, item.id, removeFromAllGroups],
   );
 
   const hasReport = item.type === 'group';

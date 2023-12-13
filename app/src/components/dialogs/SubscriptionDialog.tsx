@@ -11,7 +11,6 @@ import {
   TextField,
 } from '@mui/material';
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
-import { useVault } from '../../state/selectors';
 import { checkSubscription } from '../../utils/firebase';
 import { RemoveIcon } from '../Icons';
 
@@ -114,29 +113,26 @@ function SubscriptionDialog({
   onSave,
   open,
 }: Props) {
-  const vault = useVault();
   const [hours, setHours] = useState<SubscriptionHour[]>([]);
 
   useEffect(
     () => {
       let cancelled = false;
-      if (vault) {
-        checkSubscription(vault).then(existing => {
-          if (!cancelled && existing) {
-            setHours(
-              existing.hours.map(hour => ({
-                hour,
-                id: Math.random(),
-              })),
-            );
-          } else {
-            setHours([]);
-          }
-        }).catch(console.error);
-      }
+      checkSubscription().then(existing => {
+        if (!cancelled && existing) {
+          setHours(
+            existing.hours.map(hour => ({
+              hour,
+              id: Math.random(),
+            })),
+          );
+        } else {
+          setHours([]);
+        }
+      }).catch(console.error);
       return () => { cancelled = true; };
     },
-    [vault],
+    [],
   );
 
   const handleSave = useCallback(

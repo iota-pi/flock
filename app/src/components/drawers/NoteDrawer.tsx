@@ -22,13 +22,13 @@ import {
   useItemMap,
   useItemsById,
   useNoteMap,
-  useVault,
 } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemList from '../ItemList';
 import { getIconType, RemoveIcon } from '../Icons';
 import { getItemId, usePrevious } from '../../utils';
 import Search from '../Search';
+import { storeItems } from '../../api/Vault';
 
 export interface Props extends BaseDrawerProps {
   note: ItemNote,
@@ -51,7 +51,6 @@ function NoteDrawer({
   const itemMap = useItemMap();
   const noteMap = useNoteMap();
   const prevNote = usePrevious(note);
-  const vault = useVault();
 
   const [linkedItems, setLinkedItems] = useState<Item[]>([]);
   const [showSensitive, setShowSensitive] = useState(false);
@@ -157,9 +156,9 @@ function NoteDrawer({
         // Update note id between each linked item
         newNote = { ...newNote, id: getItemId() };
       }
-      vault?.store(itemsToUpdate);
+      storeItems(itemsToUpdate);
     },
-    [editing, itemMap, linkedItems, noteMap, vault],
+    [editing, itemMap, linkedItems, noteMap],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -183,12 +182,12 @@ function NoteDrawer({
             ...oldItem,
             notes: oldItem.notes.filter(n => n.id !== note.id),
           };
-          vault?.store(newItem);
+          storeItems(newItem);
         }
       }
       onClose();
     },
-    [itemMap, noteMap, onClose, note, vault],
+    [itemMap, noteMap, onClose, note],
   );
 
   const isVisible = useMemo(

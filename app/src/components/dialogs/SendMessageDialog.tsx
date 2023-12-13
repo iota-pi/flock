@@ -16,13 +16,13 @@ import {
   GroupItem,
   PersonItem,
 } from '../../state/items';
-import { useItems, useItemsById, useMetadata, useVault } from '../../state/selectors';
+import { useItems, useItemsById, useMetadata } from '../../state/selectors';
 import { MessageIcon } from '../Icons';
 import { getRecipientFields, MessageFull } from '../../state/koinonia';
 import Search, { getSearchableDataId } from '../Search';
 import { useAppDispatch } from '../../store';
 import { setMessage } from '../../state/ui';
-import { SendProgressCallback } from '../../api/KoinoniaAPI';
+import { SendProgressCallback, sendMessage } from '../../api/KoinoniaAPI';
 
 export interface Props {
   html: string,
@@ -45,7 +45,6 @@ function SendMessageDialog({
   const people = useItems<PersonItem>('person');
   const getItemsById = useItemsById();
   const [emailSettings] = useMetadata('emailSettings');
-  const vault = useVault();
 
   const [recipients, setRecipients] = useState<RecipientTypes[]>([]);
 
@@ -94,7 +93,7 @@ function SendMessageDialog({
   const handleSend = useCallback(
     () => {
       if (emailSettings) {
-        vault?.koinonia.sendMessage({
+        sendMessage({
           message: message.message,
           details: {
             content: html,
@@ -117,7 +116,7 @@ function SendMessageDialog({
       }
       onClose();
     },
-    [dispatch, emailSettings, html, message, onClose, onSendProgress, recipientsWithEmail, vault],
+    [dispatch, emailSettings, html, message, onClose, onSendProgress, recipientsWithEmail],
   );
 
   return (
@@ -150,10 +149,10 @@ function SendMessageDialog({
               severity={recipientsWithEmail.length === recipientPeople.length ? 'info' : 'warning'}
             >
               {recipientPeople.length} recipients selected
-              {' '}
-              (
-              {recipientPeople.length - recipientsWithEmail.length}
-              {' recipients don\'t have an email address)'}
+              {recipientPeople.length - recipientsWithEmail.length > 0 && (
+                ` (${recipientPeople.length - recipientsWithEmail.length}`
+                + ' recipients don\'t have an email address)'
+              )}
             </Alert>
           )}
         </Stack>

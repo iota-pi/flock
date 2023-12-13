@@ -11,7 +11,6 @@ import { DropzoneArea } from 'mui-file-dropzone';
 import neatCsv from 'neat-csv';
 import { useCallback, useState } from 'react';
 import { importPeople, PersonItem } from '../../state/items';
-import { useVault } from '../../state/selectors';
 import { UploadIcon } from '../Icons';
 
 
@@ -26,13 +25,12 @@ function ImportPeopleDialog({
   onConfirm,
   open,
 }: Props) {
-  const vault = useVault();
   const [importedItems, setImportedItems] = useState<PersonItem[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleChange = useCallback(
     async (files: File[]) => {
-      if (vault && files.length > 0) {
+      if (files.length > 0) {
         const file = files[0];
         const text = await file.text();
         const data = await neatCsv(text, {
@@ -71,7 +69,7 @@ function ImportPeopleDialog({
         setImportedItems([]);
       }
     },
-    [vault],
+    [],
   );
 
   const handleConfirmImport = useCallback(

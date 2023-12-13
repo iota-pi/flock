@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { MessageItem, PersonItem } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { useItemsById, useVault } from '../../state/selectors';
+import { useItemsById } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { usePrevious } from '../../utils';
 import { getIconType } from '../Icons';
@@ -21,6 +21,7 @@ import { MessageFull } from '../../state/koinonia';
 import { pushActive } from '../../state/ui';
 import { TrackingItem } from '../../../../koinonia/sender/types';
 import ItemList from '../ItemList';
+import { deleteMessage, getStats, saveMessage } from '../../api/KoinoniaAPI';
 
 
 export interface Props extends BaseDrawerProps {
@@ -42,7 +43,6 @@ function MessageDrawer({
   const messages = useAppSelector(state => state.messages);
   const [pendingSave, setPendingSave] = useState(false);
   const [stats, setStats] = useState<TrackingItem>();
-  const vault = useVault();
 
   const message = useMemo(
     () => messages.find(m => m.message === messageItem.id),
@@ -95,12 +95,12 @@ function MessageDrawer({
           name,
           sentTo: workingMessage.sentTo,
         };
-        vault?.koinonia.saveMessage(newMessage);
+        saveMessage(newMessage);
         callback?.();
         setPendingSave(false);
       }
     },
-    [message, name, vault],
+    [message, name],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -122,11 +122,11 @@ function MessageDrawer({
   const handleDelete = useCallback(
     () => {
       if (message?.message) {
-        vault?.koinonia.deleteMessage({ message: message.message });
+        deleteMessage({ message: message.message });
       }
       setCancelled(true);
     },
-    [message?.message, vault],
+    [message?.message],
   );
   const handleUnmount = useCallback(
     () => {
@@ -170,11 +170,11 @@ function MessageDrawer({
   );
   useEffect(
     () => {
-      vault?.koinonia.getStats({ message: messageItem.id }).then(
+      getStats({ message: messageItem.id }).then(
         newStats => setStats(newStats),
       );
     },
-    [messageItem.id, vault],
+    [messageItem.id],
   );
 
   return (

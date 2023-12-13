@@ -20,7 +20,7 @@ import {
   TagIcon,
   UnarchiveIcon,
 } from './Icons';
-import { useItemsById, useVault } from '../state/selectors';
+import { useItemsById } from '../state/selectors';
 import {
   getBlankAction,
   getBlankInteraction,
@@ -31,6 +31,7 @@ import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUiState, replaceActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 import GroupDialog from './dialogs/GroupDialog';
+import { deleteItems, storeItems } from '../api/Vault';
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -57,7 +58,6 @@ function SelectedActions() {
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
   const selected = useAppSelector(state => state.ui.selected);
-  const vault = useVault();
 
   const open = selected.length > 0;
 
@@ -93,19 +93,19 @@ function SelectedActions() {
   const handleSetArchived = useCallback(
     (archived: boolean) => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
-      vault?.store(newItems);
+      storeItems(newItems);
     },
-    [selectedItems, vault],
+    [selectedItems],
   );
   const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived]);
   const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived]);
   const handleInitialDelete = useCallback(() => setShowConfirm(true), []);
   const handleConfirmDelete = useCallback(
     () => {
-      vault?.delete(selectedItems.map(item => item.id)).catch(error => console.error(error));
+      deleteItems(selectedItems.map(item => item.id)).catch(error => console.error(error));
       setShowConfirm(false);
     },
-    [selectedItems, vault],
+    [selectedItems],
   );
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
   const handleClear = useCallback(

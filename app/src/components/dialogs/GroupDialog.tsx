@@ -8,10 +8,10 @@ import {
   Divider,
   Grid,
 } from '@mui/material';
-import { useVault } from '../../state/selectors';
 import { GroupItem, Item } from '../../state/items';
 import { usePrevious } from '../../utils';
 import Search from '../Search';
+import { storeItems } from '../../api/Vault';
 
 
 export interface Props {
@@ -27,7 +27,6 @@ function GroupDialog({
   open,
 }: Props) {
   const prevOpen = usePrevious(open);
-  const vault = useVault();
 
   const [selected, setSelected] = useState<Item[]>([]);
   const [addGroups, setAddGroups] = useState<GroupItem[]>([]);
@@ -94,10 +93,10 @@ function GroupDialog({
           members: group.members.filter(m => !selectedIds.includes(m)),
         });
       }
-      vault?.store(updated);
+      storeItems(updated);
       onClose();
     },
-    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds, vault],
+    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],
   );
 
   return (

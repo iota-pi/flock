@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken as firebaseGetToken } from 'firebase/messaging';
-import Vault from '../api/Vault';
+import { deleteSubscription, getSubscription, setSubscription } from '../api/Vault';
 import env from '../env';
 import firebaseConfig from './firebase-config';
 
@@ -17,9 +17,9 @@ async function getToken() {
   );
 }
 
-export async function subscribe(vault: Vault, hours: number[]) {
+export async function subscribe(hours: number[]) {
   const token = await getToken();
-  await vault.setSubscription({
+  await setSubscription({
     failures: 0,
     hours,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -27,17 +27,17 @@ export async function subscribe(vault: Vault, hours: number[]) {
   });
 }
 
-export async function unsubscribe(vault: Vault) {
+export async function unsubscribe() {
   const token = await getToken();
-  await vault.deleteSubscription(token);
+  await deleteSubscription(token);
 }
 
-export async function checkSubscription(vault: Vault) {
+export async function checkSubscription() {
   const authorized = Notification.permission === 'granted';
   if (!authorized) {
     return null;
   }
   const token = await getToken();
-  const existing = await vault.getSubscription(token);
+  const existing = await getSubscription(token);
   return existing;
 }

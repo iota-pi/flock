@@ -11,9 +11,9 @@ import {
 import { DropzoneArea } from 'mui-file-dropzone';
 import { useCallback, useState } from 'react';
 import { Item } from '../../state/items';
-import { useVault } from '../../state/selectors';
 import { UploadIcon } from '../Icons';
 import InlineText from '../InlineText';
+import { importData } from '../../api/Vault';
 
 export interface Props {
   onClose: () => void,
@@ -26,18 +26,17 @@ function RestoreBackupDialog({
   onConfirm,
   open,
 }: Props) {
-  const vault = useVault();
   const [importedItems, setImportedItems] = useState<Item[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleChange = useCallback(
     async (files: File[]) => {
-      if (vault && files.length > 0) {
+      if (files.length > 0) {
         const file = files[0];
         const text = await file.text();
         const data = JSON.parse(text);
         setErrorMessage('');
-        const items = await vault.importData(data).catch(() => {
+        const items = await importData(data).catch(() => {
           setErrorMessage('Could not decrypt file successfully');
           return [] as Item[];
         });
@@ -46,7 +45,7 @@ function RestoreBackupDialog({
         setImportedItems([]);
       }
     },
-    [vault],
+    [],
   );
 
   const handleConfirmImport = useCallback(

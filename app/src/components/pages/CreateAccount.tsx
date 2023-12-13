@@ -20,7 +20,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import { getPage } from '.';
 import { HomeIcon } from '../Icons';
 import Vault from '../../api/Vault';
-import { getAccountId } from '../../utils';
+import { generateAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
 import customDomainWords from '../../utils/customDomainWords';
 import InlineText from '../InlineText';
@@ -110,7 +110,7 @@ function CreateAccountPage() {
   const dispatch = useAppDispatch();
   const history = useHistory();
 
-  const account = useMemo(() => getAccountId(), []);
+  const account = useMemo(() => generateAccountId(), []);
 
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');

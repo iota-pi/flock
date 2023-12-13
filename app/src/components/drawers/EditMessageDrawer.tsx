@@ -13,16 +13,16 @@ import {
 } from '@mui/material';
 import debounce from 'debounce';
 import objectHash from 'object-hash';
-import EmailEditor, { Design } from 'react-email-editor';
+import { Design, EmailEditor } from 'react-email-editor';
 import type { MessageItem } from '../../state/items';
-import { useMetadata, useVault } from '../../state/selectors';
+import { useMetadata } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
 import type { MessageFull } from '../../state/koinonia';
 import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
 import template from '../../utils/unlayer-template.json';
-import type { SendProgressCallback } from '../../api/KoinoniaAPI';
+import { deleteMessage, type SendProgressCallback } from '../../api/KoinoniaAPI';
 
 export interface Props extends BaseDrawerProps {
   message: MessageItem,
@@ -38,12 +38,11 @@ function EditMessageDrawer({
   stacked,
 }: Props) {
   const [editorReady, setEditorReady] = useState(false);
-  const emailEditorRef = useRef<EmailEditor>(null);
+  const emailEditorRef = useRef<typeof EmailEditor>(null);
   const [emailSettings] = useMetadata('emailSettings');
   const lastDesignHash = useRef<string>();
   const messages = useAppSelector(state => state.messages);
   const [pendingSave, setPendingSave] = useState(false);
-  const vault = useVault();
   const [sendStats, setSendStats] = useState({ successCount: 0, errorCount: 0 });
 
   const message = useMemo(
@@ -100,14 +99,14 @@ function EditMessageDrawer({
               name,
               sentTo: message.sentTo,
             };
-            vault?.koinonia.saveMessage(newMessage);
+            saveMessage(newMessage);
             callback?.();
             setPendingSave(false);
           }
         });
       }
     },
-    [message?.created, message?.message, message?.sentTo, name, vault],
+    [message?.created, message?.message, message?.sentTo, name],
   );
   const handleSaveAndClose = useCallback(
     () => {
@@ -129,11 +128,11 @@ function EditMessageDrawer({
   const handleDelete = useCallback(
     () => {
       if (message?.message) {
-        vault?.koinonia.deleteMessage({ message: message.message });
+        deleteMessage({ message: message.message });
       }
       setCancelled(true);
     },
-    [message?.message, vault],
+    [message?.message],
   );
   const handleShowSend = useCallback(
     () => {

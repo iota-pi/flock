@@ -4,11 +4,12 @@ import {
 } from 'react';
 import DeleteIcon from '@mui/icons-material/Close';
 import { GroupItem, ItemId } from '../state/items';
-import { useItems, useVault } from '../state/selectors';
+import { useItems } from '../state/selectors';
 import ItemList from './ItemList';
 import { useAppDispatch } from '../store';
 import { pushActive } from '../state/ui';
 import Search from './Search';
+import { storeItems } from '../api/Vault';
 
 
 export interface Props {
@@ -23,7 +24,6 @@ function GroupDisplay({
 }: Props) {
   const allGroups = useItems<GroupItem>('group');
   const dispatch = useAppDispatch();
-  const vault = useVault();
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
@@ -36,9 +36,9 @@ function GroupDisplay({
         ...group,
         members: [...group.members, itemId],
       };
-      vault?.store(newGroup);
+      storeItems(newGroup);
     },
-    [itemId, vault],
+    [itemId],
   );
   const handleRemoveGroup = useCallback(
     (group: GroupItem) => {
@@ -46,9 +46,9 @@ function GroupDisplay({
         ...group,
         members: group.members.filter(m => m !== itemId),
       };
-      vault?.store(newGroup);
+      storeItems(newGroup);
     },
-    [itemId, vault],
+    [itemId],
   );
   const handleClickGroup = useCallback(
     (group: GroupItem) => {

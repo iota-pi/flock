@@ -6,6 +6,7 @@ import { AccountMetadata as Metadata, MetadataKey } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
 import { getMessageItem } from './koinonia';
 import { setUiState, UiOptions } from './ui';
+import { setMetadata } from '../api/Vault';
 
 // TODO: where should this live?
 export const DEFAULT_MATURITY: string[] = [
@@ -67,8 +68,7 @@ export function useItemsById() {
   );
 }
 
-export const useVault = () => useAppSelector(state => state.vault);
-export const useLoggedIn = () => useAppSelector(state => !!state.vault);
+export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn);
 
 export function useMetadata<K extends MetadataKey>(
   key: K,
@@ -84,17 +84,16 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const metadata = useAppSelector(state => state.metadata);
-  const vault = useVault();
+  const metadata = useAppSelector(state => state.account.metadata);
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key];
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
       const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc;
       const newMetadata = { ...metadata, [key]: newValue };
-      await vault?.setMetadata(newMetadata);
+      await setMetadata(newMetadata);
     },
-    [key, metadata, value, vault],
+    [key, metadata, value],
   );
   return [value, setValue];
 }

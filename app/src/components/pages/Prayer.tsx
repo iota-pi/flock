@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useMemo, useState } from 'react';
 import { Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material';
 import { AutoSizer } from 'react-virtualized';
-import { useItemMap, useItems, useMetadata, useVault } from '../../state/selectors';
+import { useItemMap, useItems, useMetadata } from '../../state/selectors';
 import { isSameDay, useStringMemo } from '../../utils';
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer';
 import ItemList, { ItemListExtraElement } from '../ItemList';
@@ -12,6 +12,7 @@ import GoalDialog from '../dialogs/GoalDialog';
 import BasePage from './BasePage';
 import { replaceActive } from '../../state/ui';
 import PageContainer from '../PageContainer';
+import { storeItems } from '../../api/Vault';
 
 
 function isPrayedForToday(item: Item): boolean {
@@ -23,7 +24,6 @@ function PrayerPage() {
   const dispatch = useAppDispatch();
   const items = useItems();
   const itemMap = useItemMap();
-  const vault = useVault();
 
   const [showGoalDialog, setShowGoalDialog] = useState(false);
 
@@ -53,9 +53,9 @@ function PrayerPage() {
         prayedFor = [...prayedFor, new Date().getTime()];
       }
       const newItem: Item = { ...item, prayedFor };
-      vault?.store(newItem);
+      storeItems(newItem);
     },
-    [vault],
+    [],
   );
   const handleClickPrayedFor = useCallback(
     (item: Item) => recordPrayerFor(item, true),

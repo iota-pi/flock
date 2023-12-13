@@ -1,7 +1,6 @@
 import React, { ComponentType, ReactNode, useMemo } from 'react';
 import { Routes, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
-import { useVault } from '../../state/selectors';
 import {
   ActionIcon,
   MessageIcon,
@@ -15,6 +14,7 @@ import {
 } from '../Icons';
 import CommunicationPage from './Communication';
 import { AccountMetadata } from '../../state/account';
+import { useLoggedIn } from '../../state/selectors';
 
 const ActionsPage = loadable(() => import('./Actions'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
@@ -159,7 +159,7 @@ const allPages: (InternalPage | Page)[] = [
 ];
 
 function PageView() {
-  const vault = useVault();
+  const loggedIn = useLoggedIn();
 
   const pageRoutes = useMemo(
     () => allPages.map(page => (
@@ -167,10 +167,10 @@ function PageView() {
         key={page.id}
         path={page.path}
       >
-        {!page.requiresAuth || vault ? page.page : getPage('welcome').page}
+        {!page.requiresAuth || loggedIn ? page.page : getPage('welcome').page}
       </Route>
     )),
-    [vault],
+    [loggedIn],
   );
 
   return (

@@ -7,12 +7,9 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import AppBar from './components/layout/AppBar';
 import MainMenu from './components/layout/MainMenu';
 import PageView from './components/pages';
-import { useAppDispatch } from './store';
-import { loadVault } from './state/vault';
-import { useLoggedIn, useVault } from './state/selectors';
-import migrateItems from './state/migrations';
-import Vault from './api/Vault';
+import { useLoggedIn } from './state/selectors';
 import MainLayout from './components/layout/MainLayout';
+import { loadVault } from './api/Vault';
 
 const Root = styled('div')({
   display: 'flex',
@@ -24,26 +21,8 @@ const Content = styled('div')({
   flexDirection: 'column',
 });
 
-async function initialLoadFromVault(vault: Vault) {
-  const accountDataPromise = vault.getMetadata();
-  const itemsPromise = vault.fetchAll();
-  const messagesPromise = vault.koinonia.listMessages().catch(
-    error => console.warn('Failed to get messages', error),
-  );
-
-  // Note: account metadata needs to be available before migrating items
-  await accountDataPromise;
-
-  const items = await itemsPromise;
-  await migrateItems(items);
-
-  await messagesPromise;
-}
-
 export default function App() {
-  const dispatch = useAppDispatch();
   const loggedIn = useLoggedIn();
-  const vault = useVault();
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
 
@@ -76,20 +55,9 @@ export default function App() {
   );
 
   useEffect(
-    () => {
-      if (vault) {
-        initialLoadFromVault(vault);
-      }
-    },
-    [vault],
+    () => { loadVault(); },
+    [],
   );
-
-  const restoreVaultFromStorage = useCallback(
-    () => loadVault(dispatch),
-    [dispatch],
-  );
-
-  useEffect(() => { restoreVaultFromStorage(); }, [restoreVaultFromStorage]);
 
   return (
     <>

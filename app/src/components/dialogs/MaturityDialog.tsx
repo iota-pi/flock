@@ -16,11 +16,11 @@ import {
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { useItems, useMaturity, useVault } from '../../state/selectors';
 import { getItemId } from '../../utils';
 import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
-import Vault from '../../api/Vault';
+import { storeItems } from '../../api/Vault';
+import { useItems, useMaturity } from '../../state/selectors';
 
 
 export interface Props {
@@ -34,7 +34,6 @@ export interface MaturityControl {
 }
 
 export function updateMaturityForPeople(
-  vault: Vault,
   people: PersonItem[],
   original: MaturityControl[],
   updated: MaturityControl[],
@@ -56,7 +55,7 @@ export function updateMaturityForPeople(
       );
     }
   }
-  vault.store(updatedPeople);
+  storeItems(updatedPeople);
 }
 
 function MaturitySingleStage({
@@ -153,7 +152,6 @@ function MaturityDialog({
   open,
 }: Props) {
   const people = useItems<PersonItem>('person');
-  const vault = useVault();
 
   const [maturity, setMaturity] = useMaturity();
   const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
@@ -231,7 +229,7 @@ function MaturityDialog({
   );
   const handleDone = useCallback(
     () => {
-      updateMaturityForPeople(vault!, people, original, localMaturity);
+      updateMaturityForPeople(people, original, localMaturity);
       setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
       onClose();
     },
@@ -241,7 +239,6 @@ function MaturityDialog({
       original,
       people,
       setMaturity,
-      vault,
     ],
   );
 

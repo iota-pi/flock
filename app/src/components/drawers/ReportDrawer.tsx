@@ -4,10 +4,10 @@ import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import ItemReport from '../reports/ItemReport';
 import { useAppDispatch } from '../../store';
 import { pushActive, updateActive } from '../../state/ui';
-import { useVault } from '../../state/selectors';
 import { isSameDay } from '../../utils';
 import { getLastPrayedFor } from '../../utils/prayer';
 import { getIconType } from '../Icons';
+import { storeItems } from '../../api/Vault';
 
 export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
@@ -37,7 +37,6 @@ function ReportDrawer({
     () => dispatch(pushActive({ item: item.id })),
     [dispatch, item],
   );
-  const vault = useVault();
 
   const canEdit = canEditRaw !== undefined ? canEditRaw : praying;
 
@@ -50,10 +49,10 @@ function ReportDrawer({
       if (!prayedForToday) {
         const prayedFor = [...item.prayedFor, new Date().getTime()];
         const newItem: Item = { ...item, prayedFor };
-        vault?.store(newItem);
+        storeItems(newItem);
       }
     },
-    [item, prayedForToday, vault],
+    [item, prayedForToday],
   );
 
   const handleDone = useCallback(
