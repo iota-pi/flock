@@ -18,7 +18,7 @@ import type { MessageItem } from '../../state/items';
 import { useMetadata } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { getIconType } from '../Icons';
-import type { MessageFull } from '../../state/koinonia';
+import type { MessageFull } from '../../state/messages';
 import { useAppSelector } from '../../store';
 import SendMessageDialog from '../dialogs/SendMessageDialog';
 import template from '../../utils/unlayer-template.json';

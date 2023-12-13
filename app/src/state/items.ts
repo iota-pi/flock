@@ -104,6 +104,14 @@ const itemsSlice = createSlice({
 export const { setItems, updateItems, deleteItems } = itemsSlice.actions;
 export default itemsSlice.reducer;
 
+export const {
+  selectById: selectItemById,
+  selectIds: selectItemIds,
+  selectEntities: selectItems,
+  selectAll: selectAllItems,
+  selectTotal: selectItemCount,
+} = itemsAdapter.getSelectors();
+
 export function isItem(itemOrNote: TypedFlockItem): itemOrNote is Item {
   return (ITEM_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
 }

@@ -17,7 +17,7 @@ import { useItemsById } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import { usePrevious } from '../../utils';
 import { getIconType } from '../Icons';
-import { MessageFull } from '../../state/koinonia';
+import { MessageFull } from '../../state/messages';
 import { pushActive } from '../../state/ui';
 import { TrackingItem } from '../../../../koinonia/sender/types';
 import ItemList from '../ItemList';
@@ -40,12 +40,12 @@ function MessageDrawer({
   const [cancelled, setCancelled] = useState(false);
   const dispatch = useAppDispatch();
   const getItemsById = useItemsById();
-  const messages = useAppSelector(state => state.messages);
+  const messages = useAppSelector(state => state.messages.entities);
   const [pendingSave, setPendingSave] = useState(false);
   const [stats, setStats] = useState<TrackingItem>();
 
   const message = useMemo(
-    () => messages.find(m => m.message === messageItem.id),
+    () => messages[messageItem.id],
     [messages, messageItem.id],
   );
   const [name, setName] = useState<string>(message?.name || '');

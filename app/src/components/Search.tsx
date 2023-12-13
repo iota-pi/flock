@@ -51,7 +51,7 @@ import getTheme from '../theme';
 import { sortItems } from '../utils/customSort';
 import { useResetCache } from '../utils/virtualisation';
 import { capitalise } from '../utils';
-import { getMessageItem } from '../state/koinonia';
+import { getMessageItem } from '../state/messages';
 
 const LISTBOX_PADDING = 8;
 

@@ -1,6 +1,6 @@
 import { Theme, useMediaQuery } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { isItem, isNote, TypedFlockItem } from '../../state/items';
 import { DrawerData, removeActive, updateActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -16,7 +16,8 @@ import MessageDrawer from '../drawers/MessageDrawer';
 
 function useDrawerRouting(drawers: DrawerData[]) {
   const dispatch = useAppDispatch();
-  const history = useHistory();
+  const routerLocation = useLocation();
+  const navigate = useNavigate();
   const prevDrawers = usePrevious(drawers);
 
   useEffect(
@@ -25,43 +26,32 @@ function useDrawerRouting(drawers: DrawerData[]) {
         const topIndex = drawers.length - 1;
         const topItem = drawers[topIndex]?.item;
         const prevTopItem = prevDrawers[prevDrawers.length - 1]?.item;
-        const currentHashItem = history.location.hash.replace(/^#/, '');
+        const currentHashItem = routerLocation.hash.replace(/^#/, '');
         if (drawers.length === prevDrawers.length) {
           if (topItem && topItem !== prevTopItem) {
-            history.replace(`#${topItem}`);
+            navigate(`#${topItem}`, { replace: true });
           }
         } else if (drawers.length < prevDrawers.length && prevTopItem === currentHashItem) {
-          history.goBack();
+          navigate(-1);
         } else if (drawers.length > prevDrawers.length && topItem) {
-          history.push(`#${topItem}`);
+          navigate(`#${topItem}`);
         }
       }
     },
-    [drawers, history, prevDrawers],
+    [drawers, routerLocation, prevDrawers],
   );
 
   const secondTopItem = drawers[drawers.length - 2]?.item;
   useEffect(
     () => {
-      const onLocationChange = ({ hash }: { hash: string }) => {
-        const id = hash.replace(/^#/, '');
-        if (secondTopItem === id) {
-          dispatch(removeActive());
-        } else if (!hash && drawers.length > 0) {
-          dispatch(removeActive());
-        }
-      };
-      const cleanup = history.listen(onLocationChange);
-      return cleanup;
+      const id = routerLocation.hash.replace(/^#/, '');
+      if (secondTopItem === id) {
+        dispatch(removeActive());
+      } else if (!routerLocation.hash && drawers.length > 0) {
+        dispatch(removeActive());
+      }
     },
-    [dispatch, drawers.length, history, secondTopItem],
-  );
-
-  useEffect(
-    () => {
-      history.replace(history.location.pathname);
-    },
-    [history],
+    [dispatch, drawers.length, routerLocation, secondTopItem],
   );
 }
 

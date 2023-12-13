@@ -53,11 +53,11 @@ function EverythingSearch({
     },
     [dispatch],
   );
-  const handleSelect: typeof onSelect = useCallback(
-    item => {
+  const handleSelect = useCallback(
+    (item: Item | MessageItem | string) => {
       if (typeof item === 'string') {
         dispatch(setTagFilter(item));
-      } else {
+      } else if (item) {
         dispatch(replaceActive({ item: item.id }));
       }
       if (onSelect) {

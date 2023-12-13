@@ -41,6 +41,14 @@ export const messagesSlice = createSlice({
 export const { setMessages, updateMessages, deleteMessages } = messagesSlice.actions;
 export default messagesSlice.reducer;
 
+export const {
+  selectById: selectMessageById,
+  selectIds: selectMessageIds,
+  selectEntities: selectMessages,
+  selectAll: selectAllMessages,
+  selectTotal: selectMessageCount,
+} = messagesAdapter.getSelectors();
+
 // TODO: where should these utilities go? they don't really belong here
 export function getRecipientFields(people: PersonItem[]): Recipient[] {
   return people.map(person => ({

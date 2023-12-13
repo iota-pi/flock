@@ -18,7 +18,7 @@ import {
 } from '../../state/items';
 import { useItems, useItemsById, useMetadata } from '../../state/selectors';
 import { MessageIcon } from '../Icons';
-import { getRecipientFields, MessageFull } from '../../state/koinonia';
+import { getRecipientFields, MessageFull } from '../../state/messages';
 import Search, { getSearchableDataId } from '../Search';
 import { useAppDispatch } from '../../store';
 import { setMessage } from '../../state/ui';

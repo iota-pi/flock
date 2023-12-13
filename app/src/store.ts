@@ -3,15 +3,15 @@ import { configureStore } from '@reduxjs/toolkit';
 
 import account from './state/account';
 import items from './state/items';
-import messages from './state/koinonia';
-import { uiReducer } from './state/ui';
+import messages from './state/messages';
+import ui from './state/ui';
 
 const store = configureStore({
   reducer: {
     account,
     items,
     messages,
-    ui: uiReducer,
+    ui,
   },
 });
 

@@ -5,7 +5,7 @@ import {
   MessageFull,
   setMessages,
   updateMessages,
-} from '../state/koinonia';
+} from '../state/messages';
 import { getAxios, wrapManyRequests, wrapRequest } from './common';
 import env from '../env';
 import { SendMailRequest, TrackingItem } from '../../../koinonia/sender/types';

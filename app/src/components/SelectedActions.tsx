@@ -28,7 +28,7 @@ import {
 } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
-import { setUiState, replaceActive } from '../state/ui';
+import { setUi, replaceActive } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 import GroupDialog from './dialogs/GroupDialog';
 import { deleteItems, storeItems } from '../api/Vault';
@@ -109,7 +109,7 @@ function SelectedActions() {
   );
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), []);
   const handleClear = useCallback(
-    () => dispatch(setUiState({ selected: [] })),
+    () => dispatch(setUi({ selected: [] })),
     [dispatch],
   );
 

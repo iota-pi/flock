@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Snackbar } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../store';
-import { setUiState } from '../state/ui';
+import { setUi } from '../state/ui';
 
 
 function GeneralMessage() {
@@ -12,7 +12,7 @@ function GeneralMessage() {
   const [open, setOpen] = useState(false);
   const handleClose = useCallback(() => setOpen(false), []);
   const handleExited = useCallback(
-    () => dispatch(setUiState({ message: null })),
+    () => dispatch(setUi({ message: null })),
     [dispatch],
   );
 

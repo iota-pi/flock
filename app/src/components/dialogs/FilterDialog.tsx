@@ -26,7 +26,7 @@ import {
 } from '../../utils/customFilter';
 import { FilterIcon, RemoveIcon } from '../Icons';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setUiState } from '../../state/ui';
+import { setUi } from '../../state/ui';
 import MaturityPicker from '../MaturityPicker';
 import { useMaturity } from '../../state/selectors';
 import FrequencyPicker from '../FrequencyPicker';
@@ -366,13 +366,13 @@ function FilterDialog({
   const handleClear = useCallback(
     () => {
       setLocalCriteria([]);
-      dispatch(setUiState({ filters: [] }));
+      dispatch(setUi({ filters: [] }));
     },
     [dispatch],
   );
   const handleDone = useCallback(
     () => {
-      dispatch(setUiState({ filters: localCriteria }));
+      dispatch(setUi({ filters: localCriteria }));
       onClose();
     },
     [dispatch, localCriteria, onClose],

@@ -4,8 +4,8 @@ import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
 import { AccountMetadata as Metadata, MetadataKey } from './account';
 import { getTags, Item, ItemId, MessageItem } from './items';
-import { getMessageItem } from './koinonia';
-import { setUiState, UiOptions } from './ui';
+import { getMessageItem } from './messages';
+import { setUi, UiOptions } from './ui';
 import { setMetadata } from '../api/Vault';
 
 // TODO: where should this live?
@@ -139,7 +139,7 @@ export function useOption<T extends keyof UiOptions>(
       } else {
         newValue = valueOrFunction;
       }
-      dispatch(setUiState({
+      dispatch(setUi({
         options: { [optionKey]: newValue },
       }));
     },

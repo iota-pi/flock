@@ -1,5 +1,5 @@
 import { memo, ReactNode, useCallback, useMemo } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Divider,
@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { Page, PageId, pages, withPage } from '../pages';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setUiState } from '../../state/ui';
+import { setUi } from '../../state/ui';
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons';
 
 export const DRAWER_SPACING_FULL = 30;
@@ -168,19 +168,19 @@ function MainMenu({
   page,
 }: Props) {
   const dispatch = useAppDispatch();
-  const history = useHistory();
-  const metadata = useAppSelector(state => state.metadata);
+  const navigate = useNavigate();
+  const metadata = useAppSelector(state => state.account.metadata);
 
   const handleClick = useCallback(
     (pageId?: PageId) => {
       if (pageId && page.id !== pageId) {
         const newPage = pages.find(p => p.id === pageId)!;
-        history.push(newPage.path);
-        dispatch(setUiState({ selected: [] }));
+        navigate(newPage.path);
+        dispatch(setUi({ selected: [] }));
       }
       onClick();
     },
-    [page.id, dispatch, history, onClick],
+    [page.id, dispatch, navigate, onClick],
   );
 
   const pagesToShow = useMemo(

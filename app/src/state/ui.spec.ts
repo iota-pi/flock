@@ -1,6 +1,6 @@
 import { getItemId } from '../utils';
 import { deleteItems, getBlankPerson } from './items';
-import { DrawerData, drawersReducer, pushActive, removeActive, setUiState, UIData, replaceActive } from './ui';
+import { DrawerData, drawersReducer, pushActive, removeActive, setUi, UIData, replaceActive } from './ui';
 
 describe('drawersReducer', () => {
   test('SET_UI_STATE', () => {
@@ -12,7 +12,7 @@ describe('drawersReducer', () => {
         item: getItemId(),
       },
     ];
-    const result = drawersReducer(state, setUiState({ drawers: newState }));
+    const result = drawersReducer(state, setUi({ drawers: newState }));
     expect(result).toEqual(newState);
   });
 

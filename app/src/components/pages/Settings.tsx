@@ -32,7 +32,7 @@ import MaturityDialog from '../dialogs/MaturityDialog';
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog';
 import { Item, PersonItem } from '../../state/items';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setMessage, setUiState } from '../../state/ui';
+import { setMessage, setUi } from '../../state/ui';
 import { getNextDarkMode } from '../../theme';
 import { subscribe, unsubscribe } from '../../utils/firebase';
 import SubscriptionDialog from '../dialogs/SubscriptionDialog';
@@ -130,7 +130,7 @@ function SettingsPage() {
 
   const darkMode = useAppSelector(state => state.ui.darkMode);
   const handleToggleDarkMode = useCallback(
-    () => dispatch(setUiState({ darkMode: getNextDarkMode(darkMode) })),
+    () => dispatch(setUi({ darkMode: getNextDarkMode(darkMode) })),
     [darkMode, dispatch],
   );
 

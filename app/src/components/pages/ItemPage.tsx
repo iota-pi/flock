@@ -12,7 +12,7 @@ import {
 } from '../../state/selectors';
 import BasePage from './BasePage';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { setUiState, replaceActive, toggleSelected } from '../../state/ui';
+import { setUi, replaceActive, toggleSelected } from '../../state/ui';
 import { sortItems } from '../../utils/customSort';
 import { filterItems } from '../../utils/customFilter';
 
@@ -66,7 +66,7 @@ function ItemPage<T extends Item>({
   const handleSelectAll = useCallback(
     () => {
       const newSelected = allSelected ? [] : items.map(item => item.id);
-      dispatch(setUiState({ selected: newSelected }));
+      dispatch(setUi({ selected: newSelected }));
     },
     [allSelected, dispatch, items],
   );

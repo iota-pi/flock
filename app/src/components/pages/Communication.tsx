@@ -1,11 +1,13 @@
 import { List, ListItemButton, ListItemText } from '@mui/material';
 import { useCallback, useState } from 'react';
+import { useSelector } from 'react-redux';
 import BasePage from './BasePage';
-import { useAppDispatch, useAppSelector } from '../../store';
+import { useAppDispatch } from '../../store';
 import { replaceActive } from '../../state/ui';
 import { EmailIcon } from '../Icons';
 import SMTPDialog from '../dialogs/SMTPDialog';
 import { createMessage } from '../../api/KoinoniaAPI';
+import { selectAllMessages } from '../../state/messages';
 
 interface MessageSummary {
   message: string,
@@ -14,7 +16,7 @@ interface MessageSummary {
 
 function CommunicationPage() {
   const dispatch = useAppDispatch();
-  const messages = useAppSelector(state => state.messages);
+  const messages = useSelector(selectAllMessages);
 
   const [showSMTP, setShowSMTP] = useState(false);
 
