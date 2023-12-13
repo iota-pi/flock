@@ -8,7 +8,7 @@ if [[ "$tf_cmd" =~ init|refresh|plan|apply ]]; then
   extra_args+=("-input=false")
 fi
 
-docker-compose exec \
+docker compose exec \
   -e TF_VAR_app_version="$(./version.sh app)" \
   -e TF_VAR_vault_version="$(./version.sh vault)" \
   -e TF_IN_AUTOMATION="1" \

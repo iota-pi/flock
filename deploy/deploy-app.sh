@@ -27,12 +27,12 @@ fi
 environment_hyphens=$(echo $environment | sed 's/./-/g')
 echo "Deploying app to $environment"
 echo "-----------------$environment_hyphens"
-REACT_APP_BASE_URL="$APP_NAME.cross-code.org"
+VITE_BASE_URL="$APP_NAME.cross-code.org"
 if [[ $environment != "production" ]]; then
-  REACT_APP_BASE_URL="$environment.$REACT_APP_BASE_URL"
+  VITE_BASE_URL="$environment.$VITE_BASE_URL"
 fi
-export REACT_APP_BASE_URL
-export REACT_APP_VAULT_ENDPOINT="$vault_endpoint"
+export VITE_BASE_URL
+export VITE_VAULT_ENDPOINT="$vault_endpoint"
 
 max_age=0
 if [[ $environment == production ]]; then

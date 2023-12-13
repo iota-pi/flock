@@ -1,17 +1,11 @@
 import { TypedUseSelectorHook, useDispatch, useSelector } from 'react-redux';
-import { applyMiddleware, compose, createStore } from 'redux';
-import thunk, { ThunkMiddleware } from 'redux-thunk';
-import { composeWithDevTools } from 'redux-devtools-extension';
-import { RootState, AllActions, rootReducer } from './state';
+import { createStore } from 'redux';
+import { devToolsEnhancer } from 'redux-devtools-extension';
+import { RootState, rootReducer } from './state';
 
-const aptCompose: typeof composeWithDevTools = (
-  process.env.NODE_ENV === 'production' ? compose : composeWithDevTools
-);
 const store = createStore(
   rootReducer,
-  aptCompose(
-    applyMiddleware(thunk as ThunkMiddleware<RootState, AllActions>),
-  ),
+  devToolsEnhancer,
 );
 
 export default store;

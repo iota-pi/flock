@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$(realpath "$0")")/.."
 
-docker-compose up -d api
+docker compose up -d api
 export CI=true
 (
   cd app

@@ -3,6 +3,7 @@ import { ItemType } from '../state/items';
 import { FlockPushSubscription } from '../utils/firebase-types';
 import BaseAPI from './BaseAPI';
 import { CryptoResult } from './Vault';
+import env from '../env';
 
 
 export interface VaultKey {
@@ -31,7 +32,7 @@ export interface VaultSubscription {
 
 
 class VaultAPI extends BaseAPI {
-  readonly endpoint = process.env.REACT_APP_VAULT_ENDPOINT!;
+  readonly endpoint = env.VAULT_ENDPOINT;
 
   async fetchAll({ cacheTime }: { cacheTime?: number | null }): Promise<VaultItem[]> {
     let url = `${this.endpoint}/${this.account}/items`;

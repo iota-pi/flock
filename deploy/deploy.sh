@@ -43,7 +43,7 @@ fi
   if [[ -f "./.secrets.sh" ]]; then
     source ./.secrets.sh
   fi
-  docker-compose up -d
+  docker compose up -d
 )
 
 stage "Running tests"

@@ -1,4 +1,4 @@
-import memoize from 'proxy-memoize';
+import { memoize } from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';

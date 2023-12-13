@@ -7,6 +7,7 @@ import {
   updateMessages,
 } from '../state/koinonia';
 import BaseAPI from './BaseAPI';
+import env from '../env';
 import { SendMailRequest, TrackingItem } from '../../../../koinonia/sender/types';
 
 
@@ -18,7 +19,7 @@ export type SendProgressCallback = (data: {
 
 
 class KoinoniaAPI extends BaseAPI {
-  readonly endpoint = process.env.REACT_APP_KOINONIA_ENDPOINT!;
+  readonly endpoint = env.KOINONIA_ENDPOINT;
 
   async listMessages(): Promise<MessageFull[]> {
     const url = `${this.endpoint}/${this.account}/messages`;

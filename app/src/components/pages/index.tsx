@@ -1,5 +1,5 @@
 import React, { ComponentType, ReactNode, useMemo } from 'react';
-import { Switch, Route, matchPath, useLocation } from 'react-router-dom';
+import { Routes, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
 import { useVault } from '../../state/selectors';
 import {
@@ -174,9 +174,9 @@ function PageView() {
   );
 
   return (
-    <Switch>
+    <Routes>
       {pageRoutes}
-    </Switch>
+    </Routes>
   );
 }
 
@@ -193,7 +193,7 @@ export function getPage(page: AnyPageId) {
 export function useAnyPage() {
   const location = useLocation();
   const page = useMemo(
-    () => allPages.find(p => matchPath(location.pathname, p)),
+    () => allPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
   );
   if (page) {
@@ -205,7 +205,7 @@ export function useAnyPage() {
 export function usePage() {
   const location = useLocation();
   const page = useMemo(
-    () => reversedPages.find(p => matchPath(location.pathname, p)),
+    () => reversedPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
   );
   if (page) {

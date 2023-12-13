@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken as firebaseGetToken } from 'firebase/messaging';
 import Vault from '../api/Vault';
+import env from '../env';
 import firebaseConfig from './firebase-config';
 
 export const app = initializeApp(firebaseConfig);
@@ -10,7 +11,7 @@ async function getToken() {
   return firebaseGetToken(
     messaging,
     {
-      vapidKey: process.env.REACT_APP_VAPID_PUBLIC_KEY,
+      vapidKey: env.VAPID_PUBLIC_KEY,
       serviceWorkerRegistration: await navigator.serviceWorker.getRegistration(),
     },
   );
