@@ -53,7 +53,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.store(item);
 
-    expect(dispatch).toBeCalledWith(updateItems([item], true));
+    expect(dispatch).toHaveBeenCalledWith(updateItems([item], true));
     const apiCallParams = api.put.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       item: item.id,
@@ -74,7 +74,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.store(items);
 
-    expect(dispatch).toBeCalledWith(updateItems(items, true));
+    expect(dispatch).toHaveBeenCalledWith(updateItems(items, true));
     const apiCallParams = api.putMany.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({});
     expect(apiCallParams.items.length).toEqual(items.length);
@@ -125,7 +125,7 @@ describe('Vault (Crypto)', () => {
 
     const result = await vault.fetchAll();
 
-    expect(dispatch).toBeCalledWith(setItems(result));
+    expect(dispatch).toHaveBeenCalledWith(setItems(result));
     expect(result).toEqual(original);
   });
 
@@ -138,7 +138,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.delete(id);
 
-    expect(dispatch).toBeCalledWith(deleteItems([id], true));
+    expect(dispatch).toHaveBeenCalledWith(deleteItems([id], true));
     const apiCallParams = api.delete.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       item: id,
@@ -154,7 +154,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.delete(ids);
 
-    expect(dispatch).toBeCalledWith(deleteItems(ids, true));
+    expect(dispatch).toHaveBeenCalledWith(deleteItems(ids, true));
     const apiCallParams = api.deleteMany.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({
       items: ids,
@@ -170,7 +170,7 @@ describe('Vault (Crypto)', () => {
 
     await vault.setMetadata(metadata);
 
-    expect(dispatch).toBeCalledWith(setAccount({ metadata }));
+    expect(dispatch).toHaveBeenCalledWith(setAccount({ metadata }));
     const apiCallParams = api.setMetadata.mock.calls[0][0];
     expect(apiCallParams).toMatchObject({});
     const decrypted = await vault.decryptObject(apiCallParams.metadata);
@@ -187,7 +187,7 @@ describe('Vault (Crypto)', () => {
 
     const result = await vault.getMetadata();
 
-    expect(dispatch).toBeCalledWith(setAccount(result));
+    expect(dispatch).toHaveBeenCalledWith(setAccount(result));
     expect(result.metadata).toEqual(original);
   });
 
@@ -200,7 +200,7 @@ describe('Vault (Crypto)', () => {
 
     const result = await vault.getMetadata();
 
-    expect(dispatch).toBeCalledWith(setAccount(result));
+    expect(dispatch).toHaveBeenCalledWith(setAccount(result));
     expect(result.metadata).toEqual(original);
   });
 });

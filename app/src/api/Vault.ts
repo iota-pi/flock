@@ -1,6 +1,6 @@
 import VaultAPI, { CachedVaultItem, VaultItem } from './VaultAPI';
 import crypto from './_crypto';
-import { TextEncoder, TextDecoder } from './_util';
+import { TextEncoder as Encoder, TextDecoder as Decoder } from './_util';
 import { checkProperties, deleteItems, Item, setItems, updateItems } from '../state/items';
 import { AccountMetadata, AccountState, setAccount } from '../state/account';
 import { AppDispatch } from '../store';
@@ -65,7 +65,7 @@ class Vault {
     dispatch: AppDispatch,
     iterations?: number,
   ) {
-    const enc = new TextEncoder();
+    const enc = new Encoder();
     const keyBase = await crypto.subtle.importKey(
       'raw',
       enc.encode(password),
@@ -127,7 +127,7 @@ class Vault {
 
   async encrypt(plaintext: string): Promise<CryptoResult> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const enc = new TextEncoder();
+    const enc = new Encoder();
     const cipher = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
       this.key,
@@ -150,7 +150,7 @@ class Vault {
       this.key,
       toBytes(cipher),
     );
-    const dec = new TextDecoder();
+    const dec = new Decoder();
     return dec.decode(plaintext);
   }
 

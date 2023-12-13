@@ -1,5 +1,10 @@
 module.exports = {
   root: true,
+  settings: {
+    react: {
+      version: 'detect',
+    },
+  },
   parser: '@typescript-eslint/parser',
   parserOptions: {
     project: './tsconfig.json',
@@ -19,6 +24,7 @@ module.exports = {
     'plugin:import/typescript',
     'plugin:jest/recommended',
     'plugin:react/recommended',
+    'plugin:react/jsx-runtime',
   ],
   rules: {
     '@typescript-eslint/lines-between-class-members': ['error', 'always', { exceptAfterSingleLine: true }],
@@ -68,6 +74,6 @@ module.exports = {
       rules: {
         '@typescript-eslint/dot-notation': 'off',
       },
-    }
+    },
   ],
 };

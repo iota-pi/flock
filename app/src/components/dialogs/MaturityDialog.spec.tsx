@@ -21,7 +21,7 @@ it('updateMaturityForPeople', () => {
     { id: 'c', name: 'Wizard' },
   ];
   updateMaturityForPeople(vault as unknown as Vault, people, original, updated);
-  expect(vault.store).toBeCalledTimes(1);
+  expect(vault.store).toHaveBeenCalledTimes(1);
   const updatedPeople: PersonItem[] = vault.store.mock.calls[0][0];
   expect(updatedPeople.map(person => person.firstName)).toEqual(['Frodo', 'Merry', 'Gandalf']);
   expect(updatedPeople.map(person => person.maturity)).toEqual(['Noob', 'Noob', 'Wizard']);
