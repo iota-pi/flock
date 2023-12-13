@@ -11,6 +11,7 @@ import {
   useContext,
   useMemo,
 } from 'react';
+import { useSelector } from 'react-redux';
 import { ListChildComponentProps, VariableSizeList } from 'react-window';
 import {
   Autocomplete,
@@ -51,7 +52,7 @@ import getTheme from '../theme';
 import { sortItems } from '../utils/customSort';
 import { useResetCache } from '../utils/virtualisation';
 import { capitalise } from '../utils';
-import { getMessageItem } from '../state/messages';
+import { getMessageItem, selectAllMessages } from '../state/messages';
 
 const LISTBOX_PADDING = 8;
 
@@ -377,7 +378,6 @@ export interface Props<T> {
   selectedItems?: T[],
   searchDescription?: boolean,
   searchSummary?: boolean,
-  searchNotes?: boolean,
   showDescriptions?: boolean,
   showGroupMemberCounts?: boolean,
   showIcons?: boolean,
@@ -405,7 +405,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   selectedItems = [],
   searchDescription = false,
   searchSummary = false,
-  searchNotes = false,
   showDescriptions = true,
   showGroupMemberCounts = true,
   showIcons = true,
@@ -416,7 +415,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   const items = useItems();
   const [sortCriteria] = useSortCriteria();
   const [maturity] = useMaturity();
-  const messages = useAppSelector(state => state.messages);
+  const messages = useSelector(selectAllMessages);
   const tags = useTags();
 
   const selectedIds = useMemo(
@@ -515,12 +514,9 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       if (searchSummary) {
         result.push({ key: 'data.summary', threshold });
       }
-      if (searchNotes) {
-        result.push({ key: 'data.notes.*.content', threshold });
-      }
       return result;
     },
-    [searchDescription, searchSummary, searchNotes],
+    [searchDescription, searchSummary],
   );
 
   const filterFunc = useCallback(

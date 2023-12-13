@@ -7,7 +7,7 @@ import { deleteItems, ItemId, TypedFlockItem } from './items';
 export interface DrawerData {
   id: string,
   initial?: TypedFlockItem[],
-  item?: string,
+  item?: ItemId,
   newItem?: TypedFlockItem,
   next?: string[],
   open: boolean,
@@ -33,6 +33,7 @@ export interface UIState {
   options: UiOptions,
   requests: RequestData,
   selected: ItemId[],
+  justCreatedAccount: boolean,
 }
 
 const initialState: UIState = {
@@ -47,6 +48,7 @@ const initialState: UIState = {
     active: 0,
   },
   selected: [],
+  justCreatedAccount: false,
 };
 
 export type setUi = Omit<Partial<UIState>, 'options' | 'requests' | 'drawers'> & {

@@ -10,22 +10,16 @@ import {
 } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../store';
 import {
-  ActionIcon,
   ArchiveIcon,
   DeleteIcon,
   GroupIcon,
-  InteractionIcon,
   MuiIconType,
   RemoveIcon,
   TagIcon,
   UnarchiveIcon,
 } from './Icons';
 import { useItemsById } from '../state/selectors';
-import {
-  getBlankAction,
-  getBlankInteraction,
-  Item,
-} from '../state/items';
+import { Item } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
 import { setUi, replaceActive } from '../state/ui';
@@ -72,24 +66,6 @@ function SelectedActions() {
   const handleHideGroup = useCallback(() => setShowGroup(false), []);
   const handleShowTags = useCallback(() => setShowTags(true), []);
   const handleHideTags = useCallback(() => setShowTags(false), []);
-  const handleInteraction = useCallback(
-    () => {
-      dispatch(replaceActive({
-        initial: selectedItems.filter(item => item.type === 'person'),
-        newItem: getBlankInteraction(),
-      }));
-    },
-    [dispatch, selectedItems],
-  );
-  const handleAction = useCallback(
-    () => {
-      dispatch(replaceActive({
-        initial: selectedItems,
-        newItem: getBlankAction(),
-      }));
-    },
-    [dispatch, selectedItems],
-  );
   const handleSetArchived = useCallback(
     (archived: boolean) => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }));
@@ -133,20 +109,6 @@ function SelectedActions() {
           onClick: handleShowTags,
         },
       );
-      if (workingItems.find(item => item.type === 'person')) {
-        result.push({
-          id: 'interaction',
-          icon: InteractionIcon,
-          label: 'New Interaction',
-          onClick: handleInteraction,
-        });
-      }
-      result.push({
-        id: 'action',
-        icon: ActionIcon,
-        label: 'New Action Item',
-        onClick: handleAction,
-      });
       if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
@@ -184,8 +146,6 @@ function SelectedActions() {
       handleArchive,
       handleClear,
       handleInitialDelete,
-      handleInteraction,
-      handleAction,
       handleShowGroup,
       handleShowTags,
       handleUnarchive,

@@ -23,7 +23,6 @@ const StyledContainer = styled(Container)(({ theme }) => ({
 export interface BaseProps {
   canSend?: boolean,
   itemIsNew?: boolean,
-  itemHasNotes?: boolean,
   itemName?: string,
   onSend?: () => void,
   permanentDrawer?: boolean,
@@ -73,7 +72,6 @@ function DrawerActions({
   canSave,
   disableAutoCloseOnSave,
   itemIsNew,
-  itemHasNotes,
   itemName,
   onCancel,
   onDelete,
@@ -222,7 +220,7 @@ function DrawerActions({
             <InlineText fontWeight={500}>
               {itemName}
             </InlineText>
-            {itemHasNotes ? ', and all associated notes?' : '?'}
+            ?
           </Typography>
 
           <Typography paragraph>

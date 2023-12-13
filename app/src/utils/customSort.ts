@@ -1,12 +1,10 @@
 import { compareIds, getItemName, Item, ITEM_TYPES } from '../state/items';
-import { getLastInteractionDate } from './interactions';
 import { getLastPrayedFor } from './prayer';
 
 export type CriterionName = (
   'archived' |
   'created' |
   'description' |
-  'lastInteraction' |
   'lastName' |
   'lastPrayedFor' |
   'maturity' |
@@ -27,7 +25,6 @@ export const CRITERIA_DISPLAY_MAP: Record<CriterionName, CriterionDisplay> = {
   archived: { name: 'Archived', normal: 'Archived last', reverse: 'Archived first', hide: true },
   created: { name: 'Date created', normal: 'Recent first', reverse: 'Recent last' },
   description: { name: 'Description', normal: 'Ascending', reverse: 'Descending' },
-  lastInteraction: { name: 'Last interaction', normal: 'Recent first', reverse: 'Recent last' },
   lastName: { name: 'Last name', normal: 'Ascending', reverse: 'Descending' },
   lastPrayedFor: { name: 'Last prayed for', normal: 'Recent first', reverse: 'Recent last' },
   maturity: { name: 'Maturity', normal: 'Ascending', reverse: 'Descending' },
@@ -57,12 +54,6 @@ const compareItems = (
     archived: (a, b) => +a.archived - +b.archived,
     created: (a, b) => b.created - a.created,
     description: (a, b) => a.description.localeCompare(b.description),
-    lastInteraction: (a, b) => {
-      if (a.type === 'person' && a.type === b.type) {
-        return getLastInteractionDate(b) - getLastInteractionDate(a);
-      }
-      return 0;
-    },
     lastName: (a, b) => {
       if (a.type === 'person' && a.type === b.type) {
         return a.lastName.localeCompare(b.lastName);

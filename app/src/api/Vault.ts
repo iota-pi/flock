@@ -138,7 +138,7 @@ async function initialLoadFromVault() {
     error => console.warn('Failed to get messages', error),
   );
 
-  // Note: account metadata needs to be available before migrating items
+  // NB: account metadata needs to be available before migrating items
   await accountDataPromise;
 
   const items = await itemsPromise;

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Container,
@@ -37,20 +37,20 @@ const LargeText = styled(Typography)(({ theme }) => ({
 
 
 function WelcomePage() {
-  const history = useHistory();
+  const navigate = useNavigate();
 
   const [showAbout, setShowAbout] = useState(false);
   const handleClickLearnMore = useCallback(() => setShowAbout(true), []);
   const handleCloseAbout = useCallback(() => setShowAbout(false), []);
   const handleClickCreate = useCallback(
     () => {
-      history.push(getPage('signup').path);
+      navigate(getPage('signup').path);
     },
-    [history],
+    [navigate],
   );
   const handleClickLogin = useCallback(
-    () => history.push(getPage('login').path),
-    [history],
+    () => navigate(getPage('login').path),
+    [navigate],
   );
 
   return (

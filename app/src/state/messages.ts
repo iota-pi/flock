@@ -1,7 +1,7 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { Design } from 'react-email-editor';
 import { Recipient } from '../../../koinonia/sender/types';
-import { getItemName, MessageItem, PersonItem } from './items';
+import { getBlankMessageItem, getItemName, MessageItem, PersonItem } from './items';
 
 export interface MessageSummary {
   message: string,
@@ -64,9 +64,5 @@ export function getRecipientFields(people: PersonItem[]): Recipient[] {
 }
 
 export function getMessageItem(message: MessageSummary): MessageItem {
-  return {
-    type: 'message',
-    id: message.message,
-    name: message.name,
-  };
+  return getBlankMessageItem(message.message, message.name, false);
 }

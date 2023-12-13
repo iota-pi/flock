@@ -1,9 +1,9 @@
-import { memoize } from 'proxy-memoize';
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '../store';
 import { DEFAULT_CRITERIA } from '../utils/customSort';
 import { AccountMetadata as Metadata, MetadataKey } from './account';
-import { getTags, Item, ItemId, MessageItem } from './items';
+import { getTags, Item, ItemId, MessageItem, selectAllItems, selectItems } from './items';
 import { getMessageItem } from './messages';
 import { setUi, UiOptions } from './ui';
 import { setMetadata } from '../api/Vault';
@@ -18,7 +18,7 @@ export const DEFAULT_MATURITY: string[] = [
 export function useItems<T extends Item>(itemType: T['type']): T[];
 export function useItems(): Item[];
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const items = useAppSelector(state => state.items);
+  const items = useSelector(selectAllItems);
   return useMemo(
     () => (
       itemType
@@ -29,29 +29,19 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
   );
 }
 
-export const useItemMap = () => useAppSelector(state => state.itemMap);
-export const useNoteMap = () => useAppSelector(state => state.noteToItemMap);
-export const useItemOrNote = (id: ItemId) => useAppSelector(
-  memoize(
-    state => {
-      const item: Item | undefined = state.itemMap[id];
-      if (item) {
-        return item;
-      }
-      const noteItem: Item | undefined = state.itemMap[state.noteToItemMap[id]];
-      if (noteItem) {
-        return noteItem.notes.find(note => note.id === id);
-      }
-
-      return undefined;
-    },
-  ),
+export const useItemMap = () => useSelector(selectItems);
+export const useItem = (id: ItemId) => useAppSelector(
+  state => {
+    const item: Item | undefined = state.items.entities[id];
+    if (item) {
+      return item;
+    }
+    return undefined;
+  },
 );
 
 export const useMessageItem = (id: string): MessageItem | undefined => {
-  const message = useAppSelector(memoize(
-    state => state.messages.find(m => m.message === id),
-  ));
+  const message = useAppSelector(state => state.messages.entities[id]);
   return useMemo(
     () => (message ? getMessageItem(message) : undefined),
     [message],

@@ -4,42 +4,22 @@ import { Frequency } from '../utils/frequencies';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
-export type ItemNoteType = 'interaction' | 'action';
-export type ItemOrNoteType = ItemType | ItemNoteType;
 export type MessageType = 'message';
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general'];
-export const NOTE_TYPES: ItemNoteType[] = ['interaction', 'action'];
 export const MESSAGE_TYPES: MessageType[] = ['message'];
-
-export interface BaseNote {
-  content: string,
-  date: number,
-  id: string,
-  sensitive?: boolean,
-  type: ItemNoteType,
-}
-export interface InteractionNote extends BaseNote {
-  type: 'interaction',
-}
-export interface ActionNote extends BaseNote {
-  type: 'action',
-  completed?: number,
-}
-export type ItemNote = InteractionNote | ActionNote;
+export const ALL_ITEM_TYPES: (ItemType | MessageType)[] = [...ITEM_TYPES, ...MESSAGE_TYPES];
 
 export interface BaseItem {
   archived: boolean,
   created: number,
   description: string,
   id: ItemId,
-  interactionFrequency: Frequency,
   isNew?: true,
   prayedFor: number[],
-  notes: ItemNote[],
   prayerFrequency: Frequency,
   summary: string,
   tags: string[],
-  type: ItemType,
+  type: ItemType | MessageType,
 }
 export interface PersonItem extends BaseItem {
   email: string,
@@ -58,29 +38,16 @@ export interface GeneralItem extends BaseItem {
   name: string,
   type: 'general',
 }
-export interface MessageItem {
-  type: MessageType,
-  id: string,
+export interface MessageItem extends BaseItem {
   name: string,
-  isNew?: boolean,
+  type: MessageType,
 }
 export type Item = PersonItem | GroupItem | GeneralItem;
-export type ItemOrNote = Item | ItemNote;
-export type TypedFlockItem = Item | ItemNote | MessageItem;
-
-export const initialItems: Item[] = [];
-export const initialNoteToItemMap: { [noteId: string]: ItemId } = {};
-export const initialItemMap: { [itemId: string]: Item } = {};
+export type TypedFlockItem = Item | MessageItem;
 
 export type DirtyItem<T> = T & { dirty?: boolean };
 
-export interface ItemsState {
-  items: typeof initialItems,
-  noteToItemMap: typeof initialNoteToItemMap,
-  itemMap: typeof initialItemMap,
-}
-
-const itemsAdapter = createEntityAdapter({
+const itemsAdapter = createEntityAdapter<Item>({
   sortComparer: compareItems,
 })
 
@@ -112,48 +79,12 @@ export const {
   selectTotal: selectItemCount,
 } = itemsAdapter.getSelectors();
 
-export function isItem(itemOrNote: TypedFlockItem): itemOrNote is Item {
-  return (ITEM_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
+export function isItem(item: TypedFlockItem): item is Item {
+  return (ITEM_TYPES as TypedFlockItem['type'][]).includes(item.type);
 }
 
-export function isNote(itemOrNote: TypedFlockItem): itemOrNote is ItemNote {
-  return (NOTE_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
-}
-
-export function isMessage(itemOrNote: TypedFlockItem): itemOrNote is MessageItem {
-  return (MESSAGE_TYPES as TypedFlockItem['type'][]).includes(itemOrNote.type);
-}
-
-export function getBlankBaseNote(): BaseNote {
-  return {
-    content: '',
-    date: new Date().getTime(),
-    id: getItemId(),
-    type: 'interaction',
-  };
-}
-
-export function getBlankInteraction(): InteractionNote {
-  return {
-    ...getBlankBaseNote(),
-    type: 'interaction',
-  };
-}
-
-export function getBlankAction(): ActionNote {
-  return {
-    ...getBlankBaseNote(),
-    type: 'action',
-  };
-}
-
-export function getBlankNote(noteType: ItemNoteType): ItemNote {
-  if (noteType === 'interaction') {
-    return getBlankInteraction();
-  } else if (noteType === 'action') {
-    return getBlankAction();
-  }
-  throw new Error(`Unsupported note type ${noteType}`);
+export function isMessage(item: TypedFlockItem): item is MessageItem {
+  return (MESSAGE_TYPES as TypedFlockItem['type'][]).includes(item.type);
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
@@ -162,9 +93,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     created: new Date().getTime(),
     description: '',
     id: id || getItemId(),
-    interactionFrequency: 'none',
     prayedFor: [],
-    notes: [],
     prayerFrequency: 'monthly',
     summary: '',
     tags: [],
@@ -201,6 +130,15 @@ export function getBlankGeneral(id?: ItemId, isNew = true): GeneralItem {
     isNew: isNew || undefined,
     name: '',
     type: 'general',
+  };
+}
+
+export function getBlankMessageItem(id?: ItemId, name?: string, isNew = true): MessageItem {
+  return {
+    ...getBlankBaseItem(id),
+    isNew: isNew || undefined,
+    name: name || '',
+    type: 'message',
   };
 }
 
@@ -248,13 +186,6 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   return plural ? 'Items' : 'Item';
 }
 
-export function getNoteTypeLabel(itemType: ItemNoteType, plural?: boolean): string {
-  if (itemType === 'interaction') {
-    return plural ? 'Interactions' : 'Interaction';
-  }
-  return plural ? 'Prayer Points' : 'Prayer Point';
-}
-
 export function getItemName(
   item?: Partial<Item | MessageItem> & Pick<Item | MessageItem, 'type'>,
 ): string {
@@ -284,45 +215,29 @@ export function comparePeopleNames(a: PersonItem, b: PersonItem) {
 }
 
 export function compareNames(
-  a: GroupItem | GeneralItem,
-  b: GroupItem | GeneralItem,
+  a: GroupItem | GeneralItem | MessageItem,
+  b: GroupItem | GeneralItem | MessageItem,
 ) {
   return +(a.name > b.name) - +(a.name < b.name);
 }
 
-export function compareIds(a: Item | ItemNote, b: Item | ItemNote) {
+export function compareIds(a: TypedFlockItem, b: TypedFlockItem) {
   return +(a.id > b.id) - +(a.id < b.id);
 }
 
-export function compareItems(a: Item, b: Item) {
+export function compareItems(a: TypedFlockItem, b: TypedFlockItem) {
   if (a.archived !== b.archived) {
     return +a.archived - +b.archived;
   } else if (a.type !== b.type) {
-    return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type);
+    return ALL_ITEM_TYPES.indexOf(a.type) - ALL_ITEM_TYPES.indexOf(b.type);
   } else if (a.type === 'person' || b.type === 'person') {
     return comparePeopleNames(a as PersonItem, b as PersonItem) || compareIds(a, b);
   }
   return compareNames(a, b) || compareIds(a, b);
 }
 
-export function compareNotes(a: ItemNote, b: ItemNote): number {
-  // Sort notes in descending order of date by default
-  return b.date - a.date || compareIds(a, b);
-}
-
 export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => !item.archived);
-}
-
-export function getNotes(items: Item[], filterType?: 'interaction'): InteractionNote[];
-export function getNotes(items: Item[], filterType?: 'action'): ActionNote[];
-export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[];
-export function getNotes(items: Item[], filterType?: ItemNoteType): ItemNote[] {
-  const allNotes = items.flatMap(item => item.notes);
-  if (filterType) {
-    return allNotes.filter(note => note.type === filterType);
-  }
-  return allNotes;
 }
 
 export function getTags(items: Item[]) {
@@ -336,11 +251,11 @@ export function supplyMissingAttributes(item: Item): Item {
   };
 }
 
-export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
+export function dirtyItem<T extends Partial<TypedFlockItem>>(item: T): DirtyItem<T> {
   return { ...item, dirty: true };
 }
 
-export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
+export function cleanItem<T extends TypedFlockItem>(item: DirtyItem<T>): T {
   return { ...item, dirty: undefined, isNew: undefined };
 }
 
@@ -360,7 +275,7 @@ export function convertItem<T extends Item, S extends Item>(item: T, type: S['ty
   return result;
 }
 
-export function isValid<T extends Item>(item: T) {
+export function isValid<T extends TypedFlockItem>(item: T) {
   if (item.type === 'person') {
     return !!item.firstName.trim();
   }

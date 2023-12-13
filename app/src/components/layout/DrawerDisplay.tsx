@@ -1,14 +1,13 @@
 import { Theme, useMediaQuery } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { isItem, isNote, TypedFlockItem } from '../../state/items';
+import { isItem, Item, TypedFlockItem } from '../../state/items';
 import { DrawerData, removeActive, updateActive } from '../../state/ui';
 import { useAppDispatch, useAppSelector } from '../../store';
 import ItemDrawer from '../drawers/ItemDrawer';
 import PlaceholderDrawer from '../drawers/Placeholder';
 import ReportDrawer from '../drawers/ReportDrawer';
-import NoteDrawer from '../drawers/NoteDrawer';
-import { useItemOrNote, useLoggedIn, useMessageItem } from '../../state/selectors';
+import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors';
 import { getItemId, usePrevious } from '../../utils';
 import EditMessageDrawer from '../drawers/EditMessageDrawer';
 import { usePage } from '../pages';
@@ -66,20 +65,20 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const existingItem = useItemOrNote(drawer.item || getItemId());
+  const existingItem = useItem(drawer.item || getItemId());
   const existingMessage = useMessageItem(drawer.item || '');
   const item = existingItem || existingMessage || drawer.newItem;
 
   const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item);
   const handleChange = useCallback(
     (
-      data: Partial<Omit<TypedFlockItem, 'type' | 'id'>> | ((prev: TypedFlockItem) => TypedFlockItem),
+      data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
     ) => setLocalItem(prevItem => {
-      if (prevItem) {
+      if (prevItem && isItem(prevItem)) {
         if (typeof data === 'function') {
           return data(prevItem);
         }
-        return { ...prevItem, ...data } as TypedFlockItem;
+        return { ...prevItem, ...data } as Item;
       }
       return undefined;
     }),
@@ -104,21 +103,6 @@ function IndividualDrawer({
       ) : (
         <ItemDrawer
           item={localItem}
-          onBack={onClose}
-          onChange={handleChange}
-          onClose={onClose}
-          onExited={onExited}
-          open={drawer.open}
-          stacked={stacked}
-        />
-      );
-    }
-
-    if (isNote(localItem)) {
-      return (
-        <NoteDrawer
-          linkedItems={drawer.initial?.filter(isItem)}
-          note={localItem}
           onBack={onClose}
           onChange={handleChange}
           onClose={onClose}

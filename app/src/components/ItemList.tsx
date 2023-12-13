@@ -30,7 +30,7 @@ import {
   ListItemKeySelector,
   VariableSizeList,
 } from 'react-window';
-import { getItemName, isItem, ItemOrNote } from '../state/items';
+import { getItemName, isItem, Item } from '../state/items';
 import TagDisplay from './TagDisplay';
 import { getIcon as getItemIcon } from './Icons';
 import { MostlyRequired, usePrevious, useStringMemo } from '../utils';
@@ -81,7 +81,7 @@ export interface ItemListExtraElement {
   height: number,
   index: number,
 }
-export interface BaseProps<T extends ItemOrNote> {
+export interface BaseProps<T extends Item> {
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
   compact?: boolean,
@@ -105,7 +105,7 @@ export interface BaseProps<T extends ItemOrNote> {
   showTags?: boolean,
   wrapText?: boolean,
 }
-export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
+export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
   disablePadding?: boolean,
   noItemsHint?: string,
@@ -114,7 +114,7 @@ export interface MultipleItemsProps<T extends ItemOrNote> extends BaseProps<T> {
   viewHeight?: number,
 }
 
-export function ItemListItem<T extends ItemOrNote>(props: ListChildComponentProps<BaseProps<T>>) {
+export function ItemListItem<T extends Item>(props: ListChildComponentProps<BaseProps<T>>) {
   const { data, index, style } = props;
   const {
     checkboxes,
@@ -305,7 +305,7 @@ export function ItemListItem<T extends ItemOrNote>(props: ListChildComponentProp
 }
 const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
 
-function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
+function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
     getActionIcon,
     compact,
@@ -389,7 +389,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
     ],
   );
 
-  const getItemKey: ListItemKeySelector<BaseProps<ItemOrNote>> = useCallback(
+  const getItemKey: ListItemKeySelector<BaseProps<Item>> = useCallback(
     (index, data) => data.items[index].id,
     [],
   );
@@ -438,7 +438,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
   );
 
   const noStyle = useRef({});
-  const listRef = useRef<VariableSizeList<BaseProps<ItemOrNote>>>(null);
+  const listRef = useRef<VariableSizeList<BaseProps<Item>>>(null);
 
   const prevHeights = usePrevious(memoisedHeights);
   useEffect(
@@ -474,7 +474,7 @@ function ItemList<T extends ItemOrNote>(props: MultipleItemsProps<T>) {
           <VariableSizeList
             height={viewHeight}
             itemCount={items.length}
-            itemData={itemData as unknown as BaseProps<ItemOrNote>}
+            itemData={itemData as unknown as BaseProps<Item>}
             itemKey={getItemKey}
             itemSize={getItemSize}
             width="100%"

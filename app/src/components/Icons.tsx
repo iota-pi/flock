@@ -1,7 +1,6 @@
 import { createSvgIcon, SvgIconTypeMap } from '@mui/material';
 import { OverridableComponent } from '@mui/material/OverridableComponent';
 
-import ActionIcon from '@mui/icons-material/ArrowForward';
 import AddIcon from '@mui/icons-material/Add';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import BackIcon from '@mui/icons-material/ChevronLeft';
@@ -16,7 +15,6 @@ import FrequencyIcon from '@mui/icons-material/Schedule';
 import GeneralIcon from '@mui/icons-material/MoreHoriz';
 import GroupIcon from '@mui/icons-material/Groups';
 import HomeIcon from '@mui/icons-material/Home';
-import InteractionIcon from '@mui/icons-material/QuestionAnswer';
 import MenuIcon from '@mui/icons-material/Menu';
 import MessageIcon from '@mui/icons-material/Send';
 import MinusIcon from '@mui/icons-material/Remove';
@@ -50,7 +48,6 @@ const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
 export type MuiIconType = OverridableComponent<SvgIconTypeMap<{}, 'svg'>>;
 
 export {
-  ActionIcon,
   AddIcon,
   ArchiveIcon,
   BackIcon,
@@ -66,7 +63,6 @@ export {
   GeneralIcon,
   GroupIcon,
   HomeIcon,
-  InteractionIcon,
   MenuIcon,
   MessageIcon,
   MinusIcon,
@@ -98,8 +94,6 @@ export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconTy
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
-    action: ActionIcon,
-    interaction: InteractionIcon,
     general: GeneralIcon,
     message: MessageIcon,
     tag: TagIcon,

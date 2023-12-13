@@ -48,7 +48,6 @@ function ImportPeopleDialog({
               phonenumber: 'phone',
               description: 'description',
               summary: 'summary',
-              notes: 'summary',
             };
             return headersMap[normalised] || null;
           },

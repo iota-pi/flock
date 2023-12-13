@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Box, BoxProps, IconButton, Typography } from '@mui/material';
 import {
   getItemName,
@@ -7,9 +7,7 @@ import {
 import MemberDisplay from '../MemberDisplay';
 import GroupDisplay from '../GroupDisplay';
 import { EditIcon } from '../Icons';
-import NoteList from '../NoteList';
 import TagDisplay from '../TagDisplay';
-import { getInteractions } from '../../utils/interactions';
 import Markdown from '../Markdown';
 
 const Section = memo(
@@ -41,15 +39,6 @@ function ItemReport({
   item,
   onEdit,
 }: Props) {
-  const interactions = useMemo(
-    () => (
-      item.type === 'person'
-        ? getInteractions(item).sort((a, b) => b.date - a.date)
-        : []
-    ),
-    [item],
-  );
-
   return (
     <>
       <Box
@@ -94,22 +83,6 @@ function ItemReport({
             {item.summary}
           </Markdown>
         </>
-      )}
-
-      {item.type === 'person' && (
-        <Section>
-          <Typography variant="h4">
-            Interactions
-          </Typography>
-
-          <NoteList
-            notes={interactions}
-            displayItemNames={false}
-            dividers
-            noNotesHint="No interactions"
-            wrapText
-          />
-        </Section>
       )}
 
       {item.type === 'person' && (

@@ -12,17 +12,13 @@ const pagesWithAddButton: PageId[] = [
   'groups',
   'people',
   'prayer',
-  'interactions',
-  'actions',
 ];
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
   groups: 'group',
   people: 'person',
-  interactions: 'item',
   prayer: 'item',
-  actions: 'item',
   communication: 'message',
   settings: 'item',
 };
@@ -30,9 +26,7 @@ const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
   groups: 'group',
   people: 'person',
-  interactions: 'interaction',
   prayer: 'prayer point',
-  actions: 'action point',
   communication: 'message',
   settings: 'item',
 };

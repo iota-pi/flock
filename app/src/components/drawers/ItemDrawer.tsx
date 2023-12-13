@@ -23,14 +23,13 @@ import {
   getItemName,
   getItemTypeLabel,
   GroupItem,
+  isItem,
   isValid,
   Item,
-  ItemNote,
   ITEM_TYPES,
   PersonItem,
 } from '../../state/items';
 import { useAppDispatch } from '../../store';
-import NoteControl from '../NoteControl';
 import { useItems } from '../../state/selectors';
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
 import FrequencyControls from '../FrequencyControls';
@@ -42,19 +41,16 @@ import DuplicateAlert from './utils/DuplicateAlert';
 import { pushActive } from '../../state/ui';
 import { usePrevious } from '../../utils';
 import {
-  ActionIcon,
   ArchiveIcon,
   getIcon,
   getIconType,
   GroupIcon,
-  InteractionIcon,
   NotesIcon,
   PersonIcon,
   UnarchiveIcon,
 } from '../Icons';
 import MaturityPicker from '../MaturityPicker';
 import { getLastPrayedFor } from '../../utils/prayer';
-import { getLastInteractionDate } from '../../utils/interactions';
 import { deleteItems, storeItems } from '../../api/Vault';
 
 
@@ -146,7 +142,9 @@ function ItemDrawer({
 
   const handleClickAddDescription = useCallback(() => setShowDescription(true), []);
   const handleChange = useCallback(
-    <T extends Item>(data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item)) => {
+    <T extends Item>(
+      data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item),
+    ) => {
       if (typeof data === 'function') {
         return onChange(originalItem => dirtyItem(data(originalItem)));
       }
@@ -157,12 +155,6 @@ function ItemDrawer({
   const handleChangeMaturity = useCallback(
     (maturity: string | null) => handleChange<PersonItem>({ maturity }),
     [handleChange],
-  );
-  const handleChangeNotes = useCallback(
-    (callback: (prevNotes: ItemNote[]) => ItemNote[]) => {
-      onChange(i => dirtyItem({ ...i, notes: callback(i.notes) }));
-    },
-    [onChange],
   );
 
   const removeFromAllGroups = useCallback(
@@ -184,7 +176,9 @@ function ItemDrawer({
     (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
         const clean = cleanItem(itemToSave);
-        storeItems(clean);
+        if (isItem(clean)) {
+          storeItems(clean);
+        }
         return clean;
       }
       return undefined;
@@ -448,16 +442,12 @@ function ItemDrawer({
     [handleChange, phone],
   );
 
-  const lastInteraction = item.type === 'person' ? getLastInteractionDate(item) : 0;
   const lastPrayer = getLastPrayedFor(item);
   const frequencyField = useMemo(
     () => (
       <Grid item xs={12}>
         <FrequencyControls
-          interactionFrequency={item.interactionFrequency}
-          lastInteraction={lastInteraction}
           lastPrayer={lastPrayer}
-          noInteractions={item.type !== 'person'}
           onChange={handleChange}
           prayerFrequency={item.prayerFrequency}
         />
@@ -465,10 +455,8 @@ function ItemDrawer({
     ),
     [
       handleChange,
-      item.interactionFrequency,
       item.prayerFrequency,
       item.type,
-      lastInteraction,
       lastPrayer,
     ],
   );
@@ -534,44 +522,6 @@ function ItemDrawer({
     [handleChange, item.isNew, members],
   );
 
-  const interactionSection = useMemo(
-    () => item.type === 'person' && (
-      <CollapsibleSection
-        content={(
-          <NoteControl
-            notes={item.notes}
-            onChange={handleChangeNotes}
-            noteType="interaction"
-          />
-        )}
-        icon={InteractionIcon}
-        id="interactions"
-        initialExpanded={item.isNew}
-        title="Interactions"
-      />
-    ),
-    [handleChangeNotes, item.isNew, item.notes, item.type],
-  );
-
-  const actionSection = useMemo(
-    () => (
-      <CollapsibleSection
-        content={(
-          <NoteControl
-            notes={item.notes}
-            onChange={handleChangeNotes}
-            noteType="action"
-          />
-        )}
-        icon={ActionIcon}
-        id="actions"
-        initialExpanded={item.isNew}
-        title="Actions"
-      />
-    ),
-    [handleChangeNotes, item.isNew, item.notes],
-  );
-
   const groupsSection = useMemo(
     () => item.type === 'person' && (
       <CollapsibleSection
@@ -589,7 +539,6 @@ function ItemDrawer({
     <BaseDrawer
       ActionProps={{
         canSave: isValid(item),
-        itemHasNotes: true,
         itemIsNew: item.isNew,
         itemName: getItemName(item),
         onCancel: handleCancel,
@@ -621,8 +570,6 @@ function ItemDrawer({
 
         <Grid item xs={12}>
           {membersSection}
-          {interactionSection}
-          {actionSection}
           {groupsSection}
         </Grid>
 

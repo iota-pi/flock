@@ -80,7 +80,6 @@ function EverythingSearch({
         noItemsText={noItemsText}
         searchDescription
         searchSummary
-        searchNotes
         showIcons
       />
     </>

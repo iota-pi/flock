@@ -1,5 +1,5 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useHistory } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import zxcvbn from 'zxcvbn';
 import {
   alpha,
@@ -19,11 +19,14 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Visibility from '@mui/icons-material/Visibility';
 import { getPage } from '.';
 import { HomeIcon } from '../Icons';
-import Vault from '../../api/Vault';
 import { generateAccountId } from '../../utils';
 import { useAppDispatch } from '../../store';
 import customDomainWords from '../../utils/customDomainWords';
 import InlineText from '../InlineText';
+import { setUi } from '../../state/ui';
+import { setAccount } from '../../state/account';
+import { initialiseVault } from '../../api/Vault';
+import { vaultCreateAccount } from '../../api/VaultAPI';
 
 const MIN_PASSWORD_LENGTH = 10;
 const MIN_PASSWORD_STRENGTH = 3;
@@ -108,7 +111,7 @@ function passwordScoreToColour(score: number, theme: Theme) {
 
 function CreateAccountPage() {
   const dispatch = useAppDispatch();
-  const history = useHistory();
+  const navigate = useNavigate();
 
   const account = useMemo(() => generateAccountId(), []);
 
@@ -121,23 +124,25 @@ function CreateAccountPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleClickHome = useCallback(
-    () => history.push(getPage('welcome').path),
-    [history],
+    () => navigate(getPage('welcome').path),
+    [navigate],
   );
 
   const handleClickLogin = useCallback(
-    () => history.push(getPage('login').path),
-    [history],
+    () => navigate(getPage('login').path),
+    [navigate],
   );
   const handleClickCreate = useCallback(
     async () => {
       setWaiting(true);
       try {
-        const vault = await Vault.create(account, password, dispatch);
-        const success = await vault.api.createAccount();
+        dispatch(setAccount({ account }));
+        await initialiseVault(password);
+        const success = await vaultCreateAccount();
         if (success) {
           setError('');
-          history.push(getPage('login').path, { created: true, account });
+          dispatch(setUi({ justCreatedAccount: true }));
+          navigate(getPage('login').path);
         } else {
           setError('An error occured while creating your account.');
         }
@@ -146,7 +151,7 @@ function CreateAccountPage() {
       }
       setWaiting(false);
     },
-    [account, dispatch, history, password],
+    [account, dispatch, navigate, password],
   );
   const handleChangePassword = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),

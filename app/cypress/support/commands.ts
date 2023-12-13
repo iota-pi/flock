@@ -1,4 +1,4 @@
-import { ActionNote, GeneralItem, GroupItem, ItemNote, PersonItem } from '../../src/state/items';
+import { GeneralItem, GroupItem, PersonItem } from '../../src/state/items';
 import 'cypress-file-upload';
 
 Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => {
@@ -90,30 +90,6 @@ Cypress.Commands.add(
   'addMember',
   (name: string) => {
     cy.dataCy('members').type(`${name}{enter}`)
-    return cy;
-  },
-);
-
-Cypress.Commands.add(
-  'addNote',
-  (note: (
-    Pick<Exclude<ItemNote, ActionNote>, 'content' | 'type' | 'sensitive'>
-    | Pick<ActionNote, 'content' | 'type' | 'sensitive' | 'completed'>
-  )) => {
-    cy.dataCy(`add-${note.type}`).click()
-    if (note.content) {
-      cy.focused().type(note.content)
-    }
-    if (note.sensitive) {
-      cy.dataCy(`note-options-${note.type}`).first().click()
-      cy.dataCy(`sensitive-note`).first().click()
-      cy.focused().type('{esc}')
-    }
-    if (note.type === 'action' && note.completed) {
-      cy.dataCy(`note-options-${note.type}`).first().click()
-      cy.dataCy(`completed-note`).first().click()
-      cy.focused().type('{esc}')
-    }
     return cy;
   },
 );

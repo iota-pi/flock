@@ -1,5 +1,5 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
-import { Link, useHistory, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -14,11 +14,12 @@ import {
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { getPage } from '.';
-import Vault from '../../api/Vault';
-import { useAppDispatch } from '../../store';
+import { useAppDispatch, useAppSelector } from '../../store';
 import { setAccount } from '../../state/account';
-import { setVault } from '../../state/vault';
 import { HomeIcon } from '../Icons';
+import { initialiseVault } from '../../api/Vault';
+import { vaultCheckPassword } from '../../api/VaultAPI';
+import { setUi } from '../../state/ui';
 
 
 const Root = styled('div')({
@@ -55,50 +56,48 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 function LoginPage() {
   const dispatch = useAppDispatch();
-  const history = useHistory();
-  const location = useLocation();
+  const navigate = useNavigate();
 
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
   const [accountInput, setAccountInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const createdAccountId = useAppSelector(state => state.account.account);
+  const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount);
 
   useEffect(
     () => {
-      if (location.state) {
-        const { account } = location.state as { account: string | undefined };
-        if (account) {
-          setAccountInput(account);
-        }
+      if (justCreatedAccount) {
+        setAccountInput(createdAccountId);
+        dispatch(setUi({ justCreatedAccount: false }));
       }
     },
-    [location],
+    [createdAccountId, dispatch, justCreatedAccount],
   );
 
   const handleClickHome = useCallback(
-    () => history.push(getPage('welcome').path),
-    [history],
+    () => navigate(getPage('welcome').path),
+    [navigate],
   );
 
   const handleClickLogin = useCallback(
     async () => {
-      const vault = await Vault.create(accountInput, password, dispatch);
-      const success = await vault.api.checkPassword();
+      dispatch(setAccount({ account: accountInput }));
+      await initialiseVault(password);
+      const success = await vaultCheckPassword();
       if (success) {
-        dispatch(setVault(vault));
-        dispatch(setAccount({ account: accountInput }));
-        history.push(getPage('people').path);
+        navigate(getPage('people').path);
       } else {
         setError('Could not find matching account ID and password.');
       }
     },
-    [accountInput, dispatch, history, password],
+    [accountInput, dispatch, navigate, password],
   );
   const handleClickCreate = useCallback(
     () => {
-      history.push(getPage('signup').path);
+      navigate(getPage('signup').path);
     },
-    [history],
+    [navigate],
   );
   const handleChangeAccount = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setAccountInput(event.target.value),
@@ -116,8 +115,6 @@ function LoginPage() {
     (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
   );
-
-  const justCreated = (location.state as { created: boolean } | undefined)?.created || false;
 
   return (
     <Root>
@@ -148,7 +145,7 @@ function LoginPage() {
             Login
           </Typography>
 
-          {justCreated && (
+          {justCreatedAccount && (
             <Box mb={4}>
               <Alert severity="success">
                 Account successfully created!

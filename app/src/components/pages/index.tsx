@@ -2,11 +2,9 @@ import React, { ComponentType, ReactNode, useMemo } from 'react';
 import { Routes, Route, matchPath, useLocation } from 'react-router-dom';
 import loadable from '@loadable/component';
 import {
-  ActionIcon,
   MessageIcon,
   GeneralIcon,
   GroupIcon,
-  InteractionIcon,
   MuiIconType,
   OptionsIcon,
   PersonIcon,
@@ -16,9 +14,7 @@ import CommunicationPage from './Communication';
 import { AccountMetadata } from '../../state/account';
 import { useLoggedIn } from '../../state/selectors';
 
-const ActionsPage = loadable(() => import('./Actions'));
 const CreateAccountPage = loadable(() => import('./CreateAccount'));
-const InteractionsPage = loadable(() => import('./Interactions'));
 const ItemPage = loadable(() => import('./ItemPage'));
 const LoginPage = loadable(() => import('./Login'));
 const PrayerPage = loadable(() => import('./Prayer'));
@@ -34,9 +30,7 @@ export type PageId = (
   'people' |
   'groups' |
   'general' |
-  'interactions' |
   'prayer' |
-  'actions' |
   'communication' |
   'settings'
 );
@@ -115,22 +109,6 @@ export const pages: Page[] = [
     requiresAuth: true,
   },
   {
-    icon: InteractionIcon,
-    id: 'interactions',
-    name: 'Interactions',
-    path: '/interactions',
-    page: <InteractionsPage />,
-    requiresAuth: true,
-  },
-  {
-    icon: ActionIcon,
-    id: 'actions',
-    name: 'Actions',
-    page: <ActionsPage />,
-    path: '/actions',
-    requiresAuth: true,
-  },
-  {
     dividerBefore: true,
     icon: MessageIcon,
     id: 'communication',
@@ -166,9 +144,12 @@ function PageView() {
       <Route
         key={page.id}
         path={page.path}
-      >
-        {!page.requiresAuth || loggedIn ? page.page : getPage('welcome').page}
-      </Route>
+        element={(
+          !page.requiresAuth || loggedIn
+            ? page.page
+            : getPage('welcome').page
+        )}
+      />
     )),
     [loggedIn],
   );
@@ -188,18 +169,6 @@ export function getPage(page: AnyPageId) {
     throw new Error(`Unknown page id ${page}`);
   }
   return result;
-}
-
-export function useAnyPage() {
-  const location = useLocation();
-  const page = useMemo(
-    () => allPages.find(p => matchPath(location.pathname, p.path)),
-    [location.pathname],
-  );
-  if (page) {
-    return page;
-  }
-  throw new Error('Could not find matching page');
 }
 
 export function usePage() {

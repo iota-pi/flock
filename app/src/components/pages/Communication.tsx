@@ -8,6 +8,7 @@ import { EmailIcon } from '../Icons';
 import SMTPDialog from '../dialogs/SMTPDialog';
 import { createMessage } from '../../api/KoinoniaAPI';
 import { selectAllMessages } from '../../state/messages';
+import { getBlankMessageItem } from '../../state/items';
 
 interface MessageSummary {
   message: string,
@@ -37,7 +38,7 @@ function CommunicationPage() {
       if (message) {
         dispatch(replaceActive({
           item: message,
-          newItem: { type: 'message', id: message, name, isNew: true },
+          newItem: getBlankMessageItem(message, name),
         }));
       }
     },

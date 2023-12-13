@@ -44,7 +44,7 @@ function FrequencyPicker({
 
   const handleFocus = useCallback(() => setFocused(true), []);
   const handleBlur = useCallback(() => setFocused(false), []);
-  const handleChangeNoteType = useCallback(
+  const handleChange = useCallback(
     (event: SelectChangeEvent<Frequency>) => {
       if (event.target.value) {
         onChange(event.target.value as Frequency);
@@ -79,7 +79,7 @@ function FrequencyPicker({
             data-cy={`frequency-selection-${id}`}
             value={frequency}
             labelId={`frequency-selection-label-${id}`}
-            onChange={handleChangeNoteType}
+            onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
             variant="standard"

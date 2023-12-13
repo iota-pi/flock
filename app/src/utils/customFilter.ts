@@ -1,7 +1,6 @@
 import { isSameDay } from '.';
 import { getItemName, Item } from '../state/items';
 import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies';
-import { getLastInteractionDate } from './interactions';
 import { getLastPrayedFor } from './prayer';
 
 export type FilterFieldType = (
@@ -40,8 +39,6 @@ export type FilterCriterionType = (
   'archived' |
   'created' |
   'description' |
-  'interactionFrequency' |
-  'lastInteraction' |
   'lastPrayedFor' |
   'maturity' |
   'name' |
@@ -77,16 +74,6 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     dataType: 'string',
     name: 'Description',
     operators: ['is', 'isnot', 'contains', 'notcontains'],
-  },
-  interactionFrequency: {
-    dataType: 'frequency',
-    name: 'Interaction Frequency',
-    operators: ['is', 'isnot', 'greater', 'lessthan'],
-  },
-  lastInteraction: {
-    dataType: 'date',
-    name: 'Last interaction',
-    operators: ['is', 'isnot', 'after', 'before'],
   },
   lastPrayedFor: {
     dataType: 'date',
@@ -149,33 +136,6 @@ export function filterItems<T extends Item>(
       }
       if (criterion.baseOperator === 'contains') {
         return description.includes(value);
-      }
-      return true;
-    },
-    interactionFrequency: (item, criterion) => {
-      if (item.type === 'person') {
-        if (criterion.baseOperator === 'is') {
-          return item.interactionFrequency === criterion.value;
-        }
-        if (criterion.baseOperator === 'greater') {
-          const daysItem = FREQUENCIES_TO_DAYS[item.interactionFrequency];
-          const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency];
-          return daysItem < daysCriterion;
-        }
-      }
-
-      return true;
-    },
-    lastInteraction: (item, criterion) => {
-      if (item.type === 'person') {
-        const lastInteraction = getLastInteractionDate(item);
-        const value = criterion.value as number;
-        if (criterion.baseOperator === 'is') {
-          return isSameDay(new Date(lastInteraction), new Date(value));
-        }
-        if (criterion.baseOperator === 'greater') {
-          return item.created > value;
-        }
       }
       return true;
     },

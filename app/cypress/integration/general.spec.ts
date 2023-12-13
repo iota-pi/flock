@@ -4,79 +4,6 @@ describe('Basic operation', () => {
     cy.createAccount('fnG8iv4t!%Qa')
   })
 
-  it('can add & remove notes', () => {
-    // Create notes
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
-      .addNote({ content: '', type: 'interaction' })
-      .addNote({
-        content: 'Tried eavesdropping',
-        type: 'interaction',
-        sensitive: true,
-      })
-      .addNote({ content: 'Destroy ring', type: 'action', sensitive: true })
-      .addNote({ content: 'Look after Sam', type: 'action' })
-      .saveDrawer()
-
-    // Check notes have been created successfully
-    cy.page('prayer')
-    cy.dataCy('page-content')
-      .contains('Frodo Baggins')
-      .click()
-    cy.dataCy('drawer-content')
-      .contains('Frodo Baggins')
-    cy.dataCy('drawer-content')
-      .contains('eavesdropping')
-      .should('not.exist')
-    cy.dataCy('drawer-done').click()
-
-    cy.page('people')
-    cy.contains('Frodo').click()
-    cy.dataCy('section-interactions').click()
-
-    // Delete empty note
-    cy.dataCy('section-interactions')
-      .find(`[data-cy=note-options-interaction]`).last()
-      .click()
-    cy.dataCy('delete-note')
-      .click()
-    // Wait for deletion
-    cy.dataCy('section-interactions')
-      .find(`[data-cy=note-options-interaction]`).last()
-      .should('have.length', 1)
-
-    // Delete note with content (requires confirmation)
-    cy.dataCy('section-interactions')
-      .find(`[data-cy=note-options-interaction]`)
-      .click()
-    cy.dataCy('delete-note')
-      .click()
-    cy.dataCy('confirm-cancel').click()
-    cy.dataCy('section-interactions')
-      .find(`[data-cy=note-options-interaction]`)
-      .click()
-    cy.dataCy('delete-note')
-      .click()
-    cy.dataCy('confirm-confirm').click()
-      .saveDrawer()
-
-    // Check notes have been removed successfully
-    cy.page('prayer')
-    cy.dataCy('page-content')
-      .contains('Frodo Baggins')
-      .click()
-    cy.dataCy('drawer-content')
-      .contains('No interactions')
-      .saveDrawer()
-
-    // Check actions were created successfully
-    cy.page('actions')
-    cy.dataCy('page-content')
-      .contains('Destroy ring')
-      .should('not.exist')
-    cy.dataCy('page-content')
-      .contains('Look after Sam')
-  })
-
   it('can create groups; add & remove members', () => {
     cy.createPerson({ firstName: 'Frodo' })
       .saveDrawer()
@@ -180,17 +107,6 @@ describe('Basic operation', () => {
     cy.dataCy('drawer-content')
       .find('[data-cy=firstName]')
       .should('not.exist')
-
-    // Add a prayer point for Bilbo
-    cy.dataCy('edit-item-button')
-      .click()
-    cy.dataCy('firstName')
-    cy.dataCy('section-interactions').click()
-    cy.addNote({ type: 'interaction', content: 'Met on travels' })
-      .saveDrawer()
-    cy.dataCy('drawer-content')
-      .first()
-      .contains('travels')
 
     // Switch to Frodo (should not nest drawer)
     cy.contains('Frodo').click()
