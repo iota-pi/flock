@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -9,9 +9,9 @@ import {
   InputAdornment,
   TextField,
   Typography,
-} from '@mui/material';
-import { useMetadata } from '../../state/selectors';
-import { ResetIcon, SaveIcon, WarningIcon } from '../Icons';
+} from '@mui/material'
+import { useMetadata } from '../../state/selectors'
+import { ResetIcon, SaveIcon, WarningIcon } from '../Icons'
 
 export interface Props {
   naturalGoal: number,
@@ -25,51 +25,51 @@ function GoalDialog({
   onClose,
   open,
 }: Props) {
-  const [goal, setGoal] = useMetadata('prayerGoal', naturalGoal);
-  const [newGoal, setNewGoal] = useState(goal.toString());
-  const [hintMessage, setHintMessage] = useState<string>();
-  const error = !!hintMessage;
-  const warning = !!newGoal && parseInt(newGoal) < naturalGoal;
+  const [goal, setGoal] = useMetadata('prayerGoal', naturalGoal)
+  const [newGoal, setNewGoal] = useState(goal.toString())
+  const [hintMessage, setHintMessage] = useState<string>()
+  const error = !!hintMessage
+  const warning = !!newGoal && parseInt(newGoal) < naturalGoal
 
   useEffect(
     () => {
       if (open) {
-        setNewGoal(goal.toString());
-        setHintMessage(undefined);
+        setNewGoal(goal.toString())
+        setHintMessage(undefined)
       }
     },
     [goal, open],
-  );
+  )
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value;
-      setNewGoal(value);
+      const value = event.target.value
+      setNewGoal(value)
 
-      const numericValue = parseInt(value);
+      const numericValue = parseInt(value)
       if (numericValue > 0) {
-        setHintMessage(undefined);
+        setHintMessage(undefined)
       } else {
-        setHintMessage('Please enter a positive number');
+        setHintMessage('Please enter a positive number')
       }
     },
     [],
-  );
+  )
   const handleDone = useCallback(
     () => {
       if (!error && parseInt(newGoal) !== goal) {
-        setGoal(parseInt(newGoal));
+        setGoal(parseInt(newGoal))
       }
-      onClose();
+      onClose()
     },
     [error, goal, newGoal, onClose, setGoal],
-  );
+  )
   const handleReset = useCallback(
     () => {
-      setNewGoal(naturalGoal.toString());
+      setNewGoal(naturalGoal.toString())
     },
     [naturalGoal],
-  );
+  )
 
   return (
     <Dialog
@@ -136,7 +136,7 @@ function GoalDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default GoalDialog;
+export default GoalDialog

@@ -1,57 +1,57 @@
-import { Theme, useMediaQuery } from '@mui/material';
-import { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { isItem, Item, TypedFlockItem } from '../../state/items';
-import { DrawerData, removeActive, updateActive } from '../../state/ui';
-import { useAppDispatch, useAppSelector } from '../../store';
-import ItemDrawer from '../drawers/ItemDrawer';
-import PlaceholderDrawer from '../drawers/Placeholder';
-import ReportDrawer from '../drawers/ReportDrawer';
-import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors';
-import { generateItemId, usePrevious } from '../../utils';
-import EditMessageDrawer from '../drawers/EditMessageDrawer';
-import { usePage } from '../pages';
-import MessageDrawer from '../drawers/MessageDrawer';
+import { Theme, useMediaQuery } from '@mui/material'
+import { useCallback, useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { isItem, Item, TypedFlockItem } from '../../state/items'
+import { DrawerData, removeActive, updateActive } from '../../state/ui'
+import { useAppDispatch, useAppSelector } from '../../store'
+import ItemDrawer from '../drawers/ItemDrawer'
+import PlaceholderDrawer from '../drawers/Placeholder'
+import ReportDrawer from '../drawers/ReportDrawer'
+import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors'
+import { generateItemId, usePrevious } from '../../utils'
+import EditMessageDrawer from '../drawers/EditMessageDrawer'
+import { usePage } from '../pages'
+import MessageDrawer from '../drawers/MessageDrawer'
 
 function useDrawerRouting(drawers: DrawerData[]) {
-  const dispatch = useAppDispatch();
-  const routerLocation = useLocation();
-  const navigate = useNavigate();
-  const prevDrawers = usePrevious(drawers);
+  const dispatch = useAppDispatch()
+  const routerLocation = useLocation()
+  const navigate = useNavigate()
+  const prevDrawers = usePrevious(drawers)
 
   useEffect(
     () => {
       if (prevDrawers) {
-        const topIndex = drawers.length - 1;
-        const topItem = drawers[topIndex]?.item;
-        const prevTopItem = prevDrawers[prevDrawers.length - 1]?.item;
-        const currentHashItem = routerLocation.hash.replace(/^#/, '');
+        const topIndex = drawers.length - 1
+        const topItem = drawers[topIndex]?.item
+        const prevTopItem = prevDrawers[prevDrawers.length - 1]?.item
+        const currentHashItem = routerLocation.hash.replace(/^#/, '')
         if (drawers.length === prevDrawers.length) {
           if (topItem && topItem !== prevTopItem) {
-            navigate(`#${topItem}`, { replace: true });
+            navigate(`#${topItem}`, { replace: true })
           }
         } else if (drawers.length < prevDrawers.length && prevTopItem === currentHashItem) {
-          navigate(-1);
+          navigate(-1)
         } else if (drawers.length > prevDrawers.length && topItem) {
-          navigate(`#${topItem}`);
+          navigate(`#${topItem}`)
         }
       }
     },
     [drawers, routerLocation, prevDrawers],
-  );
+  )
 
-  const secondTopItem = drawers[drawers.length - 2]?.item;
+  const secondTopItem = drawers[drawers.length - 2]?.item
   useEffect(
     () => {
-      const id = routerLocation.hash.replace(/^#/, '');
+      const id = routerLocation.hash.replace(/^#/, '')
       if (secondTopItem === id) {
-        dispatch(removeActive());
+        dispatch(removeActive())
       } else if (!routerLocation.hash && drawers.length > 0) {
-        dispatch(removeActive());
+        dispatch(removeActive())
       }
     },
     [dispatch, drawers.length, routerLocation, secondTopItem],
-  );
+  )
 }
 
 function IndividualDrawer({
@@ -65,27 +65,27 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const existingItem = useItem(drawer.item || generateItemId());
-  const existingMessage = useMessageItem(drawer.item || '');
-  const item = existingItem || existingMessage || drawer.newItem;
+  const existingItem = useItem(drawer.item || generateItemId())
+  const existingMessage = useMessageItem(drawer.item || '')
+  const item = existingItem || existingMessage || drawer.newItem
 
-  const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item);
+  const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item)
   const handleChange = useCallback(
     (
       data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
     ) => setLocalItem(prevItem => {
       if (prevItem && isItem(prevItem)) {
         if (typeof data === 'function') {
-          return data(prevItem);
+          return data(prevItem)
         }
-        return { ...prevItem, ...data } as Item;
+        return { ...prevItem, ...data } as Item
       }
-      return undefined;
+      return undefined
     }),
     [],
-  );
+  )
 
-  useEffect(() => setLocalItem(item), [item]);
+  useEffect(() => setLocalItem(item), [item])
 
   if (localItem) {
     if (isItem(localItem)) {
@@ -110,7 +110,7 @@ function IndividualDrawer({
           open={drawer.open}
           stacked={stacked}
         />
-      );
+      )
     }
 
     if (drawer.report) {
@@ -122,7 +122,7 @@ function IndividualDrawer({
           open={drawer.open}
           stacked={stacked}
         />
-      );
+      )
     }
 
     return (
@@ -133,38 +133,38 @@ function IndividualDrawer({
         open={drawer.open}
         stacked={stacked}
       />
-    );
+    )
   }
 
-  return null;
+  return null
 }
 
 function DrawerDisplay() {
-  const dispatch = useAppDispatch();
-  const drawers = useAppSelector(state => state.ui.drawers);
-  const loggedIn = useLoggedIn();
-  const page = usePage();
+  const dispatch = useAppDispatch()
+  const drawers = useAppSelector(state => state.ui.drawers)
+  const loggedIn = useLoggedIn()
+  const page = usePage()
 
-  const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
+  const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
 
   const handleClose = useCallback(
     () => dispatch(updateActive({ open: false })),
     [dispatch],
-  );
+  )
   const handleExited = useCallback(
     () => dispatch(removeActive()),
     [dispatch],
-  );
-  const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose;
+  )
+  const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose
 
-  useDrawerRouting(drawers);
+  useDrawerRouting(drawers)
 
   const showPlaceholder = (
     loggedIn
     && drawers.length === 0
     && baseDrawerIsPermanent
     && !page.noPlaceholderDrawer
-  );
+  )
 
   return (
     <>
@@ -185,7 +185,7 @@ function DrawerDisplay() {
         />
       )}
     </>
-  );
+  )
 }
 
-export default DrawerDisplay;
+export default DrawerDisplay

@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -11,9 +11,9 @@ import {
   Stack,
   TextField,
   TextFieldProps,
-} from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers';
-import '@mui/lab';
+} from '@mui/material'
+import { DatePicker } from '@mui/x-date-pickers'
+import '@mui/lab'
 import {
   FILTER_CRITERIA_DISPLAY,
   FILTER_CRITERIA_DISPLAY_MAP,
@@ -23,15 +23,15 @@ import {
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
   FilterBaseOperatorName,
-} from '../../utils/customFilter';
-import { FilterIcon, RemoveIcon } from '../Icons';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { setUi } from '../../state/ui';
-import MaturityPicker from '../MaturityPicker';
-import { useMaturity } from '../../state/selectors';
-import FrequencyPicker from '../FrequencyPicker';
-import { Frequency } from '../../utils/frequencies';
-import TagSelection from '../TagSelection';
+} from '../../utils/customFilter'
+import { FilterIcon, RemoveIcon } from '../Icons'
+import { useAppDispatch, useAppSelector } from '../../store'
+import { setUi } from '../../state/ui'
+import MaturityPicker from '../MaturityPicker'
+import { useMaturity } from '../../state/selectors'
+import FrequencyPicker from '../FrequencyPicker'
+import { Frequency } from '../../utils/frequencies'
+import TagSelection from '../TagSelection'
 
 export interface Props {
   onClose: () => void,
@@ -49,49 +49,49 @@ export function FilterCriterionDisplay({
   onChange: (prevCriterionName: FilterCriterionType, criterion: FilterCriterion) => void,
   onRemove: (criterion: FilterCriterionType) => void,
 }) {
-  const [maturityStages] = useMaturity();
-  const criterionDetails = FILTER_CRITERIA_DISPLAY_MAP[criterion.type];
+  const [maturityStages] = useMaturity()
+  const criterionDetails = FILTER_CRITERIA_DISPLAY_MAP[criterion.type]
 
   const handleChangeKey = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const newCriterionType = event.target.value as FilterCriterionType;
+      const newCriterionType = event.target.value as FilterCriterionType
       const value = (
         typeof getBaseValue(newCriterionType) === typeof criterion.value
           ? criterion.value
           : getBaseValue(newCriterionType)
-      );
-      const operator = FILTER_CRITERIA_DISPLAY_MAP[newCriterionType].operators[0];
-      const baseOperator = FILTER_OPERATORS_MAP[operator].baseOperator;
+      )
+      const operator = FILTER_CRITERIA_DISPLAY_MAP[newCriterionType].operators[0]
+      const baseOperator = FILTER_OPERATORS_MAP[operator].baseOperator
       onChange(criterion.type, {
         ...criterion,
         type: newCriterionType,
         operator,
         baseOperator,
         value,
-      });
+      })
     },
     [criterion, onChange],
-  );
+  )
   const handleChangeOperation = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const operatorName = event.target.value as FilterOperatorName;
-      const operatorDetails = FILTER_OPERATORS_MAP[operatorName];
+      const operatorName = event.target.value as FilterOperatorName
+      const operatorDetails = FILTER_OPERATORS_MAP[operatorName]
       onChange(criterion.type, {
         ...criterion,
         baseOperator: operatorDetails.baseOperator,
         operator: operatorName,
         inverse: operatorDetails.inverse,
-      });
+      })
     },
     [criterion, onChange],
-  );
+  )
   const handleChangeValue = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value as FilterCriterion['value'];
-      onChange(criterion.type, { ...criterion, value });
+      const value = event.target.value as FilterCriterion['value']
+      onChange(criterion.type, { ...criterion, value })
     },
     [criterion, onChange],
-  );
+  )
   const handleChangeDateValue = useCallback(
     (date: Date | null) => {
       onChange(
@@ -100,10 +100,10 @@ export function FilterCriterionDisplay({
           ...criterion,
           value: date?.getTime() || new Date().getTime(),
         },
-      );
+      )
     },
     [criterion, onChange],
-  );
+  )
   const handleChangeMaturityValue = useCallback(
     (maturity: string | null) => {
       onChange(
@@ -112,10 +112,10 @@ export function FilterCriterionDisplay({
           ...criterion,
           value: maturity ? maturityStages.indexOf(maturity) : -1,
         },
-      );
+      )
     },
     [criterion, maturityStages, onChange],
-  );
+  )
   const handleChangeFrequencyValue = useCallback(
     (frequency: Frequency) => {
       onChange(
@@ -124,10 +124,10 @@ export function FilterCriterionDisplay({
           ...criterion,
           value: frequency,
         },
-      );
+      )
     },
     [criterion, onChange],
-  );
+  )
   const handleChangeTagValue = useCallback(
     (tags: string[]) => {
       onChange(
@@ -136,14 +136,14 @@ export function FilterCriterionDisplay({
           ...criterion,
           value: tags[tags.length - 1] || '',
         },
-      );
+      )
     },
     [criterion, onChange],
-  );
+  )
   const handleRemove = useCallback(
     () => onRemove(criterion.type),
     [criterion.type, onRemove],
-  );
+  )
 
   const renderDateInput = useCallback(
     (params: TextFieldProps) => (
@@ -154,12 +154,12 @@ export function FilterCriterionDisplay({
       />
     ),
     [],
-  );
+  )
 
   const currentDate = useMemo(
     () => (criterionDetails.dataType === 'date' ? new Date(criterion.value as number) : null),
     [criterion, criterionDetails],
-  );
+  )
   const currentTags = useMemo(
     () => (
       criterionDetails.dataType === 'tag'
@@ -168,7 +168,7 @@ export function FilterCriterionDisplay({
         : []
     ),
     [criterion, criterionDetails],
-  );
+  )
 
   return (
     <Stack
@@ -295,7 +295,7 @@ export function FilterCriterionDisplay({
         <RemoveIcon />
       </IconButton>
     </Stack>
-  );
+  )
 }
 
 
@@ -303,31 +303,31 @@ function FilterDialog({
   onClose,
   open,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const filterCriteria = useAppSelector(state => state.ui.filters);
-  const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([]);
+  const dispatch = useAppDispatch()
+  const filterCriteria = useAppSelector(state => state.ui.filters)
+  const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
 
   useEffect(
     () => {
       if (open) {
-        setLocalCriteria(filterCriteria);
+        setLocalCriteria(filterCriteria)
       }
     },
     [filterCriteria, open],
-  );
+  )
 
   const chosenCriteria = useMemo(
     () => new Set(localCriteria.map(lc => lc.type)),
     [localCriteria],
-  );
+  )
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
       const notChosen = FILTER_CRITERIA_DISPLAY.filter(
         cd => !chosenCriteria.has(cd[0]),
-      );
-      const newCriterionType = notChosen[0][0];
-      const newCriterionDetails = notChosen[0][1];
+      )
+      const newCriterionType = notChosen[0][0]
+      const newCriterionDetails = notChosen[0][1]
       return [
         ...lc,
         {
@@ -337,46 +337,46 @@ function FilterDialog({
           type: newCriterionType,
           value: getBaseValue(newCriterionType),
         },
-      ];
+      ]
     }),
     [chosenCriteria],
-  );
+  )
   const handleChange = useCallback(
     (prevType: FilterCriterionType, criterion: FilterCriterion) => (
       setLocalCriteria(prevCriteria => {
-        const index = prevCriteria.findIndex(c => c.type === prevType);
+        const index = prevCriteria.findIndex(c => c.type === prevType)
         if (index > -1) {
           return [
             ...prevCriteria.slice(0, index),
             criterion,
             ...prevCriteria.slice(index + 1),
-          ];
+          ]
         }
-        return [...prevCriteria, criterion];
+        return [...prevCriteria, criterion]
       })
     ),
     [],
-  );
+  )
   const handleRemove = useCallback(
     (type: FilterCriterionType) => setLocalCriteria(
       prevCriteria => prevCriteria.filter(x => x.type !== type),
     ),
     [],
-  );
+  )
   const handleClear = useCallback(
     () => {
-      setLocalCriteria([]);
-      dispatch(setUi({ filters: [] }));
+      setLocalCriteria([])
+      dispatch(setUi({ filters: [] }))
     },
     [dispatch],
-  );
+  )
   const handleDone = useCallback(
     () => {
-      dispatch(setUi({ filters: localCriteria }));
-      onClose();
+      dispatch(setUi({ filters: localCriteria }))
+      onClose()
     },
     [dispatch, localCriteria, onClose],
-  );
+  )
 
   return (
     <Dialog
@@ -440,7 +440,7 @@ function FilterDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default FilterDialog;
+export default FilterDialog

@@ -3,4 +3,4 @@ export default {
   KOINONIA_ENDPOINT: '',
   VAPID_PUBLIC_KEY: '',
   VAULT_ENDPOINT: '',
-};
+}

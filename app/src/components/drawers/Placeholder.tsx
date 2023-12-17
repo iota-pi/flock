@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
-import { Box, Typography } from '@mui/material';
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
-import LargeIcon from '../LargeIcon';
-import { InternalPageId, PageId, usePage } from '../pages';
-import InlineText from '../InlineText';
+import { useMemo } from 'react'
+import { Box, Typography } from '@mui/material'
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import LargeIcon from '../LargeIcon'
+import { InternalPageId, PageId, usePage } from '../pages'
+import InlineText from '../InlineText'
 
 export interface Props extends BaseDrawerProps {}
 
@@ -12,7 +12,7 @@ const pagesWithAddButton: PageId[] = [
   'groups',
   'people',
   'prayer',
-];
+]
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
@@ -21,7 +21,7 @@ const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   prayer: 'item',
   communication: 'message',
   settings: 'item',
-};
+}
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   general: 'item',
   groups: 'group',
@@ -29,7 +29,7 @@ const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   prayer: 'prayer point',
   communication: 'message',
   settings: 'item',
-};
+}
 
 function PlaceholderDrawer({
   alwaysTemporary,
@@ -37,17 +37,17 @@ function PlaceholderDrawer({
   open,
   stacked,
 }: Props) {
-  const page = usePage();
+  const page = usePage()
 
-  const canAdd = pagesWithAddButton.includes(page.id);
-  const itemName = itemNameMap[page.id] || 'item';
-  const addName = addNameMap[page.id] || 'item';
-  const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a';
+  const canAdd = pagesWithAddButton.includes(page.id)
+  const itemName = itemNameMap[page.id] || 'item'
+  const addName = addNameMap[page.id] || 'item'
+  const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a'
 
   const styles = useMemo(
     () => ({ opacity: 0.75 }),
     [],
-  );
+  )
 
   return (
     <BaseDrawer
@@ -90,7 +90,7 @@ function PlaceholderDrawer({
         </Typography>
       </Box>
     </BaseDrawer>
-  );
+  )
 }
 
-export default PlaceholderDrawer;
+export default PlaceholderDrawer

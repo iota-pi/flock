@@ -1,17 +1,17 @@
-import { useEffect, useRef } from 'react';
-import { VariableSizeList } from 'react-window';
+import { useEffect, useRef } from 'react'
+import { VariableSizeList } from 'react-window'
 
 export function useResetCache<T>(data: unknown) {
-  const ref = useRef<VariableSizeList<T>>(null);
+  const ref = useRef<VariableSizeList<T>>(null)
   useEffect(
     () => {
       if (ref.current !== null) {
-        ref.current.resetAfterIndex(0, true);
+        ref.current.resetAfterIndex(0, true)
       }
     },
     [data],
-  );
-  return ref;
+  )
+  return ref
 }
 
-export default useResetCache;
+export default useResetCache

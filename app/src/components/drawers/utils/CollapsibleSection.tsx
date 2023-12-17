@@ -3,7 +3,7 @@ import {
   useCallback,
   useEffect,
   useState,
-} from 'react';
+} from 'react'
 import {
   Accordion,
   AccordionSummary,
@@ -13,9 +13,9 @@ import {
   Divider,
   Box,
   styled,
-} from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { MuiIconType } from '../../Icons';
+} from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import { MuiIconType } from '../../Icons'
 
 const StyledAccordion = styled(Accordion)(({ theme }) => ({
   '& .MuiAccordion-root': {
@@ -29,7 +29,7 @@ const StyledAccordion = styled(Accordion)(({ theme }) => ({
   '&.Mui-expanded': {
     margin: theme.spacing(2, 0),
   },
-}));
+}))
 const StyledAccordionSummary = styled(AccordionSummary)(({ theme }) => ({
   '& .MuiAccordionSummary-content': {
     alignItems: 'center',
@@ -43,10 +43,10 @@ const StyledAccordionSummary = styled(AccordionSummary)(({ theme }) => ({
       minHeight: theme.spacing(6),
     },
   },
-}));
+}))
 const StyledAccordionDetails = styled(AccordionDetails)(({ theme }) => ({
   padding: theme.spacing(2),
-}));
+}))
 
 export interface Props {
   icon?: MuiIconType,
@@ -66,18 +66,18 @@ function CollapsibleSection({
   content,
   actions,
 }: Props) {
-  const [expanded, setExpanded] = useState<boolean>(false);
+  const [expanded, setExpanded] = useState<boolean>(false)
 
-  const handleChange = useCallback(() => setExpanded(e => !e), []);
+  const handleChange = useCallback(() => setExpanded(e => !e), [])
 
   useEffect(
     () => {
       if (initialExpanded) {
-        setExpanded(true);
+        setExpanded(true)
       }
     },
     [initialExpanded],
-  );
+  )
 
   return (
     <StyledAccordion
@@ -115,7 +115,7 @@ function CollapsibleSection({
         </AccordionActions>
       )}
     </StyledAccordion>
-  );
+  )
 }
 
-export default CollapsibleSection;
+export default CollapsibleSection

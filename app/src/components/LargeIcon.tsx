@@ -1,6 +1,6 @@
-import { Theme } from '@mui/material';
-import { useCallback } from 'react';
-import { MuiIconType } from './Icons';
+import { Theme } from '@mui/material'
+import { useCallback } from 'react'
+import { MuiIconType } from './Icons'
 
 
 interface Props {
@@ -16,11 +16,11 @@ function LargeIcon({
       height: theme.typography.h1.fontSize,
     }),
     [],
-  );
+  )
 
   return (
     <Icon sx={getStyle} />
-  );
+  )
 }
 
-export default LargeIcon;
+export default LargeIcon

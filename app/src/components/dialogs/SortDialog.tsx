@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -10,15 +10,15 @@ import {
   MenuItem,
   Stack,
   TextField,
-} from '@mui/material';
+} from '@mui/material'
 import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,
   CriterionName,
   SortCriterion,
-} from '../../utils/customSort';
-import { RemoveIcon } from '../Icons';
-import { useSortCriteria } from '../../state/selectors';
+} from '../../utils/customSort'
+import { RemoveIcon } from '../Icons'
+import { useSortCriteria } from '../../state/selectors'
 
 export interface Props {
   onClose: () => void,
@@ -46,17 +46,17 @@ function SortCriterionField({
       onChangeKey(index, event.target.value as CriterionName)
     ),
     [index, onChangeKey],
-  );
+  )
   const handleChangeReverse = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => (
       onChangeReverse(index, !!parseInt(event.target.value))
     ),
     [index, onChangeReverse],
-  );
+  )
   const handleRemove = useCallback(
     () => onRemove(index),
     [index, onRemove],
-  );
+  )
 
   return (
     <Stack
@@ -105,7 +105,7 @@ function SortCriterionField({
         <RemoveIcon />
       </IconButton>
     </Stack>
-  );
+  )
 }
 
 
@@ -113,32 +113,32 @@ function SortDialog({
   onClose,
   open,
 }: Props) {
-  const [sortCriteria, setSortCriteria] = useSortCriteria();
+  const [sortCriteria, setSortCriteria] = useSortCriteria()
 
-  const [localCriteria, setLocalCriteria] = useState<SortCriterion[]>([]);
+  const [localCriteria, setLocalCriteria] = useState<SortCriterion[]>([])
 
   useEffect(
     () => setLocalCriteria(sortCriteria),
     [sortCriteria],
-  );
+  )
 
   const chosenCriteria = useMemo(
     () => new Set(localCriteria.map(lc => lc.type)),
     [localCriteria],
-  );
+  )
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
       const notChosen = CRITERIA_DISPLAY.filter(
         cd => !chosenCriteria.has(cd[0]),
-      );
+      )
       return [
         ...lc,
         { type: notChosen[0][0], reverse: false },
-      ];
+      ]
     }),
     [chosenCriteria],
-  );
+  )
   const handleChangeKey = useCallback(
     (index: number, key: CriterionName) => setLocalCriteria(lc => [
       ...lc.slice(0, index),
@@ -146,7 +146,7 @@ function SortDialog({
       ...lc.slice(index + 1),
     ]),
     [],
-  );
+  )
   const handleChangeReverse = useCallback(
     (index: number, reverse: boolean) => setLocalCriteria(lc => [
       ...lc.slice(0, index),
@@ -154,20 +154,20 @@ function SortDialog({
       ...lc.slice(index + 1),
     ]),
     [],
-  );
+  )
   const handleRemove = useCallback(
     (index: number) => setLocalCriteria(
       lc => [...lc.slice(0, index), ...lc.slice(index + 1)],
     ),
     [],
-  );
+  )
   const handleDone = useCallback(
     () => {
-      setSortCriteria(localCriteria);
-      onClose();
+      setSortCriteria(localCriteria)
+      onClose()
     },
     [localCriteria, onClose, setSortCriteria],
-  );
+  )
 
   return (
     <Dialog
@@ -231,7 +231,7 @@ function SortDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default SortDialog;
+export default SortDialog

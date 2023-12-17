@@ -6,12 +6,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-} from '@mui/material';
-import { DropzoneArea } from 'mui-file-dropzone';
-import neatCsv from 'neat-csv';
-import { useCallback, useState } from 'react';
-import { importPeople, PersonItem } from '../../state/items';
-import { UploadIcon } from '../Icons';
+} from '@mui/material'
+import { DropzoneArea } from 'mui-file-dropzone'
+import neatCsv from 'neat-csv'
+import { useCallback, useState } from 'react'
+import { importPeople, PersonItem } from '../../state/items'
+import { UploadIcon } from '../Icons'
 
 
 export interface Props {
@@ -25,17 +25,17 @@ function ImportPeopleDialog({
   onConfirm,
   open,
 }: Props) {
-  const [importedItems, setImportedItems] = useState<PersonItem[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [importedItems, setImportedItems] = useState<PersonItem[]>([])
+  const [errorMessage, setErrorMessage] = useState('')
 
   const handleChange = useCallback(
     async (files: File[]) => {
       if (files.length > 0) {
-        const file = files[0];
-        const text = await file.text();
+        const file = files[0]
+        const text = await file.text()
         const data = await neatCsv(text, {
           mapHeaders: ({ header }) => {
-            const normalised = header.replace(/[ _-]/g, '').toLowerCase();
+            const normalised = header.replace(/[ _-]/g, '').toLowerCase()
             const headersMap: Record<string, string> = {
               name: 'name',
               fullname: 'name',
@@ -48,35 +48,35 @@ function ImportPeopleDialog({
               phonenumber: 'phone',
               description: 'description',
               summary: 'summary',
-            };
-            return headersMap[normalised] || null;
+            }
+            return headersMap[normalised] || null
           },
           mapValues: ({ header, value }) => {
             if (header === 'name' && typeof value === 'string') {
-              const nameParts = value.split(',');
+              const nameParts = value.split(',')
               if (nameParts.length > 1) {
-                return nameParts[1] + nameParts[0];
+                return nameParts[1] + nameParts[0]
               }
             }
-            return value.trim();
+            return value.trim()
           },
-        });
-        setErrorMessage('');
-        const items = importPeople(data);
-        setImportedItems(items);
+        })
+        setErrorMessage('')
+        const items = importPeople(data)
+        setImportedItems(items)
       } else {
-        setImportedItems([]);
+        setImportedItems([])
       }
     },
     [],
-  );
+  )
 
   const handleConfirmImport = useCallback(
     () => {
-      onConfirm(importedItems);
+      onConfirm(importedItems)
     },
     [importedItems, onConfirm],
-  );
+  )
 
   return (
     <Dialog
@@ -142,7 +142,7 @@ function ImportPeopleDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default ImportPeopleDialog;
+export default ImportPeopleDialog

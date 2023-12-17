@@ -8,12 +8,12 @@ import {
   Toolbar,
   Typography,
   useMediaQuery,
-} from '@mui/material';
-import { APP_NAME } from '../../utils';
-import { dark as darkTheme } from '../../theme';
-import EverythingSearch from './EverythingSearch';
-import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu';
-import { MenuIcon } from '../Icons';
+} from '@mui/material'
+import { APP_NAME } from '../../utils'
+import { dark as darkTheme } from '../../theme'
+import EverythingSearch from './EverythingSearch'
+import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu'
+import { MenuIcon } from '../Icons'
 
 const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   paddingLeft: theme.spacing(3),
@@ -22,7 +22,7 @@ const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   [theme.breakpoints.down('sm')]: {
     paddingRight: theme.spacing(1),
   },
-}));
+}))
 const SearchHolder = styled('div')(({ theme }) => ({
   flexGrow: 1,
   marginLeft: theme.spacing(1),
@@ -32,7 +32,7 @@ const SearchHolder = styled('div')(({ theme }) => ({
     marginLeft: 0,
     marginRight: 0,
   },
-}));
+}))
 const PreSearchContent = styled(
   'div',
   {
@@ -52,7 +52,7 @@ const PreSearchContent = styled(
     minWidth: theme.spacing(DRAWER_SPACING_NARROW - 3),
     paddingRight: 0,
   },
-}));
+}))
 
 export interface Props {
   minimisedMenu: boolean,
@@ -64,7 +64,7 @@ function AppBar({
   minimisedMenu,
   onToggleMenu,
 }: Props) {
-  const showAppTitle = useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'));
+  const showAppTitle = useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))
 
   return (
     <MuiAppBar
@@ -99,7 +99,7 @@ function AppBar({
         </SearchHolder>
       </StyledToolbar>
     </MuiAppBar>
-  );
+  )
 }
 
-export default AppBar;
+export default AppBar

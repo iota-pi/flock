@@ -13,6 +13,6 @@ const CUSTOM_DOMAIN_WORDS: string[] = [
   'jesus',
   'correcthorse',
   'batterystaple',
-];
+]
 
-export default CUSTOM_DOMAIN_WORDS;
+export default CUSTOM_DOMAIN_WORDS

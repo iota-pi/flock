@@ -7,13 +7,13 @@ import {
   DialogContent,
   DialogTitle,
   Typography,
-} from '@mui/material';
-import { DropzoneArea } from 'mui-file-dropzone';
-import { useCallback, useState } from 'react';
-import { Item } from '../../state/items';
-import { UploadIcon } from '../Icons';
-import InlineText from '../InlineText';
-import { importData } from '../../api/Vault';
+} from '@mui/material'
+import { DropzoneArea } from 'mui-file-dropzone'
+import { useCallback, useState } from 'react'
+import { Item } from '../../state/items'
+import { UploadIcon } from '../Icons'
+import InlineText from '../InlineText'
+import { importData } from '../../api/Vault'
 
 export interface Props {
   onClose: () => void,
@@ -26,34 +26,34 @@ function RestoreBackupDialog({
   onConfirm,
   open,
 }: Props) {
-  const [importedItems, setImportedItems] = useState<Item[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [importedItems, setImportedItems] = useState<Item[]>([])
+  const [errorMessage, setErrorMessage] = useState('')
 
   const handleChange = useCallback(
     async (files: File[]) => {
       if (files.length > 0) {
-        const file = files[0];
-        const text = await file.text();
-        const data = JSON.parse(text);
-        setErrorMessage('');
+        const file = files[0]
+        const text = await file.text()
+        const data = JSON.parse(text)
+        setErrorMessage('')
         const items = await importData(data).catch(() => {
-          setErrorMessage('Could not decrypt file successfully');
-          return [] as Item[];
-        });
-        setImportedItems(items);
+          setErrorMessage('Could not decrypt file successfully')
+          return [] as Item[]
+        })
+        setImportedItems(items)
       } else {
-        setImportedItems([]);
+        setImportedItems([])
       }
     },
     [],
-  );
+  )
 
   const handleConfirmImport = useCallback(
     () => {
-      onConfirm(importedItems);
+      onConfirm(importedItems)
     },
     [importedItems, onConfirm],
-  );
+  )
 
   return (
     <Dialog
@@ -129,7 +129,7 @@ function RestoreBackupDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default RestoreBackupDialog;
+export default RestoreBackupDialog

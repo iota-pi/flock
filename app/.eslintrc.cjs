@@ -15,6 +15,7 @@ module.exports = {
     'import',
     'jest',
     'react',
+    '@stylistic',
   ],
   extends: [
     'eslint:recommended',
@@ -36,6 +37,8 @@ module.exports = {
     'no-multiple-empty-lines': ['error', { 'max': 2, 'maxEOF': 1 }],
     'no-plusplus': ['error', { 'allowForLoopAfterthoughts': true }],
     'react/jsx-indent': ['error', 2, {checkAttributes: true, indentLogicalExpressions: true}],
+    '@stylistic/indent': ['error', 2],
+    '@stylistic/semi': ['error', 'never'],
   },
   overrides: [
     {

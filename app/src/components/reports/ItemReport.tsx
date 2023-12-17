@@ -1,21 +1,21 @@
-import { memo } from 'react';
-import { Box, BoxProps, IconButton, Typography } from '@mui/material';
+import { memo } from 'react'
+import { Box, BoxProps, IconButton, Typography } from '@mui/material'
 import {
   getItemName,
   Item,
-} from '../../state/items';
-import MemberDisplay from '../MemberDisplay';
-import GroupDisplay from '../GroupDisplay';
-import { EditIcon } from '../Icons';
-import TagDisplay from '../TagDisplay';
-import Markdown from '../Markdown';
+} from '../../state/items'
+import MemberDisplay from '../MemberDisplay'
+import GroupDisplay from '../GroupDisplay'
+import { EditIcon } from '../Icons'
+import TagDisplay from '../TagDisplay'
+import Markdown from '../Markdown'
 
 const Section = memo(
   ({ lessPadding, ...props }: BoxProps & { lessPadding?: boolean }) => (
     <Box py={lessPadding ? 1 : 2} {...props} />
   ),
-);
-Section.displayName = 'Section';
+)
+Section.displayName = 'Section'
 
 interface BaseProps {
   item: Item,
@@ -31,7 +31,7 @@ interface PropsNoEdit extends BaseProps {
   onEdit?: () => void,
 }
 
-export type Props = PropsWithEdit | PropsNoEdit;
+export type Props = PropsWithEdit | PropsNoEdit
 
 
 function ItemReport({
@@ -112,7 +112,7 @@ function ItemReport({
         </Section>
       )}
     </>
-  );
+  )
 }
 
-export default ItemReport;
+export default ItemReport

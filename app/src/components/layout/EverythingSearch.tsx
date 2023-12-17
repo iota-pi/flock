@@ -2,16 +2,16 @@ import {
   useCallback,
   useMemo,
   useRef,
-} from 'react';
-import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
+} from 'react'
+import { GlobalHotKeys, KeyMap } from 'react-hotkeys'
 import {
   Item,
   MessageItem,
-} from '../../state/items';
-import { replaceActive, setTagFilter } from '../../state/ui';
-import { useAppDispatch } from '../../store';
-import { SearchIcon } from '../Icons';
-import Search from '../Search';
+} from '../../state/items'
+import { replaceActive, setTagFilter } from '../../state/ui'
+import { useAppDispatch } from '../../store'
+import { SearchIcon } from '../Icons'
+import Search from '../Search'
 
 export interface Props {
   label: string,
@@ -24,48 +24,48 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const searchInput = useRef<HTMLInputElement>(null);
+  const dispatch = useAppDispatch()
+  const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {
       if (searchInput.current) {
-        searchInput.current.focus();
+        searchInput.current.focus()
       }
     },
     [searchInput],
-  );
+  )
   const keyMap: KeyMap = useMemo(
     () => ({
       SEARCH: { sequence: '/', action: 'keyup' },
     }),
     [],
-  );
+  )
   const handlers = useMemo(
     () => ({
       SEARCH: focusSearch,
     }),
     [focusSearch],
-  );
+  )
 
   const handleCreate = useCallback(
     (newItem: Item) => {
-      dispatch(replaceActive({ newItem }));
+      dispatch(replaceActive({ newItem }))
     },
     [dispatch],
-  );
+  )
   const handleSelect = useCallback(
     (item: Item | MessageItem | string) => {
       if (typeof item === 'string') {
-        dispatch(setTagFilter(item));
+        dispatch(setTagFilter(item))
       } else if (item) {
-        dispatch(replaceActive({ item: item.id }));
+        dispatch(replaceActive({ item: item.id }))
       }
       if (onSelect) {
-        onSelect(item);
+        onSelect(item)
       }
     },
     [dispatch, onSelect],
-  );
+  )
 
   return (
     <>
@@ -83,7 +83,7 @@ function EverythingSearch({
         showIcons
       />
     </>
-  );
+  )
 }
 
-export default EverythingSearch;
+export default EverythingSearch

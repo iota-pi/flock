@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   Box,
   Checkbox,
@@ -11,16 +11,16 @@ import {
   Theme,
   Typography,
   useMediaQuery,
-} from '@mui/material';
-import Visibility from '@mui/icons-material/Visibility';
-import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons';
-import { useOption } from '../../state/selectors';
-import SortDialog from '../dialogs/SortDialog';
-import FilterDialog from '../dialogs/FilterDialog';
-import { useAppSelector } from '../../store';
+} from '@mui/material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
+import { useOption } from '../../state/selectors'
+import SortDialog from '../dialogs/SortDialog'
+import FilterDialog from '../dialogs/FilterDialog'
+import { useAppSelector } from '../../store'
 
-const MENU_POPUP_ID = 'top-bar-menu';
+const MENU_POPUP_ID = 'top-bar-menu'
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   display: 'flex',
@@ -30,7 +30,7 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   [theme.breakpoints.down('md')]: {
     padding: theme.spacing(1),
   },
-}));
+}))
 
 export interface MenuItemData {
   closeOnClick?: boolean,
@@ -58,51 +58,51 @@ function TopBar({
   sortable,
   title,
 }: Props) {
-  const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile');
-  const [showOptions, setShowOptions] = useState(false);
-  const [showFilter, setShowFilter] = useState(false);
-  const [showSort, setShowSort] = useState(false);
+  const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile')
+  const [showOptions, setShowOptions] = useState(false)
+  const [showFilter, setShowFilter] = useState(false)
+  const [showSort, setShowSort] = useState(false)
 
-  const filterCount = useAppSelector(state => state.ui.filters.length);
+  const filterCount = useAppSelector(state => state.ui.filters.length)
 
-  const optionsAnchor = useRef<HTMLButtonElement>(null);
+  const optionsAnchor = useRef<HTMLButtonElement>(null)
 
-  const smallScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'));
-  const alwaysShowCheckbox = !smallScreen;
-  const showCheckbox = onSelectAll && (alwaysShowCheckbox || bulkActions);
+  const smallScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
+  const alwaysShowCheckbox = !smallScreen
+  const showCheckbox = onSelectAll && (alwaysShowCheckbox || bulkActions)
 
-  const handleClickOptions = useCallback(() => setShowOptions(o => !o), []);
-  const handleCloseOptions = useCallback(() => setShowOptions(false), []);
-  const handleClickFilter = useCallback(() => setShowFilter(f => !f), []);
-  const handleCloseFilter = useCallback(() => setShowFilter(false), []);
+  const handleClickOptions = useCallback(() => setShowOptions(o => !o), [])
+  const handleCloseOptions = useCallback(() => setShowOptions(false), [])
+  const handleClickFilter = useCallback(() => setShowFilter(f => !f), [])
+  const handleCloseFilter = useCallback(() => setShowFilter(false), [])
   const handleToggleBulkActions = useCallback(
     () => {
-      setBulkActions(b => !b);
-      handleCloseOptions();
+      setBulkActions(b => !b)
+      handleCloseOptions()
     },
     [handleCloseOptions, setBulkActions],
-  );
+  )
   const handleClickSort = useCallback(
     () => {
-      setShowSort(true);
-      handleCloseOptions();
+      setShowSort(true)
+      handleCloseOptions()
     },
     [handleCloseOptions],
-  );
-  const handleCloseSort = useCallback(() => setShowSort(false), []);
+  )
+  const handleCloseSort = useCallback(() => setShowSort(false), [])
 
   const allMenuItems = useMemo(
     () => {
-      const result = [...menuItems];
+      const result = [...menuItems]
       if (!alwaysShowCheckbox) {
         result.push({
           icon: bulkActions ? VisibilityOff : Visibility,
           key: 'bulk-actions',
           label: `${bulkActions ? 'Hide' : 'Show'} checkboxes`,
           onClick: handleToggleBulkActions,
-        });
+        })
       }
-      return result;
+      return result
     },
     [
       alwaysShowCheckbox,
@@ -110,17 +110,17 @@ function TopBar({
       handleToggleBulkActions,
       menuItems,
     ],
-  );
+  )
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
-      item.onClick();
+      item.onClick()
       if (item.closeOnClick) {
-        handleCloseOptions();
+        handleCloseOptions()
       }
     },
     [handleCloseOptions],
-  );
+  )
 
   return (
     <StyledPaper>
@@ -204,7 +204,7 @@ function TopBar({
         open={showSort}
       />
     </StyledPaper>
-  );
+  )
 }
 
-export default TopBar;
+export default TopBar

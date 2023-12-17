@@ -1,7 +1,7 @@
 import {
   ChangeEvent,
   useCallback,
-} from 'react';
+} from 'react'
 import {
   Autocomplete,
   AutocompleteRenderInputParams,
@@ -11,14 +11,14 @@ import {
   TextField,
   TextFieldProps,
   Typography,
-} from '@mui/material';
+} from '@mui/material'
 import {
   AutocompleteChangeReason,
   createFilterOptions,
   FilterOptionsState,
-} from '@mui/material/useAutocomplete';
-import { useTags } from '../state/selectors';
-import { MuiIconType } from './Icons';
+} from '@mui/material/useAutocomplete'
+import { useTags } from '../state/selectors'
+import { MuiIconType } from './Icons'
 
 
 export interface Props {
@@ -41,23 +41,23 @@ const StyledChip = styled(Chip)(({ theme }) => ({
   marginRight: theme.spacing(1),
   marginTop: theme.spacing(0.25),
   marginBottom: theme.spacing(0.25),
-}));
+}))
 
 function TagChip({
   tag,
   onDelete,
 }: TagChipProps) {
-  const handleDelete = useCallback(() => onDelete(tag), [onDelete, tag]);
+  const handleDelete = useCallback(() => onDelete(tag), [onDelete, tag])
 
   return (
     <StyledChip
       label={tag}
       onDelete={handleDelete}
     />
-  );
+  )
 }
 
-const baseFilterFunc = createFilterOptions<string>({ trim: true });
+const baseFilterFunc = createFilterOptions<string>({ trim: true })
 
 function TagSelection({
   canAddNew = true,
@@ -69,8 +69,8 @@ function TagSelection({
   single,
   variant = 'outlined',
 }: Props) {
-  const tags = useTags();
-  const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))];
+  const tags = useTags()
+  const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))]
 
   const handleChange = useCallback(
     (
@@ -80,36 +80,36 @@ function TagSelection({
     ) => {
       if (reason !== 'blur') {
         if (typeof value === 'string') {
-          onChange([value]);
+          onChange([value])
         } else if (value === null) {
-          onChange([]);
+          onChange([])
         } else {
-          onChange(value);
+          onChange(value)
         }
       }
     },
     [onChange],
-  );
+  )
   const handleDelete = useCallback(
     (deletedTag: string) => {
-      onChange(selectedTags.filter(t => t !== deletedTag));
+      onChange(selectedTags.filter(t => t !== deletedTag))
     },
     [onChange, selectedTags],
-  );
+  )
 
   const filterFunc = useCallback(
     (options: string[], state: FilterOptionsState<string>) => {
-      const filtered = baseFilterFunc(options, state);
+      const filtered = baseFilterFunc(options, state)
 
       if (canAddNew && state.inputValue !== '' && !filtered.includes(state.inputValue)) {
-        filtered.push(state.inputValue);
+        filtered.push(state.inputValue)
       }
 
-      return filtered;
+      return filtered
     },
     [canAddNew],
-  );
-  const getOptionLabel = useCallback((tag: string) => tag, []);
+  )
+  const getOptionLabel = useCallback((tag: string) => tag, [])
   const renderInput = useCallback(
     (params: AutocompleteRenderInputParams) => (
       <TextField
@@ -132,7 +132,7 @@ function TagSelection({
       />
     ),
     [Icon, label, variant],
-  );
+  )
   const renderOption = useCallback(
     (props: React.HTMLAttributes<HTMLLIElement>, tag: string) => (
       <li {...props}>
@@ -148,7 +148,7 @@ function TagSelection({
       </li>
     ),
     [tags],
-  );
+  )
   const renderTags = useCallback(
     (tagsToRender: string[]) => (
       tagsToRender.map(tag => (
@@ -160,9 +160,9 @@ function TagSelection({
       ))
     ),
     [handleDelete],
-  );
+  )
 
-  const value = single ? (selectedTags[0] || null) : selectedTags;
+  const value = single ? (selectedTags[0] || null) : selectedTags
 
   return (
     <Autocomplete
@@ -182,7 +182,7 @@ function TagSelection({
       selectOnFocus
       value={value}
     />
-  );
+  )
 }
 
-export default TagSelection;
+export default TagSelection

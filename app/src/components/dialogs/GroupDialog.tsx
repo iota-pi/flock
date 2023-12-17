@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -7,11 +7,11 @@ import {
   DialogTitle,
   Divider,
   Grid,
-} from '@mui/material';
-import { GroupItem, Item } from '../../state/items';
-import { usePrevious } from '../../utils';
-import Search from '../Search';
-import { storeItems } from '../../api/Vault';
+} from '@mui/material'
+import { GroupItem, Item } from '../../state/items'
+import { usePrevious } from '../../utils'
+import Search from '../Search'
+import { storeItems } from '../../api/Vault'
 
 
 export interface Props {
@@ -26,78 +26,78 @@ function GroupDialog({
   onClose,
   open,
 }: Props) {
-  const prevOpen = usePrevious(open);
+  const prevOpen = usePrevious(open)
 
-  const [selected, setSelected] = useState<Item[]>([]);
-  const [addGroups, setAddGroups] = useState<GroupItem[]>([]);
-  const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([]);
+  const [selected, setSelected] = useState<Item[]>([])
+  const [addGroups, setAddGroups] = useState<GroupItem[]>([])
+  const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
 
-  const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups]);
-  const selectedIds = useMemo(() => selected.map(item => item.id), [selected]);
+  const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
+  const selectedIds = useMemo(() => selected.map(item => item.id), [selected])
 
   useEffect(
     () => {
       if (open && !prevOpen) {
-        setSelected(items);
-        setAddGroups([]);
-        setRemoveGroups([]);
+        setSelected(items)
+        setAddGroups([])
+        setRemoveGroups([])
       }
     },
     [items, open, prevOpen],
-  );
+  )
 
-  const handleClearItems = useCallback(() => setSelected([]), []);
+  const handleClearItems = useCallback(() => setSelected([]), [])
   const handleSelectItem = useCallback(
     (item: Item) => {
-      setSelected(s => [...s, item]);
+      setSelected(s => [...s, item])
     },
     [],
-  );
+  )
   const handleRemoveItem = useCallback(
     (item: Item) => {
-      setSelected(s => s.filter(i => i.id !== item.id));
+      setSelected(s => s.filter(i => i.id !== item.id))
     },
     [],
-  );
-  const handleClearAdd = useCallback(() => setAddGroups([]), []);
+  )
+  const handleClearAdd = useCallback(() => setAddGroups([]), [])
   const handleSelectAdd = useCallback(
     (group: GroupItem) => setAddGroups(ag => [...ag, group]),
     [],
-  );
+  )
   const handleRemoveAdd = useCallback(
     (group: GroupItem) => setAddGroups(ag => ag.filter(g => g.id !== group.id)),
     [],
-  );
-  const handleClearRemove = useCallback(() => setRemoveGroups([]), []);
+  )
+  const handleClearRemove = useCallback(() => setRemoveGroups([]), [])
   const handleSelectRemove = useCallback(
     (group: GroupItem) => setRemoveGroups(rg => [...rg, group]),
     [],
-  );
+  )
   const handleRemoveRemove = useCallback(
     (group: GroupItem) => setRemoveGroups(rg => rg.filter(g => g.id !== group.id)),
     [],
-  );
+  )
   const handleDone = useCallback(
     () => {
-      const updated: GroupItem[] = [];
-      const filteredAddGroups = addGroups.filter(g => !removeGroupsIds.includes(g.id));
+      const updated: GroupItem[] = []
+      const filteredAddGroups = addGroups.filter(g => !removeGroupsIds.includes(g.id))
       for (const group of filteredAddGroups) {
         updated.push({
           ...group,
           members: [...group.members, ...selectedIds],
-        });
+        })
       }
       for (const group of removeGroups) {
         updated.push({
           ...group,
           members: group.members.filter(m => !selectedIds.includes(m)),
-        });
+        })
       }
-      storeItems(updated);
-      onClose();
+      storeItems(updated)
+      onClose()
     },
     [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],
-  );
+  )
 
   return (
     <Dialog
@@ -170,7 +170,7 @@ function GroupDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default GroupDialog;
+export default GroupDialog

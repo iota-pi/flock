@@ -1,17 +1,17 @@
-import { Grid, styled, Typography } from '@mui/material';
+import { Grid, styled, Typography } from '@mui/material'
 import {
   Item, PersonItem,
-} from '../state/items';
-import FrequencyPicker from './FrequencyPicker';
-import { Due, isDue } from '../utils/frequencies';
-import { PrayerIcon } from './Icons';
-import { formatDate } from '../utils';
-import InlineText from './InlineText';
+} from '../state/items'
+import FrequencyPicker from './FrequencyPicker'
+import { Due, isDue } from '../utils/frequencies'
+import { PrayerIcon } from './Icons'
+import { formatDate } from '../utils'
+import InlineText from './InlineText'
 
 
 const TextColorTransition = styled(InlineText)(({ theme }) => ({
   transition: theme.transitions.create('color'),
-}));
+}))
 
 export interface Props {
   lastPrayer: number,
@@ -24,18 +24,18 @@ function FrequencyControls({
   onChange,
   prayerFrequency,
 }: Props) {
-  const dueColour = 'secondary';
-  const overdueColour = 'error';
+  const dueColour = 'secondary'
+  const overdueColour = 'error'
 
-  let lastPrayerText: string = 'never';
-  let lastPrayerClass: string = '';
+  let lastPrayerText: string = 'never'
+  let lastPrayerClass: string = ''
   if (lastPrayer) {
-    lastPrayerText = formatDate(new Date(lastPrayer));
-    const due = isDue(new Date(lastPrayer), prayerFrequency);
+    lastPrayerText = formatDate(new Date(lastPrayer))
+    const due = isDue(new Date(lastPrayer), prayerFrequency)
     if (due === Due.due) {
-      lastPrayerClass = dueColour;
+      lastPrayerClass = dueColour
     } else if (due === Due.overdue) {
-      lastPrayerClass = overdueColour;
+      lastPrayerClass = overdueColour
     }
   }
 
@@ -61,7 +61,7 @@ function FrequencyControls({
         ) : null}
       </Grid>
     </Grid>
-  );
+  )
 }
 
-export default FrequencyControls;
+export default FrequencyControls

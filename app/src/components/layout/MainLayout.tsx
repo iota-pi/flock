@@ -1,13 +1,13 @@
-import { PropsWithChildren } from 'react';
-import { Box } from '@mui/material';
-import DrawerDisplay from './DrawerDisplay';
-import SelectedActions from '../SelectedActions';
-import GeneralMessage from '../GeneralMessage';
-import { useLoggedIn } from '../../state/selectors';
+import { PropsWithChildren } from 'react'
+import { Box } from '@mui/material'
+import DrawerDisplay from './DrawerDisplay'
+import SelectedActions from '../SelectedActions'
+import GeneralMessage from '../GeneralMessage'
+import { useLoggedIn } from '../../state/selectors'
 
 
 function MainLayout({ children }: PropsWithChildren<Record<string, never>>) {
-  const loggedIn = useLoggedIn();
+  const loggedIn = useLoggedIn()
 
   return (
     <Box
@@ -42,7 +42,7 @@ function MainLayout({ children }: PropsWithChildren<Record<string, never>>) {
 
       <GeneralMessage />
     </Box>
-  );
+  )
 }
 
-export default MainLayout;
+export default MainLayout

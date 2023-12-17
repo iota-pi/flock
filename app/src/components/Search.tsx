@@ -10,9 +10,9 @@ import {
   useCallback,
   useContext,
   useMemo,
-} from 'react';
-import { useSelector } from 'react-redux';
-import { ListChildComponentProps, VariableSizeList } from 'react-window';
+} from 'react'
+import { useSelector } from 'react-redux'
+import { ListChildComponentProps, VariableSizeList } from 'react-window'
 import {
   Autocomplete,
   autocompleteClasses,
@@ -28,12 +28,12 @@ import {
   Theme,
   ThemeProvider,
   Typography,
-} from '@mui/material';
+} from '@mui/material'
 import {
   AutocompleteChangeReason,
   FilterOptionsState,
-} from '@mui/material/useAutocomplete';
-import { KeyOption, matchSorter } from 'match-sorter';
+} from '@mui/material/useAutocomplete'
+import { KeyOption, matchSorter } from 'match-sorter'
 import {
   compareItems,
   getBlankItem,
@@ -43,38 +43,38 @@ import {
   Item,
   MessageItem,
   splitName,
-} from '../state/items';
-import InlineText from './InlineText';
-import { getIcon, MuiIconType } from './Icons';
-import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors';
-import { useAppSelector } from '../store';
-import getTheme from '../theme';
-import { sortItems } from '../utils/customSort';
-import { useResetCache } from '../utils/virtualisation';
-import { capitalise } from '../utils';
-import { getMessageItem, selectAllMessages } from '../state/messages';
+} from '../state/items'
+import InlineText from './InlineText'
+import { getIcon, MuiIconType } from './Icons'
+import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors'
+import { useAppSelector } from '../store'
+import getTheme from '../theme'
+import { sortItems } from '../utils/customSort'
+import { useResetCache } from '../utils/virtualisation'
+import { capitalise } from '../utils'
+import { getMessageItem, selectAllMessages } from '../state/messages'
 
-const LISTBOX_PADDING = 8;
+const LISTBOX_PADDING = 8
 
 const OptionHolder = styled('li')({
   display: 'block',
   padding: 0,
-});
+})
 const AutocompleteOption = styled('div')(({ theme }) => ({
   alignItems: 'center',
   display: 'flex',
   minWidth: 0,
   padding: theme.spacing(1.75, 0),
-}));
+}))
 const OptionIconHolder = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   paddingRight: theme.spacing(2),
-}));
+}))
 const OptionName = styled(InlineText)({
   flexGrow: 1,
   minWidth: 0,
-});
+})
 
 interface SearchableItem<T extends Item = Item> {
   create?: false,
@@ -113,51 +113,51 @@ export type AnySearchable = (
   | SearchableMessage
   | SearchableTag
   | SearchableAddItem
-);
-export type AnySearchableData = Exclude<AnySearchable['data'], undefined>;
-export type AnySearchableType = AnySearchable['type'];
+)
+export type AnySearchableData = Exclude<AnySearchable['data'], undefined>
+export type AnySearchableType = AnySearchable['type']
 export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
   general: true,
   group: true,
   message: true,
   person: true,
   tag: true,
-};
+}
 export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
   ['person', 'group', 'general', 'message', 'tag']
-);
+)
 
 export function getSearchableDataId(s: AnySearchableData): string {
-  return typeof s === 'string' ? s : s.id;
+  return typeof s === 'string' ? s : s.id
 }
 
 function isSearchableStandardItem(s: AnySearchable): s is SearchableItem {
-  return s.type === 'person' || s.type === 'group' || s.type === 'general';
+  return s.type === 'person' || s.type === 'group' || s.type === 'general'
 }
 
 function sortSearchables(a: AnySearchable, b: AnySearchable): number {
-  const typeIndexA = SEARCHABLE_BASE_SORT_ORDER.indexOf(a.type);
-  const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type);
+  const typeIndexA = SEARCHABLE_BASE_SORT_ORDER.indexOf(a.type)
+  const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type)
   if (typeIndexA - typeIndexB) {
-    return typeIndexA - typeIndexB;
+    return typeIndexA - typeIndexB
   }
   if (a.type === 'message' && b.type === 'message') {
-    return +(a.data.name < b.data.name) - +(a.data.name > b.data.name);
+    return +(a.data.name < b.data.name) - +(a.data.name > b.data.name)
   }
   if (isSearchableStandardItem(a) && isSearchableStandardItem(b)) {
-    return compareItems(a.data, b.data);
+    return compareItems(a.data, b.data)
   }
-  return +(a.id > b.id) - +(a.id < b.id);
+  return +(a.id > b.id) - +(a.id < b.id)
 }
 
 function getName(option: AnySearchable) {
   if (option.type === 'tag') {
-    return option.data;
+    return option.data
   }
   if (option.create) {
-    return getItemName(option.default);
+    return getItemName(option.default)
   }
-  return getItemName(option.data);
+  return getItemName(option.data)
 }
 
 function OptionComponent({
@@ -171,41 +171,41 @@ function OptionComponent({
   showGroupMemberCount: boolean,
   showIcon: boolean,
 }) {
-  const icon = getIcon(option.type);
-  const name = getName(option);
-  const item = isSearchableStandardItem(option) ? option.data : undefined;
+  const icon = getIcon(option.type)
+  const name = getName(option)
+  const item = isSearchableStandardItem(option) ? option.data : undefined
 
   const groupMembersText = useMemo(
     () => {
       if (item && item.type === 'group') {
-        const count = item.members.length;
-        const s = count !== 1 ? 's' : '';
-        return ` (${count} member${s})`;
+        const count = item.members.length
+        const s = count !== 1 ? 's' : ''
+        return ` (${count} member${s})`
       }
-      return '';
+      return ''
     },
     [item],
-  );
+  )
   const clippedDescription = useMemo(
     () => {
       if (item && isItem(item)) {
-        const base = item.description;
-        const clipped = base.slice(0, 100);
+        const base = item.description
+        const clipped = base.slice(0, 100)
         if (clipped.length < base.length) {
-          const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
-          return `${clippedToWord}…`;
+          const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '))
+          return `${clippedToWord}…`
         }
-        return base;
+        return base
       }
-      return null;
+      return null
     },
     [item],
-  );
+  )
 
   const getFontSize = useCallback(
     (theme: Theme) => theme.typography.caption.fontSize,
     [],
-  );
+  )
 
   return (
     <>
@@ -254,7 +254,7 @@ function OptionComponent({
         )}
       </AutocompleteOption>
     </>
-  );
+  )
 }
 
 interface SearchableRowSettings {
@@ -262,18 +262,18 @@ interface SearchableRowSettings {
   showGroupMemberCounts: boolean,
   showIcons: boolean,
 }
-type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings];
-type PropsAndOptionList = PropsAndOption[];
+type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings]
+type PropsAndOptionList = PropsAndOption[]
 
 const SearchableRow = memo((
   props: ListChildComponentProps<PropsAndOptionList>,
 ) => {
-  const { data, index, style } = props;
-  const [optionProps, option, settings] = data[index];
+  const { data, index, style } = props
+  const [optionProps, option, settings] = data[index]
   const inlineStyle = {
     ...style,
     top: (style.top as number) + LISTBOX_PADDING,
-  };
+  }
 
   return (
     <OptionHolder
@@ -288,32 +288,32 @@ const SearchableRow = memo((
         showIcon={settings.showIcons}
       />
     </OptionHolder>
-  );
-});
-SearchableRow.displayName = 'SearchableRow';
+  )
+})
+SearchableRow.displayName = 'SearchableRow'
 
-const OuterElementContext = createContext({});
+const OuterElementContext = createContext({})
 
 const OuterElementType = forwardRef<HTMLDivElement>((props, ref) => {
-  const outerProps = useContext(OuterElementContext);
-  return <div ref={ref} {...props} {...outerProps} />;
-});
-OuterElementType.displayName = 'OuterElementType';
+  const outerProps = useContext(OuterElementContext)
+  return <div ref={ref} {...props} {...outerProps} />
+})
+OuterElementType.displayName = 'OuterElementType'
 
 const ListBoxComponent = forwardRef(
   (
     props: PropsWithChildren<HTMLAttributes<HTMLElement>>,
     ref: ForwardedRef<HTMLDivElement>,
   ) => {
-    const { children, ...otherProps } = props;
-    const itemData = children as PropsAndOptionList;
-    const itemSize = 56;
+    const { children, ...otherProps } = props
+    const itemData = children as PropsAndOptionList
+    const itemSize = 56
 
-    const gridRef = useResetCache<PropsAndOptionList>(itemData.length);
+    const gridRef = useResetCache<PropsAndOptionList>(itemData.length)
     const getHeight = useCallback(
       () => itemSize * Math.min(itemData.length, 6),
       [itemData, itemSize],
-    );
+    )
 
     return (
       <div ref={ref}>
@@ -333,10 +333,10 @@ const ListBoxComponent = forwardRef(
           </VariableSizeList>
         </OuterElementContext.Provider>
       </div>
-    );
+    )
   },
-);
-ListBoxComponent.displayName = 'ListBoxComponent';
+)
+ListBoxComponent.displayName = 'ListBoxComponent'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
@@ -346,11 +346,11 @@ const StyledPopper = styled(Popper)({
       margin: 0,
     },
   },
-});
+})
 
 function ThemedPaper({ children, ...props }: PaperProps) {
-  const darkMode = useAppSelector(state => state.ui.darkMode);
-  const theme = useMemo(() => getTheme(darkMode), [darkMode]);
+  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (
     <ThemeProvider theme={theme}>
@@ -358,7 +358,7 @@ function ThemedPaper({ children, ...props }: PaperProps) {
         {children}
       </Paper>
     </ThemeProvider>
-  );
+  )
 }
 
 export interface Props<T> {
@@ -386,7 +386,7 @@ export interface Props<T> {
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
-const DARK_THEME = getTheme(true);
+const DARK_THEME = getTheme(true)
 
 function Search<T extends AnySearchableData = AnySearchableData>({
   autoFocus,
@@ -412,16 +412,16 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showSelectedOptions = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const items = useItems();
-  const [sortCriteria] = useSortCriteria();
-  const [maturity] = useMaturity();
-  const messages = useSelector(selectAllMessages);
-  const tags = useTags();
+  const items = useItems()
+  const [sortCriteria] = useSortCriteria()
+  const [maturity] = useMaturity()
+  const messages = useSelector(selectAllMessages)
+  const tags = useTags()
 
   const selectedIds = useMemo(
     () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
     [selectedItems],
-  );
+  )
 
   const selectedSearchables: AnySearchable[] = useMemo(
     () => (
@@ -433,7 +433,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               id: item,
               name: item,
               type: 'tag',
-            };
+            }
           }
           if (item.type === 'message') {
             return {
@@ -441,19 +441,19 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               id: item.id,
               name: getItemName(item),
               type: 'message',
-            };
+            }
           }
           return {
             data: item,
             id: item.id,
             name: getItemName(item),
             type: item.type,
-          };
+          }
         },
       )
     ) || [],
     [selectedItems, showSelectedChips],
-  );
+  )
 
   const filteredItems = useMemo(
     () => sortItems(
@@ -466,11 +466,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       maturity,
     ),
     [includeArchived, items, maturity, selectedIds, showSelectedChips, sortCriteria, types],
-  );
+  )
 
   const options = useMemo<AnySearchable[]>(
     () => {
-      const results: AnySearchable[] = [];
+      const results: AnySearchable[] = []
       results.push(
         ...filteredItems.map((item): AnySearchable => ({
           type: item.type,
@@ -478,7 +478,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           data: item,
           name: getItemName(item),
         })),
-      );
+      )
       if (types.message) {
         results.push(
           ...messages.map((message): AnySearchable => ({
@@ -487,7 +487,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             data: getMessageItem(message),
             name: message.name,
           })),
-        );
+        )
       }
       if (types.tag) {
         results.push(
@@ -497,27 +497,27 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             data: tag,
             name: tag,
           })),
-        );
+        )
       }
-      return results;
+      return results
     },
     [filteredItems, messages, tags, types],
-  );
+  )
 
   const matchSorterKeys = useMemo(
     () => {
-      const result: KeyOption<AnySearchable>[] = ['name'];
-      const threshold = matchSorter.rankings.CONTAINS;
+      const result: KeyOption<AnySearchable>[] = ['name']
+      const threshold = matchSorter.rankings.CONTAINS
       if (searchDescription) {
-        result.push({ key: 'data.description', threshold });
+        result.push({ key: 'data.description', threshold })
       }
       if (searchSummary) {
-        result.push({ key: 'data.summary', threshold });
+        result.push({ key: 'data.summary', threshold })
       }
-      return result;
+      return result
     },
     [searchDescription, searchSummary],
-  );
+  )
 
   const filterFunc = useCallback(
     (allOptions: AnySearchable[], state: FilterOptionsState<AnySearchable>) => {
@@ -533,7 +533,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             },
           )
           : allOptions
-      );
+      )
 
       if (onCreate && state.inputValue.trim()) {
         filtered.push(
@@ -565,13 +565,13 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             id: 'add-general',
             type: 'general',
           },
-        );
+        )
       }
 
-      return filtered;
+      return filtered
     },
     [matchSorterKeys, onCreate],
-  );
+  )
 
   const handleChange = useCallback(
     (
@@ -580,40 +580,40 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       reason: AutocompleteChangeReason,
     ) => {
       if (reason === 'selectOption') {
-        const option = value[value.length - 1];
+        const option = value[value.length - 1]
         if (option.create) {
           if (onCreate) {
             onCreate({
               ...getBlankItem(option.type),
               ...option.default,
-            } as Item);
+            } as Item)
           }
         } else {
-          const data = option.data as T;
+          const data = option.data as T
           if (onSelect) {
-            onSelect(data);
+            onSelect(data)
           }
         }
       }
       if (onRemove && reason === 'removeOption') {
-        const deletedItems = selectedSearchables.filter(item => !value.find(i => i.id === item.id));
+        const deletedItems = selectedSearchables.filter(item => !value.find(i => i.id === item.id))
         if (deletedItems.length && deletedItems[0].data) {
-          onRemove(deletedItems[0].data as T);
+          onRemove(deletedItems[0].data as T)
         } else {
-          console.warn(`No data found for deleted item ${deletedItems[0]}`);
+          console.warn(`No data found for deleted item ${deletedItems[0]}`)
         }
       }
       if (onClear && reason === 'clear') {
-        onClear();
+        onClear()
       }
     },
     [onClear, onCreate, onRemove, onSelect, selectedSearchables],
-  );
+  )
 
   const theme = useMemo(
     () => (forceDarkTheme ? DARK_THEME : {}),
     [forceDarkTheme],
-  );
+  )
 
   return (
     <ThemeProvider theme={theme}>
@@ -677,7 +677,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         value={selectedSearchables}
       />
     </ThemeProvider>
-  );
+  )
 }
 
-export default Search;
+export default Search

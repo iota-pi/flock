@@ -1,7 +1,7 @@
-import { MouseEvent, useCallback } from 'react';
-import { Box, Chip, Stack, styled, Typography } from '@mui/material';
-import { setTagFilter } from '../state/ui';
-import { useAppDispatch } from '../store';
+import { MouseEvent, useCallback } from 'react'
+import { Box, Chip, Stack, styled, Typography } from '@mui/material'
+import { setTagFilter } from '../state/ui'
+import { useAppDispatch } from '../store'
 
 const StyledChip = styled(Chip)(({ theme }) => ({
   marginTop: theme.spacing(0.5),
@@ -11,7 +11,7 @@ const StyledChip = styled(Chip)(({ theme }) => ({
     paddingLeft: theme.spacing(2),
     paddingRight: theme.spacing(2),
   },
-}));
+}))
 
 export interface Props {
   tags: string[],
@@ -29,15 +29,15 @@ function TagChip({
   tag,
   linked,
 }: TagChipProps) {
-  const dispatch = useAppDispatch();
+  const dispatch = useAppDispatch()
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
-      dispatch(setTagFilter(tag));
-      event.stopPropagation();
+      dispatch(setTagFilter(tag))
+      event.stopPropagation()
     },
     [dispatch, tag],
-  );
+  )
 
   return (
     <Box my={0.5}>
@@ -48,7 +48,7 @@ function TagChip({
         variant="outlined"
       />
     </Box>
-  );
+  )
 }
 
 function TagDisplay({
@@ -57,7 +57,7 @@ function TagDisplay({
   max,
   vertical = false,
 }: Props) {
-  const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags;
+  const limitedTags = max && tags.length > max ? tags.slice(0, max - 1) : tags
 
   return (
     <Stack
@@ -88,7 +88,7 @@ function TagDisplay({
         </Box>
       )}
     </Stack>
-  );
+  )
 }
 
-export default TagDisplay;
+export default TagDisplay

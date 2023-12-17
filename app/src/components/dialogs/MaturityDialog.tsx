@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useState } from 'react'
 import {
   Box,
   Button,
@@ -12,15 +12,15 @@ import {
   Stack,
   TextField,
   Typography,
-} from '@mui/material';
-import FlipMove from 'react-flip-move';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { generateItemId } from '../../utils';
-import { RemoveIcon } from '../Icons';
-import { PersonItem } from '../../state/items';
-import { useItems, useMaturity } from '../../state/selectors';
-import { MaturityControl, updateMaturityForPeople } from '../../utils/maturity';
+} from '@mui/material'
+import FlipMove from 'react-flip-move'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import { generateItemId } from '../../utils'
+import { RemoveIcon } from '../Icons'
+import { PersonItem } from '../../state/items'
+import { useItems, useMaturity } from '../../state/selectors'
+import { MaturityControl, updateMaturityForPeople } from '../../utils/maturity'
 
 
 export interface Props {
@@ -47,13 +47,13 @@ function MaturitySingleStage({
   onRemove: (id: string) => void,
   stage: MaturityControl,
 }) {
-  const handleRemove = useCallback(() => onRemove(stage.id), [onRemove, stage.id]);
-  const handleMoveDown = useCallback(() => onMoveDown(stage.id), [onMoveDown, stage.id]);
-  const handleMoveUp = useCallback(() => onMoveUp(stage.id), [onMoveUp, stage.id]);
+  const handleRemove = useCallback(() => onRemove(stage.id), [onRemove, stage.id])
+  const handleMoveDown = useCallback(() => onMoveDown(stage.id), [onMoveDown, stage.id])
+  const handleMoveUp = useCallback(() => onMoveUp(stage.id), [onMoveUp, stage.id])
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => onChange(stage.id, event.target.value),
     [onChange, stage.id],
-  );
+  )
 
   return (
     <Box
@@ -114,94 +114,94 @@ function MaturitySingleStage({
         variant="standard"
       />
     </Box>
-  );
+  )
 }
 
 function MaturityDialog({
   onClose,
   open,
 }: Props) {
-  const people = useItems<PersonItem>('person');
+  const people = useItems<PersonItem>('person')
 
-  const [maturity, setMaturity] = useMaturity();
-  const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([]);
-  const [original, setOriginal] = useState<MaturityControl[]>([]);
-  const [disableAnimation, setDisableAnimation] = useState(false);
-  const [autoFocusId, setAutoFocusId] = useState<string>();
+  const [maturity, setMaturity] = useMaturity()
+  const [localMaturity, setLocalMaturity] = useState<MaturityControl[]>([])
+  const [original, setOriginal] = useState<MaturityControl[]>([])
+  const [disableAnimation, setDisableAnimation] = useState(false)
+  const [autoFocusId, setAutoFocusId] = useState<string>()
 
   useEffect(
     () => {
-      const withIds = maturity.map(m => ({ id: generateItemId(), name: m }));
-      setLocalMaturity(withIds);
-      setOriginal(withIds);
+      const withIds = maturity.map(m => ({ id: generateItemId(), name: m }))
+      setLocalMaturity(withIds)
+      setOriginal(withIds)
     },
     [maturity],
-  );
+  )
   useEffect(
     () => {
       if (disableAnimation) {
-        setDisableAnimation(false);
+        setDisableAnimation(false)
       }
     },
     [disableAnimation],
-  );
+  )
 
   const handleAdd = useCallback(
     () => {
-      setDisableAnimation(true);
-      const id = generateItemId();
-      setLocalMaturity(lm => [...lm, { id, name: '' }]);
-      setAutoFocusId(id);
+      setDisableAnimation(true)
+      const id = generateItemId()
+      setLocalMaturity(lm => [...lm, { id, name: '' }])
+      setAutoFocusId(id)
     },
     [],
-  );
+  )
   const handleChange = useCallback(
     (id: string, name: string) => setLocalMaturity(lm => {
-      const index = lm.findIndex(m => m.id === id);
+      const index = lm.findIndex(m => m.id === id)
       return [
         ...lm.slice(0, index),
         { ...lm[index], name },
         ...lm.slice(index + 1),
-      ];
+      ]
     }),
     [],
-  );
+  )
   const handleMoveDown = useCallback(
     (id: string) => setLocalMaturity(lm => {
-      const index = lm.findIndex(m => m.id === id);
+      const index = lm.findIndex(m => m.id === id)
       return [
         ...lm.slice(0, index),
         lm[index + 1],
         lm[index],
         ...lm.slice(index + 2),
-      ];
+      ]
     }),
     [],
-  );
+  )
   const handleMoveUp = useCallback(
     (id: string) => setLocalMaturity(lm => {
-      const index = lm.findIndex(m => m.id === id);
+      const index = lm.findIndex(m => m.id === id)
       return [
         ...lm.slice(0, index - 1),
         lm[index],
         lm[index - 1],
         ...lm.slice(index + 1),
-      ];
+      ]
     }),
     [],
-  );
+  )
   const handleRemove = useCallback(
     (id: string) => {
-      setDisableAnimation(true);
-      setLocalMaturity(lm => lm.filter(m => m.id !== id));
+      setDisableAnimation(true)
+      setLocalMaturity(lm => lm.filter(m => m.id !== id))
     },
     [],
-  );
+  )
   const handleDone = useCallback(
     async () => {
-      await updateMaturityForPeople(people, original, localMaturity);
-      setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
-      onClose();
+      await updateMaturityForPeople(people, original, localMaturity)
+      setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m))
+      onClose()
     },
     [
       localMaturity,
@@ -210,7 +210,7 @@ function MaturityDialog({
       people,
       setMaturity,
     ],
-  );
+  )
 
   return (
     <Dialog
@@ -283,7 +283,7 @@ function MaturityDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default MaturityDialog;
+export default MaturityDialog

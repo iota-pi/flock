@@ -1,8 +1,8 @@
-import { PropsWithChildren, ReactNode } from 'react';
-import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material';
-import { AddIcon } from '../Icons';
-import TopBar, { MenuItemData } from '../layout/TopBar';
-import { useAppSelector } from '../../store';
+import { PropsWithChildren, ReactNode } from 'react'
+import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material'
+import { AddIcon } from '../Icons'
+import TopBar, { MenuItemData } from '../layout/TopBar'
+import { useAppSelector } from '../../store'
 
 interface BaseProps {
   noScrollContainer?: boolean,
@@ -37,9 +37,9 @@ interface NoTopBarProps {
   topBar?: false,
   topBarTitle?: never,
 }
-type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps);
-type Props = PropsWithChildren<CombinedProps>;
-export type { Props as BasePageProps };
+type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps)
+type Props = PropsWithChildren<CombinedProps>
+export type { Props as BasePageProps }
 
 
 const ContentWithScroll = styled('div')(({ theme }) => ({
@@ -48,25 +48,25 @@ const ContentWithScroll = styled('div')(({ theme }) => ({
   paddingBottom: theme.spacing(8),
   overflowX: 'hidden',
   overflowY: 'auto',
-}));
+}))
 const ContentNoScroll = styled('div')({
   position: 'relative',
   flexGrow: 1,
   overflowX: 'hidden',
   overflowY: 'hidden',
-});
+})
 const FabContainer = styled('div')(({ theme }) => ({
   position: 'absolute',
   right: theme.spacing(4),
   bottom: theme.spacing(3),
   zIndex: theme.zIndex.speedDial,
-}));
+}))
 const StyledProgress = styled(LinearProgress)({
   position: 'absolute',
   left: 0,
   right: 0,
   height: 2,
-});
+})
 
 
 function BasePage({
@@ -84,10 +84,10 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useAppSelector(state => state.ui.requests.active);
-  const loading = activeRequests > 0;
+  const activeRequests = useAppSelector(state => state.ui.requests.active)
+  const loading = activeRequests > 0
 
-  const ContentElement = noScrollContainer ? ContentNoScroll : ContentWithScroll;
+  const ContentElement = noScrollContainer ? ContentNoScroll : ContentWithScroll
 
   return (
     <>
@@ -125,7 +125,7 @@ function BasePage({
         </FabContainer>
       )}
     </>
-  );
+  )
 }
 
-export default BasePage;
+export default BasePage

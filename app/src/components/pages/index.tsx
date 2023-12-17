@@ -1,6 +1,6 @@
-import React, { ComponentType, ReactNode, useMemo } from 'react';
-import { Routes, Route, matchPath, useLocation } from 'react-router-dom';
-import loadable from '@loadable/component';
+import React, { ComponentType, ReactNode, useMemo } from 'react'
+import { Routes, Route, matchPath, useLocation } from 'react-router-dom'
+import loadable from '@loadable/component'
 import {
   MessageIcon,
   GeneralIcon,
@@ -9,23 +9,23 @@ import {
   OptionsIcon,
   PersonIcon,
   PrayerIcon,
-} from '../Icons';
-import CommunicationPage from './Communication';
-import { AccountMetadata } from '../../state/account';
-import { useLoggedIn } from '../../state/selectors';
+} from '../Icons'
+import CommunicationPage from './Communication'
+import { AccountMetadata } from '../../state/account'
+import { useLoggedIn } from '../../state/selectors'
 
-const CreateAccountPage = loadable(() => import('./CreateAccount'));
-const ItemPage = loadable(() => import('./ItemPage'));
-const LoginPage = loadable(() => import('./Login'));
-const PrayerPage = loadable(() => import('./Prayer'));
-const SettingsPage = loadable(() => import('./Settings'));
-const WelcomePage = loadable(() => import('./Welcome'));
+const CreateAccountPage = loadable(() => import('./CreateAccount'))
+const ItemPage = loadable(() => import('./ItemPage'))
+const LoginPage = loadable(() => import('./Login'))
+const PrayerPage = loadable(() => import('./Prayer'))
+const SettingsPage = loadable(() => import('./Settings'))
+const WelcomePage = loadable(() => import('./Welcome'))
 
 export type InternalPageId = (
   'welcome' |
   'login' |
   'signup'
-);
+)
 export type PageId = (
   'people' |
   'groups' |
@@ -33,8 +33,8 @@ export type PageId = (
   'prayer' |
   'communication' |
   'settings'
-);
-export type AnyPageId = InternalPageId | PageId;
+)
+export type AnyPageId = InternalPageId | PageId
 
 export interface InternalPage {
   dividerBefore?: boolean,
@@ -72,7 +72,7 @@ export const internalPages: InternalPage[] = [
     path: '/signup',
     requiresAuth: false,
   },
-];
+]
 
 export const pages: Page[] = [
   {
@@ -128,16 +128,16 @@ export const pages: Page[] = [
     path: '/settings',
     requiresAuth: true,
   },
-];
+]
 
-const reversedPages = pages.slice().reverse();
+const reversedPages = pages.slice().reverse()
 const allPages: (InternalPage | Page)[] = [
   ...internalPages,
   ...reversedPages,
-];
+]
 
 function PageView() {
-  const loggedIn = useLoggedIn();
+  const loggedIn = useLoggedIn()
 
   const pageRoutes = useMemo(
     () => allPages.map(page => (
@@ -152,48 +152,48 @@ function PageView() {
       />
     )),
     [loggedIn],
-  );
+  )
 
   return (
     <Routes>
       {pageRoutes}
     </Routes>
-  );
+  )
 }
 
-export default PageView;
+export default PageView
 
 export function getPage(page: AnyPageId) {
-  const result = allPages.find(p => p.id === page);
+  const result = allPages.find(p => p.id === page)
   if (result === undefined) {
-    throw new Error(`Unknown page id ${page}`);
+    throw new Error(`Unknown page id ${page}`)
   }
-  return result;
+  return result
 }
 
 export function usePage() {
-  const location = useLocation();
+  const location = useLocation()
   const page = useMemo(
     () => allPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
-  );
+  )
   if (page) {
-    return page;
+    return page
   }
-  throw new Error('Could not find matching page');
+  throw new Error('Could not find matching page')
 }
 
 interface PageProps {
   page: Page,
 }
-export type WithPage<P> = P & PageProps;
+export type WithPage<P> = P & PageProps
 export const withPage = <P extends PageProps>(
   Component: ComponentType<P>,
 ) => {
-  type BaseProps = Omit<P, keyof PageProps>;
+  type BaseProps = Omit<P, keyof PageProps>
   const WithPageHOC: React.FC<BaseProps> = (props: BaseProps) => {
-    const page = usePage();
-    return <Component {...props as P} page={page} />;
-  };
-  return WithPageHOC;
-};
+    const page = usePage()
+    return <Component {...props as P} page={page} />
+  }
+  return WithPageHOC
+}

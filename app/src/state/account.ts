@@ -1,8 +1,8 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { SortCriterion } from '../utils/customSort';
-import { SMTPConfig } from '../../../koinonia/sender/types';
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import { SortCriterion } from '../utils/customSort'
+import { SMTPConfig } from '../../../koinonia/sender/types'
 
-export type AccountId = string;
+export type AccountId = string
 
 export interface EmailSettings extends SMTPConfig {
   email: string,
@@ -17,7 +17,7 @@ export interface AccountMetadata {
   emailSettings?: EmailSettings;
 }
 
-export type MetadataKey = keyof AccountMetadata;
+export type MetadataKey = keyof AccountMetadata
 
 export interface AccountState {
   account: AccountId,
@@ -29,7 +29,7 @@ export const initialState: AccountState = {
   account: '',
   metadata: {},
   loggedIn: false,
-};
+}
 
 const accountSlice = createSlice({
   name: 'account',
@@ -40,11 +40,11 @@ const accountSlice = createSlice({
         ...state,
         ...action.payload,
         metadata: { ...state.metadata, ...action.payload.metadata },
-      };
+      }
     },
   },
-});
+})
 
-export const { setAccount } = accountSlice.actions;
+export const { setAccount } = accountSlice.actions
 
-export default accountSlice.reducer;
+export default accountSlice.reducer

@@ -1,5 +1,5 @@
-import { Link, Typography } from '@mui/material';
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
+import { Link, Typography } from '@mui/material'
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 
 export interface Props extends BaseDrawerProps {}
 
@@ -121,7 +121,7 @@ function AboutDrawer({
         Use the &quot;Issues&quot; tab to report issues or make suggestions.
       </Typography>
     </BaseDrawer>
-  );
+  )
 }
 
-export default AboutDrawer;
+export default AboutDrawer

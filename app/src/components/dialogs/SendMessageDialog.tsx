@@ -2,7 +2,7 @@ import {
   useCallback,
   useMemo,
   useState,
-} from 'react';
+} from 'react'
 import {
   Alert,
   Button,
@@ -11,18 +11,18 @@ import {
   DialogContent,
   DialogTitle,
   Stack,
-} from '@mui/material';
+} from '@mui/material'
 import {
   GroupItem,
   PersonItem,
-} from '../../state/items';
-import { useItems, useItemsById, useMetadata } from '../../state/selectors';
-import { MessageIcon } from '../Icons';
-import { getRecipientFields, MessageFull } from '../../state/messages';
-import Search, { getSearchableDataId } from '../Search';
-import { useAppDispatch } from '../../store';
-import { setMessage } from '../../state/ui';
-import { SendProgressCallback, sendMessage } from '../../api/KoinoniaAPI';
+} from '../../state/items'
+import { useItems, useItemsById, useMetadata } from '../../state/selectors'
+import { MessageIcon } from '../Icons'
+import { getRecipientFields, MessageFull } from '../../state/messages'
+import Search, { getSearchableDataId } from '../Search'
+import { useAppDispatch } from '../../store'
+import { setMessage } from '../../state/ui'
+import { SendProgressCallback, sendMessage } from '../../api/KoinoniaAPI'
 
 export interface Props {
   html: string,
@@ -32,7 +32,7 @@ export interface Props {
   open: boolean,
 }
 
-type RecipientTypes = PersonItem | GroupItem | string;
+type RecipientTypes = PersonItem | GroupItem | string
 
 function SendMessageDialog({
   html,
@@ -41,20 +41,20 @@ function SendMessageDialog({
   onSendProgress,
   open,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const people = useItems<PersonItem>('person');
-  const getItemsById = useItemsById();
-  const [emailSettings] = useMetadata('emailSettings');
+  const dispatch = useAppDispatch()
+  const people = useItems<PersonItem>('person')
+  const getItemsById = useItemsById()
+  const [emailSettings] = useMetadata('emailSettings')
 
-  const [recipients, setRecipients] = useState<RecipientTypes[]>([]);
+  const [recipients, setRecipients] = useState<RecipientTypes[]>([])
 
-  const handleClearRecipients = useCallback(() => setRecipients([]), []);
+  const handleClearRecipients = useCallback(() => setRecipients([]), [])
   const handleAddRecipient = useCallback(
     (recipient: RecipientTypes) => setRecipients(
       oldRecipients => [...oldRecipients, recipient],
     ),
     [],
-  );
+  )
   const handleRemoveRecipient = useCallback(
     (recipient: RecipientTypes) => setRecipients(
       oldRecipients => oldRecipients.filter(
@@ -62,33 +62,33 @@ function SendMessageDialog({
       ),
     ),
     [],
-  );
+  )
 
   const recipientIndividuals = useMemo(
     () => recipients.filter((r): r is PersonItem => typeof r !== 'string' && r.type === 'person'),
     [recipients],
-  );
+  )
   const recipientGroups = useMemo(
     () => recipients.filter((r): r is GroupItem => typeof r !== 'string' && r.type === 'group'),
     [recipients],
-  );
+  )
   const recipientTags = useMemo(
     () => recipients.filter((r): r is string => typeof r === 'string'),
     [recipients],
-  );
+  )
   const recipientPeople = useMemo(
     () => {
-      const results = [...recipientIndividuals];
-      results.push(...getItemsById<PersonItem>(recipientGroups.flatMap(g => g.members)));
-      results.push(...people.filter(p => p.tags.some(t => recipientTags.includes(t))));
-      return Array.from(new Set(results));
+      const results = [...recipientIndividuals]
+      results.push(...getItemsById<PersonItem>(recipientGroups.flatMap(g => g.members)))
+      results.push(...people.filter(p => p.tags.some(t => recipientTags.includes(t))))
+      return Array.from(new Set(results))
     },
     [getItemsById, people, recipientIndividuals, recipientGroups, recipientTags],
-  );
+  )
   const recipientsWithEmail = useMemo(
     () => recipientPeople.filter(p => !!p.email),
     [recipientPeople],
-  );
+  )
 
   const handleSend = useCallback(
     () => {
@@ -107,17 +107,17 @@ function SendMessageDialog({
             },
           },
           progressCallback: onSendProgress,
-        });
+        })
       } else {
         dispatch(setMessage({
           message: 'Email settings have not yet been set.',
           severity: 'error',
-        }));
+        }))
       }
-      onClose();
+      onClose()
     },
     [dispatch, emailSettings, html, message, onClose, onSendProgress, recipientsWithEmail],
-  );
+  )
 
   return (
     <Dialog
@@ -179,7 +179,7 @@ function SendMessageDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default SendMessageDialog;
+export default SendMessageDialog

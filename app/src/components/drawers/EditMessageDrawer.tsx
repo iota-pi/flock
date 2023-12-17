@@ -5,24 +5,24 @@ import {
   useMemo,
   useRef,
   useState,
-} from 'react';
+} from 'react'
 import {
   Alert,
   Stack,
   TextField,
-} from '@mui/material';
-import debounce from 'debounce';
-import objectHash from 'object-hash';
-import { Design, EmailEditor } from 'react-email-editor';
-import type { MessageItem } from '../../state/items';
-import { useMetadata } from '../../state/selectors';
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
-import { getIconType } from '../Icons';
-import type { MessageFull } from '../../state/messages';
-import { useAppSelector } from '../../store';
-import SendMessageDialog from '../dialogs/SendMessageDialog';
-import template from '../../utils/unlayer-template.json';
-import { deleteMessage, type SendProgressCallback } from '../../api/KoinoniaAPI';
+} from '@mui/material'
+import debounce from 'debounce'
+import objectHash from 'object-hash'
+import { Design, EmailEditor } from 'react-email-editor'
+import type { MessageItem } from '../../state/items'
+import { useMetadata } from '../../state/selectors'
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import { getIconType } from '../Icons'
+import type { MessageFull } from '../../state/messages'
+import { useAppSelector } from '../../store'
+import SendMessageDialog from '../dialogs/SendMessageDialog'
+import template from '../../utils/unlayer-template.json'
+import { deleteMessage, type SendProgressCallback } from '../../api/KoinoniaAPI'
 
 export interface Props extends BaseDrawerProps {
   message: MessageItem,
@@ -37,56 +37,56 @@ function EditMessageDrawer({
   open,
   stacked,
 }: Props) {
-  const [editorReady, setEditorReady] = useState(false);
-  const emailEditorRef = useRef<typeof EmailEditor>(null);
-  const [emailSettings] = useMetadata('emailSettings');
-  const lastDesignHash = useRef<string>();
-  const messages = useAppSelector(state => state.messages);
-  const [pendingSave, setPendingSave] = useState(false);
-  const [sendStats, setSendStats] = useState({ successCount: 0, errorCount: 0 });
+  const [editorReady, setEditorReady] = useState(false)
+  const emailEditorRef = useRef<typeof EmailEditor>(null)
+  const [emailSettings] = useMetadata('emailSettings')
+  const lastDesignHash = useRef<string>()
+  const messages = useAppSelector(state => state.messages)
+  const [pendingSave, setPendingSave] = useState(false)
+  const [sendStats, setSendStats] = useState({ successCount: 0, errorCount: 0 })
 
   const message = useMemo(
     () => messages.find(m => m.message === messageItem.id),
     [messages, messageItem.id],
-  );
+  )
 
-  const [name, setName] = useState<string>(message?.name || '');
-  const [cancelled, setCancelled] = useState(false);
-  const [htmlToSend, setHTMLToSend] = useState('');
+  const [name, setName] = useState<string>(message?.name || '')
+  const [cancelled, setCancelled] = useState(false)
+  const [htmlToSend, setHTMLToSend] = useState('')
 
   useEffect(
     () => setName(message?.name || ''),
     [message?.name],
-  );
+  )
   useEffect(
     () => setCancelled(false),
     [message?.message],
-  );
+  )
 
   const handleEditorReady = useCallback(
     () => {
-      const data = message?.data;
-      const editor = emailEditorRef.current;
+      const data = message?.data
+      const editor = emailEditorRef.current
       if (editor) {
         if (data && Object.keys(data).length > 0) {
-          editor.loadDesign(data);
+          editor.loadDesign(data)
         } else {
-          editor.loadDesign(template);
+          editor.loadDesign(template)
         }
-        setEditorReady(true);
+        setEditorReady(true)
       } else {
-        console.warn('Email editor ready event called while ref is not set');
+        console.warn('Email editor ready event called while ref is not set')
       }
     },
     [message?.data],
-  );
+  )
   const handleChangeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      setName(event.target.value);
-      setPendingSave(true);
+      setName(event.target.value)
+      setPendingSave(true)
     },
     [],
-  );
+  )
   const handleSave = useCallback(
     (callback?: () => void) => {
       if (message?.message) {
@@ -98,78 +98,78 @@ function EditMessageDrawer({
               message: message.message,
               name,
               sentTo: message.sentTo,
-            };
-            saveMessage(newMessage);
-            callback?.();
-            setPendingSave(false);
+            }
+            saveMessage(newMessage)
+            callback?.()
+            setPendingSave(false)
           }
-        });
+        })
       }
     },
     [message?.created, message?.message, message?.sentTo, name],
-  );
+  )
   const handleSaveAndClose = useCallback(
     () => {
-      handleSave(onClose);
+      handleSave(onClose)
     },
     [handleSave, onClose],
-  );
+  )
   const handleSaveButton = useCallback(
     () => {
       if (pendingSave) {
-        handleSave();
+        handleSave()
       } else {
-        handleSaveAndClose();
+        handleSaveAndClose()
       }
     },
     [handleSave, handleSaveAndClose, pendingSave],
-  );
-  const handleCancel = useCallback(() => setCancelled(true), []);
+  )
+  const handleCancel = useCallback(() => setCancelled(true), [])
   const handleDelete = useCallback(
     () => {
       if (message?.message) {
-        deleteMessage({ message: message.message });
+        deleteMessage({ message: message.message })
       }
-      setCancelled(true);
+      setCancelled(true)
     },
     [message?.message],
-  );
+  )
   const handleShowSend = useCallback(
     () => {
-      emailEditorRef.current?.exportHtml(({ html }) => setHTMLToSend(html));
+      emailEditorRef.current?.exportHtml(({ html }) => setHTMLToSend(html))
     },
     [emailEditorRef, setHTMLToSend],
-  );
-  const handleCloseSend = useCallback(() => setHTMLToSend(''), []);
+  )
+  const handleCloseSend = useCallback(() => setHTMLToSend(''), [])
   const handleSendProgress: SendProgressCallback = useCallback(
     progress => {
       setSendStats(stats => ({
         successCount: stats.successCount + progress.successCount,
         errorCount: stats.errorCount + progress.errorCount,
-      }));
+      }))
     },
     [],
-  );
+  )
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
-        handleSave();
+        handleSave()
       }
     },
     [cancelled, handleSave],
-  );
+  )
 
   const autoSave = useMemo(
     () => debounce(handleSave, 10000),
     [handleSave],
-  );
+  )
   const handleDesignUpdate = useCallback(
     () => {
-      setPendingSave(true);
-      autoSave();
+      setPendingSave(true)
+      autoSave()
     },
     [autoSave],
-  );
+  )
   useEffect(
     () => {
       const interval = setInterval(
@@ -177,28 +177,28 @@ function EditMessageDrawer({
           if (editorReady) {
             emailEditorRef.current?.saveDesign((design: Design | undefined) => {
               if (design) {
-                const currentDesignHash = objectHash(design);
+                const currentDesignHash = objectHash(design)
                 if (lastDesignHash.current !== currentDesignHash) {
-                  lastDesignHash.current = currentDesignHash;
-                  handleDesignUpdate();
+                  lastDesignHash.current = currentDesignHash
+                  handleDesignUpdate()
                 }
               }
-            });
+            })
           }
         },
         1000,
-      );
-      return () => clearInterval(interval);
+      )
+      return () => clearInterval(interval)
     },
     [editorReady, handleDesignUpdate],
-  );
+  )
 
   useEffect(
     () => {
-      if (cancelled) onClose();
+      if (cancelled) onClose()
     },
     [cancelled, onClose],
-  );
+  )
 
   return (
     <BaseDrawer
@@ -264,7 +264,7 @@ function EditMessageDrawer({
         />
       )}
     </BaseDrawer>
-  );
+  )
 }
 
-export default EditMessageDrawer;
+export default EditMessageDrawer

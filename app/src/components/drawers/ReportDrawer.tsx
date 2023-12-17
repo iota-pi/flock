@@ -1,13 +1,13 @@
-import { useCallback, useMemo } from 'react';
-import { Item, ItemId } from '../../state/items';
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
-import ItemReport from '../reports/ItemReport';
-import { useAppDispatch } from '../../store';
-import { pushActive, updateActive } from '../../state/ui';
-import { isSameDay } from '../../utils';
-import { getLastPrayedFor } from '../../utils/prayer';
-import { getIconType } from '../Icons';
-import { storeItems } from '../../api/Vault';
+import { useCallback, useMemo } from 'react'
+import { Item, ItemId } from '../../state/items'
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import ItemReport from '../reports/ItemReport'
+import { useAppDispatch } from '../../store'
+import { pushActive, updateActive } from '../../state/ui'
+import { isSameDay } from '../../utils'
+import { getLastPrayedFor } from '../../utils/prayer'
+import { getIconType } from '../Icons'
+import { storeItems } from '../../api/Vault'
 
 export interface Props extends BaseDrawerProps {
   canEdit?: boolean,
@@ -32,58 +32,58 @@ function ReportDrawer({
   praying = false,
   stacked,
 }: Props) {
-  const dispatch = useAppDispatch();
+  const dispatch = useAppDispatch()
   const handleEdit = useCallback(
     () => dispatch(pushActive({ item: item.id })),
     [dispatch, item],
-  );
+  )
 
-  const canEdit = canEditRaw !== undefined ? canEditRaw : praying;
+  const canEdit = canEditRaw !== undefined ? canEditRaw : praying
 
   const prayedForToday = useMemo(
     () => isSameDay(new Date(), new Date(getLastPrayedFor(item))),
     [item],
-  );
+  )
   const recordPrayer = useCallback(
     () => {
       if (!prayedForToday) {
-        const prayedFor = [...item.prayedFor, new Date().getTime()];
-        const newItem: Item = { ...item, prayedFor };
-        storeItems(newItem);
+        const prayedFor = [...item.prayedFor, new Date().getTime()]
+        const newItem: Item = { ...item, prayedFor }
+        storeItems(newItem)
       }
     },
     [item, prayedForToday],
-  );
+  )
 
   const handleDone = useCallback(
     () => {
       if (onDone) {
-        onDone();
+        onDone()
       }
       if (praying) {
-        recordPrayer();
+        recordPrayer()
       }
       if (next.length) {
-        dispatch(updateActive({ item: next[0], next: next.slice(1) }));
+        dispatch(updateActive({ item: next[0], next: next.slice(1) }))
       } else {
-        onClose();
+        onClose()
       }
     },
     [dispatch, next, onClose, onDone, praying, recordPrayer],
-  );
+  )
   const handleSkip = useCallback(
     () => {
       if (onSkip) {
-        onSkip();
+        onSkip()
       }
       if (next.length) {
-        dispatch(updateActive({ item: next[0], next: next.slice(1) }));
+        dispatch(updateActive({ item: next[0], next: next.slice(1) }))
       } else {
-        onClose();
+        onClose()
       }
     },
     [dispatch, next, onClose, onSkip],
-  );
+  )
 
   return (
     <BaseDrawer
@@ -109,7 +109,7 @@ function ReportDrawer({
         onEdit={handleEdit}
       />
     </BaseDrawer>
-  );
+  )
 }
 
-export default ReportDrawer;
+export default ReportDrawer

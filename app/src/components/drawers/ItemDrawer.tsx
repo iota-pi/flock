@@ -4,7 +4,7 @@ import {
   useEffect,
   useMemo,
   useState,
-} from 'react';
+} from 'react'
 import {
   Button,
   Collapse,
@@ -12,7 +12,7 @@ import {
   IconButton,
   TextField,
   Tooltip,
-} from '@mui/material';
+} from '@mui/material'
 import {
   cleanItem,
   compareNames,
@@ -28,18 +28,18 @@ import {
   Item,
   ITEM_TYPES,
   PersonItem,
-} from '../../state/items';
-import { useAppDispatch } from '../../store';
-import { useItems } from '../../state/selectors';
-import BaseDrawer, { BaseDrawerProps } from './BaseDrawer';
-import FrequencyControls from '../FrequencyControls';
-import TagSelection from '../TagSelection';
-import GroupDisplay from '../GroupDisplay';
-import MemberDisplay from '../MemberDisplay';
-import CollapsibleSection from './utils/CollapsibleSection';
-import DuplicateAlert from './utils/DuplicateAlert';
-import { pushActive } from '../../state/ui';
-import { usePrevious } from '../../utils';
+} from '../../state/items'
+import { useAppDispatch } from '../../store'
+import { useItems } from '../../state/selectors'
+import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
+import FrequencyControls from '../FrequencyControls'
+import TagSelection from '../TagSelection'
+import GroupDisplay from '../GroupDisplay'
+import MemberDisplay from '../MemberDisplay'
+import CollapsibleSection from './utils/CollapsibleSection'
+import DuplicateAlert from './utils/DuplicateAlert'
+import { pushActive } from '../../state/ui'
+import { usePrevious } from '../../utils'
 import {
   ArchiveIcon,
   getIcon,
@@ -48,10 +48,10 @@ import {
   NotesIcon,
   PersonIcon,
   UnarchiveIcon,
-} from '../Icons';
-import MaturityPicker from '../MaturityPicker';
-import { getLastPrayedFor } from '../../utils/prayer';
-import { deleteItems, storeItems } from '../../api/Vault';
+} from '../Icons'
+import MaturityPicker from '../MaturityPicker'
+import { getLastPrayedFor } from '../../utils/prayer'
+import { deleteItems, storeItems } from '../../api/Vault'
 
 
 export interface Props extends BaseDrawerProps {
@@ -67,7 +67,7 @@ export interface ItemAndChangeCallback {
 }
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  return event.target.value;
+  return event.target.value
 }
 
 
@@ -81,15 +81,15 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const groups = useItems<GroupItem>('group');
-  const items = useItems();
+  const dispatch = useAppDispatch()
+  const groups = useItems<GroupItem>('group')
+  const items = useItems()
 
-  const [cancelled, setCancelled] = useState(false);
-  const [duplicates, setDuplicates] = useState<Item[]>([]);
-  const [forceShowDescription, setShowDescription] = useState(false);
+  const [cancelled, setCancelled] = useState(false)
+  const [duplicates, setDuplicates] = useState<Item[]>([])
+  const [forceShowDescription, setShowDescription] = useState(false)
 
-  const prevItem = usePrevious(item);
+  const prevItem = usePrevious(item)
 
   const memberGroups = useMemo(
     () => (
@@ -98,163 +98,163 @@ function ItemDrawer({
         : []
     ),
     [item.id, item.type, groups],
-  );
+  )
 
   const itemsByName = useMemo(
     () => {
-      const result: { [name: string]: Item[] | undefined } = {};
+      const result: { [name: string]: Item[] | undefined } = {}
       for (const i of items) {
-        const name = getItemName(i);
+        const name = getItemName(i)
         if (result[name] === undefined) {
-          result[name] = [i];
+          result[name] = [i]
         } else {
-          result[name]!.push(i);
+          result[name]!.push(i)
         }
       }
-      return result;
+      return result
     },
     [items],
-  );
+  )
 
   useEffect(
     () => {
       if (prevItem?.id !== item.id) {
-        setShowDescription(!!item.description);
+        setShowDescription(!!item.description)
       }
     },
     [item.description, item.id, prevItem?.id],
-  );
-  const showDescription = forceShowDescription || !!item.description;
+  )
+  const showDescription = forceShowDescription || !!item.description
 
   useEffect(
     () => {
-      const potential = itemsByName[getItemName(item)];
+      const potential = itemsByName[getItemName(item)]
       if (potential) {
         setDuplicates(
           potential.filter(i => i.type === item.type && i.id !== item.id),
-        );
+        )
       } else {
-        setDuplicates([]);
+        setDuplicates([])
       }
     },
     [item, itemsByName],
-  );
+  )
 
-  const handleClickAddDescription = useCallback(() => setShowDescription(true), []);
+  const handleClickAddDescription = useCallback(() => setShowDescription(true), [])
   const handleChange = useCallback(
     <T extends Item>(
       data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item),
     ) => {
       if (typeof data === 'function') {
-        return onChange(originalItem => dirtyItem(data(originalItem)));
+        return onChange(originalItem => dirtyItem(data(originalItem)))
       }
-      return onChange(dirtyItem({ ...data }));
+      return onChange(dirtyItem({ ...data }))
     },
     [onChange],
-  );
+  )
   const handleChangeMaturity = useCallback(
     (maturity: string | null) => handleChange<PersonItem>({ maturity }),
     [handleChange],
-  );
+  )
 
   const removeFromAllGroups = useCallback(
     () => {
-      const updatedGroupItems: GroupItem[] = [];
+      const updatedGroupItems: GroupItem[] = []
       for (const group of memberGroups) {
         const newGroup: GroupItem = {
           ...group,
           members: group.members.filter(m => m !== item.id),
-        };
-        updatedGroupItems.push(newGroup);
+        }
+        updatedGroupItems.push(newGroup)
       }
-      storeItems(updatedGroupItems);
+      storeItems(updatedGroupItems)
     },
     [item.id, memberGroups],
-  );
+  )
 
   const handleSave = useCallback(
     (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
-        const clean = cleanItem(itemToSave);
+        const clean = cleanItem(itemToSave)
         if (isItem(clean)) {
-          storeItems(clean);
+          storeItems(clean)
         }
-        return clean;
+        return clean
       }
-      return undefined;
+      return undefined
     },
     [],
-  );
+  )
   const handleSaveAndClose = useCallback(
     () => {
-      handleSave(item);
-      onClose();
+      handleSave(item)
+      onClose()
     },
     [handleSave, item, onClose],
-  );
+  )
   const handleSaveButton = useCallback(
     () => {
-      const clean = handleSave(item);
+      const clean = handleSave(item)
       if (clean) {
-        onChange(clean);
+        onChange(clean)
       }
     },
     [handleSave, item, onChange],
-  );
-  const handleCancel = useCallback(() => setCancelled(true), []);
+  )
+  const handleCancel = useCallback(() => setCancelled(true), [])
   const handleDelete = useCallback(
     () => {
-      removeFromAllGroups();
-      deleteItems(item.id);
-      onClose();
+      removeFromAllGroups()
+      deleteItems(item.id)
+      onClose()
     },
     [onClose, item.id, removeFromAllGroups],
-  );
+  )
 
-  const hasReport = item.type === 'group';
+  const hasReport = item.type === 'group'
   const handleReport = useCallback(
     () => dispatch(pushActive({ item: item.id, report: true })),
     [dispatch, item],
-  );
+  )
 
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
-        handleSave(item);
+        handleSave(item)
       }
     },
     [cancelled, handleSave, item],
-  );
+  )
 
   useEffect(
     () => {
-      if (cancelled) onClose();
+      if (cancelled) onClose()
     },
     [cancelled, onClose],
-  );
+  )
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
-        handleSave(prevItem);
+        handleSave(prevItem)
       }
     },
     [handleSave, item.id, open, prevItem],
-  );
+  )
   useEffect(
     () => {
       if (item.dirty && !item.isNew) {
         const timeout = setTimeout(
           () => handleSave(item),
           10000,
-        );
-        return () => clearTimeout(timeout);
+        )
+        return () => clearTimeout(timeout)
       }
-      return undefined;
+      return undefined
     },
     [handleSave, item],
-  );
+  )
 
-  const hasDescription = !!item.description;
+  const hasDescription = !!item.description
   const duplicateAlert = useMemo(
     () => (
       <Grid item xs={12} mt={-1}>
@@ -268,10 +268,10 @@ function ItemDrawer({
       </Grid>
     ),
     [duplicates, hasDescription, item.type],
-  );
+  )
 
-  const firstName = item.type === 'person' ? item.firstName : item.name;
-  const lastName = item.type === 'person' ? item.lastName : undefined;
+  const firstName = item.type === 'person' ? item.firstName : item.name
+  const lastName = item.type === 'person' ? item.lastName : undefined
   const nameFields = useMemo(
     () => (
       lastName !== undefined ? (
@@ -320,9 +320,9 @@ function ItemDrawer({
       )
     ),
     [firstName, handleChange, item.id, lastName, showDescription],
-  );
+  )
 
-  const { archived, tags } = item;
+  const { archived, tags } = item
   const descriptionField = useMemo(
     () => (
       item.description || showDescription ? (
@@ -357,7 +357,7 @@ function ItemDrawer({
       )
     ),
     [handleChange, handleClickAddDescription, item.description, showDescription],
-  );
+  )
   const summaryField = useMemo(
     () => (
       <Grid item xs={12}>
@@ -374,7 +374,7 @@ function ItemDrawer({
       </Grid>
     ),
     [handleChange, item.summary],
-  );
+  )
   const tagsField = useMemo(
     () => (
       <Grid item xs={12}>
@@ -385,9 +385,9 @@ function ItemDrawer({
       </Grid>
     ),
     [handleChange, tags],
-  );
+  )
 
-  const maturity = item.type === 'person' ? item.maturity : undefined;
+  const maturity = item.type === 'person' ? item.maturity : undefined
   const maturityField = useMemo(
     () => (
       maturity !== undefined ? (
@@ -402,9 +402,9 @@ function ItemDrawer({
       ) : null
     ),
     [handleChangeMaturity, maturity],
-  );
+  )
 
-  const email = item.type === 'person' ? item.email : undefined;
+  const email = item.type === 'person' ? item.email : undefined
   const emailField = useMemo(
     () => (
       email !== undefined ? (
@@ -421,9 +421,9 @@ function ItemDrawer({
       ) : null
     ),
     [email, handleChange],
-  );
+  )
 
-  const phone = item.type === 'person' ? item.phone : undefined;
+  const phone = item.type === 'person' ? item.phone : undefined
   const phoneField = useMemo(
     () => (
       phone !== undefined ? (
@@ -440,9 +440,9 @@ function ItemDrawer({
       ) : null
     ),
     [handleChange, phone],
-  );
+  )
 
-  const lastPrayer = getLastPrayedFor(item);
+  const lastPrayer = getLastPrayedFor(item)
   const frequencyField = useMemo(
     () => (
       <Grid item xs={12}>
@@ -459,7 +459,7 @@ function ItemDrawer({
       item.type,
       lastPrayer,
     ],
-  );
+  )
 
   const archivedButton = useMemo(
     () => (
@@ -479,7 +479,7 @@ function ItemDrawer({
       </Grid>
     ),
     [archived, handleChange, item.isNew],
-  );
+  )
   const changeTypeButtons = useMemo(
     () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
       <Grid
@@ -501,9 +501,9 @@ function ItemDrawer({
       </Grid>
     )),
     [item.type, handleChange],
-  );
+  )
 
-  const members = item.type === 'group' ? item.members : undefined;
+  const members = item.type === 'group' ? item.members : undefined
   const membersSection = useMemo(
     () => members !== undefined && (
       <CollapsibleSection
@@ -520,7 +520,7 @@ function ItemDrawer({
       />
     ),
     [handleChange, item.isNew, members],
-  );
+  )
 
   const groupsSection = useMemo(
     () => item.type === 'person' && (
@@ -533,7 +533,7 @@ function ItemDrawer({
       />
     ),
     [item.id, item.isNew, item.type],
-  );
+  )
 
   return (
     <BaseDrawer
@@ -584,7 +584,7 @@ function ItemDrawer({
         {changeTypeButtons}
       </Grid>
     </BaseDrawer>
-  );
+  )
 }
 
-export default ItemDrawer;
+export default ItemDrawer

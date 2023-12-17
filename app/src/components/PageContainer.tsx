@@ -1,4 +1,4 @@
-import { Container, styled } from '@mui/material';
+import { Container, styled } from '@mui/material'
 
 const PageContainer = styled(Container)(({ theme }) => ({
   flexGrow: 1,
@@ -8,6 +8,6 @@ const PageContainer = styled(Container)(({ theme }) => ({
   '&:not(:first-of-type)': {
     marginTop: theme.spacing(2),
   },
-}));
+}))
 
-export default PageContainer;
+export default PageContainer

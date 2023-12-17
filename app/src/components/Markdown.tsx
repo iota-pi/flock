@@ -1,12 +1,12 @@
-import ReactMarkdown, { MarkdownToJSX } from 'markdown-to-jsx';
+import ReactMarkdown, { MarkdownToJSX } from 'markdown-to-jsx'
 import {
   Box,
   Link,
   Typography,
-} from '@mui/material';
+} from '@mui/material'
 
 function MarkdownListItem(props: object) {
-  return <Box component="li" sx={{ typography: 'body1' }} {...props} />;
+  return <Box component="li" sx={{ typography: 'body1' }} {...props} />
 }
 
 const options: MarkdownToJSX.Options = {
@@ -44,8 +44,8 @@ const options: MarkdownToJSX.Options = {
       component: MarkdownListItem,
     },
   },
-};
+}
 
 export default function Markdown(props: { children: string } & object) {
-  return <ReactMarkdown options={options} {...props} />;
+  return <ReactMarkdown options={options} {...props} />
 }

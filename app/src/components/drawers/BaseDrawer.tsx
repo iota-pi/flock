@@ -7,7 +7,7 @@ import {
   Theme,
   Toolbar,
   useMediaQuery,
-} from '@mui/material';
+} from '@mui/material'
 import {
   createRef,
   KeyboardEvent as ReactKeyboardEvent,
@@ -15,16 +15,16 @@ import {
   useCallback,
   useEffect,
   useMemo,
-} from 'react';
-import { GlobalHotKeys, KeyMap } from 'react-hotkeys';
-import { MuiIconType, RemoveIcon } from '../Icons';
-import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions';
-import UnmountWatcher from './utils/UnmountWatcher';
-import { ItemId } from '../../state/items';
-import { usePrevious } from '../../utils';
+} from 'react'
+import { GlobalHotKeys, KeyMap } from 'react-hotkeys'
+import { MuiIconType, RemoveIcon } from '../Icons'
+import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
+import UnmountWatcher from './utils/UnmountWatcher'
+import { ItemId } from '../../state/items'
+import { usePrevious } from '../../utils'
 
 
-const noOp = () => {};
+const noOp = () => {}
 
 const StyledDrawer = styled(
   SwipeableDrawer,
@@ -46,12 +46,12 @@ const StyledDrawer = styled(
           width: '100vw',
         },
       }
-    );
+    )
     // Permanent drawer should sit just below app bar
     const zIndex: CSSObject = {
       zIndex: permanent ? theme.zIndex.appBar - 1 : undefined,
-    };
-    const commonStyles: CSSObject = { ...drawerWidth, ...zIndex };
+    }
+    const commonStyles: CSSObject = { ...drawerWidth, ...zIndex }
 
     return {
       ...commonStyles,
@@ -67,15 +67,15 @@ const StyledDrawer = styled(
         ),
         backgroundImage: 'unset',
       },
-    };
+    }
   },
-);
+)
 const Layout = styled('div')({
   display: 'flex',
   flexGrow: 1,
   flexDirection: 'column',
   overflow: 'hidden',
-});
+})
 const StyledContainer = styled(Container)(({ theme }) => ({
   position: 'relative',
   overflowX: 'hidden',
@@ -85,19 +85,19 @@ const StyledContainer = styled(Container)(({ theme }) => ({
   flexGrow: 1,
   display: 'flex',
   flexDirection: 'column',
-}));
+}))
 const IconHolder = styled('div')(({ theme }) => ({
   width: theme.spacing(6),
   height: theme.spacing(6),
   marginBottom: theme.spacing(1),
   opacity: 0.8,
-}));
+}))
 const BackButtonHolder = styled('div')(({ theme }) => ({
   position: 'absolute',
   display: 'flex',
   top: theme.spacing(2),
   right: theme.spacing(2),
-}));
+}))
 
 
 interface BaseProps {
@@ -119,8 +119,8 @@ interface SpecificProps {
   itemKey?: ItemId,
   typeIcon?: MuiIconType,
 }
-export type { BaseProps as BaseDrawerProps };
-type Props = BaseProps & SpecificProps;
+export type { BaseProps as BaseDrawerProps }
+type Props = BaseProps & SpecificProps
 
 
 function BaseDrawer({
@@ -141,77 +141,77 @@ function BaseDrawer({
   stacked = false,
   typeIcon: Icon,
 }: PropsWithChildren<Props>) {
-  const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'));
-  const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'));
+  const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
+  const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
 
-  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary;
+  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary
   const showBackButton = onBack && (
     alwaysShowBack || (
       !hideBackButton && (xsScreen || permanentDrawer)
     )
-  );
-  const showTypeIcon = !hideTypeIcon;
+  )
+  const showTypeIcon = !hideTypeIcon
 
   const handleBack = useCallback(
     () => {
       if (onBack) {
-        onBack();
+        onBack()
       } else {
-        onClose();
+        onClose()
       }
     },
     [onBack, onClose],
-  );
+  )
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.ctrlKey && event.key === 'Enter') {
-        onClose();
+        onClose()
       }
     },
     [onClose],
-  );
+  )
   const handleSave = useMemo(
     () => {
       if (ActionProps?.onSave) {
         return () => {
-          ActionProps.onSave();
+          ActionProps.onSave()
           if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
-            onClose();
+            onClose()
           }
-        };
+        }
       }
-      return undefined;
+      return undefined
     },
     [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
-  );
+  )
   const modifiedActionProps = useMemo(
     () => ActionProps && ({
       ...ActionProps,
       onSave: handleSave,
     } as DrawerActionsProps),
     [ActionProps, handleSave],
-  );
+  )
 
-  const prevKey = usePrevious(itemKey);
-  const containerRef = createRef<HTMLDivElement>();
+  const prevKey = usePrevious(itemKey)
+  const containerRef = createRef<HTMLDivElement>()
   useEffect(
     () => {
       if (itemKey !== prevKey) {
-        containerRef.current?.scrollTo(0, 0);
+        containerRef.current?.scrollTo(0, 0)
       }
     },
     [containerRef, itemKey, prevKey],
-  );
+  )
 
   const handleSaveHotkey = useCallback(
     (event?: KeyboardEvent) => {
       if (event && ActionProps?.canSave !== false && ActionProps?.onSave) {
-        event.preventDefault();
-        ActionProps.onSave();
+        event.preventDefault()
+        ActionProps.onSave()
       }
     },
     [ActionProps],
-  );
+  )
   const keyMap: KeyMap = useMemo(
     () => ({
       SAVE: [
@@ -220,13 +220,13 @@ function BaseDrawer({
       ],
     }),
     [],
-  );
+  )
   const handlers = useMemo(
     () => ({
       SAVE: handleSaveHotkey,
     }),
     [handleSaveHotkey],
-  );
+  )
 
   return (
     <>
@@ -285,7 +285,7 @@ function BaseDrawer({
         </Layout>
       </StyledDrawer>
     </>
-  );
+  )
 }
 
-export default BaseDrawer;
+export default BaseDrawer

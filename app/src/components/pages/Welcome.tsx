@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Container,
@@ -7,21 +7,21 @@ import {
   Link,
   styled,
   Typography,
-} from '@mui/material';
-import { getPage } from '.';
-import AboutDrawer from '../drawers/AboutDrawer';
+} from '@mui/material'
+import { getPage } from '.'
+import AboutDrawer from '../drawers/AboutDrawer'
 
 
 const Root = styled('div')({
   flexGrow: 1,
   overflowY: 'auto',
-});
+})
 const MainContainer = styled(Container)(({ theme }) => ({
   flexGrow: 1,
   overflowY: 'auto',
   padding: theme.spacing(4),
   position: 'relative',
-}));
+}))
 const Section = styled('div')(({ theme }) => ({
   alignItems: 'center',
   display: 'flex',
@@ -29,29 +29,29 @@ const Section = styled('div')(({ theme }) => ({
   flexGrow: 1,
   justifyContent: 'center',
   paddingBottom: theme.spacing(8),
-}));
+}))
 const LargeText = styled(Typography)(({ theme }) => ({
   fontSize: theme.typography.h5.fontSize,
   fontWeight: 300,
-}));
+}))
 
 
 function WelcomePage() {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
 
-  const [showAbout, setShowAbout] = useState(false);
-  const handleClickLearnMore = useCallback(() => setShowAbout(true), []);
-  const handleCloseAbout = useCallback(() => setShowAbout(false), []);
+  const [showAbout, setShowAbout] = useState(false)
+  const handleClickLearnMore = useCallback(() => setShowAbout(true), [])
+  const handleCloseAbout = useCallback(() => setShowAbout(false), [])
   const handleClickCreate = useCallback(
     () => {
-      navigate(getPage('signup').path);
+      navigate(getPage('signup').path)
     },
     [navigate],
-  );
+  )
   const handleClickLogin = useCallback(
     () => navigate(getPage('login').path),
     [navigate],
-  );
+  )
 
   return (
     <Root>
@@ -133,7 +133,7 @@ function WelcomePage() {
         />
       </MainContainer>
     </Root>
-  );
+  )
 }
 
-export default WelcomePage;
+export default WelcomePage

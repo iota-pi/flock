@@ -1,14 +1,14 @@
-import { List, ListItemButton, ListItemText } from '@mui/material';
-import { useCallback, useState } from 'react';
-import { useSelector } from 'react-redux';
-import BasePage from './BasePage';
-import { useAppDispatch } from '../../store';
-import { replaceActive } from '../../state/ui';
-import { EmailIcon } from '../Icons';
-import SMTPDialog from '../dialogs/SMTPDialog';
-import { createMessage } from '../../api/KoinoniaAPI';
-import { selectAllMessages } from '../../state/messages';
-import { getBlankMessageItem } from '../../state/items';
+import { List, ListItemButton, ListItemText } from '@mui/material'
+import { useCallback, useState } from 'react'
+import { useSelector } from 'react-redux'
+import BasePage from './BasePage'
+import { useAppDispatch } from '../../store'
+import { replaceActive } from '../../state/ui'
+import { EmailIcon } from '../Icons'
+import SMTPDialog from '../dialogs/SMTPDialog'
+import { createMessage } from '../../api/KoinoniaAPI'
+import { selectAllMessages } from '../../state/messages'
+import { getBlankMessageItem } from '../../state/items'
 
 interface MessageSummary {
   message: string,
@@ -16,36 +16,36 @@ interface MessageSummary {
 }
 
 function CommunicationPage() {
-  const dispatch = useAppDispatch();
-  const messages = useSelector(selectAllMessages);
+  const dispatch = useAppDispatch()
+  const messages = useSelector(selectAllMessages)
 
-  const [showSMTP, setShowSMTP] = useState(false);
+  const [showSMTP, setShowSMTP] = useState(false)
 
   const handleClick = useCallback(
     (m: MessageSummary) => {
-      dispatch(replaceActive({ item: m.message, report: true }));
+      dispatch(replaceActive({ item: m.message, report: true }))
     },
     [dispatch],
-  );
+  )
   const handleClickAdd = useCallback(
     async () => {
-      const name = 'New message';
+      const name = 'New message'
       const message = await createMessage({
         name,
         data: null,
         sentTo: [],
-      });
+      })
       if (message) {
         dispatch(replaceActive({
           item: message,
           newItem: getBlankMessageItem(message, name),
-        }));
+        }))
       }
     },
     [dispatch],
-  );
-  const handleShowSMTP = useCallback(() => setShowSMTP(true), []);
-  const handleHideSMTP = useCallback(() => setShowSMTP(false), []);
+  )
+  const handleShowSMTP = useCallback(() => setShowSMTP(true), [])
+  const handleHideSMTP = useCallback(() => setShowSMTP(false), [])
 
   return (
     <BasePage
@@ -82,7 +82,7 @@ function CommunicationPage() {
         open={showSMTP}
       />
     </BasePage>
-  );
+  )
 }
 
-export default CommunicationPage;
+export default CommunicationPage

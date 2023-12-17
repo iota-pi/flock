@@ -1,5 +1,5 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
   Box,
@@ -10,111 +10,111 @@ import {
   styled,
   TextField,
   Typography,
-} from '@mui/material';
-import Visibility from '@mui/icons-material/Visibility';
-import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { getPage } from '.';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { setAccount } from '../../state/account';
-import { HomeIcon } from '../Icons';
-import { initialiseVault } from '../../api/Vault';
-import { vaultCheckPassword } from '../../api/VaultAPI';
-import { setUi } from '../../state/ui';
+} from '@mui/material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import { getPage } from '.'
+import { useAppDispatch, useAppSelector } from '../../store'
+import { setAccount } from '../../state/account'
+import { HomeIcon } from '../Icons'
+import { initialiseVault } from '../../api/Vault'
+import { vaultCheckPassword } from '../../api/VaultAPI'
+import { setUi } from '../../state/ui'
 
 
 const Root = styled('div')({
   flexGrow: 1,
   overflowY: 'auto',
-});
+})
 const MainContainer = styled(Container)(({ theme }) => ({
   padding: theme.spacing(4),
   position: 'relative',
-}));
+}))
 const CenterSection = styled('div')({
   alignItems: 'center',
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
   justifyContent: 'center',
-});
+})
 const Section = styled('div')(({ theme }) => ({
   flexGrow: 1,
   paddingBottom: theme.spacing(8),
-}));
+}))
 const FormContent = styled('form')({
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
   minWidth: 300,
-});
+})
 const HomeIconContainer = styled('div')(({ theme }) => ({
   position: 'absolute',
   top: theme.spacing(2),
   left: theme.spacing(2),
-}));
+}))
 
 
 function LoginPage() {
-  const dispatch = useAppDispatch();
-  const navigate = useNavigate();
+  const dispatch = useAppDispatch()
+  const navigate = useNavigate()
 
-  const [error, setError] = useState('');
-  const [password, setPassword] = useState('');
-  const [accountInput, setAccountInput] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const createdAccountId = useAppSelector(state => state.account.account);
-  const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount);
+  const [error, setError] = useState('')
+  const [password, setPassword] = useState('')
+  const [accountInput, setAccountInput] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const createdAccountId = useAppSelector(state => state.account.account)
+  const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount)
 
   useEffect(
     () => {
       if (justCreatedAccount) {
-        setAccountInput(createdAccountId);
-        dispatch(setUi({ justCreatedAccount: false }));
+        setAccountInput(createdAccountId)
+        dispatch(setUi({ justCreatedAccount: false }))
       }
     },
     [createdAccountId, dispatch, justCreatedAccount],
-  );
+  )
 
   const handleClickHome = useCallback(
     () => navigate(getPage('welcome').path),
     [navigate],
-  );
+  )
 
   const handleClickLogin = useCallback(
     async () => {
-      dispatch(setAccount({ account: accountInput }));
-      await initialiseVault(password);
-      const success = await vaultCheckPassword();
+      dispatch(setAccount({ account: accountInput }))
+      await initialiseVault(password)
+      const success = await vaultCheckPassword()
       if (success) {
-        navigate(getPage('people').path);
+        navigate(getPage('people').path)
       } else {
-        setError('Could not find matching account ID and password.');
+        setError('Could not find matching account ID and password.')
       }
     },
     [accountInput, dispatch, navigate, password],
-  );
+  )
   const handleClickCreate = useCallback(
     () => {
-      navigate(getPage('signup').path);
+      navigate(getPage('signup').path)
     },
     [navigate],
-  );
+  )
   const handleChangeAccount = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setAccountInput(event.target.value),
     [],
-  );
+  )
   const handleChangePassword = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
     [],
-  );
+  )
   const handleClickVisibility = useCallback(
     () => setShowPassword(p => !p),
     [],
-  );
+  )
   const handleMouseDownVisibility = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
-  );
+  )
 
   return (
     <Root>
@@ -237,7 +237,7 @@ function LoginPage() {
         </Section>
       </MainContainer>
     </Root>
-  );
+  )
 }
 
-export default LoginPage;
+export default LoginPage

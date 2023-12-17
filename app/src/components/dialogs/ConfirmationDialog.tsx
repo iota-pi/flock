@@ -1,11 +1,11 @@
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren } from 'react'
 import {
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-} from '@mui/material';
+} from '@mui/material'
 
 export interface Props {
   cancel?: string,
@@ -60,7 +60,7 @@ function ConfirmationDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default ConfirmationDialog;
+export default ConfirmationDialog

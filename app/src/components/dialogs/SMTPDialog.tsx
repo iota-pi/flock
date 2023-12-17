@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -10,9 +10,9 @@ import {
   Stack,
   TextField,
   Typography,
-} from '@mui/material';
-import { useMetadata } from '../../state/selectors';
-import { EmailAddressIcon, PasswordIcon, PersonIcon, SaveIcon, ServerIcon } from '../Icons';
+} from '@mui/material'
+import { useMetadata } from '../../state/selectors'
+import { EmailAddressIcon, PasswordIcon, PersonIcon, SaveIcon, ServerIcon } from '../Icons'
 
 export interface Props {
   onClose: () => void,
@@ -24,57 +24,57 @@ function SMTPDialog({
   onClose,
   open,
 }: Props) {
-  const [emailSettings, setEmailSettings] = useMetadata('emailSettings');
+  const [emailSettings, setEmailSettings] = useMetadata('emailSettings')
 
-  const [email, setEmail] = useState('');
-  const [host, setHost] = useState('');
-  const [name, setName] = useState('');
-  const [pass, setPass] = useState('');
-  const [user, setUser] = useState('');
+  const [email, setEmail] = useState('')
+  const [host, setHost] = useState('')
+  const [name, setName] = useState('')
+  const [pass, setPass] = useState('')
+  const [user, setUser] = useState('')
 
   useEffect(
     () => {
       if (emailSettings) {
-        if (emailSettings.email) setEmail(emailSettings.email);
-        if (emailSettings.host) setHost(emailSettings.host);
-        if (emailSettings.pass) setPass(emailSettings.pass);
-        if (emailSettings.name) setName(emailSettings.name);
-        if (emailSettings.user) setUser(emailSettings.user);
+        if (emailSettings.email) setEmail(emailSettings.email)
+        if (emailSettings.host) setHost(emailSettings.host)
+        if (emailSettings.pass) setPass(emailSettings.pass)
+        if (emailSettings.name) setName(emailSettings.name)
+        if (emailSettings.user) setUser(emailSettings.user)
       }
     },
     [emailSettings],
-  );
+  )
 
   const handleChangeEmail = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setEmail(event.target.value),
     [],
-  );
+  )
   const handleChangeHost = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value),
     [],
-  );
+  )
   const handleChangeName = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value),
     [],
-  );
+  )
   const handleChangeUser = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setUser(event.target.value),
     [],
-  );
+  )
   const handleChangePass = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => setPass(event.target.value),
     [],
-  );
+  )
 
   const handleDone = useCallback(
     () => {
-      setEmailSettings({ email, host, name, pass, user });
-      onClose();
+      setEmailSettings({ email, host, name, pass, user })
+      onClose()
     },
     [email, host, name, onClose, pass, setEmailSettings, user],
-  );
+  )
 
-  const valid = !host || !user || !pass || !name || !email;
+  const valid = !host || !user || !pass || !name || !email
 
   return (
     <Dialog
@@ -197,7 +197,7 @@ function SMTPDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default SMTPDialog;
+export default SMTPDialog

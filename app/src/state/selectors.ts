@@ -1,24 +1,24 @@
-import { Dispatch, SetStateAction, useCallback, useMemo } from 'react';
-import { useSelector } from 'react-redux';
-import { useAppDispatch, useAppSelector } from '../store';
-import { DEFAULT_CRITERIA } from '../utils/customSort';
-import { AccountMetadata as Metadata, MetadataKey } from './account';
-import { getTags, Item, ItemId, MessageItem, selectAllItems, selectItems } from './items';
-import { getMessageItem } from './messages';
-import { setUi, UiOptions } from './ui';
-import { setMetadata } from '../api/Vault';
+import { Dispatch, SetStateAction, useCallback, useMemo } from 'react'
+import { useSelector } from 'react-redux'
+import { useAppDispatch, useAppSelector } from '../store'
+import { DEFAULT_CRITERIA } from '../utils/customSort'
+import { AccountMetadata as Metadata, MetadataKey } from './account'
+import { getTags, Item, ItemId, MessageItem, selectAllItems, selectItems } from './items'
+import { getMessageItem } from './messages'
+import { setUi, UiOptions } from './ui'
+import { setMetadata } from '../api/Vault'
 
 // TODO: where should this live?
 export const DEFAULT_MATURITY: string[] = [
   'Non-Christian',
   'Young Christian',
   'Mature Christian',
-];
+]
 
-export function useItems<T extends Item>(itemType: T['type']): T[];
-export function useItems(): Item[];
+export function useItems<T extends Item>(itemType: T['type']): T[]
+export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const items = useSelector(selectAllItems);
+  const items = useSelector(selectAllItems)
   return useMemo(
     () => (
       itemType
@@ -26,39 +26,39 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
         : items
     ) as T[],
     [items, itemType],
-  );
+  )
 }
 
-export const useItemMap = () => useSelector(selectItems);
+export const useItemMap = () => useSelector(selectItems)
 export const useItem = (id: ItemId) => useAppSelector(
   state => {
-    const item: Item | undefined = state.items.entities[id];
+    const item: Item | undefined = state.items.entities[id]
     if (item) {
-      return item;
+      return item
     }
-    return undefined;
+    return undefined
   },
-);
+)
 
 export const useMessageItem = (id: string): MessageItem | undefined => {
-  const message = useAppSelector(state => state.messages.entities[id]);
+  const message = useAppSelector(state => state.messages.entities[id])
   return useMemo(
     () => (message ? getMessageItem(message) : undefined),
     [message],
-  );
-};
+  )
+}
 
 export function useItemsById() {
-  const itemMap = useItemMap();
+  const itemMap = useItemMap()
   return useCallback(
     <T extends Item>(ids: ItemId[]) => (
       ids.map(id => itemMap[id] as T).filter(item => item !== undefined)
     ),
     [itemMap],
-  );
+  )
 }
 
-export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn);
+export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
 
 export function useMetadata<K extends MetadataKey>(
   key: K,
@@ -66,42 +66,42 @@ export function useMetadata<K extends MetadataKey>(
 ): [
   Exclude<Metadata[K], undefined>,
   (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
-];
+]
 export function useMetadata<K extends MetadataKey>(
   key: K,
-): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>];
+): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>]
 export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const metadata = useAppSelector(state => state.account.metadata);
+  const metadata = useAppSelector(state => state.account.metadata)
 
-  const value = metadata[key] === undefined ? defaultValue : metadata[key];
+  const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc;
-      const newMetadata = { ...metadata, [key]: newValue };
-      await setMetadata(newMetadata);
+      const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc
+      const newMetadata = { ...metadata, [key]: newValue }
+      await setMetadata(newMetadata)
     },
     [key, metadata, value],
-  );
-  return [value, setValue];
+  )
+  return [value, setValue]
 }
 
-export const useMaturity = () => useMetadata('maturity', DEFAULT_MATURITY);
-export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA);
+export const useMaturity = () => useMetadata('maturity', DEFAULT_MATURITY)
+export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
 export const useTags = () => {
-  const items = useItems();
+  const items = useItems()
   const tags = useMemo(
     () => getTags(items),
     [items],
-  );
-  return tags;
-};
+  )
+  return tags
+}
 
 export const useIsActive = () => {
-  const drawers = useAppSelector(state => state.ui.drawers);
+  const drawers = useAppSelector(state => state.ui.drawers)
   return useCallback(
     (itemId: ItemId, report?: boolean) => (
       drawers.findIndex(drawer => (
@@ -111,29 +111,29 @@ export const useIsActive = () => {
       )) > -1
     ),
     [drawers],
-  );
-};
+  )
+}
 
-export const useOptions = () => useAppSelector(state => state.ui.options);
+export const useOptions = () => useAppSelector(state => state.ui.options)
 export function useOption<T extends keyof UiOptions>(
   optionKey: T,
 ): [UiOptions[T], Dispatch<SetStateAction<UiOptions[T]>>] {
-  const option = useOptions()[optionKey];
+  const option = useOptions()[optionKey]
 
-  const dispatch = useAppDispatch();
+  const dispatch = useAppDispatch()
   const setOption: Dispatch<SetStateAction<UiOptions[T]>> = useCallback(
     valueOrFunction => {
-      let newValue: UiOptions[T];
+      let newValue: UiOptions[T]
       if (typeof valueOrFunction === 'function') {
-        newValue = valueOrFunction(option);
+        newValue = valueOrFunction(option)
       } else {
-        newValue = valueOrFunction;
+        newValue = valueOrFunction
       }
       dispatch(setUi({
         options: { [optionKey]: newValue },
-      }));
+      }))
     },
     [dispatch, option, optionKey],
-  );
-  return [option, setOption];
+  )
+  return [option, setOption]
 }

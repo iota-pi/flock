@@ -1,5 +1,5 @@
-import { red, teal, yellow } from '@mui/material/colors';
-import { createTheme } from '@mui/material';
+import { red, teal, yellow } from '@mui/material/colors'
+import { createTheme } from '@mui/material'
 
 export const dark = createTheme({
   palette: {
@@ -18,7 +18,7 @@ export const dark = createTheme({
     },
     mode: 'dark',
   },
-});
+})
 export const light = createTheme({
   palette: {
     primary: {
@@ -34,28 +34,28 @@ export const light = createTheme({
       default: '#fafafa',
     },
   },
-});
+})
 
 export function getDefaultDarkMode(): boolean {
   if (window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
   }
 
-  return false;
+  return false
 }
 
 export function getNextDarkMode(darkMode: boolean | null) {
   if (darkMode === null) {
-    return true;
+    return true
   } else if (darkMode === false) {
-    return null;
+    return null
   }
-  return false;
+  return false
 }
 
 const getTheme = (darkMode?: boolean | null) => {
-  const calculatedDarkMode = darkMode === null ? getDefaultDarkMode() : darkMode;
-  return calculatedDarkMode ? dark : light;
-};
+  const calculatedDarkMode = darkMode === null ? getDefaultDarkMode() : darkMode
+  return calculatedDarkMode ? dark : light
+}
 
-export default getTheme;
+export default getTheme

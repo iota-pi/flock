@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -7,13 +7,13 @@ import {
   DialogTitle,
   Divider,
   Grid,
-} from '@mui/material';
-import { Item } from '../../state/items';
-import { usePrevious } from '../../utils';
-import TagSelection from '../TagSelection';
-import { AddIcon, MinusIcon } from '../Icons';
-import Search from '../Search';
-import { storeItems } from '../../api/Vault';
+} from '@mui/material'
+import { Item } from '../../state/items'
+import { usePrevious } from '../../utils'
+import TagSelection from '../TagSelection'
+import { AddIcon, MinusIcon } from '../Icons'
+import Search from '../Search'
+import { storeItems } from '../../api/Vault'
 
 
 export interface Props {
@@ -27,57 +27,57 @@ function TagDialog({
   onClose,
   open,
 }: Props) {
-  const prevOpen = usePrevious(open);
+  const prevOpen = usePrevious(open)
 
-  const [selected, setSelected] = useState<Item[]>([]);
-  const [addTags, setAddTags] = useState<string[]>([]);
-  const [removeTags, setRemoveTags] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Item[]>([])
+  const [addTags, setAddTags] = useState<string[]>([])
+  const [removeTags, setRemoveTags] = useState<string[]>([])
 
   useEffect(
     () => {
       if (open && !prevOpen) {
-        setSelected(items);
-        setAddTags([]);
-        setRemoveTags([]);
+        setSelected(items)
+        setAddTags([])
+        setRemoveTags([])
       }
     },
     [items, open, prevOpen],
-  );
+  )
 
-  const handleClear = useCallback(() => setSelected([]), []);
+  const handleClear = useCallback(() => setSelected([]), [])
   const handleSelectItem = useCallback(
     (item: Item) => {
-      setSelected(s => [...s, item]);
+      setSelected(s => [...s, item])
     },
     [],
-  );
+  )
   const handleRemoveItem = useCallback(
     (item: Item) => {
-      setSelected(s => s.filter(i => i.id !== item.id));
+      setSelected(s => s.filter(i => i.id !== item.id))
     },
     [],
-  );
-  const handleChangeAdd = useCallback((tags: string[]) => setAddTags(tags), []);
-  const handleChangeRemove = useCallback((tags: string[]) => setRemoveTags(tags), []);
+  )
+  const handleChangeAdd = useCallback((tags: string[]) => setAddTags(tags), [])
+  const handleChangeRemove = useCallback((tags: string[]) => setRemoveTags(tags), [])
   const handleDone = useCallback(
     () => {
-      const updated: Item[] = [];
+      const updated: Item[] = []
       for (const item of selected) {
-        const remainingTags = item.tags.filter(tag => !removeTags.includes(tag));
-        const newTags = addTags.filter(tag => !item.tags.includes(tag));
+        const remainingTags = item.tags.filter(tag => !removeTags.includes(tag))
+        const newTags = addTags.filter(tag => !item.tags.includes(tag))
         if (remainingTags.length < item.tags.length || newTags.length > 0) {
           const newItem: Item = {
             ...item,
             tags: [...remainingTags, ...newTags],
-          };
-          updated.push(newItem);
+          }
+          updated.push(newItem)
         }
       }
-      storeItems(updated);
-      onClose();
+      storeItems(updated)
+      onClose()
     },
     [addTags, onClose, removeTags, selected],
-  );
+  )
 
   return (
     <Dialog
@@ -142,7 +142,7 @@ function TagDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
+  )
 }
 
-export default TagDialog;
+export default TagDialog

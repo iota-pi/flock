@@ -2,7 +2,7 @@ import {
   ReactNode,
   useCallback,
   useState,
-} from 'react';
+} from 'react'
 import {
   Box,
   FormControl,
@@ -11,14 +11,14 @@ import {
   Select,
   SelectChangeEvent,
   styled,
-} from '@mui/material';
-import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies';
+} from '@mui/material'
+import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies'
 
 
 const IconHolder = styled('div')(({ theme }) => ({
   paddingRight: theme.spacing(1),
   transition: theme.transitions.create('color'),
-}));
+}))
 
 export interface Props {
   className?: string,
@@ -40,18 +40,18 @@ function FrequencyPicker({
   label,
   onChange,
 }: Props) {
-  const [focused, setFocused] = useState(false);
+  const [focused, setFocused] = useState(false)
 
-  const handleFocus = useCallback(() => setFocused(true), []);
-  const handleBlur = useCallback(() => setFocused(false), []);
+  const handleFocus = useCallback(() => setFocused(true), [])
+  const handleBlur = useCallback(() => setFocused(false), [])
   const handleChange = useCallback(
     (event: SelectChangeEvent<Frequency>) => {
       if (event.target.value) {
-        onChange(event.target.value as Frequency);
+        onChange(event.target.value as Frequency)
       }
     },
     [onChange],
-  );
+  )
 
   return (
     <Box
@@ -97,7 +97,7 @@ function FrequencyPicker({
         </FormControl>
       </Box>
     </Box>
-  );
+  )
 }
 
-export default FrequencyPicker;
+export default FrequencyPicker

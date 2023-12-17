@@ -1,8 +1,8 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import type { AlertColor } from '@mui/material';
-import { generateItemId } from '../utils';
-import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter';
-import { deleteItems, ItemId, TypedFlockItem } from './items';
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import type { AlertColor } from '@mui/material'
+import { generateItemId } from '../utils'
+import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
+import { deleteItems, ItemId, TypedFlockItem } from './items'
 
 export interface DrawerData {
   id: string,
@@ -49,18 +49,18 @@ const initialState: UIState = {
   },
   selected: [],
   justCreatedAccount: false,
-};
+}
 
 export type setUi = Omit<Partial<UIState>, 'options' | 'requests' | 'drawers'> & {
   options?: Partial<UIState['options']>,
   requests?: Partial<UIState['requests']>,
-};
+}
 export type PushActiveOptions = (
   'initial' | 'newItem' | 'next' | 'open' | 'praying' | 'report'
-);
+)
 export type PushActiveData = (
   Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, PushActiveOptions>>
-);
+)
 
 const uiSlice = createSlice({
   name: 'ui',
@@ -78,38 +78,38 @@ const uiSlice = createSlice({
           ...state.requests,
           ...action.payload.requests,
         },
-      };
+      }
     },
     startRequest(state) {
-      state.requests.active += 1;
+      state.requests.active += 1
     },
     finishRequest(state, action: PayloadAction<string | undefined>) {
-      state.requests.active -= 1;
+      state.requests.active -= 1
       if (action.payload) {
         state.message = {
           severity: 'error',
           message: action.payload,
-        };
+        }
       }
     },
     setMessage(state, action: PayloadAction<BaseUIMessage>) {
       state.message = {
         severity: action.payload.severity || 'success',
         message: action.payload.message,
-      };
+      }
     },
     toggleSelected(state, action: PayloadAction<ItemId>) {
-      const index = state.selected.indexOf(action.payload);
+      const index = state.selected.indexOf(action.payload)
       if (index > -1) {
-        state.selected.splice(index, 1);
+        state.selected.splice(index, 1)
       } else {
-        state.selected.push(action.payload);
+        state.selected.push(action.payload)
       }
     },
     setTagFilter(state, action: PayloadAction<FilterCriterion['value']>) {
-      const index = state.filters.findIndex(c => c.type === 'tags');
+      const index = state.filters.findIndex(c => c.type === 'tags')
       if (index > -1) {
-        state.filters[index].value = action.payload;
+        state.filters[index].value = action.payload
       } else {
         state.filters.push({
           type: 'tags',
@@ -117,70 +117,70 @@ const uiSlice = createSlice({
           operator: 'contains',
           inverse: false,
           value: action.payload,
-        });
+        })
       }
     },
     replaceActive(state, action: PayloadAction<Partial<Omit<DrawerData, 'id'>>>) {
-      const openItems = state.drawers.filter(drawer => drawer.open);
-      const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
+      const openItems = state.drawers.filter(drawer => drawer.open)
+      const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
       const newItem: DrawerData = {
         id: lastItem ? lastItem.id : generateItemId(),
         open: true,
         ...action.payload,
-      };
+      }
       if (lastItem) {
-        state.drawers[state.drawers.indexOf(lastItem)] = newItem;
+        state.drawers[state.drawers.indexOf(lastItem)] = newItem
       } else {
-        state.drawers.push(newItem);
+        state.drawers.push(newItem)
       }
     },
     updateActive(state, action: PayloadAction<Partial<Omit<DrawerData, 'id'>>>) {
-      const openItems = state.drawers.filter(drawer => drawer.open);
-      const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
+      const openItems = state.drawers.filter(drawer => drawer.open)
+      const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
       const newItem: DrawerData = {
         id: generateItemId(),
         open: true,
         ...lastItem,
         ...action.payload,
-      };
-      state.drawers[state.drawers.length - 1] = newItem;
+      }
+      state.drawers[state.drawers.length - 1] = newItem
     },
     pushActive(state, action: PayloadAction<PushActiveData>) {
       const newItem: DrawerData = {
         id: generateItemId(),
         open: true,
         ...action.payload,
-      };
-      state.drawers.push(newItem);
+      }
+      state.drawers.push(newItem)
     },
     removeActive(state) {
-      state.drawers.splice(state.drawers.length - 1, 1);
+      state.drawers.splice(state.drawers.length - 1, 1)
     },
   },
   extraReducers(builder) {
     builder
       .addCase(deleteItems, (state, action) => {
-        const newDrawers: typeof state.drawers = [];
-        let modified = false;
+        const newDrawers: typeof state.drawers = []
+        let modified = false
         for (const drawer of state.drawers) {
           if (drawer.item && action.payload.includes(drawer.item)) {
-            modified = true;
+            modified = true
           } else if (drawer.next && drawer.next.find(item => !action.payload.includes(item))) {
             newDrawers.push({
               ...drawer,
               next: drawer.next.filter(item => !action.payload.includes(item)),
-            });
-            modified = true;
+            })
+            modified = true
           } else {
-            newDrawers.push(drawer);
+            newDrawers.push(drawer)
           }
         }
         if (modified) {
-          state.drawers = newDrawers;
+          state.drawers = newDrawers
         }
-      });
+      })
   },
-});
+})
 
 export const {
   finishRequest,
@@ -193,8 +193,8 @@ export const {
   startRequest,
   toggleSelected,
   updateActive,
-} = uiSlice.actions;
-export default uiSlice.reducer;
+} = uiSlice.actions
+export default uiSlice.reducer
 
-export const PUSH_ACTIVE = 'PUSH_ACTIVE';
-export const REMOVE_ACTIVE = 'REMOVE_ACTIVE';
+export const PUSH_ACTIVE = 'PUSH_ACTIVE'
+export const REMOVE_ACTIVE = 'REMOVE_ACTIVE'

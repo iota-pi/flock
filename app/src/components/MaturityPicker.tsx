@@ -2,13 +2,13 @@ import {
   ChangeEvent,
   useCallback,
   useMemo,
-} from 'react';
+} from 'react'
 import {
   MenuItem,
   TextField,
   TextFieldProps,
-} from '@mui/material';
-import { useMaturity } from '../state/selectors';
+} from '@mui/material'
+import { useMaturity } from '../state/selectors'
 
 
 export interface Props {
@@ -31,22 +31,22 @@ function MaturityPicker({
   onChange,
   variant = 'standard',
 }: Props) {
-  const [maturityStages] = useMaturity();
+  const [maturityStages] = useMaturity()
   const maturityOptions = useMemo<{ value: string, label: string, default?: boolean }[]>(
     () => [
       { value: '', label: 'Not Specified', default: true },
       ...maturityStages.map(m => ({ value: m, label: m })),
     ],
     [maturityStages],
-  );
-  const maturityWithFallback = maturity && maturityStages.includes(maturity) ? maturity : '';
+  )
+  const maturityWithFallback = maturity && maturityStages.includes(maturity) ? maturity : ''
 
   const handleChange = useCallback(
     (event: ChangeEvent<{ value: unknown }>) => {
-      onChange(event.target.value as string || null);
+      onChange(event.target.value as string || null)
     },
     [onChange],
-  );
+  )
 
   return (
     <TextField
@@ -70,7 +70,7 @@ function MaturityPicker({
         </MenuItem>
       ))}
     </TextField>
-  );
+  )
 }
 
-export default MaturityPicker;
+export default MaturityPicker

@@ -1,5 +1,5 @@
-import { memo, ReactNode, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { memo, ReactNode, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Box,
   Divider,
@@ -10,14 +10,14 @@ import {
   ListItemText,
   styled,
   Toolbar,
-} from '@mui/material';
-import { Page, PageId, pages, withPage } from '../pages';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { setUi } from '../../state/ui';
-import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons';
+} from '@mui/material'
+import { Page, PageId, pages, withPage } from '../pages'
+import { useAppDispatch, useAppSelector } from '../../store'
+import { setUi } from '../../state/ui'
+import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 
-export const DRAWER_SPACING_FULL = 30;
-export const DRAWER_SPACING_NARROW = 10;
+export const DRAWER_SPACING_FULL = 30
+export const DRAWER_SPACING_NARROW = 10
 
 interface MinimisedProp {
   minimised: boolean,
@@ -41,18 +41,18 @@ const StyledDrawer = styled(
       width: theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL),
     },
   }),
-);
+)
 const DrawerContent = styled('div')({
   display: 'flex',
   flexGrow: 1,
   overflowX: 'hidden',
   overflowY: 'auto',
-});
+})
 const FlexList = styled(List)({
   display: 'flex',
   flexDirection: 'column',
   flexGrow: 1,
-});
+})
 const StyledListItemButton = styled(
   ListItemButton,
   {
@@ -63,7 +63,7 @@ const StyledListItemButton = styled(
   height: theme.spacing(minimised ? 8 : 6),
   justifyContent: 'center',
   transition: theme.transitions.create(['color', 'height']),
-}));
+}))
 const MenuItemIcon = styled(
   ListItemIcon,
   {
@@ -75,7 +75,7 @@ const MenuItemIcon = styled(
   paddingLeft: theme.spacing(minimised ? 1.5 : 0.5),
   paddingRight: theme.spacing(minimised ? 0 : 3),
   transition: theme.transitions.create('padding'),
-}));
+}))
 const MenuItemText = styled(
   ListItemText,
   {
@@ -91,7 +91,7 @@ const MenuItemText = styled(
   '& .MuiListItemText-secondary': {
     display: 'inline',
   },
-}));
+}))
 
 export interface Props {
   minimised?: boolean,
@@ -107,7 +107,7 @@ export interface UserInterface {
   icon: ReactNode,
 }
 
-type MenuActionId = 'minimise';
+type MenuActionId = 'minimise'
 
 export interface MainMenuItemProps {
   dividerBefore?: boolean,
@@ -132,7 +132,7 @@ function MainMenuItem({
   const handleClick = useCallback(
     () => (id !== 'minimise' ? onClick(id) : onClick()),
     [id, onClick],
-  );
+  )
 
   return (
     <>
@@ -156,7 +156,7 @@ function MainMenuItem({
         />
       </StyledListItemButton>
     </>
-  );
+  )
 }
 
 
@@ -167,26 +167,26 @@ function MainMenu({
   open,
   page,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const navigate = useNavigate();
-  const metadata = useAppSelector(state => state.account.metadata);
+  const dispatch = useAppDispatch()
+  const navigate = useNavigate()
+  const metadata = useAppSelector(state => state.account.metadata)
 
   const handleClick = useCallback(
     (pageId?: PageId) => {
       if (pageId && page.id !== pageId) {
-        const newPage = pages.find(p => p.id === pageId)!;
-        navigate(newPage.path);
-        dispatch(setUi({ selected: [] }));
+        const newPage = pages.find(p => p.id === pageId)!
+        navigate(newPage.path)
+        dispatch(setUi({ selected: [] }))
       }
-      onClick();
+      onClick()
     },
     [page.id, dispatch, navigate, onClick],
-  );
+  )
 
   const pagesToShow = useMemo(
     () => pages.filter(p => (p.metadataControl ? p.metadataControl(metadata) : true)),
     [metadata],
-  );
+  )
 
   return (
     <StyledDrawer
@@ -224,8 +224,8 @@ function MainMenu({
         </FlexList>
       </DrawerContent>
     </StyledDrawer>
-  );
+  )
 }
-const MemoMainMenu = memo(MainMenu);
+const MemoMainMenu = memo(MainMenu)
 
-export default withPage(MemoMainMenu);
+export default withPage(MemoMainMenu)

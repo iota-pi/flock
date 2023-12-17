@@ -1,7 +1,7 @@
 import {
   useCallback,
   useState,
-} from 'react';
+} from 'react'
 import {
   Button,
   Container,
@@ -9,16 +9,16 @@ import {
   Grid,
   styled,
   Typography,
-} from '@mui/material';
-import ConfirmationDialog from '../../dialogs/ConfirmationDialog';
-import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons';
-import InlineText from '../../InlineText';
+} from '@mui/material'
+import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
+import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons'
+import InlineText from '../../InlineText'
 
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   paddingTop: theme.spacing(2),
   paddingBottom: theme.spacing(2),
-}));
+}))
 
 export interface BaseProps {
   canSend?: boolean,
@@ -65,7 +65,7 @@ export interface PropsWithNext extends BaseProps {
   onSkip: () => void,
 }
 
-export type Props = PropsWithSave | PropsWithDone | PropsWithNext;
+export type Props = PropsWithSave | PropsWithDone | PropsWithNext
 
 
 function DrawerActions({
@@ -84,19 +84,19 @@ function DrawerActions({
   permanentDrawer,
   promptSave = true,
 }: Props) {
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const handleClickDelete = useCallback(
     () => {
       if (!itemIsNew) {
-        setShowConfirm(true);
+        setShowConfirm(true)
       } else if (onCancel) {
-        onCancel();
+        onCancel()
       }
     },
     [itemIsNew, onCancel],
-  );
-  const handleClickConfirmCancel = useCallback(() => setShowConfirm(false), []);
+  )
+  const handleClickConfirmCancel = useCallback(() => setShowConfirm(false), [])
 
   return (
     <>
@@ -229,7 +229,7 @@ function DrawerActions({
         </ConfirmationDialog>
       )}
     </>
-  );
+  )
 }
 
-export default DrawerActions;
+export default DrawerActions

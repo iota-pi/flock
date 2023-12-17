@@ -1,4 +1,4 @@
-import { Component } from 'react';
+import { Component } from 'react'
 
 export interface Props {
   onUnmount?: () => void,
@@ -6,18 +6,18 @@ export interface Props {
 
 class UnmountWatcher extends Component<Props> {
   shouldComponentUpdate() {
-    return false;
+    return false
   }
 
   componentWillUnmount() {
     if (this.props.onUnmount) {
-      this.props.onUnmount();
+      this.props.onUnmount()
     }
   }
 
   render() {
-    return null;
+    return null
   }
 }
 
-export default UnmountWatcher;
+export default UnmountWatcher

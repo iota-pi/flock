@@ -1,16 +1,16 @@
-import { isSameDay } from '.';
-import { getItemName, Item } from '../state/items';
-import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies';
-import { getLastPrayedFor } from './prayer';
+import { isSameDay } from '.'
+import { getItemName, Item } from '../state/items'
+import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies'
+import { getLastPrayedFor } from './prayer'
 
 export type FilterFieldType = (
   'string' | 'number' | 'boolean' | 'date' | 'maturity' | 'frequency' | 'tag'
-);
+)
 export type FilterBaseOperatorName = (
   'is' |
   'contains' |
   'greater'
-);
+)
 export type FilterOperatorName = (
   FilterBaseOperatorName |
   'isnot' |
@@ -18,7 +18,7 @@ export type FilterOperatorName = (
   'lessthan' |
   'before' |
   'after'
-);
+)
 export interface FilterOperator {
   baseOperator: FilterBaseOperatorName,
   inverse: boolean,
@@ -33,7 +33,7 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
   greater: { name: 'Greater', baseOperator: 'greater', inverse: false },
   before: { name: 'Before', baseOperator: 'greater', inverse: true },
   after: { name: 'After', baseOperator: 'greater', inverse: false },
-};
+}
 
 export type FilterCriterionType = (
   'archived' |
@@ -44,7 +44,7 @@ export type FilterCriterionType = (
   'name' |
   'prayerFrequency' |
   'tags'
-);
+)
 export interface FilterCriterionDisplayData {
   name: string,
   dataType: FilterFieldType,
@@ -100,12 +100,12 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     name: 'Tags',
     operators: ['contains', 'notcontains'],
   },
-};
+}
 export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
   ([a], [b]) => a.localeCompare(b),
-) as [FilterCriterionType, FilterCriterionDisplayData][];
+) as [FilterCriterionType, FilterCriterionDisplayData][]
 
-export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [];
+export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = []
 
 export function filterItems<T extends Item>(
   items: T[],
@@ -115,119 +115,119 @@ export function filterItems<T extends Item>(
   const funcs: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
     archived: (item, criterion) => {
       if (criterion.baseOperator === 'is') {
-        return item.archived === criterion.value;
+        return item.archived === criterion.value
       }
-      return true;
+      return true
     },
     created: (item, criterion) => {
       if (criterion.baseOperator === 'is') {
-        return isSameDay(new Date(item.created), new Date(criterion.value as number));
+        return isSameDay(new Date(item.created), new Date(criterion.value as number))
       }
       if (criterion.baseOperator === 'greater') {
-        return item.created > (criterion.value as number);
+        return item.created > (criterion.value as number)
       }
-      return true;
+      return true
     },
     description: (item, criterion) => {
-      const description = item.description.toLocaleLowerCase();
-      const value = (criterion.value as string).toLocaleLowerCase();
+      const description = item.description.toLocaleLowerCase()
+      const value = (criterion.value as string).toLocaleLowerCase()
       if (criterion.baseOperator === 'is') {
-        return description === value;
+        return description === value
       }
       if (criterion.baseOperator === 'contains') {
-        return description.includes(value);
+        return description.includes(value)
       }
-      return true;
+      return true
     },
     lastPrayedFor: (item, criterion) => {
-      const lastPrayer = getLastPrayedFor(item);
-      const value = criterion.value as number;
+      const lastPrayer = getLastPrayedFor(item)
+      const value = criterion.value as number
       if (criterion.baseOperator === 'is') {
-        return isSameDay(new Date(lastPrayer), new Date(value));
+        return isSameDay(new Date(lastPrayer), new Date(value))
       }
       if (criterion.baseOperator === 'greater') {
-        return item.created > value;
+        return item.created > value
       }
-      return true;
+      return true
     },
     maturity: (item, criterion) => {
       if (item.type === 'person') {
         if (criterion.baseOperator === 'is') {
           if (criterion.value === -1) {
-            return item.maturity === null;
+            return item.maturity === null
           }
-          return item.maturity === maturityStages[criterion.value as number];
+          return item.maturity === maturityStages[criterion.value as number]
         }
         if (criterion.baseOperator === 'greater') {
           return (
             maturityStages.indexOf(item.maturity || '')
             > maturityStages.indexOf(criterion.value as string || '')
-          );
+          )
         }
       }
-      return true;
+      return true
     },
     name: (item, criterion) => {
-      const name = getItemName(item).toLocaleLowerCase();
-      const value = (criterion.value as string).toLocaleLowerCase();
+      const name = getItemName(item).toLocaleLowerCase()
+      const value = (criterion.value as string).toLocaleLowerCase()
       if (criterion.baseOperator === 'is') {
-        return name === value;
+        return name === value
       }
       if (criterion.baseOperator === 'contains') {
-        return name.includes(value);
+        return name.includes(value)
       }
-      return true;
+      return true
     },
     prayerFrequency: (item, criterion) => {
       if (criterion.baseOperator === 'is') {
-        return item.prayerFrequency === criterion.value;
+        return item.prayerFrequency === criterion.value
       }
       if (criterion.baseOperator === 'greater') {
-        const daysItem = FREQUENCIES_TO_DAYS[item.prayerFrequency];
-        const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency];
-        return daysItem < daysCriterion;
+        const daysItem = FREQUENCIES_TO_DAYS[item.prayerFrequency]
+        const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency]
+        return daysItem < daysCriterion
       }
-      return true;
+      return true
     },
     tags: (item, criterion) => {
       if (criterion.baseOperator === 'contains') {
-        const tags = item.tags.map(t => t.toLocaleLowerCase());
-        const tagToCheck = (criterion.value as string).toLocaleLowerCase();
+        const tags = item.tags.map(t => t.toLocaleLowerCase())
+        const tagToCheck = (criterion.value as string).toLocaleLowerCase()
         if (tagToCheck) {
-          return tags.includes(tagToCheck);
+          return tags.includes(tagToCheck)
         }
       }
-      return true;
+      return true
     },
-  };
+  }
 
   if (!criteria.length) {
-    return items;
+    return items
   }
 
   const filteredItems = items.filter(item => {
     for (const criterion of criteria) {
-      const func = funcs[criterion.type];
-      const baseResult = func(item, criterion);
-      const result = criterion.inverse ? !baseResult : baseResult;
+      const func = funcs[criterion.type]
+      const baseResult = func(item, criterion)
+      const result = criterion.inverse ? !baseResult : baseResult
       if (!result) {
-        return false;
+        return false
       }
     }
-    return true;
-  });
-  return filteredItems.length < items.length ? filteredItems : items;
+    return true
+  })
+  return filteredItems.length < items.length ? filteredItems : items
 }
 
 export function getBaseValue(field: FilterCriterionType): FilterCriterion['value'] {
-  const dataType = FILTER_CRITERIA_DISPLAY_MAP[field].dataType;
-  if (dataType === 'boolean') return false;
-  if (dataType === 'date') return new Date().getTime();
-  if (dataType === 'number') return 0;
-  if (dataType === 'string') return '';
-  if (dataType === 'maturity') return -1;
-  if (dataType === 'frequency') return 'monthly' as Frequency;
-  if (dataType === 'tag') return '';
+  const dataType = FILTER_CRITERIA_DISPLAY_MAP[field].dataType
+  if (dataType === 'boolean') return false
+  if (dataType === 'date') return new Date().getTime()
+  if (dataType === 'number') return 0
+  if (dataType === 'string') return ''
+  if (dataType === 'maturity') return -1
+  if (dataType === 'frequency') return 'monthly' as Frequency
+  if (dataType === 'tag') return ''
 
-  throw new Error(`Unknown data type ${dataType}`);
+  throw new Error(`Unknown data type ${dataType}`)
 }

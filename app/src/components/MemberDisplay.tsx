@@ -1,15 +1,15 @@
 import {
   useCallback,
   useMemo,
-} from 'react';
-import DeleteIcon from '@mui/icons-material/Close';
-import { GroupItem, Item, ItemId, PersonItem } from '../state/items';
-import { useItemsById, useMaturity, useSortCriteria } from '../state/selectors';
-import ItemList from './ItemList';
-import { useAppDispatch } from '../store';
-import { pushActive } from '../state/ui';
-import { sortItems } from '../utils/customSort';
-import Search from './Search';
+} from 'react'
+import DeleteIcon from '@mui/icons-material/Close'
+import { GroupItem, Item, ItemId, PersonItem } from '../state/items'
+import { useItemsById, useMaturity, useSortCriteria } from '../state/selectors'
+import ItemList from './ItemList'
+import { useAppDispatch } from '../store'
+import { pushActive } from '../state/ui'
+import { sortItems } from '../utils/customSort'
+import Search from './Search'
 
 
 export interface Props {
@@ -23,36 +23,36 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const dispatch = useAppDispatch();
-  const getItemsById = useItemsById();
-  const [sortCriteria] = useSortCriteria();
-  const [maturity] = useMaturity();
+  const dispatch = useAppDispatch()
+  const getItemsById = useItemsById()
+  const [sortCriteria] = useSortCriteria()
+  const [maturity] = useMaturity()
 
   const members = useMemo(
     () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria, maturity),
     [getItemsById, maturity, memberIds, sortCriteria],
-  );
+  )
 
   const handleClickItem = useCallback(
     (item: PersonItem) => {
-      dispatch(pushActive({ item: item.id }));
+      dispatch(pushActive({ item: item.id }))
     },
     [dispatch],
-  );
+  )
   const handleRemoveMember = useCallback(
     (member: PersonItem) => {
-      onChange({ members: memberIds.filter(m => m !== member.id) });
+      onChange({ members: memberIds.filter(m => m !== member.id) })
     },
     [memberIds, onChange],
-  );
+  )
   const handleChangeMembers = useCallback(
     (item?: Item) => {
       if (item) {
-        onChange({ members: [...memberIds, item.id] });
+        onChange({ members: [...memberIds, item.id] })
       }
     },
     [memberIds, onChange],
-  );
+  )
 
   return (
     <>
@@ -80,7 +80,7 @@ function MemberDisplay({
         showIcons
       />
     </>
-  );
+  )
 }
 
-export default MemberDisplay;
+export default MemberDisplay

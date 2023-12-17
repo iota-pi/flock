@@ -1,12 +1,12 @@
-import { memo, useEffect, useRef } from 'react';
-import { Alert, styled, Typography } from '@mui/material';
-import { getItemTypeLabel, ItemType } from '../../../state/items';
-import InlineText from '../../InlineText';
+import { memo, useEffect, useRef } from 'react'
+import { Alert, styled, Typography } from '@mui/material'
+import { getItemTypeLabel, ItemType } from '../../../state/items'
+import InlineText from '../../InlineText'
 
 const StyledAlert = styled(Alert)(({ theme }) => ({
   transition: theme.transitions.create('all'),
   marginTop: theme.spacing(1),
-}));
+}))
 
 
 const DuplicateAlert = memo(({
@@ -16,16 +16,16 @@ const DuplicateAlert = memo(({
   hasDescription: boolean;
   itemType: ItemType;
 }) => {
-  const ref = useRef<number>(1);
+  const ref = useRef<number>(1)
   useEffect(() => {
     if (count > 0) {
-      ref.current = count;
+      ref.current = count
     }
-  });
-  const displayCount = count || ref.current;
+  })
+  const displayCount = count || ref.current
 
-  const plural = displayCount !== 1;
-  const areOrIs = plural ? 'are' : 'is';
+  const plural = displayCount !== 1
+  const areOrIs = plural ? 'are' : 'is'
 
   return (
     <StyledAlert
@@ -49,8 +49,8 @@ const DuplicateAlert = memo(({
         </Typography>
       )}
     </StyledAlert>
-  );
-});
-DuplicateAlert.displayName = 'DuplicateAlert';
+  )
+})
+DuplicateAlert.displayName = 'DuplicateAlert'
 
-export default DuplicateAlert;
+export default DuplicateAlert

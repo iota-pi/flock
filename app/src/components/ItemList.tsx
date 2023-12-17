@@ -6,7 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
-} from 'react';
+} from 'react'
 import {
   Box,
   Breakpoint,
@@ -24,20 +24,20 @@ import {
   SxProps,
   Theme,
   useMediaQuery,
-} from '@mui/material';
+} from '@mui/material'
 import {
   ListChildComponentProps,
   ListItemKeySelector,
   VariableSizeList,
-} from 'react-window';
-import { getItemName, isItem, Item } from '../state/items';
-import TagDisplay from './TagDisplay';
-import { getIcon as getItemIcon } from './Icons';
-import { MostlyRequired, usePrevious, useStringMemo } from '../utils';
+} from 'react-window'
+import { getItemName, isItem, Item } from '../state/items'
+import TagDisplay from './TagDisplay'
+import { getIcon as getItemIcon } from './Icons'
+import { MostlyRequired, usePrevious, useStringMemo } from '../utils'
 
-const FADED_OPACITY = 0.65;
-const TAG_ROW_BREAKPOINT: Breakpoint = 'md';
-const MIN_ROW_HEIGHT = 72;
+const FADED_OPACITY = 0.65
+const TAG_ROW_BREAKPOINT: Breakpoint = 'md'
+const MIN_ROW_HEIGHT = 72
 
 const StyledListItem = styled(ListItemButton)(
   ({ dense }) => ({
@@ -46,7 +46,7 @@ const StyledListItem = styled(ListItemButton)(
       opacity: '1 !important',
     },
   }),
-);
+)
 const StyledListItemText = styled(
   ListItemText,
   {
@@ -64,17 +64,17 @@ const StyledListItemText = styled(
       overflow: !wrapText ? 'hidden' : undefined,
     },
   }),
-);
+)
 const StyledListItemIcon = styled(
   ({ faded: _, ...props }: ListItemIconProps & { faded?: boolean }) => <ListItemIcon {...props} />,
 )(({ faded, theme }) => ({
   opacity: faded ? FADED_OPACITY : undefined,
   transition: theme.transitions.create('opacity'),
-}));
+}))
 const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
   justifyContent: 'flex-end',
   minWidth: theme.spacing(5),
-}));
+}))
 
 export interface ItemListExtraElement {
   content: ReactNode,
@@ -115,7 +115,7 @@ export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
 }
 
 export function ItemListItem<T extends Item>(props: ListChildComponentProps<BaseProps<T>>) {
-  const { data, index, style } = props;
+  const { data, index, style } = props
   const {
     checkboxes,
     checkboxSide,
@@ -139,76 +139,76 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     showIcons = false,
     showTags = true,
     wrapText = false,
-  } = data;
-  const item = items[index];
+  } = data
+  const item = items[index]
 
   const handleClick = useCallback(
     () => onClick?.(item),
     [item, onClick],
-  );
+  )
   const handleClickAction = useCallback(
     (event: MouseEvent) => {
-      event.stopPropagation();
+      event.stopPropagation()
       if (onClickAction) {
-        return onClickAction(item);
+        return onClickAction(item)
       } else if (onClick) {
-        return onClick(item);
+        return onClick(item)
       }
-      return undefined;
+      return undefined
     },
     [item, onClick, onClickAction],
-  );
+  )
   const handleCheck = useCallback(
     (event: MouseEvent) => {
       if (onCheck) {
-        event.stopPropagation();
-        onCheck(item);
+        event.stopPropagation()
+        onCheck(item)
       }
     },
     [item, onCheck],
-  );
+  )
 
   const actionIcon = useMemo(
     () => getActionIcon?.(item),
     [getActionIcon, item],
-  );
-  const checked = useMemo(() => getChecked?.(item), [getChecked, item]);
+  )
+  const checked = useMemo(() => getChecked?.(item), [getChecked, item])
   const icon = useMemo(
     () => getIcon?.(item) || (isItem(item) ? getItemIcon(item.type) : undefined),
     [getIcon, item],
-  );
+  )
   const title = useMemo(
     () => getTitle?.(item) || (isItem(item) ? getItemName(item) : undefined),
     [getTitle, item],
-  );
+  )
   const description = useMemo(
     () => {
-      const defaultDescription = isItem(item) ? item.description : '';
-      const base = getDescription ? getDescription(item) : defaultDescription;
-      const clipped = base.slice(0, 100);
+      const defaultDescription = isItem(item) ? item.description : ''
+      const base = getDescription ? getDescription(item) : defaultDescription
+      const clipped = base.slice(0, 100)
       if (clipped.length < base.length) {
-        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '));
-        return `${clippedToWord}…`;
+        const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '))
+        return `${clippedToWord}…`
       }
-      return base;
+      return base
     },
     [getDescription, item],
-  );
+  )
   const faded = useMemo(
     () => {
       if (isItem(item) && item.archived && fadeArchived) {
-        return true;
+        return true
       }
       if (getForceFade && getForceFade(item)) {
-        return true;
+        return true
       }
-      return false;
+      return false
     },
     [fadeArchived, getForceFade, item],
-  );
-  const highlighted = useMemo(() => getHighlighted?.(item), [getHighlighted, item]);
+  )
+  const highlighted = useMemo(() => getHighlighted?.(item), [getHighlighted, item])
 
-  const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon;
+  const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon
   const checkbox = checkboxes && onCheck && (
     <CheckboxHolder>
       <Checkbox
@@ -220,12 +220,12 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
         inputProps={{ 'aria-labelledby': `${item.id}-text` }}
       />
     </CheckboxHolder>
-  );
+  )
 
   const extras = useMemo(
     () => (extraElements || []).filter(e => e.index === index).map(e => e.content),
     [extraElements, index],
-  );
+  )
 
   return (
     <div style={style}>
@@ -301,9 +301,9 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>
     </div>
-  );
+  )
 }
-const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem;
+const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem
 
 function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
@@ -335,8 +335,8 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     showTags = true,
     viewHeight,
     wrapText,
-  } = props;
-  const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT));
+  } = props
+  const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT))
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -387,36 +387,36 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       showTags,
       wrapText,
     ],
-  );
+  )
 
   const getItemKey: ListItemKeySelector<BaseProps<Item>> = useCallback(
     (index, data) => data.items[index].id,
     [],
-  );
+  )
   const extraElementsByIndex = useMemo(
     () => items.map((_, index) => {
-      const elementsForIndex = extraElements?.filter(ee => ee.index === index) || [];
-      const elementsWithContent = elementsForIndex.filter(e => !!e.content);
+      const elementsForIndex = extraElements?.filter(ee => ee.index === index) || []
+      const elementsWithContent = elementsForIndex.filter(e => !!e.content)
       return {
         content: elementsWithContent.map(e => e.content),
         height: elementsWithContent.reduce((total, e) => total + e.height, 0),
-      };
+      }
     }),
     [extraElements, items],
-  );
+  )
   const itemHeights = useMemo(
     () => items.map(
       (item, index) => {
-        const textHeight = 24;
+        const textHeight = 24
         const descriptionHeight = (
           isItem(item)
           && (getDescription?.(item) || item.description)
             ? 20
             : 0
-        );
-        const textMargin = 6 * 2;
-        const tagsHeight = !isItem(item) || item.tags.length === 0 || tagsOnSameRow ? 0 : 40;
-        const padding = 8 * 2;
+        )
+        const textMargin = 6 * 2
+        const tagsHeight = !isItem(item) || item.tags.length === 0 || tagsOnSameRow ? 0 : 40
+        const padding = 8 * 2
         const total = Math.max(
           (
             textHeight + descriptionHeight + textMargin
@@ -424,42 +424,42 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
             + padding
           ),
           MIN_ROW_HEIGHT,
-        );
-        const extraElementsHeight = extraElementsByIndex[index].height;
-        return total + extraElementsHeight;
+        )
+        const extraElementsHeight = extraElementsByIndex[index].height
+        return total + extraElementsHeight
       },
     ),
     [extraElementsByIndex, getDescription, items, tagsOnSameRow],
-  );
-  const memoisedHeights = useStringMemo(itemHeights);
+  )
+  const memoisedHeights = useStringMemo(itemHeights)
   const getItemSize = useCallback(
     (index: number) => memoisedHeights[index],
     [memoisedHeights],
-  );
+  )
 
-  const noStyle = useRef({});
-  const listRef = useRef<VariableSizeList<BaseProps<Item>>>(null);
+  const noStyle = useRef({})
+  const listRef = useRef<VariableSizeList<BaseProps<Item>>>(null)
 
-  const prevHeights = usePrevious(memoisedHeights);
+  const prevHeights = usePrevious(memoisedHeights)
   useEffect(
     () => {
-      let firstChange = 0;
+      let firstChange = 0
       if (prevHeights) {
-        const length = Math.min(prevHeights.length, memoisedHeights.length);
+        const length = Math.min(prevHeights.length, memoisedHeights.length)
         for (; firstChange < length; ++firstChange) {
           if (memoisedHeights[firstChange] !== prevHeights[firstChange]) {
-            break;
+            break
           }
         }
         if (firstChange < length) {
-          listRef.current?.resetAfterIndex(firstChange, true);
+          listRef.current?.resetAfterIndex(firstChange, true)
         }
       }
     },
     [listRef, memoisedHeights, prevHeights],
-  );
+  )
 
-  const rootStyles: SxProps = useMemo(() => ({ paddingBottom }), [paddingBottom]);
+  const rootStyles: SxProps = useMemo(() => ({ paddingBottom }), [paddingBottom])
 
   return (
     <List
@@ -500,7 +500,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
 
       {dividers && <Divider />}
     </List>
-  );
+  )
 }
 
-export default ItemList;
+export default ItemList

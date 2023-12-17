@@ -9,10 +9,10 @@ import {
   Stack,
   styled,
   TextField,
-} from '@mui/material';
-import { ChangeEvent, useCallback, useEffect, useState } from 'react';
-import { checkSubscription } from '../../utils/firebase';
-import { RemoveIcon } from '../Icons';
+} from '@mui/material'
+import { ChangeEvent, useCallback, useEffect, useState } from 'react'
+import { checkSubscription } from '../../utils/firebase'
+import { RemoveIcon } from '../Icons'
 
 export interface Props {
   onClose: () => void,
@@ -50,11 +50,11 @@ const hourOptions = [
   { text: '9pm', value: 21 },
   { text: '10pm', value: 22 },
   { text: '11pm', value: 23 },
-];
+]
 
 const DialogContentNarrowPadding = styled(DialogContent)(({ theme }) => ({
   padding: theme.spacing(2),
-}));
+}))
 
 export interface SubscriptionTimeProps {
   id: number,
@@ -72,11 +72,11 @@ function SubscriptionTime({
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => onChange(id, +event.target.value),
     [id, onChange],
-  );
+  )
   const handleRemove = useCallback(
     () => onRemove(id),
     [id, onRemove],
-  );
+  )
 
   return (
     <Box
@@ -105,7 +105,7 @@ function SubscriptionTime({
         <RemoveIcon />
       </IconButton>
     </Box>
-  );
+  )
 }
 
 function SubscriptionDialog({
@@ -113,11 +113,11 @@ function SubscriptionDialog({
   onSave,
   open,
 }: Props) {
-  const [hours, setHours] = useState<SubscriptionHour[]>([]);
+  const [hours, setHours] = useState<SubscriptionHour[]>([])
 
   useEffect(
     () => {
-      let cancelled = false;
+      let cancelled = false
       checkSubscription().then(existing => {
         if (!cancelled && existing) {
           setHours(
@@ -125,40 +125,40 @@ function SubscriptionDialog({
               hour,
               id: Math.random(),
             })),
-          );
+          )
         } else {
-          setHours([]);
+          setHours([])
         }
-      }).catch(console.error);
-      return () => { cancelled = true; };
+      }).catch(console.error)
+      return () => { cancelled = true }
     },
     [],
-  );
+  )
 
   const handleSave = useCallback(
     () => {
       if (hours.length > 0) {
-        const hoursPlain = hours.map(hour => hour.hour);
-        onSave(hoursPlain);
+        const hoursPlain = hours.map(hour => hour.hour)
+        onSave(hoursPlain)
       } else {
-        onSave(null);
+        onSave(null)
       }
     },
     [hours, onSave],
-  );
+  )
   const handleChange = useCallback(
     (id: number, hour: number) => setHours(
       oldHours => {
-        const index = oldHours.findIndex(h => h.id === id);
+        const index = oldHours.findIndex(h => h.id === id)
         return [
           ...oldHours.slice(0, index),
           { ...oldHours[index], hour },
           ...oldHours.slice(index + 1),
-        ];
+        ]
       },
     ),
     [],
-  );
+  )
   const handleAdd = useCallback(
     () => setHours(
       oldHours => [
@@ -167,17 +167,17 @@ function SubscriptionDialog({
       ],
     ),
     [],
-  );
+  )
   const handleRemove = useCallback(
     (id: number) => setHours(oldHours => {
-      const index = oldHours.findIndex(hour => hour.id === id);
+      const index = oldHours.findIndex(hour => hour.id === id)
       return [
         ...oldHours.slice(0, index),
         ...oldHours.slice(index + 1),
-      ];
+      ]
     }),
     [],
-  );
+  )
 
   return (
     <Dialog
@@ -242,7 +242,7 @@ function SubscriptionDialog({
         </Stack>
       </DialogContentNarrowPadding>
     </Dialog>
-  );
+  )
 }
 
-export default SubscriptionDialog;
+export default SubscriptionDialog
