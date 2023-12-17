@@ -2,6 +2,7 @@ import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolki
 import type { Design } from 'react-email-editor';
 import { Recipient } from '../../../koinonia/sender/types';
 import { getBlankMessageItem, getItemName, MessageItem, PersonItem } from './items';
+import { RootState } from '../store';
 
 export interface MessageSummary {
   message: string,
@@ -47,7 +48,7 @@ export const {
   selectEntities: selectMessages,
   selectAll: selectAllMessages,
   selectTotal: selectMessageCount,
-} = messagesAdapter.getSelectors();
+} = messagesAdapter.getSelectors((state: RootState) => state.messages);
 
 // TODO: where should these utilities go? they don't really belong here
 export function getRecipientFields(people: PersonItem[]): Recipient[] {

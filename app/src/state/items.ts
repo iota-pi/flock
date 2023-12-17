@@ -1,6 +1,7 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { capitalise, getItemId } from '../utils';
+import { capitalise, generateItemId } from '../utils';
 import { Frequency } from '../utils/frequencies';
+import { RootState } from '../store';
 
 export type ItemId = string;
 export type ItemType = 'person' | 'group' | 'general';
@@ -77,7 +78,7 @@ export const {
   selectEntities: selectItems,
   selectAll: selectAllItems,
   selectTotal: selectItemCount,
-} = itemsAdapter.getSelectors();
+} = itemsAdapter.getSelectors((state: RootState) => state.items);
 
 export function isItem(item: TypedFlockItem): item is Item {
   return (ITEM_TYPES as TypedFlockItem['type'][]).includes(item.type);
@@ -92,7 +93,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     archived: false,
     created: new Date().getTime(),
     description: '',
-    id: id || getItemId(),
+    id: id || generateItemId(),
     prayedFor: [],
     prayerFrequency: 'monthly',
     summary: '',

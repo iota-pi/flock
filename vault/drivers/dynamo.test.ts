@@ -1,5 +1,5 @@
 import DynamoDriver, { getConnectionParams } from './dynamo';
-import { getAccountId, getItemId } from '../../app/src/utils';
+import { generateAccountId, generateItemId } from '../../app/src/utils';
 import { VaultItemType } from './base';
 
 async function stringToPromise(s: string): Promise<string> {
@@ -13,8 +13,8 @@ describe('DynamoDriver', function () {
   });
 
   it('set, get, delete', async () => {
-    const account = getAccountId();
-    const item = getItemId();
+    const account = generateAccountId();
+    const item = generateItemId();
     const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
@@ -30,8 +30,8 @@ describe('DynamoDriver', function () {
   });
 
   it('set can create and update', async () => {
-    const account = getAccountId();
-    const item = getItemId();
+    const account = generateAccountId();
+    const item = generateItemId();
     const type: VaultItemType = 'person';
     let cipher = 'hello';
     let iv = 'there';
@@ -46,14 +46,14 @@ describe('DynamoDriver', function () {
   });
 
   it('fetchAll works', async () => {
-    const account = getAccountId();
+    const account = generateAccountId();
     const individuals = [];
     const type: VaultItemType = 'person';
     const cipher = 'hello';
     const iv = 'there';
     const modified = new Date().getTime();
     for (let i = 0; i < 10; ++i) {
-      const item = getItemId();
+      const item = generateItemId();
       individuals.push(item);
       await driver.set({ account, item, cipher, metadata: { type, iv, modified } });
     }
@@ -62,7 +62,7 @@ describe('DynamoDriver', function () {
   });
 
   it('createAccount and checkPassword', async () => {
-    const account = getAccountId();
+    const account = generateAccountId();
     const authToken = stringToPromise('an_example_auth_token_for_testing');
     const success = await driver.createAccount({ account, authToken });
     expect(success).toBe(true);
@@ -77,7 +77,7 @@ describe('DynamoDriver', function () {
   });
 
   it('repeated createAccount calls fail', async () => {
-    const account = getAccountId();
+    const account = generateAccountId();
     const authToken = stringToPromise('an_example_auth_token_for_testing');
     const result1 = await driver.createAccount({ account, authToken });
     expect(result1).toBe(true);

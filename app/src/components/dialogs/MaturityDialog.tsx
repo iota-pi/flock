@@ -16,46 +16,16 @@ import {
 import FlipMove from 'react-flip-move';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { getItemId } from '../../utils';
+import { generateItemId } from '../../utils';
 import { RemoveIcon } from '../Icons';
 import { PersonItem } from '../../state/items';
-import { storeItems } from '../../api/Vault';
 import { useItems, useMaturity } from '../../state/selectors';
+import { MaturityControl, updateMaturityForPeople } from '../../utils/maturity';
 
 
 export interface Props {
   onClose: () => void,
   open: boolean,
-}
-
-export interface MaturityControl {
-  id: string,
-  name: string,
-}
-
-export function updateMaturityForPeople(
-  people: PersonItem[],
-  original: MaturityControl[],
-  updated: MaturityControl[],
-) {
-  const map = new Map<string, PersonItem[]>();
-  people.forEach(person => {
-    if (person.maturity) {
-      const existing = map.get(person.maturity) || [];
-      map.set(person.maturity, [...existing, person]);
-    }
-  });
-  const updatedPeople: PersonItem[] = [];
-  for (const stage of updated) {
-    const originalStage = original.find(({ id }) => id === stage.id);
-    if (originalStage && stage.name !== originalStage.name) {
-      const peopleWithMaturity = map.get(originalStage.name) || [];
-      updatedPeople.push(
-        ...peopleWithMaturity.map(p => ({ ...p, maturity: stage.name.trim() })),
-      );
-    }
-  }
-  storeItems(updatedPeople);
 }
 
 function MaturitySingleStage({
@@ -161,7 +131,7 @@ function MaturityDialog({
 
   useEffect(
     () => {
-      const withIds = maturity.map(m => ({ id: getItemId(), name: m }));
+      const withIds = maturity.map(m => ({ id: generateItemId(), name: m }));
       setLocalMaturity(withIds);
       setOriginal(withIds);
     },
@@ -179,7 +149,7 @@ function MaturityDialog({
   const handleAdd = useCallback(
     () => {
       setDisableAnimation(true);
-      const id = getItemId();
+      const id = generateItemId();
       setLocalMaturity(lm => [...lm, { id, name: '' }]);
       setAutoFocusId(id);
     },
@@ -228,8 +198,8 @@ function MaturityDialog({
     [],
   );
   const handleDone = useCallback(
-    () => {
-      updateMaturityForPeople(people, original, localMaturity);
+    async () => {
+      await updateMaturityForPeople(people, original, localMaturity);
       setMaturity(localMaturity.map(m => m.name.trim()).filter(m => m));
       onClose();
     },

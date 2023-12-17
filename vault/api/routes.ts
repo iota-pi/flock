@@ -8,7 +8,10 @@ import { getAuthToken } from './util';
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = getDriver('dynamo');
 
-  fastify.get('/', async () => ({ ping: 'pong' }));
+  fastify.get('/', async () => {
+    fastify.log.info('ping pong response initiated');
+    return { ping: 'pong' };
+  });
 
   fastify.get('/:account/items', async (request, reply) => {
     const account = (request.params as { account: string }).account;

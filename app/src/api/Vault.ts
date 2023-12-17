@@ -29,6 +29,7 @@ import { listMessages } from './KoinoniaAPI';
 import migrateItems from '../state/migrations';
 
 const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey';
+const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount';
 const VAULT_ITEM_CACHE = 'vaultItemCache';
 const VAULT_ITEM_CACHE_TIME = 'vaultItemCacheTime';
 
@@ -72,16 +73,19 @@ function getKey() {
   return key;
 }
 
-async function updateKeyHash() {
+async function updateKeyHash(isNewAccount?: boolean) {
   const keyBuffer = await crypto.subtle.exportKey('raw', getKey());
   const keyHashBytes = await crypto.subtle.digest('SHA-512', keyBuffer);
   keyHash = fromBytes(keyHashBytes);
   initAxios(keyHash);
-  store.dispatch(setAccount({ loggedIn: true }));
+  if (!isNewAccount) {
+    store.dispatch(setAccount({ loggedIn: true }));
+  }
 }
 
 export async function initialiseVault(
   password: string,
+  isNewAccount = false,
   iterations?: number,
 ) {
   const accountId = getAccountId();
@@ -105,11 +109,19 @@ export async function initialiseVault(
     true,
     ['encrypt', 'decrypt'],
   );
-  await updateKeyHash();
-  await initialLoadFromVault();
+  await updateKeyHash(isNewAccount);
+  if (!isNewAccount) {
+    await initialLoadFromVault();
+    await storeVault();
+  }
 }
 
 export async function loadVault() {
+  const account = localStorage.getItem(ACCOUNT_STORAGE_KEY);
+  if (account) {
+    store.dispatch(setAccount({ account }));
+  }
+
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY);
   if (storedKey) {
     key = await crypto.subtle.importKey(
@@ -129,6 +141,7 @@ export async function storeVault() {
     VAULT_KEY_STORAGE_KEY,
     fromBytes(await crypto.subtle.exportKey('raw', getKey())),
   );
+  localStorage.setItem(ACCOUNT_STORAGE_KEY, getAccountId());
 }
 
 async function initialLoadFromVault() {
@@ -138,7 +151,6 @@ async function initialLoadFromVault() {
     error => console.warn('Failed to get messages', error),
   );
 
-  // NB: account metadata needs to be available before migrating items
   await accountDataPromise;
 
   const items = await itemsPromise;
@@ -248,7 +260,7 @@ export async function storeManyItems(items: Item[]) {
   });
 }
 
-function getItemCacheTime() {
+export function getItemCacheTime() {
   const raw = localStorage.getItem(VAULT_ITEM_CACHE_TIME);
   if (raw) {
     return parseInt(raw);
@@ -256,7 +268,7 @@ function getItemCacheTime() {
   return null;
 }
 
-async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
+export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
   const rawCache = localStorage.getItem(VAULT_ITEM_CACHE);
   if (rawCache) {
     const cachedItems: VaultItem[] = JSON.parse(rawCache);
@@ -284,7 +296,7 @@ async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Pro
   return items as VaultItem[];
 }
 
-function setItemCache(items: VaultItem[]) {
+export function setItemCache(items: VaultItem[]) {
   const raw = JSON.stringify(items);
   localStorage.setItem(VAULT_ITEM_CACHE, raw);
   localStorage.setItem(VAULT_ITEM_CACHE_TIME, new Date().getTime().toString());

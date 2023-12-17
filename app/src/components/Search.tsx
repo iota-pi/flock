@@ -654,11 +654,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           />
         )}
         renderOption={
-          (props, option): PropsAndOption => ([
+          (props, option) => ([
             props,
             option,
             { showDescriptions, showGroupMemberCounts, showIcons },
-          ])
+          ]) as React.ReactNode
         }
         renderTags={(selectedOptions, getTagProps) => (
           selectedOptions.map((option, index) => (

@@ -8,7 +8,7 @@ import ItemDrawer from '../drawers/ItemDrawer';
 import PlaceholderDrawer from '../drawers/Placeholder';
 import ReportDrawer from '../drawers/ReportDrawer';
 import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors';
-import { getItemId, usePrevious } from '../../utils';
+import { generateItemId, usePrevious } from '../../utils';
 import EditMessageDrawer from '../drawers/EditMessageDrawer';
 import { usePage } from '../pages';
 import MessageDrawer from '../drawers/MessageDrawer';
@@ -65,7 +65,7 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const existingItem = useItem(drawer.item || getItemId());
+  const existingItem = useItem(drawer.item || generateItemId());
   const existingMessage = useMessageItem(drawer.item || '');
   const item = existingItem || existingMessage || drawer.newItem;
 

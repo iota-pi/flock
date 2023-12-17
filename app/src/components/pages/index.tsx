@@ -174,7 +174,7 @@ export function getPage(page: AnyPageId) {
 export function usePage() {
   const location = useLocation();
   const page = useMemo(
-    () => reversedPages.find(p => matchPath(location.pathname, p.path)),
+    () => allPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
   );
   if (page) {

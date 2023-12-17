@@ -1,5 +1,3 @@
-jest.mock('./env', () => ({
-  rootURI: '',
-  campus: '',
-  contactURI: '',
-}));
+jest.mock('./env');
+
+globalThis.isSecureContext = true;

@@ -10,7 +10,7 @@ resource "aws_lambda_function" "vault" {
   function_name = "flock-vault-${var.environment}"
 
   handler     = "lambda.handler"
-  runtime     = "nodejs14.x"
+  runtime     = "nodejs20.x"
   memory_size = 512
   timeout     = 5
 
@@ -34,7 +34,7 @@ resource "aws_lambda_function" "vault_migrations" {
   function_name = "flock-vault-migrations-${var.environment}"
 
   handler     = "lambda.migrationHandler"
-  runtime     = "nodejs14.x"
+  runtime     = "nodejs20.x"
   memory_size = 512
   timeout     = 60
 
@@ -58,7 +58,7 @@ resource "aws_lambda_function" "vault_notifier" {
   function_name = "flock-vault-notifications-${var.environment}"
 
   handler     = "lambda.notifierHandler"
-  runtime     = "nodejs14.x"
+  runtime     = "nodejs20.x"
   memory_size = 512
   timeout     = 60
 

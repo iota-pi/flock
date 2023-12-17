@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { AlertColor } from '@mui/material';
-import { getItemId } from '../utils';
+import type { AlertColor } from '@mui/material';
+import { generateItemId } from '../utils';
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter';
 import { deleteItems, ItemId, TypedFlockItem } from './items';
 
@@ -83,8 +83,14 @@ const uiSlice = createSlice({
     startRequest(state) {
       state.requests.active++;
     },
-    finishRequest(state) {
+    finishRequest(state, action: PayloadAction<string | undefined>) {
       state.requests.active--;
+      if (action.payload) {
+        state.message = {
+          severity: 'error',
+          message: action.payload,
+        };
+      }
     },
     setMessage(state, action: PayloadAction<BaseUIMessage>) {
       state.message = {
@@ -118,7 +124,7 @@ const uiSlice = createSlice({
       const openItems = state.drawers.filter(drawer => drawer.open);
       const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
       const newItem: DrawerData = {
-        id: lastItem ? lastItem.id : getItemId(),
+        id: lastItem ? lastItem.id : generateItemId(),
         open: true,
         ...action.payload,
       };
@@ -132,7 +138,7 @@ const uiSlice = createSlice({
       const openItems = state.drawers.filter(drawer => drawer.open);
       const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined;
       const newItem: DrawerData = {
-        id: getItemId(),
+        id: generateItemId(),
         open: true,
         ...lastItem,
         ...action.payload,
@@ -141,7 +147,7 @@ const uiSlice = createSlice({
     },
     pushActive(state, action: PayloadAction<PushActiveData>) {
       const newItem: DrawerData = {
-        id: getItemId(),
+        id: generateItemId(),
         open: true,
         ...action.payload,
       };

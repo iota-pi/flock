@@ -137,7 +137,7 @@ function CreateAccountPage() {
       setWaiting(true);
       try {
         dispatch(setAccount({ account }));
-        await initialiseVault(password);
+        await initialiseVault(password, true);
         const success = await vaultCreateAccount();
         if (success) {
           setError('');

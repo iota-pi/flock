@@ -13,7 +13,7 @@ export function generateAccountId() {
   return uuidv4();
 }
 
-export function getItemId() {
+export function generateItemId() {
   return uuidv4();
 }
 

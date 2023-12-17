@@ -21,7 +21,7 @@ export const MAX_ITEMS_FETCH = 5000;
 
 export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}
 
-export default class DynamoDriver<T = DynamoOptions> extends BaseDriver<T> {
+export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> extends BaseDriver<T> {
   private client: AWS.DynamoDB.DocumentClient | undefined;
 
   async init(_options?: T) {

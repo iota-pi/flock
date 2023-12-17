@@ -1,7 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import {
   finishRequest as finishRequestAction,
-  setMessage,
   startRequest as startRequestAction,
 } from '../state/ui';
 import store from '../store';
@@ -36,13 +35,7 @@ function startRequest() {
 }
 
 function finishRequest(error?: string) {
-  store.dispatch(finishRequestAction());
-  if (error) {
-    store.dispatch(setMessage({
-      message: error,
-      severity: 'error',
-    }));
-  }
+  store.dispatch(finishRequestAction(error));
 }
 
 export async function wrapRequest<T>(promise: Promise<T>): Promise<T> {

@@ -21,6 +21,7 @@ services:
       - DYNAMODB_ENDPOINT=http://dynamodb:8000
       - PROD_APP_URL=https://flock.cross-code.org
       - GOOGLE_APPLICATION_CREDENTIALS=gcp-service-credentials.json
+      - NODE_ENV=development
     ports:
       - 4000:4000
     volumes:
