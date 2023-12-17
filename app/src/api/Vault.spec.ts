@@ -1,9 +1,10 @@
 import store from '../store';
-import { getBlankGroup, getBlankPerson, Item } from '../state/items';
+import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items';
 import * as vault from './Vault';
 import * as common from './common';
 import * as api from './VaultAPI';
 import type { VaultItem } from './VaultAPI';
+import { AccountMetadata, AccountState } from '../state/account';
 
 describe('Vault (Crypto)', () => {
   beforeAll(
@@ -28,6 +29,10 @@ describe('Vault (Crypto)', () => {
     },
     10000,
   );
+
+  beforeEach(() => {
+    store.dispatch(setItems([]));
+  });
 
   test('encrypt and decrypt', async () => {
     const text = 'It came to me on my birthday, my precious.';
@@ -91,72 +96,68 @@ describe('Vault (Crypto)', () => {
     expect(result).toEqual(original);
   });
 
-  // test('delete a single item', async () => {
-  //   const api = { delete: jest.fn() };
-  //   vault['api'] = api as any;
-  //   const id = generateItemId();
+  test('delete a single item', async () => {
+    const item = getBlankPerson();
+    await vault.storeItems(item);
 
-  //   await vault.delete(id);
+    const deleteAPI = jest.spyOn(api, 'vaultDelete').mockReturnValue(Promise.resolve());
 
-  //   expect(dispatch).toHaveBeenCalledWith(deleteItems([id], true));
-  //   const apiCallParams = api.delete.mock.calls[0][0];
-  //   expect(apiCallParams).toMatchObject({
-  //     item: id,
-  //   });
-  // });
+    await vault.deleteItems(item.id);
 
-  // test('delete multiple items', async () => {
-  //   const vault = await getVault(dispatch);
-  //   const api = { deleteMany: jest.fn() };
-  //   vault['api'] = api as any;
-  //   const ids = [generateItemId(), generateItemId(), generateItemId()];
+    expect(store.getState().items.ids).toHaveLength(0);
+    const apiCallParams = deleteAPI.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      item: item.id,
+    });
+  });
 
-  //   await vault.delete(ids);
+  test('delete multiple items', async () => {
+    const items = [getBlankPerson(), getBlankPerson(), getBlankPerson()];
+    await vault.storeItems(items);
 
-  //   expect(dispatch).toHaveBeenCalledWith(deleteItems(ids, true));
-  //   const apiCallParams = api.deleteMany.mock.calls[0][0];
-  //   expect(apiCallParams).toMatchObject({
-  //     items: ids,
-  //   });
-  // });
+    const deleteAPI = jest.spyOn(api, 'vaultDeleteMany').mockReturnValue(Promise.resolve());
 
-  // test('setMetadata', async () => {
-  //   const vault = await getVault(dispatch);
-  //   const api = { setMetadata: jest.fn() };
-  //   vault['api'] = api as any;
-  //   const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] };
+    await vault.deleteItems([items[1].id, items[2].id]);
 
-  //   await vault.setMetadata(metadata);
+    expect(store.getState().items.ids).toHaveLength(1);
+    const apiCallParams = deleteAPI.mock.calls[0][0];
+    expect(apiCallParams).toMatchObject({
+      items: [items[1].id, items[2].id],
+    });
+  });
 
-  //   expect(dispatch).toHaveBeenCalledWith(setAccount({ metadata }));
-  //   const apiCallParams = api.setMetadata.mock.calls[0][0];
-  //   expect(apiCallParams).toMatchObject({});
-  //   const decrypted = await vault.decryptObject(apiCallParams.metadata);
-  //   expect(decrypted).toMatchObject(metadata);
-  // });
+  test('setMetadata', async () => {
+    const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] };
+    const metadataAPI = jest.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve(true));
 
-  // test('getMetadata encrypted', async () => {
-  //   const vault = await getVault(dispatch);
-  //   const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
-  //   const encrypted = await vault.encryptObject(original);
-  //   const api = { getMetadata: jest.fn().mockReturnValue(encrypted) };
-  //   vault['api'] = api as any;
+    await vault.setMetadata(metadata);
 
-  //   const result = await vault.getMetadata();
+    expect(store.getState().account).toMatchObject({ metadata });
+    const apiCallParams = metadataAPI.mock.calls[0][0];
+    const decrypted = await vault.decryptObject(
+      apiCallParams.metadata as vault.CryptoResult,
+    );
+    expect(decrypted).toMatchObject(metadata);
+  });
 
-  //   expect(dispatch).toHaveBeenCalledWith(setAccount(result));
-  //   expect(result.metadata).toEqual(original);
-  // });
+  test('getMetadata', async () => {
+    const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
+    const encrypted = await vault.encryptObject(original);
+    jest.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted));
 
-  // test('getMetadata plain', async () => {
-  //   const vault = await getVault(dispatch);
-  //   const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
-  //   const api = { getMetadata: jest.fn().mockReturnValue(original) };
-  //   vault['api'] = api as any;
+    const result = await vault.getMetadata();
 
-  //   const result = await vault.getMetadata();
+    expect(result).toEqual(original);
+    expect(store.getState().account.metadata).toMatchObject(original);
+  });
 
-  //   expect(dispatch).toHaveBeenCalledWith(setAccount(result));
-  //   expect(result.metadata).toEqual(original);
-  // });
+  test('getMetadata plain', async () => {
+    const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] };
+    jest.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(original));
+
+    const result = await vault.getMetadata();
+
+    expect(result).toEqual(original);
+    expect(store.getState().account.metadata).toMatchObject(original);
+  });
 });
