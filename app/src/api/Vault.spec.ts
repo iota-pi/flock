@@ -4,7 +4,8 @@ import * as vault from './Vault';
 import * as common from './common';
 import * as api from './VaultAPI';
 import type { VaultItem } from './VaultAPI';
-import { AccountMetadata, AccountState } from '../state/account';
+import type { AccountMetadata } from '../state/account';
+import { AxiosInstance } from 'axios';
 
 describe('Vault (Crypto)', () => {
   beforeAll(
@@ -19,7 +20,7 @@ describe('Vault (Crypto)', () => {
       jest.spyOn(vault, 'checkItemCache').mockReturnValue(false);
       jest.spyOn(common, 'getAxios').mockImplementation(() => ({
         put: jest.fn(() => ({ data: { success: true } })),
-      }) as any);
+      }) as unknown as AxiosInstance);
 
       await vault.initialiseVault(
         'example',

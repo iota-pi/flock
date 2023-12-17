@@ -6,7 +6,7 @@ import GeneralMessage from '../GeneralMessage';
 import { useLoggedIn } from '../../state/selectors';
 
 
-function MainLayout({ children }: PropsWithChildren<{}>) {
+function MainLayout({ children }: PropsWithChildren<Record<string, never>>) {
   const loggedIn = useLoggedIn();
 
   return (

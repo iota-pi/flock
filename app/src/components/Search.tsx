@@ -309,7 +309,7 @@ const ListBoxComponent = forwardRef(
     const itemData = children as PropsAndOptionList;
     const itemSize = 56;
 
-    const gridRef = useResetCache(itemData.length);
+    const gridRef = useResetCache<PropsAndOptionList>(itemData.length);
     const getHeight = useCallback(
       () => itemSize * Math.min(itemData.length, 6),
       [itemData, itemSize],
@@ -574,7 +574,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   );
 
   const handleChange = useCallback(
-    (event: ChangeEvent<{}>, value: AnySearchable[], reason: AutocompleteChangeReason) => {
+    (
+      event: ChangeEvent<EventTarget>,
+      value: AnySearchable[],
+      reason: AutocompleteChangeReason,
+    ) => {
       if (reason === 'selectOption') {
         const option = value[value.length - 1];
         if (option.create) {

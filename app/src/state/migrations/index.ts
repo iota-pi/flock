@@ -36,7 +36,7 @@ async function migrateItems(items: Item[]) {
         }
       }
       if (missingDeps.length > 0) {
-        console.info(
+        console.warn(
           `Skipping migration: ${migration.id}\n`,
           `Dependencies not yet satisfied: ${missingDeps.join(', ')}`,
         );

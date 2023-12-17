@@ -81,10 +81,10 @@ const uiSlice = createSlice({
       };
     },
     startRequest(state) {
-      state.requests.active++;
+      state.requests.active += 1;
     },
     finishRequest(state, action: PayloadAction<string | undefined>) {
-      state.requests.active--;
+      state.requests.active -= 1;
       if (action.payload) {
         state.message = {
           severity: 'error',

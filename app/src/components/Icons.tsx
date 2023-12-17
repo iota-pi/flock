@@ -1,5 +1,5 @@
 import { createSvgIcon, SvgIconTypeMap } from '@mui/material';
-import { OverridableComponent } from '@mui/material/OverridableComponent';
+import type { OverridableComponent } from '@mui/material/OverridableComponent';
 
 import AddIcon from '@mui/icons-material/Add';
 import ArchiveIcon from '@mui/icons-material/Archive';
@@ -45,7 +45,7 @@ import { TypedFlockItem } from '../state/items';
 
 const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon');
 
-export type MuiIconType = OverridableComponent<SvgIconTypeMap<{}, 'svg'>>;
+export type MuiIconType = OverridableComponent<SvgIconTypeMap<object, 'svg'>>;
 
 export {
   AddIcon,

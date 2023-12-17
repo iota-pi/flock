@@ -5,7 +5,7 @@ import {
   Typography,
 } from '@mui/material';
 
-function MarkdownListItem(props: any) {
+function MarkdownListItem(props: object) {
   return <Box component="li" sx={{ typography: 'body1' }} {...props} />;
 }
 
@@ -46,6 +46,6 @@ const options: MarkdownToJSX.Options = {
   },
 };
 
-export default function Markdown(props: any) {
+export default function Markdown(props: { children: string } & object) {
   return <ReactMarkdown options={options} {...props} />;
 }

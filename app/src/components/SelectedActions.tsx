@@ -22,7 +22,7 @@ import { useItemsById } from '../state/selectors';
 import { Item } from '../state/items';
 import { usePrevious } from '../utils';
 import ConfirmationDialog from './dialogs/ConfirmationDialog';
-import { setUi, replaceActive } from '../state/ui';
+import { setUi } from '../state/ui';
 import TagDialog from './dialogs/TagDialog';
 import GroupDialog from './dialogs/GroupDialog';
 import { deleteItems, storeItems } from '../api/Vault';

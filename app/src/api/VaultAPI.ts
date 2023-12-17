@@ -1,9 +1,10 @@
-import { AccountMetadata } from '../state/account';
-import { ItemType } from '../state/items';
-import { FlockPushSubscription } from '../utils/firebase-types';
+import type { AccountMetadata } from '../state/account';
+import type { ItemType } from '../state/items';
+import type { FlockPushSubscription } from '../utils/firebase-types';
 import { getAccountId, getAxios, wrapManyRequests, wrapRequest } from './common';
-import { CryptoResult } from './Vault';
+import type { CryptoResult } from './Vault';
 import env from '../env';
+import type { JSONData } from '../utils/types';
 
 const ENDPOINT = env.VAULT_ENDPOINT;
 
@@ -24,7 +25,7 @@ export type CachedVaultItem = Partial<VaultItem> & VaultKey;
 
 export interface VaultAccount {
   account: string,
-  metadata: Record<string, any>,
+  metadata: Record<string, JSONData> | CryptoResult,
 }
 
 export interface VaultSubscription {

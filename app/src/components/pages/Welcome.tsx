@@ -79,7 +79,6 @@ function WelcomePage() {
             </LargeText>
 
             <LargeText paragraph>
-              {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
               <Link
                 component="button"
                 onClick={handleClickLearnMore}

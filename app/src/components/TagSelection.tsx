@@ -73,7 +73,11 @@ function TagSelection({
   const allTags = [...tags, ...selectedTags.filter(tag => !tags.includes(tag))];
 
   const handleChange = useCallback(
-    (event: ChangeEvent<{}>, value: string | string[] | null, reason: AutocompleteChangeReason) => {
+    (
+      event: ChangeEvent<EventTarget>,
+      value: string | string[] | null,
+      reason: AutocompleteChangeReason,
+    ) => {
       if (reason !== 'blur') {
         if (typeof value === 'string') {
           onChange([value]);
