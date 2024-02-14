@@ -6,9 +6,9 @@ describe('Backup & restore', () => {
 
   it('can backup and restore from backup', () => {
     // Create test data
-    cy.createPerson({ firstName: 'Frodo' })
+    cy.createPerson({ name: 'Frodo' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Merry' })
+    cy.createPerson({ name: 'Merry' })
       .saveDrawer()
 
     // Create backup
@@ -16,7 +16,7 @@ describe('Backup & restore', () => {
     cy.dataCy('export').click()
 
     // Add a new item
-    cy.createPerson({ firstName: 'Pippin' })
+    cy.createPerson({ name: 'Pippin' })
       .saveDrawer()
 
     // Delete an item
@@ -26,7 +26,7 @@ describe('Backup & restore', () => {
 
     // Edit an item
     cy.contains('Frodo').click()
-    cy.dataCy('lastName').type('Baggins')
+    cy.dataCy('name').type(' Baggins')
       .saveDrawer()
 
     // Restore backup

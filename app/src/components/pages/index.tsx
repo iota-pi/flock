@@ -2,7 +2,6 @@ import React, { ComponentType, ReactNode, useMemo } from 'react'
 import { Routes, Route, matchPath, useLocation } from 'react-router-dom'
 import loadable from '@loadable/component'
 import {
-  MessageIcon,
   GeneralIcon,
   GroupIcon,
   MuiIconType,
@@ -10,7 +9,6 @@ import {
   PersonIcon,
   PrayerIcon,
 } from '../Icons'
-import CommunicationPage from './Communication'
 import { AccountMetadata } from '../../state/account'
 import { useLoggedIn } from '../../state/selectors'
 
@@ -31,7 +29,6 @@ export type PageId = (
   'groups' |
   'general' |
   'prayer' |
-  'communication' |
   'settings'
 )
 export type AnyPageId = InternalPageId | PageId
@@ -110,16 +107,6 @@ export const pages: Page[] = [
   },
   {
     dividerBefore: true,
-    icon: MessageIcon,
-    id: 'communication',
-    name: 'Communication',
-    page: <CommunicationPage />,
-    path: '/communication',
-    requiresAuth: true,
-    metadataControl: metadata => !!metadata.showCommPage,
-  },
-  {
-    dividerBefore: true,
     icon: OptionsIcon,
     id: 'settings',
     name: 'Settings',
@@ -174,7 +161,7 @@ export function getPage(page: AnyPageId) {
 export function usePage() {
   const location = useLocation()
   const page = useMemo(
-    () => allPages.find(p => matchPath(location.pathname, p.path)),
+    () => reversedPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
   )
   if (page) {

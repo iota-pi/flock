@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
-import { DeleteIcon, MessageIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons'
+import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons'
 import InlineText from '../../InlineText'
 
 
@@ -104,20 +104,6 @@ function DrawerActions({
 
       <StyledContainer>
         <Grid container spacing={2}>
-          {onSend && (
-            <Grid item xs={12}>
-              <Button
-                data-cy="drawer-send"
-                fullWidth
-                onClick={onSend}
-                startIcon={<MessageIcon />}
-                variant="outlined"
-              >
-                Send Message
-              </Button>
-            </Grid>
-          )}
-
           {onReport && (
             <Grid item xs={12}>
               <Button

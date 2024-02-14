@@ -1787,13 +1787,6 @@
   dependencies:
     "@types/react" "*"
 
-"@types/react-email-editor@^1.5.5":
-  version "1.5.5"
-  resolved "https://registry.yarnpkg.com/@types/react-email-editor/-/react-email-editor-1.5.5.tgz#4715ae78beecf67e741753e7db67313d14a1ee2a"
-  integrity sha512-kXCwFKpJSE7GDd6fGPkYpTzqtg0A47gcWQvtgkJxTpKeP9cs0Py5MpbwCSASy6O59hk8Gwu6+fnNifRP/GAn+g==
-  dependencies:
-    "@types/react" "*"
-
 "@types/react-router-dom@^5.1.7":
   version "5.3.3"
   resolved "https://registry.yarnpkg.com/@types/react-router-dom/-/react-router-dom-5.3.3.tgz#e9d6b4a66fcdbd651a5f106c2656a30088cc1e83"
@@ -5929,13 +5922,6 @@ react-dropzone@^10.2.1:
     file-selector "^0.1.12"
     prop-types "^15.7.2"
 
-react-email-editor@^1.5.0:
-  version "1.7.9"
-  resolved "https://registry.yarnpkg.com/react-email-editor/-/react-email-editor-1.7.9.tgz#54f01fca6a875a4aabe400e34a2c1966d73f731f"
-  integrity sha512-ALsGS1E/oAzgWDDbFFxJ8Y8QCx7ZJK46aEi/w7Ydgs62+83sQjwr0pTzyTapWZnACWTv3wCLDDFqateui1YYJQ==
-  dependencies:
-    unlayer-types latest
-
 react-flip-move@^3.0.4:
   version "3.0.5"
   resolved "https://registry.yarnpkg.com/react-flip-move/-/react-flip-move-3.0.5.tgz#8b87510ad32ebef01ebca94902b445f456bbc0f7"
@@ -6871,11 +6857,6 @@ universalify@^2.0.0:
   version "2.0.1"
   resolved "https://registry.yarnpkg.com/universalify/-/universalify-2.0.1.tgz#168efc2180964e6386d061e094df61afe239b18d"
   integrity sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==
-
-unlayer-types@latest:
-  version "1.5.38"
-  resolved "https://registry.yarnpkg.com/unlayer-types/-/unlayer-types-1.5.38.tgz#b9d9ea43187ee3108123c87776e3879a7ed88af3"
-  integrity sha512-KHWkl0UJi1pM0nHHU1sl1eT9e4QQyckgpdOm4mY0YK6F0rt37MxmGjyb3rOskVGee4JA3oE+i/Ur08iommMngg==
 
 untildify@^4.0.0:
   version "4.0.0"

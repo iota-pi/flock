@@ -19,7 +19,6 @@ const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'item',
-  communication: 'message',
   settings: 'item',
 }
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
@@ -27,7 +26,6 @@ const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'prayer point',
-  communication: 'message',
   settings: 'item',
 }
 

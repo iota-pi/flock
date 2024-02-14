@@ -5,11 +5,11 @@ describe('Basic operation', () => {
   })
 
   it('can create groups; add & remove members', () => {
-    cy.createPerson({ firstName: 'Frodo' })
+    cy.createPerson({ name: 'Frodo' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Pippin' })
+    cy.createPerson({ name: 'Pippin' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Merry' })
+    cy.createPerson({ name: 'Merry' })
       .saveDrawer()
     cy.createGroup({ name: 'Fellowship of the Ring' })
       .addMember('Frodo')
@@ -18,7 +18,7 @@ describe('Basic operation', () => {
     cy.contains(/group report/i)
       .should('be.disabled')
       .saveDrawer()
-    cy.createPerson({ firstName: 'Gandalf' })
+    cy.createPerson({ name: 'Gandalf' })
       .addToGroup('f')
       .saveDrawer()
 
@@ -80,8 +80,8 @@ describe('Basic operation', () => {
     // Create some test items
     cy.createGroup({ name: 'Fellowship of the Ring' })
       .saveDrawer()
-    cy.createPerson({ firstName: 'Bilbo', lastName: 'Baggins' })
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+    cy.createPerson({ name: 'Bilbo Baggins' })
+    cy.createPerson({ name: 'Frodo Baggins' })
       .addToGroup('Fellowship')
 
     // Open a nested drawer and edit it

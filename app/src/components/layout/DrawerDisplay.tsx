@@ -7,10 +7,9 @@ import { useAppDispatch, useAppSelector } from '../../store'
 import ItemDrawer from '../drawers/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
 import ReportDrawer from '../drawers/ReportDrawer'
-import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors'
+import { useItem, useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
-import MessageDrawer from '../drawers/MessageDrawer'
 
 function useDrawerRouting(drawers: DrawerData[]) {
   const dispatch = useAppDispatch()
@@ -65,8 +64,7 @@ function IndividualDrawer({
   stacked: boolean,
 }) {
   const existingItem = useItem(drawer.item || generateItemId())
-  const existingMessage = useMessageItem(drawer.item || '')
-  const item = existingItem || existingMessage || drawer.newItem
+  const item = existingItem || drawer.newItem
 
   const [localItem, setLocalItem] = useState<Item | undefined>(item)
   const handleChange = useCallback(

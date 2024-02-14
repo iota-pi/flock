@@ -5,7 +5,7 @@ describe('Maturity-related functionality', () => {
   })
 
   it('apply default maturity levels and edit maturity settings', () => {
-    cy.createPerson({ firstName: 'Frodo', lastName: 'Baggins' })
+    cy.createPerson({ name: 'Frodo Baggins' })
     cy.dataCy('maturity-selection')
       .click()
     cy.contains(/non-Christian/i)

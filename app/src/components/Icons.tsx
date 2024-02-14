@@ -16,7 +16,6 @@ import GeneralIcon from '@mui/icons-material/MoreHoriz'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
 import MenuIcon from '@mui/icons-material/Menu'
-import MessageIcon from '@mui/icons-material/Send'
 import MinusIcon from '@mui/icons-material/Remove'
 import NextIcon from '@mui/icons-material/ChevronRight'
 import NotesIcon from '@mui/icons-material/Notes'
@@ -64,7 +63,6 @@ export {
   GroupIcon,
   HomeIcon,
   MenuIcon,
-  MessageIcon,
   MinusIcon,
   NextIcon,
   NextIcon as ExpandMenuIcon,
@@ -95,7 +93,6 @@ export function getIconType(itemType: Item['type'] | 'tag'): MuiIconType {
     person: PersonIcon,
     group: GroupIcon,
     general: GeneralIcon,
-    message: MessageIcon,
     tag: TagIcon,
   }
   return iconTypeMap[itemType]

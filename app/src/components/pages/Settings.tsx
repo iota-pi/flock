@@ -134,12 +134,6 @@ function SettingsPage() {
     [darkMode, dispatch],
   )
 
-  const [showCommunication, setShowCommunication] = useMetadata('showCommPage', false)
-  const handleToggleCommunication = useCallback(
-    () => setShowCommunication(c => !c),
-    [setShowCommunication],
-  )
-
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
 
@@ -252,17 +246,6 @@ function SettingsPage() {
               )}
               label={darkModeLabel}
               labelPlacement="start"
-            />
-          )}
-        />
-        <SettingsItem
-          id="communication"
-          onClick={handleToggleCommunication}
-          title="Show Communication Page (experimental)"
-          value={(
-            <Checkbox
-              checked={showCommunication || false}
-              size="small"
             />
           )}
         />

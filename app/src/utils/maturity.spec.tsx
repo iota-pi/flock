@@ -21,10 +21,10 @@ describe('MaturityControl', () => {
   it('updateMaturityForPeople', async () => {
     const spy = jest.spyOn(vault, 'storeItems').mockImplementation(() => Promise.resolve())
     const people: PersonItem[] = [
-      { ...getBlankPerson(), firstName: 'Frodo', maturity: 'Youngster' },
-      { ...getBlankPerson(), firstName: 'Bilbo', maturity: 'Very old' },
-      { ...getBlankPerson(), firstName: 'Merry', maturity: 'Youngster' },
-      { ...getBlankPerson(), firstName: 'Gandalf', maturity: 'Ancient' },
+      { ...getBlankPerson(), name: 'Frodo', maturity: 'Youngster' },
+      { ...getBlankPerson(), name: 'Bilbo', maturity: 'Very old' },
+      { ...getBlankPerson(), name: 'Merry', maturity: 'Youngster' },
+      { ...getBlankPerson(), name: 'Gandalf', maturity: 'Ancient' },
     ]
     const original: MaturityControl[] = [
       { id: 'a', name: 'Youngster' },
@@ -39,7 +39,7 @@ describe('MaturityControl', () => {
     await updateMaturityForPeople(people, original, updated)
     expect(vault.storeItems).toHaveBeenCalledTimes(1)
     const updatedPeople = spy.mock.calls[0][0] as PersonItem[]
-    expect(updatedPeople.map(person => person.firstName)).toEqual(['Frodo', 'Merry', 'Gandalf'])
+    expect(updatedPeople.map(person => person.name)).toEqual(['Frodo', 'Merry', 'Gandalf'])
     expect(updatedPeople.map(person => person.maturity)).toEqual(['Noob', 'Noob', 'Wizard'])
   })
 })

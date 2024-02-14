@@ -270,56 +270,25 @@ function ItemDrawer({
     [duplicates, hasDescription, item.type],
   )
 
-  const firstName = item.type === 'person' ? item.firstName : item.name
-  const lastName = item.type === 'person' ? item.lastName : undefined
   const nameFields = useMemo(
     () => (
-      lastName !== undefined ? (
-        <>
-          <Grid item xs={showDescription ? 6 : 5} lg={showDescription ? 3 : 6}>
-            <TextField
-              autoFocus
-              data-cy="firstName"
-              fullWidth
-              key={item.id}
-              label="First Name"
-              onChange={event => handleChange<PersonItem>({ firstName: getValue(event) })}
-              required
-              value={firstName}
-              variant="standard"
-            />
-          </Grid>
-
-          <Grid item xs={showDescription ? 6 : 5} lg={showDescription ? 3 : 5}>
-            <TextField
-              fullWidth
-              data-cy="lastName"
-              label="Last Name"
-              onChange={event => handleChange<PersonItem>({ lastName: getValue(event) })}
-              value={lastName}
-              variant="standard"
-            />
-          </Grid>
-        </>
-      ) : (
-        <Grid item xs={showDescription ? 12 : 10} lg={showDescription ? 12 : 11}>
-          <TextField
-            autoFocus
-            data-cy="name"
-            fullWidth
-            key={item.id}
-            label="Name"
-            onChange={
-              event => handleChange<GeneralItem | GroupItem>({ name: getValue(event) })
-            }
-            required
-            value={firstName}
-            variant="standard"
-          />
-        </Grid>
-      )
+      <Grid item xs={showDescription ? 12 : 10} lg={showDescription ? 12 : 11}>
+        <TextField
+          autoFocus
+          data-cy="name"
+          fullWidth
+          key={item.id}
+          label="Name"
+          onChange={
+            event => handleChange({ name: getValue(event) })
+          }
+          required
+          value={item.name}
+          variant="standard"
+        />
+      </Grid>
     ),
-    [firstName, handleChange, item.id, lastName, showDescription],
+    [item.name, handleChange, item.id, showDescription],
   )
 
   const { archived, tags } = item
@@ -402,44 +371,6 @@ function ItemDrawer({
       ) : null
     ),
     [handleChangeMaturity, maturity],
-  )
-
-  const email = item.type === 'person' ? item.email : undefined
-  const emailField = useMemo(
-    () => (
-      email !== undefined ? (
-        <Grid item xs={6}>
-          <TextField
-            data-cy="email"
-            fullWidth
-            label="Email"
-            onChange={event => handleChange<PersonItem>({ email: getValue(event) })}
-            value={email}
-            variant="standard"
-          />
-        </Grid>
-      ) : null
-    ),
-    [email, handleChange],
-  )
-
-  const phone = item.type === 'person' ? item.phone : undefined
-  const phoneField = useMemo(
-    () => (
-      phone !== undefined ? (
-        <Grid item xs={6}>
-          <TextField
-            data-cy="phone"
-            fullWidth
-            label="Phone"
-            onChange={event => handleChange<PersonItem>({ phone: getValue(event) })}
-            value={phone}
-            variant="standard"
-          />
-        </Grid>
-      ) : null
-    ),
-    [handleChange, phone],
   )
 
   const lastPrayer = getLastPrayedFor(item)
@@ -572,9 +503,6 @@ function ItemDrawer({
           {membersSection}
           {groupsSection}
         </Grid>
-
-        {emailField}
-        {phoneField}
 
         {frequencyField}
       </Grid>

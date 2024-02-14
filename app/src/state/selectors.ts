@@ -3,8 +3,7 @@ import { useSelector } from 'react-redux'
 import { useAppDispatch, useAppSelector } from '../store'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
-import { getTags, Item, ItemId, MessageItem, selectAllItems, selectItems } from './items'
-import { getMessageItem } from './messages'
+import { getTags, Item, ItemId, selectAllItems, selectItems } from './items'
 import { setUi, UiOptions } from './ui'
 import { setMetadata } from '../api/Vault'
 
@@ -39,14 +38,6 @@ export const useItem = (id: ItemId) => useAppSelector(
     return undefined
   },
 )
-
-export const useMessageItem = (id: string): MessageItem | undefined => {
-  const message = useAppSelector(state => state.messages.entities[id])
-  return useMemo(
-    () => (message ? getMessageItem(message) : undefined),
-    [message],
-  )
-}
 
 export function useItemsById() {
   const itemMap = useItemMap()

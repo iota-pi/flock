@@ -1,20 +1,13 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { SortCriterion } from '../utils/customSort'
-import { SMTPConfig } from '../../../koinonia/sender/types'
 
 export type AccountId = string
 
-export interface EmailSettings extends SMTPConfig {
-  email: string,
-  name: string,
-}
 export interface AccountMetadata {
   completedMigrations?: string[],
   maturity?: string[],
-  showCommPage?: boolean,
   prayerGoal?: number,
   sortCriteria?: SortCriterion[];
-  emailSettings?: EmailSettings;
 }
 
 export type MetadataKey = keyof AccountMetadata
