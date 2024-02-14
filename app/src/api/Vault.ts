@@ -391,7 +391,8 @@ export async function getMetadata(): Promise<AccountMetadata> {
 }
 
 async function getSubscriptionId(subscriptionToken: string): Promise<string> {
-  const buffer = await crypto.subtle.digest('SHA-512', Buffer.from(subscriptionToken))
+  const enc = new Encoder()
+  const buffer = await crypto.subtle.digest('SHA-512', enc.encode(subscriptionToken))
   return fromBytesUrlSafe(buffer)
 }
 
