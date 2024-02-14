@@ -19,7 +19,6 @@ import {
   convertItem,
   dirtyItem,
   DirtyItem,
-  GeneralItem,
   getItemName,
   getItemTypeLabel,
   GroupItem,

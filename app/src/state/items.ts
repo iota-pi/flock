@@ -204,7 +204,7 @@ export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
 }
 
 export function convertItem<T extends Item, S extends Item>(item: T, type: S['type']): S {
-  let result = {
+  const result = {
     ...getBlankItem(type, false),
     ...item,
     type,

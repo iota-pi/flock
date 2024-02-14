@@ -24,7 +24,6 @@ export interface BaseProps {
   canSend?: boolean,
   itemIsNew?: boolean,
   itemName?: string,
-  onSend?: () => void,
   permanentDrawer?: boolean,
   promptSave?: boolean,
 }
@@ -79,7 +78,6 @@ function DrawerActions({
   onNext,
   onReport,
   onSave,
-  onSend,
   onSkip,
   permanentDrawer,
   promptSave = true,

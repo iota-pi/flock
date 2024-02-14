@@ -11,7 +11,6 @@ import {
   useContext,
   useMemo,
 } from 'react'
-import { useSelector } from 'react-redux'
 import { ListChildComponentProps, VariableSizeList } from 'react-window'
 import {
   Autocomplete,
