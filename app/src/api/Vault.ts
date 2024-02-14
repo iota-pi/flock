@@ -158,16 +158,17 @@ export async function storeVault() {
 async function initialLoadFromVault() {
   const accountDataPromise = getMetadata()
   const itemsPromise = fetchAll()
-  const messagesPromise = listMessages().catch(
-    error => console.warn('Failed to get messages', error),
-  )
+  // TODO: Possibly re-enable messages once decided what's happening with Koinonia integration
+  // const messagesPromise = listMessages().catch(
+  //   error => console.warn('Failed to get messages', error),
+  // )
 
   await accountDataPromise
 
   const items = await itemsPromise
   await migrateItems(items)
 
-  await messagesPromise
+  // await messagesPromise
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
