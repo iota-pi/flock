@@ -1,5 +1,5 @@
-import { FastifyPluginCallback } from 'fastify';
-import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
+import type { FastifyPluginCallback } from 'fastify';
+import type { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 import getDriver from '../drivers';
 import { asItemType } from '../drivers/base';
 import { getAuthToken } from './util';

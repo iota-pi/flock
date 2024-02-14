@@ -1,83 +1,86 @@
-import AWS from 'aws-sdk';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { DynamoDBDocumentClient, ScanCommand, ScanCommandOutput, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+
 import { createHash } from 'crypto';
 import { VaultItem } from '../drivers/base';
 import { ACCOUNT_TABLE_NAME, getConnectionParams, ITEM_TABLE_NAME } from '../drivers/dynamo';
 
-const client = new AWS.DynamoDB.DocumentClient(getConnectionParams());
+const ddb = new DynamoDBClient(getConnectionParams())
+const client = DynamoDBDocumentClient.from(ddb);
 
 const migrations: { [name: string]: () => Promise<void> } = {
   async backupAuthToken () {
-    const results = await client.scan({
+    const results = await client.send(new ScanCommand({
       TableName: ACCOUNT_TABLE_NAME,
       AttributesToGet: ['account', 'authToken'],
-    }).promise();
+    }));
     const items = results.Items as { account: string, authToken: string }[] | undefined;
     if (items) {
       for (const { account, authToken } of items) {
-        await client.update({
+        await client.send(new UpdateCommand({
           TableName: ACCOUNT_TABLE_NAME,
           Key: { account },
           UpdateExpression: 'SET rawAuthToken = :token',
           ExpressionAttributeValues: {
             ':token': authToken,
           },
-        }).promise();
+        }));
       }
       console.log(`Updated ${items.length} items`);
     }
   },
   async hashAuthToken () {
-    const results = await client.scan({
+    const results = await client.send(new ScanCommand({
       TableName: ACCOUNT_TABLE_NAME,
       AttributesToGet: ['account', 'authToken'],
-    }).promise();
+    }));
     const items = results.Items as { account: string, authToken: string }[] | undefined;
     if (items) {
       for (const { account, authToken } of items) {
         const hash = createHash('sha512');
         hash.update(Buffer.from(authToken, 'utf8'));
-        await client.update({
+        await client.send(new UpdateCommand({
           TableName: ACCOUNT_TABLE_NAME,
           Key: { account },
           UpdateExpression: 'SET hashAuthToken = :token',
           ExpressionAttributeValues: {
             ':token': hash.digest().toString('base64'),
           },
-        }).promise();
+        }));
       }
       console.log(`Updated ${items.length} items`);
     }
   },
   async installHashAuthToken () {
-    const results = await client.scan({
+    const results = await client.send(new ScanCommand({
       TableName: ACCOUNT_TABLE_NAME,
       AttributesToGet: ['account'],
-    }).promise();
+    }));
     const items = results.Items as { account: string, authToken: string }[] | undefined;
     if (items) {
       for (const { account } of items) {
-        await client.update({
+        await client.send(new UpdateCommand({
           TableName: ACCOUNT_TABLE_NAME,
           Key: { account },
           UpdateExpression: 'SET authToken = hashAuthToken',
-        }).promise();
+        }));
       }
       console.log(`Updated ${items.length} items`);
     }
   },
   async cleanUpAuthToken () {
-    const results = await client.scan({
+    const results = await client.send(new ScanCommand({
       TableName: ACCOUNT_TABLE_NAME,
       AttributesToGet: ['account'],
-    }).promise();
+    }));
     const items = results.Items as { account: string }[] | undefined;
     if (items) {
       for (const { account } of items) {
-        await client.update({
+        await client.send(new UpdateCommand({
           TableName: ACCOUNT_TABLE_NAME,
           Key: { account },
           UpdateExpression: 'REMOVE rawAuthToken, hashAuthToken',
-        }).promise();
+        }));
       }
       console.log(`Updated ${items.length} items`);
     }
@@ -85,9 +88,9 @@ const migrations: { [name: string]: () => Promise<void> } = {
   async addModifiedTime () {
     const maxItems = 10000;
     const items: VaultItem[] = [];
-    let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined;
     while (items.length < maxItems) {
-      const response = await client.scan({ TableName: ITEM_TABLE_NAME }).promise();
+      const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }));
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[]);
       }
@@ -100,14 +103,14 @@ const migrations: { [name: string]: () => Promise<void> } = {
     let updated = 0;
     for (const item of items) {
       if (!item.metadata.modified) {
-        await client.update({
+        await client.send(new UpdateCommand({
           TableName: ITEM_TABLE_NAME,
           Key: { account: item.account, item: item.item },
           UpdateExpression: 'SET metadata.modified = :modified',
           ExpressionAttributeValues: {
             ':modified': now,
           },
-        }).promise();
+        }));
         ++updated;
       }
     }

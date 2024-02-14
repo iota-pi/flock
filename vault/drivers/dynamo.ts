@@ -1,4 +1,19 @@
-import AWS from 'aws-sdk';
+import {
+  CreateTableCommand,
+  DynamoDBClient,
+  DynamoDBClientConfig,
+} from '@aws-sdk/client-dynamodb';
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  QueryCommandOutput,
+  ScanCommand,
+  ScanCommandOutput,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { almostConstantTimeEqual } from '../util';
 import BaseDriver, {
   AuthData,
@@ -8,28 +23,33 @@ import BaseDriver, {
   VaultKey,
   VaultSubscriptionFull,
 } from './base';
-import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
+import type { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts';
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems';
 export const SUBSCRIPTION_TABLE_NAME = process.env.SUBSCRIPTIONS_TABLE || 'FlockSubscriptions';
 const DATA_ATTRIBUTES = ['metadata', 'cipher'];
-const ITEM_KEY_ATTRIBUTES = ['item'];
 
 export const MAX_ITEM_SIZE = 50000;
 export const MAX_ITEMS_FETCH = 5000;
 
-export interface DynamoOptions extends AWS.DynamoDB.ClientConfiguration {}
+export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
+  private internalClient: DynamoDBDocumentClient | undefined;
 
-export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> extends BaseDriver<T> {
-  private client: AWS.DynamoDB.DocumentClient | undefined;
+  get client() {
+    if (!this.internalClient) {
+      throw new Error('Cannot use client before initialisation');
+    }
+    return this.internalClient;
+  }
 
   async init(_options?: T) {
     const options = getConnectionParams(_options);
-    const ddb = new AWS.DynamoDB(options);
+    const ddb = new DynamoDBClient(options);
+    const client = DynamoDBDocumentClient.from(ddb);
 
     try {
-      await ddb.createTable(
+      await client.send(new CreateTableCommand(
         {
           TableName: ITEM_TABLE_NAME,
           KeySchema: [
@@ -54,7 +74,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ).promise();
+      ));
     } catch (err: any) {
       if (err.code !== 'ResourceInUseException') {
         throw err;
@@ -62,7 +82,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
     }
 
     try {
-      await ddb.createTable(
+      await client.send(new CreateTableCommand(
         {
           TableName: ACCOUNT_TABLE_NAME,
           KeySchema: [
@@ -79,7 +99,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ).promise();
+      ));
     } catch (err: any) {
       if (err.code !== 'ResourceInUseException') {
         throw err;
@@ -87,7 +107,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
     }
 
     try {
-      await ddb.createTable(
+      await client.send(new CreateTableCommand(
         {
           TableName: SUBSCRIPTION_TABLE_NAME,
           KeySchema: [
@@ -112,7 +132,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ).promise();
+      ));
     } catch (err: any) {
       if (err.code !== 'ResourceInUseException') {
         throw err;
@@ -124,17 +144,18 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
 
   connect(_options?: T): DynamoDriver {
     const options = getConnectionParams(_options);
-    this.client = new AWS.DynamoDB.DocumentClient(options);
+    const ddb = new DynamoDBClient(options);
+    this.internalClient = DynamoDBDocumentClient.from(ddb);
     return this;
   }
 
   async createAccount({ account, authToken }: AuthData): Promise<boolean> {
     let success = true;
-    await this.client?.put({
+    await this.client.send(new PutCommand({
         TableName: ACCOUNT_TABLE_NAME,
         Item: { account, authToken: await authToken },
         ConditionExpression: 'attribute_not_exists(account)',
-    }).promise().catch(reason => {
+    })).catch(reason => {
       success = false;
       if (reason.code !== 'ConditionalCheckFailedException') {
         throw reason;
@@ -144,12 +165,12 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
   }
 
   async getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth> {
-    const response = await this.client?.get(
+    const response = await this.client.send(new GetCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
         Key: { account },
       },
-    ).promise();
+    ));
     if (response?.Item) {
       const storedHash = response.Item.authToken as string;
       const tokenHash = await authToken;
@@ -163,7 +184,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
   async setMetadata(
     { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, any> },
   ): Promise<void> {
-    await this.client?.update(
+    await this.client.send(new UpdateCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
         Key: { account },
@@ -172,7 +193,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           ':metadata': metadata,
         },
       },
-    ).promise();
+    ));
   };
 
   async setSubscription(
@@ -185,10 +206,10 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
       subscription: FlockPushSubscription,
     },
   ) {
-    await this.client?.put({
+    await this.client.send(new PutCommand({
       TableName: SUBSCRIPTION_TABLE_NAME,
       Item: { account, id, ...subscription },
-    }).promise();
+    }));
   }
 
   async deleteSubscription(
@@ -199,17 +220,17 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
       id: string,
     },
   ) {
-    await this.client?.delete({
+    await this.client.send(new DeleteCommand({
       TableName: SUBSCRIPTION_TABLE_NAME,
       Key: { account, id },
-    }).promise();
+    }));
   }
 
   async countSubscriptionFailure(
     { account, token, maxFailures }: Pick<AuthData, 'account'> & { token: string, maxFailures: number },
   ) {
     try {
-      await this.client?.update({
+      await this.client.send(new UpdateCommand({
         TableName: SUBSCRIPTION_TABLE_NAME,
         Key: { account, token },
         UpdateExpression: 'set failures = failures + :inc',
@@ -218,17 +239,17 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           ':inc': 1,
           ':max': maxFailures,
         },
-      }).promise();
+      }));
     } catch (error) {
       if ((error as any).code === 'ConditionalCheckFailedException') {
-        await this.client?.delete({
+        await this.client.send(new DeleteCommand({
           TableName: SUBSCRIPTION_TABLE_NAME,
           Key: { account, token },
           ConditionExpression: 'failures >= :max',
           ExpressionAttributeValues: {
             ':max': maxFailures,
           },
-        }).promise();
+        }));
         console.info(`Deleting subscription after failing to push ${maxFailures} times`);
       } else {
         throw error;
@@ -239,12 +260,12 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
   async getSubscription(
     { account, id }: Pick<AuthData, 'account'> & { id: string },
   ): Promise<FlockPushSubscription | null> {
-    const response = await this.client?.get(
+    const response = await this.client.send(new GetCommand(
       {
         TableName: SUBSCRIPTION_TABLE_NAME,
         Key: { account, id },
       },
-    ).promise();
+    ));
     if (response?.Item) {
       const {
         failures,
@@ -266,16 +287,16 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
     // Warning: uses full table scan
     const maxItems = 1000;
     const items: VaultSubscriptionFull[] = [];
-    let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined;
     while (items.length < maxItems) {
       try {
-        const scanOptions: AWS.DynamoDB.DocumentClient.ScanInput = {
+        const response: ScanCommandOutput = await this.client.send(new ScanCommand({
           TableName: SUBSCRIPTION_TABLE_NAME,
           ExclusiveStartKey: lastEvaluatedKey,
-        };
-        const response = await this.client?.scan(scanOptions).promise();
+        }));
+
         if (response?.Items) {
-          items.push(...response?.Items as VaultSubscriptionFull[]);
+          items.push(...response?.Items as object as VaultSubscriptionFull[]);
         }
         lastEvaluatedKey = response?.LastEvaluatedKey;
         if (!lastEvaluatedKey) {
@@ -311,22 +332,22 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
       throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`);
     }
 
-    await this.client?.put(
+    await this.client.send(new PutCommand(
       {
         TableName: ITEM_TABLE_NAME,
         Item: item,
       },
-    ).promise();
+    ));
   };
 
   async get({ account, item }: VaultKey) {
-    const response = await this.client?.get(
+    const response = await this.client.send(new GetCommand(
       {
         TableName: ITEM_TABLE_NAME,
         Key: { account, item },
         ProjectionExpression: DATA_ATTRIBUTES.join(','),
       },
-    ).promise();
+    ));
     if (response?.Item) {
       return response.Item as VaultItem;
     } else {
@@ -344,9 +365,9 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
     },
   ): Promise<CachedVaultItem[]> {
     const items: VaultItem[] = [];
-    let lastEvaluatedKey: AWS.DynamoDB.DocumentClient.Key | undefined = undefined;
+    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined;
     while (items.length < MAX_ITEMS_FETCH) {
-      const response = await this.client?.query(
+      const response = await this.client.send(new QueryCommand(
         {
           TableName: ITEM_TABLE_NAME,
           KeyConditionExpression: 'account = :accountid',
@@ -358,7 +379,7 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
           },
           ProjectionExpression: ['#itemKey', ...DATA_ATTRIBUTES].join(','),
         },
-      ).promise();
+      ));
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[]);
       }
@@ -378,16 +399,16 @@ export default class DynamoDriver<T extends DynamoOptions = DynamoOptions> exten
   }
 
   async delete({ account, item }: VaultKey) {
-    await this.client?.delete({
+    await this.client.send(new DeleteCommand({
       TableName: ITEM_TABLE_NAME,
       Key: { account, item },
-    }).promise();
+    }));
   }
 }
 
-export function getConnectionParams(options?: DynamoOptions): DynamoOptions {
+export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {
   const customEndpoint = !!process.env.DYNAMODB_ENDPOINT;
-  const endpointArgs: DynamoOptions = customEndpoint ? {
+  const endpointArgs: DynamoDBClientConfig = customEndpoint ? {
     endpoint: process.env.DYNAMODB_ENDPOINT,
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
   } : {};
