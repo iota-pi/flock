@@ -27,6 +27,7 @@ import { FlockPushSubscription } from '../utils/firebase-types'
 import { getAccountId, initAxios } from './common'
 import { listMessages } from './KoinoniaAPI'
 import migrateItems from '../state/migrations'
+import { setUi } from '../state/ui'
 
 const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -65,6 +66,16 @@ export interface VaultConstructorData {
 
 let key: CryptoKey | null = null
 let keyHash: string = ''
+
+export function handleVaultError(error: Error, message?: string) {
+  console.error(error)
+  store.dispatch(setUi({
+    message: {
+      message: message || 'Vault error',
+      severity: 'error',
+    },
+  }))
+}
 
 function getKey() {
   if (!key) {
@@ -315,6 +326,9 @@ export async function fetchAll(): Promise<Item[]> {
   const cacheTime = getItemCacheTime()
   const fetchPromise = vaultFetchAll({
     cacheTime,
+  }).catch(error => {
+    handleVaultError(error, 'Failed to fetch items from server')
+    return [] as VaultItem[]
   })
   const mergedFetch = await mergeWithItemCache(fetchPromise)
   const resultPromise = Promise.all(mergedFetch.map(
@@ -324,6 +338,9 @@ export async function fetchAll(): Promise<Item[]> {
     }) as Promise<Item>,
   ))
   resultPromise.then(items => store.dispatch(setItems(items)))
+  resultPromise.catch(error => {
+    handleVaultError(error, 'Failed to decrypt items')
+  })
   return resultPromise
 }
 
