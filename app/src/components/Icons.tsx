@@ -41,7 +41,7 @@ import WarningIcon from '@mui/icons-material/Warning'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
-import { TypedFlockItem } from '../state/items'
+import { Item } from '../state/items'
 
 const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon')
 
@@ -90,7 +90,7 @@ export {
   WarningIcon,
 }
 
-export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconType {
+export function getIconType(itemType: Item['type'] | 'tag'): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
@@ -101,7 +101,7 @@ export function getIconType(itemType: TypedFlockItem['type'] | 'tag'): MuiIconTy
   return iconTypeMap[itemType]
 }
 
-export function getIcon(itemType: TypedFlockItem['type'] | 'tag') {
+export function getIcon(itemType: Item['type'] | 'tag') {
   const IconType = getIconType(itemType)
   return <IconType />
 }

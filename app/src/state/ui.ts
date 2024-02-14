@@ -2,13 +2,13 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { AlertColor } from '@mui/material'
 import { generateItemId } from '../utils'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
-import { deleteItems, ItemId, TypedFlockItem } from './items'
+import { deleteItems, ItemId, Item } from './items'
 
 export interface DrawerData {
   id: string,
-  initial?: TypedFlockItem[],
+  initial?: Item[],
   item?: ItemId,
-  newItem?: TypedFlockItem,
+  newItem?: Item,
   next?: string[],
   open: boolean,
   praying?: boolean,

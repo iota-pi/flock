@@ -1,14 +1,11 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { capitalise, generateItemId } from '../utils'
+import { generateItemId } from '../utils'
 import { Frequency } from '../utils/frequencies'
 import { RootState } from '../store'
 
 export type ItemId = string
 export type ItemType = 'person' | 'group' | 'general'
-export type MessageType = 'message'
 export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general']
-export const MESSAGE_TYPES: MessageType[] = ['message']
-export const ALL_ITEM_TYPES: (ItemType | MessageType)[] = [...ITEM_TYPES, ...MESSAGE_TYPES]
 
 export interface BaseItem {
   archived: boolean,
@@ -16,35 +13,25 @@ export interface BaseItem {
   description: string,
   id: ItemId,
   isNew?: true,
+  name: string,
   prayedFor: number[],
   prayerFrequency: Frequency,
   summary: string,
   tags: string[],
-  type: ItemType | MessageType,
+  type: ItemType,
 }
 export interface PersonItem extends BaseItem {
-  email: string,
-  firstName: string,
-  lastName: string,
   maturity: string | null,
-  phone: string,
   type: 'person',
 }
 export interface GroupItem extends BaseItem {
   members: ItemId[],
-  name: string,
   type: 'group',
 }
 export interface GeneralItem extends BaseItem {
-  name: string,
   type: 'general',
 }
-export interface MessageItem extends BaseItem {
-  name: string,
-  type: MessageType,
-}
 export type Item = PersonItem | GroupItem | GeneralItem
-export type TypedFlockItem = Item | MessageItem
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -80,12 +67,8 @@ export const {
   selectTotal: selectItemCount,
 } = itemsAdapter.getSelectors((state: RootState) => state.items)
 
-export function isItem(item: TypedFlockItem): item is Item {
-  return (ITEM_TYPES as TypedFlockItem['type'][]).includes(item.type)
-}
-
-export function isMessage(item: TypedFlockItem): item is MessageItem {
-  return (MESSAGE_TYPES as TypedFlockItem['type'][]).includes(item.type)
+export function isItem(item: Item): item is Item {
+  return (ITEM_TYPES as Item['type'][]).includes(item.type)
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
@@ -94,6 +77,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     created: new Date().getTime(),
     description: '',
     id: id || generateItemId(),
+    name: '',
     prayedFor: [],
     prayerFrequency: 'monthly',
     summary: '',
@@ -105,12 +89,8 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
 export function getBlankPerson(id?: ItemId, isNew = true): PersonItem {
   return {
     ...getBlankBaseItem(id),
-    email: '',
-    firstName: '',
     isNew: isNew || undefined,
-    lastName: '',
     maturity: null,
-    phone: '',
     type: 'person',
   }
 }
@@ -120,7 +100,6 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
     members: [],
-    name: '',
     type: 'group',
   }
 }
@@ -129,17 +108,7 @@ export function getBlankGeneral(id?: ItemId, isNew = true): GeneralItem {
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
-    name: '',
     type: 'general',
-  }
-}
-
-export function getBlankMessageItem(id?: ItemId, name?: string, isNew = true): MessageItem {
-  return {
-    ...getBlankBaseItem(id),
-    isNew: isNew || undefined,
-    name: name || '',
-    type: 'message',
   }
 }
 
@@ -188,51 +157,25 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
 }
 
 export function getItemName(
-  item?: Partial<Item | MessageItem> & Pick<Item | MessageItem, 'type'>,
+  item?: Partial<Item> & Pick<Item, 'type'>,
 ): string {
   if (item === undefined) return ''
-
-  if (item.type === 'person') {
-    return `${item.firstName || ''} ${item.lastName || ''}`.trim()
-  }
   return (item.name || '').trim()
 }
 
-export function splitName(
-  name: string,
-  shouldCapitalise = false,
-): Pick<PersonItem, 'firstName' | 'lastName'> {
-  const nameParts = name.split(/\s+/, 2)
-  const firstName = shouldCapitalise ? capitalise(nameParts[0]) : nameParts[0]
-  const lastName = shouldCapitalise ? capitalise(nameParts[1] || '') : nameParts[1] || ''
-  return { firstName, lastName }
-}
-
-export function comparePeopleNames(a: PersonItem, b: PersonItem) {
-  return (
-    (+(a.lastName > b.lastName) - +(a.lastName < b.lastName))
-    || (+(a.firstName > b.firstName) - +(a.firstName < b.firstName))
-  )
-}
-
-export function compareNames(
-  a: GroupItem | GeneralItem | MessageItem,
-  b: GroupItem | GeneralItem | MessageItem,
-) {
+export function compareNames(a: BaseItem, b: BaseItem) {
   return +(a.name > b.name) - +(a.name < b.name)
 }
 
-export function compareIds(a: TypedFlockItem, b: TypedFlockItem) {
+export function compareIds(a: Item, b: Item) {
   return +(a.id > b.id) - +(a.id < b.id)
 }
 
-export function compareItems(a: TypedFlockItem, b: TypedFlockItem) {
+export function compareItems(a: Item, b: Item) {
   if (a.archived !== b.archived) {
     return +a.archived - +b.archived
   } else if (a.type !== b.type) {
-    return ALL_ITEM_TYPES.indexOf(a.type) - ALL_ITEM_TYPES.indexOf(b.type)
-  } else if (a.type === 'person' || b.type === 'person') {
-    return comparePeopleNames(a as PersonItem, b as PersonItem) || compareIds(a, b)
+    return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type)
   }
   return compareNames(a, b) || compareIds(a, b)
 }
@@ -252,11 +195,11 @@ export function supplyMissingAttributes(item: Item): Item {
   }
 }
 
-export function dirtyItem<T extends Partial<TypedFlockItem>>(item: T): DirtyItem<T> {
+export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
   return { ...item, dirty: true }
 }
 
-export function cleanItem<T extends TypedFlockItem>(item: DirtyItem<T>): T {
+export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
   return { ...item, dirty: undefined, isNew: undefined }
 }
 
@@ -266,20 +209,10 @@ export function convertItem<T extends Item, S extends Item>(item: T, type: S['ty
     ...item,
     type,
   } as S
-  if (result.type === 'person') {
-    if (item.type !== 'person') {
-      result = { ...result, ...splitName(item.name) }
-    }
-  } else if (item.type === 'person') {
-    result.name = getItemName(item)
-  }
   return result
 }
 
-export function isValid<T extends TypedFlockItem>(item: T) {
-  if (item.type === 'person') {
-    return !!item.firstName.trim()
-  }
+export function isValid<T extends Item>(item: T) {
   return !!getItemName(item).trim()
 }
 
@@ -288,12 +221,8 @@ export function importPeople(data: Record<string, string>[]): PersonItem[] {
   const todaysDate = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
   const results: PersonItem[] = []
   for (const row of data) {
-    const { firstName, lastName } = (
-      row.name
-        ? splitName(row.name)
-        : { firstName: row.firstname || '', lastName: row.lastname || '' }
-    )
-    if (`${firstName}${lastName}`.trim() === '') {
+    const name = (row.name || `${row.firstName} ${row.lastName}`).trim()
+    if (name === '') {
       // Skip rows without a name
       continue
     }
@@ -301,10 +230,7 @@ export function importPeople(data: Record<string, string>[]): PersonItem[] {
     const blankPerson = getBlankPerson()
     results.push({
       ...blankPerson,
-      firstName,
-      lastName,
-      email: row.email || blankPerson.email,
-      phone: row.phone || blankPerson.phone,
+      name,
       description: row.description || blankPerson.description,
       summary: row.summary || blankPerson.summary,
       tags: [`Imported ${todaysDate}`],

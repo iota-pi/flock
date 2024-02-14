@@ -10,6 +10,25 @@ export interface ItemMigration {
 }
 
 const migrations: ItemMigration[] = [
+  {
+    dependencies: [],
+    description: 'Merge first and last names for people',
+    id: 'merge-people-names',
+    migrate: async ({ items }) => {
+      let updated = false
+      for (const item of items) {
+        if (item.type === 'person') {
+          const { firstName, lastName } = item as unknown as { firstName: string, lastName: string }
+          const newName = `${firstName ?? ''} ${lastName ?? ''}`.trim()
+          if (newName) {
+            item.name = newName
+            updated = true
+          }
+        }
+      }
+      return updated
+    },
+  }
 ]
 
 async function migrateItems(items: Item[]) {

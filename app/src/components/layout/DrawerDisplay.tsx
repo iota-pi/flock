@@ -1,7 +1,7 @@
 import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { isItem, Item, TypedFlockItem } from '../../state/items'
+import { isItem, Item } from '../../state/items'
 import { DrawerData, removeActive, updateActive } from '../../state/ui'
 import { useAppDispatch, useAppSelector } from '../../store'
 import ItemDrawer from '../drawers/ItemDrawer'
@@ -9,7 +9,6 @@ import PlaceholderDrawer from '../drawers/Placeholder'
 import ReportDrawer from '../drawers/ReportDrawer'
 import { useItem, useLoggedIn, useMessageItem } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
-import EditMessageDrawer from '../drawers/EditMessageDrawer'
 import { usePage } from '../pages'
 import MessageDrawer from '../drawers/MessageDrawer'
 
@@ -69,7 +68,7 @@ function IndividualDrawer({
   const existingMessage = useMessageItem(drawer.item || '')
   const item = existingItem || existingMessage || drawer.newItem
 
-  const [localItem, setLocalItem] = useState<TypedFlockItem | undefined>(item)
+  const [localItem, setLocalItem] = useState<Item | undefined>(item)
   const handleChange = useCallback(
     (
       data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
@@ -88,48 +87,24 @@ function IndividualDrawer({
   useEffect(() => setLocalItem(item), [item])
 
   if (localItem) {
-    if (isItem(localItem)) {
-      return drawer.report ? (
-        <ReportDrawer
-          item={localItem}
-          next={drawer.next}
-          onBack={onClose}
-          onClose={onClose}
-          onExited={onExited}
-          open={drawer.open}
-          praying={drawer.praying}
-          stacked={stacked}
-        />
-      ) : (
-        <ItemDrawer
-          item={localItem}
-          onBack={onClose}
-          onChange={handleChange}
-          onClose={onClose}
-          onExited={onExited}
-          open={drawer.open}
-          stacked={stacked}
-        />
-      )
-    }
-
-    if (drawer.report) {
-      return (
-        <MessageDrawer
-          message={localItem}
-          onBack={onClose}
-          onClose={onClose}
-          open={drawer.open}
-          stacked={stacked}
-        />
-      )
-    }
-
-    return (
-      <EditMessageDrawer
-        message={localItem}
+    return drawer.report ? (
+      <ReportDrawer
+        item={localItem}
+        next={drawer.next}
         onBack={onClose}
         onClose={onClose}
+        onExited={onExited}
+        open={drawer.open}
+        praying={drawer.praying}
+        stacked={stacked}
+      />
+    ) : (
+      <ItemDrawer
+        item={localItem}
+        onBack={onClose}
+        onChange={handleChange}
+        onClose={onClose}
+        onExited={onExited}
         open={drawer.open}
         stacked={stacked}
       />

@@ -41,8 +41,6 @@ import {
   getItemTypeLabel,
   isItem,
   Item,
-  MessageItem,
-  splitName,
 } from '../state/items'
 import InlineText from './InlineText'
 import { getIcon, MuiIconType } from './Icons'
@@ -52,7 +50,6 @@ import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
 import { useResetCache } from '../utils/virtualisation'
 import { capitalise } from '../utils'
-import { getMessageItem, selectAllMessages } from '../state/messages'
 
 const LISTBOX_PADDING = 8
 
@@ -84,14 +81,6 @@ interface SearchableItem<T extends Item = Item> {
   id: string,
   type: T['type'],
 }
-interface SearchableMessage {
-  create?: false,
-  data: MessageItem,
-  dividerBefore?: boolean,
-  name: string,
-  id: string,
-  type: MessageItem['type'],
-}
 interface SearchableTag {
   create?: false,
   data: string,
@@ -110,7 +99,6 @@ interface SearchableAddItem<T extends Item = Item> {
 }
 export type AnySearchable = (
   SearchableItem
-  | SearchableMessage
   | SearchableTag
   | SearchableAddItem
 )
@@ -119,12 +107,11 @@ export type AnySearchableType = AnySearchable['type']
 export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
   general: true,
   group: true,
-  message: true,
   person: true,
   tag: true,
 }
 export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group', 'general', 'message', 'tag']
+  ['person', 'group', 'general', 'tag']
 )
 
 export function getSearchableDataId(s: AnySearchableData): string {
@@ -140,9 +127,6 @@ function sortSearchables(a: AnySearchable, b: AnySearchable): number {
   const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type)
   if (typeIndexA - typeIndexB) {
     return typeIndexA - typeIndexB
-  }
-  if (a.type === 'message' && b.type === 'message') {
-    return +(a.data.name < b.data.name) - +(a.data.name > b.data.name)
   }
   if (isSearchableStandardItem(a) && isSearchableStandardItem(b)) {
     return compareItems(a.data, b.data)
@@ -415,7 +399,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   const items = useItems()
   const [sortCriteria] = useSortCriteria()
   const [maturity] = useMaturity()
-  const messages = useSelector(selectAllMessages)
   const tags = useTags()
 
   const selectedIds = useMemo(
@@ -433,14 +416,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               id: item,
               name: item,
               type: 'tag',
-            }
-          }
-          if (item.type === 'message') {
-            return {
-              data: item,
-              id: item.id,
-              name: getItemName(item),
-              type: 'message',
             }
           }
           return {
@@ -479,16 +454,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           name: getItemName(item),
         })),
       )
-      if (types.message) {
-        results.push(
-          ...messages.map((message): AnySearchable => ({
-            type: 'message',
-            id: message.message,
-            data: getMessageItem(message),
-            name: message.name,
-          })),
-        )
-      }
       if (types.tag) {
         results.push(
           ...tags.map((tag): AnySearchable => ({
@@ -501,7 +466,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       }
       return results
     },
-    [filteredItems, messages, tags, types],
+    [filteredItems, tags, types],
   )
 
   const matchSorterKeys = useMemo(
@@ -541,7 +506,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'person',
-              ...splitName(state.inputValue.trim(), true),
+              name: capitalise(state.inputValue.trim()),
             },
             dividerBefore: true,
             id: 'add-person',

@@ -25,7 +25,6 @@ import { AccountMetadata, setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
 import { FlockPushSubscription } from '../utils/firebase-types'
 import { getAccountId, initAxios } from './common'
-import { listMessages } from './KoinoniaAPI'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
 
@@ -158,17 +157,11 @@ export async function storeVault() {
 async function initialLoadFromVault() {
   const accountDataPromise = getMetadata()
   const itemsPromise = fetchAll()
-  // TODO: Possibly re-enable messages once decided what's happening with Koinonia integration
-  // const messagesPromise = listMessages().catch(
-  //   error => console.warn('Failed to get messages', error),
-  // )
 
   await accountDataPromise
 
   const items = await itemsPromise
   await migrateItems(items)
-
-  // await messagesPromise
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
