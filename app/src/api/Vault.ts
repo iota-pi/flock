@@ -83,14 +83,11 @@ function getKey() {
   return key
 }
 
-async function updateKeyHash(isNewAccount?: boolean) {
+async function updateKeyHash() {
   const keyBuffer = await crypto.subtle.exportKey('raw', getKey())
   const keyHashBytes = await crypto.subtle.digest('SHA-512', keyBuffer)
   keyHash = fromBytes(keyHashBytes)
   initAxios(keyHash)
-  if (!isNewAccount) {
-    store.dispatch(setAccount({ loggedIn: true }))
-  }
 }
 
 export async function initialiseVault(
@@ -119,7 +116,7 @@ export async function initialiseVault(
     true,
     ['encrypt', 'decrypt'],
   )
-  await updateKeyHash(isNewAccount)
+  await updateKeyHash()
   if (!isNewAccount) {
     await initialLoadFromVault()
     await storeVault()

@@ -141,6 +141,7 @@ function CreateAccountPage() {
         const success = await vaultCreateAccount()
         if (success) {
           setError('')
+          dispatch(setAccount({ loggedIn: true }))
           dispatch(setUi({ justCreatedAccount: true }))
           navigate(getPage('login').path)
         } else {

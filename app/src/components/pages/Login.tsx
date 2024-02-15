@@ -90,7 +90,7 @@ function LoginPage() {
         success = false
       }
       if (success) {
-        dispatch(setAccount({ account: accountInput }))
+        dispatch(setAccount({ account: accountInput, loggedIn: true }))
         navigate(getPage('people').path)
       } else {
         setError('Could not find matching account ID and password.')
