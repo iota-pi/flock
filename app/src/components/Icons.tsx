@@ -8,8 +8,6 @@ import CalendarIcon from '@mui/icons-material/Today'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
-import EmailAddressIcon from '@mui/icons-material/AlternateEmail'
-import EmailIcon from '@mui/icons-material/Email'
 import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
@@ -54,8 +52,6 @@ export {
   DeleteIcon,
   DownloadIcon,
   EditIcon,
-  EmailAddressIcon,
-  EmailIcon,
   FilterIcon,
   FrequencyIcon,
   GroupIcon,

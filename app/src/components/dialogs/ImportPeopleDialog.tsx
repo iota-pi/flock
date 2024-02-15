@@ -43,10 +43,6 @@ function ImportPeopleDialog({
               firstname: 'firstname',
               lastname: 'lastname',
               surname: 'lastname',
-              email: 'email',
-              emailaddress: 'email',
-              phone: 'phone',
-              phonenumber: 'phone',
               description: 'description',
               summary: 'summary',
             }
