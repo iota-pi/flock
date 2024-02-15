@@ -143,7 +143,7 @@ function DrawerDisplay() {
     loggedIn
     && drawers.length === 0
     && baseDrawerIsPermanent
-    && !page.noPlaceholderDrawer
+    && !page?.noPlaceholderDrawer
   )
 
   return (

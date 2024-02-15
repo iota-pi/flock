@@ -11,7 +11,7 @@ import {
   styled,
   Toolbar,
 } from '@mui/material'
-import { Page, PageId, pages, withPage } from '../pages'
+import { PageId, pages, usePage } from '../pages'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi } from '../../state/ui'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
@@ -98,7 +98,6 @@ export interface Props {
   onClick: () => void,
   onMinimise: () => void,
   open: boolean,
-  page: Page,
 }
 
 export interface UserInterface {
@@ -165,22 +164,22 @@ function MainMenu({
   onClick,
   onMinimise,
   open,
-  page,
 }: Props) {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const metadata = useAppSelector(state => state.account.metadata)
+  const page = usePage()
 
   const handleClick = useCallback(
     (pageId?: PageId) => {
-      if (pageId && page.id !== pageId) {
+      if (pageId && page?.id !== pageId) {
         const newPage = pages.find(p => p.id === pageId)!
         navigate(newPage.path)
         dispatch(setUi({ selected: [] }))
       }
       onClick()
     },
-    [page.id, dispatch, navigate, onClick],
+    [page?.id, dispatch, navigate, onClick],
   )
 
   const pagesToShow = useMemo(
@@ -207,7 +206,7 @@ function MainMenu({
               minimisedMenu={minimised}
               name={name}
               onClick={handleClick}
-              selected={id === page.id}
+              selected={id === page?.id}
             />
           ))}
 
@@ -227,5 +226,4 @@ function MainMenu({
   )
 }
 const MemoMainMenu = memo(MainMenu)
-
-export default withPage(MemoMainMenu)
+export default MemoMainMenu

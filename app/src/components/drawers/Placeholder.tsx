@@ -34,10 +34,10 @@ function PlaceholderDrawer({
 }: Props) {
   const page = usePage()
 
-  const canAdd = pagesWithAddButton.includes(page.id)
-  const itemName = itemNameMap[page.id] || 'item'
-  const addName = addNameMap[page.id] || 'item'
-  const aOrAn = 'aeiou'.includes(itemName.charAt(0)) ? 'an' : 'a'
+  const canAdd = page ? pagesWithAddButton.includes(page.id) : false
+  const itemName = (page ? itemNameMap[page.id] : undefined) || 'item'
+  const addName = (page ? addNameMap[page.id] : undefined) || 'item'
+  const aOrAn = 'aeiou'.includes(itemName.charAt(0).toLowerCase()) ? 'an' : 'a'
 
   const styles = useMemo(
     () => ({ opacity: 0.75 }),
@@ -60,7 +60,9 @@ function PlaceholderDrawer({
         flexGrow={1}
         sx={styles}
       >
-        <LargeIcon icon={page.icon} />
+        {page && (
+          <LargeIcon icon={page.icon} />
+        )}
 
         <Typography variant="h5" color="textSecondary" align="center">
           Select {aOrAn} {itemName} from the list<br />

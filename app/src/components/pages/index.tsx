@@ -154,23 +154,5 @@ export function usePage() {
     () => reversedPages.find(p => matchPath(location.pathname, p.path)),
     [location.pathname],
   )
-  if (page) {
-    return page
-  }
-  throw new Error('Could not find matching page')
-}
-
-interface PageProps {
-  page: Page,
-}
-export type WithPage<P> = P & PageProps
-export const withPage = <P extends PageProps>(
-  Component: ComponentType<P>,
-) => {
-  type BaseProps = Omit<P, keyof PageProps>
-  const WithPageHOC: React.FC<BaseProps> = (props: BaseProps) => {
-    const page = usePage()
-    return <Component {...props as P} page={page} />
-  }
-  return WithPageHOC
+  return page
 }
