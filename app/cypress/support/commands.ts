@@ -7,7 +7,7 @@ Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => 
 })
 
 Cypress.Commands.add('dataCy', (dataCy: string) => {
-  return cy.get(`[data-cy=${dataCy}]`)
+  return cy.get(`[data-cy=${dataCy}]`)[0]
 });
 
 Cypress.Commands.add('createAccount', (password: string) => {
