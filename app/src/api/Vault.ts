@@ -126,7 +126,7 @@ export async function initialiseVault(
 export async function loadVault() {
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
-    store.dispatch(setAccount({ account }))
+    store.dispatch(setAccount({ account, loggedIn: true }))
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)

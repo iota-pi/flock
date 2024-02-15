@@ -35,23 +35,26 @@ function GoalDialog({
     () => {
       if (open) {
         setNewGoal(goal.toString())
-        setHintMessage(undefined)
       }
     },
     [goal, open],
+  )
+  useEffect(
+    () => {
+      const numericValue = parseInt(newGoal)
+      if (numericValue > 0) {
+        setHintMessage(undefined)
+      } else {
+        setHintMessage('Please enter a positive number')
+      }
+    },
+    [newGoal],
   )
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value
       setNewGoal(value)
-
-      const numericValue = parseInt(value)
-      if (numericValue > 0) {
-        setHintMessage(undefined)
-      } else {
-        setHintMessage('Please enter a positive number')
-      }
     },
     [],
   )
