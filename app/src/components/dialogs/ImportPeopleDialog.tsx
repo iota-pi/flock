@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
-import neatCsv from 'neat-csv'
+import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useState } from 'react'
 import { importPeople, PersonItem } from '../../state/items'
 import { UploadIcon } from '../Icons'
@@ -33,8 +33,9 @@ function ImportPeopleDialog({
       if (files.length > 0) {
         const file = files[0]
         const text = await file.text()
-        const data = await neatCsv(text, {
-          mapHeaders: ({ header }) => {
+        const data = await parse(text, {
+          skipEmptyLines: true,
+          columns: (headers: string[]) => headers.map(header => {
             const normalised = header.replace(/[ _-]/g, '').toLowerCase()
             const headersMap: Record<string, string> = {
               name: 'name',
@@ -50,15 +51,18 @@ function ImportPeopleDialog({
               summary: 'summary',
             }
             return headersMap[normalised] || null
-          },
-          mapValues: ({ header, value }) => {
-            if (header === 'name' && typeof value === 'string') {
-              const nameParts = value.split(',')
+          }),
+          onRecord: (record) => {
+            if (typeof record.name === 'string') {
+              const nameParts = record.name.split(',')
               if (nameParts.length > 1) {
-                return nameParts[1] + nameParts[0]
+                return {
+                  ...record,
+                  name: nameParts[1] + nameParts[0],
+                }
               }
             }
-            return value.trim()
+            return record
           },
         })
         setErrorMessage('')
