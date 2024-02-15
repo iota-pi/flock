@@ -16,23 +16,30 @@ function useDrawerRouting(drawers: DrawerData[]) {
   const routerLocation = useLocation()
   const navigate = useNavigate()
   const prevDrawers = usePrevious(drawers)
+  const prevLocationHash = usePrevious(routerLocation.hash)
 
   useEffect(
     () => {
-      if (prevDrawers) {
-        const topIndex = drawers.length - 1
-        const topItem = drawers[topIndex]?.item
-        const prevTopItem = prevDrawers[prevDrawers.length - 1]?.item
-        const currentHashItem = routerLocation.hash.replace(/^#/, '')
-        if (drawers.length === prevDrawers.length) {
-          if (topItem && topItem !== prevTopItem) {
-            navigate(`#${topItem}`, { replace: true })
-          }
-        } else if (drawers.length < prevDrawers.length && prevTopItem === currentHashItem) {
-          navigate(-1)
-        } else if (drawers.length > prevDrawers.length && topItem) {
-          navigate(`#${topItem}`)
+      if (!prevDrawers) {
+        return
+      }
+      const topItem = (
+        drawers[drawers.length - 1]?.item
+        || drawers[drawers.length - 1]?.newItem?.id
+      )
+      const prevTopItem = (
+        prevDrawers[prevDrawers.length - 1]?.item
+        || prevDrawers[prevDrawers.length - 1]?.newItem?.id
+      )
+      const currentHash = routerLocation.hash.replace(/^#/, '')
+      if (drawers.length === prevDrawers.length) {
+        if (topItem && topItem !== prevTopItem) {
+          navigate(`#${topItem}`, { replace: true })
         }
+      } else if (drawers.length < prevDrawers.length && prevTopItem === currentHash) {
+        navigate(-1)
+      } else if (drawers.length > prevDrawers.length && topItem) {
+        navigate(`#${topItem}`)
       }
     },
     [drawers, routerLocation, prevDrawers],
@@ -44,11 +51,11 @@ function useDrawerRouting(drawers: DrawerData[]) {
       const id = routerLocation.hash.replace(/^#/, '')
       if (secondTopItem === id) {
         dispatch(removeActive())
-      } else if (!routerLocation.hash && drawers.length > 0) {
+      } else if (prevLocationHash && !id && drawers.length > 0) {
         dispatch(removeActive())
       }
     },
-    [dispatch, drawers.length, routerLocation, secondTopItem],
+    [dispatch, drawers.length, prevLocationHash, routerLocation, secondTopItem],
   )
 }
 
