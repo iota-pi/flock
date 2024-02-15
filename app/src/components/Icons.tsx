@@ -12,7 +12,6 @@ import EmailAddressIcon from '@mui/icons-material/AlternateEmail'
 import EmailIcon from '@mui/icons-material/Email'
 import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
-import GeneralIcon from '@mui/icons-material/MoreHoriz'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
 import MenuIcon from '@mui/icons-material/Menu'
@@ -59,7 +58,6 @@ export {
   EmailIcon,
   FilterIcon,
   FrequencyIcon,
-  GeneralIcon,
   GroupIcon,
   HomeIcon,
   MenuIcon,
@@ -92,7 +90,6 @@ export function getIconType(itemType: Item['type'] | 'tag'): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
-    general: GeneralIcon,
     tag: TagIcon,
   }
   return iconTypeMap[itemType]

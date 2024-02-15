@@ -12,6 +12,21 @@ export interface ItemMigration {
 const migrations: ItemMigration[] = [
   {
     dependencies: [],
+    description: 'Convert general items to people',
+    id: 'convert-general-to-person',
+    migrate: async ({ items }) => {
+      let updated = false
+      for (const item of items) {
+        if ((item.type as string) === 'general') {
+          item.type = 'person'
+          updated = true
+        }
+      }
+      return updated
+    },
+  },
+  {
+    dependencies: [],
     description: 'Merge first and last names for people',
     id: 'merge-people-names',
     migrate: async ({ items }) => {
@@ -28,7 +43,7 @@ const migrations: ItemMigration[] = [
       }
       return updated
     },
-  }
+  },
 ]
 
 async function migrateItems(items: Item[]) {

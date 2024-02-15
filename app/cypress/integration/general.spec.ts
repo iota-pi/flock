@@ -36,19 +36,19 @@ describe('Basic operation', () => {
     cy.contains('3 members')
   })
 
-  it('can create other items, edit tags and frequencies', () => {
-    cy.createOther({ name: 'Athelas' })
+  it('can create people items, edit tags and frequencies', () => {
+    cy.createPerson({ name: 'Athelas' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-weekly').click()
       .addTag('Plant')
       .saveDrawer()
-      cy.createOther({ name: 'Mallorn' })
+    cy.createPerson({ name: 'Mallorn' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-annually').click()
       .addTag('Plant')
       .addTag('Shiny')
       .saveDrawer()
-      cy.createOther({ name: 'The One Ring' })
+    cy.createPerson({ name: 'The One Ring' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-daily').click()
       .addTag('p')

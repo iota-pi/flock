@@ -122,7 +122,7 @@ function GroupDialog({
               selectedItems={selected}
               showIcons
               showSelectedChips
-              types={{ person: true, group: true, general: true }}
+              types={{ person: true, group: true }}
             />
           </Grid>
 

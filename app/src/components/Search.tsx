@@ -104,13 +104,12 @@ export type AnySearchable = (
 export type AnySearchableData = Exclude<AnySearchable['data'], undefined>
 export type AnySearchableType = AnySearchable['type']
 export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
-  general: true,
   group: true,
   person: true,
   tag: true,
 }
 export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group', 'general', 'tag']
+  ['person', 'group', 'tag']
 )
 
 export function getSearchableDataId(s: AnySearchableData): string {
@@ -118,7 +117,7 @@ export function getSearchableDataId(s: AnySearchableData): string {
 }
 
 function isSearchableStandardItem(s: AnySearchable): s is SearchableItem {
-  return s.type === 'person' || s.type === 'group' || s.type === 'general'
+  return s.type === 'person' || s.type === 'group'
 }
 
 function sortSearchables(a: AnySearchable, b: AnySearchable): number {
@@ -519,15 +518,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             },
             id: 'add-group',
             type: 'group',
-          },
-          {
-            create: true,
-            default: {
-              type: 'general',
-              name: capitalise(state.inputValue.trim()),
-            },
-            id: 'add-general',
-            type: 'general',
           },
         )
       }

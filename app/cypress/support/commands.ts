@@ -1,4 +1,4 @@
-import { GeneralItem, GroupItem, PersonItem } from '../../src/state/items';
+import { GroupItem, PersonItem } from '../../src/state/items';
 import 'cypress-file-upload';
 
 Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => {
@@ -58,18 +58,6 @@ Cypress.Commands.add(
   'createGroup',
   (data: Partial<GroupItem>) => {
     cy.page('groups')
-    cy.dataCy('fab').click()
-    for (const key of Object.keys(data)) {
-      cy.dataCy(key).type(data[key])
-    }
-    return cy;
-  },
-);
-
-Cypress.Commands.add(
-  'createOther',
-  (data: Partial<GeneralItem>) => {
-    cy.page('general')
     cy.dataCy('fab').click()
     for (const key of Object.keys(data)) {
       cy.dataCy(key).type(data[key])

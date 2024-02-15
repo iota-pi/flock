@@ -4,8 +4,8 @@ import { Frequency } from '../utils/frequencies'
 import { RootState } from '../store'
 
 export type ItemId = string
-export type ItemType = 'person' | 'group' | 'general'
-export const ITEM_TYPES: ItemType[] = ['person', 'group', 'general']
+export type ItemType = 'person' | 'group'
+export const ITEM_TYPES: ItemType[] = ['person', 'group']
 
 export interface BaseItem {
   archived: boolean,
@@ -28,10 +28,7 @@ export interface GroupItem extends BaseItem {
   members: ItemId[],
   type: 'group',
 }
-export interface GeneralItem extends BaseItem {
-  type: 'general',
-}
-export type Item = PersonItem | GroupItem | GeneralItem
+export type Item = PersonItem | GroupItem
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -104,14 +101,6 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
-export function getBlankGeneral(id?: ItemId, isNew = true): GeneralItem {
-  return {
-    ...getBlankBaseItem(id),
-    isNew: isNew || undefined,
-    type: 'general',
-  }
-}
-
 export function getBlankItem(itemType: ItemType, isNew?: boolean): Item {
   if (itemType === 'person') {
     return getBlankPerson(undefined, isNew)
@@ -119,7 +108,7 @@ export function getBlankItem(itemType: ItemType, isNew?: boolean): Item {
   if (itemType === 'group') {
     return getBlankGroup(undefined, isNew)
   }
-  return getBlankGeneral(undefined, isNew)
+  throw new Error('Unknown item type')
 }
 
 export function checkProperties(items: Item[]): { error: boolean, message: string } {

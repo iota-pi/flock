@@ -8,21 +8,18 @@ import InlineText from '../InlineText'
 export interface Props extends BaseDrawerProps {}
 
 const pagesWithAddButton: PageId[] = [
-  'general',
   'groups',
   'people',
   'prayer',
 ]
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
-  general: 'item',
   groups: 'group',
   people: 'person',
   prayer: 'item',
   settings: 'item',
 }
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
-  general: 'item',
   groups: 'group',
   people: 'person',
   prayer: 'prayer point',

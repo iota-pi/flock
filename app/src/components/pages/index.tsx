@@ -2,7 +2,6 @@ import React, { ComponentType, ReactNode, useMemo } from 'react'
 import { Routes, Route, matchPath, useLocation } from 'react-router-dom'
 import loadable from '@loadable/component'
 import {
-  GeneralIcon,
   GroupIcon,
   MuiIconType,
   OptionsIcon,
@@ -27,7 +26,6 @@ export type InternalPageId = (
 export type PageId = (
   'people' |
   'groups' |
-  'general' |
   'prayer' |
   'settings'
 )
@@ -86,14 +84,6 @@ export const pages: Page[] = [
     name: 'Groups',
     page: <ItemPage itemType="group" />,
     path: '/groups',
-    requiresAuth: true,
-  },
-  {
-    icon: GeneralIcon,
-    id: 'general',
-    name: 'Other Items',
-    page: <ItemPage itemType="general" />,
-    path: '/general',
     requiresAuth: true,
   },
   {

@@ -1,6 +1,6 @@
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types';
 
-export type VaultItemType = 'person' | 'group' | 'general';
+export type VaultItemType = 'person' | 'group';
 
 export interface VaultKey {
   account: string,
@@ -40,7 +40,7 @@ export interface VaultSubscriptionFull extends FlockPushSubscription {
 }
 
 export function asItemType(type: string): VaultItemType {
-  const allowedTypes: VaultItemType[] = ['person', 'group', 'general'];
+  const allowedTypes: VaultItemType[] = ['person', 'group'];
   if (allowedTypes.includes(type as VaultItemType)) {
     return type as VaultItemType;
   }
