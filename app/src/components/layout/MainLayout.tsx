@@ -1,4 +1,4 @@
-import { PropsWithChildren } from 'react'
+import type { ReactNode } from 'react'
 import { Box } from '@mui/material'
 import DrawerDisplay from './DrawerDisplay'
 import SelectedActions from '../SelectedActions'
@@ -6,7 +6,7 @@ import GeneralMessage from '../GeneralMessage'
 import { useLoggedIn } from '../../state/selectors'
 
 
-function MainLayout({ children }: PropsWithChildren<Record<string, never>>) {
+function MainLayout({ children }: { children: ReactNode }) {
   const loggedIn = useLoggedIn()
 
   return (

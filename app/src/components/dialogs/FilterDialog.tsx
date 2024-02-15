@@ -145,17 +145,6 @@ export function FilterCriterionDisplay({
     [criterion.type, onRemove],
   )
 
-  const renderDateInput = useCallback(
-    (params: TextFieldProps) => (
-      <TextField
-        {...params}
-        fullWidth
-        variant="standard"
-      />
-    ),
-    [],
-  )
-
   const currentDate = useMemo(
     () => (criterionDetails.dataType === 'date' ? new Date(criterion.value as number) : null),
     [criterion, criterionDetails],
@@ -254,10 +243,10 @@ export function FilterCriterionDisplay({
       {criterionDetails.dataType === 'date' && (
         <DatePicker<Date | null>
           data-cy="filter-criterion-value"
-          inputFormat="dd/MM/yyyy"
+          format="dd/MM/yyyy"
           label="Value"
           onChange={handleChangeDateValue}
-          renderInput={renderDateInput}
+          slotProps={{ textField: { fullWidth: true, variant: 'standard' } }}
           value={currentDate}
         />
       )}
