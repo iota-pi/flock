@@ -268,7 +268,8 @@ function SettingsPage() {
           icon={NotificationIcon}
           id="reminders"
           onClick={handleEditSubscription}
-          title="Prayer reminder notifications"
+          title="Prayer reminder notifications (temporarily unavailable)"
+          disabled
         />
         <SettingsItem
           icon={EditIcon}

@@ -9,7 +9,7 @@ set -euo pipefail
   --platform=node \
   --target=node14 \
   --external:aws-sdk
-cp ./gcp-service-credentials.json build/bundled/
+# cp ./gcp-service-credentials.json build/bundled/
 (
   cd build/bundled
   zip -r ../lambda.zip .
