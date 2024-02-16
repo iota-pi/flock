@@ -3,7 +3,7 @@
     // "incremental": true,
     "target": "ESNEXT",
     "module": "commonjs",
-    "outDir": "./build/",
+    "outDir": "./dist/",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

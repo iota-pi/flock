@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "analyse": "source-map-explorer 'build/static/js/*.js'",
+    "analyse": "source-map-explorer 'dist/static/js/*.js'",
     "build": "tsc && vite build",
     "lint": "./node_modules/.bin/eslint src/ --ext .ts,.tsx",
     "postinstall": "patch-package",

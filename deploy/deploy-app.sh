@@ -46,7 +46,7 @@ key_base="s3://$app_bucket"
 s3_app_params="--acl public-read --cache-control max-age=$max_age"
 
 echo "Copying to $key_base/"
-aws s3 cp build/ "$key_base/" --recursive $s3_app_params
+aws s3 cp dist/ "$key_base/" --recursive $s3_app_params
 
 echo "Creating version marker at s3://$app_bucket/versions/$version"
 touch version

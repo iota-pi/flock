@@ -3,14 +3,14 @@ set -euo pipefail
 
 ./node_modules/.bin/esbuild \
   index.ts \
-  --outfile=build/bundled/lambda.js \
+  --outfile=dist/bundled/lambda.js \
   --bundle \
   --minify \
   --platform=node \
   --target=node14 \
   --external:aws-sdk
-# cp ./gcp-service-credentials.json build/bundled/
+# cp ./gcp-service-credentials.json dist/bundled/
 (
-  cd build/bundled
+  cd dist/bundled
   zip -r ../lambda.zip .
 )

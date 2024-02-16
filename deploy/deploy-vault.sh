@@ -20,5 +20,5 @@ fi
 (
   cd ../vault
   yarn build
-  aws s3 cp "build/lambda.zip" "$dest/vault.zip"
+  aws s3 cp "dist/lambda.zip" "$dest/vault.zip"
 )
