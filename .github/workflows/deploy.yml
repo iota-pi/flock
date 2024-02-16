@@ -38,6 +38,8 @@ jobs:
 
     - name: Run vault unit tests
       run: cd vault && yarn test
+      env:
+        DYNAMODB_ENDPOINT: http://dynamodb:8000
 
     - name: Deploy lambda
       run: cd deploy && ./deploy-vault.sh
