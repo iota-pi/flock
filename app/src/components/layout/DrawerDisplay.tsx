@@ -49,7 +49,7 @@ function useDrawerRouting(drawers: DrawerData[]) {
   useEffect(
     () => {
       const id = routerLocation.hash.replace(/^#/, '')
-      if (secondTopItem === id) {
+      if (prevLocationHash !== routerLocation.hash && secondTopItem === id) {
         dispatch(removeActive())
       } else if (prevLocationHash && !id && drawers.length > 0) {
         dispatch(removeActive())
