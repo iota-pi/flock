@@ -24,7 +24,7 @@ jobs:
       run: |
         cd app
         yarn install --immutable
-        cd vault
+        cd ../vault
         yarn install --immutable
 
     - name: Start docker containers
