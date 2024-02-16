@@ -1,7 +1,9 @@
 import {
+  ConditionalCheckFailedException,
   CreateTableCommand,
   DynamoDBClient,
   DynamoDBClientConfig,
+  ResourceInUseException,
 } from '@aws-sdk/client-dynamodb';
 import {
   DeleteCommand,
@@ -76,7 +78,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       ));
     } catch (err: any) {
-      if (err.code !== 'ResourceInUseException') {
+      if (!(err instanceof ResourceInUseException)) {
         throw err;
       }
     }
@@ -101,7 +103,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       ));
     } catch (err: any) {
-      if (err.code !== 'ResourceInUseException') {
+      if (!(err instanceof ResourceInUseException)) {
         throw err;
       }
     }
@@ -134,7 +136,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       ));
     } catch (err: any) {
-      if (err.code !== 'ResourceInUseException') {
+      if (!(err instanceof ResourceInUseException)) {
         throw err;
       }
     }
@@ -155,10 +157,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         TableName: ACCOUNT_TABLE_NAME,
         Item: { account, authToken: await authToken },
         ConditionExpression: 'attribute_not_exists(account)',
-    })).catch(reason => {
+    })).catch(error => {
       success = false;
-      if (reason.code !== 'ConditionalCheckFailedException') {
-        throw reason;
+      if (!(error instanceof ConditionalCheckFailedException)) {
+        throw error;
       }
     });
     return success;
@@ -241,7 +243,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       }));
     } catch (error) {
-      if ((error as any).code === 'ConditionalCheckFailedException') {
+      if (error instanceof ConditionalCheckFailedException) {
         await this.client.send(new DeleteCommand({
           TableName: SUBSCRIPTION_TABLE_NAME,
           Key: { account, token },
