@@ -20,11 +20,15 @@ jobs:
         node-version: 20
     - run: corepack enable
 
+    - name: Install dependencies
+      run: |
+        cd app
+        yarn install --immutable
+        cd vault
+        yarn install --immutable
+
     - name: Start docker containers
       run: docker compose up -d
-
-    - name: Install dependencies
-      run: yarn install --immutable
 
     - name: Initialise database for testing
       run: cd vault && yarn docker:initdb
