@@ -40,7 +40,7 @@ jobs:
       run: cd vault && yarn docker:test
 
     - name: Initialise terraform
-      run: cd infra && ./tf.sh init
+      run: cd deploy && ./tf.sh init
 
     - name: Deploy lambda
       run: cd deploy && ./deploy-vault.sh
@@ -58,7 +58,7 @@ jobs:
 
     - name: Deploy Terraform IAC
       run: |
-        cd infra
+        cd deploy
         ./tf.sh apply -auto-approve
       env:
         CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
