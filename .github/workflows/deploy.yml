@@ -29,8 +29,11 @@ jobs:
     - name: Initialise database for testing
       run: cd vault && yarn docker:initdb
 
-    - name: Run unit tests
-      run: yarn test
+    - name: Run app unit tests
+      run: cd app && yarn test
+
+    - name: Run vault unit tests
+      run: cd vault && yarn test
 
     - name: Deploy lambda
       run: cd deploy && ./deploy-vault.sh
