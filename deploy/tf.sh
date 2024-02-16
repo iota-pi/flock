@@ -9,7 +9,6 @@ if [[ "$tf_cmd" =~ init|refresh|plan|apply ]]; then
 fi
 
 docker compose exec \
-  -e TF_VAR_app_version="$(./version.sh app)" \
   -e TF_VAR_vault_version="$(./version.sh vault)" \
   -e TF_IN_AUTOMATION="1" \
   -u "$(id -u):$(id -g)" \
