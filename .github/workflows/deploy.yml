@@ -9,6 +9,7 @@ jobs:
   deploy:
     name: Run tests & deploy
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
     - name: Checkout
