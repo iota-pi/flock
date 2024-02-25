@@ -28,7 +28,7 @@ services:
       - .:/flock
 
   terraform:
-    image: hashicorp/terraform:1.0.1
+    image: hashicorp/terraform:1.7.4
     command: tail -f /dev/null
     entrypoint: []
     environment:
