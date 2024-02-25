@@ -1,10 +1,13 @@
 import * as vault from '../api/Vault'
+import { setAccount } from '../state/account'
 import { getBlankPerson, PersonItem } from '../state/items'
+import store from '../store'
 import { MaturityControl, updateMaturityForPeople } from './maturity'
 
 describe('MaturityControl', () => {
   beforeAll(
     async () => {
+      store.dispatch(setAccount({ account: '.' }))
       await vault.initialiseVault(
         'example',
         true,

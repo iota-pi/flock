@@ -4,7 +4,7 @@ import * as vault from './Vault'
 import * as common from './common'
 import * as api from './VaultAPI'
 import type { VaultItem } from './VaultAPI'
-import type { AccountMetadata } from '../state/account'
+import { setAccount, type AccountMetadata } from '../state/account'
 import { AxiosInstance } from 'axios'
 
 describe('Vault (Crypto)', () => {
@@ -22,6 +22,7 @@ describe('Vault (Crypto)', () => {
         put: jest.fn(() => ({ data: { success: true } })),
       }) as unknown as AxiosInstance)
 
+      store.dispatch(setAccount({ account: '.' }))
       await vault.initialiseVault(
         'example',
         true,
@@ -81,7 +82,7 @@ describe('Vault (Crypto)', () => {
     const original = [getBlankPerson(), getBlankGroup()]
     const encrypted = await Promise.all(original.map(item => vault.encryptObject(item)))
     const asAPIItems: VaultItem[] = encrypted.map((item, i) => ({
-      account: '',
+      account: '.',
       cipher: item.cipher,
       item: original[i].id,
       metadata: {
