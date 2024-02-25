@@ -23,15 +23,22 @@ locals {
 
 resource "aws_s3_bucket" "app" {
   bucket = local.bucket_name
-  acl    = "private"
+  tags   = local.standard_tags
+}
 
-  tags = local.standard_tags
+resource "aws_s3_bucket_cors_configuration" "app_cors" {
+  bucket = local.bucket_name
 
   cors_rule {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "HEAD"]
     allowed_origins = ["*"]
   }
+}
+
+resource "aws_s3_bucket_acl" "app_acl" {
+  bucket = local.bucket_name
+  acl    = "private"
 }
 
 resource "aws_cloudfront_origin_access_identity" "app_oai" {}
