@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
-import { parse } from 'csv-parse/browser/esm/sync'
+import { parse } from 'csv-parse/dist/esm/sync'
 import { useCallback, useState } from 'react'
 import { importPeople, PersonItem } from '../../state/items'
 import { UploadIcon } from '../Icons'
@@ -48,7 +48,7 @@ function ImportPeopleDialog({
             }
             return headersMap[normalised] || null
           }),
-          onRecord: (record) => {
+          onRecord: record => {
             if (typeof record.name === 'string') {
               const nameParts = record.name.split(',')
               if (nameParts.length > 1) {

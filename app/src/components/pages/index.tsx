@@ -1,4 +1,4 @@
-import React, { ComponentType, ReactNode, useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 import { Routes, Route, matchPath, useLocation } from 'react-router-dom'
 import loadable from '@loadable/component'
 import {
@@ -19,15 +19,15 @@ const SettingsPage = loadable(() => import('./Settings'))
 const WelcomePage = loadable(() => import('./Welcome'))
 
 export type InternalPageId = (
-  'welcome' |
-  'login' |
-  'signup'
+  | 'welcome'
+  | 'login'
+  | 'signup'
 )
 export type PageId = (
-  'people' |
-  'groups' |
-  'prayer' |
-  'settings'
+  | 'people'
+  | 'groups'
+  | 'prayer'
+  | 'settings'
 )
 export type AnyPageId = InternalPageId | PageId
 
