@@ -83,6 +83,7 @@ function LoginPage() {
   const handleClickLogin = useCallback(
     async () => {
       let success: boolean
+      dispatch(setAccount({ account: accountInput }))
       try {
         await initialiseVault(password)
         success = await vaultCheckPassword()
@@ -90,9 +91,10 @@ function LoginPage() {
         success = false
       }
       if (success) {
-        dispatch(setAccount({ account: accountInput, loggedIn: true }))
+        dispatch(setAccount({ loggedIn: true }))
         navigate(getPage('people').path)
       } else {
+        dispatch(setAccount({ account: '' }))
         setError('Could not find matching account ID and password.')
       }
     },

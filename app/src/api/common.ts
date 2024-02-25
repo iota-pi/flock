@@ -21,7 +21,11 @@ export function getAxios() {
 }
 
 export function getAccountId() {
-  return store.getState().account.account
+  const account = store.getState().account.account
+  if (!account) {
+    throw new Error('Account ID not set; cannot use API without account ID.')
+  }
+  return account
 }
 
 function getAuth(authToken: string): AxiosRequestConfig {
