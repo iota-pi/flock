@@ -173,7 +173,7 @@ function TagSelection({
       getOptionLabel={getOptionLabel}
       handleHomeEndKeys
       multiple={!single}
-      noOptionsText="No tag found"
+      noOptionsText="No existing tags; type to add one"
       onChange={handleChange}
       options={allTags}
       renderInput={renderInput}

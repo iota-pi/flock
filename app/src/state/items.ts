@@ -22,9 +22,13 @@ export interface BaseItem {
 }
 export interface PersonItem extends BaseItem {
   maturity: string | null,
+  memberPrayerFrequency?: undefined,
+  members?: undefined,
   type: 'person',
 }
 export interface GroupItem extends BaseItem {
+  maturity?: undefined,
+  memberPrayerFrequency: Frequency,
   members: ItemId[],
   type: 'group',
 }
@@ -97,6 +101,7 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
     members: [],
+    memberPrayerFrequency: 'none',
     type: 'group',
   }
 }
@@ -177,7 +182,7 @@ export function getTags(items: Item[]) {
   return Array.from(new Set(items.flatMap(item => item.tags))).sort()
 }
 
-export function supplyMissingAttributes(item: Item): Item {
+export function supplyMissingAttributes<T extends Item>(item: T): T {
   return {
     ...getBlankItem(item.type, false),
     ...item,

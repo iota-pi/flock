@@ -142,12 +142,12 @@ function ItemDrawer({
   const handleClickAddDescription = useCallback(() => setShowDescription(true), [])
   const handleChange = useCallback(
     <T extends Item>(
-      data: Partial<Omit<T, 'type' | 'id'>> | ((prev: Item) => Item),
+      data: Partial<T> | ((prev: Item) => Item),
     ) => {
       if (typeof data === 'function') {
         return onChange(originalItem => dirtyItem(data(originalItem)))
       }
-      return onChange(dirtyItem({ ...data }))
+      return onChange(dirtyItem(data))
     },
     [onChange],
   )
@@ -373,13 +373,15 @@ function ItemDrawer({
   )
 
   const lastPrayer = getLastPrayedFor(item)
-  const frequencyField = useMemo(
+  const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : 'none'
+  const frequencyFields = useMemo(
     () => (
-      <Grid item xs={12}>
+      <Grid item xs={12} sm={6}>
         <FrequencyControls
           lastPrayer={lastPrayer}
           onChange={handleChange}
           prayerFrequency={item.prayerFrequency}
+          memberPrayerFrequency={memberFrequency}
         />
       </Grid>
     ),
@@ -387,6 +389,7 @@ function ItemDrawer({
       handleChange,
       item.prayerFrequency,
       item.type,
+      memberFrequency,
       lastPrayer,
     ],
   )
@@ -503,7 +506,7 @@ function ItemDrawer({
           {groupsSection}
         </Grid>
 
-        {frequencyField}
+        {frequencyFields}
       </Grid>
 
       <Grid container spacing={1} mt={1}>
