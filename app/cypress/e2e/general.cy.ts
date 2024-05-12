@@ -99,7 +99,7 @@ describe('Basic operation', () => {
     cy.page('prayer')
 
     // Check prayer report for Bilbo
-    cy.dataCy('page-content')
+    cy.dataCy('page-content-prayer')
       .contains('Bilbo')
       .click()
     cy.dataCy('drawer-content')

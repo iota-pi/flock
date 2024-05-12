@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
-import { parse } from 'csv-parse/dist/esm/sync'
+import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useState } from 'react'
 import { importPeople, PersonItem } from '../../state/items'
 import { UploadIcon } from '../Icons'

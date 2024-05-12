@@ -1,9 +1,9 @@
 import { GroupItem, PersonItem } from '../../src/state/items';
 import 'cypress-file-upload';
 
-Cypress.Commands.overwrite('type', (originalFn, subject, text, options = {}) => {
+Cypress.Commands.overwrite('type', (originalFn, element, text, options = {}) => {
   options.delay = 5;
-  return originalFn(subject, text, options);
+  return originalFn(element, text, options);
 })
 
 Cypress.Commands.add('dataCy', (dataCy: string) => {
@@ -37,7 +37,8 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'page',
   (page: string) => {
-    cy.dataCy(`page-${page}`).click()
+    cy.dataCy(`page-${page}`).click({ force: true })
+    cy.location('pathname').should('equal', '/' + page.replace('people', ''))
     return cy;
   },
 );

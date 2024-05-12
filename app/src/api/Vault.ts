@@ -284,6 +284,7 @@ export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]
     )
     if (filteredResult.length !== result.length) {
       console.warn('Some items were missing from the cache!')
+      // TODO refetch without caching for missing items
     } else {
       setItemCache(filteredResult)
     }

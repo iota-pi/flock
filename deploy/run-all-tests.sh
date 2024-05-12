@@ -14,6 +14,7 @@ export CI=true
   fi
 
   yarn build
+  yarn serve &
   yarn cypress run
   kill $! >/dev/null 2>&1 || true
 )

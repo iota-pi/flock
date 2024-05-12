@@ -3,6 +3,7 @@ import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material'
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
 import { useAppSelector } from '../../store'
+import { usePage } from '.'
 
 interface BaseProps {
   noScrollContainer?: boolean,
@@ -87,6 +88,8 @@ function BasePage({
   const activeRequests = useAppSelector(state => state.ui.requests.active)
   const loading = activeRequests > 0
 
+  const page = usePage()
+
   const ContentElement = noScrollContainer ? ContentNoScroll : ContentWithScroll
 
   return (
@@ -108,7 +111,7 @@ function BasePage({
         </Fade>
       </Box>
 
-      <ContentElement data-cy="page-content">
+      <ContentElement data-cy={`page-content-${page?.id}`}>
         {children}
       </ContentElement>
 
