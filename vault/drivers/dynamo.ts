@@ -4,8 +4,9 @@ import {
   DynamoDBClient,
   DynamoDBClientConfig,
   ResourceInUseException,
-} from '@aws-sdk/client-dynamodb';
+} from '@aws-sdk/client-dynamodb'
 import {
+  BatchGetCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -15,8 +16,8 @@ import {
   ScanCommand,
   ScanCommandOutput,
   UpdateCommand,
-} from '@aws-sdk/lib-dynamodb';
-import { almostConstantTimeEqual } from '../util';
+} from '@aws-sdk/lib-dynamodb'
+import { almostConstantTimeEqual } from '../util'
 import BaseDriver, {
   AuthData,
   CachedVaultItem,
@@ -24,31 +25,31 @@ import BaseDriver, {
   VaultItem,
   VaultKey,
   VaultSubscriptionFull,
-} from './base';
-import type { FlockPushSubscription } from '../../app/src/utils/firebase-types';
+} from './base'
+import type { FlockPushSubscription } from '../../app/src/utils/firebase-types'
 
-export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts';
-export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems';
-export const SUBSCRIPTION_TABLE_NAME = process.env.SUBSCRIPTIONS_TABLE || 'FlockSubscriptions';
-const DATA_ATTRIBUTES = ['metadata', 'cipher'];
+export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
+export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
+export const SUBSCRIPTION_TABLE_NAME = process.env.SUBSCRIPTIONS_TABLE || 'FlockSubscriptions'
+const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
-export const MAX_ITEM_SIZE = 50000;
-export const MAX_ITEMS_FETCH = 5000;
+export const MAX_ITEM_SIZE = 50000
+export const MAX_ITEMS_FETCH = 5000
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
-  private internalClient: DynamoDBDocumentClient | undefined;
+  private internalClient: DynamoDBDocumentClient | undefined
 
   get client() {
     if (!this.internalClient) {
-      throw new Error('Cannot use client before initialisation');
+      throw new Error('Cannot use client before initialisation')
     }
-    return this.internalClient;
+    return this.internalClient
   }
 
   async init(_options?: T) {
-    const options = getConnectionParams(_options);
-    const ddb = new DynamoDBClient(options);
-    const client = DynamoDBDocumentClient.from(ddb);
+    const options = getConnectionParams(_options)
+    const ddb = new DynamoDBClient(options)
+    const client = DynamoDBDocumentClient.from(ddb)
 
     try {
       await client.send(new CreateTableCommand(
@@ -76,10 +77,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ));
-    } catch (err: any) {
+      ))
+    } catch (err: unknown) {
       if (!(err instanceof ResourceInUseException)) {
-        throw err;
+        throw err
       }
     }
 
@@ -101,10 +102,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ));
-    } catch (err: any) {
+      ))
+    } catch (err: unknown) {
       if (!(err instanceof ResourceInUseException)) {
-        throw err;
+        throw err
       }
     }
 
@@ -134,36 +135,36 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ],
           BillingMode: 'PAY_PER_REQUEST',
         },
-      ));
-    } catch (err: any) {
+      ))
+    } catch (err: unknown) {
       if (!(err instanceof ResourceInUseException)) {
-        throw err;
+        throw err
       }
     }
 
-    return this;
+    return this
   }
 
   connect(_options?: T): DynamoDriver {
-    const options = getConnectionParams(_options);
-    const ddb = new DynamoDBClient(options);
-    this.internalClient = DynamoDBDocumentClient.from(ddb);
-    return this;
+    const options = getConnectionParams(_options)
+    const ddb = new DynamoDBClient(options)
+    this.internalClient = DynamoDBDocumentClient.from(ddb)
+    return this
   }
 
   async createAccount({ account, authToken }: AuthData): Promise<boolean> {
-    let success = true;
+    let success = true
     await this.client.send(new PutCommand({
-        TableName: ACCOUNT_TABLE_NAME,
-        Item: { account, authToken: await authToken },
-        ConditionExpression: 'attribute_not_exists(account)',
+      TableName: ACCOUNT_TABLE_NAME,
+      Item: { account, authToken: await authToken },
+      ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
-      success = false;
+      success = false
       if (!(error instanceof ConditionalCheckFailedException)) {
-        throw error;
+        throw error
       }
-    });
-    return success;
+    })
+    return success
   }
 
   async getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth> {
@@ -172,19 +173,19 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         TableName: ACCOUNT_TABLE_NAME,
         Key: { account },
       },
-    ));
+    ))
     if (response?.Item) {
-      const storedHash = response.Item.authToken as string;
-      const tokenHash = await authToken;
+      const storedHash = response.Item.authToken as string
+      const tokenHash = await authToken
       if (almostConstantTimeEqual(tokenHash, storedHash)) {
-        return response.Item as VaultAccountWithAuth;
+        return response.Item as VaultAccountWithAuth
       }
     }
-    throw new Error(`Could not find account ${account}`);
+    throw new Error(`Could not find account ${account}`)
   }
 
   async setMetadata(
-    { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, any> },
+    { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, unknown> },
   ): Promise<void> {
     await this.client.send(new UpdateCommand(
       {
@@ -195,8 +196,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ':metadata': metadata,
         },
       },
-    ));
-  };
+    ))
+  }
 
   async setSubscription(
     {
@@ -211,7 +212,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     await this.client.send(new PutCommand({
       TableName: SUBSCRIPTION_TABLE_NAME,
       Item: { account, id, ...subscription },
-    }));
+    }))
   }
 
   async deleteSubscription(
@@ -225,7 +226,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     await this.client.send(new DeleteCommand({
       TableName: SUBSCRIPTION_TABLE_NAME,
       Key: { account, id },
-    }));
+    }))
   }
 
   async countSubscriptionFailure(
@@ -241,7 +242,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ':inc': 1,
           ':max': maxFailures,
         },
-      }));
+      }))
     } catch (error) {
       if (error instanceof ConditionalCheckFailedException) {
         await this.client.send(new DeleteCommand({
@@ -251,10 +252,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ExpressionAttributeValues: {
             ':max': maxFailures,
           },
-        }));
-        console.info(`Deleting subscription after failing to push ${maxFailures} times`);
+        }))
+        console.info(`Deleting subscription after failing to push ${maxFailures} times`)
       } else {
-        throw error;
+        throw error
       }
     }
   }
@@ -267,59 +268,59 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         TableName: SUBSCRIPTION_TABLE_NAME,
         Key: { account, id },
       },
-    ));
+    ))
     if (response?.Item) {
       const {
         failures,
         hours,
         timezone,
         token,
-      } = response.Item as VaultSubscriptionFull;
+      } = response.Item as VaultSubscriptionFull
       return {
         failures,
         hours,
         timezone,
         token,
-      };
+      }
     }
-    return null;
+    return null
   }
 
   async getEverySubscription() {
     // Warning: uses full table scan
-    const maxItems = 1000;
-    const items: VaultSubscriptionFull[] = [];
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined;
+    const maxItems = 1000
+    const items: VaultSubscriptionFull[] = []
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined
     while (items.length < maxItems) {
       try {
         const response: ScanCommandOutput = await this.client.send(new ScanCommand({
           TableName: SUBSCRIPTION_TABLE_NAME,
           ExclusiveStartKey: lastEvaluatedKey,
-        }));
+        }))
 
         if (response?.Items) {
-          items.push(...response?.Items as object as VaultSubscriptionFull[]);
+          items.push(...response?.Items as object as VaultSubscriptionFull[])
         }
-        lastEvaluatedKey = response?.LastEvaluatedKey;
+        lastEvaluatedKey = response?.LastEvaluatedKey
         if (!lastEvaluatedKey) {
-          break;
+          break
         }
       } catch (error) {
         if (items.length === 0) {
-          throw new Error(`Could not scan for subscription items`);
+          throw new Error(`Could not scan for subscription items`)
         }
-        break;
+        break
       }
     }
-    return items;
+    return items
   }
 
   async checkPassword({ account, authToken }: AuthData): Promise<boolean> {
     try {
-      const result = await this.getAccount({ account, authToken });
-      return !!result;
+      const result = await this.getAccount({ account, authToken })
+      return !!result
     } catch (error) {
-      return false;
+      return false
     }
   }
 
@@ -327,11 +328,11 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (!item.cipher || !item.metadata.iv || !item.metadata.type) {
       throw new Error(
         `Missing some required properties on item ${JSON.stringify(item)}`,
-      );
+      )
     }
-    const itemLength = JSON.stringify(item).length;
+    const itemLength = JSON.stringify(item).length
     if (itemLength > MAX_ITEM_SIZE) {
-      throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`);
+      throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
     }
 
     await this.client.send(new PutCommand(
@@ -339,8 +340,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         TableName: ITEM_TABLE_NAME,
         Item: item,
       },
-    ));
-  };
+    ))
+  }
 
   async get({ account, item }: VaultKey) {
     const response = await this.client.send(new GetCommand(
@@ -349,13 +350,37 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         Key: { account, item },
         ProjectionExpression: DATA_ATTRIBUTES.join(','),
       },
-    ));
+    ))
     if (response?.Item) {
-      return response.Item as VaultItem;
+      return response.Item as VaultItem
     } else {
-      throw new Error(`Could not find item (${item}) for this account (${account})`);
+      throw new Error(`Could not find item (${item}) for this account (${account})`)
     }
-  };
+  }
+
+  async fetchMany(
+    {
+      account,
+      ids,
+    }: {
+      account: string,
+      ids: string[],
+    },
+  ) {
+    if (ids.length === 0) {
+      return []
+    }
+    const response = await this.client.send(new BatchGetCommand(
+      {
+        RequestItems: {
+          [ITEM_TABLE_NAME]: {
+            Keys: ids.map(item => ({ account, item })) ?? [],
+          },
+        },
+      },
+    ))
+    return response.Responses?.[ITEM_TABLE_NAME] as VaultItem[] ?? []
+  }
 
   async fetchAll(
     {
@@ -366,8 +391,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       cacheTime?: number,
     },
   ): Promise<CachedVaultItem[]> {
-    const items: VaultItem[] = [];
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined;
+    const items: VaultItem[] = []
+    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
     while (items.length < MAX_ITEMS_FETCH) {
       const response = await this.client.send(new QueryCommand(
         {
@@ -381,43 +406,43 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           },
           ProjectionExpression: ['#itemKey', ...DATA_ATTRIBUTES].join(','),
         },
-      ));
+      ))
       if (response?.Items) {
-        items.push(...response?.Items as VaultItem[]);
+        items.push(...response?.Items as VaultItem[])
       }
-      lastEvaluatedKey = response?.LastEvaluatedKey;
+      lastEvaluatedKey = response?.LastEvaluatedKey
       if (!lastEvaluatedKey) {
-        break;
+        break
       }
     }
     const updatedItems = items.map(item => {
       if (!cacheTime || !item.metadata.modified || item.metadata.modified > cacheTime) {
-        return item;
+        return item
       } else {
-        return { item: item.item } as CachedVaultItem;
+        return { item: item.item } as CachedVaultItem
       }
-    });
-    return updatedItems;
+    })
+    return updatedItems
   }
 
   async delete({ account, item }: VaultKey) {
     await this.client.send(new DeleteCommand({
       TableName: ITEM_TABLE_NAME,
       Key: { account, item },
-    }));
+    }))
   }
 }
 
 export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {
-  const customEndpoint = !!process.env.DYNAMODB_ENDPOINT;
+  const customEndpoint = !!process.env.DYNAMODB_ENDPOINT
   const endpointArgs: DynamoDBClientConfig = customEndpoint ? {
     endpoint: process.env.DYNAMODB_ENDPOINT,
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
-  } : {};
+  } : {}
   return {
     apiVersion: '2012-08-10',
     region: 'ap-southeast-2',
     ...endpointArgs,
     ...options,
-  };
+  }
 }

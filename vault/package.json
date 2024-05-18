@@ -28,11 +28,18 @@
     "build": "./build.sh",
     "dev": "nodemon api/runServer.ts",
     "docker:test": "docker compose run --rm api yarn test",
-    "docker:initdb": "docker compose run --rm api yarn initdb"
+    "docker:initdb": "docker compose run --rm api yarn initdb",
+    "lint": "eslint . --ext .ts"
   },
   "devDependencies": {
+    "@stylistic/eslint-plugin": "^2.1.0",
     "@types/jest": "^26.0.23",
+    "@typescript-eslint/eslint-plugin": "^7.9.0",
+    "@typescript-eslint/parser": "^7.9.0",
     "esbuild": "^0.14.12",
+    "eslint": "^8.55.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jest": "^28.5.0",
     "jest": "^26.6.3",
     "ts-jest": "^26.5.5"
   },

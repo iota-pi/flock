@@ -1,4 +1,4 @@
-import getDriver from '.';
-import { getConnectionParams } from './dynamo';
+import getDriver from '.'
+import { getConnectionParams } from './dynamo'
 
-getDriver('dynamo').init(getConnectionParams());
+getDriver('dynamo').init(getConnectionParams())
