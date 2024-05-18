@@ -66,11 +66,11 @@ export interface VaultConstructorData {
 let key: CryptoKey | null = null
 let keyHash: string = ''
 
-export function handleVaultError(error: Error, message?: string) {
+export function handleVaultError(error: Error, message: string) {
   console.error(error)
   store.dispatch(setUi({
     message: {
-      message: message || 'Vault error',
+      message,
       severity: 'error',
     },
   }))
