@@ -92,7 +92,7 @@ describe('Vault (Crypto)', () => {
       },
     }))
 
-    jest.spyOn(api, 'vaultFetchAll').mockReturnValue(Promise.resolve(asAPIItems))
+    jest.spyOn(api, 'vaultFetchMany').mockReturnValue(Promise.resolve(asAPIItems))
 
     const result = await vault.fetchAll()
     expect(result).toEqual(original)
