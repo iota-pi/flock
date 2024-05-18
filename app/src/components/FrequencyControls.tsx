@@ -1,9 +1,5 @@
 import { Grid, styled, Typography } from '@mui/material'
-import {
-  GroupItem,
-  Item,
-  PersonItem,
-} from '../state/items'
+import { GroupItem, Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import { Due, isDue } from '../utils/frequencies'
 import { PersonIcon, PrayerIcon } from './Icons'
