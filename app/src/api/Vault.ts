@@ -272,8 +272,8 @@ export function getItemCacheTime() {
 
 export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
   const rawCache = localStorage.getItem(VAULT_ITEM_CACHE)
-  if (rawCache) {
-    const cachedItems: VaultItem[] = JSON.parse(rawCache)
+  const cachedItems: VaultItem[] = JSON.parse(rawCache || '[]')
+  if (cachedItems.length > 0) {
     const cachedMap = new Map(cachedItems.map(item => [item.item, item]))
     const items = await itemsPromise
     const result = items.map(

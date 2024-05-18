@@ -54,7 +54,6 @@ export async function vaultFetchMany({
       batch => getAxios().get(
         `${url}?ids=${batch.join(',')}`
       ),
-      10,
     )
     return result.flatMap(r => r.data.items)
   } else {
