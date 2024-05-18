@@ -263,6 +263,10 @@ export async function storeManyItems(items: Item[]) {
 }
 
 export function getItemCacheTime() {
+  const rawCache = localStorage.getItem(VAULT_ITEM_CACHE)
+  if (!rawCache || rawCache === '[]') {
+    return null
+  }
   const raw = localStorage.getItem(VAULT_ITEM_CACHE_TIME)
   if (raw) {
     return parseInt(raw)
