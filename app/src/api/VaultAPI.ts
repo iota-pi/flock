@@ -45,7 +45,9 @@ export async function vaultFetchMany({
   }
   let url = `${ENDPOINT}/${getAccountId()}/items`
   if (cacheTime !== undefined) {
-    url = `${url}?since=${cacheTime}`
+    if (cacheTime) {
+      url = `${url}?since=${cacheTime}`
+    }
     const result = await wrapRequest(getAxios().get(url))
     return result.data.items
   } else if (ids) {
