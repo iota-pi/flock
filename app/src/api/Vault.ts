@@ -130,7 +130,7 @@ export async function loadVault() {
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
-  if (storedKey) {
+  if (account && storedKey) {
     key = await crypto.subtle.importKey(
       'raw',
       toBytes(storedKey),

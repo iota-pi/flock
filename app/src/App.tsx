@@ -55,8 +55,12 @@ export default function App() {
   )
 
   useEffect(
-    () => { loadVault() },
-    [],
+    () => {
+      if (loggedIn) {
+        loadVault()
+      }
+    },
+    [loggedIn],
   )
 
   return (
