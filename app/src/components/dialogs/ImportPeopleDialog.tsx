@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
+// eslint-disable-next-line import/no-unresolved
 import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useState } from 'react'
 import { importPeople, PersonItem } from '../../state/items'
