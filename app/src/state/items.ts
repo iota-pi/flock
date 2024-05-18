@@ -5,6 +5,7 @@ import { RootState } from '../store'
 
 export type ItemId = string
 export type ItemType = 'person' | 'group'
+export type OldItemType = 'general'
 export const ITEM_TYPES: ItemType[] = ['person', 'group']
 
 export interface BaseItem {
@@ -106,8 +107,8 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType, isNew?: boolean): Item {
-  if (itemType === 'person') {
+export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
+  if (itemType === 'person' || itemType === 'general') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
