@@ -40,11 +40,11 @@ export async function vaultFetchMany({
   cacheTime?: number | null,
   ids?: string[],
 }): Promise<VaultItem[]> {
-  if (cacheTime && ids) {
+  if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
   let url = `${ENDPOINT}/${getAccountId()}/items`
-  if (cacheTime) {
+  if (cacheTime !== undefined) {
     url = `${url}?since=${cacheTime}`
     const result = await wrapRequest(getAxios().get(url))
     return result.data.items
