@@ -6,7 +6,7 @@
   "scripts": {
     "analyse": "source-map-explorer 'dist/static/js/*.js'",
     "build": "tsc && vite build",
-    "lint": "./node_modules/.bin/eslint src/ --ext .ts,.tsx",
+    "lint": "eslint src/ --ext .ts,.tsx",
     "postinstall": "patch-package",
     "start": "yarn vault:dev && vite",
     "test": "jest",
@@ -76,7 +76,6 @@
     "eslint": "^8.55.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-jest": "^27.6.0",
-    "eslint-plugin-jsx-a11y": "^6.8.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "jest-environment-jsdom": "^29.7.0",
