@@ -15,7 +15,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get('/:account/items', async (request, reply) => {
     const account = (request.params as { account: string }).account;
-    const cacheTime = parseInt((request.query as { since: string }).since) || undefined;
+    const cacheTime = parseInt((request.query as { since?: string }).since || '') || undefined;
+    const ids = ((request.query as { ids?: string }).ids || '').split(',').filter(Boolean);
     const authToken = getAuthToken(request);
     const valid = await vault.checkPassword({ account, authToken });
     if (!valid) {
@@ -23,7 +24,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       return { success: false };
     }
     try {
-      const results = await vault.fetchAll({ account, cacheTime });
+      const resultPromise = (
+        cacheTime
+          ? vault.fetchAll({ account, cacheTime })
+          : vault.fetchMany({ account, ids })
+      );
+      const results = await resultPromise;
       return { success: true, items: results };
     } catch (error) {
       fastify.log.error(error);

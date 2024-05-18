@@ -4,7 +4,7 @@ import {
   vaultDelete,
   vaultDeleteMany,
   vaultDeleteSubscription,
-  vaultFetchAll,
+  vaultFetchMany,
   vaultGetMetadata,
   vaultGetSubscription,
   vaultPut,
@@ -282,12 +282,20 @@ export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]
     const filteredResult = result.filter(
       (item): item is NonNullable<typeof item> => item !== undefined,
     )
+    const missingIds = (
+      items
+        .map(item => item.item)
+        .filter(id => !filteredResult.some(item => item.item === id))
+    )
     if (filteredResult.length !== result.length) {
       console.warn('Some items were missing from the cache!')
-      // TODO refetch without caching for missing items
-    } else {
-      setItemCache(filteredResult)
+      const newItems = await vaultFetchMany({ ids: missingIds }).catch(error => {
+        handleVaultError(error, 'Failed to fetch some items from server')
+        return [] as VaultItem[]
+      })
+      filteredResult.push(...newItems)
     }
+    setItemCache(filteredResult)
     return filteredResult
   }
   const items = await itemsPromise
@@ -316,7 +324,7 @@ export function checkItemCache() {
 
 export async function fetchAll(): Promise<Item[]> {
   const cacheTime = getItemCacheTime()
-  const fetchPromise = vaultFetchAll({
+  const fetchPromise = vaultFetchMany({
     cacheTime,
   }).catch(error => {
     handleVaultError(error, 'Failed to fetch items from server')

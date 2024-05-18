@@ -33,13 +33,33 @@ export interface VaultSubscription {
 }
 
 
-export async function vaultFetchAll({ cacheTime }: { cacheTime?: number | null }): Promise<VaultItem[]> {
+export async function vaultFetchMany({
+  cacheTime,
+  ids,
+}: {
+  cacheTime?: number | null,
+  ids?: string[],
+}): Promise<VaultItem[]> {
+  if (cacheTime && ids) {
+    throw new Error('Cannot use cacheTime and ids together')
+  }
   let url = `${ENDPOINT}/${getAccountId()}/items`
   if (cacheTime) {
     url = `${url}?since=${cacheTime}`
+    const result = await wrapRequest(getAxios().get(url))
+    return result.data.items
+  } else if (ids) {
+    const result = await wrapManyRequests(
+      [ids],
+      batch => getAxios().get(
+        `${url}?ids=${batch.join(',')}`
+      ),
+      10,
+    )
+    return result.flatMap(r => r.data.items)
+  } else {
+    throw new Error('Must provide cacheTime or ids')
   }
-  const result = await wrapRequest(getAxios().get(url))
-  return result.data.items
 }
 
 export async function vaultFetch({ item }: VaultKey): Promise<VaultItem> {
