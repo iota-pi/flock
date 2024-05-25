@@ -25,7 +25,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
     try {
       const resultPromise = (
-        cacheTime
+        cacheTime || ids.length === 0
           ? vault.fetchAll({ account, cacheTime })
           : vault.fetchMany({ account, ids })
       )
