@@ -1,4 +1,4 @@
-import { clearItemCache, setMetadata } from '../../api/Vault'
+import { clearItemCache, setMetadata, storeItems } from '../../api/Vault'
 import store from '../../store'
 import { Item } from '../items'
 
@@ -13,35 +13,53 @@ const migrations: ItemMigration[] = [
   {
     dependencies: [],
     description: 'Convert general items to people',
-    id: 'convert-general-to-person',
+    id: 'convert-general-to-person-2',
     migrate: async ({ items }) => {
-      let updated = false
+      const updatedItems: typeof items = []
       for (const item of items) {
         if ((item.type as string) === 'general') {
           item.type = 'person'
-          updated = true
+          updatedItems.push(item)
         }
       }
-      return updated
+      if (updatedItems.length > 0) {
+        try {
+          await storeItems(updatedItems)
+        } catch (error) {
+          console.warn('Error storing items during migration')
+          console.error(error)
+          return false
+        }
+      }
+      return true
     },
   },
   {
     dependencies: [],
     description: 'Merge first and last names for people',
-    id: 'merge-people-names',
+    id: 'merge-people-names-2',
     migrate: async ({ items }) => {
-      let updated = false
+      const updatedItems: typeof items = []
       for (const item of items) {
         if (item.type === 'person') {
           const { firstName, lastName } = item as unknown as { firstName: string, lastName: string }
           const newName = `${firstName ?? ''} ${lastName ?? ''}`.trim()
           if (newName) {
             item.name = newName
-            updated = true
+            updatedItems.push(item)
           }
         }
       }
-      return updated
+      if (updatedItems.length > 0) {
+        try {
+          await storeItems(updatedItems)
+        } catch (error) {
+          console.warn('Error storing items during migration')
+          console.error(error)
+          return false
+        }
+      }
+      return true
     },
   },
 ]
@@ -83,9 +101,11 @@ async function migrateItems(items: Item[]) {
         if (successful) {
           ranMigrations = true
           completedMigrations.push(migration.id)
+        } else {
+          console.warn(`Migration failed: ${migration.id}`)
         }
       } catch (error) {
-        console.warn('Uncaught error in migration')
+        console.warn(`Uncaught error in migration ${migration.id}`)
         console.error(error)
       }
     }
