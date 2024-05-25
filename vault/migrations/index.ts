@@ -116,6 +116,36 @@ const migrations: { [name: string]: () => Promise<void> } = {
     }
     console.info(`Updated ${updated} items`)
   },
+  async updateItemTypeMetadata () {
+    const maxItems = 10000
+    const items: VaultItem[] = []
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined
+    while (items.length < maxItems) {
+      const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }))
+      if (response?.Items) {
+        items.push(...response?.Items as VaultItem[])
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey
+      if (!lastEvaluatedKey) {
+        break
+      }
+    }
+    let updated = 0
+    for (const item of items) {
+      if ((item.metadata.type as string) === 'general') {
+        await client.send(new UpdateCommand({
+          TableName: ITEM_TABLE_NAME,
+          Key: { account: item.account, item: item.item },
+          UpdateExpression: 'SET metadata.type = :type',
+          ExpressionAttributeValues: {
+            ':type': 'person',
+          },
+        }))
+        updated += 1
+      }
+    }
+    console.info(`Updated ${updated} items`)
+  },
 }
 
 export const handler = async (event: { migrationName: string }) => {
