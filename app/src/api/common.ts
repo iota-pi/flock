@@ -42,7 +42,7 @@ function finishRequest(error?: string) {
   store.dispatch(finishRequestAction(error))
 }
 
-export async function wrapRequest<T>(factory: (axios: AxiosInstance) => Promise<T>): Promise<T> {
+export async function flockRequest<T>(factory: (axios: AxiosInstance) => Promise<T>): Promise<T> {
   startRequest()
   try {
     const promise = factory(getAxios())
@@ -55,7 +55,7 @@ export async function wrapRequest<T>(factory: (axios: AxiosInstance) => Promise<
   }
 }
 
-export async function wrapManyRequests<T, S>(
+export async function flockRequestChunked<T, S>(
   data: T[],
   requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<S>,
   chunkSize = 10,

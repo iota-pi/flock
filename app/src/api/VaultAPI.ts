@@ -1,7 +1,7 @@
 import type { AccountMetadata } from '../state/account'
 import type { ItemType } from '../state/items'
 import type { FlockPushSubscription } from '../utils/firebase-types'
-import { getAccountId, wrapManyRequests, wrapRequest } from './common'
+import { getAccountId, flockRequestChunked, flockRequest } from './common'
 import type { CryptoResult } from './Vault'
 import env from '../env'
 import type { JSONData } from '../utils/types'
@@ -48,12 +48,12 @@ export async function vaultFetchMany({
     if (cacheTime) {
       url = `${url}?since=${cacheTime}`
     }
-    const result = await wrapRequest(axios => axios.get(url))
+    const result = await flockRequest(a => a.get(url))
     return result.data.items
   } else if (ids) {
-    const result = await wrapManyRequests(
+    const result = await flockRequestChunked(
       [ids],
-      axios => batch => axios.get(
+      a => batch => a.get(
         `${url}?ids=${batch.join(',')}`
       ),
     )
@@ -65,14 +65,14 @@ export async function vaultFetchMany({
 
 export async function vaultFetch({ item }: VaultKey): Promise<VaultItem> {
   const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
-  const result = await wrapRequest(axios => axios.get(url))
+  const result = await flockRequest(a => a.get(url))
   return result.data.items[0]
 }
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
   const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
-  const result = await wrapRequest(
-    axios => axios.put(url, { cipher, ...metadata }),
+  const result = await flockRequest(
+    a => a.put(url, { cipher, ...metadata }),
   )
   const success = result.data.success || false
   if (!success) {
@@ -83,9 +83,9 @@ export async function vaultPut({ cipher, item, metadata }: VaultItem) {
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   const url = `${ENDPOINT}/${getAccountId()}/items`
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
-  const result = await wrapManyRequests(
+  const result = await flockRequestChunked(
     data,
-    axios => batch => axios.put(url, batch),
+    a => batch => a.put(url, batch),
   )
   const success = result.filter(r => !r.data.success).length === 0
   if (!success) {
@@ -95,7 +95,7 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
 
 export async function vaultDelete({ item }: VaultKey) {
   const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
-  const result = await wrapRequest(axios => axios.delete(url))
+  const result = await flockRequest(a => a.delete(url))
   const success = result.data.success || false
   if (!success) {
     throw new Error('VaultAPI delete opteration failed')
@@ -104,9 +104,9 @@ export async function vaultDelete({ item }: VaultKey) {
 
 export async function vaultDeleteMany({ items }: & { items: string[] }) {
   const url = `${ENDPOINT}/${getAccountId()}/items`
-  const result = await wrapManyRequests(
+  const result = await flockRequestChunked(
     items,
-    axios => batch => axios.delete(url, { data: batch }),
+    a => batch => a.delete(url, { data: batch }),
   )
   const success = result.filter(r => !r.data.success).length === 0
   if (!success) {
@@ -116,7 +116,7 @@ export async function vaultDeleteMany({ items }: & { items: string[] }) {
 
 export async function vaultCreateAccount(): Promise<boolean> {
   const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await wrapRequest(axios => axios.post(url, {})).catch(() => ({
+  const result = await flockRequest(a => a.post(url, {})).catch(() => ({
     data: { success: false },
   }))
   return result.data.success as boolean
@@ -136,13 +136,13 @@ export async function vaultGetMetadata() {
 
 async function getAccountData() {
   const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await wrapRequest(axios => axios.get(url))
+  const result = await flockRequest(a => a.get(url))
   return result.data
 }
 
 export async function vaultSetMetadata({ metadata }: Pick<VaultAccount, 'metadata'>) {
   const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await wrapRequest(axios => axios.patch(url, { metadata }))
+  const result = await flockRequest(a => a.patch(url, { metadata }))
   return result.data.success as boolean
 }
 
@@ -153,19 +153,19 @@ export async function vaultSetSubscription(
   }: VaultSubscription & { subscriptionId: string },
 ) {
   const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
-  const result = await wrapRequest(axios => axios.put(url, { ...subscription }))
+  const result = await flockRequest(a => a.put(url, { ...subscription }))
   return result.data.success as boolean
 }
 
 export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }) {
   const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
-  const result = await wrapRequest(axios => axios.delete(url))
+  const result = await flockRequest(a => a.delete(url))
   return result.data.success as boolean
 }
 
 export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }) {
   const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
-  const result = await wrapRequest(axios => axios.get(url))
+  const result = await flockRequest(a => a.get(url))
   if (!result.data.success) {
     throw new Error(`Could not get subscription info from server: ${subscriptionId}`)
   }
