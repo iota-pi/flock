@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
-import { Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material'
 import { AutoSizer } from 'react-virtualized'
 import { useItemMap, useItems, useMetadata } from '../../state/selectors'
 import { isSameDay, useStringMemo } from '../../utils'
@@ -28,16 +28,24 @@ function PrayerPage() {
   const [showGoalDialog, setShowGoalDialog] = useState(false)
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
+  const [goal] = useMetadata('prayerGoal', naturalGoal)
+  const [todaysGoal, setTodaysGoal] = useState(goal)
+  useEffect(() => { setTodaysGoal(goal) }, [goal])
+
   const rawPrayerSchedule = useMemo(() => getPrayerSchedule(items), [items])
   const memoisedPrayerSchedule = useStringMemo(rawPrayerSchedule)
-  const completed = useMemo(
-    () => items.filter(isPrayedForToday).length,
-    [items],
-  )
-  const [goal] = useMetadata('prayerGoal', naturalGoal)
   const schedule = useMemo(
     () => memoisedPrayerSchedule.map(i => itemMap[i]),
     [itemMap, memoisedPrayerSchedule],
+  )
+  const visibleSchedule = useMemo(
+    () => schedule.slice(0, todaysGoal),
+    [todaysGoal, schedule],
+  )
+
+  const completed = useMemo(
+    () => items.filter(isPrayedForToday).length,
+    [items],
   )
 
   const recordPrayerFor = useCallback(
@@ -74,6 +82,11 @@ function PrayerPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
 
+  const handleClickShowMore = useCallback(
+    () => { setTodaysGoal(todaysGoal + 3) },
+    [todaysGoal],
+  )
+
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
   const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const maxTags = sm ? (2 - +xs) : 3
@@ -85,23 +98,12 @@ function PrayerPage() {
           <Fragment key="heading-today">
             <PageContainer maxWidth="xl">
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="h4" fontWeight={300}>
-                    Today
-                  </Typography>
-                </Grid>
-
                 <Grid
                   item
                   xs={12}
                   sm={6}
                   display="flex"
                   alignItems="center"
-                  sx={{
-                    justifyContent: {
-                      sm: 'flex-end',
-                    },
-                  }}
                 >
                   <Typography>
                     {'Daily Goal: '}
@@ -120,32 +122,36 @@ function PrayerPage() {
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Grid>
+
+                <Grid
+                  item
+                  xs={12}
+                  sm={6}
+                  display="flex"
+                  sx={{
+                    justifyContent: {
+                      sm: 'flex-end',
+                    },
+                  }}
+                >
+                  <Button
+                    onClick={handleClickShowMore}
+                    variant="outlined"
+                  >
+                    Show More
+                  </Button>
+                </Grid>
               </Grid>
             </PageContainer>
 
             <Divider />
           </Fragment>
         ),
-        height: xs ? 126 : 74,
+        height: 68.5,
         index: 0,
       },
-      {
-        content: schedule.length > goal && (
-          <Fragment key="heading-up-next">
-            <PageContainer maxWidth="xl">
-              <Typography variant="h4" fontWeight={300}>
-                Up next
-              </Typography>
-            </PageContainer>
-
-            <Divider />
-          </Fragment>
-        ),
-        height: 74,
-        index: goal,
-      },
     ],
-    [completed, goal, handleEditGoal, naturalGoal, schedule.length, xs],
+    [completed, goal, handleEditGoal, naturalGoal],
   )
 
   return (
@@ -158,7 +164,7 @@ function PrayerPage() {
             extraElements={extraElements}
             getChecked={isPrayedForToday}
             getForceFade={isPrayedForToday}
-            items={schedule}
+            items={visibleSchedule}
             maxTags={maxTags}
             onClick={handleClick}
             onCheck={handleClickPrayedFor}
