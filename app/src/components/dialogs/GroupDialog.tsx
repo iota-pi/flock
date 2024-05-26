@@ -5,7 +5,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   Grid,
 } from '@mui/material'
 import { GroupItem, Item } from '../../state/items'
@@ -28,37 +27,22 @@ function GroupDialog({
 }: Props) {
   const prevOpen = usePrevious(open)
 
-  const [selected, setSelected] = useState<Item[]>([])
   const [addGroups, setAddGroups] = useState<GroupItem[]>([])
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
 
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
-  const selectedIds = useMemo(() => selected.map(item => item.id), [selected])
+  const selectedIds = useMemo(() => items.map(item => item.id), [items])
 
   useEffect(
     () => {
       if (open && !prevOpen) {
-        setSelected(items)
         setAddGroups([])
         setRemoveGroups([])
       }
     },
-    [items, open, prevOpen],
+    [open, prevOpen],
   )
 
-  const handleClearItems = useCallback(() => setSelected([]), [])
-  const handleSelectItem = useCallback(
-    (item: Item) => {
-      setSelected(s => [...s, item])
-    },
-    [],
-  )
-  const handleRemoveItem = useCallback(
-    (item: Item) => {
-      setSelected(s => s.filter(i => i.id !== item.id))
-    },
-    [],
-  )
   const handleClearAdd = useCallback(() => setAddGroups([]), [])
   const handleSelectAdd = useCallback(
     (group: GroupItem) => setAddGroups(ag => [...ag, group]),
@@ -113,27 +97,8 @@ function GroupDialog({
       <DialogContent>
         <Grid container spacing={2} paddingTop={1}>
           <Grid item xs={12}>
-            <Search<Item>
-              autoFocus={items.length === 0}
-              label="Items"
-              maxChips={3}
-              onClear={handleClearItems}
-              onRemove={handleRemoveItem}
-              onSelect={handleSelectItem}
-              selectedItems={selected}
-              showIcons
-              showSelectedChips
-              types={{ person: true, group: true }}
-            />
-          </Grid>
-
-          <Grid item xs={12}>
-            <Divider />
-          </Grid>
-
-          <Grid item xs={12}>
             <Search<GroupItem>
-              autoFocus={items.length > 0}
+              autoFocus
               label="Add to Groups"
               onClear={handleClearAdd}
               onRemove={handleRemoveAdd}
