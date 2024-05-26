@@ -18,8 +18,7 @@ const migrations: ItemMigration[] = [
       const updatedItems: typeof items = []
       for (const item of items) {
         if ((item.type as string) === 'general') {
-          item.type = 'person'
-          updatedItems.push(item)
+          updatedItems.push(convertItem(item, 'person'))
         }
       }
       if (updatedItems.length > 0) {
