@@ -96,6 +96,7 @@ function TagDialog({
             <Search<Item>
               autoFocus={items.length === 0}
               label="Items"
+              maxChips={3}
               onClear={handleClear}
               onRemove={handleRemoveItem}
               onSelect={handleSelectItem}

@@ -352,6 +352,7 @@ export interface Props<T> {
   inputRef?: Ref<HTMLInputElement>,
   label?: string,
   placeholder?: string,
+  maxChips?: number,
   noItemsText?: string,
   onClear?: () => void,
   onCreate?: (item: Item) => void,
@@ -379,6 +380,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   inputRef,
   label,
   placeholder,
+  maxChips,
   noItemsText = 'No items found',
   onClear,
   onCreate,
@@ -619,14 +621,27 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           ]) as React.ReactNode
         }
         renderTags={(selectedOptions, getTagProps) => (
-          selectedOptions.map((option, index) => (
+          (
+            maxChips
+              ? selectedOptions.slice(0, maxChips)
+              : selectedOptions
+          ).map((option, index) => (
             // eslint-disable-next-line react/jsx-key
             <Chip
               {...getTagProps({ index })}
               label={getName(option)}
               icon={getIcon(option.type)}
             />
-          ))
+          )).concat(
+            maxChips && selectedOptions.length > maxChips
+              ? [
+                <Chip
+                  key="more"
+                  label={`+${selectedOptions.length - maxChips}`}
+                />
+              ]
+              : []
+          )
         )}
         value={selectedSearchables}
       />

@@ -116,6 +116,7 @@ function GroupDialog({
             <Search<Item>
               autoFocus={items.length === 0}
               label="Items"
+              maxChips={3}
               onClear={handleClearItems}
               onRemove={handleRemoveItem}
               onSelect={handleSelectItem}
