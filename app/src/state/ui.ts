@@ -178,6 +178,8 @@ const uiSlice = createSlice({
         if (modified) {
           state.drawers = newDrawers
         }
+
+        state.selected = state.selected.filter(id => !action.payload.includes(id))
       })
   },
 })

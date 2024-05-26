@@ -55,8 +55,6 @@ function SelectedActions() {
   const getItemsById = useItemsById()
   const selected = useAppSelector(state => state.ui.selected)
 
-  const open = selected.length > 0
-
   const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
   const prevSelectedItems = usePrevious(selectedItems) || []
 
@@ -94,7 +92,9 @@ function SelectedActions() {
     [dispatch],
   )
 
+  const open = selectedItems.length > 0
   const workingItems = open ? selectedItems : prevSelectedItems
+
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
