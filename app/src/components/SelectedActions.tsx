@@ -2,7 +2,7 @@ import { Fragment, useCallback, useMemo, useState } from 'react'
 import {
   Divider,
   List,
-  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   styled,
@@ -12,6 +12,7 @@ import { useAppDispatch, useAppSelector } from '../store'
 import {
   ArchiveIcon,
   DeleteIcon,
+  FrequencyIcon,
   GroupIcon,
   MuiIconType,
   RemoveIcon,
@@ -26,6 +27,7 @@ import { setUi } from '../state/ui'
 import TagDialog from './dialogs/TagDialog'
 import GroupDialog from './dialogs/GroupDialog'
 import { deleteItems, storeItems } from '../api/Vault'
+import FrequencyDialog from './dialogs/FrequencyDialog'
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -60,12 +62,15 @@ function SelectedActions() {
 
   const [showConfirm, setShowConfirm] = useState(false)
   const [showGroup, setShowGroup] = useState(false)
+  const [showFrequency, setShowFrequency] = useState(false)
   const [showTags, setShowTags] = useState(false)
 
   const handleShowGroup = useCallback(() => setShowGroup(true), [])
   const handleHideGroup = useCallback(() => setShowGroup(false), [])
   const handleShowTags = useCallback(() => setShowTags(true), [])
   const handleHideTags = useCallback(() => setShowTags(false), [])
+  const handleShowFrequency = useCallback(() => setShowFrequency(true), [])
+  const handleHideFrequency = useCallback(() => setShowFrequency(false), [])
   const handleSetArchived = useCallback(
     (archived: boolean) => {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }))
@@ -109,6 +114,12 @@ function SelectedActions() {
           onClick: handleShowTags,
         },
       )
+      result.push({
+        id: 'frequency',
+        icon: FrequencyIcon,
+        label: 'Set Prayer Frequency',
+        onClick: handleShowFrequency,
+      })
       if (workingItems.find(item => !item.archived)) {
         result.push({
           id: 'archive',
@@ -164,8 +175,7 @@ function SelectedActions() {
           <Fragment key={action.id}>
             {action.dividerBefore && <Divider />}
 
-            <ListItem
-              button
+            <ListItemButton
               className={action.classes?.join(' ')}
               onClick={action.onClick}
               dense
@@ -179,7 +189,7 @@ function SelectedActions() {
               <ListItemText>
                 {action.label}
               </ListItemText>
-            </ListItem>
+            </ListItemButton>
           </Fragment>
         ))}
       </List>
@@ -208,6 +218,12 @@ function SelectedActions() {
         items={selectedItems}
         onClose={handleHideGroup}
         open={showGroup}
+      />
+
+      <FrequencyDialog
+        items={selectedItems}
+        onClose={handleHideFrequency}
+        open={showFrequency}
       />
     </Root>
   )

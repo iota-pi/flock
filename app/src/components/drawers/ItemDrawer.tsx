@@ -373,10 +373,10 @@ function ItemDrawer({
   )
 
   const lastPrayer = getLastPrayedFor(item)
-  const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : 'none'
+  const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
   const frequencyFields = useMemo(
     () => (
-      <Grid item xs={12} sm={6}>
+      <Grid item xs={12}>
         <FrequencyControls
           lastPrayer={lastPrayer}
           onChange={handleChange}

@@ -12,10 +12,10 @@ const TextColorTransition = styled(InlineText)(({ theme }) => ({
 }))
 
 export interface Props<G extends Item> {
-  lastPrayer: number,
+  lastPrayer?: number,
   onChange: <T extends G>(data: Partial<Pick<T, 'prayerFrequency' | 'memberPrayerFrequency'>>) => void,
   prayerFrequency: G['prayerFrequency'],
-  memberPrayerFrequency: G extends GroupItem ? GroupItem['memberPrayerFrequency'] : undefined,
+  memberPrayerFrequency?: G extends GroupItem ? GroupItem['memberPrayerFrequency'] : undefined,
 }
 
 function FrequencyControls<G extends Item>({
@@ -27,7 +27,7 @@ function FrequencyControls<G extends Item>({
   const dueColour = 'secondary'
   const overdueColour = 'error'
 
-  let lastPrayerText: string = 'never'
+  let lastPrayerText: string = lastPrayer === undefined ? '' : 'never'
   let lastPrayerClass: string = ''
   if (lastPrayer) {
     lastPrayerText = formatDate(new Date(lastPrayer))
