@@ -1,9 +1,8 @@
 import { clearItemCache, setMetadata, storeItems } from '../../api/Vault'
 import store from '../../store'
-import { Item } from '../items'
+import { Item, convertItem, selectAllItems } from '../items'
 
 export interface ItemMigration {
-  dependencies: string[],
   description?: string,
   id: string,
   migrate: (args: { items: Item[] }) => Promise<boolean>,
@@ -11,7 +10,6 @@ export interface ItemMigration {
 
 const migrations: ItemMigration[] = [
   {
-    dependencies: [],
     description: 'Convert general items to people',
     id: 'convert-general-to-person-2',
     migrate: async ({ items }) => {
@@ -34,7 +32,6 @@ const migrations: ItemMigration[] = [
     },
   },
   {
-    dependencies: [],
     description: 'Merge first and last names for people',
     id: 'merge-people-names-2',
     migrate: async ({ items }) => {
@@ -63,50 +60,29 @@ const migrations: ItemMigration[] = [
   },
 ]
 
-async function migrateItems(items: Item[]) {
-  // Reverse migrations to reduce dependency conflicts
-  // (assuming new migrations are added to the top of the array)
-  const reversedMigrations = migrations.slice().reverse()
+async function migrateItems() {
+  const reversedMigrations = migrations.slice()
   const metadata = store.getState().account.metadata
   const previousMigrations = (metadata.completedMigrations as string[]) || []
   const completedMigrations = previousMigrations.slice()
 
-  let ranMigrations = true
-  while (ranMigrations) {
-    ranMigrations = false
+  for (const migration of reversedMigrations) {
+    if (completedMigrations.includes(migration.id)) {
+      continue
+    }
 
-    for (const migration of reversedMigrations) {
-      if (completedMigrations.includes(migration.id)) {
-        continue
+    try {
+      const items = selectAllItems(store.getState())
+      // eslint-disable-next-line no-await-in-loop
+      const successful = await migration.migrate({ items })
+      if (successful) {
+        completedMigrations.push(migration.id)
+      } else {
+        console.warn(`Migration failed: ${migration.id}`)
       }
-
-      const missingDeps: string[] = []
-      for (const dep of migration.dependencies) {
-        if (!completedMigrations.includes(dep)) {
-          missingDeps.push(dep)
-        }
-      }
-      if (missingDeps.length > 0) {
-        console.warn(
-          `Skipping migration: ${migration.id}\n`,
-          `Dependencies not yet satisfied: ${missingDeps.join(', ')}`,
-        )
-        continue
-      }
-
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const successful = await migration.migrate({ items })
-        if (successful) {
-          ranMigrations = true
-          completedMigrations.push(migration.id)
-        } else {
-          console.warn(`Migration failed: ${migration.id}`)
-        }
-      } catch (error) {
-        console.warn(`Uncaught error in migration ${migration.id}`)
-        console.error(error)
-      }
+    } catch (error) {
+      console.warn(`Uncaught error in migration ${migration.id}`)
+      console.error(error)
     }
   }
 

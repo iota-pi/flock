@@ -156,9 +156,9 @@ async function initialLoadFromVault() {
   const itemsPromise = fetchAll()
 
   await accountDataPromise
+  await itemsPromise
 
-  const items = await itemsPromise
-  await migrateItems(items)
+  await migrateItems()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
