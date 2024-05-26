@@ -42,9 +42,10 @@ function finishRequest(error?: string) {
   store.dispatch(finishRequestAction(error))
 }
 
-export async function wrapRequest<T>(promise: Promise<T>): Promise<T> {
+export async function wrapRequest<T>(factory: (axios: AxiosInstance) => Promise<T>): Promise<T> {
   startRequest()
   try {
+    const promise = factory(getAxios())
     const result = await promise
     finishRequest()
     return result
@@ -56,7 +57,7 @@ export async function wrapRequest<T>(promise: Promise<T>): Promise<T> {
 
 export async function wrapManyRequests<T, S>(
   data: T[],
-  requestFunc: (data: T[]) => Promise<S>,
+  requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<S>,
   chunkSize = 10,
 ): Promise<S[]> {
   startRequest()
@@ -66,6 +67,7 @@ export async function wrapManyRequests<T, S>(
     while (workingData.length > 0) {
       const batch = workingData.splice(0, chunkSize)
       // eslint-disable-next-line no-await-in-loop
+      const requestFunc = requestFactory(getAxios())
       const batchResult = await requestFunc(batch)
       result.push(batchResult)
     }
