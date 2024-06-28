@@ -5,13 +5,11 @@ import { compareItems, filterArchived, Item } from '../state/items'
 export function getLastPrayedFor(
   item: Item,
   excludeToday = false,
-  useItemCreatedAsFallback = false,
 ) {
   const prayedFor = (
     excludeToday ? item.prayedFor.filter(d => !isSameDay(new Date(d), new Date())) : item.prayedFor
   )
-  const fallback = useItemCreatedAsFallback ? item.created : 0
-  return prayedFor[prayedFor.length - 1] || fallback
+  return prayedFor[prayedFor.length - 1] || 0
 }
 
 export function getPrayerSchedule(items: Item[]): string[] {
