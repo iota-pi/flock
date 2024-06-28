@@ -14,15 +14,22 @@ export function getLastPrayedFor(
 
 export function getPrayerSchedule(items: Item[]): string[] {
   const activeItems = filterNoTarget(filterArchived(items)).sort(compareItems)
-  const withNextSchedule: [Item, number][] = activeItems.map(
-    item => [
-      item,
-      getLastPrayedFor(item, true) + frequencyToMilliseconds(item.prayerFrequency),
-    ],
+  const now = Date.now()
+  const itemsWithSortInfo = activeItems.map(
+    item => {
+      const last = getLastPrayedFor(item, true)
+      const interval = frequencyToMilliseconds(item.prayerFrequency)
+      return {
+        item,
+        next: last + interval,
+        missed: Math.floor((now - last) / interval),
+      }
+    },
   )
-  withNextSchedule.sort((a, b) => a[1] - b[1])
-  const itemsBySchedule = withNextSchedule.map(x => x[0].id)
-  return itemsBySchedule
+  itemsWithSortInfo.sort(
+    (a, b) => (b.missed - a.missed) || (a.next - b.next)
+  )
+  return itemsWithSortInfo.map(x => x.item.id)
 }
 
 export function getNaturalPrayerGoal(items: Item[]) {
