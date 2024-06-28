@@ -71,11 +71,20 @@ export const internalPages: InternalPage[] = [
 
 export const pages: Page[] = [
   {
+    icon: PrayerIcon,
+    id: 'prayer',
+    name: 'Prayer',
+    page: <PrayerPage />,
+    path: '/',
+    requiresAuth: true,
+  },
+  {
+    dividerBefore: true,
     icon: PersonIcon,
     id: 'people',
     name: 'People',
     page: <ItemPage itemType="person" />,
-    path: '/',
+    path: '/people',
     requiresAuth: true,
   },
   {
@@ -84,15 +93,6 @@ export const pages: Page[] = [
     name: 'Groups',
     page: <ItemPage itemType="group" />,
     path: '/groups',
-    requiresAuth: true,
-  },
-  {
-    dividerBefore: true,
-    icon: PrayerIcon,
-    id: 'prayer',
-    name: 'Prayer',
-    page: <PrayerPage />,
-    path: '/prayer',
     requiresAuth: true,
   },
   {
