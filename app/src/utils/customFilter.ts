@@ -4,7 +4,7 @@ import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies'
 import { getLastPrayedFor } from './prayer'
 
 export type FilterFieldType = (
-  'string' | 'number' | 'boolean' | 'date' | 'maturity' | 'frequency' | 'tag'
+  'string' | 'number' | 'boolean' | 'date' | 'frequency' | 'tag'
 )
 export type FilterBaseOperatorName = (
   'is' |
@@ -40,7 +40,6 @@ export type FilterCriterionType = (
   'created' |
   'description' |
   'lastPrayedFor' |
-  'maturity' |
   'name' |
   'prayerFrequency' |
   'tags'
@@ -80,11 +79,6 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     name: 'Last prayed for',
     operators: ['is', 'isnot', 'after', 'before'],
   },
-  maturity: {
-    dataType: 'maturity',
-    name: 'Maturity',
-    operators: ['is', 'isnot', 'greater', 'lessthan'],
-  },
   name: {
     dataType: 'string',
     name: 'Name',
@@ -110,7 +104,6 @@ export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = []
 export function filterItems<T extends Item>(
   items: T[],
   criteria: FilterCriterion[],
-  maturityStages: string[],
 ) {
   const funcs: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
     archived: (item, criterion) => {
@@ -147,23 +140,6 @@ export function filterItems<T extends Item>(
       }
       if (criterion.baseOperator === 'greater') {
         return item.created > value
-      }
-      return true
-    },
-    maturity: (item, criterion) => {
-      if (item.type === 'person') {
-        if (criterion.baseOperator === 'is') {
-          if (criterion.value === -1) {
-            return item.maturity === null
-          }
-          return item.maturity === maturityStages[criterion.value as number]
-        }
-        if (criterion.baseOperator === 'greater') {
-          return (
-            maturityStages.indexOf(item.maturity || '')
-            > maturityStages.indexOf(criterion.value as string || '')
-          )
-        }
       }
       return true
     },
@@ -225,7 +201,6 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'date') return new Date().getTime()
   if (dataType === 'number') return 0
   if (dataType === 'string') return ''
-  if (dataType === 'maturity') return -1
   if (dataType === 'frequency') return 'monthly' as Frequency
   if (dataType === 'tag') return ''
 

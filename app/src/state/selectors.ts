@@ -7,13 +7,6 @@ import { getTags, Item, ItemId, selectAllItems, selectItems } from './items'
 import { setUi, UiOptions } from './ui'
 import { setMetadata } from '../api/Vault'
 
-// TODO: where should this live?
-export const DEFAULT_MATURITY: string[] = [
-  'Non-Christian',
-  'Young Christian',
-  'Mature Christian',
-]
-
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
@@ -79,7 +72,6 @@ export function useMetadata<K extends MetadataKey>(
   return [value, setValue]
 }
 
-export const useMaturity = () => useMetadata('maturity', DEFAULT_MATURITY)
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
 export const useTags = () => {

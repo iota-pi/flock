@@ -28,7 +28,6 @@ import {
 } from '../Icons'
 import GoalDialog from '../dialogs/GoalDialog'
 import TagDisplay from '../TagDisplay'
-import MaturityDialog from '../dialogs/MaturityDialog'
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog'
 import { Item, PersonItem } from '../../state/items'
 import { useAppDispatch, useAppSelector } from '../../store'
@@ -140,10 +139,6 @@ function SettingsPage() {
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
-
-  const [showMaturityDialog, setShowMaturityDialog] = useState(false)
-  const handleEditMaturity = useCallback(() => setShowMaturityDialog(true), [])
-  const handleCloseMaturityDialog = useCallback(() => setShowMaturityDialog(false), [])
 
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
   const handleEditSubscription = useCallback(() => setShowSubscriptionDialog(true), [])
@@ -272,12 +267,6 @@ function SettingsPage() {
           disabled
         />
         <SettingsItem
-          icon={EditIcon}
-          id="maturity-stages"
-          onClick={handleEditMaturity}
-          title="Maturity stages"
-        />
-        <SettingsItem
           disabled={!itemCacheExists}
           icon={DeleteIcon}
           id="clear-cache"
@@ -308,10 +297,6 @@ function SettingsPage() {
         naturalGoal={naturalGoal}
         onClose={handleCloseGoalDialog}
         open={showGoalDialog}
-      />
-      <MaturityDialog
-        onClose={handleCloseMaturityDialog}
-        open={showMaturityDialog}
       />
       <RestoreBackupDialog
         onClose={handleCloseRestoreDialog}

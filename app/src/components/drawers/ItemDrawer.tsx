@@ -48,7 +48,6 @@ import {
   PersonIcon,
   UnarchiveIcon,
 } from '../Icons'
-import MaturityPicker from '../MaturityPicker'
 import { getLastPrayedFor } from '../../utils/prayer'
 import { deleteItems, storeItems } from '../../api/Vault'
 
@@ -150,10 +149,6 @@ function ItemDrawer({
       return onChange(dirtyItem(data))
     },
     [onChange],
-  )
-  const handleChangeMaturity = useCallback(
-    (maturity: string | null) => handleChange<PersonItem>({ maturity }),
-    [handleChange],
   )
 
   const removeFromAllGroups = useCallback(
@@ -355,23 +350,6 @@ function ItemDrawer({
     [handleChange, tags],
   )
 
-  const maturity = item.type === 'person' ? item.maturity : undefined
-  const maturityField = useMemo(
-    () => (
-      maturity !== undefined ? (
-        <Grid item xs={12}>
-          <MaturityPicker
-            fullWidth
-            maturity={maturity}
-            onChange={handleChangeMaturity}
-            variant="outlined"
-          />
-        </Grid>
-      ) : null
-    ),
-    [handleChangeMaturity, maturity],
-  )
-
   const lastPrayer = getLastPrayedFor(item)
   const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
   const frequencyFields = useMemo(
@@ -498,8 +476,6 @@ function ItemDrawer({
         {descriptionField}
         {summaryField}
         {tagsField}
-
-        {maturityField}
 
         <Grid item xs={12}>
           {membersSection}

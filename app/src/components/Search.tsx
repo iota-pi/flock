@@ -43,7 +43,7 @@ import {
 } from '../state/items'
 import InlineText from './InlineText'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useMaturity, useSortCriteria, useTags } from '../state/selectors'
+import { useItems, useSortCriteria, useTags } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
@@ -398,7 +398,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 }: Props<T>) {
   const items = useItems()
   const [sortCriteria] = useSortCriteria()
-  const [maturity] = useMaturity()
   const tags = useTags()
 
   const selectedIds = useMemo(
@@ -438,9 +437,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         && (showSelectedChips || !selectedIds.has(item.id))
       )),
       sortCriteria,
-      maturity,
     ),
-    [includeArchived, items, maturity, selectedIds, showSelectedChips, sortCriteria, types],
+    [includeArchived, items, selectedIds, showSelectedChips, sortCriteria, types],
   )
 
   const options = useMemo<AnySearchable[]>(

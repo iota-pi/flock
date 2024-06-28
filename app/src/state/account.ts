@@ -5,7 +5,6 @@ export type AccountId = string
 
 export interface AccountMetadata {
   completedMigrations?: string[],
-  maturity?: string[],
   prayerGoal?: number,
   sortCriteria?: SortCriterion[];
 }

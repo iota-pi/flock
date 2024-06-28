@@ -26,8 +26,6 @@ import {
 import { FilterIcon, RemoveIcon } from '../Icons'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi } from '../../state/ui'
-import MaturityPicker from '../MaturityPicker'
-import { useMaturity } from '../../state/selectors'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
 import TagSelection from '../TagSelection'
@@ -48,7 +46,6 @@ export function FilterCriterionDisplay({
   onChange: (prevCriterionName: FilterCriterionType, criterion: FilterCriterion) => void,
   onRemove: (criterion: FilterCriterionType) => void,
 }) {
-  const [maturityStages] = useMaturity()
   const criterionDetails = FILTER_CRITERIA_DISPLAY_MAP[criterion.type]
 
   const handleChangeKey = useCallback(
@@ -102,18 +99,6 @@ export function FilterCriterionDisplay({
       )
     },
     [criterion, onChange],
-  )
-  const handleChangeMaturityValue = useCallback(
-    (maturity: string | null) => {
-      onChange(
-        criterion.type,
-        {
-          ...criterion,
-          value: maturity ? maturityStages.indexOf(maturity) : -1,
-        },
-      )
-    },
-    [criterion, maturityStages, onChange],
   )
   const handleChangeFrequencyValue = useCallback(
     (frequency: Frequency) => {
@@ -247,15 +232,6 @@ export function FilterCriterionDisplay({
           onChange={handleChangeDateValue}
           slotProps={{ textField: { fullWidth: true, variant: 'standard' } }}
           value={currentDate}
-        />
-      )}
-      {criterionDetails.dataType === 'maturity' && (
-        <MaturityPicker
-          data-cy="filter-criterion-value"
-          fullWidth
-          onChange={handleChangeMaturityValue}
-          label="Value"
-          maturity={maturityStages[criterion.value as number] || null}
         />
       )}
       {criterionDetails.dataType === 'frequency' && (

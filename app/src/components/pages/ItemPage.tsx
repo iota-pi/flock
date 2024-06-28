@@ -6,7 +6,6 @@ import ItemList from '../ItemList'
 import {
   useIsActive,
   useItems,
-  useMaturity,
   useOptions,
   useSortCriteria,
 } from '../../state/selectors'
@@ -29,16 +28,15 @@ function ItemPage<T extends Item>({
   const selected = useAppSelector(state => state.ui.selected)
   const filters = useAppSelector(state => state.ui.filters)
   const [sortCriteria] = useSortCriteria()
-  const [maturity] = useMaturity()
   const { bulkActionsOnMobile } = useOptions()
 
   const items = useMemo(
     () => {
-      const filtered = filterItems(rawItems, filters, maturity)
-      const sorted = sortItems(filtered, sortCriteria, maturity)
+      const filtered = filterItems(rawItems, filters)
+      const sorted = sortItems(filtered, sortCriteria)
       return sorted
     },
-    [filters, maturity, rawItems, sortCriteria],
+    [filters, rawItems, sortCriteria],
   )
 
   const hiddenItemCount = rawItems.length - items.length

@@ -22,13 +22,11 @@ export interface BaseItem {
   type: ItemType,
 }
 export interface PersonItem extends BaseItem {
-  maturity: string | null,
   memberPrayerFrequency?: undefined,
   members?: undefined,
   type: 'person',
 }
 export interface GroupItem extends BaseItem {
-  maturity?: undefined,
   memberPrayerFrequency: Frequency,
   members: ItemId[],
   type: 'group',
@@ -92,7 +90,6 @@ export function getBlankPerson(id?: ItemId, isNew = true): PersonItem {
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
-    maturity: null,
     type: 'person',
   }
 }

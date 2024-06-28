@@ -4,7 +4,7 @@ import {
 } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items'
-import { useItemsById, useMaturity, useSortCriteria } from '../state/selectors'
+import { useItemsById, useSortCriteria } from '../state/selectors'
 import ItemList from './ItemList'
 import { useAppDispatch } from '../store'
 import { pushActive } from '../state/ui'
@@ -26,11 +26,10 @@ function MemberDisplay({
   const dispatch = useAppDispatch()
   const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
-  const [maturity] = useMaturity()
 
   const members = useMemo(
-    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria, maturity),
-    [getItemsById, maturity, memberIds, sortCriteria],
+    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria),
+    [getItemsById, memberIds, sortCriteria],
   )
 
   const handleClickItem = useCallback(
