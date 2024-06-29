@@ -28,7 +28,7 @@ import {
 } from '../Icons'
 import GoalDialog from '../dialogs/GoalDialog'
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog'
-import { Item, PersonItem } from '../../state/items'
+import { Item } from '../../state/items'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setMessage, setUi } from '../../state/ui'
 import { getNextDarkMode } from '../../theme'
@@ -172,7 +172,7 @@ function SettingsPage() {
   const handleImport = useCallback(() => setShowImportDialog(true), [])
   const handleCloseImportDialog = useCallback(() => setShowImportDialog(false), [])
   const handleConfirmImport = useCallback(
-    async (imported: PersonItem[]) => {
+    async (imported: Item[]) => {
       setShowImportDialog(false)
       await storeItems(imported)
       dispatch(setMessage({ message: 'Import successful' }))
