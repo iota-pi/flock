@@ -36,7 +36,6 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
 }
 
 export type FilterCriterionType = (
-  | 'archived'
   | 'created'
   | 'description'
   | 'lastPrayedFor'
@@ -58,11 +57,6 @@ export interface FilterCriterion {
 export const FILTER_CRITERIA_DISPLAY_MAP: (
   Record<FilterCriterionType, FilterCriterionDisplayData>
 ) = {
-  archived: {
-    dataType: 'boolean',
-    name: 'Archived',
-    operators: ['is', 'isnot'],
-  },
   created: {
     dataType: 'date',
     name: 'Date created',
@@ -100,12 +94,6 @@ export function filterItems<T extends Item>(
   criteria: FilterCriterion[],
 ) {
   const funcs: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
-    archived: (item, criterion) => {
-      if (criterion.baseOperator === 'is') {
-        return item.archived === criterion.value
-      }
-      return true
-    },
     created: (item, criterion) => {
       if (criterion.baseOperator === 'is') {
         return isSameDay(new Date(item.created), new Date(criterion.value as number))

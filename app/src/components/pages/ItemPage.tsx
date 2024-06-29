@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from 'react'
-import { Theme, useMediaQuery } from '@mui/material'
+import { Fragment, useCallback, useMemo, useState } from 'react'
+import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
 import { AutoSizer } from 'react-virtualized'
 import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
 import ItemList from '../ItemList'
@@ -30,16 +30,31 @@ function ItemPage<T extends Item>({
   const [sortCriteria] = useSortCriteria()
   const { bulkActionsOnMobile } = useOptions()
 
+  const [showArchived, setShowArchived] = useState(false)
+  const handleClickShowArchived = useCallback(
+    () => setShowArchived(sa => !sa),
+    [],
+  )
+
+  const applicableItems = useMemo(
+    () => showArchived ? rawItems : rawItems.filter(item => !item.archived),
+    [rawItems, showArchived],
+  )
+  const archivedCount = useMemo(
+    () => rawItems.filter(item => item.archived).length,
+    [rawItems],
+  )
+
   const items = useMemo(
     () => {
-      const filtered = filterItems(rawItems, filters)
+      const filtered = filterItems(applicableItems, filters)
       const sorted = sortItems(filtered, sortCriteria)
       return sorted
     },
-    [filters, rawItems, sortCriteria],
+    [filters, applicableItems, sortCriteria],
   )
 
-  const hiddenItemCount = rawItems.length - items.length
+  const hiddenItemCount = applicableItems.length - items.length
 
   const handleClickItem = useCallback(
     (item: T) => {
@@ -104,6 +119,44 @@ function ItemPage<T extends Item>({
       : undefined
   )
 
+  const extras = useMemo(
+    () => {
+      return [
+        {
+          content: (
+            <Fragment key="show-archived">
+              <Divider />
+
+              <Grid container spacing={2} padding={2}>
+                <Grid
+                  item
+                  xs={12}
+                  display="flex"
+                  sx={{
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Button
+                    onClick={handleClickShowArchived}
+                    variant="outlined"
+                    disabled={archivedCount === 0}
+                  >
+                    {showArchived ? 'Hide' : 'Show'}
+                    {' '}
+                    Archived {pluralLabel}
+                  </Button>
+                </Grid>
+              </Grid>
+            </Fragment>
+          ),
+          height: 68.5,
+          index: -1,
+        }
+      ]
+    },
+    [archivedCount, handleClickShowArchived, pluralLabel, showArchived],
+  )
+
   return (
     <BasePage
       allSelected={allSelected}
@@ -122,6 +175,7 @@ function ItemPage<T extends Item>({
           <ItemList
             checkboxes={checkboxes}
             disablePadding
+            extraElements={extras}
             getChecked={getChecked}
             getDescription={getDescription}
             getHighlighted={getHighlighted}
