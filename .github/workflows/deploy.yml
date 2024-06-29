@@ -15,11 +15,12 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Enable corepack
+      run: corepack enable
     - name: Setup NodeJS
       uses: actions/setup-node@v4
       with:
         node-version: 20
-    - run: corepack enable
 
     - name: Install dependencies
       run: |
