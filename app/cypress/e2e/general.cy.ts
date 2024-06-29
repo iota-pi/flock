@@ -36,36 +36,19 @@ describe('Basic operation', () => {
     cy.contains('3 members')
   })
 
-  it('can create people items, edit tags and frequencies', () => {
+  it('can create people items, edit frequencies', () => {
     cy.createPerson({ name: 'Athelas' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-weekly').click()
-      .addTag('Plant')
       .saveDrawer()
     cy.createPerson({ name: 'Mallorn' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-annually').click()
-      .addTag('Plant')
-      .addTag('Shiny')
       .saveDrawer()
     cy.createPerson({ name: 'The One Ring' })
       .dataCy('frequency-selection-prayer').click()
       .dataCy('frequency-daily').click()
-      .addTag('p')
-      .addTag('p')  // should add and remove "Plant"
-      .addTag('s')
-      .addTag('Evil')
       .saveDrawer()
-
-    cy.dataCy('tag')
-      .filter((i, e) => /plant/i.test(e.innerText))
-      .should('have.length', 2)
-    cy.dataCy('tag')
-      .filter((i, e) => /shiny/i.test(e.innerText))
-      .should('have.length', 2)
-    cy.dataCy('tag')
-      .filter((i, e) => /evil/i.test(e.innerText))
-      .should('have.length', 1)
 
     cy.page('prayer')
     cy.dataCy('list-item').eq(0).contains('One Ring')

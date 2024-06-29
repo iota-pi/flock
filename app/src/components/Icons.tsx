@@ -30,7 +30,6 @@ import ServerIcon from '@mui/icons-material/Dns'
 import SignOutIcon from '@mui/icons-material/ExitToApp'
 import SortIcon from '@mui/icons-material/Sort'
 import SuggestIcon from '@mui/icons-material/Update'
-import TagIcon from '@mui/icons-material/Label'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
 import WarningIcon from '@mui/icons-material/Warning'
@@ -76,22 +75,20 @@ export {
   SignOutIcon,
   SortIcon,
   SuggestIcon,
-  TagIcon,
   UnarchiveIcon,
   UploadIcon,
   WarningIcon,
 }
 
-export function getIconType(itemType: Item['type'] | 'tag'): MuiIconType {
+export function getIconType(itemType: Item['type']): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
-    tag: TagIcon,
   }
   return iconTypeMap[itemType]
 }
 
-export function getIcon(itemType: Item['type'] | 'tag') {
+export function getIcon(itemType: Item['type']) {
   const IconType = getIconType(itemType)
   return <IconType />
 }

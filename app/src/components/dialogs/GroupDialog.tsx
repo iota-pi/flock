@@ -91,7 +91,7 @@ function GroupDialog({
       maxWidth="sm"
     >
       <DialogTitle>
-        Add/Remove Tags
+        Add/Remove from Groups
       </DialogTitle>
 
       <DialogContent>

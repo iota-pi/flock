@@ -84,14 +84,6 @@ Cypress.Commands.add(
 );
 
 Cypress.Commands.add(
-  'addTag',
-  (tag: string) => {
-    cy.dataCy('tag-selection').type(`${tag}{enter}`)
-    return cy;
-  },
-);
-
-Cypress.Commands.add(
   'saveDrawer',
   () => {
     cy.intercept({ method: 'PUT', url: '/*/items/*', times: 1 }).as('apiRequest')

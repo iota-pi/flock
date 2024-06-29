@@ -1,6 +1,6 @@
 import { configure } from 'react-hotkeys'
 
-const ignoreTags = new Set(['input', 'select', 'textarea'])
+const ignoreComponents = new Set(['input', 'select', 'textarea'])
 
 const configureHokeys = () => {
   configure({
@@ -14,7 +14,7 @@ const configureHokeys = () => {
         const target = event.target as HTMLElement
         return (
           target.isContentEditable
-          || ignoreTags.has(target.tagName.toLowerCase())
+          || ignoreComponents.has(target.tagName.toLowerCase())
         )
       }
 

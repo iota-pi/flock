@@ -7,7 +7,6 @@ import {
 import MemberDisplay from '../MemberDisplay'
 import GroupDisplay from '../GroupDisplay'
 import { EditIcon } from '../Icons'
-import TagDisplay from '../TagDisplay'
 import Markdown from '../Markdown'
 
 const Section = memo(
@@ -68,10 +67,6 @@ function ItemReport({
           {item.description}
         </Typography>
       )}
-
-      <Section lessPadding>
-        <TagDisplay tags={item.tags} />
-      </Section>
 
       {item.summary && (
         <>

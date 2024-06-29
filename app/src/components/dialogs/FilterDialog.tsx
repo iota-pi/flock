@@ -28,7 +28,6 @@ import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi } from '../../state/ui'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
-import TagSelection from '../TagSelection'
 
 export interface Props {
   onClose: () => void,
@@ -112,18 +111,6 @@ export function FilterCriterionDisplay({
     },
     [criterion, onChange],
   )
-  const handleChangeTagValue = useCallback(
-    (tags: string[]) => {
-      onChange(
-        criterion.type,
-        {
-          ...criterion,
-          value: tags[tags.length - 1] || '',
-        },
-      )
-    },
-    [criterion, onChange],
-  )
   const handleRemove = useCallback(
     () => onRemove(criterion.type),
     [criterion.type, onRemove],
@@ -131,15 +118,6 @@ export function FilterCriterionDisplay({
 
   const currentDate = useMemo(
     () => (criterionDetails.dataType === 'date' ? new Date(criterion.value as number) : null),
-    [criterion, criterionDetails],
-  )
-  const currentTags = useMemo(
-    () => (
-      criterionDetails.dataType === 'tag'
-      && criterion.value
-        ? [criterion.value as string]
-        : []
-    ),
     [criterion, criterionDetails],
   )
 
@@ -243,17 +221,6 @@ export function FilterCriterionDisplay({
           frequency={criterion.value as Frequency}
         />
       )}
-      {criterionDetails.dataType === 'tag' && (
-        <TagSelection
-          canAddNew={false}
-          fullWidth
-          label="Value"
-          onChange={handleChangeTagValue}
-          selectedTags={currentTags}
-          single
-          variant="standard"
-        />
-      )}
 
       <IconButton onClick={handleRemove}>
         <RemoveIcon />
@@ -274,7 +241,9 @@ function FilterDialog({
   useEffect(
     () => {
       if (open) {
-        setLocalCriteria(filterCriteria)
+        setLocalCriteria(
+          filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[fc.type]),
+        )
       }
     },
     [filterCriteria, open],

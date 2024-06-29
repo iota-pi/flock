@@ -16,7 +16,6 @@ import {
   GroupIcon,
   MuiIconType,
   RemoveIcon,
-  TagIcon,
   UnarchiveIcon,
 } from './Icons'
 import { useItemsById } from '../state/selectors'
@@ -24,7 +23,6 @@ import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import ConfirmationDialog from './dialogs/ConfirmationDialog'
 import { setUi } from '../state/ui'
-import TagDialog from './dialogs/TagDialog'
 import GroupDialog from './dialogs/GroupDialog'
 import { deleteItems, storeItems } from '../api/Vault'
 import FrequencyDialog from './dialogs/FrequencyDialog'
@@ -61,12 +59,9 @@ function SelectedActions() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [showGroup, setShowGroup] = useState(false)
   const [showFrequency, setShowFrequency] = useState(false)
-  const [showTags, setShowTags] = useState(false)
 
   const handleShowGroup = useCallback(() => setShowGroup(true), [])
   const handleHideGroup = useCallback(() => setShowGroup(false), [])
-  const handleShowTags = useCallback(() => setShowTags(true), [])
-  const handleHideTags = useCallback(() => setShowTags(false), [])
   const handleShowFrequency = useCallback(() => setShowFrequency(true), [])
   const handleHideFrequency = useCallback(() => setShowFrequency(false), [])
   const handleSetArchived = useCallback(
@@ -106,14 +101,6 @@ function SelectedActions() {
           onClick: handleShowGroup,
         })
       }
-      result.push(
-        {
-          id: 'tags',
-          icon: TagIcon,
-          label: 'Add/Remove Tags',
-          onClick: handleShowTags,
-        },
-      )
       result.push({
         id: 'frequency',
         icon: FrequencyIcon,
@@ -158,7 +145,6 @@ function SelectedActions() {
       handleClear,
       handleInitialDelete,
       handleShowGroup,
-      handleShowTags,
       handleUnarchive,
       workingItems,
     ],
@@ -207,12 +193,6 @@ function SelectedActions() {
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
-
-      <TagDialog
-        items={selectedItems}
-        onClose={handleHideTags}
-        open={showTags}
-      />
 
       <GroupDialog
         items={selectedItems}

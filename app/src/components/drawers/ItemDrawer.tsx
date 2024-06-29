@@ -26,13 +26,11 @@ import {
   isValid,
   Item,
   ITEM_TYPES,
-  PersonItem,
 } from '../../state/items'
 import { useAppDispatch } from '../../store'
 import { useItems } from '../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 import FrequencyControls from '../FrequencyControls'
-import TagSelection from '../TagSelection'
 import GroupDisplay from '../GroupDisplay'
 import MemberDisplay from '../MemberDisplay'
 import CollapsibleSection from './utils/CollapsibleSection'
@@ -285,7 +283,7 @@ function ItemDrawer({
     [item.name, handleChange, item.id, showDescription],
   )
 
-  const { archived, tags } = item
+  const { archived } = item
   const descriptionField = useMemo(
     () => (
       item.description || showDescription ? (
@@ -337,17 +335,6 @@ function ItemDrawer({
       </Grid>
     ),
     [handleChange, item.summary],
-  )
-  const tagsField = useMemo(
-    () => (
-      <Grid item xs={12}>
-        <TagSelection
-          selectedTags={tags}
-          onChange={newTags => handleChange({ tags: newTags })}
-        />
-      </Grid>
-    ),
-    [handleChange, tags],
   )
 
   const lastPrayer = getLastPrayedFor(item)
@@ -475,7 +462,6 @@ function ItemDrawer({
 
         {descriptionField}
         {summaryField}
-        {tagsField}
 
         <Grid item xs={12}>
           {membersSection}

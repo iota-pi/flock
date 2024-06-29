@@ -1,7 +1,8 @@
 import { MouseEvent, useCallback } from 'react'
 import { Box, Chip, Stack, styled, Typography } from '@mui/material'
-import { setTagFilter } from '../state/ui'
 import { useAppDispatch } from '../store'
+import { ItemId } from '../state/items'
+import { replaceActive } from '../state/ui'
 
 const StyledChip = styled(Chip)(({ theme }) => ({
   marginTop: theme.spacing(0.5),
@@ -15,28 +16,28 @@ const StyledChip = styled(Chip)(({ theme }) => ({
 
 export interface Props {
   tags: string[],
-  linked?: boolean,
+  linkedIds?: ItemId[],
   max?: number,
   vertical?: boolean,
 }
 
 export interface TagChipProps {
   tag: string,
-  linked: boolean,
+  linkedId?: ItemId,
 }
 
 function TagChip({
   tag,
-  linked,
+  linkedId,
 }: TagChipProps) {
   const dispatch = useAppDispatch()
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
-      dispatch(setTagFilter(tag))
+      dispatch(replaceActive({ item: linkedId }))
       event.stopPropagation()
     },
-    [dispatch, tag],
+    [dispatch, linkedId],
   )
 
   return (
@@ -44,7 +45,7 @@ function TagChip({
       <StyledChip
         data-cy="tag"
         label={tag}
-        onClick={linked ? handleClick : undefined}
+        onClick={linkedId ? handleClick : undefined}
         variant="outlined"
       />
     </Box>
@@ -53,7 +54,7 @@ function TagChip({
 
 function TagDisplay({
   tags,
-  linked = false,
+  linkedIds,
   max,
   vertical = false,
 }: Props) {
@@ -65,9 +66,9 @@ function TagDisplay({
       direction={vertical ? 'column' : 'row'}
       spacing={1}
     >
-      {limitedTags.map(tag => (
+      {limitedTags.map((tag, i) => (
         <TagChip
-          linked={linked}
+          linkedId={linkedIds?.[i]}
           key={tag}
           tag={tag}
         />

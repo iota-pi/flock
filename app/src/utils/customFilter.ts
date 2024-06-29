@@ -4,7 +4,7 @@ import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies'
 import { getLastPrayedFor } from './prayer'
 
 export type FilterFieldType = (
-  'string' | 'number' | 'boolean' | 'date' | 'frequency' | 'tag'
+  'string' | 'number' | 'boolean' | 'date' | 'frequency'
 )
 export type FilterBaseOperatorName = (
   'is' |
@@ -36,13 +36,12 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
 }
 
 export type FilterCriterionType = (
-  'archived' |
-  'created' |
-  'description' |
-  'lastPrayedFor' |
-  'name' |
-  'prayerFrequency' |
-  'tags'
+  | 'archived'
+  | 'created'
+  | 'description'
+  | 'lastPrayedFor'
+  | 'name'
+  | 'prayerFrequency'
 )
 export interface FilterCriterionDisplayData {
   name: string,
@@ -88,11 +87,6 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     dataType: 'frequency',
     name: 'Prayer Frequency',
     operators: ['is', 'isnot', 'greater', 'lessthan'],
-  },
-  tags: {
-    dataType: 'tag',
-    name: 'Tags',
-    operators: ['contains', 'notcontains'],
   },
 }
 export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
@@ -165,16 +159,6 @@ export function filterItems<T extends Item>(
       }
       return true
     },
-    tags: (item, criterion) => {
-      if (criterion.baseOperator === 'contains') {
-        const tags = item.tags.map(t => t.toLocaleLowerCase())
-        const tagToCheck = (criterion.value as string).toLocaleLowerCase()
-        if (tagToCheck) {
-          return tags.includes(tagToCheck)
-        }
-      }
-      return true
-    },
   }
 
   if (!criteria.length) {
@@ -202,7 +186,6 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'number') return 0
   if (dataType === 'string') return ''
   if (dataType === 'frequency') return 'monthly' as Frequency
-  if (dataType === 'tag') return ''
 
   throw new Error(`Unknown data type ${dataType}`)
 }

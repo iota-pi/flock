@@ -27,7 +27,6 @@ import {
   UploadIcon,
 } from '../Icons'
 import GoalDialog from '../dialogs/GoalDialog'
-import TagDisplay from '../TagDisplay'
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog'
 import { Item, PersonItem } from '../../state/items'
 import { useAppDispatch, useAppSelector } from '../../store'
@@ -46,7 +45,6 @@ export interface SettingsItemProps {
   id: string,
   onClick?: () => void,
   title: string,
-  tags?: string[],
   value?: ReactNode,
 }
 
@@ -64,7 +62,6 @@ function SettingsItem({
   id,
   onClick,
   title,
-  tags,
   value = null,
 }: SettingsItemProps) {
   // This is a separate object because the typing for ListItem.button is a bit finicky
@@ -88,13 +85,6 @@ function SettingsItem({
               {title}
             </Typography>
           </Box>
-
-          {tags && (
-            <TagDisplay
-              tags={tags}
-              vertical={sm}
-            />
-          )}
         </Box>
 
         <Box display="flex" alignItems="center">

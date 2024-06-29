@@ -18,7 +18,6 @@ declare global {
       createGroup(data: Partial<GroupItem>): Chainable;
       saveDrawer(): Chainable;
 
-      addTag(tag: string): Chainable;
       addToGroup(group: string): Chainable;
       addMember(name: string): Chainable;
     }

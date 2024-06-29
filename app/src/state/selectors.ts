@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux'
 import { useAppDispatch, useAppSelector } from '../store'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
-import { getTags, Item, ItemId, selectAllItems, selectItems } from './items'
+import { Item, ItemId, selectAllItems, selectItems } from './items'
 import { setUi, UiOptions } from './ui'
 import { setMetadata } from '../api/Vault'
 
@@ -73,15 +73,6 @@ export function useMetadata<K extends MetadataKey>(
 }
 
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
-
-export const useTags = () => {
-  const items = useItems()
-  const tags = useMemo(
-    () => getTags(items),
-    [items],
-  )
-  return tags
-}
 
 export const useIsActive = () => {
   const drawers = useAppSelector(state => state.ui.drawers)

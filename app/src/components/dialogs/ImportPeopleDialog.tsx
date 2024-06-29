@@ -11,13 +11,13 @@ import { DropzoneArea } from 'mui-file-dropzone'
 // eslint-disable-next-line import/no-unresolved
 import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useState } from 'react'
-import { importPeople, PersonItem } from '../../state/items'
+import { importPeople, Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
 
 
 export interface Props {
   onClose: () => void,
-  onConfirm: (items: PersonItem[]) => void,
+  onConfirm: (items: Item[]) => void,
   open: boolean,
 }
 
@@ -26,7 +26,7 @@ function ImportPeopleDialog({
   onConfirm,
   open,
 }: Props) {
-  const [importedItems, setImportedItems] = useState<PersonItem[]>([])
+  const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
 
   const handleChange = useCallback(
@@ -106,15 +106,15 @@ function ImportPeopleDialog({
           <Alert
             severity={(
               (errorMessage && 'error')
-              || (importedItems.length > 0 && 'success')
+              || (importedItems.length > 1 && 'success')
               || 'info'
             )}
           >
             {errorMessage}
 
             {!errorMessage && (
-              importedItems.length > 0
-                ? `Ready to import ${importedItems.length} items from CSV`
+              importedItems.length > 1
+                ? `Ready to import ${importedItems.length - 1} items from CSV`
                 : 'Upload a CSV file here'
             )}
           </Alert>
@@ -133,7 +133,7 @@ function ImportPeopleDialog({
 
         <Button
           data-cy="import-confirm"
-          disabled={importedItems.length === 0}
+          disabled={importedItems.length === 1}
           fullWidth
           onClick={handleConfirmImport}
           startIcon={<UploadIcon />}

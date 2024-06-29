@@ -30,10 +30,11 @@ import {
   ListItemKeySelector,
   VariableSizeList,
 } from 'react-window'
-import { getItemName, isItem, Item } from '../state/items'
+import { getItemName, GroupItem, isItem, Item } from '../state/items'
 import TagDisplay from './TagDisplay'
 import { getIcon as getItemIcon } from './Icons'
 import { MostlyRequired, usePrevious, useStringMemo } from '../utils'
+import { useItems } from '../state/selectors'
 
 const FADED_OPACITY = 0.65
 const TAG_ROW_BREAKPOINT: Breakpoint = 'md'
@@ -141,6 +142,7 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     wrapText = false,
   } = data
   const item = items[index]
+  const allGroups = useItems('group') as GroupItem[]
 
   const handleClick = useCallback(
     () => onClick?.(item),
@@ -194,6 +196,21 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     },
     [getDescription, item],
   )
+  const groups = useMemo(
+    () => (
+      allGroups.filter(g => g.members.includes(item.id))
+    ),
+    [item.id, items],
+  )
+  const groupNames = useMemo(
+    () => groups.map(g => g.name),
+    [groups],
+  )
+  const groupIds = useMemo(
+    () => linkTags ? groups.map(g => g.id) : undefined,
+    [groups],
+  )
+
   const faded = useMemo(
     () => {
       if (isItem(item) && item.archived && fadeArchived) {
@@ -273,8 +290,8 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
 
           {showTags && isItem(item) && (
             <TagDisplay
-              tags={item.tags}
-              linked={linkTags}
+              tags={groupNames}
+              linkedIds={groupIds}
               max={maxTags}
             />
           )}
@@ -404,6 +421,10 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     }),
     [extraElements, items],
   )
+  const allGroups = useMemo(
+    () => items.filter(i => i.type === 'group') as GroupItem[],
+    [items],
+  )
   const itemHeights = useMemo(
     () => items.map(
       (item, index) => {
@@ -415,7 +436,8 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
             : 0
         )
         const textMargin = 6 * 2
-        const tagsHeight = !isItem(item) || item.tags.length === 0 || tagsOnSameRow ? 0 : 40
+        const memberOfGroups = allGroups.filter(g => g.members.includes(item.id))
+        const tagsHeight = !isItem(item) || memberOfGroups.length === 0 || tagsOnSameRow ? 0 : 40
         const padding = 8 * 2
         const total = Math.max(
           (
@@ -429,7 +451,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
         return total + extraElementsHeight
       },
     ),
-    [extraElementsByIndex, getDescription, items, tagsOnSameRow],
+    [allGroups, extraElementsByIndex, getDescription, items, tagsOnSameRow],
   )
   const memoisedHeights = useStringMemo(itemHeights)
   const getItemSize = useCallback(

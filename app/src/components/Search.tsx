@@ -43,7 +43,7 @@ import {
 } from '../state/items'
 import InlineText from './InlineText'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useSortCriteria, useTags } from '../state/selectors'
+import { useItems, useSortCriteria } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
@@ -80,14 +80,6 @@ interface SearchableItem<T extends Item = Item> {
   id: string,
   type: T['type'],
 }
-interface SearchableTag {
-  create?: false,
-  data: string,
-  dividerBefore?: boolean,
-  name: string,
-  id: string,
-  type: 'tag',
-}
 interface SearchableAddItem<T extends Item = Item> {
   create: true,
   data?: undefined,
@@ -98,7 +90,6 @@ interface SearchableAddItem<T extends Item = Item> {
 }
 export type AnySearchable = (
   SearchableItem
-  | SearchableTag
   | SearchableAddItem
 )
 export type AnySearchableData = Exclude<AnySearchable['data'], undefined>
@@ -106,10 +97,9 @@ export type AnySearchableType = AnySearchable['type']
 export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
   group: true,
   person: true,
-  tag: true,
 }
 export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group', 'tag']
+  ['person', 'group']
 )
 
 export function getSearchableDataId(s: AnySearchableData): string {
@@ -133,9 +123,6 @@ function sortSearchables(a: AnySearchable, b: AnySearchable): number {
 }
 
 function getName(option: AnySearchable) {
-  if (option.type === 'tag') {
-    return option.data
-  }
   if (option.create) {
     return getItemName(option.default)
   }
@@ -398,7 +385,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 }: Props<T>) {
   const items = useItems()
   const [sortCriteria] = useSortCriteria()
-  const tags = useTags()
 
   const selectedIds = useMemo(
     () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
@@ -408,22 +394,12 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   const selectedSearchables: AnySearchable[] = useMemo(
     () => (
       showSelectedChips && selectedItems.map(
-        (item): AnySearchable => {
-          if (typeof item === 'string') {
-            return {
-              data: item,
-              id: item,
-              name: item,
-              type: 'tag',
-            }
-          }
-          return {
-            data: item,
-            id: item.id,
-            name: getItemName(item),
-            type: item.type,
-          }
-        },
+        (item): AnySearchable => ({
+          data: item,
+          id: item.id,
+          name: getItemName(item),
+          type: item.type,
+        }),
       )
     ) || [],
     [selectedItems, showSelectedChips],
@@ -452,19 +428,9 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           name: getItemName(item),
         })),
       )
-      if (types.tag) {
-        results.push(
-          ...tags.map((tag): AnySearchable => ({
-            type: 'tag',
-            id: tag,
-            data: tag,
-            name: tag,
-          })),
-        )
-      }
       return results
     },
-    [filteredItems, tags, types],
+    [filteredItems, types],
   )
 
   const matchSorterKeys = useMemo(

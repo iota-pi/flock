@@ -106,20 +106,6 @@ const uiSlice = createSlice({
         state.selected.push(action.payload)
       }
     },
-    setTagFilter(state, action: PayloadAction<FilterCriterion['value']>) {
-      const index = state.filters.findIndex(c => c.type === 'tags')
-      if (index > -1) {
-        state.filters[index].value = action.payload
-      } else {
-        state.filters.push({
-          type: 'tags',
-          baseOperator: 'contains',
-          operator: 'contains',
-          inverse: false,
-          value: action.payload,
-        })
-      }
-    },
     replaceActive(state, action: PayloadAction<Partial<Omit<DrawerData, 'id'>>>) {
       const openItems = state.drawers.filter(drawer => drawer.open)
       const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
@@ -190,7 +176,6 @@ export const {
   removeActive,
   replaceActive,
   setMessage,
-  setTagFilter,
   setUi,
   startRequest,
   toggleSelected,

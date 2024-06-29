@@ -5,7 +5,7 @@ import {
 } from 'react'
 import { GlobalHotKeys, KeyMap } from 'react-hotkeys'
 import { Item } from '../../state/items'
-import { replaceActive, setTagFilter } from '../../state/ui'
+import { replaceActive } from '../../state/ui'
 import { useAppDispatch } from '../../store'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
@@ -51,10 +51,8 @@ function EverythingSearch({
     [dispatch],
   )
   const handleSelect = useCallback(
-    (item: Item | string) => {
-      if (typeof item === 'string') {
-        dispatch(setTagFilter(item))
-      } else if (item) {
+    (item: Item) => {
+      if (item) {
         dispatch(replaceActive({ item: item.id }))
       }
       if (onSelect) {

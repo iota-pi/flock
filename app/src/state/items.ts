@@ -18,7 +18,6 @@ export interface BaseItem {
   prayedFor: number[],
   prayerFrequency: Frequency,
   summary: string,
-  tags: string[],
   type: ItemType,
 }
 export interface PersonItem extends BaseItem {
@@ -81,7 +80,6 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     prayedFor: [],
     prayerFrequency: 'monthly',
     summary: '',
-    tags: [],
     type: 'person',
   }
 }
@@ -176,10 +174,6 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
   return items.filter(item => !item.archived)
 }
 
-export function getTags(items: Item[]) {
-  return Array.from(new Set(items.flatMap(item => item.tags))).sort()
-}
-
 export function supplyMissingAttributes<T extends Item>(item: T): T {
   return {
     ...getBlankItem(item.type, false),
@@ -208,10 +202,14 @@ export function isValid<T extends Item>(item: T) {
   return !!getItemName(item).trim()
 }
 
-export function importPeople(data: Record<string, string>[]): PersonItem[] {
+export function importPeople(data: Record<string, string>[]): Item[] {
   const d = new Date()
   const todaysDate = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
-  const results: PersonItem[] = []
+  const importGroup = getBlankGroup()
+  importGroup.name = `Imported ${todaysDate}`
+  const results: Item[] = [
+    importGroup,
+  ]
   for (const row of data) {
     const name = (row.name || `${row.firstName} ${row.lastName}`).trim()
     if (name === '') {
@@ -225,8 +223,8 @@ export function importPeople(data: Record<string, string>[]): PersonItem[] {
       name,
       description: row.description || blankPerson.description,
       summary: row.summary || blankPerson.summary,
-      tags: [`Imported ${todaysDate}`],
     })
+    importGroup.members.push(blankPerson.id)
   }
   return results
 }
