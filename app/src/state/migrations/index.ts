@@ -1,6 +1,6 @@
 import { clearItemCache, setMetadata, storeItems } from '../../api/Vault'
 import store from '../../store'
-import { Item, convertItem, selectAllItems } from '../items'
+import { Item, convertItem, getBlankGroup, selectAllItems } from '../items'
 
 export interface ItemMigration {
   description?: string,
@@ -9,6 +9,46 @@ export interface ItemMigration {
 }
 
 const migrations: ItemMigration[] = [
+  // TODO remove tags from old items in future migration
+  {
+    description: 'Convert tags to groups',
+    id: 'convert-tags-to-groups',
+    migrate: async ({ items }) => {
+      const allTags = new Set<string>()
+      for (const item of items) {
+        const tags = (item as any).tags as string[]
+        for (const tag of tags) {
+          allTags.add(tag)
+        }
+      }
+      const d = new Date()
+      const todaysDate = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
+      const tagGroups = Array.from(allTags).map(tag => ({
+        ...getBlankGroup(),
+        name: tag,
+        description: `Group migrated from tag (${todaysDate})`,
+      }))
+      const tagMap = Object.fromEntries(tagGroups.map(group => [group.name, group]))
+      for (const item of items) {
+        const tags = (item as any).tags as string[]
+        for (const tag of tags) {
+          const group = tagMap[tag]
+          group.members.push(item.id)
+        }
+      }
+      const updatedItems: typeof items = Object.values(tagMap)
+      if (updatedItems.length > 0) {
+        try {
+          await storeItems(updatedItems)
+        } catch (error) {
+          console.warn('Error storing items during migration')
+          console.error(error)
+          return false
+        }
+      }
+      return true
+    },
+  },
   {
     description: 'Convert general items to people',
     id: 'convert-general-to-person-2',
