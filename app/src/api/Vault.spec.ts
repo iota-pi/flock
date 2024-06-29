@@ -1,7 +1,7 @@
 import store from '../store'
 import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
+import * as axios from './axios'
 import * as vault from './Vault'
-import * as common from './common'
 import * as api from './VaultAPI'
 import type { VaultItem } from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
@@ -18,7 +18,7 @@ describe('Vault (Crypto)', () => {
       jest.spyOn(vault, 'setItemCache').mockImplementation(() => {})
       jest.spyOn(vault, 'clearItemCache').mockImplementation(() => {})
       jest.spyOn(vault, 'checkItemCache').mockReturnValue(false)
-      jest.spyOn(common, 'getAxios').mockImplementation(() => ({
+      jest.spyOn(axios, 'getAxios').mockImplementation(() => ({
         put: jest.fn(() => ({ data: { success: true } })),
       }) as unknown as AxiosInstance)
 

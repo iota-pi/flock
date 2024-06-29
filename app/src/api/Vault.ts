@@ -24,7 +24,8 @@ import {
 import { AccountMetadata, setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
 import { FlockPushSubscription } from '../utils/firebase-types'
-import { getAccountId, initAxios } from './common'
+import { initAxios } from './axios'
+import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
 

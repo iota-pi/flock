@@ -1,24 +1,10 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios'
+import type { AxiosInstance } from 'axios'
 import {
   finishRequest as finishRequestAction,
   startRequest as startRequestAction,
 } from '../state/ui'
 import store from '../store'
-
-let axiosWithAuth: AxiosInstance | null = null
-
-export function initAxios(authToken: string) {
-  axiosWithAuth = axios.create({
-    ...getAuth(authToken),
-  })
-}
-
-export function getAxios() {
-  if (!axiosWithAuth) {
-    throw new Error('Axios has not yet been initialised')
-  }
-  return axiosWithAuth
-}
+import { getAxios } from './axios'
 
 export function getAccountId() {
   const account = store.getState().account.account
@@ -26,12 +12,6 @@ export function getAccountId() {
     throw new Error('Account ID not set; cannot use API without account ID.')
   }
   return account
-}
-
-function getAuth(authToken: string): AxiosRequestConfig {
-  return {
-    headers: { Authorization: `Basic ${authToken}` },
-  }
 }
 
 function startRequest() {
