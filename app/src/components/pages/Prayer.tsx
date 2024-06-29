@@ -83,8 +83,8 @@ function PrayerPage() {
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
 
   const handleClickShowMore = useCallback(
-    () => { setTodaysGoal(todaysGoal + 3) },
-    [todaysGoal],
+    () => { setTodaysGoal(g => g + 3) },
+    [],
   )
 
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
