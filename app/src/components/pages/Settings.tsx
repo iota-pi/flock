@@ -69,8 +69,6 @@ function SettingsItem({
     button: !!onClick,
   }
 
-  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
-
   return (
     <>
       <ListItem

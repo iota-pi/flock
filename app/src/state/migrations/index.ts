@@ -16,6 +16,7 @@ const migrations: ItemMigration[] = [
     migrate: async ({ items }) => {
       const allTags = new Set<string>()
       for (const item of items) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tags = (item as any).tags as string[]
         for (const tag of tags) {
           allTags.add(tag)
@@ -30,6 +31,7 @@ const migrations: ItemMigration[] = [
       }))
       const tagMap = Object.fromEntries(tagGroups.map(group => [group.name, group]))
       for (const item of items) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tags = (item as any).tags as string[]
         for (const tag of tags) {
           const group = tagMap[tag]
