@@ -243,6 +243,17 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     () => (extraElements || []).filter(e => e.index === index).map(e => e.content),
     [extraElements, index],
   )
+  const endExtras = useMemo(
+    () => (
+      index === items.length - 1
+      && (
+        (extraElements || [])
+          .filter(e => e.index === -1 || e.index > index)
+          .map(e => e.content)
+      )
+    ),
+    [extraElements, index, items.length],
+  )
 
   return (
     <div style={style}>
@@ -317,6 +328,8 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
 
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>
+
+      {endExtras}
     </div>
   )
 }

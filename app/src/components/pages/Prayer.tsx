@@ -101,7 +101,6 @@ function PrayerPage() {
                 <Grid
                   item
                   xs={12}
-                  sm={6}
                   display="flex"
                   alignItems="center"
                 >
@@ -122,25 +121,6 @@ function PrayerPage() {
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Grid>
-
-                <Grid
-                  item
-                  xs={12}
-                  sm={6}
-                  display="flex"
-                  sx={{
-                    justifyContent: {
-                      sm: 'flex-end',
-                    },
-                  }}
-                >
-                  <Button
-                    onClick={handleClickShowMore}
-                    variant="outlined"
-                  >
-                    Show More
-                  </Button>
-                </Grid>
               </Grid>
             </PageContainer>
 
@@ -149,6 +129,33 @@ function PrayerPage() {
         ),
         height: 68.5,
         index: 0,
+      },
+      {
+        content: (
+          <Fragment key="show-more">
+            <Divider />
+
+            <Grid container spacing={2} padding={2}>
+              <Grid
+                item
+                xs={12}
+                display="flex"
+                sx={{
+                  justifyContent: 'center',
+                }}
+              >
+                <Button
+                  onClick={handleClickShowMore}
+                  variant="outlined"
+                >
+                  Show More
+                </Button>
+              </Grid>
+            </Grid>
+          </Fragment>
+        ),
+        height: 68.5,
+        index: -1,
       },
     ],
     [completed, goal, handleEditGoal, naturalGoal],
