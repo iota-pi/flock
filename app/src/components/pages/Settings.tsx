@@ -8,9 +8,7 @@ import {
   List,
   ListItem,
   styled,
-  Theme,
   Typography,
-  useMediaQuery,
 } from '@mui/material'
 import download from 'js-file-download'
 import BasePage from './BasePage'

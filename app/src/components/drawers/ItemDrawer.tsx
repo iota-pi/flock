@@ -27,7 +27,6 @@ import {
   Item,
   ITEM_TYPES,
 } from '../../state/items'
-import { useAppDispatch } from '../../store'
 import { useItems } from '../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 import FrequencyControls from '../FrequencyControls'
@@ -35,7 +34,6 @@ import GroupDisplay from '../GroupDisplay'
 import MemberDisplay from '../MemberDisplay'
 import CollapsibleSection from './utils/CollapsibleSection'
 import DuplicateAlert from './utils/DuplicateAlert'
-import { pushActive } from '../../state/ui'
 import { usePrevious } from '../../utils'
 import {
   ArchiveIcon,
@@ -77,7 +75,6 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const dispatch = useAppDispatch()
   const groups = useItems<GroupItem>('group')
   const items = useItems()
 

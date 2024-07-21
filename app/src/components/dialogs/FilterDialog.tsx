@@ -141,7 +141,7 @@ export function FilterCriterionDisplay({
       >
         {FILTER_CRITERIA_DISPLAY.filter(
           cd => criterion.type === cd || !chosenCriteria.has(cd),
-        ).map((key) => (
+        ).map(key => (
           <MenuItem key={key} value={key}>
             {FILTER_CRITERIA_DISPLAY_MAP[key].name}
           </MenuItem>
