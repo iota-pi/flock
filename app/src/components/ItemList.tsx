@@ -203,7 +203,7 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     [item.id, items],
   )
   const groupNames = useMemo(
-    () => groups.map(g => g.name),
+    () => groups.filter(g => !g.archived).map(g => g.name),
     [groups],
   )
   const groupIds = useMemo(
