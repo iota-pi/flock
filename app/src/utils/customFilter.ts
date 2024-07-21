@@ -65,7 +65,7 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
   description: {
     dataType: 'string',
     name: 'Description',
-    operators: ['is', 'isnot', 'contains', 'notcontains'],
+    operators: ['contains', 'notcontains', 'is', 'isnot'],
   },
   lastPrayedFor: {
     dataType: 'date',
@@ -75,7 +75,7 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
   name: {
     dataType: 'string',
     name: 'Name',
-    operators: ['is', 'isnot', 'contains', 'notcontains'],
+    operators: ['contains', 'notcontains', 'is', 'isnot'],
   },
   prayerFrequency: {
     dataType: 'frequency',
@@ -83,11 +83,26 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     operators: ['is', 'isnot', 'greater', 'lessthan'],
   },
 }
-export const FILTER_CRITERIA_DISPLAY = Object.entries(FILTER_CRITERIA_DISPLAY_MAP).sort(
-  ([a], [b]) => a.localeCompare(b),
-) as [FilterCriterionType, FilterCriterionDisplayData][]
+export const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
+  'name',
+  'description',
+  'prayerFrequency',
+  'created',
+  'lastPrayedFor',
+]
+export const FILTER_CRITERIA_DISPLAY = (
+  FILTER_CRITERIA_ORDER.map(fc => fc)
+)
 
-export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = []
+export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [
+  {
+    type: 'name',
+    baseOperator: 'contains',
+    inverse: false,
+    operator: 'contains',
+    value: '',
+  },
+]
 
 export function filterItems<T extends Item>(
   items: T[],

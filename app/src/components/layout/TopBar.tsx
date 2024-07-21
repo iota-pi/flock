@@ -15,10 +15,9 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
-import { useOption } from '../../state/selectors'
+import { useOption, usePracticalFilterCount } from '../../state/selectors'
 import SortDialog from '../dialogs/SortDialog'
 import FilterDialog from '../dialogs/FilterDialog'
-import { useAppSelector } from '../../store'
 
 const MENU_POPUP_ID = 'top-bar-menu'
 
@@ -30,6 +29,12 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   [theme.breakpoints.down('md')]: {
     padding: theme.spacing(1),
   },
+}))
+const CheckboxHolder = styled('div')(({ theme }) => ({
+  paddingRight: theme.spacing(0.5),
+}))
+const TitleHolder = styled('div')(({ theme }) => ({
+  paddingLeft: theme.spacing(1),
 }))
 
 export interface MenuItemData {
@@ -63,7 +68,7 @@ function TopBar({
   const [showFilter, setShowFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
 
-  const filterCount = useAppSelector(state => state.ui.filters.length)
+  const filterCount = usePracticalFilterCount()
 
   const optionsAnchor = useRef<HTMLButtonElement>(null)
 
@@ -125,20 +130,20 @@ function TopBar({
   return (
     <StyledPaper>
       {showCheckbox && (
-        <div>
+        <CheckboxHolder>
           <Checkbox
             checked={allSelected}
             onClick={onSelectAll}
           />
-        </div>
+        </CheckboxHolder>
       )}
 
       {title && (
-        <div>
+        <TitleHolder>
           <Typography color="text.secondary">
             {title}
           </Typography>
-        </div>
+        </TitleHolder>
       )}
 
       <Box flexGrow={1} />

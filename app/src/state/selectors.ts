@@ -87,6 +87,10 @@ export const useIsActive = () => {
   )
 }
 
+export const usePracticalFilterCount = () => useAppSelector(state => (
+  state.ui.filters.filter(fc => fc.operator !== 'contains' || fc.value).length
+))
+
 export const useOptions = () => useAppSelector(state => state.ui.options)
 export function useOption<T extends keyof UiOptions>(
   optionKey: T,

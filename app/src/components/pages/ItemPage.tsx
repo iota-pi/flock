@@ -7,6 +7,7 @@ import {
   useIsActive,
   useItems,
   useOptions,
+  usePracticalFilterCount,
   useSortCriteria,
 } from '../../state/selectors'
 import BasePage from './BasePage'
@@ -27,6 +28,7 @@ function ItemPage<T extends Item>({
   const rawItems = useItems<T>(itemType)
   const selected = useAppSelector(state => state.ui.selected)
   const filters = useAppSelector(state => state.ui.filters)
+  const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
   const { bulkActionsOnMobile } = useOptions()
 
@@ -98,7 +100,7 @@ function ItemPage<T extends Item>({
     [],
   )
   const getHighlighted = useCallback(
-    (item: Item) => isActive(item.id, false),
+    (item: Item) => isActive(item.id),
     [isActive],
   )
 
@@ -114,9 +116,9 @@ function ItemPage<T extends Item>({
       : 'Click the plus button to add one!'
   )
   const itemCountText = (
-    filters.length > 0
+    filterCount > 0
       ? `${items.length} / ${rawItems.length} ${pluralLabelLower}`
-      : undefined
+      : `${items.length} ${pluralLabelLower}`
   )
 
   const extras = useMemo(

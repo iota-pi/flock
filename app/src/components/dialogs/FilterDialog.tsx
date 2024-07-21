@@ -21,13 +21,14 @@ import {
   getBaseValue,
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
-  FilterBaseOperatorName,
+  DEFAULT_FILTER_CRITERIA,
 } from '../../utils/customFilter'
 import { FilterIcon, RemoveIcon } from '../Icons'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi } from '../../state/ui'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
+import { usePrevious } from '../../utils'
 
 export interface Props {
   onClose: () => void,
@@ -139,10 +140,10 @@ export function FilterCriterionDisplay({
         variant="standard"
       >
         {FILTER_CRITERIA_DISPLAY.filter(
-          cd => criterion.type === cd[0] || !chosenCriteria.has(cd[0]),
-        ).map(([key, display]) => (
+          cd => criterion.type === cd || !chosenCriteria.has(cd),
+        ).map((key) => (
           <MenuItem key={key} value={key}>
-            {display.name}
+            {FILTER_CRITERIA_DISPLAY_MAP[key].name}
           </MenuItem>
         ))}
       </TextField>
@@ -237,16 +238,20 @@ function FilterDialog({
   const dispatch = useAppDispatch()
   const filterCriteria = useAppSelector(state => state.ui.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
+  const prevOpen = usePrevious(open)
 
   useEffect(
     () => {
-      if (open) {
-        setLocalCriteria(
-          filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[fc.type]),
-        )
+      if (open && !prevOpen) {
+        const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[fc.type])
+        if (criteria.length > 0) {
+          setLocalCriteria(criteria)
+        } else {
+          setLocalCriteria(DEFAULT_FILTER_CRITERIA)
+        }
       }
     },
-    [filterCriteria, open],
+    [filterCriteria, open, prevOpen],
   )
 
   const chosenCriteria = useMemo(
@@ -256,23 +261,12 @@ function FilterDialog({
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
-      const notChosen = FILTER_CRITERIA_DISPLAY.filter(
-        cd => !chosenCriteria.has(cd[0]),
-      )
-      const newCriterionType = notChosen[0][0]
-      const newCriterionDetails = notChosen[0][1]
       return [
         ...lc,
-        {
-          baseOperator: newCriterionDetails.operators[0] as FilterBaseOperatorName,
-          inverse: false,
-          operator: newCriterionDetails.operators[0],
-          type: newCriterionType,
-          value: getBaseValue(newCriterionType),
-        },
+        ...DEFAULT_FILTER_CRITERIA,
       ]
     }),
-    [chosenCriteria],
+    [],
   )
   const handleChange = useCallback(
     (prevType: FilterCriterionType, criterion: FilterCriterion) => (
@@ -323,8 +317,8 @@ function FilterDialog({
       </DialogTitle>
 
       <DialogContent>
-        {localCriteria.map((lc: FilterCriterion, index) => (
-          <div key={lc.type}>
+        {localCriteria.map((lc, index) => (
+          <div key={`${lc.type}-${index}`}>
             {index === 0 && <Divider />}
 
             <FilterCriterionDisplay
