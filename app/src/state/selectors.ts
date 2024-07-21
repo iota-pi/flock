@@ -77,11 +77,10 @@ export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERI
 export const useIsActive = () => {
   const drawers = useAppSelector(state => state.ui.drawers)
   return useCallback(
-    (itemId: ItemId, report?: boolean) => (
+    (itemId: ItemId) => (
       drawers.findIndex(drawer => (
         drawer.open
         && drawer.item === itemId
-        && (report === undefined || !report === !drawer.report)
       )) > -1
     ),
     [drawers],

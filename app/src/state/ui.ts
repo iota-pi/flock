@@ -12,7 +12,6 @@ export interface DrawerData {
   next?: string[],
   open: boolean,
   praying?: boolean,
-  report?: boolean,
 }
 export interface UiOptions {
   bulkActionsOnMobile: boolean,
@@ -56,7 +55,7 @@ export type setUi = Omit<Partial<UIState>, 'options' | 'requests' | 'drawers'> &
   requests?: Partial<UIState['requests']>,
 }
 export type PushActiveOptions = (
-  'initial' | 'newItem' | 'next' | 'open' | 'praying' | 'report'
+  'initial' | 'newItem' | 'next' | 'open' | 'praying'
 )
 export type PushActiveData = (
   Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, PushActiveOptions>>

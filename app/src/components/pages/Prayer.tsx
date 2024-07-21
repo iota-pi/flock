@@ -75,7 +75,7 @@ function PrayerPage() {
       const index = memoisedPrayerSchedule.indexOf(item.id)
       const endIndex = index < goal ? goal : memoisedPrayerSchedule.length
       const next = memoisedPrayerSchedule.slice(index + 1, endIndex)
-      dispatch(replaceActive({ item: item.id, next, praying: true, report: true }))
+      dispatch(replaceActive({ item: item.id, next, praying: true }))
     },
     [dispatch, goal, memoisedPrayerSchedule],
   )

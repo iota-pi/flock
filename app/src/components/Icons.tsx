@@ -22,7 +22,6 @@ import PasswordIcon from '@mui/icons-material/Password'
 import PersonIcon from '@mui/icons-material/Person'
 import PrayerPointIcon from '@mui/icons-material/FormatListBulleted'
 import RemoveIcon from '@mui/icons-material/Close'
-import ReportIcon from '@mui/icons-material/Description'
 import ResetIcon from '@mui/icons-material/Replay'
 import SaveIcon from '@mui/icons-material/Check'
 import SearchIcon from '@mui/icons-material/Search'
@@ -67,7 +66,6 @@ export {
   PrayerIcon,
   PrayerPointIcon,
   RemoveIcon,
-  ReportIcon,
   ResetIcon,
   SaveIcon,
   SearchIcon,

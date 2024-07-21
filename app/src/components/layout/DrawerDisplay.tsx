@@ -6,7 +6,6 @@ import { DrawerData, removeActive, updateActive } from '../../state/ui'
 import { useAppDispatch, useAppSelector } from '../../store'
 import ItemDrawer from '../drawers/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
-import ReportDrawer from '../drawers/ReportDrawer'
 import { useItem, useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
@@ -92,18 +91,7 @@ function IndividualDrawer({
   useEffect(() => setLocalItem(item), [item])
 
   if (localItem) {
-    return drawer.report ? (
-      <ReportDrawer
-        item={localItem}
-        next={drawer.next}
-        onBack={onClose}
-        onClose={onClose}
-        onExited={onExited}
-        open={drawer.open}
-        praying={drawer.praying}
-        stacked={stacked}
-      />
-    ) : (
+    return (
       <ItemDrawer
         item={localItem}
         onBack={onClose}

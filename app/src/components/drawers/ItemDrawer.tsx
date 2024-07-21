@@ -203,12 +203,6 @@ function ItemDrawer({
     [onClose, item.id, removeFromAllGroups],
   )
 
-  const hasReport = item.type === 'group'
-  const handleReport = useCallback(
-    () => dispatch(pushActive({ item: item.id, report: true })),
-    [dispatch, item],
-  )
-
   const handleUnmount = useCallback(
     () => {
       if (!cancelled) {
@@ -441,7 +435,6 @@ function ItemDrawer({
         itemName: getItemName(item),
         onCancel: handleCancel,
         onDelete: handleDelete,
-        onReport: hasReport ? handleReport : undefined,
         onSave: handleSaveButton,
         promptSave: !!item.dirty,
       }}

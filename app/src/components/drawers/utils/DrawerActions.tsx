@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
-import { DeleteIcon, NextIcon, ReportIcon, SaveIcon } from '../../Icons'
+import { DeleteIcon, NextIcon, SaveIcon } from '../../Icons'
 import InlineText from '../../InlineText'
 
 
@@ -35,7 +35,6 @@ export interface PropsWithSave extends BaseProps {
   onDelete: () => void,
   onDone?: undefined,
   onNext?: undefined,
-  onReport?: () => void,
   onSave: () => void,
   onSkip?: undefined,
 }
@@ -47,7 +46,6 @@ export interface PropsWithDone extends BaseProps {
   onDelete?: undefined,
   onDone: () => void,
   onNext?: undefined,
-  onReport?: undefined,
   onSave?: undefined,
   onSkip?: () => void,
 }
@@ -59,7 +57,6 @@ export interface PropsWithNext extends BaseProps {
   onDelete?: undefined,
   onDone?: undefined,
   onNext: () => void,
-  onReport?: undefined,
   onSave?: undefined,
   onSkip: () => void,
 }
@@ -76,7 +73,6 @@ function DrawerActions({
   onDelete,
   onDone,
   onNext,
-  onReport,
   onSave,
   onSkip,
   permanentDrawer,
@@ -102,21 +98,6 @@ function DrawerActions({
 
       <StyledContainer>
         <Grid container spacing={2}>
-          {onReport && (
-            <Grid item xs={12}>
-              <Button
-                data-cy="drawer-report"
-                disabled={itemIsNew}
-                fullWidth
-                onClick={onReport}
-                startIcon={itemIsNew ? undefined : <ReportIcon />}
-                variant="outlined"
-              >
-                Group Report
-              </Button>
-            </Grid>
-          )}
-
           {onSkip && (
             <Grid item xs={12}>
               <Button

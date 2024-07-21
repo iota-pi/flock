@@ -15,17 +15,12 @@ describe('Basic operation', () => {
       .addMember('Frodo')
       .addMember('Pippin')
       .addMember('Merry')
-    cy.contains(/group report/i)
-      .should('be.disabled')
-      .saveDrawer()
     cy.createPerson({ name: 'Gandalf' })
       .addToGroup('f')
       .saveDrawer()
 
     cy.page('groups')
     cy.contains('4 members').click()
-    cy.contains(/group report/i)
-      .should('not.be.disabled')
     cy.dataCy('section-members').click()
     cy.contains('Gandalf')
       .parentsUntil('[data-cy=list-item]')
@@ -81,15 +76,10 @@ describe('Basic operation', () => {
     // Bilbo's drawer should not be stacked so we should now be able to change pages
     cy.page('prayer')
 
-    // Check prayer report for Bilbo
+    // Open Bilbo's drawer from the prayer page
     cy.dataCy('page-content-prayer')
       .contains('Bilbo')
       .click()
-    cy.dataCy('drawer-content')
-      .contains('Bilbo Baggins')
-    cy.dataCy('drawer-content')
-      .find('[data-cy=firstName]')
-      .should('not.exist')
 
     // Switch to Frodo (should not nest drawer)
     cy.contains('Frodo').click()
