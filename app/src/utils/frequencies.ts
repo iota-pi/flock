@@ -1,6 +1,7 @@
 export const ONE_DAY = 1000 * 60 * 60 * 24
 export const FREQUENCIES_TO_DAYS = {
   daily: 1,
+  biweekly: 3.5,
   weekly: 7,
   fortnightly: 14,
   monthly: 365.25 / 12,
@@ -11,6 +12,7 @@ export const FREQUENCIES_TO_DAYS = {
 export type Frequency = keyof typeof FREQUENCIES_TO_DAYS
 export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
   daily: 'Daily',
+  biweekly: 'Every few days',
   weekly: 'Weekly',
   fortnightly: 'Fortnightly',
   monthly: 'Monthly',
