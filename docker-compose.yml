@@ -1,14 +1,13 @@
 services:
   dynamodb:
     image: amazon/dynamodb-local
-    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "."]
+    command: [ "-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "." ]
     ports:
       - 8000:8000
     volumes:
       - dynamodata:/home/dynamodblocal
 
   api:
-    image: vault-api
     build:
       context: .
       dockerfile: vault/api/Dockerfile
