@@ -171,7 +171,7 @@ export async function encrypt(plaintext: string): Promise<CryptoResult> {
     enc.encode(plaintext),
   )
   return {
-    iv: fromBytes(iv),
+    iv: fromBytes(iv.buffer),
     cipher: fromBytes(cipher),
   }
 }
