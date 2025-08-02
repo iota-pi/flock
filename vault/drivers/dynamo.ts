@@ -17,9 +17,13 @@ import {
   ScanCommandOutput,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
-import { almostConstantTimeEqual } from '../util'
+import {
+  almostConstantTimeEqual,
+  generateAccountId,
+} from '../util'
 import BaseDriver, {
   AuthData,
+  BaseData,
   CachedVaultItem,
   VaultAccountWithAuth,
   VaultItem,
@@ -180,6 +184,25 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       if (almostConstantTimeEqual(tokenHash, storedHash)) {
         return response.Item as VaultAccountWithAuth
       }
+    }
+    throw new Error(`Could not find account ${account}`)
+  }
+
+  async getAccountSalt({ account }: BaseData): Promise<string> {
+    const response = await this.client.send(new GetCommand(
+      {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+      },
+    ))
+    if (response?.Item) {
+      const salt = (response.Item as VaultAccountWithAuth).metadata.salt
+      if (typeof salt === 'string') {
+        return salt
+      }
+      // Backwards compatibility: account ID used to be used as salt
+      // NB: could remove this if we run an upgrade script
+      return account
     }
     throw new Error(`Could not find account ${account}`)
   }

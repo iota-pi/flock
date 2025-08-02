@@ -205,6 +205,20 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   })
 
+  fastify.get('/:account/salt', async (request, reply) => {
+    const { account } = request.params as { account: string }
+    try {
+      const salt = await vault.getAccountSalt({ account })
+      return {
+        success: true,
+        salt,
+      }
+    } catch (error) {
+      reply.code(404)
+      return { success: false }
+    }
+  })
+
   fastify.get('/:account', async (request, reply) => {
     const { account } = request.params as { account: string }
     const authToken = getAuthToken(request)
