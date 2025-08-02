@@ -9,10 +9,6 @@ export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | un
   return x !== undefined && x !== null
 }
 
-export function generateAccountId() {
-  return uuidv4()
-}
-
 export function generateItemId() {
   return uuidv4()
 }

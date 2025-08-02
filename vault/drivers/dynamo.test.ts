@@ -1,6 +1,7 @@
 import DynamoDriver, { getConnectionParams } from './dynamo'
-import { generateAccountId, generateItemId } from '../../app/src/utils'
+import { generateItemId } from '../../app/src/utils'
 import { VaultItemType } from './base'
+import { generateAccountId } from '../util'
 
 async function stringToPromise(s: string): Promise<string> {
   return s

@@ -184,6 +184,31 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error(`Could not find account ${account}`)
   }
 
+  async getNewAccountId(attempts = 10): Promise<string> {
+    const account = generateAccountId()
+
+    try {
+      const response = await this.client.send(new GetCommand(
+        {
+          TableName: ACCOUNT_TABLE_NAME,
+          Key: { account },
+        },
+      ))
+      if (!response?.Item) {
+        return account
+      }
+    } catch (error) {
+      if (attempts === 0) {
+        throw error
+      }
+    }
+
+    if (attempts > 0) {
+      return this.getNewAccountId(attempts - 1)
+    }
+    throw new Error('Could not generate new account ID')
+  }
+
   async setMetadata(
     { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, unknown> },
   ): Promise<void> {

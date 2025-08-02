@@ -12,3 +12,7 @@ export function almostConstantTimeEqual(a: string, b: string) {
 
   return equal
 }
+
+export function generateAccountId() {
+  return Math.random().toString(36).substring(2, 6)
+}
