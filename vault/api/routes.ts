@@ -171,17 +171,19 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     return { success: true }
   })
 
-  fastify.post('/:account', async (request, reply) => {
-    const { account } = request.params as { account: string }
+  fastify.post('/account', async (request, reply) => {
     const authToken = getAuthToken(request)
+    const account = await vault.getNewAccountId()
     try {
       const success = await vault.createAccount({ account, authToken })
-      return { success }
+      if (success) {
+        return { account }
+      }
     } catch (error) {
       fastify.log.error(error)
-      reply.code(500)
-      return { success: false }
     }
+    reply.code(500)
+    return { account: '' }
   })
 
   fastify.patch('/:account', async (request, reply) => {

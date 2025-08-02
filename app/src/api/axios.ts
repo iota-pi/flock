@@ -8,8 +8,11 @@ export function initAxios(authToken: string) {
   })
 }
 
-export function getAxios() {
+export function getAxios(allowNoInit = false): AxiosInstance {
   if (!axiosWithAuth) {
+    if (allowNoInit) {
+      return axios.create()
+    }
     throw new Error('Axios has not yet been initialised')
   }
   return axiosWithAuth

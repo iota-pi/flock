@@ -1,7 +1,7 @@
 import type { AccountMetadata } from '../state/account'
 import type { ItemType } from '../state/items'
 import type { FlockPushSubscription } from '../utils/firebase-types'
-import { getAccountId, flockRequestChunked, flockRequest } from './util'
+import { getAccountId, flockRequestChunked, flockRequest, FlockRequestOptions } from './util'
 import type { CryptoResult } from './Vault'
 import env from '../env'
 import type { JSONData } from '../utils/types'
@@ -52,10 +52,14 @@ export async function vaultFetchMany({
     return result.data.items
   } else if (ids) {
     const result = await flockRequestChunked(
-      [ids],
-      a => batch => a.get(
-        `${url}?ids=${batch.join(',')}`
-      ),
+      {
+        data: [ids],
+        requestFactory: (
+          a => batch => a.get(
+            `${url}?ids=${batch.join(',')}`
+          )
+        ),
+      },
     )
     return result.flatMap(r => r.data.items)
   } else {
@@ -84,8 +88,10 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   const url = `${ENDPOINT}/${getAccountId()}/items`
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
   const result = await flockRequestChunked(
-    data,
-    a => batch => a.put(url, batch),
+    {
+      data,
+      requestFactory: a => batch => a.put(url, batch),
+    },
   )
   const success = result.filter(r => !r.data.success).length === 0
   if (!success) {
@@ -105,8 +111,10 @@ export async function vaultDelete({ item }: VaultKey) {
 export async function vaultDeleteMany({ items }: & { items: string[] }) {
   const url = `${ENDPOINT}/${getAccountId()}/items`
   const result = await flockRequestChunked(
-    items,
-    a => batch => a.delete(url, { data: batch }),
+    {
+      data: items,
+      requestFactory: a => batch => a.delete(url, { data: batch }),
+    },
   )
   const success = result.filter(r => !r.data.success).length === 0
   if (!success) {
@@ -114,12 +122,15 @@ export async function vaultDeleteMany({ items }: & { items: string[] }) {
   }
 }
 
-export async function vaultCreateAccount(): Promise<boolean> {
-  const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await flockRequest(a => a.post(url, {})).catch(() => ({
-    data: { success: false },
-  }))
-  return result.data.success as boolean
+type VaultCreateAccountResult = { account: string, salt: string }
+export async function vaultCreateAccount(): Promise<VaultCreateAccountResult> {
+  const url = `${ENDPOINT}/account`
+  const result = await flockRequest({
+    factory: a => a.post(url, {}),
+    options: { allowNoInit: true },
+  })
+  const { account, salt } = result.data satisfies VaultCreateAccountResult
+  return { account, salt }
 }
 
 export async function vaultCheckPassword() {
@@ -129,14 +140,17 @@ export async function vaultCheckPassword() {
   return data.success as boolean || false
 }
 
-export async function vaultGetMetadata() {
-  const data = await getAccountData()
+export async function vaultGetMetadata(options?: FlockRequestOptions) {
+  const data = await getAccountData(options)
   return data.metadata as (AccountMetadata | CryptoResult) || {}
 }
 
-async function getAccountData() {
+async function getAccountData(options?: FlockRequestOptions) {
   const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await flockRequest(a => a.get(url))
+  const result = await flockRequest({
+    factory: a => a.get(url),
+    options,
+  })
   return result.data
 }
 

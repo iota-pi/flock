@@ -22,10 +22,22 @@ function finishRequest(error?: string) {
   store.dispatch(finishRequestAction(error))
 }
 
-export async function flockRequest<T>(factory: (axios: AxiosInstance) => Promise<T>): Promise<T> {
+export type FlockRequestOptions = {
+  allowNoInit?: boolean,
+}
+export type FlockRequestFactory<T> = (axios: AxiosInstance) => Promise<T>
+export async function flockRequest<T>(
+  params: FlockRequestFactory<T> | {
+    factory: FlockRequestFactory<T>,
+    options?: FlockRequestOptions,
+  },
+): Promise<T> {
+  const options = typeof params === 'function' ? {} : params.options || {}
+  const factory = typeof params === 'function' ? params : params.factory
+
   startRequest()
   try {
-    const promise = factory(getAxios())
+    const promise = factory(getAxios(options.allowNoInit))
     const result = await promise
     finishRequest()
     return result
@@ -36,9 +48,17 @@ export async function flockRequest<T>(factory: (axios: AxiosInstance) => Promise
 }
 
 export async function flockRequestChunked<T, S>(
-  data: T[],
-  requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<S>,
-  chunkSize = 10,
+  {
+    data,
+    requestFactory,
+    chunkSize = 10,
+    options = {},
+  }: {
+    data: T[],
+    requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<S>,
+    chunkSize?: number,
+    options?: FlockRequestOptions,
+  },
 ): Promise<S[]> {
   startRequest()
   try {
@@ -47,7 +67,7 @@ export async function flockRequestChunked<T, S>(
     while (workingData.length > 0) {
       const batch = workingData.splice(0, chunkSize)
       // eslint-disable-next-line no-await-in-loop
-      const requestFunc = requestFactory(getAxios())
+      const requestFunc = requestFactory(getAxios(options.allowNoInit))
       const batchResult = await requestFunc(batch)
       result.push(batchResult)
     }
