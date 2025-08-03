@@ -91,12 +91,17 @@ async function updateKeyHash() {
   initAxios(keyHash)
 }
 
-export async function initialiseVault(
-  password: string,
+export async function initialiseVault({
+  password,
+  salt,
   isNewAccount = false,
+  iterations,
+}: {
+  password: string,
+  salt: string,
+  isNewAccount?: boolean,
   iterations?: number,
-) {
-  const accountId = getAccountId()
+}) {
   const enc = new Encoder()
   const keyBase = await crypto.subtle.importKey(
     'raw',
@@ -108,7 +113,7 @@ export async function initialiseVault(
   key = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: enc.encode(accountId),
+      salt: enc.encode(salt),
       iterations: iterations || 100000,
       hash: 'SHA-256',
     },
@@ -384,7 +389,8 @@ export async function setMetadata(metadata: AccountMetadata) {
   store.dispatch(setAccount({ metadata }))
   const { cipher, iv } = await encryptObject(metadata)
   return vaultSetMetadata({
-    metadata: { cipher, iv },
+    cipher,
+    iv,
   })
 }
 

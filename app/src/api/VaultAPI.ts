@@ -4,7 +4,6 @@ import type { FlockPushSubscription } from '../utils/firebase-types'
 import { getAccountId, flockRequestChunked, flockRequest, FlockRequestOptions } from './util'
 import type { CryptoResult } from './Vault'
 import env from '../env'
-import type { JSONData } from '../utils/types'
 
 const ENDPOINT = env.VAULT_ENDPOINT
 
@@ -22,11 +21,6 @@ export interface VaultItem extends VaultKey {
 }
 
 export type CachedVaultItem = Partial<VaultItem> & VaultKey
-
-export interface VaultAccount {
-  account: string,
-  metadata: Record<string, JSONData> | CryptoResult,
-}
 
 export interface VaultSubscription {
   subscription: FlockPushSubscription,
@@ -133,28 +127,29 @@ export async function vaultCreateAccount(): Promise<VaultCreateAccountResult> {
   return { account, salt }
 }
 
-export async function vaultCheckPassword() {
-  const data = await getAccountData().catch(() => ({
-    success: false,
-  }))
-  return data.success as boolean || false
-}
-
-export async function vaultGetMetadata(options?: FlockRequestOptions) {
-  const data = await getAccountData(options)
-  return data.metadata as (AccountMetadata | CryptoResult) || {}
-}
-
-async function getAccountData(options?: FlockRequestOptions) {
-  const url = `${ENDPOINT}/${getAccountId()}`
+export async function vaultGetSalt() {
+  const url = `${ENDPOINT}/${getAccountId()}/salt`
   const result = await flockRequest({
     factory: a => a.get(url),
-    options,
+    options: { allowNoInit: true },
   })
-  return result.data
+  if (!result.data.success) {
+    throw new Error('Could not get salt from server')
+  }
+  return result.data.salt as string
 }
 
-export async function vaultSetMetadata({ metadata }: Pick<VaultAccount, 'metadata'>) {
+export async function vaultGetMetadata() {
+  const url = `${ENDPOINT}/${getAccountId()}`
+  const result = await flockRequest(a => a.get(url))
+  if (!result.data.metadata) {
+    throw new Error('No metadata found for account')
+  }
+  // Data is encrypted, but `AccountMetadata` is for backwards compatibility
+  return result.data.metadata as (AccountMetadata | CryptoResult) || {}
+}
+
+export async function vaultSetMetadata(metadata: CryptoResult) {
   const url = `${ENDPOINT}/${getAccountId()}`
   const result = await flockRequest(a => a.patch(url, { metadata }))
   return result.data.success as boolean

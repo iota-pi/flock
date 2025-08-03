@@ -23,11 +23,12 @@ describe('Vault (Crypto)', () => {
       }) as unknown as AxiosInstance)
 
       store.dispatch(setAccount({ account: '.' }))
-      await vault.initialiseVault(
-        'example',
-        true,
-        100,
-      )
+      await vault.initialiseVault({
+        password: 'example',
+        salt: 'example123',
+        isNewAccount: true,
+        iterations: 100,
+      })
     },
     10000,
   )
@@ -107,8 +108,8 @@ describe('Vault (Crypto)', () => {
     await vault.deleteItems(item.id)
 
     expect(store.getState().items.ids).toHaveLength(0)
-    const apiCallParams = deleteAPI.mock.calls[0][0]
-    expect(apiCallParams).toMatchObject({
+    const apiCallParam = deleteAPI.mock.calls[0][0]
+    expect(apiCallParam).toMatchObject({
       item: item.id,
     })
   })
@@ -122,8 +123,8 @@ describe('Vault (Crypto)', () => {
     await vault.deleteItems([items[1].id, items[2].id])
 
     expect(store.getState().items.ids).toHaveLength(1)
-    const apiCallParams = deleteAPI.mock.calls[0][0]
-    expect(apiCallParams).toMatchObject({
+    const apiCallParam = deleteAPI.mock.calls[0][0]
+    expect(apiCallParam).toMatchObject({
       items: [items[1].id, items[2].id],
     })
   })
@@ -135,9 +136,9 @@ describe('Vault (Crypto)', () => {
     await vault.setMetadata(metadata)
 
     expect(store.getState().account).toMatchObject({ metadata })
-    const apiCallParams = metadataAPI.mock.calls[0][0]
+    const apiCallParam = metadataAPI.mock.calls[0][0]
     const decrypted = await vault.decryptObject(
-      apiCallParams.metadata as vault.CryptoResult,
+      apiCallParam as vault.CryptoResult,
     )
     expect(decrypted).toMatchObject(metadata)
   })
