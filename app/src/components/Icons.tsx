@@ -28,6 +28,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import ServerIcon from '@mui/icons-material/Dns'
 import SignOutIcon from '@mui/icons-material/ExitToApp'
 import SortIcon from '@mui/icons-material/Sort'
+import SuccessIcon from '@mui/icons-material/CheckCircle'
 import SuggestIcon from '@mui/icons-material/Update'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
@@ -72,6 +73,7 @@ export {
   ServerIcon,
   SignOutIcon,
   SortIcon,
+  SuccessIcon,
   SuggestIcon,
   UnarchiveIcon,
   UploadIcon,

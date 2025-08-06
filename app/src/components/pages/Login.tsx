@@ -18,7 +18,7 @@ import { useAppDispatch, useAppSelector } from '../../store'
 import { setAccount } from '../../state/account'
 import { HomeIcon } from '../Icons'
 import { initialiseVault } from '../../api/Vault'
-import { vaultCheckPassword } from '../../api/VaultAPI'
+import { vaultGetSalt } from '../../api/VaultAPI'
 import { setUi } from '../../state/ui'
 
 
@@ -82,17 +82,23 @@ function LoginPage() {
 
   const handleClickLogin = useCallback(
     async () => {
-      let success: boolean
+      let salt: string
       dispatch(setAccount({ account: accountInput }))
       try {
-        await initialiseVault(password)
-        success = await vaultCheckPassword()
+        salt = await vaultGetSalt()
       } catch (error) {
-        success = false
+        salt = ''
       }
-      if (success) {
-        dispatch(setAccount({ loggedIn: true }))
-        navigate(getPage('people').path)
+      if (salt.length) {
+        try {
+          await initialiseVault({ password, salt })
+          dispatch(setAccount({ loggedIn: true }))
+          navigate(getPage('people').path)
+        } catch (error) {
+          console.error('Error during vault initialization:', error)
+          dispatch(setAccount({ account: '' }))
+          setError('Login failed.')
+        }
       } else {
         dispatch(setAccount({ account: '' }))
         setError('Could not find matching account ID and password.')

@@ -1,11 +1,19 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import zxcvbn from 'zxcvbn'
 import {
   alpha,
+  Box,
   Button,
+  Checkbox,
   Collapse,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  FormGroup,
   IconButton,
   InputAdornment,
   LinearProgress,
@@ -18,8 +26,7 @@ import { LoadingButton } from '@mui/lab'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { getPage } from '.'
-import { HomeIcon } from '../Icons'
-import { generateAccountId } from '../../utils'
+import { HomeIcon, SuccessIcon } from '../Icons'
 import { useAppDispatch } from '../../store'
 import customDomainWords from '../../utils/customDomainWords'
 import InlineText from '../InlineText'
@@ -113,15 +120,15 @@ function CreateAccountPage() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
 
-  const account = useMemo(() => generateAccountId(), [])
-
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [passwordScore, setPasswordScore] = useState(0)
   const [waiting, setWaiting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
+  const [agreement, setAgreement] = useState(false)
+  const [newAccount, setNewAccount] = useState('')
 
   const handleClickHome = useCallback(
     () => navigate(getPage('welcome').path),
@@ -132,36 +139,55 @@ function CreateAccountPage() {
     () => navigate(getPage('login').path),
     [navigate],
   )
+
+  const handleChangePassword = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
+    [],
+  )
+
   const handleClickCreate = useCallback(
     async () => {
       setWaiting(true)
       try {
-        dispatch(setAccount({ account }))
-        await initialiseVault(password, true)
-        const success = await vaultCreateAccount()
-        if (success) {
-          setError('')
-          dispatch(setAccount({ loggedIn: true }))
-          dispatch(setUi({ justCreatedAccount: true }))
-          navigate(getPage('login').path)
+        const { account, salt } = await vaultCreateAccount()
+        if (account.length > 0) {
+          dispatch(setAccount({ account }))
+          await initialiseVault({
+            password,
+            salt,
+            isNewAccount: true,
+          })
+          setNewAccount(account)
+          setShowCreatedAccountDialog(true)
         } else {
           setError('An error occured while creating your account.')
         }
       } catch (e) {
         console.error(e)
+        setError('An error occured while creating your account.')
       }
       setWaiting(false)
     },
-    [account, dispatch, navigate, password],
+    [dispatch, navigate, password],
   )
-  const handleChangePassword = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
-    [],
+
+  function handleChangeAgreement(event: ChangeEvent<HTMLInputElement>): void {
+    setAgreement(event.target.checked)
+  }
+
+  const handleCloseCreatedAccountDialog = useCallback(
+    () => {
+      if (!agreement) {
+        return
+      }
+      setShowCreatedAccountDialog(false)
+      dispatch(setAccount({ loggedIn: true }))
+      dispatch(setUi({ justCreatedAccount: true }))
+      navigate(getPage('prayer').path)
+    },
+    [agreement],
   )
-  const handleChangePasswordConfirm = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setConfirmPassword(event.target.value),
-    [],
-  )
+
   const handleClickVisibility = useCallback(
     () => setShowPassword(p => !p),
     [],
@@ -184,17 +210,15 @@ function CreateAccountPage() {
           setPasswordError(passwordStrength.feedback.warning)
         } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
           setPasswordError('Please choose a stronger password')
-        } else if (confirmPassword && confirmPassword !== password) {
-          setPasswordError('The passwords you entered are different')
         } else {
           setPasswordError('')
         }
       }
     },
-    [password, confirmPassword],
+    [password],
   )
 
-  const validPassword = !!password && !!confirmPassword && !passwordError
+  const validPassword = !!password && !passwordError
 
   return (
     <Root>
@@ -239,16 +263,6 @@ function CreateAccountPage() {
           </Typography>
 
           <StyledTextField
-            autoComplete="username"
-            disabled
-            fullWidth
-            id="username"
-            label="Account ID"
-            value={account}
-            variant="standard"
-          />
-
-          <StyledTextField
             autoComplete="password"
             fullWidth
             id="password"
@@ -272,29 +286,6 @@ function CreateAccountPage() {
             variant="standard"
           />
 
-          <StyledTextField
-            autoComplete="confirm-password"
-            fullWidth
-            id="confirm-password"
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickVisibility}
-                    onMouseDown={handleMouseDownVisibility}
-                    size="large"
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            label="Confirm Password"
-            onChange={handleChangePasswordConfirm}
-            type={showPassword ? 'text' : 'password'}
-            variant="standard"
-          />
-
           <MeterHolder>
             <Typography>
               Password Strength:
@@ -314,7 +305,7 @@ function CreateAccountPage() {
           <Collapse in={!!passwordError}>
             <Typography color="error" paragraph>
               {passwordError}
-              {/* non-breaking space maintains same base height, so smooths exit transition */}
+              {/* non-breaking space preserves height, smoothing exit transition */}
               &nbsp;
             </Typography>
           </Collapse>
@@ -354,6 +345,63 @@ function CreateAccountPage() {
             Login
           </Button>
         </Section>
+
+        <Dialog
+          open={showCreatedAccountDialog}
+        >
+          <DialogTitle >
+            <Box display="flex" alignItems="center">
+              Account Created
+
+              <Box ml={1}>
+                <SuccessIcon color="success" />
+              </Box>
+            </Box>
+          </DialogTitle>
+
+          <DialogContent>
+            <Typography paragraph>
+              Your account has been created successfully.
+            </Typography>
+
+            <StyledTextField
+              fullWidth
+              label="Account ID"
+              value={newAccount}
+              variant="standard"
+            />
+
+            <Typography paragraph>
+              Please store your account ID and password in a secure location.
+              If you lose your account ID or password, your data will be lost permanently.
+            </Typography>
+
+            <FormGroup>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={agreement}
+                    onChange={handleChangeAgreement}
+                  />
+                }
+                label="I will stored my account ID and password in a secure location"
+                required
+              />
+            </FormGroup>
+          </DialogContent>
+
+          <DialogActions>
+            <Button
+              color="primary"
+              disabled={!agreement}
+              onClick={handleCloseCreatedAccountDialog}
+              fullWidth
+              variant="contained"
+            >
+              Continue
+            </Button>
+          </DialogActions>
+        </Dialog>
       </MainContainer>
     </Root>
   )
