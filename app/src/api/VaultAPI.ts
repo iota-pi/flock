@@ -1,7 +1,7 @@
 import type { AccountMetadata } from '../state/account'
 import type { ItemType } from '../state/items'
 import type { FlockPushSubscription } from '../utils/firebase-types'
-import { getAccountId, flockRequestChunked, flockRequest, FlockRequestOptions } from './util'
+import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
 import env from '../env'
 
