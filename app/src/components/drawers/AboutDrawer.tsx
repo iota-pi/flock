@@ -44,7 +44,7 @@ function AboutDrawer({
 
       <Typography paragraph>
         Flock is intended as a tool to help you to care for and serve the people you
-        personally look after. As such it is not designed to be used by multiple users,
+        personally look after. It is not designed to be used by multiple users,
         or to share data between users.
       </Typography>
       <Typography paragraph>
@@ -72,10 +72,6 @@ function AboutDrawer({
         As such, the security of Flock can only be as good as your own online security.
         We <b>strongly</b> recommend using a password manager
         to create and record a strong password and your account ID.
-      </Typography>
-      <Typography paragraph>
-        Similarly, leaving your device unattended and unlocked while logged in to Flock
-        would be unwise.
       </Typography>
 
       <Typography

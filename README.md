@@ -6,7 +6,7 @@ Flock will help you to care diligently for the flock of God that is among you.
 ## Intent
 
 Flock is intended as a tool to help you to care for and serve the people you
-personally look after. As such it is not designed to be used by multiple users,
+personally look after. It is not designed to be used by multiple users,
 or to share data between users.
 
 Because Flock is a personal tool, any data you enter should not belong to your
@@ -23,9 +23,6 @@ your account).
 As such, the security of Flock can only be as good as your own online security.
 We **strongly** recommend using a password manager to create and record a
 strong password and your account ID.
-
-Similarly, leaving your device unattended and unlocked while logged in to Flock
-would be unwise.
 
 ## Disclaimer
 
