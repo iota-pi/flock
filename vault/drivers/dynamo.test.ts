@@ -3,10 +3,6 @@ import { generateItemId } from '../../app/src/utils'
 import { VaultItemType } from './base'
 import { generateAccountId } from '../util'
 
-async function stringToPromise(s: string): Promise<string> {
-  return s
-}
-
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
   beforeAll(function () {
@@ -64,27 +60,49 @@ describe('DynamoDriver', function () {
 
   it('createAccount and checkPassword', async () => {
     const account = generateAccountId()
-    const authToken = stringToPromise('an_example_auth_token_for_testing')
-    const success = await driver.createAccount({ account, authToken })
+    const tempAuthToken = Promise.resolve('temp_auth_token')
+    const authToken = Promise.resolve('an_example_auth_token_for_testing')
+    const metadata = {}
+    const salt = 'an_example_salt_for_testing'
+    const success = await driver.createAccount({
+      account,
+      authToken: tempAuthToken,
+      metadata,
+      salt,
+    })
     expect(success).toBe(true)
+
+    await driver.setMetadata({
+      account,
+      authToken: Promise.resolve(authToken),
+      tempAuthToken: await tempAuthToken,
+    })
 
     expect(await driver.checkPassword({ account, authToken })).toBe(true)
     expect(
-      await driver.checkPassword({ account, authToken: stringToPromise('') })
+      await driver.checkPassword({ account, authToken: tempAuthToken })
     ).toBe(false)
     expect(
-      await driver.checkPassword({ account, authToken: stringToPromise(authToken + 'a') })
+      await driver.checkPassword({ account, authToken: Promise.resolve('') })
+    ).toBe(false)
+    expect(
+      await driver.checkPassword({
+        account,
+        authToken: Promise.resolve((await authToken) + 'a'),
+      })
     ).toBe(false)
   })
 
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
-    const authToken = stringToPromise('an_example_auth_token_for_testing')
-    const result1 = await driver.createAccount({ account, authToken })
+    const authToken = Promise.resolve('an_example_auth_token_for_testing')
+    const metadata = {}
+    const salt = 'an_example_salt_for_testing'
+    const result1 = await driver.createAccount({ account, authToken, metadata, salt })
     expect(result1).toBe(true)
-    const result2 = await driver.createAccount({ account, authToken })
+    const result2 = await driver.createAccount({ account, authToken, metadata, salt })
     expect(result2).toBe(false)
-    const result3 = await driver.createAccount({ account, authToken })
+    const result3 = await driver.createAccount({ account, authToken, metadata, salt })
     expect(result3).toBe(false)
   })
 })

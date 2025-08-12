@@ -116,15 +116,15 @@ export async function vaultDeleteMany({ items }: & { items: string[] }) {
   }
 }
 
-type VaultCreateAccountResult = { account: string, salt: string }
+type VaultCreateAccountResult = { account: string, salt: string, tempAuthToken: string }
 export async function vaultCreateAccount(): Promise<VaultCreateAccountResult> {
   const url = `${ENDPOINT}/account`
   const result = await flockRequest({
     factory: a => a.post(url, {}),
     options: { allowNoInit: true },
   })
-  const { account, salt } = result.data satisfies VaultCreateAccountResult
-  return { account, salt }
+  const { account, salt, tempAuthToken } = result.data satisfies VaultCreateAccountResult
+  return { account, salt, tempAuthToken }
 }
 
 export async function vaultGetSalt() {
@@ -147,6 +147,14 @@ export async function vaultGetMetadata() {
   }
   // Data is encrypted, but `AccountMetadata` is for backwards compatibility
   return result.data.metadata as (AccountMetadata | CryptoResult) || {}
+}
+
+export async function vaultSetAuthToken({ tempAuthToken }: { tempAuthToken: string }) {
+  const url = `${ENDPOINT}/${getAccountId()}`
+  const result = await flockRequest(
+    a => a.patch(url, { tempAuthToken }),
+  )
+  return result.data.success as boolean
 }
 
 export async function vaultSetMetadata(metadata: CryptoResult) {

@@ -156,11 +156,23 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this
   }
 
-  async createAccount({ account, authToken }: AuthData): Promise<boolean> {
+  async createAccount(
+    {
+      account,
+      authToken,
+      metadata,
+      salt,
+    }: VaultAccountWithAuth,
+  ): Promise<boolean> {
     let success = true
     await this.client.send(new PutCommand({
       TableName: ACCOUNT_TABLE_NAME,
-      Item: { account, authToken: await authToken },
+      Item: {
+        account,
+        authToken: await authToken,
+        metadata,
+        salt,
+      },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
       success = false
@@ -196,7 +208,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       },
     ))
     if (response?.Item) {
-      const salt = (response.Item as VaultAccountWithAuth).metadata.salt
+      const salt = (response.Item as VaultAccountWithAuth).salt
       if (typeof salt === 'string') {
         return salt
       }
@@ -233,18 +245,52 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async setMetadata(
-    { account, metadata }: Pick<AuthData, 'account'> & { metadata: Record<string, unknown> },
+    {
+      account,
+      authToken,
+      metadata,
+      tempAuthToken,
+    }: AuthData & {
+      metadata?: Record<string, unknown>,
+      tempAuthToken?: string,
+    },
   ): Promise<void> {
-    await this.client.send(new UpdateCommand(
-      {
-        TableName: ACCOUNT_TABLE_NAME,
-        Key: { account },
-        UpdateExpression: 'SET metadata=:metadata',
-        ExpressionAttributeValues: {
-          ':metadata': metadata,
-        },
-      },
-    ))
+    const promises: Promise<unknown>[] = []
+    if (tempAuthToken) {
+      promises.push(
+        this.client.send(new UpdateCommand(
+          {
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET authToken=:authToken',
+            ExpressionAttributeValues: {
+              ':authToken': await authToken,
+              ':tempAuthToken': tempAuthToken,
+            },
+            ConditionExpression: 'authToken = :tempAuthToken OR attribute_not_exists(authToken)',
+          },
+        )).catch(error => {
+          if (!(error instanceof ConditionalCheckFailedException)) {
+            throw error
+          }
+        })
+      )
+    }
+    if (metadata && Object.keys(metadata).length > 0) {
+      promises.push(
+        this.client.send(new UpdateCommand(
+          {
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET metadata=:metadata',
+            ExpressionAttributeValues: {
+              ':metadata': metadata,
+            },
+          },
+        ))
+      )
+    }
+    await Promise.allSettled(promises)
   }
 
   async setSubscription(

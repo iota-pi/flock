@@ -22,6 +22,8 @@ describe('Vault (Crypto)', () => {
         put: jest.fn(() => ({ data: { success: true } })),
       }) as unknown as AxiosInstance)
 
+      jest.spyOn(api, 'vaultSetAuthToken').mockReturnValue(Promise.resolve(true))
+
       store.dispatch(setAccount({ account: '.' }))
       await vault.initialiseVault({
         password: 'example',

@@ -9,6 +9,7 @@ import {
   vaultGetSubscription,
   vaultPut,
   vaultPutMany,
+  vaultSetAuthToken,
   vaultSetMetadata,
   vaultSetSubscription,
 } from './VaultAPI'
@@ -95,11 +96,13 @@ export async function initialiseVault({
   password,
   salt,
   isNewAccount = false,
+  tempAuthToken = '',
   iterations,
 }: {
   password: string,
   salt: string,
   isNewAccount?: boolean,
+  tempAuthToken?: string,
   iterations?: number,
 }) {
   const enc = new Encoder()
@@ -123,7 +126,9 @@ export async function initialiseVault({
     ['encrypt', 'decrypt'],
   )
   await updateKeyHash()
-  if (!isNewAccount) {
+  if (isNewAccount) {
+    await vaultSetAuthToken({ tempAuthToken })
+  } else {
     await initialLoadFromVault()
     await storeVault()
   }

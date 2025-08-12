@@ -54,12 +54,12 @@ export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
 
-  abstract createAccount({ authToken }: AuthData): Promise<boolean>
-  abstract checkPassword({ account, authToken }: AuthData): Promise<boolean>
-  abstract getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth>
-  abstract getAccountSalt({ account }: BaseData): Promise<string>
+  abstract createAccount(data: BaseData & VaultAccount): Promise<boolean>
+  abstract checkPassword(data: AuthData): Promise<boolean>
+  abstract getAccount(data: AuthData): Promise<VaultAccountWithAuth>
+  abstract getAccountSalt(data: BaseData): Promise<string>
   abstract getNewAccountId(): Promise<string>
-  abstract setMetadata({ account, metadata }: VaultAccount): Promise<void>
+  abstract setMetadata(data: AuthData & Pick<VaultAccount, 'metadata'>): Promise<void>
 
   abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>
   abstract get({ account, item }: VaultKey): Promise<VaultItem>

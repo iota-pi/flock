@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import type { FastifyPluginCallback } from 'fastify'
 import type { FlockPushSubscription } from '../../app/src/utils/firebase-types'
 import getDriver from '../drivers'
@@ -172,18 +173,25 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   })
 
   fastify.post('/account', async (request, reply) => {
-    const authToken = getAuthToken(request)
     const account = await vault.getNewAccountId()
+    const salt = randomBytes(16).toString('base64')
+    const tempAuthToken = randomBytes(16).toString('base64')
+
     try {
-      const success = await vault.createAccount({ account, authToken })
+      const success = await vault.createAccount({
+        account,
+        metadata: {},
+        salt,
+        authToken: Promise.resolve(tempAuthToken),
+      })
       if (success) {
-        return { account }
+        return { account, salt, tempAuthToken }
       }
     } catch (error) {
       fastify.log.error(error)
     }
     reply.code(500)
-    return { account: '' }
+    return { account: '', salt: '', tempAuthToken: '' }
   })
 
   fastify.patch('/:account', async (request, reply) => {
@@ -194,9 +202,11 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       reply.code(403)
       return { success: false }
     }
-    const { metadata } = request.body as { metadata: Record<string, unknown> }
+    const { metadata = {}, tempAuthToken = '' } = (
+      request.body as { metadata: Record<string, unknown>, tempAuthToken: string }
+    )
     try {
-      await vault.setMetadata({ account, metadata })
+      await vault.setMetadata({ account, authToken, metadata, tempAuthToken })
       return { success: true }
     } catch (error) {
       fastify.log.error(error)
@@ -214,6 +224,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         salt,
       }
     } catch (error) {
+      fastify.log.error(error)
       reply.code(404)
       return { success: false }
     }

@@ -149,13 +149,14 @@ function CreateAccountPage() {
     async () => {
       setWaiting(true)
       try {
-        const { account, salt } = await vaultCreateAccount()
+        const { account, salt, tempAuthToken } = await vaultCreateAccount()
         if (account.length > 0) {
           dispatch(setAccount({ account }))
           await initialiseVault({
             password,
             salt,
             isNewAccount: true,
+            tempAuthToken,
           })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
