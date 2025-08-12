@@ -484,8 +484,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {
   const customEndpoint = !!process.env.DYNAMODB_ENDPOINT
   const endpointArgs: DynamoDBClientConfig = customEndpoint ? {
-    endpoint: process.env.DYNAMODB_ENDPOINT,
     credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
+    endpoint: process.env.DYNAMODB_ENDPOINT,
+    region: 'local',
   } : {}
   return {
     apiVersion: '2012-08-10',
