@@ -1,11 +1,11 @@
-export function almostConstantTimeEqual(a: string, b: string) {
-  if (a.length !== b.length) {
+export function almostConstantTimeEqual(attempt: string, real: string) {
+  if (attempt.length !== real.length) {
     return false
   }
 
   let equal = true
-  for (let i = 0; i < a.length; i++) {
-    if (a.charAt(i) !== b.charAt(i)) {
+  for (let i = 0; i < attempt.length; i++) {
+    if (attempt.charAt(i) !== real.charAt(i)) {
       equal = false
     }
   }
