@@ -197,14 +197,20 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   fastify.patch('/:account', async (request, reply) => {
     const { account } = request.params as { account: string }
     const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
-    if (!valid) {
-      reply.code(403)
-      return { success: false }
-    }
-    const { metadata = {}, tempAuthToken = '' } = (
+    let { metadata = {}, tempAuthToken = '' } = (
       request.body as { metadata: Record<string, unknown>, tempAuthToken: string }
     )
+    const valid = await vault.checkPassword({ account, authToken })
+    if (!valid) {
+      if (metadata && Object.keys(metadata).length > 0) {
+        if (tempAuthToken) {
+          metadata = {}
+        } else {
+          reply.code(403)
+          return { success: false }
+        }
+      }
+    }
     try {
       await vault.setMetadata({ account, authToken, metadata, tempAuthToken })
       return { success: true }
