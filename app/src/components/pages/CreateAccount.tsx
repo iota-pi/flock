@@ -263,72 +263,74 @@ function CreateAccountPage() {
             if you forget your account ID or password.
           </Typography>
 
-          <StyledTextField
-            autoComplete="password"
-            fullWidth
-            id="password"
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickVisibility}
-                    onMouseDown={handleMouseDownVisibility}
-                    size="large"
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            label="Password"
-            onChange={handleChangePassword}
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            variant="standard"
-          />
-
-          <MeterHolder>
-            <Typography>
-              Password Strength:
-              {' '}
-              <InlineText fontWeight={500}>
-                {passwordScoreToWord(passwordScore)}
-              </InlineText>
-            </Typography>
-
-            <PasswordMeter
-              strength={passwordScore}
-              value={passwordScore * 25}
-              variant="determinate"
+          <form>
+            <StyledTextField
+              autoComplete="new-password"
+              fullWidth
+              id="password"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={handleClickVisibility}
+                      onMouseDown={handleMouseDownVisibility}
+                      size="large"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              label="Password"
+              onChange={handleChangePassword}
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              variant="standard"
             />
-          </MeterHolder>
 
-          <Collapse in={!!passwordError}>
-            <Typography color="error" paragraph>
-              {passwordError}
-              {/* non-breaking space preserves height, smoothing exit transition */}
-              &nbsp;
-            </Typography>
-          </Collapse>
+            <MeterHolder>
+              <Typography>
+                Password Strength:
+                {' '}
+                <InlineText fontWeight={500}>
+                  {passwordScoreToWord(passwordScore)}
+                </InlineText>
+              </Typography>
 
-          <LoadingButton
-            color="primary"
-            data-cy="create-account"
-            disabled={!validPassword || waiting}
-            fullWidth
-            onClick={handleClickCreate}
-            size="large"
-            variant="contained"
-            loading={waiting}
-          >
-            Create Account
-          </LoadingButton>
+              <PasswordMeter
+                strength={passwordScore}
+                value={passwordScore * 25}
+                variant="determinate"
+              />
+            </MeterHolder>
 
-          {error && (
-            <Typography paragraph color="error" mt={2}>
-              {error}
-            </Typography>
-          )}
+            <Collapse in={!!passwordError}>
+              <Typography color="error" paragraph>
+                {passwordError}
+                {/* non-breaking space preserves height, smoothing exit transition */}
+                &nbsp;
+              </Typography>
+            </Collapse>
+
+            <LoadingButton
+              color="primary"
+              data-cy="create-account"
+              disabled={!validPassword || waiting}
+              fullWidth
+              onClick={handleClickCreate}
+              size="large"
+              variant="contained"
+              loading={waiting}
+            >
+              Create Account
+            </LoadingButton>
+
+            {error && (
+              <Typography paragraph color="error" mt={2}>
+                {error}
+              </Typography>
+            )}
+          </form>
         </Section>
 
         <Section>
