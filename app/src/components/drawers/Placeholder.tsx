@@ -10,7 +10,6 @@ export interface Props extends BaseDrawerProps {}
 const pagesWithAddButton: PageId[] = [
   'groups',
   'people',
-  'prayer',
 ]
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
