@@ -47,6 +47,7 @@ function TagChip({
         label={tag}
         onClick={linkedId ? handleClick : undefined}
         variant="outlined"
+        size="small"
       />
     </Box>
   )
