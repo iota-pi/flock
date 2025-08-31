@@ -24,6 +24,7 @@
     "@reduxjs/toolkit": "^2.0.1",
     "@simbathesailor/use-what-changed": "^2.0.0",
     "@types/loadable__component": "^5.13.8",
+    "@types/node": "^24.3.0",
     "@types/object-hash": "^3.0.6",
     "@types/react": "^18.2.45",
     "@types/react-dom": "18.2.17",
