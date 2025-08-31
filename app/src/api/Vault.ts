@@ -45,8 +45,8 @@ function fromBytesUrlSafe(array: ArrayBuffer): string {
   return fromBytes(array).replace(/\//g, '_').replace(/\+/g, '-')
 }
 
-function toBytes(str: string): Uint8Array {
-  return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0)))
+function toBytes(str: string): ArrayBuffer {
+  return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0))).buffer
 }
 
 export interface CryptoResult {
