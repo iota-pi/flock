@@ -172,6 +172,17 @@ async function initialLoadFromVault() {
   await migrateItems()
 }
 
+export function signOutVault() {
+  key = null
+  keyHash = ''
+  initAxios('')
+  store.dispatch(setItems([]))
+  store.dispatch(setAccount({ account: '', loggedIn: false, metadata: {} }))
+  localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
+  localStorage.removeItem(ACCOUNT_STORAGE_KEY)
+  clearItemCache()
+}
+
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const enc = new Encoder()

@@ -34,7 +34,7 @@ import { subscribe, unsubscribe } from '../../utils/firebase'
 import SubscriptionDialog from '../dialogs/SubscriptionDialog'
 import ImportPeopleDialog from '../dialogs/ImportPeopleDialog'
 import PageContainer from '../PageContainer'
-import { checkItemCache, clearItemCache, exportData, storeItems } from '../../api/Vault'
+import { checkItemCache, clearItemCache, exportData, signOutVault, storeItems } from '../../api/Vault'
 import { setAccount } from '../../state/account'
 
 export interface SettingsItemProps {
@@ -109,7 +109,7 @@ function SettingsPage() {
   const items = useItems()
 
   const handleSignOut = useCallback(
-    () => dispatch(setAccount({ loggedIn: false })),
+    () => signOutVault(),
     [dispatch],
   )
 
