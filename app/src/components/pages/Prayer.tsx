@@ -172,7 +172,7 @@ function PrayerPage() {
             getChecked={isPrayedForToday}
             getForceFade={isPrayedForToday}
             items={visibleSchedule}
-            maxTags={maxTags}
+            showTags={false}
             onClick={handleClick}
             onCheck={handleClickPrayedFor}
             noItemsText="No items in prayer schedule"
