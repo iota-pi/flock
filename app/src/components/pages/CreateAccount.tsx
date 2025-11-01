@@ -182,9 +182,8 @@ function CreateAccountPage() {
         return
       }
       setShowCreatedAccountDialog(false)
-      dispatch(setAccount({ loggedIn: true }))
       dispatch(setUi({ justCreatedAccount: true }))
-      navigate(getPage('prayer').path)
+      navigate(getPage('login').path)
     },
     [agreement],
   )
