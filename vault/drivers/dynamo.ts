@@ -172,6 +172,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         authToken: await authToken,
         metadata,
         salt,
+        lastAccess: Date.now(),
+        created: Date.now(),
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
@@ -412,7 +414,20 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async checkPassword({ account, authToken }: AuthData): Promise<boolean> {
     try {
       const result = await this.getAccount({ account, authToken })
-      return !!result
+      if (result) {
+        await this.client.send(new UpdateCommand(
+          {
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET lastAccess=:lastAccess',
+            ExpressionAttributeValues: {
+              ':lastAccess': Date.now(),
+            },
+          },
+        ))
+        return true
+      }
+      return false
     } catch (error) {
       return false
     }
