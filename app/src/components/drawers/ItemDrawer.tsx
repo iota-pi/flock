@@ -405,11 +405,11 @@ function ItemDrawer({
         )}
         icon={PersonIcon}
         id="members"
-        initialExpanded={item.isNew}
+        initialExpanded={true}
         title="Members"
       />
     ),
-    [handleChange, item.isNew, members],
+    [handleChange, item, members],
   )
 
   const groupsSection = useMemo(
