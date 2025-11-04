@@ -14,12 +14,14 @@ import Search from './Search'
 
 export interface Props {
   editable?: boolean,
+  group: GroupItem,
   memberIds: ItemId[],
   onChange: (item: Partial<Pick<GroupItem, 'members'>>) => void,
 }
 
 function MemberDisplay({
   editable = true,
+  group,
   memberIds,
   onChange,
 }: Props) {
@@ -53,6 +55,11 @@ function MemberDisplay({
     [memberIds, onChange],
   )
 
+  const filterTags = useCallback(
+    (tag: string) => !group?.name || group.name !== tag,
+    [group?.name],
+  )
+
   return (
     <>
       {editable && (
@@ -77,6 +84,7 @@ function MemberDisplay({
         onClickAction={editable ? handleRemoveMember : undefined}
         paddingBottom={0}
         showIcons
+        filterTags={filterTags}
       />
     </>
   )

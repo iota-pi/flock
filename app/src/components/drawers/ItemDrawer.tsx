@@ -400,6 +400,7 @@ function ItemDrawer({
           <MemberDisplay
             memberIds={members}
             onChange={group => handleChange<GroupItem>(group)}
+            group={item as GroupItem}
           />
         )}
         icon={PersonIcon}

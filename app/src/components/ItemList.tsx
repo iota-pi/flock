@@ -89,6 +89,7 @@ export interface BaseProps<T extends Item> {
   dividers?: boolean,
   extraElements?: ItemListExtraElement[],
   fadeArchived?: boolean,
+  filterTags?: (tag: string) => boolean,
   getActionIcon?: (item: T) => ReactNode,
   getChecked?: (item: T) => boolean,
   getDescription?: (item: T) => string,
@@ -124,6 +125,7 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     dividers,
     extraElements,
     fadeArchived,
+    filterTags,
     getActionIcon,
     getChecked,
     getDescription,
@@ -202,8 +204,14 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     ),
     [item.id, items],
   )
-  const groupNames = useMemo(
-    () => groups.filter(g => !g.archived).map(g => g.name),
+  const tags = useMemo(
+    () => {
+      const groupNames = groups.filter(g => !g.archived).map(g => g.name)
+      if (filterTags) {
+        return groupNames.filter(filterTags)
+      }
+      return groupNames
+    },
     [groups],
   )
   const groupIds = useMemo(
@@ -301,7 +309,7 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
 
           {showTags && isItem(item) && (
             <TagDisplay
-              tags={groupNames}
+              tags={tags}
               linkedIds={groupIds}
               max={maxTags}
             />
@@ -346,6 +354,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     dividers,
     extraElements,
     fadeArchived = true,
+    filterTags,
     getChecked,
     getDescription,
     getForceFade,
@@ -378,6 +387,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       dividers,
       extraElements,
       fadeArchived,
+      filterTags,
       getChecked,
       getDescription,
       getForceFade,
@@ -401,6 +411,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       dividers,
       extraElements,
       fadeArchived,
+      filterTags,
       getChecked,
       getDescription,
       getForceFade,
