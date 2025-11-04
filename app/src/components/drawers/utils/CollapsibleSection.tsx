@@ -66,7 +66,7 @@ function CollapsibleSection({
   content,
   actions,
 }: Props) {
-  const [expanded, setExpanded] = useState<boolean>(false)
+  const [expanded, setExpanded] = useState<boolean>(initialExpanded)
 
   const handleChange = useCallback(() => setExpanded(e => !e), [])
 
