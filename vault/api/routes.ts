@@ -18,8 +18,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     const account = (request.params as { account: string }).account
     const cacheTime = parseInt((request.query as { since?: string }).since || '') || undefined
     const ids = ((request.query as { ids?: string }).ids || '').split(',').filter(Boolean)
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -41,8 +41,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string }
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -59,8 +59,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put('/:account/items', async (request, reply) => {
     const { account } = request.params as { account: string }
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { details: [], success: false }
@@ -108,8 +108,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       modified: number,
       type: string,
     }
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -127,8 +127,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.delete('/:account/items', async (request, reply) => {
     const { account } = request.params as { account: string }
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { details: [], success: false }
@@ -156,8 +156,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.delete('/:account/items/:item', async (request, reply) => {
     const { account, item } = request.params as { account: string, item: string }
-    const authToken = getAuthToken(request)
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -182,7 +182,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         account,
         metadata: {},
         salt,
-        authToken: Promise.resolve(tempAuthToken),
+        authToken: tempAuthToken,
+        session: '',
       })
       if (success) {
         return { account, salt, tempAuthToken }
@@ -196,11 +197,11 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.patch('/:account', async (request, reply) => {
     const { account } = request.params as { account: string }
-    const authToken = getAuthToken(request)
     let { metadata = {}, tempAuthToken = '' } = (
       request.body as { metadata: Record<string, unknown>, tempAuthToken: string }
     )
-    const valid = await vault.checkPassword({ account, authToken })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       if (metadata && Object.keys(metadata).length > 0) {
         if (tempAuthToken) {
@@ -212,8 +213,15 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       }
     }
     try {
-      await vault.setMetadata({ account, authToken, metadata, tempAuthToken })
-      return { success: true }
+      const session = tempAuthToken ? randomBytes(16).toString('base64') : undefined
+      await vault.updateAccountData({
+        account,
+        authToken,
+        metadata,
+        session,
+        tempAuthToken,
+      })
+      return { success: true, session }
     } catch (error) {
       fastify.log.error(error)
       reply.code(500)
@@ -238,9 +246,9 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get('/:account', async (request, reply) => {
     const { account } = request.params as { account: string }
-    const authToken = getAuthToken(request)
+    const { hash: authToken, plain: session } = getAuthToken(request)
     try {
-      const { metadata } = await vault.getAccount({ account, authToken })
+      const { metadata } = await vault.getAccount({ account, authToken, session })
       return {
         success: true,
         metadata,
@@ -252,12 +260,9 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   })
 
   fastify.get('/:account/subscriptions/:subscription', async (request, reply) => {
-    const authToken = getAuthToken(request)
     const { account, subscription } = request.params as { account: string, subscription: string }
-    const valid = await vault.checkPassword({
-      account,
-      authToken,
-    })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -276,15 +281,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   })
 
   fastify.put('/:account/subscriptions/:subscription', async (request, reply) => {
-    const authToken = getAuthToken(request)
     const { account, subscription } = request.params as { account: string, subscription: string }
     const { failures, hours, timezone, token } = (
       request.body as FlockPushSubscription
     )
-    const valid = await vault.checkPassword({
-      account,
-      authToken,
-    })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }
@@ -304,12 +306,9 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   })
 
   fastify.delete('/:account/subscriptions/:subscription', async (request, reply) => {
-    const authToken = getAuthToken(request)
     const { account, subscription } = request.params as { account: string, subscription: string }
-    const valid = await vault.checkPassword({
-      account,
-      authToken,
-    })
+    const { hash: authToken, plain: session } = getAuthToken(request)
+    const valid = await vault.checkPassword({ account, authToken, session })
     if (!valid) {
       reply.code(403)
       return { success: false }

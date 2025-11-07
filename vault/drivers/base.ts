@@ -23,11 +23,13 @@ export interface BaseData {
 }
 
 export interface AuthData extends BaseData {
-  authToken: Promise<string>,
+  authToken: string,
+  session: string,
 }
 
 export interface VaultAccount extends BaseData {
   metadata: Record<string, unknown>,
+  // Salt is not in AuthData since it is only used client-side for logins
   salt: string,
 }
 
@@ -59,7 +61,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract getAccount(data: AuthData): Promise<VaultAccountWithAuth>
   abstract getAccountSalt(data: BaseData): Promise<string>
   abstract getNewAccountId(): Promise<string>
-  abstract setMetadata(data: AuthData & Pick<VaultAccount, 'metadata'>): Promise<void>
+  abstract updateAccountData(data: AuthData & Pick<VaultAccount, 'metadata'>): Promise<void>
 
   abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>
   abstract get({ account, item }: VaultKey): Promise<VaultItem>

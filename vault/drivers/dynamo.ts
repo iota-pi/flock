@@ -162,6 +162,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       authToken,
       metadata,
       salt,
+      session,
     }: VaultAccountWithAuth,
   ): Promise<boolean> {
     let success = true
@@ -169,11 +170,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       TableName: ACCOUNT_TABLE_NAME,
       Item: {
         account,
-        authToken: await authToken,
+        authToken,
+        created: Date.now(),
+        lastAccess: Date.now(),
         metadata,
         salt,
-        lastAccess: Date.now(),
-        created: Date.now(),
+        session,
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
@@ -185,7 +187,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return success
   }
 
-  async getAccount({ account, authToken }: AuthData): Promise<VaultAccountWithAuth> {
+  async getAccount({ account, authToken, session }: AuthData): Promise<VaultAccountWithAuth> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
@@ -193,8 +195,11 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       },
     ))
     if (response?.Item) {
+      if (session && almostConstantTimeEqual(session, response.Item.session as string)) {
+        return response.Item as VaultAccountWithAuth
+      }
       const storedHash = response.Item.authToken as string
-      const tokenHash = await authToken
+      const tokenHash = authToken
       if (almostConstantTimeEqual(tokenHash, storedHash)) {
         return response.Item as VaultAccountWithAuth
       }
@@ -246,19 +251,20 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error('Could not generate new account ID')
   }
 
-  async setMetadata(
+  async updateAccountData(
     {
       account,
       authToken,
       metadata,
+      session,
       tempAuthToken,
-    }: AuthData & {
+    }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       tempAuthToken?: string,
     },
   ): Promise<void> {
     const promises: Promise<unknown>[] = []
-    if (tempAuthToken) {
+    if (tempAuthToken && authToken) {
       promises.push(
         this.client.send(new UpdateCommand(
           {
@@ -266,18 +272,33 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
             Key: { account },
             UpdateExpression: 'SET authToken=:authToken',
             ExpressionAttributeValues: {
-              ':authToken': await authToken,
+              ':authToken': authToken,
               ':tempAuthToken': tempAuthToken,
             },
             ConditionExpression: 'authToken = :tempAuthToken OR attribute_not_exists(authToken)',
           },
-        )).catch(error => {
-          if (!(error instanceof ConditionalCheckFailedException)) {
-            throw error
-          }
-        })
+        ))
       )
     }
+
+    if (session) {
+      promises.push(
+        this.client.send(new UpdateCommand(
+          {
+            TableName: ACCOUNT_TABLE_NAME,
+            Key: { account },
+            UpdateExpression: 'SET #session=:session',
+            ExpressionAttributeValues: {
+              ':session': session,
+            },
+            ExpressionAttributeNames: {
+              '#session': 'session',
+            },
+          },
+        ))
+      )
+    }
+
     if (metadata && Object.keys(metadata).length > 0) {
       promises.push(
         this.client.send(new UpdateCommand(
@@ -292,7 +313,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ))
       )
     }
-    await Promise.allSettled(promises)
+
+    const results = await Promise.allSettled(promises)
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        throw result.reason
+      }
+    }
   }
 
   async setSubscription(
@@ -411,9 +438,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return items
   }
 
-  async checkPassword({ account, authToken }: AuthData): Promise<boolean> {
+  async checkPassword({ account, authToken, session }: AuthData): Promise<boolean> {
     try {
-      const result = await this.getAccount({ account, authToken })
+      const result = await this.getAccount({ account, authToken, session })
       if (result) {
         await this.client.send(new UpdateCommand(
           {
