@@ -12,7 +12,7 @@ function initServiceWorker() {
   const messaging = getMessaging(app)
   onBackgroundMessage(messaging, async () => {
     // eslint-disable-next-line no-console
-    console.log('Sent notification')
+    console.info('Sent notification')
   })
 }
 
