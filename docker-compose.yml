@@ -23,6 +23,10 @@ services:
       - 4000:4000
     volumes:
       - .:/flock
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
 
   terraform:
     image: hashicorp/terraform:1.7.4
