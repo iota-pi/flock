@@ -133,8 +133,11 @@ export async function vaultGetSalt() {
     factory: a => a.get(url),
     options: { allowNoInit: true },
   })
-  if (!result.data.success) {
+  if (!result.data.success || !result.data.salt) {
     throw new Error('Could not get salt from server')
+  }
+  if (typeof result.data.salt !== 'string') {
+    throw new Error('Invalid salt format from server')
   }
   return result.data.salt as string
 }
