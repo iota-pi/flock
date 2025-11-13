@@ -442,6 +442,9 @@ export async function getMetadata(): Promise<AccountMetadata> {
   try {
     metadata = await decryptObject(result as CryptoResult)
   } catch (error) {
+    if (result && 'cipher' in result && 'iv' in result) {
+      throw error
+    }
     // Backwards compatibility (10/07/21)
     metadata = result as AccountMetadata
   }
