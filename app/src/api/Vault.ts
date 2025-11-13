@@ -177,16 +177,16 @@ export async function storeVault() {
 }
 
 async function initialLoadFromVault() {
-  // const accountDataPromise = getMetadata().catch(error => {
-  //   handleVaultError(error, 'Failed to fetch account metadata from server')
-  //   throw error
-  // })
+  const accountDataPromise = getMetadata().catch(error => {
+    handleVaultError(error, 'Failed to fetch account metadata from server')
+    throw error
+  })
   const itemsPromise = fetchAll().catch(error => {
     handleVaultError(error, 'Failed to fetch items from server')
     throw error
   })
 
-  // await accountDataPromise
+  await accountDataPromise
   await itemsPromise
 
   await migrateItems()
