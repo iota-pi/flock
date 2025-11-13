@@ -37,10 +37,10 @@ jobs:
       run: cd vault && yarn docker:initdb
 
     - name: Run app unit tests
-      run: cd app && yarn test
+      run: cd app && yarn test run
 
     - name: Run vault unit tests
-      run: cd vault && yarn docker:test
+      run: cd vault && yarn docker:test run
 
     - name: Initialise terraform
       run: cd deploy && ./tf.sh init
