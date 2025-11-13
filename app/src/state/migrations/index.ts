@@ -17,7 +17,10 @@ const migrations: ItemMigration[] = [
       const allTags = new Set<string>()
       for (const item of items) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tags = (item as any).tags as string[]
+        const tags = (item as any).tags as string[] | undefined
+        if (!tags) {
+          continue
+        }
         for (const tag of tags) {
           allTags.add(tag)
         }
@@ -32,7 +35,10 @@ const migrations: ItemMigration[] = [
       const tagMap = Object.fromEntries(tagGroups.map(group => [group.name, group]))
       for (const item of items) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const tags = (item as any).tags as string[]
+        const tags = (item as any).tags as string[] | undefined
+        if (!tags) {
+          continue
+        }
         for (const tag of tags) {
           const group = tagMap[tag]
           group.members.push(item.id)
