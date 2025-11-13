@@ -40,7 +40,6 @@
     "debounce": "^2.0.0",
     "firebase": "^10.7.1",
     "happy-dom": "^20.0.10",
-    "jest": "^30.2.0",
     "js-file-download": "^0.4.12",
     "markdown-to-jsx": "^7.3.2",
     "match-sorter": "^6.3.1",
@@ -68,20 +67,15 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^1.5.1",
     "@types/debounce": "^1.2.1",
-    "@types/jest": "^30.0.0",
     "@types/react-router-dom": "^5.1.7",
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "browserslist-to-esbuild": "^1.2.0",
     "eslint": "^8.55.0",
     "eslint-plugin-import": "^2.29.0",
-    "eslint-plugin-jest": "^27.6.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
-    "jest-environment-jsdom": "^30.2.0",
-    "jsdom": "^27.2.0",
     "source-map-explorer": "^2.5.2",
-    "ts-jest": "^29.4.5",
     "vitest": "^1.2.3"
   },
   "eslintConfig": {
