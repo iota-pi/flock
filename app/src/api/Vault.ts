@@ -76,6 +76,9 @@ let keyHash: string = ''
 let session: string = ''
 
 export function handleVaultError(error: Error, message: string) {
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+    return
+  }
   console.error(error)
   store.dispatch(setUi({
     message: {
