@@ -87,13 +87,13 @@ describe('DynamoDriver', function () {
 
     expect(
       await driver.checkSession({ account, session: authToken, isLogin: true })
-    ).toBe(true)
+    ).toEqual({ success: true })
     expect(
       await driver.checkSession({ account, session: authToken, isLogin: false })
-    ).toBe(false)
+    ).toEqual({ success: false, reason: 'expired' })
     expect(
       await driver.checkSession({ account, session: authToken })
-    ).toBe(false)
+    ).toEqual({ success: false, reason: 'expired' })
   })
 
   it('checkSession works based on session', async () => {
@@ -113,19 +113,19 @@ describe('DynamoDriver', function () {
     })
     expect(
       await driver.checkSession({ account, session })
-    ).toBe(false)
+    ).toMatchObject({ success: false, reason: 'expired' })
     expect(
       await driver.checkSession({ account, session: authToken })
-    ).toBe(false)
+    ).toMatchObject({ success: false, reason: 'expired' })
     expect(
       await driver.checkSession({ account, session: newSession })
-    ).toBe(true)
+    ).toMatchObject({ success: true })
     expect(
       await driver.checkSession({ account, session: 'wrong' })
-    ).toBe(false)
+    ).toMatchObject({ success: false, reason: 'expired' })
     expect(
       await driver.checkSession({ account, session: '' })
-    ).toBe(false)
+    ).toMatchObject({ success: false })
   })
 
   it('repeated createAccount calls fail', async () => {
