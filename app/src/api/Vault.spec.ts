@@ -1,3 +1,4 @@
+import type { AxiosInstance } from 'axios'
 import store from '../store'
 import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
 import * as axios from './axios'
@@ -5,7 +6,6 @@ import * as vault from './Vault'
 import * as api from './VaultAPI'
 import type { VaultItem } from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
-import { AxiosInstance } from 'axios'
 
 describe('Vault (Crypto)', () => {
   beforeAll(
@@ -22,8 +22,6 @@ describe('Vault (Crypto)', () => {
         put: jest.fn(() => ({ data: { success: true } })),
       }) as unknown as AxiosInstance)
 
-      jest.spyOn(api, 'vaultSetAuthToken').mockReturnValue(Promise.resolve(true))
-
       store.dispatch(setAccount({ account: '.' }))
       await vault.initialiseVault({
         password: 'example',
@@ -39,40 +37,40 @@ describe('Vault (Crypto)', () => {
     store.dispatch(setItems([]))
   })
 
-  test('encrypt and decrypt', async () => {
+  it.only('encrypt and decrypt', async () => {
     const text = 'It came to me on my birthday, my precious.'
     const cipher = await vault.encrypt(text)
     const result = await vault.decrypt(cipher)
     expect(result).toEqual(text)
   })
 
-  test('encryptObject and decryptObject', async () => {
+  it('encryptObject and decryptObject', async () => {
     const obj = { id: 'onering' }
     const cipher = await vault.encryptObject(obj)
     const result = await vault.decryptObject(cipher)
     expect(result).toEqual(obj)
   })
 
-  test('store a single item', async () => {
+  it('store a single item', async () => {
     const item = getBlankPerson()
     await vault.storeItems(item)
     expect(store.getState().items.ids).toContain(item.id)
   })
 
-  test('store multiple items', async () => {
+  it('store multiple items', async () => {
     const items = [getBlankPerson(), getBlankGroup()]
     await vault.storeItems(items)
     expect(store.getState().items.ids).toContain(items[0].id)
     expect(store.getState().items.ids).toContain(items[1].id)
   })
 
-  test('does not store items with missing properties (single)', async () => {
+  it('does not store items with missing properties (single)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { description, ...item } = getBlankPerson()
     await expect(vault.storeItems(item as Item)).rejects.toThrow()
   })
 
-  test('does not store items with missing properties (many)', async () => {
+  it('does not store items with missing properties (many)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { description, ...partialItem } = getBlankPerson()
     const items = [getBlankPerson(), getBlankGroup(), partialItem as Item]
@@ -81,7 +79,7 @@ describe('Vault (Crypto)', () => {
     await expect(promise).rejects.toThrow()
   })
 
-  test('fetchAll', async () => {
+  it('fetchAll', async () => {
     const original = [getBlankPerson(), getBlankGroup()]
     const encrypted = await Promise.all(original.map(item => vault.encryptObject(item)))
     const asAPIItems: VaultItem[] = encrypted.map((item, i) => ({
@@ -101,7 +99,7 @@ describe('Vault (Crypto)', () => {
     expect(result).toEqual(original)
   })
 
-  test('delete a single item', async () => {
+  it('delete a single item', async () => {
     const item = getBlankPerson()
     await vault.storeItems(item)
 
@@ -116,7 +114,7 @@ describe('Vault (Crypto)', () => {
     })
   })
 
-  test('delete multiple items', async () => {
+  it('delete multiple items', async () => {
     const items = [getBlankPerson(), getBlankPerson(), getBlankPerson()]
     await vault.storeItems(items)
 
@@ -131,7 +129,7 @@ describe('Vault (Crypto)', () => {
     })
   })
 
-  test('setMetadata', async () => {
+  it('setMetadata', async () => {
     const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] }
     const metadataAPI = jest.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve(true))
 
@@ -145,7 +143,7 @@ describe('Vault (Crypto)', () => {
     expect(decrypted).toMatchObject(metadata)
   })
 
-  test('getMetadata', async () => {
+  it('getMetadata', async () => {
     const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
     const encrypted = await vault.encryptObject(original)
     jest.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
@@ -156,7 +154,7 @@ describe('Vault (Crypto)', () => {
     expect(store.getState().account.metadata).toMatchObject(original)
   })
 
-  test('getMetadata plain', async () => {
+  it('getMetadata plain', async () => {
     const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
     jest.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(original))
 
@@ -164,5 +162,15 @@ describe('Vault (Crypto)', () => {
 
     expect(result).toEqual(original)
     expect(store.getState().account.metadata).toMatchObject(original)
+  })
+
+  it('getMetadata throws', async () => {
+    const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
+    const encrypted = await vault.encryptObject(original)
+    encrypted.cipher = 'corrupted cipher text'
+    jest.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
+
+    const promise = vault.getMetadata()
+    await expect(promise).rejects.toThrow()
   })
 })
