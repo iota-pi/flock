@@ -20,8 +20,8 @@
       "esnext"
     ],
     "types": [
-      "jest",
-      "vite/client",
+      "vitest/globals",
+      "vite/client"
     ],
     "noFallthroughCasesInSwitch": true
   },

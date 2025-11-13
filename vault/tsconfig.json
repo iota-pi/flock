@@ -3,6 +3,7 @@
     // "incremental": true,
     "target": "ESNEXT",
     "module": "commonjs",
+    "types": ["vitest/globals", "node"],
     "outDir": "./dist/",
     "strict": true,
     "esModuleInterop": true,
