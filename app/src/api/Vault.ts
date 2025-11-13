@@ -318,6 +318,11 @@ export function getItemCacheTime() {
 }
 
 export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
+  const cacheAccount = localStorage.getItem(ACCOUNT_STORAGE_KEY)
+  if (cacheAccount !== getAccountId()) {
+    clearItemCache()
+    return itemsPromise as Promise<VaultItem[]>
+  }
   const rawCache = localStorage.getItem(VAULT_ITEM_CACHE)
   const cachedItems: VaultItem[] = JSON.parse(rawCache || '[]')
   if (cachedItems.length > 0) {
