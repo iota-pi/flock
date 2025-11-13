@@ -1,12 +1,10 @@
 import { Link, Typography } from '@mui/material'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 
-export interface Props extends BaseDrawerProps {}
-
 function AboutDrawer({
   onClose,
   open,
-}: Props) {
+}: BaseDrawerProps) {
   return (
     <BaseDrawer
       ActionProps={{

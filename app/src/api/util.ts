@@ -66,7 +66,6 @@ export async function flockRequestChunked<T, S>(
     const result: S[] = []
     while (workingData.length > 0) {
       const batch = workingData.splice(0, chunkSize)
-      // eslint-disable-next-line no-await-in-loop
       const requestFunc = requestFactory(getAxios(options.allowNoInit))
       const batchResult = await requestFunc(batch)
       result.push(batchResult)

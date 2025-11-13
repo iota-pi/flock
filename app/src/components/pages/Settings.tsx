@@ -35,7 +35,6 @@ import SubscriptionDialog from '../dialogs/SubscriptionDialog'
 import ImportPeopleDialog from '../dialogs/ImportPeopleDialog'
 import PageContainer from '../PageContainer'
 import { checkItemCache, clearItemCache, exportData, signOutVault, storeItems } from '../../api/Vault'
-import { setAccount } from '../../state/account'
 
 export interface SettingsItemProps {
   disabled?: boolean,

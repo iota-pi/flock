@@ -23,7 +23,7 @@ import {
   FilterOperatorName,
   DEFAULT_FILTER_CRITERIA,
 } from '../../utils/customFilter'
-import { FilterIcon, RemoveIcon } from '../Icons'
+import { RemoveIcon } from '../Icons'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi } from '../../state/ui'
 import FrequencyPicker from '../FrequencyPicker'
@@ -360,7 +360,7 @@ function FilterDialog({
           data-cy="filter-done"
           fullWidth
           onClick={handleDone}
-          startIcon={undefined && <FilterIcon />}
+          // startIcon={<FilterIcon />}
           variant="contained"
         >
           Done

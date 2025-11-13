@@ -8,8 +8,8 @@ module.exports = {
   plugins: [
     '@typescript-eslint',
     'import',
-    'jest',
     '@stylistic',
+    'vitest',
   ],
   extends: [
     'eslint:recommended',
@@ -17,7 +17,6 @@ module.exports = {
     'plugin:import/errors',
     'plugin:import/warnings',
     'plugin:import/typescript',
-    'plugin:jest/recommended',
   ],
   rules: {
     '@typescript-eslint/lines-between-class-members': ['error', 'always', { exceptAfterSingleLine: true }],

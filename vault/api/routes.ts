@@ -56,7 +56,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   fastify.put(
     '/:account/items',
     { preHandler },
-    async (request, reply) => {
+    async (request) => {
       const { account } = request.params as { account: string }
 
       const items = request.body as {
@@ -120,7 +120,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   fastify.delete(
     '/:account/items',
     { preHandler },
-    async (request, reply) => {
+    async (request) => {
       const { account } = request.params as { account: string }
 
       const items = request.body as string[]
@@ -213,7 +213,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     { preHandler },
     async (request, reply) => {
       const { account } = request.params as { account: string }
-      let { metadata = {} } = (
+      const { metadata = {} } = (
         request.body as { metadata: Record<string, unknown> }
       )
       try {

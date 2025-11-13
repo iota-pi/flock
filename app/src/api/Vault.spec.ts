@@ -94,7 +94,7 @@ describe('Vault (Crypto)', () => {
       },
     }))
 
-  vi.spyOn(api, 'vaultFetchMany').mockReturnValue(Promise.resolve(asAPIItems))
+    vi.spyOn(api, 'vaultFetchMany').mockReturnValue(Promise.resolve(asAPIItems))
 
     const result = await vault.fetchAll()
     expect(result).toEqual(original)
@@ -104,7 +104,7 @@ describe('Vault (Crypto)', () => {
     const item = getBlankPerson()
     await vault.storeItems(item)
 
-  const deleteAPI = vi.spyOn(api, 'vaultDelete').mockReturnValue(Promise.resolve())
+    const deleteAPI = vi.spyOn(api, 'vaultDelete').mockReturnValue(Promise.resolve())
 
     await vault.deleteItems(item.id)
 
@@ -119,7 +119,7 @@ describe('Vault (Crypto)', () => {
     const items = [getBlankPerson(), getBlankPerson(), getBlankPerson()]
     await vault.storeItems(items)
 
-  const deleteAPI = vi.spyOn(api, 'vaultDeleteMany').mockReturnValue(Promise.resolve())
+    const deleteAPI = vi.spyOn(api, 'vaultDeleteMany').mockReturnValue(Promise.resolve())
 
     await vault.deleteItems([items[1].id, items[2].id])
 
@@ -132,7 +132,7 @@ describe('Vault (Crypto)', () => {
 
   it('setMetadata', async () => {
     const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] }
-  const metadataAPI = vi.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve(true))
+    const metadataAPI = vi.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve(true))
 
     await vault.setMetadata(metadata)
 
@@ -147,7 +147,7 @@ describe('Vault (Crypto)', () => {
   it('getMetadata', async () => {
     const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
     const encrypted = await vault.encryptObject(original)
-  vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
+    vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
 
     const result = await vault.getMetadata()
 
@@ -157,7 +157,7 @@ describe('Vault (Crypto)', () => {
 
   it('getMetadata plain', async () => {
     const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
-  vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(original))
+    vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(original))
 
     const result = await vault.getMetadata()
 
@@ -169,7 +169,7 @@ describe('Vault (Crypto)', () => {
     const original: AccountMetadata = { prayerGoal: 1, completedMigrations: ['foo'] }
     const encrypted = await vault.encryptObject(original)
     encrypted.cipher = 'corrupted cipher text'
-  vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
+    vi.spyOn(api, 'vaultGetMetadata').mockReturnValue(Promise.resolve(encrypted))
 
     const promise = vault.getMetadata()
     await expect(promise).rejects.toThrow()

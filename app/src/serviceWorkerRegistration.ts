@@ -44,7 +44,6 @@ function registerValidSW(swUrl: string, config?: Config) {
   navigator.serviceWorker
     .register(swUrl)
     .then(registration => {
-      // eslint-disable-next-line no-param-reassign
       registration.onupdatefound = () => {
         const installingWorker = registration.installing
         if (installingWorker == null) {
@@ -56,7 +55,6 @@ function registerValidSW(swUrl: string, config?: Config) {
               // At this point, the updated precached content has been fetched,
               // but the previous service worker will still serve the older
               // content until all client tabs are closed.
-              // eslint-disable-next-line no-console
               console.info(
                 'New content is available and will be used when all '
                 + 'tabs for this page are closed. See https://cra.link/PWA.',
@@ -68,7 +66,6 @@ function registerValidSW(swUrl: string, config?: Config) {
               }
             } else {
               // At this point, everything has been precached.
-              // eslint-disable-next-line no-console
               console.info('Content is cached for offline use.')
 
               // Execute callback

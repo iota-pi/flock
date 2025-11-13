@@ -23,7 +23,7 @@ export interface BaseUIMessage {
   severity?: AlertColor,
   message: string,
 }
-export interface UIMessage extends Required<BaseUIMessage> {}
+export type UIMessage = Required<BaseUIMessage>
 export interface UIState {
   darkMode: boolean | null,
   drawers: DrawerData[],

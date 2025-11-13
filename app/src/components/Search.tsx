@@ -590,7 +590,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               ? selectedOptions.slice(0, maxChips)
               : selectedOptions
           ).map((option, index) => (
-            // eslint-disable-next-line react/jsx-key
             <Chip
               {...getTagProps({ index })}
               label={getName(option)}

@@ -13,7 +13,6 @@ import {
   vaultSetMetadata,
   vaultSetSubscription,
 } from './VaultAPI'
-import crypto from './_crypto'
 import { TextEncoder as Encoder, TextDecoder as Decoder } from './_util'
 import {
   checkProperties,
@@ -408,26 +407,22 @@ export function deleteItems(data: string | string[]) {
 
 export async function deleteOneItem(itemId: string) {
   store.dispatch(deleteItemsAction([itemId]))
-  try {
-    await vaultDelete({
-      item: itemId,
-    })
-  } catch (error) {
+  return vaultDelete({
+    item: itemId,
+  }).catch(error => {
+    handleVaultError(error, 'Failed to delete item from server')
     return false
-  }
-  return true
+  }).then(() => true)
 }
 
 export async function deleteManyItems(itemIds: string[]) {
   store.dispatch(deleteItemsAction(itemIds))
-  try {
-    await vaultDeleteMany({
-      items: itemIds,
-    })
-  } catch (error) {
+  return vaultDeleteMany({
+    items: itemIds,
+  }).catch(error => {
+    handleVaultError(error, 'Failed to delete item from server')
     return false
-  }
-  return true
+  }).then(() => true)
 }
 
 export async function setMetadata(metadata: AccountMetadata) {

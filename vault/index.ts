@@ -6,8 +6,9 @@ import { handler as notifierHandler } from './notifier'
 
 const proxyPromise = createServer().then(server => awsLambdaFastify(server))
 
-const handler = (event: unknown, context: unknown, callback?: unknown) =>
-  proxyPromise.then(proxy => (proxy as any)(event, context, callback)
+const handler = (event: unknown, context: unknown, callback?: unknown) => (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  proxyPromise.then(proxy => (proxy as any)(event, context, callback))
 )
 
 export {

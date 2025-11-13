@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-/* eslint-disable no-restricted-globals */
 
 import { initializeApp } from 'firebase/app'
 import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw'
@@ -11,7 +10,6 @@ function initServiceWorker() {
   const app = initializeApp(firebaseConfig)
   const messaging = getMessaging(app)
   onBackgroundMessage(messaging, async () => {
-    // eslint-disable-next-line no-console
     console.info('Sent notification')
   })
 }

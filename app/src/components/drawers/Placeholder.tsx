@@ -5,7 +5,6 @@ import LargeIcon from '../LargeIcon'
 import { InternalPageId, PageId, usePage } from '../pages'
 import InlineText from '../InlineText'
 
-export interface Props extends BaseDrawerProps {}
 
 const pagesWithAddButton: PageId[] = [
   'groups',
@@ -30,7 +29,7 @@ function PlaceholderDrawer({
   onClose,
   open,
   stacked,
-}: Props) {
+}: BaseDrawerProps) {
   const page = usePage()
 
   const canAdd = page ? pagesWithAddButton.includes(page.id) : false

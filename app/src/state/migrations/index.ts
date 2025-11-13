@@ -121,7 +121,6 @@ async function migrateItems() {
 
     try {
       const items = selectAllItems(store.getState())
-      // eslint-disable-next-line no-await-in-loop
       const successful = await migration.migrate({ items })
       if (successful) {
         completedMigrations.push(migration.id)

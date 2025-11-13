@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Divider, Grid, IconButton, Theme, Typography, useMediaQuery } from '@mui/material'
+import { Button, Divider, Grid, IconButton, Typography } from '@mui/material'
 import { AutoSizer } from 'react-virtualized'
 import { useItemMap, useItems, useMetadata } from '../../state/selectors'
 import { isSameDay, useStringMemo } from '../../utils'
@@ -86,10 +86,6 @@ function PrayerPage() {
     () => { setTodaysGoal(g => g + 3) },
     [],
   )
-
-  const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
-  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
-  const maxTags = sm ? (2 - +xs) : 3
 
   const extraElements: ItemListExtraElement[] = useMemo(
     () => [
