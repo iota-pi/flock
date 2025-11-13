@@ -17,6 +17,7 @@ import {
   ScanCommandOutput,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
+import { randomBytes } from 'crypto'
 import {
   almostConstantTimeEqual,
   generateAccountId,
@@ -25,6 +26,7 @@ import BaseDriver, {
   AuthData,
   BaseData,
   CachedVaultItem,
+  ExpiredSessionError,
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
@@ -39,6 +41,7 @@ const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
+export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
@@ -163,7 +166,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       metadata,
       salt,
       session,
-    }: VaultAccountWithAuth,
+    }: VaultAccountWithAuth & { authToken: string },
   ): Promise<boolean> {
     let success = true
     await this.client.send(new PutCommand({
@@ -187,7 +190,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return success
   }
 
-  async getAccount({ account, authToken, session }: AuthData): Promise<VaultAccountWithAuth> {
+  async getAccount(
+    { account, isLogin, session }: AuthData & { isLogin?: boolean },
+  ): Promise<VaultAccountWithAuth> {
+    if (!session) {
+      throw new Error('Auth token is required to get account')
+    }
     const response = await this.client.send(new GetCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
@@ -195,14 +203,24 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       },
     ))
     if (response?.Item) {
-      if (session && almostConstantTimeEqual(session, response.Item.session as string)) {
+      if (isLogin) {
+        // For logins, check authToken instead
+        if (almostConstantTimeEqual(session, response.Item.authToken as string)) {
+          return response.Item as VaultAccountWithAuth
+        }
+        // Give same error as if account not found to avoid leaking account ids
+        throw new Error(`Could not find account ${account}`)
+      }
+
+      const now = Date.now()
+      const sessionExpiry = response.Item.sessionExpiry as number | undefined
+      if (sessionExpiry && sessionExpiry < now) {
+        throw new ExpiredSessionError('Invalid session token')
+      }
+      if (almostConstantTimeEqual(session, response.Item.session as string)) {
         return response.Item as VaultAccountWithAuth
       }
-      const storedHash = response.Item.authToken as string
-      const tokenHash = authToken
-      if (almostConstantTimeEqual(tokenHash, storedHash)) {
-        return response.Item as VaultAccountWithAuth
-      }
+      throw new ExpiredSessionError('Invalid session token')
     }
     throw new Error(`Could not find account ${account}`)
   }
@@ -254,32 +272,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async updateAccountData(
     {
       account,
-      authToken,
       metadata,
       session,
-      tempAuthToken,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
-      tempAuthToken?: string,
+      session?: string,
     },
   ): Promise<void> {
     const promises: Promise<unknown>[] = []
-    if (tempAuthToken && authToken) {
-      promises.push(
-        this.client.send(new UpdateCommand(
-          {
-            TableName: ACCOUNT_TABLE_NAME,
-            Key: { account },
-            UpdateExpression: 'SET authToken=:authToken',
-            ExpressionAttributeValues: {
-              ':authToken': authToken,
-              ':tempAuthToken': tempAuthToken,
-            },
-            ConditionExpression: 'authToken = :tempAuthToken OR attribute_not_exists(authToken)',
-          },
-        ))
-      )
-    }
 
     if (session) {
       promises.push(
@@ -287,9 +287,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           {
             TableName: ACCOUNT_TABLE_NAME,
             Key: { account },
-            UpdateExpression: 'SET #session=:session',
+            UpdateExpression: 'SET #session=:session, sessionExpiry=:expiry',
             ExpressionAttributeValues: {
               ':session': session,
+              ':expiry': Date.now() + SESSION_EXPIRY_MS,
             },
             ExpressionAttributeNames: {
               '#session': 'session',
@@ -438,25 +439,48 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return items
   }
 
-  async checkPassword({ account, authToken, session }: AuthData): Promise<boolean> {
+  async startNewSession({ account }: BaseData): Promise<string> {
+    const sessionId = randomBytes(16).toString('base64')
+    await this.client.send(new UpdateCommand(
+      {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET #session=:session',
+        ExpressionAttributeValues: {
+          ':session': sessionId,
+        },
+        ExpressionAttributeNames: {
+          '#session': 'session',
+        },
+      },
+    ))
+    return sessionId
+  }
+
+  async checkSession(
+    { account, isLogin, session }: AuthData & { isLogin?: boolean },
+  ): Promise<{ success: boolean, reason?: string }> {
     try {
-      const result = await this.getAccount({ account, authToken, session })
+      const result = await this.getAccount({ account, isLogin, session })
       if (result) {
         await this.client.send(new UpdateCommand(
           {
             TableName: ACCOUNT_TABLE_NAME,
             Key: { account },
-            UpdateExpression: 'SET lastAccess=:lastAccess',
+            UpdateExpression: 'SET lastAccess=:now',
             ExpressionAttributeValues: {
-              ':lastAccess': Date.now(),
+              ':now': Date.now(),
             },
           },
         ))
-        return true
+        return { success: true }
       }
-      return false
+      return { success: false }
     } catch (error) {
-      return false
+      if (error instanceof ExpiredSessionError) {
+        return { success: false, reason: 'expired' }
+      }
+      return { success: false }
     }
   }
 

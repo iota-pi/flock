@@ -116,15 +116,17 @@ export async function vaultDeleteMany({ items }: & { items: string[] }) {
   }
 }
 
-type VaultCreateAccountResult = { account: string, salt: string, tempAuthToken: string }
-export async function vaultCreateAccount(): Promise<VaultCreateAccountResult> {
+type VaultCreateAccountResult = { account: string }
+export async function vaultCreateAccount(
+  { salt, authToken }: { salt: string; authToken: string },
+): Promise<VaultCreateAccountResult> {
   const url = `${ENDPOINT}/account`
   const result = await flockRequest({
-    factory: a => a.post(url, {}),
+    factory: a => a.post(url, { salt, authToken }),
     options: { allowNoInit: true },
   })
-  const { account, salt, tempAuthToken } = result.data satisfies VaultCreateAccountResult
-  return { account, salt, tempAuthToken }
+  const { account } = result.data satisfies VaultCreateAccountResult
+  return { account }
 }
 
 export async function vaultGetSalt() {
@@ -142,6 +144,21 @@ export async function vaultGetSalt() {
   return result.data.salt as string
 }
 
+export async function vaultGetSession(authToken: string) {
+  const url = `${ENDPOINT}/${getAccountId()}/login`
+  const result = await flockRequest({
+    factory: a => a.post(url, { authToken }),
+    options: { allowNoInit: true },
+  })
+  if (!result.data.success || !result.data.session) {
+    throw new Error('Could not get session from server')
+  }
+  if (typeof result.data.session !== 'string') {
+    throw new Error('Invalid session format from server')
+  }
+  return result.data.session as string
+}
+
 export async function vaultGetMetadata() {
   const url = `${ENDPOINT}/${getAccountId()}`
   const result = await flockRequest(a => a.get(url))
@@ -150,14 +167,6 @@ export async function vaultGetMetadata() {
   }
   // Data is encrypted, but `AccountMetadata` is for backwards compatibility
   return result.data.metadata as (AccountMetadata | CryptoResult) || {}
-}
-
-export async function vaultSetAuthToken({ tempAuthToken }: { tempAuthToken: string }) {
-  const url = `${ENDPOINT}/${getAccountId()}`
-  const result = await flockRequest(
-    a => a.patch(url, { tempAuthToken }),
-  )
-  return result.data.success as boolean
 }
 
 export async function vaultSetMetadata(metadata: CryptoResult) {

@@ -6,10 +6,10 @@ import {
   vaultDeleteSubscription,
   vaultFetchMany,
   vaultGetMetadata,
+  vaultGetSession,
   vaultGetSubscription,
   vaultPut,
   vaultPutMany,
-  vaultSetAuthToken,
   vaultSetMetadata,
   vaultSetSubscription,
 } from './VaultAPI'
@@ -49,6 +49,12 @@ function toBytes(str: string): ArrayBuffer {
   return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0))).buffer
 }
 
+export function getSalt() {
+  const saltArray = new Uint8Array(16)
+  crypto.getRandomValues(saltArray)
+  return fromBytes(saltArray.buffer)
+}
+
 export interface CryptoResult {
   iv: string,
   cipher: string,
@@ -67,6 +73,7 @@ export interface VaultConstructorData {
 
 let key: CryptoKey | null = null
 let keyHash: string = ''
+let session: string = ''
 
 export function handleVaultError(error: Error, message: string) {
   console.error(error)
@@ -89,21 +96,32 @@ async function updateKeyHash() {
   const keyBuffer = await crypto.subtle.exportKey('raw', getKey())
   const keyHashBytes = await crypto.subtle.digest('SHA-512', keyBuffer)
   keyHash = fromBytes(keyHashBytes)
-  initAxios(keyHash)
+  return keyHash
+}
+
+export async function loginVault({
+  password,
+  salt,
+}: {
+  password: string,
+  salt: string,
+}) {
+  await initialiseVault({ password, salt })
+  session = await vaultGetSession(keyHash)
+  initAxios(session)
+  await initialLoadFromVault()
+  await storeVault()
 }
 
 export async function initialiseVault({
   password,
-  salt,
-  isNewAccount = false,
-  tempAuthToken = '',
   iterations,
+  salt,
 }: {
   password: string,
-  salt: string,
   isNewAccount?: boolean,
-  tempAuthToken?: string,
   iterations?: number,
+  salt: string,
 }) {
   const enc = new Encoder()
   const keyBase = await crypto.subtle.importKey(
@@ -125,13 +143,7 @@ export async function initialiseVault({
     true,
     ['encrypt', 'decrypt'],
   )
-  await updateKeyHash()
-  if (isNewAccount) {
-    await vaultSetAuthToken({ tempAuthToken })
-  } else {
-    await initialLoadFromVault()
-    await storeVault()
-  }
+  return updateKeyHash()
 }
 
 export async function loadVault() {
@@ -150,6 +162,8 @@ export async function loadVault() {
       ['encrypt', 'decrypt'],
     )
     await updateKeyHash()
+    session = await vaultGetSession(keyHash)
+    initAxios(session)
     await initialLoadFromVault()
   }
 }
@@ -163,10 +177,16 @@ export async function storeVault() {
 }
 
 async function initialLoadFromVault() {
-  const accountDataPromise = getMetadata()
-  const itemsPromise = fetchAll()
+  // const accountDataPromise = getMetadata().catch(error => {
+  //   handleVaultError(error, 'Failed to fetch account metadata from server')
+  //   throw error
+  // })
+  const itemsPromise = fetchAll().catch(error => {
+    handleVaultError(error, 'Failed to fetch items from server')
+    throw error
+  })
 
-  await accountDataPromise
+  // await accountDataPromise
   await itemsPromise
 
   await migrateItems()
@@ -203,9 +223,10 @@ export async function decrypt(
     cipher,
   }: CryptoResult,
 ): Promise<string> {
+  const key = getKey()
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: toBytes(iv) },
-    getKey(),
+    key,
     toBytes(cipher),
   )
   const dec = new Decoder()

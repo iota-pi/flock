@@ -1,3 +1,4 @@
+import crypto from '../../api/_crypto'
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import zxcvbn from 'zxcvbn'
@@ -32,7 +33,7 @@ import customDomainWords from '../../utils/customDomainWords'
 import InlineText from '../InlineText'
 import { setUi } from '../../state/ui'
 import { setAccount } from '../../state/account'
-import { initialiseVault } from '../../api/Vault'
+import { getSalt, initialiseVault } from '../../api/Vault'
 import { vaultCreateAccount } from '../../api/VaultAPI'
 
 const MIN_PASSWORD_LENGTH = 10
@@ -149,15 +150,15 @@ function CreateAccountPage() {
     async () => {
       setWaiting(true)
       try {
-        const { account, salt, tempAuthToken } = await vaultCreateAccount()
+        const salt = getSalt()
+        const authToken = await initialiseVault({
+          password,
+          salt,
+          isNewAccount: true,
+        })
+        const { account } = await vaultCreateAccount({ salt, authToken })
         if (account.length > 0) {
           dispatch(setAccount({ account }))
-          await initialiseVault({
-            password,
-            salt,
-            isNewAccount: true,
-            tempAuthToken,
-          })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
         } else {

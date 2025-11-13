@@ -58,17 +58,16 @@ describe('DynamoDriver', function () {
     expect(result.length).toEqual(10)
   })
 
-  const tempAuthToken = 'temp_auth_token'
   const authToken = 'an_example_auth_token_for_testing'
   const metadata = {}
   const salt = 'an_example_salt_for_testing'
-  const session = ''
+  const session = 'an_example_session_token_for_testing'
 
   it('createAccount works as expected', async () => {
     const account = generateAccountId()
     const success = await driver.createAccount({
       account,
-      authToken: tempAuthToken,
+      authToken,
       metadata,
       salt,
       session,
@@ -76,52 +75,35 @@ describe('DynamoDriver', function () {
     expect(success).toBe(true)
   })
 
-  it('checkPassword works based on authToken', async () => {
+  it('login works based on authToken', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
-      authToken: tempAuthToken,
+      authToken,
       metadata,
       salt,
       session,
     })
 
-    await driver.updateAccountData({
-      account,
-      authToken,
-      tempAuthToken,
-    })
-
-    expect(await driver.checkPassword({ account, authToken, session: '' })).toBe(true)
     expect(
-      await driver.checkPassword({ account, authToken: tempAuthToken, session: '' })
+      await driver.checkSession({ account, session: authToken, isLogin: true })
+    ).toBe(true)
+    expect(
+      await driver.checkSession({ account, session: authToken, isLogin: false })
     ).toBe(false)
     expect(
-      await driver.checkPassword({ account, authToken: '', session: '' })
-    ).toBe(false)
-    expect(
-      await driver.checkPassword({
-        account,
-        authToken: authToken + 'a',
-        session: '',
-      })
+      await driver.checkSession({ account, session: authToken })
     ).toBe(false)
   })
 
-  it('checkPassword works based on session', async () => {
+  it('checkSession works based on session', async () => {
     const account = generateAccountId()
     await driver.createAccount({
       account,
-      authToken: tempAuthToken,
+      authToken,
       metadata,
       salt,
       session,
-    })
-
-    await driver.updateAccountData({
-      account,
-      authToken,
-      tempAuthToken,
     })
 
     const newSession = 'a_new_session_token'
@@ -130,66 +112,30 @@ describe('DynamoDriver', function () {
       session: newSession,
     })
     expect(
-      await driver.checkPassword({ account, authToken, session: newSession })
-    ).toBe(true)
-    expect(
-      await driver.checkPassword({ account, authToken: 'wrong', session: newSession })
-    ).toBe(true)
-    expect(
-      await driver.checkPassword({ account, authToken: 'wrong', session: 'wrong' })
+      await driver.checkSession({ account, session })
     ).toBe(false)
-  })
-
-  it('tempAuthToken cannot be used twice', async () => {
-    const account = generateAccountId()
-    await driver.createAccount({
-      account,
-      authToken: tempAuthToken,
-      metadata,
-      salt,
-      session,
-    })
-
-    // First attempt should succeed
-    await driver.updateAccountData({
-      account,
-      authToken,
-      tempAuthToken,
-    })
-    await expect(
-      driver.checkPassword({ account, authToken, session: '' })
-    ).resolves.toBe(true)
-    await expect(
-      driver.checkPassword({ account, authToken: tempAuthToken, session: '' })
-    ).resolves.toBe(false)
-
-    // Second attempt to use tempAuthToken should fail
-    await expect(
-      driver.updateAccountData({
-        account,
-        authToken: 'another_auth_token',
-        tempAuthToken,
-      })
-    ).rejects.toThrow()
-    await expect(
-      driver.checkPassword({ account, authToken, session: '' })
-    ).resolves.toBe(true)
-    await expect(
-      driver.checkPassword({ account, authToken: tempAuthToken, session: '' })
-    ).resolves.toBe(false)
+    expect(
+      await driver.checkSession({ account, session: authToken })
+    ).toBe(false)
+    expect(
+      await driver.checkSession({ account, session: newSession })
+    ).toBe(true)
+    expect(
+      await driver.checkSession({ account, session: 'wrong' })
+    ).toBe(false)
+    expect(
+      await driver.checkSession({ account, session: '' })
+    ).toBe(false)
   })
 
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
-    const authToken = 'an_example_auth_token_for_testing'
-    const metadata = {}
-    const salt = 'an_example_salt_for_testing'
-    const session = ''
-    const result1 = await driver.createAccount({ account, authToken, metadata, salt, session })
+    const params = { account, authToken, metadata, salt, session }
+    const result1 = await driver.createAccount(params)
     expect(result1).toBe(true)
-    const result2 = await driver.createAccount({ account, authToken, metadata, salt, session })
+    const result2 = await driver.createAccount(params)
     expect(result2).toBe(false)
-    const result3 = await driver.createAccount({ account, authToken, metadata, salt, session })
+    const result3 = await driver.createAccount(params)
     expect(result3).toBe(false)
   })
 })

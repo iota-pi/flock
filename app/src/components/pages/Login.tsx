@@ -17,7 +17,7 @@ import { getPage } from '.'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setAccount } from '../../state/account'
 import { HomeIcon } from '../Icons'
-import { initialiseVault } from '../../api/Vault'
+import { initialiseVault, loginVault } from '../../api/Vault'
 import { vaultGetSalt } from '../../api/VaultAPI'
 import { setUi } from '../../state/ui'
 
@@ -91,7 +91,7 @@ function LoginPage() {
       }
       if (salt.length) {
         try {
-          await initialiseVault({ password, salt })
+          await loginVault({ password, salt })
           dispatch(setAccount({ loggedIn: true }))
           navigate(getPage('people').path)
         } catch (error) {

@@ -1,4 +1,13 @@
+import { FastifyReply, FastifyRequest } from 'fastify'
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
+import { getAuthToken } from '../api/util'
+
+export class ExpiredSessionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ExpiredSessionError'
+  }
+}
 
 export type VaultItemType = 'person' | 'group'
 
@@ -23,7 +32,6 @@ export interface BaseData {
 }
 
 export interface AuthData extends BaseData {
-  authToken: string,
   session: string,
 }
 
@@ -57,7 +65,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract connect(options?: T): BaseDriver<T>
 
   abstract createAccount(data: BaseData & VaultAccount): Promise<boolean>
-  abstract checkPassword(data: AuthData): Promise<boolean>
+  abstract checkSession(data: AuthData): Promise<{ success: boolean, reason?: string }>
   abstract getAccount(data: AuthData): Promise<VaultAccountWithAuth>
   abstract getAccountSalt(data: BaseData): Promise<string>
   abstract getNewAccountId(): Promise<string>
@@ -70,4 +78,14 @@ export default abstract class BaseDriver<T = unknown> {
   ): Promise<CachedVaultItem[]>
 
   abstract delete({ account, item }: VaultKey): Promise<void>
+
+  async auth(request: FastifyRequest, reply: FastifyReply) {
+    const account = (request.params as { account: string }).account
+    const authToken = getAuthToken(request)
+    const valid = await this.checkSession({ account, session: authToken })
+    if (!valid) {
+      reply.code(403)
+      throw new Error('Unauthorized')
+    }
+  }
 }
