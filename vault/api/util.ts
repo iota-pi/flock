@@ -1,6 +1,5 @@
 import { hash } from 'crypto'
 import { FastifyRequest } from 'fastify'
-// eslint-disable-next-line import/no-unresolved
 import { RouteGenericInterface } from 'fastify/types/route'
 import { IncomingMessage, Server } from 'http'
 

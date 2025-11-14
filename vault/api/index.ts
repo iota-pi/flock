@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
-import fastifyAuth from '@fastify/auth'
+import { fastifyAuth } from '@fastify/auth'
 import routes from './routes'
 
 

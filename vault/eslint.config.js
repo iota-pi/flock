@@ -23,7 +23,6 @@ export default defineConfig([
       'no-console': ['error', { allow: ['warn', 'error', 'info'] }],
       'no-multiple-empty-lines': ['error', { max: 2, maxEOF: 1 }],
       'no-plusplus': ['error', { allowForLoopAfterthoughts: true }],
-      'import-x/no-rename-default': 'off',
       '@stylistic/semi': ['error', 'never'],
       '@stylistic/indent': ['error', 2],
     },
@@ -49,4 +48,4 @@ export default defineConfig([
       '@typescript-eslint/dot-notation': 'error',
     },
   },
-]);
+])

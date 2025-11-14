@@ -1,13 +1,24 @@
 {
   "compilerOptions": {
-    // "incremental": true,
-    "target": "ESNEXT",
+    "target": "esnext",
     "module": "commonjs",
-    "types": ["vitest/globals", "node"],
-    "outDir": "./dist/",
     "strict": true,
-    "esModuleInterop": true,
+    "allowJs": true,
+    "moduleResolution": "node",
     "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "downlevelIteration": true,
     "forceConsistentCasingInFileNames": true,
-  }
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "lib": ["esnext"],
+    "types": ["node", "vitest/globals"],
+    "outDir": "./dist/",
+    "noFallthroughCasesInSwitch": true
+  },
+  "exclude": [
+    "node_modules",
+    "**/*.js"
+  ]
 }

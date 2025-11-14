@@ -1,7 +1,5 @@
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
-// eslint-disable-next-line import/no-unresolved
 import { App, initializeApp } from 'firebase-admin/app'
-// eslint-disable-next-line import/no-unresolved
 import { getMessaging } from 'firebase-admin/messaging'
 import getDriver from '../drivers'
 import { VaultSubscriptionFull } from '../drivers/base'

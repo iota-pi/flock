@@ -429,7 +429,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         if (!lastEvaluatedKey) {
           break
         }
-      } catch (error) {
+      } catch (_) {
         if (items.length === 0) {
           throw new Error(`Could not scan for subscription items`)
         }

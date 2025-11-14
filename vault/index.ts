@@ -1,4 +1,4 @@
-import awsLambdaFastify from '@fastify/aws-lambda'
+import { awsLambdaFastify } from '@fastify/aws-lambda'
 import createServer from './api'
 import { handler as migrationHandler } from './migrations'
 import { handler as notifierHandler } from './notifier'
