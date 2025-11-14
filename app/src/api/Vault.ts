@@ -13,7 +13,6 @@ import {
   vaultSetMetadata,
   vaultSetSubscription,
 } from './VaultAPI'
-import { TextEncoder as Encoder, TextDecoder as Decoder } from './_util'
 import {
   checkProperties,
   deleteItems as deleteItemsAction,
@@ -125,7 +124,7 @@ export async function initialiseVault({
   iterations?: number,
   salt: string,
 }) {
-  const enc = new Encoder()
+  const enc = new TextEncoder()
   const keyBase = await crypto.subtle.importKey(
     'raw',
     enc.encode(password),
@@ -207,7 +206,7 @@ export function signOutVault() {
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const enc = new Encoder()
+  const enc = new TextEncoder()
   const cipher = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     getKey(),
@@ -231,7 +230,7 @@ export async function decrypt(
     key,
     toBytes(cipher),
   )
-  const dec = new Decoder()
+  const dec = new TextDecoder()
   return dec.decode(plaintext)
 }
 
@@ -451,7 +450,7 @@ export async function getMetadata(): Promise<AccountMetadata> {
 }
 
 async function getSubscriptionId(subscriptionToken: string): Promise<string> {
-  const enc = new Encoder()
+  const enc = new TextEncoder()
   const buffer = await crypto.subtle.digest('SHA-512', enc.encode(subscriptionToken))
   return fromBytesUrlSafe(buffer)
 }

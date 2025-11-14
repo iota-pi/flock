@@ -26,3 +26,22 @@ try {
   // If assignment fails, assume environment provides a compatible crypto implementation.
   // Swallow the error to avoid failing test setup.
 }
+
+// Ensure TextEncoder/TextDecoder are available in Node test environments.
+// Use top-level await to import Node's util.TextEncoder/TextDecoder when needed.
+const enc: typeof TextEncoder = (globalThis as any).TextEncoder || (await import('util')).TextEncoder
+const dec: typeof TextDecoder = (globalThis as any).TextDecoder || (await import('util')).TextDecoder
+if (typeof (globalThis as any).TextEncoder === 'undefined') {
+  Object.defineProperty(globalThis, 'TextEncoder', {
+    value: enc,
+    writable: false,
+    configurable: true,
+  })
+}
+if (typeof (globalThis as any).TextDecoder === 'undefined') {
+  Object.defineProperty(globalThis, 'TextDecoder', {
+    value: dec,
+    writable: false,
+    configurable: true,
+  })
+}
