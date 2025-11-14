@@ -19,16 +19,15 @@
     "fastify": "^5.6.2",
     "firebase-admin": "^10.0.0",
     "nodemon": "^2.0.7",
-    "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },
   "scripts": {
-    "initdb": "ts-node drivers/init.ts",
+    "initdb": "tsx drivers/init.ts",
     "test": "vitest",
     "build": "./build.sh",
-    "dev": "nodemon api/runServer.ts",
+    "dev": "tsx watch api/runServer.ts",
     "docker": "docker compose run --rm -it api bash",
     "docker:test": "docker compose run --rm api yarn test",
     "docker:initdb": "docker compose run --rm api yarn initdb",
@@ -41,6 +40,7 @@
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import-x": "^4.16.1",
+    "tsx": "^3.12.7",
     "typescript-eslint": "^8.46.4",
     "vitest": "^4.0.8"
   },
