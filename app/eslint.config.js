@@ -6,7 +6,14 @@ import stylistic from '@stylistic/eslint-plugin'
 
 
 export default defineConfig([
-  globalIgnores(['node_modules', 'build', 'dist', 'coverage', 'eslint.config.js']),
+  globalIgnores([
+    'node_modules',
+    'build',
+    'dist',
+    'coverage',
+    'eslint.config.js',
+    'src/setupTests.ts',
+  ]),
   eslint.configs.recommended,
   tseslint.configs.eslintRecommended,
   tseslint.configs.recommended,
