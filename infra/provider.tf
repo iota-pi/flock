@@ -3,8 +3,9 @@ terraform {
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.30"
+      source = "hashicorp/aws"
+      # Loosened constraint to allow newer provider versions (run `terraform init -upgrade` to fetch the latest)
+      version = ">= 5.30"
     }
     cloudflare = {
       source  = "cloudflare/cloudflare"

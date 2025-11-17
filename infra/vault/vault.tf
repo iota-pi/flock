@@ -265,6 +265,8 @@ resource "aws_api_gateway_integration" "vault_lambda_root" {
 }
 
 resource "aws_api_gateway_deployment" "vault_deployment" {
+  rest_api_id = aws_api_gateway_rest_api.vault_gateway.id
+
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.vault_proxy.id,
@@ -276,8 +278,15 @@ resource "aws_api_gateway_deployment" "vault_deployment" {
     ]))
   }
 
-  rest_api_id = aws_api_gateway_rest_api.vault_gateway.id
-  stage_name  = var.environment
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "vault_stage" {
+  stage_name    = var.environment
+  rest_api_id   = aws_api_gateway_rest_api.vault_gateway.id
+  deployment_id = aws_api_gateway_deployment.vault_deployment.id
 }
 
 
@@ -288,7 +297,7 @@ resource "aws_cloudwatch_log_group" "debugging" {
 }
 
 output "invoke_url" {
-  value = aws_api_gateway_deployment.vault_deployment.invoke_url
+  value = aws_api_gateway_stage.vault_stage.invoke_url
 }
 
 resource "aws_cloudwatch_event_rule" "notifier_trigger" {
