@@ -1,16 +1,18 @@
-import Fastify, { FastifyInstance } from 'fastify'
+import Fastify from 'fastify'
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import { fastifyAuth } from '@fastify/auth'
 import routes from './routes'
+import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from './schemas'
 
 
 async function createServer() {
-  const server: FastifyInstance = Fastify({
+  const server = Fastify({
     logger: {
       level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
     },
-  })
+  }).withTypeProvider<TypeBoxTypeProvider>()
   await server.register(cookie)
   await server.register(cors, {
     origin: [
@@ -20,6 +22,14 @@ async function createServer() {
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
   })
   await server.register(fastifyAuth)
+  server.addSchema(accountParams)
+  server.addSchema(itemParams)
+  server.addSchema(itemBody)
+  server.addSchema(itemsBody)
+  server.addSchema(itemsQuery)
+  server.addSchema(subscriptionParams)
+  server.addSchema(subscriptionBody)
+
   await server.register(routes)
   return server
 }

@@ -1116,6 +1116,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fastify/type-provider-typebox@npm:^6.1.0":
+  version: 6.1.0
+  resolution: "@fastify/type-provider-typebox@npm:6.1.0"
+  peerDependencies:
+    typebox: ^1.0.13
+  checksum: 10c0/a1411b5292bdbf48fa473650b751861b9f7a2f1b0412f442f2a5f86a1503eb39e6147829832987bf5dba3e389e47704bff92c9a669e6d4398fcb486d92f90e28
+  languageName: node
+  linkType: hard
+
 "@firebase/app-types@npm:0.8.1":
   version: 0.8.1
   resolution: "@firebase/app-types@npm:0.8.1"
@@ -1680,6 +1689,13 @@ __metadata:
   version: 4.53.2
   resolution: "@rollup/rollup-win32-x64-msvc@npm:4.53.2"
   conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@sinclair/typebox@npm:^0.34.41":
+  version: 0.34.41
+  resolution: "@sinclair/typebox@npm:0.34.41"
+  checksum: 10c0/0fb61fc2f90c25e30b19b0096eb8ab3ccef401d3e2acfce42168ff0ee877ba5981c8243fa6b1035ac756cde95316724e978b2837dd642d7e4e095de03a999c90
   languageName: node
   linkType: hard
 
@@ -6744,6 +6760,8 @@ __metadata:
     "@fastify/aws-lambda": "npm:^6.1.1"
     "@fastify/cookie": "npm:^11.0.2"
     "@fastify/cors": "npm:^11.1.0"
+    "@fastify/type-provider-typebox": "npm:^6.1.0"
+    "@sinclair/typebox": "npm:^0.34.41"
     "@stylistic/eslint-plugin": "npm:^5.5.0"
     "@types/node": "npm:^24.3.0"
     "@vitest/eslint-plugin": "npm:^1.4.2"

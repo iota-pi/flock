@@ -1,66 +1,73 @@
-const account = { type: 'string' }
-const item = { type: 'string' }
-const subscription = { type: 'string' }
+import { Type, Static } from '@sinclair/typebox'
 
-export const accountParams = {
-  type: 'object',
-  properties: {
-    account,
+// Reusable primitive fragments
+const account = Type.String()
+const item = Type.String()
+const subscription = Type.String()
+
+// Params
+export const accountParams = Type.Object({ account }, { $id: 'vault.accountParams' })
+export type AccountParams = Static<typeof accountParams>
+
+export const itemParams = Type.Object({ account, item }, { $id: 'vault.itemParams' })
+export type ItemParams = Static<typeof itemParams>
+
+export const subscriptionParams = Type.Object({ account, subscription }, { $id: 'vault.subscriptionParams' })
+export type SubscriptionParams = Static<typeof subscriptionParams>
+
+// Bodies
+export const itemBody = Type.Object(
+  {
+    cipher: Type.String(),
+    iv: Type.String(),
+    modified: Type.Number(),
+    type: Type.String(),
   },
-  required: ['account'],
-}
+  { $id: 'vault.itemBody' },
+)
+export type ItemBody = Static<typeof itemBody>
 
-export const itemParams = {
-  type: 'object',
-  properties: {
-    account,
-    item,
-  },
-  required: ['account', 'item'],
-}
-
-export const subscriptionParams = {
-  type: 'object',
-  properties: {
-    account,
-    subscription,
-  },
-  required: ['account', 'subscription'],
-}
-
-export const itemBody = {
-  type: 'object',
-  properties: {
-    cipher: { type: 'string' },
-    iv: { type: 'string' },
-    modified: { type: 'number' },
-    type: { type: 'string' },
-  },
-  required: ['cipher', 'iv', 'modified', 'type'],
-}
-
-export const itemsBody = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: {
-      cipher: { type: 'string' },
-      id: { type: 'string' },
-      iv: { type: 'string' },
-      modified: { type: 'number' },
-      type: { type: 'string' },
+export const itemsBody = Type.Array(
+  Type.Object(
+    {
+      cipher: Type.String(),
+      id: Type.String(),
+      iv: Type.String(),
+      modified: Type.Number(),
+      type: Type.String(),
     },
-    required: ['cipher', 'id', 'iv', 'modified', 'type'],
-  },
-}
+    { $id: 'vault.itemsBody.item' },
+  ),
+  { $id: 'vault.itemsBody' },
+)
+export type ItemsBody = Static<typeof itemsBody>
 
-export const subscriptionBody = {
-  type: 'object',
-  properties: {
-    failures: { type: 'number' },
-    hours: { type: 'array', items: { type: 'number' } },
-    timezone: { type: 'string' },
-    token: { type: 'string' },
+export const subscriptionBody = Type.Object(
+  {
+    failures: Type.Number(),
+    hours: Type.Array(Type.Number()),
+    timezone: Type.String(),
+    token: Type.String(),
   },
-  required: ['failures', 'hours', 'timezone', 'token'],
-}
+  { $id: 'vault.subscriptionBody' },
+)
+export type SubscriptionBody = Static<typeof subscriptionBody>
+
+// Query schemas
+export const itemsQuery = Type.Object(
+  {
+    since: Type.Optional(Type.String()),
+    ids: Type.Optional(Type.String()),
+  },
+  { $id: 'vault.itemsQuery' },
+)
+export type ItemsQuery = Static<typeof itemsQuery>
+
+// Export $ref constants to avoid typos when referencing registered schemas
+export const ACCOUNT_PARAMS_REF = 'vault.accountParams#'
+export const ITEM_PARAMS_REF = 'vault.itemParams#'
+export const SUBSCRIPTION_PARAMS_REF = 'vault.subscriptionParams#'
+export const ITEM_BODY_REF = 'vault.itemBody#'
+export const ITEMS_BODY_REF = 'vault.itemsBody#'
+export const SUBSCRIPTION_BODY_REF = 'vault.subscriptionBody#'
+export const ITEMS_QUERY_REF = 'vault.itemsQuery#'
