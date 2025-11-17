@@ -42,7 +42,7 @@ resource "cloudflare_record" "root_cert_validation" {
   zone_id = var.cloudflare_zone_id
   name    = each.value.name
   type    = each.value.type
-  value   = trimsuffix(each.value.value, ".")
+  content = trimsuffix(each.value.content, ".")
 }
 
 # Redirect www domain to root domain for production
