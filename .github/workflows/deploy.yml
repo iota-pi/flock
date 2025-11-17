@@ -38,6 +38,20 @@ jobs:
     - name: Start docker containers
       run: docker compose up -d api dynamodb
 
+    - name: Wait for DynamoDB to be ready
+      run: |
+        echo "Waiting for DynamoDB to start..."
+        for i in $(seq 1 20); do
+          if curl -s http://localhost:8000/ > /dev/null; then
+            echo "DynamoDB is ready!"
+            exit 0
+          fi
+          echo "Still waiting... ($i/10)"
+          sleep 1
+        done
+        echo "DynamoDB did not start in time."
+        exit 1
+
     - name: Initialise database for testing
       run: cd vault && yarn docker:initdb
 
