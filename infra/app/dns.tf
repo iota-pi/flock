@@ -9,7 +9,7 @@ resource "cloudflare_record" "primary_cname" {
   zone_id = var.cloudflare_zone_id
   type    = "CNAME"
   name    = local.subdomain != "" ? local.subdomain : "@"
-  value   = aws_cloudfront_distribution.s3_distribution.domain_name
+  content = aws_cloudfront_distribution.s3_distribution.domain_name
 }
 
 resource "aws_acm_certificate" "root_cert" {
@@ -33,9 +33,9 @@ resource "aws_acm_certificate_validation" "root_cert" {
 resource "cloudflare_record" "root_cert_validation" {
   for_each = {
     for dvo in aws_acm_certificate.root_cert.domain_validation_options : dvo.domain_name => {
-      name  = dvo.resource_record_name
-      value = dvo.resource_record_value
-      type  = dvo.resource_record_type
+      name    = dvo.resource_record_name
+      content = dvo.resource_record_value
+      type    = dvo.resource_record_type
     }
   }
 
