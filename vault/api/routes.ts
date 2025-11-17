@@ -3,6 +3,14 @@ import type { FastifyPluginCallback } from 'fastify'
 import type { FlockPushSubscription } from '../../app/src/utils/firebase-types'
 import getDriver from '../drivers'
 import { asItemType } from '../drivers/base'
+import {
+  accountParams,
+  itemsBody,
+  itemBody,
+  itemParams,
+  subscriptionBody,
+  subscriptionParams,
+} from './schemas'
 import { getAuthToken, hashString } from './util'
 
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
@@ -16,11 +24,24 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get(
     '/:account/items',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: accountParams,
+        querystring: {
+          type: 'object',
+          properties: {
+            since: { type: 'string' },
+            ids: { type: 'string' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
-      const account = (request.params as { account: string }).account
-      const cacheTime = parseInt((request.query as { since?: string }).since || '') || undefined
-      const ids = ((request.query as { ids?: string }).ids || '').split(',').filter(Boolean)
+      const { account } = request.params as { account: string }
+      const { since, ids: idsString } = request.query as { since?: string, ids?: string }
+      const cacheTime = parseInt(since || '') || undefined
+      const ids = (idsString || '').split(',').filter(Boolean)
       try {
         const resultPromise = (
           cacheTime || ids.length === 0
@@ -39,7 +60,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get(
     '/:account/items/:item',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: itemParams,
+      },
+    },
     async (request, reply) => {
       const { account, item } = request.params as { account: string, item: string }
       try {
@@ -55,10 +81,15 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put(
     '/:account/items',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: accountParams,
+        body: itemsBody,
+      },
+    },
     async request => {
       const { account } = request.params as { account: string }
-
       const items = request.body as {
         cipher: string,
         id: string,
@@ -96,7 +127,13 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put(
     '/:account/items/:item',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: itemParams,
+        body: itemBody,
+      },
+    },
     async (request, reply) => {
       const { account, item } = request.params as { account: string, item: string }
       const { cipher, iv, modified, type } = request.body as {
@@ -119,10 +156,18 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.delete(
     '/:account/items',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: accountParams,
+        body: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+      },
+    },
     async request => {
       const { account } = request.params as { account: string }
-
       const items = request.body as string[]
       const promises: Promise<void>[] = []
       const results: { item: string, success: boolean }[] = []
@@ -147,7 +192,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.delete(
     '/:account/items/:item',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: itemParams,
+      },
+    },
     async (request, reply) => {
       const { account, item } = request.params as { account: string, item: string }
       try {
@@ -161,17 +211,20 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.post('/account', async (request, reply) => {
+  fastify.post('/account', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          salt: { type: 'string' },
+          authToken: { type: 'string' },
+        },
+        required: ['salt', 'authToken'],
+      },
+    },
+  }, async (request, reply) => {
     const account = await vault.getNewAccountId()
-    const { salt, authToken } = request.body as { salt?: string, authToken?: string }
-
-    if (
-      !salt?.length || typeof salt !== 'string'
-      || !authToken?.length || typeof authToken !== 'string'
-    ) {
-      reply.code(400)
-      return { account: '' }
-    }
+    const { salt, authToken } = request.body as { salt: string, authToken: string }
 
     try {
       const success = await vault.createAccount({
@@ -191,7 +244,18 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     return { account: '' }
   })
 
-  fastify.post('/:account/login', async (request, reply) => {
+  fastify.post('/:account/login', {
+    schema: {
+      params: accountParams,
+      body: {
+        type: 'object',
+        properties: {
+          authToken: { type: 'string' },
+        },
+        required: ['authToken'],
+      },
+    },
+  }, async (request, reply) => {
     const { account } = request.params as { account: string }
     const { authToken } = request.body as { authToken: string }
     const valid = await vault.checkSession({ account, session: authToken })
@@ -210,7 +274,18 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.patch(
     '/:account',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: accountParams,
+        body: {
+          type: 'object',
+          properties: {
+            metadata: { type: 'object' },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const { account } = request.params as { account: string }
       const { metadata = {} } = (
@@ -230,7 +305,11 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   )
 
-  fastify.get('/:account/salt', async (request, reply) => {
+  fastify.get('/:account/salt', {
+    schema: {
+      params: accountParams,
+    },
+  }, async (request, reply) => {
     const { account } = request.params as { account: string }
     try {
       const salt = await vault.getAccountSalt({ account })
@@ -247,7 +326,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get(
     '/:account',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: accountParams,
+      },
+    },
     async (request, reply) => {
       const { account } = request.params as { account: string }
       const authToken = getAuthToken(request)
@@ -267,7 +351,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.get(
     '/:account/subscriptions/:subscription',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: subscriptionParams,
+      },
+    },
     async (request, reply) => {
       const { account, subscription } = request.params as { account: string, subscription: string }
       try {
@@ -286,7 +375,13 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.put(
     '/:account/subscriptions/:subscription',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: subscriptionParams,
+        body: subscriptionBody,
+      },
+    },
     async (request, reply) => {
       const { account, subscription } = request.params as { account: string, subscription: string }
       const { failures, hours, timezone, token } = (
@@ -309,7 +404,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
 
   fastify.delete(
     '/:account/subscriptions/:subscription',
-    { preHandler },
+    {
+      preHandler,
+      schema: {
+        params: subscriptionParams,
+      },
+    },
     async (request, reply) => {
       const { account, subscription } = request.params as { account: string, subscription: string }
       try {
