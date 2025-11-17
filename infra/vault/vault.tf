@@ -274,6 +274,7 @@ resource "aws_api_gateway_deployment" "vault_deployment" {
       aws_api_gateway_method.vault_proxy_method_root.id,
       aws_api_gateway_integration.vault_lambda.id,
       aws_api_gateway_integration.vault_lambda_root.id,
+      aws_api_gateway_stage.vault_stage.id,
       aws_cloudwatch_log_group.debugging.id,
     ]))
   }
