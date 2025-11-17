@@ -36,7 +36,7 @@ jobs:
         yarn install --immutable
 
     - name: Start docker containers
-      run: docker compose up -d
+      run: docker compose up -d api dynamodb
 
     - name: Initialise database for testing
       run: cd vault && yarn docker:initdb
