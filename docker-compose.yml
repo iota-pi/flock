@@ -41,7 +41,7 @@ services:
       - TF_VAR_vault_version
     volumes:
       - .:/flock
-      - ${USERPROFILE}/.aws:/root/.aws:ro
+      - ${USERPROFILE:-$HOME}/.aws:/root/.aws:ro
     working_dir: /flock/infra
 
 volumes:
