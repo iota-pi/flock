@@ -17,6 +17,24 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = getDriver('dynamo')
   const preHandler = fastify.auth([vault.auth.bind(vault)])
 
+  fastify.setErrorHandler((error: Error, request, reply) => {
+    request.log.error(error)
+
+    // Map "Not Found" errors from Dynamo driver to 404
+    if (error.message.includes('Could not find') || error.message.includes('not found')) {
+      return reply.code(404).send({ success: false, error: 'Not Found' })
+    }
+
+    // Map Auth/Session errors to 403
+    if (error.name === 'ExpiredSessionError' || error.message.includes('Invalid session')) {
+      return reply.code(403).send({ success: false, error: 'Forbidden' })
+    }
+
+    // Default to 500
+    const statusCode = (error as { statusCode?: number }).statusCode || 500
+    reply.code(statusCode).send({ success: false, error: error.message })
+  })
+
   fastify.get('/', async () => {
     fastify.log.info('ping pong response initiated')
     return { ping: 'pong' }
@@ -37,24 +55,18 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         },
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account } = request.params as { account: string }
       const { since, ids: idsString } = request.query as { since?: string, ids?: string }
       const cacheTime = parseInt(since || '') || undefined
       const ids = (idsString || '').split(',').filter(Boolean)
-      try {
-        const resultPromise = (
-          cacheTime || ids.length === 0
-            ? vault.fetchAll({ account, cacheTime })
-            : vault.fetchMany({ account, ids })
-        )
-        const results = await resultPromise
-        return { success: true, items: results }
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(404)
-        return { success: false }
-      }
+      const resultPromise = (
+        cacheTime || ids.length === 0
+          ? vault.fetchAll({ account, cacheTime })
+          : vault.fetchMany({ account, ids })
+      )
+      const results = await resultPromise
+      return { success: true, items: results }
     },
   )
 
@@ -66,16 +78,10 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         params: itemParams,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, item } = request.params as { account: string, item: string }
-      try {
-        const result = await vault.get({ account, item })
-        return { success: true, items: [result] }
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(404)
-        return { success: false }
-      }
+      const result = await vault.get({ account, item })
+      return { success: true, items: [result] }
     }
   )
 
@@ -134,7 +140,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         body: itemBody,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, item } = request.params as { account: string, item: string }
       const { cipher, iv, modified, type } = request.body as {
         cipher: string,
@@ -142,14 +148,8 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         modified: number,
         type: string,
       }
-      try {
-        const _type = asItemType(type)
-        await vault.set({ account, item, cipher, metadata: { type: _type, iv, modified } })
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
+      const _type = asItemType(type)
+      await vault.set({ account, item, cipher, metadata: { type: _type, iv, modified } })
       return { success: true }
     },
   )
@@ -198,35 +198,31 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         params: itemParams,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, item } = request.params as { account: string, item: string }
-      try {
-        await vault.delete({ account, item })
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
+      await vault.delete({ account, item })
       return { success: true }
     },
   )
 
-  fastify.post('/account', {
-    schema: {
-      body: {
-        type: 'object',
-        properties: {
-          salt: { type: 'string' },
-          authToken: { type: 'string' },
+  fastify.post(
+    '/account',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            salt: { type: 'string' },
+            authToken: { type: 'string' },
+          },
+          required: ['salt', 'authToken'],
         },
-        required: ['salt', 'authToken'],
       },
     },
-  }, async (request, reply) => {
-    const account = await vault.getNewAccountId()
-    const { salt, authToken } = request.body as { salt: string, authToken: string }
+    async request => {
+      const account = await vault.getNewAccountId()
+      const { salt, authToken } = request.body as { salt: string, authToken: string }
 
-    try {
       const success = await vault.createAccount({
         account,
         authToken,
@@ -237,40 +233,42 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       if (success) {
         return { account }
       }
-    } catch (error) {
-      fastify.log.error(error)
-    }
-    reply.code(500)
-    return { account: '' }
-  })
+      // If the driver returned false, raise an error to be handled by the error handler
+      throw new Error('Failed to create account')
+    },
+  )
 
-  fastify.post('/:account/login', {
-    schema: {
-      params: accountParams,
-      body: {
-        type: 'object',
-        properties: {
-          authToken: { type: 'string' },
+  fastify.post(
+    '/:account/login',
+    {
+      schema: {
+        params: accountParams,
+        body: {
+          type: 'object',
+          properties: {
+            authToken: { type: 'string' },
+          },
+          required: ['authToken'],
         },
-        required: ['authToken'],
       },
     },
-  }, async (request, reply) => {
-    const { account } = request.params as { account: string }
-    const { authToken } = request.body as { authToken: string }
-    const valid = await vault.checkSession({ account, session: authToken })
-    if (!valid) {
-      reply.code(403)
-      return { success: false }
+    async (request, reply) => {
+      const { account } = request.params as { account: string }
+      const { authToken } = request.body as { authToken: string }
+      const valid = await vault.checkSession({ account, session: authToken })
+      if (!valid) {
+        reply.code(403)
+        return { success: false }
+      }
+      const session = randomBytes(16).toString('base64')
+      const sessionHash = hashString(session)
+      await vault.updateAccountData({
+        account,
+        session: sessionHash,
+      })
+      return { success: true, session }
     }
-    const session = randomBytes(16).toString('base64')
-    const sessionHash = hashString(session)
-    await vault.updateAccountData({
-      account,
-      session: sessionHash,
-    })
-    return { success: true, session }
-  })
+  )
 
   fastify.patch(
     '/:account',
@@ -286,43 +284,35 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         },
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account } = request.params as { account: string }
       const { metadata = {} } = (
         request.body as { metadata: Record<string, unknown> }
       )
-      try {
-        await vault.updateAccountData({
-          account,
-          metadata,
-        })
-        return { success: true }
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
-    }
+      await vault.updateAccountData({
+        account,
+        metadata,
+      })
+      return { success: true }
+    },
   )
 
-  fastify.get('/:account/salt', {
-    schema: {
-      params: accountParams,
+  fastify.get(
+    '/:account/salt',
+    {
+      schema: {
+        params: accountParams,
+      },
     },
-  }, async (request, reply) => {
-    const { account } = request.params as { account: string }
-    try {
+    async request => {
+      const { account } = request.params as { account: string }
       const salt = await vault.getAccountSalt({ account })
       return {
         success: true,
         salt,
       }
-    } catch (error) {
-      fastify.log.error(error)
-      reply.code(404)
-      return { success: false }
-    }
-  })
+    },
+  )
 
   fastify.get(
     '/:account',
@@ -332,19 +322,13 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         params: accountParams,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account } = request.params as { account: string }
       const authToken = getAuthToken(request)
-      try {
-        const { metadata } = await vault.getAccount({ account, session: authToken })
-        return {
-          success: true,
-          metadata,
-        }
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(403)
-        return { success: false }
+      const { metadata } = await vault.getAccount({ account, session: authToken })
+      return {
+        success: true,
+        metadata,
       }
     },
   )
@@ -357,19 +341,13 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         params: subscriptionParams,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, subscription } = request.params as { account: string, subscription: string }
-      try {
-        const result = await vault.getSubscription({
-          account,
-          id: subscription,
-        })
-        return { success: true, subscription: result }
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
+      const result = await vault.getSubscription({
+        account,
+        id: subscription,
+      })
+      return { success: true, subscription: result }
     },
   )
 
@@ -382,22 +360,16 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         body: subscriptionBody,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, subscription } = request.params as { account: string, subscription: string }
       const { failures, hours, timezone, token } = (
         request.body as FlockPushSubscription
       )
-      try {
-        await vault.setSubscription({
-          account,
-          id: subscription,
-          subscription: { failures, hours, timezone, token },
-        })
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
+      await vault.setSubscription({
+        account,
+        id: subscription,
+        subscription: { failures, hours, timezone, token },
+      })
       return { success: true }
     },
   )
@@ -410,18 +382,12 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
         params: subscriptionParams,
       },
     },
-    async (request, reply) => {
+    async request => {
       const { account, subscription } = request.params as { account: string, subscription: string }
-      try {
-        await vault.deleteSubscription({
-          account,
-          id: subscription,
-        })
-      } catch (error) {
-        fastify.log.error(error)
-        reply.code(500)
-        return { success: false }
-      }
+      await vault.deleteSubscription({
+        account,
+        id: subscription,
+      })
       return { success: true }
     },
   )
