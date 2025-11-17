@@ -288,10 +288,6 @@ resource "aws_api_gateway_stage" "vault_stage" {
   stage_name    = var.environment
   rest_api_id   = aws_api_gateway_rest_api.vault_gateway.id
   deployment_id = aws_api_gateway_deployment.vault_deployment.id
-
-  lifecycle {
-    create_before_destroy = true
-  }
 }
 
 
