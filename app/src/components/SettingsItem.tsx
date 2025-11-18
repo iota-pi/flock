@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Divider, IconButton, ListItem, styled, Typography } from '@mui/material'
+import { Box, Divider, IconButton, ListItemButton, Typography } from '@mui/material'
 import type { ReactNode } from 'react'
 import type { MuiIconType } from './Icons'
 
@@ -11,8 +11,6 @@ export interface SettingsItemProps {
   title: string,
   value?: ReactNode,
 }
-
-const LeftCheckboxLabel = styled('div')(() => ({}))
 
 function SettingsItem({
   disabled,
@@ -26,7 +24,7 @@ function SettingsItem({
 
   return (
     <>
-      <ListItem
+      <ListItemButton
         {...extraListItemProps}
         disabled={disabled || !onClick}
         data-cy={id}
@@ -54,7 +52,7 @@ function SettingsItem({
             </IconButton>
           )}
         </Box>
-      </ListItem>
+      </ListItemButton>
 
       <Divider />
     </>
