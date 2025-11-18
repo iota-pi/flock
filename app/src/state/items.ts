@@ -1,7 +1,7 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { generateItemId } from '../utils'
-import { Frequency } from '../utils/frequencies'
-import { RootState } from '../store'
+import type { Frequency } from '../utils/frequencies'
+import store, { RootState } from '../store'
 
 export type ItemId = string
 export type ItemType = 'person' | 'group'
@@ -71,6 +71,8 @@ export function isItem(item: Item): item is Item {
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
+  const metadata = store.getState().account.metadata
+  const defaultFreq = metadata?.defaultPrayerFrequency?.person as Frequency | undefined
   return {
     archived: false,
     created: new Date().getTime(),
@@ -78,7 +80,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     id: id || generateItemId(),
     name: '',
     prayedFor: [],
-    prayerFrequency: 'monthly',
+    prayerFrequency: defaultFreq ?? 'none',
     summary: '',
     type: 'person',
   }
@@ -93,11 +95,15 @@ export function getBlankPerson(id?: ItemId, isNew = true): PersonItem {
 }
 
 export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
+  // For groups, use metadata default for group items where available
+  const metadata = store.getState().account.metadata
+  const defaultGroupFreq = metadata?.defaultPrayerFrequency?.group as Frequency | undefined
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
     members: [],
     memberPrayerFrequency: 'none',
+    prayerFrequency: defaultGroupFreq ?? 'none',
     type: 'group',
   }
 }

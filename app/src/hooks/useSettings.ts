@@ -6,6 +6,8 @@ import { checkItemCache, clearItemCache, exportData, storeItems, signOutVault } 
 import { useItems, useMetadata } from '../state/selectors'
 import { subscribe, unsubscribe } from '../utils/firebase'
 import { getNextDarkMode } from '../themeUtils'
+import { setMetadata } from '../api/Vault'
+import { Frequency } from '../utils/frequencies'
 
 export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
@@ -28,6 +30,9 @@ export default function useSettings() {
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
+
+  const metadata = useAppSelector(state => state.account.metadata)
+  const defaultFrequencies: Partial<Record<'person'|'group', Frequency>> = metadata?.defaultPrayerFrequency ?? { person: 'none', group: 'none' }
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
   const itemCacheExists = useMemo(
@@ -98,6 +103,21 @@ export default function useSettings() {
     [closeSubscriptionDialog],
   )
 
+  // Default frequency dialog
+  const [showDefaultFrequencyDialog, setShowDefaultFrequencyDialog] = useState(false)
+  const openDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(true), [])
+  const closeDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(false), [])
+
+  const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person'|'group', Frequency>>) => {
+    const newMetadata = { ...metadata, defaultPrayerFrequency: { ...(metadata?.defaultPrayerFrequency || {}), ...d } }
+    try {
+      await setMetadata(newMetadata)
+      dispatch(setMessage({ message: 'Defaults saved' }))
+    } catch (err) {
+      dispatch(setMessage({ message: 'Failed to save defaults' }))
+    }
+  }, [metadata, dispatch])
+
   return {
     account,
     darkMode,
@@ -123,5 +143,10 @@ export default function useSettings() {
     handleConfirmRestore,
     handleConfirmImport,
     handleSubscribe,
+    showDefaultFrequencyDialog,
+    openDefaultFrequencyDialog,
+    closeDefaultFrequencyDialog,
+    defaultFrequencies,
+    saveDefaultFrequencies,
   }
 }

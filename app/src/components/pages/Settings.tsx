@@ -12,6 +12,7 @@ import BasePage from './BasePage'
 import {
   DeleteIcon,
   DownloadIcon,
+  FrequencyIcon,
   EditIcon,
   MuiIconType,
   NotificationIcon,
@@ -25,6 +26,7 @@ const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
 const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
+const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
 import PageContainer from '../PageContainer'
 
 export interface SettingsItemProps {
@@ -69,6 +71,11 @@ function SettingsPage() {
     handleConfirmRestore,
     handleConfirmImport,
     handleSubscribe,
+    showDefaultFrequencyDialog,
+    openDefaultFrequencyDialog,
+    closeDefaultFrequencyDialog,
+    defaultFrequencies,
+    saveDefaultFrequencies,
   } = useSettings()
 
   const handleEditGoal = openGoalDialog
@@ -150,6 +157,12 @@ function SettingsPage() {
           disabled
         />
         <SettingsItem
+          icon={FrequencyIcon}
+          id="default-frequency"
+          onClick={openDefaultFrequencyDialog}
+          title="Set default prayer frequency for new items"
+        />
+        <SettingsItem
           disabled={!itemCacheExists}
           icon={DeleteIcon}
           id="clear-cache"
@@ -196,6 +209,12 @@ function SettingsPage() {
           onClose={handleCloseSubscriptionDialog}
           onSave={handleSubscribe}
           open={showSubscriptionDialog}
+        />
+        <DefaultFrequencyDialog
+          open={showDefaultFrequencyDialog}
+          defaults={defaultFrequencies}
+          onClose={closeDefaultFrequencyDialog}
+          onSave={saveDefaultFrequencies}
         />
       </Suspense>
     </BasePage>
