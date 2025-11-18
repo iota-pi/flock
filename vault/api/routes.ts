@@ -249,8 +249,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       const { authToken } = request.body
       const valid = await vault.checkSession({ account, session: authToken })
       if (!valid) {
-        reply.code(403)
-        return { success: false }
+        throw new HttpError(403, 'Unauthorized')
       }
       const session = randomBytes(16).toString('base64')
       const sessionHash = hashString(session)

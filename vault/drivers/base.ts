@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
 import { getAuthToken } from '../api/util'
+import { HttpError } from '../api/errors'
 
 export type VaultItemType = 'person' | 'group'
 
@@ -96,8 +97,7 @@ export default abstract class BaseDriver<T = unknown> {
     const authToken = getAuthToken(request)
     const valid = await this.checkSession({ account, session: authToken })
     if (!valid) {
-      reply.code(403)
-      throw new Error('Unauthorized')
+      throw new HttpError(403, 'Unauthorized')
     }
   }
 }
