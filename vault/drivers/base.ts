@@ -92,7 +92,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract countSubscriptionFailure(data: { account: string, token: string, maxFailures: number }): Promise<void>
   abstract getSubscription(data: { account: string, id: string }): Promise<FlockPushSubscription | null>
 
-  async auth(request: FastifyRequest, reply: FastifyReply) {
+  async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account
     const authToken = getAuthToken(request)
     const valid = await this.checkSession({ account, session: authToken })
