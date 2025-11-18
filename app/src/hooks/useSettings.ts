@@ -4,6 +4,8 @@ import { setMessage, setUi } from '../state/ui'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import { checkItemCache, clearItemCache, exportData, storeItems, signOutVault } from '../api/Vault'
 import { useItems, useMetadata } from '../state/selectors'
+import { subscribe, unsubscribe } from '../utils/firebase'
+import { getNextDarkMode } from '../themeUtils'
 
 export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
@@ -48,28 +50,52 @@ export default function useSettings() {
     },
     [items],
   )
+  // Dialog state
+  const [showGoalDialog, setShowGoalDialog] = useState(false)
+  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
+  const [showRestoreDialog, setShowRestoreDialog] = useState(false)
+  const [showImportDialog, setShowImportDialog] = useState(false)
+
+  const openGoalDialog = useCallback(() => setShowGoalDialog(true), [])
+  const closeGoalDialog = useCallback(() => setShowGoalDialog(false), [])
+
+  const openSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(true), [])
+  const closeSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), [])
+
+  const openRestoreDialog = useCallback(() => setShowRestoreDialog(true), [])
+  const closeRestoreDialog = useCallback(() => setShowRestoreDialog(false), [])
+
+  const openImportDialog = useCallback(() => setShowImportDialog(true), [])
+  const closeImportDialog = useCallback(() => setShowImportDialog(false), [])
 
   const handleConfirmRestore = useCallback(
     async (restored: any[]) => {
       await storeItems(restored)
       dispatch(setMessage({ message: 'Restore successful' }))
+      closeRestoreDialog()
     },
-    [dispatch],
+    [dispatch, closeRestoreDialog],
   )
 
   const handleConfirmImport = useCallback(
     async (imported: any[]) => {
       await storeItems(imported)
       dispatch(setMessage({ message: 'Import successful' }))
+      closeImportDialog()
     },
-    [dispatch],
+    [dispatch, closeImportDialog],
   )
 
   const handleSubscribe = useCallback(
-    async (fn: (hours: number[] | null) => Promise<void>, hours: number[] | null) => {
-      await fn(hours)
+    async (hours: number[] | null) => {
+      if (hours) {
+        await subscribe(hours)
+      } else {
+        await unsubscribe()
+      }
+      closeSubscriptionDialog()
     },
-    [],
+    [closeSubscriptionDialog],
   )
 
   return {
@@ -82,14 +108,20 @@ export default function useSettings() {
     itemCacheExists,
     handleClearCache,
     handleExport,
+    showGoalDialog,
+    openGoalDialog,
+    closeGoalDialog,
+    showSubscriptionDialog,
+    openSubscriptionDialog,
+    closeSubscriptionDialog,
+    showRestoreDialog,
+    openRestoreDialog,
+    closeRestoreDialog,
+    showImportDialog,
+    openImportDialog,
+    closeImportDialog,
     handleConfirmRestore,
     handleConfirmImport,
     handleSubscribe,
   }
-}
-
-// helper to pick next dark mode; kept local to avoid importing theme directly here
-function getNextDarkMode(current: boolean | null) {
-  if (current === null) return true
-  return !current
 }

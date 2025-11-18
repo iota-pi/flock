@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useState } from 'react'
+import { ReactNode, Suspense, lazy, useCallback } from 'react'
 import {
   Checkbox,
   Divider,
@@ -21,11 +21,10 @@ import {
 } from '../Icons'
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
-import GoalDialog from '../dialogs/GoalDialog'
-import RestoreBackupDialog from '../dialogs/RestoreBackupDialog'
-import { subscribe, unsubscribe } from '../../utils/firebase'
-import SubscriptionDialog from '../dialogs/SubscriptionDialog'
-import ImportPeopleDialog from '../dialogs/ImportPeopleDialog'
+const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
+const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
+const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
+const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
 import PageContainer from '../PageContainer'
 
 export interface SettingsItemProps {
@@ -55,37 +54,31 @@ function SettingsPage() {
     itemCacheExists,
     handleClearCache,
     handleExport,
+    showGoalDialog,
+    openGoalDialog,
+    closeGoalDialog,
+    showSubscriptionDialog,
+    openSubscriptionDialog,
+    closeSubscriptionDialog,
+    showRestoreDialog,
+    openRestoreDialog,
+    closeRestoreDialog,
+    showImportDialog,
+    openImportDialog,
+    closeImportDialog,
     handleConfirmRestore,
     handleConfirmImport,
+    handleSubscribe,
   } = useSettings()
 
-  const [showGoalDialog, setShowGoalDialog] = useState(false)
-  const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
-  const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
-
-  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
-  const handleEditSubscription = useCallback(() => setShowSubscriptionDialog(true), [])
-  const handleCloseSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), [])
-
-  const [showRestoreDialog, setShowRestoreDialog] = useState(false)
-  const handleRestore = useCallback(() => setShowRestoreDialog(true), [])
-  const handleCloseRestoreDialog = useCallback(() => setShowRestoreDialog(false), [])
-
-  const [showImportDialog, setShowImportDialog] = useState(false)
-  const handleImport = useCallback(() => setShowImportDialog(true), [])
-  const handleCloseImportDialog = useCallback(() => setShowImportDialog(false), [])
-
-  const handleSubscribe = useCallback(
-    async (hours: number[] | null) => {
-      setShowSubscriptionDialog(false)
-      if (hours) {
-        await subscribe(hours)
-      } else {
-        await unsubscribe()
-      }
-    },
-    [],
-  )
+  const handleEditGoal = openGoalDialog
+  const handleCloseGoalDialog = closeGoalDialog
+  const handleEditSubscription = openSubscriptionDialog
+  const handleRestore = openRestoreDialog
+  const handleImport = openImportDialog
+  const handleCloseSubscriptionDialog = closeSubscriptionDialog
+  const handleCloseRestoreDialog = closeRestoreDialog
+  const handleCloseImportDialog = closeImportDialog
 
   const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode'
   const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel
@@ -183,26 +176,28 @@ function SettingsPage() {
         />
       </List>
 
-      <GoalDialog
-        naturalGoal={naturalGoal}
-        onClose={handleCloseGoalDialog}
-        open={showGoalDialog}
-      />
-      <RestoreBackupDialog
-        onClose={handleCloseRestoreDialog}
-        onConfirm={handleConfirmRestore}
-        open={showRestoreDialog}
-      />
-      <ImportPeopleDialog
-        onClose={handleCloseImportDialog}
-        onConfirm={handleConfirmImport}
-        open={showImportDialog}
-      />
-      <SubscriptionDialog
-        onClose={handleCloseSubscriptionDialog}
-        onSave={handleSubscribe}
-        open={showSubscriptionDialog}
-      />
+      <Suspense fallback={null}>
+        <GoalDialog
+          naturalGoal={naturalGoal}
+          onClose={handleCloseGoalDialog}
+          open={showGoalDialog}
+        />
+        <RestoreBackupDialog
+          onClose={handleCloseRestoreDialog}
+          onConfirm={handleConfirmRestore}
+          open={showRestoreDialog}
+        />
+        <ImportPeopleDialog
+          onClose={handleCloseImportDialog}
+          onConfirm={handleConfirmImport}
+          open={showImportDialog}
+        />
+        <SubscriptionDialog
+          onClose={handleCloseSubscriptionDialog}
+          onSave={handleSubscribe}
+          open={showSubscriptionDialog}
+        />
+      </Suspense>
     </BasePage>
   )
 }
