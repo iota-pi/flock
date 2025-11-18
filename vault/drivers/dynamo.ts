@@ -179,6 +179,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         metadata,
         salt,
         session,
+        // This session is just a placeholder, so set it as expired
+        sessionExpiry: 0,
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
