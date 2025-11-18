@@ -1,19 +1,14 @@
-import { ReactNode, useCallback, useMemo, useState } from 'react'
+import { ReactNode, useCallback, useState } from 'react'
 import {
-  Box,
   Checkbox,
   Divider,
   FormControlLabel,
-  IconButton,
   List,
-  ListItem,
   styled,
   Typography,
 } from '@mui/material'
 import download from 'js-file-download'
 import BasePage from './BasePage'
-import { useItems, useMetadata } from '../../state/selectors'
-import { getNaturalPrayerGoal } from '../../utils/prayer'
 import {
   DeleteIcon,
   DownloadIcon,
@@ -24,17 +19,14 @@ import {
   SignOutIcon,
   UploadIcon,
 } from '../Icons'
+import SettingsItem from '../SettingsItem'
+import useSettings from '../../hooks/useSettings'
 import GoalDialog from '../dialogs/GoalDialog'
 import RestoreBackupDialog from '../dialogs/RestoreBackupDialog'
-import { Item } from '../../state/items'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setMessage, setUi } from '../../state/ui'
-import { getNextDarkMode } from '../../theme'
 import { subscribe, unsubscribe } from '../../utils/firebase'
 import SubscriptionDialog from '../dialogs/SubscriptionDialog'
 import ImportPeopleDialog from '../dialogs/ImportPeopleDialog'
 import PageContainer from '../PageContainer'
-import { checkItemCache, clearItemCache, exportData, signOutVault, storeItems } from '../../api/Vault'
 
 export interface SettingsItemProps {
   disabled?: boolean,
@@ -52,74 +44,20 @@ const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
     marginLeft: theme.spacing(1),
   },
 }))
-
-function SettingsItem({
-  disabled,
-  icon: Icon,
-  id,
-  onClick,
-  title,
-  value = null,
-}: SettingsItemProps) {
-  // This is a separate object because the typing for ListItem.button is a bit finicky
-  const extraListItemProps: object = {
-    button: !!onClick,
-  }
-
-  return (
-    <>
-      <ListItem
-        {...extraListItemProps}
-        disabled={disabled || !onClick}
-        data-cy={id}
-        onClick={onClick}
-      >
-        <Box flexGrow={1}>
-          <Box py={1}>
-            <Typography>
-              {title}
-            </Typography>
-          </Box>
-        </Box>
-
-        <Box display="flex" alignItems="center">
-          {value}
-
-          {Icon && (
-            <IconButton
-              data-cy="edit-button"
-              disableRipple
-              size="medium"
-            >
-              <Icon fontSize="small" />
-            </IconButton>
-          )}
-        </Box>
-      </ListItem>
-
-      <Divider />
-    </>
-  )
-}
-
 function SettingsPage() {
-  const account = useAppSelector(state => state.account.account)
-  const dispatch = useAppDispatch()
-  const items = useItems()
-
-  const handleSignOut = useCallback(
-    () => signOutVault(),
-    [dispatch],
-  )
-
-  const darkMode = useAppSelector(state => state.ui.darkMode)
-  const handleToggleDarkMode = useCallback(
-    () => dispatch(setUi({ darkMode: getNextDarkMode(darkMode) })),
-    [darkMode, dispatch],
-  )
-
-  const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
-  const [goal] = useMetadata('prayerGoal', naturalGoal)
+  const {
+    account,
+    darkMode,
+    handleSignOut,
+    handleToggleDarkMode,
+    naturalGoal,
+    goal,
+    itemCacheExists,
+    handleClearCache,
+    handleExport,
+    handleConfirmRestore,
+    handleConfirmImport,
+  } = useSettings()
 
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
@@ -129,51 +67,13 @@ function SettingsPage() {
   const handleEditSubscription = useCallback(() => setShowSubscriptionDialog(true), [])
   const handleCloseSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), [])
 
-  const [cacheClearCounter, setCacheClearCounter] = useState(1)
-  const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? checkItemCache() : false),
-    [cacheClearCounter],
-  )
-  const handleClearCache = useCallback(
-    () => {
-      clearItemCache()
-      setCacheClearCounter(c => c + 1)
-    },
-    [],
-  )
-
-  const handleExport = useCallback(
-    async () => {
-      const data = await exportData(items)
-      const json = JSON.stringify(data)
-      return download(json, 'flock.backup.json')
-    },
-    [items],
-  )
-
   const [showRestoreDialog, setShowRestoreDialog] = useState(false)
   const handleRestore = useCallback(() => setShowRestoreDialog(true), [])
   const handleCloseRestoreDialog = useCallback(() => setShowRestoreDialog(false), [])
-  const handleConfirmRestore = useCallback(
-    async (restored: Item[]) => {
-      setShowRestoreDialog(false)
-      await storeItems(restored)
-      dispatch(setMessage({ message: 'Restore successful' }))
-    },
-    [dispatch],
-  )
 
   const [showImportDialog, setShowImportDialog] = useState(false)
   const handleImport = useCallback(() => setShowImportDialog(true), [])
   const handleCloseImportDialog = useCallback(() => setShowImportDialog(false), [])
-  const handleConfirmImport = useCallback(
-    async (imported: Item[]) => {
-      setShowImportDialog(false)
-      await storeItems(imported)
-      dispatch(setMessage({ message: 'Import successful' }))
-    },
-    [dispatch],
-  )
 
   const handleSubscribe = useCallback(
     async (hours: number[] | null) => {
@@ -189,6 +89,11 @@ function SettingsPage() {
 
   const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode'
   const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel
+
+  const onExport = useCallback(async () => {
+    const json = await handleExport()
+    return download(json, 'flock.backup.json')
+  }, [handleExport])
 
   return (
     <BasePage>
@@ -261,7 +166,7 @@ function SettingsPage() {
         <SettingsItem
           icon={DownloadIcon}
           id="export"
-          onClick={handleExport}
+          onClick={onExport}
           title="Create a backup of your data"
         />
         <SettingsItem
