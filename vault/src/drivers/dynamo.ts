@@ -31,7 +31,7 @@ import BaseDriver, {
   VaultKey,
   VaultSubscriptionFull,
 } from './base'
-import type { FlockPushSubscription } from '../../app/src/utils/firebase-types'
+import type { FlockPushSubscription } from '../../../app/src/utils/firebase-types'
 import { ExpiredSessionError } from '../api/errors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'

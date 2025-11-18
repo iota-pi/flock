@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify'
-import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
+import { FlockPushSubscription } from '../../../app/src/utils/firebase-types'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 

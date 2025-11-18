@@ -10,7 +10,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: vault/api/Dockerfile
+      dockerfile: vault/Dockerfile
     command: yarn dev
     depends_on:
       - dynamodb
@@ -22,7 +22,7 @@ services:
     ports:
       - 4000:4000
     volumes:
-      - .:/flock
+      - ./vault/src:/flock/vault/src
     deploy:
       resources:
         limits:

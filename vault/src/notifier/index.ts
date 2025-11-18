@@ -1,4 +1,4 @@
-import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
+import { FlockPushSubscription } from '../../../app/src/utils/firebase-types'
 import { App, initializeApp } from 'firebase-admin/app'
 import { getMessaging } from 'firebase-admin/messaging'
 import getDriver from '../drivers'
