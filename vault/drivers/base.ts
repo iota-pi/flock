@@ -57,20 +57,39 @@ export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
 
-  abstract createAccount(data: BaseData & VaultAccount): Promise<boolean>
-  abstract checkSession(data: AuthData): Promise<{ success: boolean, reason?: string }>
-  abstract getAccount(data: AuthData): Promise<VaultAccountWithAuth>
-  abstract getAccountSalt(data: BaseData): Promise<string>
-  abstract getNewAccountId(): Promise<string>
-  abstract updateAccountData(data: AuthData & Pick<VaultAccount, 'metadata'>): Promise<void>
+  // Create a new account record. Includes `authToken` and may include a
+  // pre-populated `session` for immediate login.
+  abstract createAccount(data: VaultAccountWithAuth & { authToken: string }): Promise<boolean>
 
-  abstract set({ account, item, metadata: { type, iv }, cipher }: VaultItem): Promise<void>
-  abstract get({ account, item }: VaultKey): Promise<VaultItem>
+  // Check session/authentication. `isLogin` instructs the implementation to
+  // validate against `authToken` instead of session hash.
+  abstract checkSession(data: AuthData & { isLogin?: boolean }): Promise<{ success: boolean, reason?: string }>
+
+  // Retrieve account data; `isLogin` optional as in `checkSession`.
+  abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
+
+  abstract getAccountSalt(data: BaseData): Promise<string>
+  abstract getNewAccountId(attempts?: number): Promise<string>
+
+  // Update account-level data. Accepts partial auth data so callers can update
+  // either `metadata` or `session` independently.
+  abstract updateAccountData(data: Partial<AuthData> & { metadata?: Record<string, unknown>, session?: string }): Promise<void>
+
+  // Item CRUD operations
+  abstract set(item: VaultItem): Promise<void>
+  abstract get(key: VaultKey): Promise<VaultItem>
+  abstract fetchMany(opts: { account: string, ids: string[] }): Promise<VaultItem[]>
   abstract fetchAll(
-    { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime: number },
+    { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
   ): Promise<CachedVaultItem[]>
 
-  abstract delete({ account, item }: VaultKey): Promise<void>
+  abstract delete(key: VaultKey): Promise<void>
+
+  // Subscription management
+  abstract setSubscription(data: { account: string, id: string, subscription: FlockPushSubscription }): Promise<void>
+  abstract deleteSubscription(data: { account: string, id: string }): Promise<void>
+  abstract countSubscriptionFailure(data: { account: string, token: string, maxFailures: number }): Promise<void>
+  abstract getSubscription(data: { account: string, id: string }): Promise<FlockPushSubscription | null>
 
   async auth(request: FastifyRequest, reply: FastifyReply) {
     const account = (request.params as { account: string }).account

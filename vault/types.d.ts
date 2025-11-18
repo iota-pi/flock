@@ -1,4 +1,4 @@
-import type DynamoDriver from './drivers/dynamo'
+import type BaseDriver from './drivers/base'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -7,6 +7,6 @@ declare module 'fastify' {
      * Typed to the concrete Dynamo driver so route handlers can access
      * driver-specific methods (e.g. `fetchMany`).
      */
-    vault: DynamoDriver
+    vault: BaseDriver
   }
 }
