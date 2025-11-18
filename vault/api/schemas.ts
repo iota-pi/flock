@@ -56,7 +56,7 @@ export type SubscriptionBody = Static<typeof subscriptionBody>
 // Query schemas
 export const itemsQuery = Type.Object(
   {
-    since: Type.Optional(Type.String()),
+    since: Type.Optional(Type.Number()),
     ids: Type.Optional(Type.String()),
   },
   { $id: 'vault.itemsQuery' },

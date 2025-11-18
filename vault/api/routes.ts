@@ -61,11 +61,10 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
     async request => {
       const { account } = request.params
       const { since, ids: idsString } = request.query
-      const cacheTime = parseInt(since || '') || undefined
-      const ids = (idsString || '').split(',').filter(Boolean)
+      const ids = idsString ? idsString.split(',').filter(Boolean) : []
       const resultPromise = (
-        cacheTime || ids.length === 0
-          ? vault.fetchAll({ account, cacheTime })
+        since || ids.length === 0
+          ? vault.fetchAll({ account, cacheTime: since })
           : vault.fetchMany({ account, ids })
       )
       const results = await resultPromise
