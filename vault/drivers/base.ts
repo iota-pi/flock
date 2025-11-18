@@ -2,13 +2,6 @@ import { FastifyReply, FastifyRequest } from 'fastify'
 import { FlockPushSubscription } from '../../app/src/utils/firebase-types'
 import { getAuthToken } from '../api/util'
 
-export class ExpiredSessionError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ExpiredSessionError'
-  }
-}
-
 export type VaultItemType = 'person' | 'group'
 
 export interface VaultKey {

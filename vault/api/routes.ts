@@ -19,6 +19,7 @@ import {
   SUBSCRIPTION_BODY_REF,
 } from './schemas'
 import { getAuthToken, hashString } from './util'
+import { HttpError } from './errors'
 
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = getDriver('dynamo')
@@ -27,19 +28,21 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   fastify.setErrorHandler((error: Error, request, reply) => {
     request.log.error(error)
 
-    // Map "Not Found" errors from Dynamo driver to 404
-    if (error.message.includes('Could not find') || error.message.includes('not found')) {
+    // If a handler threw an HttpError, respect its status code and message
+    if (error instanceof HttpError) {
+      return reply.code(error.statusCode).send({ success: false, error: error.message })
+    }
+
+    // Map any "Not Found" errors from Dynamo driver to 404
+    if (
+      error.message.toLowerCase().includes('could not find')
+      || error.message.toLowerCase().includes('not found')
+    ) {
       return reply.code(404).send({ success: false, error: 'Not Found' })
     }
 
-    // Map Auth/Session errors to 403
-    if (error.name === 'ExpiredSessionError' || error.message.includes('Invalid session')) {
-      return reply.code(403).send({ success: false, error: 'Forbidden' })
-    }
-
     // Default to 500
-    const statusCode = (error as { statusCode?: number }).statusCode || 500
-    reply.code(statusCode).send({ success: false, error: error.message })
+    reply.code(500).send({ success: false, error: error.message })
   })
 
   fastify.get('/', async () => {
@@ -225,8 +228,7 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
       if (success) {
         return { account }
       }
-      // If the driver returned false, raise an error to be handled by the error handler
-      throw new Error('Failed to create account')
+      throw new HttpError(500, 'Failed to create account')
     },
   )
 
