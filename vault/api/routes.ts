@@ -1,6 +1,5 @@
 import { randomBytes } from 'crypto'
 import type { FastifyPluginCallback } from 'fastify'
-import getDriver from '../drivers'
 import { asItemType } from '../drivers/base'
 import {
   AccountParams,
@@ -22,7 +21,7 @@ import { getAuthToken, hashString } from './util'
 import { HttpError } from './errors'
 
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
-  const vault = getDriver('dynamo')
+  const vault = fastify.vault
   const preHandler = fastify.auth([vault.auth.bind(vault)])
 
   fastify.setErrorHandler((error: Error, request, reply) => {

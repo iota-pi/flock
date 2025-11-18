@@ -5,6 +5,7 @@ import cors from '@fastify/cors'
 import { fastifyAuth } from '@fastify/auth'
 import routes from './routes'
 import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from './schemas'
+import getDriver from '../drivers'
 
 
 async function createServer() {
@@ -29,6 +30,9 @@ async function createServer() {
   server.addSchema(itemsQuery)
   server.addSchema(subscriptionParams)
   server.addSchema(subscriptionBody)
+
+  const vault = getDriver('dynamo')
+  server.decorate('vault', vault)
 
   await server.register(routes)
   return server
