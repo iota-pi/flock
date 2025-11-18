@@ -3,7 +3,7 @@ variable environment {
 }
 
 variable code_bucket {
-  type    = string
+  type = string
 }
 
 variable full_domain {

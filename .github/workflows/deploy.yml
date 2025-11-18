@@ -15,11 +15,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.13.5
-
     - name: Enable corepack
       run: corepack enable
 
@@ -36,7 +31,7 @@ jobs:
         yarn install --immutable
 
     - name: Start docker containers
-      run: docker compose up -d api dynamodb
+      run: docker compose up -d
 
     - name: Wait for DynamoDB to be ready
       run: |
@@ -100,4 +95,4 @@ jobs:
       run: cd vault && yarn lint
 
     - name: Check IAC formatting
-      run: cd infra && terraform fmt -check
+      run: cd infra && ../deploy/tf.sh fmt -check

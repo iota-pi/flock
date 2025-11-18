@@ -33,8 +33,7 @@
     "docker": "docker compose run --rm -it api bash",
     "docker:test": "docker compose run --rm api yarn test",
     "docker:initdb": "docker compose run --rm api yarn initdb",
-    "lint": "eslint",
-    "tf": "docker compose run --rm -it terraform sh"
+    "lint": "eslint"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.5.0",
