@@ -20,12 +20,9 @@ function SettingsItem({
   title,
   value = null,
 }: SettingsItemProps) {
-  const extraListItemProps: object = React.useMemo(() => ({ button: !!onClick }), [onClick])
-
   return (
     <>
       <ListItemButton
-        {...extraListItemProps}
         disabled={disabled || !onClick}
         data-cy={id}
         onClick={onClick}
