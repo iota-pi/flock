@@ -71,8 +71,6 @@ export function isItem(item: Item): item is Item {
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
-  const metadata = store.getState().account.metadata
-  const defaultFreq = metadata?.defaultPrayerFrequency?.person as Frequency | undefined
   return {
     archived: false,
     created: new Date().getTime(),
@@ -80,7 +78,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     id: id || generateItemId(),
     name: '',
     prayedFor: [],
-    prayerFrequency: defaultFreq ?? 'none',
+    prayerFrequency: 'none',
     summary: '',
     type: 'person',
   }
@@ -95,15 +93,11 @@ export function getBlankPerson(id?: ItemId, isNew = true): PersonItem {
 }
 
 export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
-  // For groups, use metadata default for group items where available
-  const metadata = store.getState().account.metadata
-  const defaultGroupFreq = metadata?.defaultPrayerFrequency?.group as Frequency | undefined
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
     members: [],
     memberPrayerFrequency: 'none',
-    prayerFrequency: defaultGroupFreq ?? 'none',
     type: 'group',
   }
 }

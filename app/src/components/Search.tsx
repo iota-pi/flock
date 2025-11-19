@@ -385,6 +385,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 }: Props<T>) {
   const items = useItems()
   const [sortCriteria] = useSortCriteria()
+  const defaultFrequencies = useAppSelector(state => state.account.metadata?.defaultPrayerFrequency)
 
   const selectedIds = useMemo(
     () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
@@ -506,6 +507,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             onCreate({
               ...getBlankItem(option.type),
               ...option.default,
+              prayerFrequency: defaultFrequencies?.[option.type] ?? 'none',
             } as Item)
           }
         } else {
@@ -527,7 +529,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onClear()
       }
     },
-    [onClear, onCreate, onRemove, onSelect, selectedSearchables],
+    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedSearchables],
   )
 
   const theme = useMemo(
