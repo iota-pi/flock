@@ -1713,13 +1713,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sinclair/typebox@npm:^0.34.41":
-  version: 0.34.41
-  resolution: "@sinclair/typebox@npm:0.34.41"
-  checksum: 10c0/0fb61fc2f90c25e30b19b0096eb8ab3ccef401d3e2acfce42168ff0ee877ba5981c8243fa6b1035ac756cde95316724e978b2837dd642d7e4e095de03a999c90
-  languageName: node
-  linkType: hard
-
 "@smithy/abort-controller@npm:^4.2.5":
   version: 4.2.5
   resolution: "@smithy/abort-controller@npm:4.2.5"
@@ -6357,6 +6350,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"typebox@npm:^1.0.53":
+  version: 1.0.53
+  resolution: "typebox@npm:1.0.53"
+  checksum: 10c0/72d222eaa2f17beec37269e7cbd3157f73f443df78f2deac373137f567374df294d77aa3cc01c37a6420209f85529bd8b625311b00621bce6bc1446de60f9e01
+  languageName: node
+  linkType: hard
+
 "typedarray-to-buffer@npm:^3.1.5":
   version: 3.1.5
   resolution: "typedarray-to-buffer@npm:3.1.5"
@@ -6393,11 +6393,11 @@ __metadata:
 
 "typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
   version: 5.9.3
-  resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=d69c25"
+  resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 10c0/6f7e53bf0d9702350deeb6f35e08b69cbc8b958c33e0ec77bdc0ad6a6c8e280f3959dcbfde6f5b0848bece57810696489deaaa53d75de3578ff255d168c1efbd
+  checksum: 10c0/ad09fdf7a756814dce65bc60c1657b40d44451346858eea230e10f2e95a289d9183b6e32e5c11e95acc0ccc214b4f36289dcad4bf1886b0adb84d711d336a430
   languageName: node
   linkType: hard
 
@@ -6555,7 +6555,6 @@ __metadata:
     "@fastify/cookie": "npm:^11.0.2"
     "@fastify/cors": "npm:^11.1.0"
     "@fastify/type-provider-typebox": "npm:^6.1.0"
-    "@sinclair/typebox": "npm:^0.34.41"
     "@stylistic/eslint-plugin": "npm:^5.5.0"
     "@types/node": "npm:^24.3.0"
     "@vitest/eslint-plugin": "npm:^1.4.2"
@@ -6567,6 +6566,7 @@ __metadata:
     firebase-admin: "npm:^10.0.0"
     nodemon: "npm:^2.0.7"
     tsx: "npm:^4.20.6"
+    typebox: "npm:^1.0.53"
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.46.4"
     uuid: "npm:^9.0.1"

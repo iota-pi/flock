@@ -5,6 +5,7 @@
     "strict": true,
     "skipLibCheck": true,
     "allowJs": true,
+    "moduleDetection": "force",
     "moduleResolution": "node",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -17,6 +18,9 @@
     "outDir": "./dist/",
     "noFallthroughCasesInSwitch": true
   },
+  "include": [
+    "src"
+  ],
   "exclude": [
     "node_modules",
     "**/*.js"
