@@ -1,6 +1,4 @@
-import { randomBytes } from 'crypto'
 import type { FastifyPluginCallback } from 'fastify'
-import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from '../schemas'
 import itemsRoutes from './items'
 import accountsRoutes from './accounts'
@@ -8,18 +6,6 @@ import subscriptionsRoutes from './subscriptions'
 import { HttpError } from '../errors'
 
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
-  // Ensure type provider is already applied in server creation; keep here defensively
-  void (fastify.withTypeProvider?.(TypeBoxTypeProvider) ?? null)
-
-  // Register schemas globally so submodules can $ref them
-  fastify.addSchema(accountParams)
-  fastify.addSchema(itemParams)
-  fastify.addSchema(itemBody)
-  fastify.addSchema(itemsBody)
-  fastify.addSchema(itemsQuery)
-  fastify.addSchema(subscriptionParams)
-  fastify.addSchema(subscriptionBody)
-
   // Centralized error handler
   fastify.setErrorHandler((error: Error, request, reply) => {
     request.log.error(error)

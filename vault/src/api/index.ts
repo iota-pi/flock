@@ -1,10 +1,10 @@
 import Fastify from 'fastify'
-import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
+import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import { fastifyAuth } from '@fastify/auth'
-import routes from './routes'
 import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from './schemas'
+import routes from './routes'
 import getDriver from '../drivers'
 
 

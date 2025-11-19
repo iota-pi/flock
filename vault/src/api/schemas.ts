@@ -1,4 +1,4 @@
-import { Type, Static } from '@sinclair/typebox'
+import { Type, Static } from 'typebox'
 
 // Reusable primitive fragments
 const account = Type.String()
