@@ -1,11 +1,5 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useCallback, useMemo } from 'react'
 import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
   IconButton,
   MenuItem,
   Stack,
@@ -14,26 +8,16 @@ import {
 import { DatePicker } from '@mui/x-date-pickers'
 import '@mui/lab'
 import {
-  FILTER_CRITERIA_DISPLAY,
   FILTER_CRITERIA_DISPLAY_MAP,
   FilterCriterionType,
   FilterCriterion,
   getBaseValue,
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
-  DEFAULT_FILTER_CRITERIA,
-} from '../../utils/customFilter'
-import { RemoveIcon } from '../Icons'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setUi } from '../../state/ui'
-import FrequencyPicker from '../FrequencyPicker'
-import { Frequency } from '../../utils/frequencies'
-import { usePrevious } from '../../utils'
-
-export interface Props {
-  onClose: () => void,
-  open: boolean,
-}
+} from '../../../utils/customFilter'
+import { RemoveIcon } from '../../Icons'
+import FrequencyPicker from '../../FrequencyPicker'
+import { Frequency } from '../../../utils/frequencies'
 
 export function FilterCriterionDisplay({
   chosenCriteria,
@@ -68,7 +52,7 @@ export function FilterCriterionDisplay({
         value,
       })
     },
-    [criterion, onChange],
+    [criterion, onChange, index],
   )
   const handleChangeOperation = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -81,14 +65,14 @@ export function FilterCriterionDisplay({
         inverse: operatorDetails.inverse,
       })
     },
-    [criterion, onChange],
+    [criterion, onChange, index],
   )
   const handleChangeValue = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value as FilterCriterion['value']
       onChange(index, { ...criterion, value })
     },
-    [criterion, onChange],
+    [criterion, onChange, index],
   )
   const handleChangeDateValue = useCallback(
     (date: Date | null) => {
@@ -97,7 +81,7 @@ export function FilterCriterionDisplay({
         value: date?.getTime() || new Date().getTime(),
       })
     },
-    [criterion, onChange],
+    [criterion, onChange, index],
   )
   const handleChangeFrequencyValue = useCallback(
     (frequency: Frequency) => {
@@ -106,7 +90,7 @@ export function FilterCriterionDisplay({
         value: frequency,
       })
     },
-    [criterion, onChange],
+    [criterion, onChange, index],
   )
   const handleRemove = useCallback(
     () => onRemove(index),
@@ -135,11 +119,11 @@ export function FilterCriterionDisplay({
         select
         variant="standard"
       >
-        {FILTER_CRITERIA_DISPLAY.filter(
-          cd => criterion.type === cd || !chosenCriteria.has(cd),
+        {Object.keys(FILTER_CRITERIA_DISPLAY_MAP).filter(
+          (cd) => criterion.type === (cd as FilterCriterionType) || !chosenCriteria.has(cd as FilterCriterionType),
         ).map(key => (
           <MenuItem key={key} value={key}>
-            {FILTER_CRITERIA_DISPLAY_MAP[key].name}
+            {FILTER_CRITERIA_DISPLAY_MAP[key as FilterCriterionType].name}
           </MenuItem>
         ))}
       </TextField>
@@ -225,146 +209,3 @@ export function FilterCriterionDisplay({
     </Stack>
   )
 }
-
-
-function FilterDialog({
-  onClose,
-  open,
-}: Props) {
-  const dispatch = useAppDispatch()
-  const filterCriteria = useAppSelector(state => state.ui.filters)
-  const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
-  const prevOpen = usePrevious(open)
-
-  useEffect(
-    () => {
-      if (open && !prevOpen) {
-        const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[fc.type])
-        if (criteria.length > 0) {
-          setLocalCriteria(criteria)
-        } else {
-          setLocalCriteria(DEFAULT_FILTER_CRITERIA)
-        }
-      }
-    },
-    [filterCriteria, open, prevOpen],
-  )
-
-  const chosenCriteria = useMemo(
-    () => new Set(localCriteria.map(lc => lc.type)),
-    [localCriteria],
-  )
-
-  const handleAdd = useCallback(
-    () => setLocalCriteria(lc => {
-      return [
-        ...lc,
-        ...DEFAULT_FILTER_CRITERIA,
-      ]
-    }),
-    [],
-  )
-  const handleChange = useCallback(
-    (index: number, criterion: FilterCriterion) => (
-      setLocalCriteria(prevCriteria => {
-        if (index >= 0 && index < prevCriteria.length) {
-          const copy = [...prevCriteria]
-          copy[index] = criterion
-          return copy
-        }
-        return [...prevCriteria, criterion]
-      })
-    ),
-    [],
-  )
-  const handleRemove = useCallback(
-    (index: number) => setLocalCriteria(
-      prevCriteria => prevCriteria.filter((_, i) => i !== index),
-    ),
-    [],
-  )
-  const handleClear = useCallback(
-    () => {
-      setLocalCriteria([])
-      dispatch(setUi({ filters: [] }))
-    },
-    [dispatch],
-  )
-  const handleDone = useCallback(
-    () => {
-      dispatch(setUi({ filters: localCriteria }))
-      onClose()
-    },
-    [dispatch, localCriteria, onClose],
-  )
-
-  return (
-    <Dialog
-      onClose={onClose}
-      open={open}
-      fullWidth
-      maxWidth="sm"
-    >
-      <DialogTitle>
-        Filter Conditions
-      </DialogTitle>
-
-      <DialogContent>
-        {localCriteria.map((lc, index) => {
-          const chosenForRow = new Set(localCriteria.filter((_, i) => i !== index).map(c => c.type))
-          return (
-            <div key={`${lc.type}-${index}`}>
-              {index === 0 && <Divider />}
-
-              <FilterCriterionDisplay
-                criterion={lc}
-                chosenCriteria={chosenForRow}
-                onChange={handleChange}
-                onRemove={handleRemove}
-                index={index}
-              />
-
-              <Divider />
-            </div>
-          )
-        })}
-
-        <Button
-          data-cy="add-filter-criterion"
-          disabled={localCriteria.length >= FILTER_CRITERIA_DISPLAY.length}
-          fullWidth
-          onClick={handleAdd}
-          variant="outlined"
-        >
-          Add filter condition
-        </Button>
-      </DialogContent>
-
-      <DialogActions>
-        <Button
-          data-cy="filter-cancel"
-          disabled={localCriteria.length === 0}
-          fullWidth
-          onClick={handleClear}
-          startIcon={<RemoveIcon />}
-          variant="outlined"
-        >
-          Clear
-        </Button>
-
-        <Button
-          color="primary"
-          data-cy="filter-done"
-          fullWidth
-          onClick={handleDone}
-          // startIcon={<FilterIcon />}
-          variant="contained"
-        >
-          Done
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
-
-export default FilterDialog
