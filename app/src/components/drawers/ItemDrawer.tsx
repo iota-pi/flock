@@ -330,6 +330,7 @@ function ItemDrawer({
 
   const lastPrayer = getLastPrayedFor(item)
   const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
+  const memberTarget = item.type === 'group' ? item.memberPrayerTarget : undefined
   const frequencyFields = useMemo(
     () => (
       <Grid item xs={12}>
@@ -338,6 +339,7 @@ function ItemDrawer({
           onChange={handleChange}
           prayerFrequency={item.prayerFrequency}
           memberPrayerFrequency={memberFrequency}
+          memberPrayerTarget={memberTarget}
         />
       </Grid>
     ),
@@ -346,6 +348,7 @@ function ItemDrawer({
       item.prayerFrequency,
       item.type,
       memberFrequency,
+      memberTarget,
       lastPrayer,
     ],
   )

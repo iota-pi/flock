@@ -27,6 +27,7 @@ export interface PersonItem extends BaseItem {
 }
 export interface GroupItem extends BaseItem {
   memberPrayerFrequency: Frequency,
+  memberPrayerTarget: 'one' | 'all',
   members: ItemId[],
   type: 'group',
 }
@@ -98,6 +99,7 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
     isNew: isNew || undefined,
     members: [],
     memberPrayerFrequency: 'none',
+    memberPrayerTarget: 'one',
     type: 'group',
   }
 }

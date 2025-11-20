@@ -22,12 +22,15 @@ export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
 }
 export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as Frequency[]
 
-export function frequencyToDays(frequency: Frequency) {
+export type FrequencyOrDays = Frequency | number
+
+export function frequencyToDays(frequency: FrequencyOrDays) {
+  if (typeof frequency === 'number') return frequency
   return FREQUENCIES_TO_DAYS[frequency]
 }
 
-export function frequencyToMilliseconds(frequency: Frequency) {
-  return FREQUENCIES_TO_DAYS[frequency] * ONE_DAY
+export function frequencyToMilliseconds(frequency: FrequencyOrDays) {
+  return frequencyToDays(frequency) * ONE_DAY
 }
 
 export enum Due {
@@ -36,12 +39,12 @@ export enum Due {
   overdue,
 }
 
-export function timeTillDue(lastDate: Date, desiredFrequency: Frequency) {
+export function timeTillDue(lastDate: Date, desiredFrequency: FrequencyOrDays) {
   const dueDate = new Date(lastDate.getTime() + frequencyToMilliseconds(desiredFrequency))
   return dueDate.getTime() - new Date().getTime()
 }
 
-export function isDue(lastDate: Date, desiredFrequency: Frequency): Due {
+export function isDue(lastDate: Date, desiredFrequency: FrequencyOrDays): Due {
   const remiainingTime = timeTillDue(lastDate, desiredFrequency)
   const threshold = Math.ceil(frequencyToDays(desiredFrequency) / 7) * ONE_DAY
   if (remiainingTime < -threshold) {

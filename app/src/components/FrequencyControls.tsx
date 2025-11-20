@@ -1,29 +1,45 @@
-import { Grid, styled, Typography } from '@mui/material'
+import { Grid, styled, Typography, Box, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@mui/material'
 import { GroupItem, Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import { Due, isDue } from '../utils/frequencies'
-import { PersonIcon, PrayerIcon } from './Icons'
+import { FrequencyIcon, PersonIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './InlineText'
 
+type OnChangeData<T extends Item> = Partial<
+  { prayerFrequency: T['prayerFrequency'] } & (
+    T extends GroupItem ? {
+      memberPrayerFrequency: GroupItem['memberPrayerFrequency'],
+      memberPrayerTarget: GroupItem['memberPrayerTarget'],
+    } : {}
+  )
+>
 
 const TextColorTransition = styled(InlineText)(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }))
 
-export interface Props<G extends Item> {
-  lastPrayer?: number,
-  onChange: <T extends G>(data: Partial<Pick<T, 'prayerFrequency' | 'memberPrayerFrequency'>>) => void,
-  prayerFrequency: G['prayerFrequency'],
-  memberPrayerFrequency?: G extends GroupItem ? GroupItem['memberPrayerFrequency'] : undefined,
+type PersonProps = {
+  lastPrayer?: number
+  onChange: (data: OnChangeData<Item>) => void
+  prayerFrequency: Item['prayerFrequency']
 }
 
-function FrequencyControls<G extends Item>({
-  lastPrayer,
-  onChange,
-  prayerFrequency,
-  memberPrayerFrequency,
-}: Props<G>) {
+type GroupProps = {
+  lastPrayer?: number
+  onChange: (data: OnChangeData<GroupItem>) => void
+  prayerFrequency: GroupItem['prayerFrequency']
+  memberPrayerFrequency: GroupItem['memberPrayerFrequency']
+  memberPrayerTarget: GroupItem['memberPrayerTarget']
+}
+
+type Props = PersonProps | GroupProps
+
+function FrequencyControls(props: Props) {
+  const { lastPrayer, onChange, prayerFrequency } = props
+  const isGroup = 'memberPrayerFrequency' in props && props.memberPrayerFrequency !== undefined
+  const memberPrayerTarget = isGroup ? (props as GroupProps).memberPrayerTarget : undefined
+  const memberPrayerFrequency = isGroup ? (props as GroupProps).memberPrayerFrequency : undefined
   const dueColour = 'secondary'
   const overdueColour = 'error'
 
@@ -41,7 +57,16 @@ function FrequencyControls<G extends Item>({
 
   return (
     <Grid container spacing={2}>
-      <Grid item xs={12} sm={memberPrayerFrequency !== undefined ? 6 : 12}>
+      {isGroup && (
+        <Grid item xs={12} mt={2}>
+          <Typography variant="body1" color="text.secondary">
+            You can choose how often to pray for the group as a whole,
+            and for individual members.
+          </Typography>
+        </Grid>
+      )}
+
+      <Grid item xs={12}>
         <FrequencyPicker
           frequency={prayerFrequency}
           fullWidth
@@ -51,18 +76,47 @@ function FrequencyControls<G extends Item>({
           onChange={newFrequency => onChange({ prayerFrequency: newFrequency })}
         />
       </Grid>
+      {isGroup && (
+        <>
+          <Grid item xs={12} sm={6}>
+            <FormControl
+              variant="standard"
+              sx={{ display: 'flex', flexGrow: 1 }}
+            >
+              <InputLabel id="member-prayer-target-label">Pray For</InputLabel>
+              <Select
+                labelId="member-prayer-target-label"
+                id="member-prayer-target"
+                value={memberPrayerTarget ?? 'one'}
+                onChange={(e: SelectChangeEvent<'one'|'all'>) => {
+                  (props as GroupProps).onChange({
+                    memberPrayerTarget: e.target.value as 'one'|'all',
+                  })
+                }}
+                label="Pray For"
+                fullWidth
+              >
+                <MenuItem value="one">One group member</MenuItem>
+                <MenuItem value="all">Every group member</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
 
-      {memberPrayerFrequency && (
-        <Grid item xs={12} sm={6}>
-          <FrequencyPicker
-            frequency={memberPrayerFrequency}
-            fullWidth
-            icon={<PersonIcon />}
-            id="memberPrayer"
-            label="Pray for Members at Least"
-            onChange={newFrequency => onChange({ memberPrayerFrequency: newFrequency })}
-          />
-        </Grid>
+          <Grid item xs={12} sm={6}>
+            <FrequencyPicker
+              frequency={memberPrayerFrequency ?? 'none'}
+              fullWidth
+              icon={<FrequencyIcon />}
+              id="memberPrayer"
+              label="How often"
+              onChange={newFrequency => {
+                (props as GroupProps).onChange({
+                  memberPrayerFrequency: newFrequency,
+                })
+              }}
+            />
+          </Grid>
+        </>
       )}
 
       <Grid item xs={12}>
