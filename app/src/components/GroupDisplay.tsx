@@ -30,7 +30,7 @@ function GroupDisplay({
     [allGroups, itemId],
   )
 
-  const handleSelectGroup = useCallback(
+  const handleSelect = useCallback(
     (group: GroupItem) => {
       const newGroup: GroupItem = {
         ...group,
@@ -40,7 +40,7 @@ function GroupDisplay({
     },
     [itemId],
   )
-  const handleRemoveGroup = useCallback(
+  const handleRemove = useCallback(
     (group: GroupItem) => {
       const newGroup: GroupItem = {
         ...group,
@@ -64,10 +64,14 @@ function GroupDisplay({
           dataCy="groups"
           label="Add to group"
           noItemsText="No groups found"
-          onSelect={handleSelectGroup}
+          onSelect={handleSelect}
+          onRemove={handleRemove}
           selectedItems={currentGroups}
           types={{ group: true }}
           searchDescription
+          showIcons={false}
+          showOptionCheckboxes
+          showSelectedOptions
         />
       )}
 
@@ -78,7 +82,7 @@ function GroupDisplay({
         items={currentGroups}
         noItemsHint="Not in any groups"
         onClick={handleClickGroup}
-        onClickAction={editable ? handleRemoveGroup : undefined}
+        onClickAction={editable ? handleRemove : undefined}
         paddingBottom={0}
         showIcons
       />

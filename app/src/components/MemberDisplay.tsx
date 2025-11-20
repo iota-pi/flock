@@ -40,17 +40,15 @@ function MemberDisplay({
     },
     [dispatch],
   )
-  const handleRemoveMember = useCallback(
-    (member: PersonItem) => {
-      onChange({ members: memberIds.filter(m => m !== member.id) })
+  const handleSelect = useCallback(
+    (item: Item) => {
+      onChange({ members: [...memberIds, item.id] })
     },
     [memberIds, onChange],
   )
-  const handleChangeMembers = useCallback(
-    (item?: Item) => {
-      if (item) {
-        onChange({ members: [...memberIds, item.id] })
-      }
+  const handleRemove = useCallback(
+    (item: Item) => {
+      onChange({ members: memberIds.filter(m => m !== item.id) })
     },
     [memberIds, onChange],
   )
@@ -67,10 +65,14 @@ function MemberDisplay({
           dataCy="members"
           label="Add group members"
           noItemsText="No people found"
-          onSelect={handleChangeMembers}
+          onSelect={handleSelect}
+          onRemove={handleRemove}
           selectedItems={members}
           types={{ person: true }}
           searchDescription
+          showIcons={false}
+          showOptionCheckboxes
+          showSelectedOptions
         />
       )}
 
@@ -81,7 +83,7 @@ function MemberDisplay({
         items={members}
         noItemsHint="No group members"
         onClick={handleClickItem}
-        onClickAction={editable ? handleRemoveMember : undefined}
+        onClickAction={editable ? handleRemove : undefined}
         paddingBottom={0}
         showIcons
         filterTags={filterTags}
