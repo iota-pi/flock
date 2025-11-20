@@ -1,4 +1,3 @@
-import { randomBytes } from 'crypto'
 import type { FastifyPluginCallback } from 'fastify'
 import { asItemType } from '../../drivers/base'
 import {
@@ -30,7 +29,7 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     async request => {
       const { account } = request.params
       const { since, ids: idsString } = request.query
-      const cacheTime = parseInt(since || '') || undefined
+      const cacheTime = since || undefined
       const ids = (idsString || '').split(',').filter(Boolean)
       const resultPromise = (
         cacheTime || ids.length === 0

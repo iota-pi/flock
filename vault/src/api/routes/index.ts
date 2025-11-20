@@ -1,5 +1,4 @@
 import type { FastifyPluginCallback } from 'fastify'
-import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from '../schemas'
 import itemsRoutes from './items'
 import accountsRoutes from './accounts'
 import subscriptionsRoutes from './subscriptions'

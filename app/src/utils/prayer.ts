@@ -1,5 +1,5 @@
 import { isSameDay } from '.'
-import { FrequencyOrDays, frequencyToDays, frequencyToMilliseconds } from './frequencies'
+import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
 import { compareItems, filterArchived, Item } from '../state/items'
 import type { GroupItem } from '../state/items'
 

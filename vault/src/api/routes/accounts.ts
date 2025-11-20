@@ -59,7 +59,7 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
         },
       },
     },
-    async (request) => {
+    async request => {
       const { account } = request.params
       const { authToken } = request.body
       const valid = await vault.checkSession({ account, session: authToken })
