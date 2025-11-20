@@ -1,6 +1,6 @@
 import { isSameDay } from '.'
 import { getItemName, Item } from '../state/items'
-import { FREQUENCIES_TO_DAYS, Frequency } from './frequencies'
+import { Frequency, frequencyToDays } from './frequencies'
 import { getLastPrayedFor } from './prayer'
 
 export type FilterFieldType = (
@@ -156,8 +156,8 @@ export function filterItems<T extends Item>(
         return item.prayerFrequency === criterion.value
       }
       if (criterion.baseOperator === 'greater') {
-        const daysItem = FREQUENCIES_TO_DAYS[item.prayerFrequency]
-        const daysCriterion = FREQUENCIES_TO_DAYS[criterion.value as Frequency]
+        const daysItem = frequencyToDays(item.prayerFrequency)
+        const daysCriterion = frequencyToDays(criterion.value as Frequency)
         return daysItem < daysCriterion
       }
       return true

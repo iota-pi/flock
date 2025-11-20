@@ -1,5 +1,6 @@
-export const ONE_DAY = 1000 * 60 * 60 * 24
-export const FREQUENCIES_TO_DAYS = {
+const ONE_DAY = 1000 * 60 * 60 * 24
+const DUE_WINDOW_IN_DAYS = 7
+const FREQUENCIES_TO_DAYS = {
   daily: 1,
   biweekly: 3.5,
   weekly: 7,
@@ -46,11 +47,11 @@ export function timeTillDue(lastDate: Date, desiredFrequency: FrequencyOrDays) {
 
 export function isDue(lastDate: Date, desiredFrequency: FrequencyOrDays): Due {
   const remiainingTime = timeTillDue(lastDate, desiredFrequency)
-  const threshold = Math.ceil(frequencyToDays(desiredFrequency) / 7) * ONE_DAY
+  const threshold = Math.ceil(frequencyToDays(desiredFrequency) / DUE_WINDOW_IN_DAYS) * ONE_DAY
   if (remiainingTime < -threshold) {
     return Due.overdue
   }
-  if (remiainingTime < (desiredFrequency === 'daily' ? 0 : threshold)) {
+  if (remiainingTime <= (desiredFrequency === 'daily' ? 0 : threshold)) {
     return Due.due
   }
   return Due.fine

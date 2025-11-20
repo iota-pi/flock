@@ -7,20 +7,20 @@ function getGroups(items: Item[]): GroupItem[] {
   return items.filter((i): i is GroupItem => i.type === 'group')
 }
 
-function buildPrayerFreqMap(items: Item[]): Map<string, number> {
+export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
   const unarchived = filterArchived(items)
   const groups = getGroups(unarchived)
 
   const map: Map<string, number> = new Map()
 
-  // Initialise map with each person's own frequency (as days)
+  // Initialise map with each person's own set frequency
   for (const it of unarchived) {
     if (it.type === 'person' && it.prayerFrequency && it.prayerFrequency !== 'none') {
       map.set(it.id, frequencyToDays(it.prayerFrequency))
     }
   }
 
-  // Iterate groups once and apply memberPrayerFrequency (as days) for groups targeting members
+  // Iterate through groups and apply memberPrayerFrequency to members
   for (const g of groups) {
     if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
       const groupDays = frequencyToDays(g.memberPrayerFrequency)
