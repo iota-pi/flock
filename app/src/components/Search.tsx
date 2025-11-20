@@ -16,6 +16,7 @@ import {
   Autocomplete,
   autocompleteClasses,
   Box,
+  Checkbox,
   Chip,
   Divider,
   InputAdornment,
@@ -134,11 +135,15 @@ function OptionComponent({
   showDescription,
   showGroupMemberCount,
   showIcon,
+  showCheckbox,
+  selected,
 }: {
   option: AnySearchable,
   showDescription: boolean,
   showGroupMemberCount: boolean,
   showIcon: boolean,
+  showCheckbox: boolean,
+  selected: boolean,
 }) {
   const icon = getIcon(option.type)
   const name = getName(option)
@@ -181,6 +186,11 @@ function OptionComponent({
       {option.dividerBefore && <Divider />}
 
       <AutocompleteOption>
+        {showCheckbox && (
+          <OptionIconHolder>
+            <Checkbox size="small" checked={!!selected} tabIndex={-1} disableRipple />
+          </OptionIconHolder>
+        )}
         {showIcon && (
           <OptionIconHolder>
             {icon}
@@ -230,6 +240,8 @@ interface SearchableRowSettings {
   showDescriptions: boolean,
   showGroupMemberCounts: boolean,
   showIcons: boolean,
+  showCheckboxes: boolean,
+  selected: boolean,
 }
 type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings]
 type PropsAndOptionList = PropsAndOption[]
@@ -255,6 +267,8 @@ const SearchableRow = memo((
         showDescription={settings.showDescriptions}
         showGroupMemberCount={settings.showGroupMemberCounts}
         showIcon={settings.showIcons}
+        showCheckbox={settings.showCheckboxes}
+        selected={settings.selected}
       />
     </OptionHolder>
   )
@@ -353,6 +367,9 @@ export interface Props<T> {
   showIcons?: boolean,
   showSelectedChips?: boolean,
   showSelectedOptions?: boolean,
+  showOptionCheckboxes?: boolean,
+  /** Keep the popper open after selecting an option */
+  keepPopperOpenOnSelect?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
@@ -381,6 +398,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showIcons = true,
   showSelectedChips = false,
   showSelectedOptions = false,
+  showOptionCheckboxes = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
   const items = useItems()
@@ -393,17 +411,15 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   )
 
   const selectedSearchables: AnySearchable[] = useMemo(
-    () => (
-      showSelectedChips && selectedItems.map(
-        (item): AnySearchable => ({
-          data: item,
-          id: item.id,
-          name: getItemName(item),
-          type: item.type,
-        }),
-      )
-    ) || [],
-    [selectedItems, showSelectedChips],
+    () => selectedItems.map(
+      (item): AnySearchable => ({
+        data: item,
+        id: item.id,
+        name: getItemName(item),
+        type: item.type,
+      }),
+    ),
+    [selectedItems],
   )
 
   const filteredItems = useMemo(
@@ -411,11 +427,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       items.filter(item => (
         types[item.type]
         && (includeArchived || !item.archived)
-        && (showSelectedChips || !selectedIds.has(item.id))
+        && (showSelectedOptions || !selectedIds.has(item.id))
       )),
       sortCriteria,
     ),
-    [includeArchived, items, selectedIds, showSelectedChips, sortCriteria, types],
+    [includeArchived, items, selectedIds, showSelectedOptions, sortCriteria, types],
   )
 
   const options = useMemo<AnySearchable[]>(
@@ -512,7 +528,9 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           }
         } else {
           const data = option.data as T
-          if (onSelect) {
+          if (selectedIds.has(data.id)) {
+            onRemove?.(data)
+          } else if (onSelect) {
             onSelect(data)
           }
         }
@@ -545,6 +563,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         disableListWrap
         filterOptions={filterFunc}
         filterSelectedOptions={!showSelectedOptions}
+        disableCloseOnSelect={showOptionCheckboxes}
         getOptionLabel={option => getName(option)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         ListboxComponent={ListBoxComponent}
@@ -580,14 +599,14 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           />
         )}
         renderOption={
-          (props, option) => ([
+          (props, option, { selected }) => ([
             props,
             option,
-            { showDescriptions, showGroupMemberCounts, showIcons },
+            { showDescriptions, showGroupMemberCounts, showIcons, showCheckboxes: showOptionCheckboxes, selected },
           ]) as React.ReactNode
         }
         renderTags={(selectedOptions, getTagProps) => (
-          (
+          showSelectedChips && (
             maxChips
               ? selectedOptions.slice(0, maxChips)
               : selectedOptions
