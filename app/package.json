@@ -10,6 +10,7 @@
     "postinstall": "patch-package",
     "start": "yarn vault:dev && vite",
     "test": "vitest",
+    "coverage": "vitest run --coverage",
     "vault:dev": "cd .. && docker compose up -d api"
   },
   "dependencies": {
@@ -69,6 +70,7 @@
     "@types/debounce": "^1.2.1",
     "@types/react-router-dom": "^5.1.7",
     "@types/uuid": "^9.0.7",
+    "@vitest/coverage-v8": "^4.0.11",
     "@vitest/eslint-plugin": "^1.4.2",
     "browserslist-to-esbuild": "^1.2.0",
     "eslint": "^9.39.1",
