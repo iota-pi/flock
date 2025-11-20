@@ -40,11 +40,13 @@ export function FilterCriterionDisplay({
   criterion,
   onChange,
   onRemove,
+  index,
 }: {
   chosenCriteria: Set<FilterCriterionType>,
   criterion: FilterCriterion,
-  onChange: (prevCriterionName: FilterCriterionType, criterion: FilterCriterion) => void,
-  onRemove: (criterion: FilterCriterionType) => void,
+  onChange: (index: number, criterion: FilterCriterion) => void,
+  onRemove: (index: number) => void,
+  index: number,
 }) {
   const criterionDetails = FILTER_CRITERIA_DISPLAY_MAP[criterion.type]
 
@@ -58,7 +60,7 @@ export function FilterCriterionDisplay({
       )
       const operator = FILTER_CRITERIA_DISPLAY_MAP[newCriterionType].operators[0]
       const baseOperator = FILTER_OPERATORS_MAP[operator].baseOperator
-      onChange(criterion.type, {
+      onChange(index, {
         ...criterion,
         type: newCriterionType,
         operator,
@@ -72,7 +74,7 @@ export function FilterCriterionDisplay({
     (event: ChangeEvent<HTMLInputElement>) => {
       const operatorName = event.target.value as FilterOperatorName
       const operatorDetails = FILTER_OPERATORS_MAP[operatorName]
-      onChange(criterion.type, {
+      onChange(index, {
         ...criterion,
         baseOperator: operatorDetails.baseOperator,
         operator: operatorName,
@@ -84,37 +86,31 @@ export function FilterCriterionDisplay({
   const handleChangeValue = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const value = event.target.value as FilterCriterion['value']
-      onChange(criterion.type, { ...criterion, value })
+      onChange(index, { ...criterion, value })
     },
     [criterion, onChange],
   )
   const handleChangeDateValue = useCallback(
     (date: Date | null) => {
-      onChange(
-        criterion.type,
-        {
-          ...criterion,
-          value: date?.getTime() || new Date().getTime(),
-        },
-      )
+      onChange(index, {
+        ...criterion,
+        value: date?.getTime() || new Date().getTime(),
+      })
     },
     [criterion, onChange],
   )
   const handleChangeFrequencyValue = useCallback(
     (frequency: Frequency) => {
-      onChange(
-        criterion.type,
-        {
-          ...criterion,
-          value: frequency,
-        },
-      )
+      onChange(index, {
+        ...criterion,
+        value: frequency,
+      })
     },
     [criterion, onChange],
   )
   const handleRemove = useCallback(
-    () => onRemove(criterion.type),
-    [criterion.type, onRemove],
+    () => onRemove(index),
+    [onRemove, index],
   )
 
   const currentDate = useMemo(
@@ -269,15 +265,12 @@ function FilterDialog({
     [],
   )
   const handleChange = useCallback(
-    (prevType: FilterCriterionType, criterion: FilterCriterion) => (
+    (index: number, criterion: FilterCriterion) => (
       setLocalCriteria(prevCriteria => {
-        const index = prevCriteria.findIndex(c => c.type === prevType)
-        if (index > -1) {
-          return [
-            ...prevCriteria.slice(0, index),
-            criterion,
-            ...prevCriteria.slice(index + 1),
-          ]
+        if (index >= 0 && index < prevCriteria.length) {
+          const copy = [...prevCriteria]
+          copy[index] = criterion
+          return copy
         }
         return [...prevCriteria, criterion]
       })
@@ -285,8 +278,8 @@ function FilterDialog({
     [],
   )
   const handleRemove = useCallback(
-    (type: FilterCriterionType) => setLocalCriteria(
-      prevCriteria => prevCriteria.filter(x => x.type !== type),
+    (index: number) => setLocalCriteria(
+      prevCriteria => prevCriteria.filter((_, i) => i !== index),
     ),
     [],
   )
@@ -317,20 +310,24 @@ function FilterDialog({
       </DialogTitle>
 
       <DialogContent>
-        {localCriteria.map((lc, index) => (
-          <div key={`${lc.type}-${index}`}>
-            {index === 0 && <Divider />}
+        {localCriteria.map((lc, index) => {
+          const chosenForRow = new Set(localCriteria.filter((_, i) => i !== index).map(c => c.type))
+          return (
+            <div key={`${lc.type}-${index}`}>
+              {index === 0 && <Divider />}
 
-            <FilterCriterionDisplay
-              criterion={lc}
-              chosenCriteria={chosenCriteria}
-              onChange={handleChange}
-              onRemove={handleRemove}
-            />
+              <FilterCriterionDisplay
+                criterion={lc}
+                chosenCriteria={chosenForRow}
+                onChange={handleChange}
+                onRemove={handleRemove}
+                index={index}
+              />
 
-            <Divider />
-          </div>
-        ))}
+              <Divider />
+            </div>
+          )
+        })}
 
         <Button
           data-cy="add-filter-criterion"
