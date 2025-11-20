@@ -22,6 +22,7 @@ services:
     ports:
       - 4000:4000
     volumes:
+      - ./app:/flock/app
       - ./vault/src:/flock/vault/src
     deploy:
       resources:
