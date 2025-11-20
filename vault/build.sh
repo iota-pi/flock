@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ./node_modules/.bin/esbuild \
-  index.ts \
+  src/index.ts \
   --outfile=dist/bundled/lambda.js \
   --bundle \
   --minify \
