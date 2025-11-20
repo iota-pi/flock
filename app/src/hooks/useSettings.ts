@@ -15,8 +15,11 @@ export default function useSettings() {
   const items = useItems()
 
   const handleSignOut = useCallback(
-    () => signOutVault(),
-    [],
+    () => {
+      signOutVault()
+      dispatch(setMessage({ message: 'Signed out' }))
+    },
+    [dispatch],
   )
 
   const darkMode = useAppSelector(state => state.ui.darkMode)
@@ -43,15 +46,22 @@ export default function useSettings() {
     () => {
       clearItemCache()
       setCacheClearCounter(c => c + 1)
+      dispatch(setMessage({ message: 'Item cache cleared' }))
     },
     [],
   )
 
   const handleExport = useCallback(
     async () => {
-      const data = await exportData(items)
-      const json = JSON.stringify(data)
-      return json
+      try {
+        const data = await exportData(items)
+        const json = JSON.stringify(data)
+        dispatch(setMessage({ message: 'Backup created' }))
+        return json
+      } catch (err) {
+        dispatch(setMessage({ message: 'Failed to create backup' }))
+        throw err
+      }
     },
     [items],
   )
@@ -75,30 +85,46 @@ export default function useSettings() {
 
   const handleConfirmRestore = useCallback(
     async (restored: any[]) => {
-      await storeItems(restored)
-      dispatch(setMessage({ message: 'Restore successful' }))
-      closeRestoreDialog()
+      try {
+        await storeItems(restored)
+        dispatch(setMessage({ message: 'Restore successful' }))
+        closeRestoreDialog()
+      } catch (err) {
+        dispatch(setMessage({ message: 'Restore failed' }))
+        console.error('Restore failed', err)
+      }
     },
     [dispatch, closeRestoreDialog],
   )
 
   const handleConfirmImport = useCallback(
     async (imported: any[]) => {
-      await storeItems(imported)
-      dispatch(setMessage({ message: 'Import successful' }))
-      closeImportDialog()
+      try {
+        await storeItems(imported)
+        dispatch(setMessage({ message: 'Import successful' }))
+        closeImportDialog()
+      } catch (err) {
+        dispatch(setMessage({ message: 'Import failed' }))
+        console.error('Import failed', err)
+      }
     },
     [dispatch, closeImportDialog],
   )
 
   const handleSubscribe = useCallback(
     async (hours: number[] | null) => {
-      if (hours) {
-        await subscribe(hours)
-      } else {
-        await unsubscribe()
+      try {
+        if (hours) {
+          await subscribe(hours)
+          dispatch(setMessage({ message: 'Subscription saved' }))
+        } else {
+          await unsubscribe()
+          dispatch(setMessage({ message: 'Subscription removed' }))
+        }
+        closeSubscriptionDialog()
+      } catch (err) {
+        dispatch(setMessage({ message: 'Failed to update subscription' }))
       }
-      closeSubscriptionDialog()
     },
     [closeSubscriptionDialog],
   )
@@ -112,7 +138,7 @@ export default function useSettings() {
     const newMetadata = { ...metadata, defaultPrayerFrequency: { ...(metadata?.defaultPrayerFrequency || {}), ...d } }
     try {
       await setMetadata(newMetadata)
-      dispatch(setMessage({ message: 'Defaults saved' }))
+      dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
     } catch (err) {
       dispatch(setMessage({ message: 'Failed to save defaults' }))
     }

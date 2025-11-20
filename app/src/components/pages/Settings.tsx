@@ -90,10 +90,17 @@ function SettingsPage() {
   const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode'
   const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel
 
-  const onExport = useCallback(async () => {
-    const json = await handleExport()
-    return download(json, 'flock.backup.json')
-  }, [handleExport])
+  const onExport = useCallback(
+    async () => {
+      try {
+        const json = await handleExport()
+        return download(json, 'flock.backup.json')
+      } catch (err) {
+        console.error('Export failed', err)
+      }
+    },
+    [handleExport],
+  )
 
   return (
     <BasePage>
