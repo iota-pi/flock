@@ -1,8 +1,8 @@
-import { Grid, styled, Typography, Box, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@mui/material'
+import { Grid, styled, Typography, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@mui/material'
 import { GroupItem, Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import { Due, isDue } from '../utils/frequencies'
-import { FrequencyIcon, PersonIcon, PrayerIcon } from './Icons'
+import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './InlineText'
 
@@ -11,7 +11,7 @@ type OnChangeData<T extends Item> = Partial<
     T extends GroupItem ? {
       memberPrayerFrequency: GroupItem['memberPrayerFrequency'],
       memberPrayerTarget: GroupItem['memberPrayerTarget'],
-    } : {}
+    } : object
   )
 >
 

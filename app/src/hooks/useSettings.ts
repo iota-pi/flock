@@ -2,12 +2,19 @@ import { useCallback, useMemo, useState } from 'react'
 import { useAppDispatch, useAppSelector } from '../store'
 import { setMessage, setUi } from '../state/ui'
 import { getNaturalPrayerGoal } from '../utils/prayer'
-import { checkItemCache, clearItemCache, exportData, storeItems, signOutVault } from '../api/Vault'
+import {
+  checkItemCache,
+  clearItemCache,
+  exportData,
+  setMetadata,
+  signOutVault,
+  storeItems,
+} from '../api/Vault'
 import { useItems, useMetadata } from '../state/selectors'
 import { subscribe, unsubscribe } from '../utils/firebase'
 import { getNextDarkMode } from '../themeUtils'
-import { setMetadata } from '../api/Vault'
-import { Frequency } from '../utils/frequencies'
+import type { Frequency } from '../utils/frequencies'
+import type { Item } from '../state/items'
 
 export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
@@ -84,7 +91,7 @@ export default function useSettings() {
   const closeImportDialog = useCallback(() => setShowImportDialog(false), [])
 
   const handleConfirmRestore = useCallback(
-    async (restored: any[]) => {
+    async (restored: Item[]) => {
       try {
         await storeItems(restored)
         dispatch(setMessage({ message: 'Restore successful' }))
@@ -98,7 +105,7 @@ export default function useSettings() {
   )
 
   const handleConfirmImport = useCallback(
-    async (imported: any[]) => {
+    async (imported: Item[]) => {
       try {
         await storeItems(imported)
         dispatch(setMessage({ message: 'Import successful' }))
@@ -124,6 +131,7 @@ export default function useSettings() {
         closeSubscriptionDialog()
       } catch (err) {
         dispatch(setMessage({ message: 'Failed to update subscription' }))
+        console.error('Subscription update failed', err)
       }
     },
     [closeSubscriptionDialog],
@@ -141,6 +149,7 @@ export default function useSettings() {
       dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
     } catch (err) {
       dispatch(setMessage({ message: 'Failed to save defaults' }))
+      console.error('Failed to save default frequencies', err)
     }
   }, [metadata, dispatch])
 

@@ -1,7 +1,7 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
-import store, { RootState } from '../store'
+import type { RootState } from '../store'
 
 export type ItemId = string
 export type ItemType = 'person' | 'group'

@@ -1,8 +1,8 @@
 export function getNextDarkMode(darkMode: boolean | null) {
   if (darkMode === null) {
-    return true;
+    return true
   } else if (darkMode === false) {
-    return null;
+    return null
   }
-  return false;
+  return false
 }

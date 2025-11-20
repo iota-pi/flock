@@ -1,6 +1,5 @@
-import React from 'react'
+import { memo, ReactNode } from 'react'
 import { Box, Divider, IconButton, ListItemButton, Typography } from '@mui/material'
-import type { ReactNode } from 'react'
 import type { MuiIconType } from './Icons'
 
 export interface SettingsItemProps {
@@ -56,4 +55,4 @@ function SettingsItem({
   )
 }
 
-export default React.memo(SettingsItem)
+export default memo(SettingsItem)

@@ -120,7 +120,7 @@ export function FilterCriterionDisplay({
         variant="standard"
       >
         {Object.keys(FILTER_CRITERIA_DISPLAY_MAP).filter(
-          (cd) => criterion.type === (cd as FilterCriterionType) || !chosenCriteria.has(cd as FilterCriterionType),
+          crt => criterion.type === (crt as FilterCriterionType) || !chosenCriteria.has(crt as FilterCriterionType),
         ).map(key => (
           <MenuItem key={key} value={key}>
             {FILTER_CRITERIA_DISPLAY_MAP[key as FilterCriterionType].name}
