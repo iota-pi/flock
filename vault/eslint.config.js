@@ -48,4 +48,10 @@ export default defineConfig([
       '@typescript-eslint/dot-notation': 'error',
     },
   },
+  {
+    files: ['**/*.spec.ts', '**/*.spec.tsx', '**/tests/**/*.ts', '**/tests/**/*.tsx'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 ])
