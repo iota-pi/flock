@@ -335,6 +335,7 @@ function ItemDrawer({
     () => (
       <Grid item xs={12}>
         <FrequencyControls
+          id={item.id}
           lastPrayer={lastPrayer}
           onChange={handleChange}
           prayerFrequency={item.prayerFrequency}

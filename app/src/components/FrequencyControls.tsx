@@ -1,10 +1,12 @@
+import { useMemo } from 'react'
 import { Grid, styled, Typography, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@mui/material'
 import { GroupItem, Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
-import { Due, isDue } from '../utils/frequencies'
+import { Due, FrequencyOrDays, frequencyToDays, isDue } from '../utils/frequencies'
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './InlineText'
+import { useItems } from '../state/selectors'
 
 type OnChangeData<T extends Item> = Partial<
   { prayerFrequency: T['prayerFrequency'] } & (
@@ -20,17 +22,19 @@ const TextColorTransition = styled(InlineText)(({ theme }) => ({
 }))
 
 type PersonProps = {
-  lastPrayer?: number
-  onChange: (data: OnChangeData<Item>) => void
-  prayerFrequency: Item['prayerFrequency']
+  id: Item['id'],
+  lastPrayer?: number,
+  onChange: (data: OnChangeData<Item>) => void,
+  prayerFrequency: Item['prayerFrequency'],
 }
 
 type GroupProps = {
-  lastPrayer?: number
-  onChange: (data: OnChangeData<GroupItem>) => void
-  prayerFrequency: GroupItem['prayerFrequency']
-  memberPrayerFrequency: GroupItem['memberPrayerFrequency']
-  memberPrayerTarget: GroupItem['memberPrayerTarget']
+  id: Item['id'],
+  lastPrayer?: number,
+  onChange: (data: OnChangeData<GroupItem>) => void,
+  prayerFrequency: GroupItem['prayerFrequency'],
+  memberPrayerFrequency: GroupItem['memberPrayerFrequency'],
+  memberPrayerTarget: GroupItem['memberPrayerTarget'],
 }
 
 type Props = PersonProps | GroupProps
@@ -55,6 +59,43 @@ function FrequencyControls(props: Props) {
     }
   }
 
+  const allGroups = useItems<GroupItem>('group')
+  const partOfGroups = useMemo(
+    () => (
+      isGroup
+        ? []
+        : allGroups.filter(g => g.members.includes(props.id))
+    ),
+    [allGroups, isGroup, props.id],
+  )
+  const inheritedFrequency = useMemo(() => {
+    let frequency: FrequencyOrDays = 'none'
+    let group: GroupItem | null = null
+    for (const g of partOfGroups) {
+      if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
+        const newBaseDays = frequencyToDays(g.memberPrayerFrequency)
+        const newDays = (
+          g.memberPrayerTarget === 'one'
+            ? newBaseDays
+            : newBaseDays / g.members.length
+        )
+        if (newDays < frequencyToDays(frequency)) {
+          frequency = (
+            newDays === newBaseDays
+              ? g.memberPrayerFrequency
+              : Math.round(newDays)
+          )
+          group = g
+        }
+      }
+    }
+    return { frequency, group }
+  }, [partOfGroups])
+  const inheritedFrequencyIsFaster = useMemo(
+    () => frequencyToDays(inheritedFrequency.frequency) < frequencyToDays(prayerFrequency),
+    [inheritedFrequency, prayerFrequency],
+  )
+
   return (
     <Grid container spacing={2}>
       {isGroup && (
@@ -75,6 +116,24 @@ function FrequencyControls(props: Props) {
           label="Prayer Frequency"
           onChange={newFrequency => onChange({ prayerFrequency: newFrequency })}
         />
+
+        {(
+          inheritedFrequency.group !== null
+          && inheritedFrequencyIsFaster
+          && (
+          <Typography variant="body2" color="text.secondary" mt={1}>
+            As a member of&nbsp;
+            <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              {inheritedFrequency.group.name}
+            </InlineText>
+            &nbsp;this person will be scheduled at least
+            {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
+            <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              {inheritedFrequency.frequency}
+            </InlineText>
+            {typeof inheritedFrequency.frequency === 'string' ? '' : ' days'}
+          </Typography>
+        ))}
       </Grid>
       {isGroup && (
         <>
