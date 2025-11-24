@@ -1,4 +1,3 @@
-import { vi } from 'vitest'
 import crypto from 'node:crypto'
 
 vi.mock('./env', () => ({

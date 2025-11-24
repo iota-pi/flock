@@ -1,7 +1,7 @@
 import { hash } from 'crypto'
-import { FastifyRequest } from 'fastify'
-import { RouteGenericInterface } from 'fastify/types/route'
-import { IncomingMessage, Server } from 'http'
+import type { FastifyRequest } from 'fastify'
+import type { RouteGenericInterface } from 'fastify/types/route'
+import type { IncomingMessage, Server } from 'http'
 
 export function getAuthToken(request: FastifyRequest<RouteGenericInterface, Server, IncomingMessage>) {
   const auth = request.headers.authorization || ''
