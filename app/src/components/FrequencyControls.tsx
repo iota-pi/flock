@@ -121,19 +121,20 @@ function FrequencyControls(props: Props) {
           inheritedFrequency.group !== null
           && inheritedFrequencyIsFaster
           && (
-          <Typography variant="body2" color="text.secondary" mt={1}>
-            As a member of&nbsp;
-            <InlineText variant="inherit" fontWeight="fontWeightMedium">
-              {inheritedFrequency.group.name}
-            </InlineText>
-            &nbsp;this person will be scheduled at least
-            {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
-            <InlineText variant="inherit" fontWeight="fontWeightMedium">
-              {inheritedFrequency.frequency}
-            </InlineText>
-            {typeof inheritedFrequency.frequency === 'string' ? '' : ' days'}
-          </Typography>
-        ))}
+            <Typography variant="body2" color="text.secondary" mt={1}>
+              As a member of&nbsp;
+              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+                {inheritedFrequency.group.name}
+              </InlineText>
+              &nbsp;this person will be scheduled at least
+              {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
+              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+                {inheritedFrequency.frequency}
+              </InlineText>
+              {typeof inheritedFrequency.frequency === 'string' ? '' : ' days'}
+            </Typography>
+          )
+        )}
       </Grid>
       {isGroup && (
         <>
