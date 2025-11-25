@@ -3,9 +3,19 @@ import type { ItemType } from '../state/items'
 import type { FlockPushSubscription } from '../utils/firebase-types'
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
-import env from '../env'
 
-const ENDPOINT = env.VAULT_ENDPOINT
+// URL helpers to reduce repeated getAccountId() calls
+function accountUrl(path = '') {
+  return `/${getAccountId()}${path}`
+}
+
+function itemsUrl(itemId?: string) {
+  return accountUrl(itemId ? `/items/${itemId}` : '/items')
+}
+
+function subscriptionUrl(subscriptionId: string) {
+  return accountUrl(`/subscriptions/${subscriptionId}`)
+}
 
 export interface VaultKey {
   item: string,
@@ -37,12 +47,13 @@ export async function vaultFetchMany({
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
-  let url = `${ENDPOINT}/${getAccountId()}/items`
+  const url = itemsUrl()
   if (cacheTime !== undefined) {
+    let urlWithQuery = url
     if (cacheTime) {
-      url = `${url}?since=${cacheTime}`
+      urlWithQuery = `${url}?since=${cacheTime}`
     }
-    const result = await flockRequest(a => a.get(url))
+    const result = await flockRequest(a => a.get(urlWithQuery))
     return result.data.items
   } else if (ids) {
     const result = await flockRequestChunked(
@@ -62,13 +73,13 @@ export async function vaultFetchMany({
 }
 
 export async function vaultFetch({ item }: VaultKey): Promise<VaultItem> {
-  const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
+  const url = itemsUrl(item)
   const result = await flockRequest(a => a.get(url))
   return result.data.items[0]
 }
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
-  const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
+  const url = itemsUrl(item)
   const result = await flockRequest(
     a => a.put(url, { cipher, ...metadata }),
   )
@@ -79,7 +90,7 @@ export async function vaultPut({ cipher, item, metadata }: VaultItem) {
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
-  const url = `${ENDPOINT}/${getAccountId()}/items`
+  const url = itemsUrl()
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
   const result = await flockRequestChunked(
     {
@@ -94,7 +105,7 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
 }
 
 export async function vaultDelete({ item }: VaultKey) {
-  const url = `${ENDPOINT}/${getAccountId()}/items/${item}`
+  const url = itemsUrl(item)
   const result = await flockRequest(a => a.delete(url))
   const success = result.data.success || false
   if (!success) {
@@ -103,7 +114,7 @@ export async function vaultDelete({ item }: VaultKey) {
 }
 
 export async function vaultDeleteMany({ items }: & { items: string[] }) {
-  const url = `${ENDPOINT}/${getAccountId()}/items`
+  const url = itemsUrl()
   const result = await flockRequestChunked(
     {
       data: items,
@@ -120,7 +131,7 @@ type VaultCreateAccountResult = { account: string }
 export async function vaultCreateAccount(
   { salt, authToken }: { salt: string; authToken: string },
 ): Promise<VaultCreateAccountResult> {
-  const url = `${ENDPOINT}/account`
+  const url = '/account'
   const result = await flockRequest({
     factory: a => a.post(url, { salt, authToken }),
     options: { allowNoInit: true },
@@ -130,7 +141,7 @@ export async function vaultCreateAccount(
 }
 
 export async function vaultGetSalt() {
-  const url = `${ENDPOINT}/${getAccountId()}/salt`
+  const url = accountUrl('/salt')
   const result = await flockRequest({
     factory: a => a.get(url),
     options: { allowNoInit: true },
@@ -145,7 +156,7 @@ export async function vaultGetSalt() {
 }
 
 export async function vaultGetSession(authToken: string) {
-  const url = `${ENDPOINT}/${getAccountId()}/login`
+  const url = accountUrl('/login')
   const result = await flockRequest({
     factory: a => a.post(url, { authToken }),
     options: { allowNoInit: true },
@@ -160,7 +171,7 @@ export async function vaultGetSession(authToken: string) {
 }
 
 export async function vaultGetMetadata() {
-  const url = `${ENDPOINT}/${getAccountId()}`
+  const url = accountUrl()
   const result = await flockRequest(a => a.get(url))
   if (!result.data.metadata) {
     throw new Error('No metadata found for account')
@@ -170,7 +181,7 @@ export async function vaultGetMetadata() {
 }
 
 export async function vaultSetMetadata(metadata: CryptoResult) {
-  const url = `${ENDPOINT}/${getAccountId()}`
+  const url = accountUrl()
   const result = await flockRequest(a => a.patch(url, { metadata }))
   return result.data.success as boolean
 }
@@ -181,19 +192,19 @@ export async function vaultSetSubscription(
     subscription,
   }: VaultSubscription & { subscriptionId: string },
 ) {
-  const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
+  const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.put(url, { ...subscription }))
   return result.data.success as boolean
 }
 
 export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }) {
-  const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
+  const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.delete(url))
   return result.data.success as boolean
 }
 
 export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }) {
-  const url = `${ENDPOINT}/${getAccountId()}/subscriptions/${subscriptionId}`
+  const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.get(url))
   if (!result.data.success) {
     throw new Error(`Could not get subscription info from server: ${subscriptionId}`)
