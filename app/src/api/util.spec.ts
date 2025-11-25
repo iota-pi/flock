@@ -30,7 +30,7 @@ describe('api util', () => {
   })
 
   it('flockRequest calls start and finish and returns result', async () => {
-    const result = await flockRequest(async (axios) => {
+    const result = await flockRequest(async axios => {
       // ensure axios passed through
       expect(axios).toHaveProperty('mockedAxios')
       return 'ok'
@@ -51,7 +51,7 @@ describe('api util', () => {
 
   it('flockRequestChunked splits requests and returns array of results', async () => {
     const data = Array.from({ length: 25 }, (_, i) => i)
-    const requestFactory = (axios: any) => async (batch: number[]) => {
+    const requestFactory = () => async (batch: number[]) => {
       // return the batch length so we can assert correctness
       return batch.length
     }
