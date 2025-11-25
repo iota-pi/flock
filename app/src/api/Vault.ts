@@ -28,10 +28,10 @@ import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
 
-const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
-const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
-const VAULT_ITEM_CACHE = 'vaultItemCache'
-const VAULT_ITEM_CACHE_TIME = 'vaultItemCacheTime'
+export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
+export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
+export const VAULT_ITEM_CACHE = 'vaultItemCache'
+export const VAULT_ITEM_CACHE_TIME = 'vaultItemCacheTime'
 
 function fromBytes(array: ArrayBuffer): string {
   const byteArray = Array.from(new Uint8Array(array))

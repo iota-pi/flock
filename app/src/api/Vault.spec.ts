@@ -5,31 +5,28 @@ import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
 import * as api from './VaultAPI'
-import type { VaultItem } from './VaultAPI'
+import type { VaultItem, CachedVaultItem } from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
 
-describe('Vault (Crypto)', () => {
+const VAULT_TEST_PARAMS = {
+  password: 'example',
+  salt: 'example123',
+  isNewAccount: true,
+  iterations: 100,
+}
+
+describe('Vault', () => {
   beforeAll(
     async () => {
       vi.spyOn(vault, 'storeVault').mockImplementation(() => Promise.resolve())
       vi.spyOn(vault, 'loadVault').mockImplementation(() => Promise.resolve())
 
-      vi.spyOn(vault, 'getItemCacheTime').mockImplementation(() => null)
-      vi.spyOn(vault, 'mergeWithItemCache').mockImplementation(() => Promise.resolve([]))
-      vi.spyOn(vault, 'setItemCache').mockImplementation(() => {})
-      vi.spyOn(vault, 'clearItemCache').mockImplementation(() => {})
-      vi.spyOn(vault, 'checkItemCache').mockReturnValue(false)
       vi.spyOn(axios, 'getAxios').mockImplementation(() => ({
         put: vi.fn(() => ({ data: { success: true } })),
       }) as unknown as AxiosInstance)
 
       store.dispatch(setAccount({ account: '.' }))
-      await vault.initialiseVault({
-        password: 'example',
-        salt: 'example123',
-        isNewAccount: true,
-        iterations: 100,
-      })
+      await vault.initialiseVault(VAULT_TEST_PARAMS)
     },
     10000,
   )
@@ -173,5 +170,122 @@ describe('Vault (Crypto)', () => {
 
     const promise = vault.getMetadata()
     await expect(promise).rejects.toThrow()
+  })
+
+  it('getSalt returns a non-empty, changing string', () => {
+    const a = vault.getSalt()
+    const b = vault.getSalt()
+    expect(typeof a).toBe('string')
+    expect(a.length).toBeGreaterThan(0)
+    expect(b.length).toBeGreaterThan(0)
+    expect(a).not.toBe(b)
+  })
+
+  it('signOutVault clears localStorage and resets axios/store', async () => {
+    localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
+    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, 'someaccount')
+    store.dispatch(setAccount({ account: 'acct' } as any))
+    store.dispatch(setItems([getBlankPerson() as any]))
+
+    const initSpy = vi.spyOn(axios as any, 'initAxios')
+
+    try {
+      vault.signOutVault()
+
+      expect(localStorage.getItem(vault.VAULT_KEY_STORAGE_KEY)).toBeNull()
+      expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeNull()
+      // store should have items cleared
+      expect(store.getState().items.ids.length).toBe(0)
+      expect(initSpy).toHaveBeenCalledWith('')
+      initSpy.mockRestore()
+    } finally {
+      await vault.initialiseVault(VAULT_TEST_PARAMS)
+    }
+  })
+
+  it('getItemCacheTime returns null when cache missing and number when present', () => {
+    expect(vault.getItemCacheTime()).toBeNull()
+
+    localStorage.setItem(
+      vault.VAULT_ITEM_CACHE,
+      JSON.stringify([{ item: 'i' }]),
+    )
+    expect(vault.getItemCacheTime()).toBeNull()
+
+    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, '12345')
+    expect(vault.getItemCacheTime()).toBe(12345)
+  })
+
+  it('setItemCache and checkItemCache work', () => {
+    const items: VaultItem[] = [{ item: 'id1', cipher: 'c1', metadata: { iv: 'iv1', type: 'person', modified: 1 } }]
+    vault.setItemCache(items as any)
+    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE)).toBeTruthy()
+    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeTruthy()
+    expect(vault.checkItemCache()).toBe(true)
+    localStorage.removeItem(vault.VAULT_ITEM_CACHE)
+    localStorage.removeItem(vault.VAULT_ITEM_CACHE_TIME)
+  })
+
+  it('mergeWithItemCache clears cache when stored account differs', async () => {
+    store.dispatch(setAccount({ account: 'acct' }))
+    localStorage.setItem(vault.ACCOUNT_STORAGE_KEY, 'other-account')
+    localStorage.setItem(vault.VAULT_ITEM_CACHE, '[]')
+    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, '12345')
+    const itemsFromApi: CachedVaultItem[] = [{ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }]
+
+    const result = await vault.mergeWithItemCache(Promise.resolve(itemsFromApi))
+
+    expect(result).toEqual(itemsFromApi)
+    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE)).toBeNull()
+    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeNull()
+    localStorage.removeItem(vault.ACCOUNT_STORAGE_KEY)
+  })
+
+  it('mergeWithItemCache uses cached items when API items lack cipher', async () => {
+    localStorage.setItem(vault.ACCOUNT_STORAGE_KEY, 'acct')
+    store.dispatch(setAccount({ account: 'acct' }))
+    const cached = [{ item: 'id1', cipher: 'cachedCipher', metadata: { iv: 'iv1', type: 'person', modified: 1 } }]
+    localStorage.setItem(vault.VAULT_ITEM_CACHE, JSON.stringify(cached))
+    const apiItems: CachedVaultItem[] = [{ item: 'id1' }]
+    const setCacheSpy = vi.spyOn(vault, 'setItemCache').mockImplementation(() => {})
+
+    const result = await vault.mergeWithItemCache(Promise.resolve(apiItems))
+
+    expect(result[0].cipher).toBe('cachedCipher')
+    setCacheSpy.mockRestore()
+    localStorage.removeItem(vault.VAULT_ITEM_CACHE)
+    localStorage.removeItem(vault.ACCOUNT_STORAGE_KEY)
+  })
+
+  it('subscription helpers delegate and handle success/failure', async () => {
+    const expected = { subscription: 'x' }
+    vi.spyOn(api, 'vaultGetSubscription').mockResolvedValue(expected as any)
+    const sub = await vault.getSubscription('token123')
+    expect(sub).toEqual(expected)
+    ;(api.vaultGetSubscription as any).mockRestore()
+
+    vi.spyOn(api, 'vaultSetSubscription').mockResolvedValue(false)
+    await expect(vault.setSubscription({} as any)).rejects.toThrow()
+    ;(api.vaultSetSubscription as any).mockRestore()
+
+    vi.spyOn(api, 'vaultSetSubscription').mockResolvedValue(true)
+    await expect(vault.setSubscription({} as any)).resolves.toBeUndefined()
+    ;(api.vaultSetSubscription as any).mockRestore()
+
+    vi.spyOn(api, 'vaultDeleteSubscription').mockResolvedValue(false)
+    await expect(vault.deleteSubscription('tok')).rejects.toThrow()
+    ;(api.vaultDeleteSubscription as any).mockRestore()
+
+    vi.spyOn(api, 'vaultDeleteSubscription').mockResolvedValue(true)
+    await expect(vault.deleteSubscription('tok')).resolves.toBeUndefined()
+    ;(api.vaultDeleteSubscription as any).mockRestore()
+  })
+
+  it('exportData and importData roundtrip items', async () => {
+    const items = [getBlankPerson()]
+    const exported = await vault.exportData(items)
+    expect(exported.cipher).toBeTruthy()
+    const imported = await vault.importData(exported)
+    expect(imported).toEqual(items)
   })
 })
