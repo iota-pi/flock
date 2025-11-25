@@ -4,6 +4,20 @@ import type { FlockPushSubscription } from '../utils/firebase-types'
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
 
+// Helper to check success flag and throw on failure
+function assertSuccess(success: boolean | undefined, operation: string) {
+  if (!success) {
+    throw new Error(`VaultAPI ${operation} operation failed`)
+  }
+}
+
+// Helper to validate response type
+function assertValidType(value: unknown, expectedType: string, operation: string): void {
+  if (typeof value !== expectedType) {
+    throw new Error(`VaultAPI ${operation}: invalid ${expectedType} format`)
+  }
+}
+
 // URL helpers to reduce repeated getAccountId() calls
 function accountUrl(path = '') {
   return `/${getAccountId()}${path}`
@@ -83,10 +97,7 @@ export async function vaultPut({ cipher, item, metadata }: VaultItem) {
   const result = await flockRequest(
     a => a.put(url, { cipher, ...metadata }),
   )
-  const success = result.data.success || false
-  if (!success) {
-    throw new Error('VaultAPI put operation failed')
-  }
+  assertSuccess(result.data.success, 'put')
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
@@ -99,18 +110,13 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
     },
   )
   const success = result.filter(r => !r.data.success).length === 0
-  if (!success) {
-    throw new Error('VaultAPI putMany operation failed')
-  }
+  assertSuccess(success, 'putMany')
 }
 
 export async function vaultDelete({ item }: VaultKey) {
   const url = itemsUrl(item)
   const result = await flockRequest(a => a.delete(url))
-  const success = result.data.success || false
-  if (!success) {
-    throw new Error('VaultAPI delete opteration failed')
-  }
+  assertSuccess(result.data.success, 'delete')
 }
 
 export async function vaultDeleteMany({ items }: & { items: string[] }) {
@@ -122,9 +128,7 @@ export async function vaultDeleteMany({ items }: & { items: string[] }) {
     },
   )
   const success = result.filter(r => !r.data.success).length === 0
-  if (!success) {
-    throw new Error('VaultAPI deleteMany opteration failed')
-  }
+  assertSuccess(success, 'deleteMany')
 }
 
 type VaultCreateAccountResult = { account: string }
@@ -146,12 +150,8 @@ export async function vaultGetSalt() {
     factory: a => a.get(url),
     options: { allowNoInit: true },
   })
-  if (!result.data.success || !result.data.salt) {
-    throw new Error('Could not get salt from server')
-  }
-  if (typeof result.data.salt !== 'string') {
-    throw new Error('Invalid salt format from server')
-  }
+  assertSuccess(result.data.success && result.data.salt, 'getSalt')
+  assertValidType(result.data.salt, 'string', 'getSalt')
   return result.data.salt as string
 }
 
@@ -161,21 +161,15 @@ export async function vaultGetSession(authToken: string) {
     factory: a => a.post(url, { authToken }),
     options: { allowNoInit: true },
   })
-  if (!result.data.success || !result.data.session) {
-    throw new Error('Could not get session from server')
-  }
-  if (typeof result.data.session !== 'string') {
-    throw new Error('Invalid session format from server')
-  }
+  assertSuccess(result.data.success && result.data.session, 'getSession')
+  assertValidType(result.data.session, 'string', 'getSession')
   return result.data.session as string
 }
 
 export async function vaultGetMetadata() {
   const url = accountUrl()
   const result = await flockRequest(a => a.get(url))
-  if (!result.data.metadata) {
-    throw new Error('No metadata found for account')
-  }
+  assertSuccess(result.data.metadata, 'getMetadata')
   // Data is encrypted, but `AccountMetadata` is for backwards compatibility
   return result.data.metadata as (AccountMetadata | CryptoResult) || {}
 }
@@ -183,7 +177,7 @@ export async function vaultGetMetadata() {
 export async function vaultSetMetadata(metadata: CryptoResult) {
   const url = accountUrl()
   const result = await flockRequest(a => a.patch(url, { metadata }))
-  return result.data.success as boolean
+  assertSuccess(result.data.success, 'setMetadata')
 }
 
 export async function vaultSetSubscription(
@@ -194,20 +188,18 @@ export async function vaultSetSubscription(
 ) {
   const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.put(url, { ...subscription }))
-  return result.data.success as boolean
+  assertSuccess(result.data.success, 'setSubscription')
 }
 
 export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }) {
   const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.delete(url))
-  return result.data.success as boolean
+  assertSuccess(result.data.success, 'deleteSubscription')
 }
 
 export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }) {
   const url = subscriptionUrl(subscriptionId)
   const result = await flockRequest(a => a.get(url))
-  if (!result.data.success) {
-    throw new Error(`Could not get subscription info from server: ${subscriptionId}`)
-  }
+  assertSuccess(result.data.success, 'getSubscription')
   return result.data.subscription as FlockPushSubscription | null
 }

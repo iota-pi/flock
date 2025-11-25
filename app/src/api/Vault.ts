@@ -463,20 +463,14 @@ export async function getSubscription(subscriptionToken: string): Promise<FlockP
 }
 
 export async function setSubscription(subscription: FlockPushSubscription): Promise<void> {
-  const result = await vaultSetSubscription({
+  await vaultSetSubscription({
     subscriptionId: await getSubscriptionId(subscription.token),
     subscription,
   })
-  if (!result) {
-    throw new Error('Failed to save push notification token to server')
-  }
 }
 
 export async function deleteSubscription(subscriptionToken: string): Promise<void> {
-  const result = await vaultDeleteSubscription({
+  await vaultDeleteSubscription({
     subscriptionId: await getSubscriptionId(subscriptionToken),
   })
-  if (!result) {
-    throw new Error('Failed to delete push notification token from server')
-  }
 }
