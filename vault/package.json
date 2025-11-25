@@ -8,6 +8,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@flock/shared": "file:../shared",
     "@aws-sdk/client-dynamodb": "^3.513.0",
     "@aws-sdk/core": "^3.513.0",
     "@aws-sdk/lib-dynamodb": "^3.513.0",

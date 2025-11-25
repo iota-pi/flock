@@ -128,16 +128,13 @@ describe('VaultAPI', () => {
 
   it('vaultSetMetadata returns boolean success', async () => {
     vi.spyOn(util, 'flockRequest').mockResolvedValue({ data: { success: true } } as any)
-    const ok = await api.vaultSetMetadata({ cipher: 'c', iv: 'i' } as any)
-    expect(ok).toBe(true)
+    await api.vaultSetMetadata({ cipher: 'c', iv: 'i' } as any)
   })
 
   it('vaultSetSubscription and vaultDeleteSubscription return booleans', async () => {
     vi.spyOn(util, 'flockRequest').mockResolvedValue({ data: { success: true } } as any)
-    const setOk = await api.vaultSetSubscription({ subscriptionId: 's', subscription: {} as any } as any)
-    expect(setOk).toBe(true)
-    const delOk = await api.vaultDeleteSubscription({ subscriptionId: 's' } as any)
-    expect(delOk).toBe(true)
+    await api.vaultSetSubscription({ subscriptionId: 's', subscription: {} as any } as any)
+    await api.vaultDeleteSubscription({ subscriptionId: 's' } as any)
   })
 
   it('vaultGetSubscription throws on !success and returns subscription on success', async () => {

@@ -1,6 +1,5 @@
 import {
   CachedVaultItem,
-  VaultItem,
   vaultDelete,
   vaultDeleteMany,
   vaultDeleteSubscription,
@@ -27,6 +26,7 @@ import { initAxios } from './axios'
 import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
+import { VaultItem } from '@flock/shared/apiTypes'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'

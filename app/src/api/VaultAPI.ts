@@ -1,6 +1,5 @@
 import type { AccountMetadata } from '../state/account'
-import type { ItemType } from '../state/items'
-import type { FlockPushSubscription } from '../utils/firebase-types'
+import type { VaultItem, VaultKey, VaultSubscription, FlockPushSubscription } from '../../../shared/src/apiTypes'
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
 
@@ -31,24 +30,7 @@ function subscriptionUrl(subscriptionId: string) {
   return accountUrl(`/subscriptions/${subscriptionId}`)
 }
 
-export interface VaultKey {
-  item: string,
-}
-
-export interface VaultItem extends VaultKey {
-  cipher: string,
-  metadata: {
-    type: ItemType,
-    iv: string,
-    modified: number,
-  },
-}
-
 export type CachedVaultItem = Partial<VaultItem> & VaultKey
-
-export interface VaultSubscription {
-  subscription: FlockPushSubscription,
-}
 
 
 export async function vaultFetchMany({

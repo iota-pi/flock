@@ -2,6 +2,11 @@
   "compilerOptions": {
     "target": "esnext",
     "module": "es2022",
+    "baseUrl": "./",
+    "paths": {
+      "@flock/shared": ["../shared/src"],
+      "@flock/shared/*": ["../shared/src/*"]
+    },
     "strict": true,
     "skipLibCheck": true,
     "allowJs": true,
@@ -21,6 +26,7 @@
   "include": [
     "src",
     "vitest.config.ts",
+    "../shared/src"
   ],
   "exclude": [
     "node_modules",

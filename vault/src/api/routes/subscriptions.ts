@@ -1,4 +1,5 @@
 import type { FastifyPluginCallback } from 'fastify'
+import type { FlockPushSubscription } from '../../../shared/src/apiTypes'
 import {
   SubscriptionParams,
   SubscriptionBody,
@@ -24,7 +25,7 @@ const subscriptionsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
         account,
         id: subscription,
       })
-      return { success: true, subscription: result }
+      return { success: true, subscription: result as FlockPushSubscription | null }
     },
   )
 

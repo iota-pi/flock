@@ -1,12 +1,11 @@
 import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
+import { ITEM_TYPES, ItemType } from '../../../shared/src/apiTypes'
 import type { RootState } from '../store'
 
 export type ItemId = string
-export type ItemType = 'person' | 'group'
 export type OldItemType = 'general'
-export const ITEM_TYPES: ItemType[] = ['person', 'group']
 
 export interface BaseItem {
   archived: boolean,
@@ -68,7 +67,7 @@ export const {
 } = itemsAdapter.getSelectors((state: RootState) => state.items)
 
 export function isItem(item: Item): item is Item {
-  return (ITEM_TYPES as Item['type'][]).includes(item.type)
+  return (ITEM_TYPES as readonly Item['type'][]).includes(item.type)
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {

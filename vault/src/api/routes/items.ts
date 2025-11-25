@@ -1,5 +1,5 @@
 import type { FastifyPluginCallback } from 'fastify'
-import { asItemType } from '../../drivers/base'
+import { asItemType, CachedVaultItem } from '../../drivers/base'
 import {
   ItemParams,
   AccountParams,
@@ -36,7 +36,7 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
           ? vault.fetchAll({ account, cacheTime })
           : vault.fetchMany({ account, ids })
       )
-      const results = await resultPromise
+      const results: CachedVaultItem[] = await resultPromise
       return { success: true, items: results }
     },
   )

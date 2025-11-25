@@ -1,9 +1,7 @@
 import { FastifyRequest } from 'fastify'
-import { FlockPushSubscription } from '../../../app/src/utils/firebase-types'
+import { FlockPushSubscription, ItemType } from '../../../shared/src/apiTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
-
-export type VaultItemType = 'person' | 'group'
 
 export interface VaultKey {
   account: string,
@@ -11,7 +9,7 @@ export interface VaultKey {
 }
 
 export interface VaultMetaData {
-  type: VaultItemType,
+  type: ItemType,
   iv: string,
   modified: number,
 }
@@ -46,10 +44,10 @@ export interface VaultSubscriptionFull extends FlockPushSubscription {
   id: string,
 }
 
-export function asItemType(type: string): VaultItemType {
-  const allowedTypes: VaultItemType[] = ['person', 'group']
-  if (allowedTypes.includes(type as VaultItemType)) {
-    return type as VaultItemType
+export function asItemType(type: string): ItemType {
+  const allowedTypes: ItemType[] = ['person', 'group']
+  if (allowedTypes.includes(type as ItemType)) {
+    return type as ItemType
   }
   throw new Error(`Item type ${type} is not valid`)
 }

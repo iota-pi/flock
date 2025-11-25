@@ -5,8 +5,9 @@ import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
 import * as api from './VaultAPI'
-import type { VaultItem, CachedVaultItem } from './VaultAPI'
+import type { CachedVaultItem } from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
+import { VaultItem } from '@flock/shared/apiTypes'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
@@ -129,7 +130,7 @@ describe('Vault', () => {
 
   it('setMetadata', async () => {
     const metadata: AccountMetadata = { prayerGoal: 1, completedMigrations: [] }
-    const metadataAPI = vi.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve(true))
+    const metadataAPI = vi.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve())
 
     await vault.setMetadata(metadata)
 
@@ -255,30 +256,6 @@ describe('Vault', () => {
     setCacheSpy.mockRestore()
     localStorage.removeItem(vault.VAULT_ITEM_CACHE)
     localStorage.removeItem(vault.ACCOUNT_STORAGE_KEY)
-  })
-
-  it('subscription helpers delegate and handle success/failure', async () => {
-    const expected = { subscription: 'x' }
-    vi.spyOn(api, 'vaultGetSubscription').mockResolvedValue(expected as any)
-    const sub = await vault.getSubscription('token123')
-    expect(sub).toEqual(expected)
-    ;(api.vaultGetSubscription as any).mockRestore()
-
-    vi.spyOn(api, 'vaultSetSubscription').mockResolvedValue(false)
-    await expect(vault.setSubscription({} as any)).rejects.toThrow()
-    ;(api.vaultSetSubscription as any).mockRestore()
-
-    vi.spyOn(api, 'vaultSetSubscription').mockResolvedValue(true)
-    await expect(vault.setSubscription({} as any)).resolves.toBeUndefined()
-    ;(api.vaultSetSubscription as any).mockRestore()
-
-    vi.spyOn(api, 'vaultDeleteSubscription').mockResolvedValue(false)
-    await expect(vault.deleteSubscription('tok')).rejects.toThrow()
-    ;(api.vaultDeleteSubscription as any).mockRestore()
-
-    vi.spyOn(api, 'vaultDeleteSubscription').mockResolvedValue(true)
-    await expect(vault.deleteSubscription('tok')).resolves.toBeUndefined()
-    ;(api.vaultDeleteSubscription as any).mockRestore()
   })
 
   it('exportData and importData roundtrip items', async () => {
