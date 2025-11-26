@@ -2,13 +2,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    environment: 'happy-dom',
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
-    // Use node environment for vault tests
-    environmentMatchGlobs: [
-      ['src/vault/**', 'node'],
-    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],
@@ -22,5 +17,24 @@ export default defineConfig({
         'src/utils/testUtils.ts',
       ],
     },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'app',
+          environment: 'happy-dom',
+          include: ['src/**/*.{test,spec}.ts'],
+          exclude: ['src/vault/**'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'vault',
+          environment: 'node',
+          include: ['src/vault/**/*.{test,spec}.ts'],
+        },
+      },
+    ],
   },
 })
