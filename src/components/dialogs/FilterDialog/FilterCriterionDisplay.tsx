@@ -184,7 +184,7 @@ export function FilterCriterionDisplay({
         </TextField>
       )}
       {criterionDetails.dataType === 'date' && (
-        <DatePicker<Date | null>
+        <DatePicker
           data-cy="filter-criterion-value"
           format="dd/MM/yyyy"
           label="Value"
