@@ -5,9 +5,8 @@ import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
 import * as api from './VaultAPI'
-import type { CachedVaultItem } from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
-import { VaultItem } from '@flock/shared/apiTypes'
+import type { CachedVaultItem, VaultItem } from '../shared/apiTypes'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
