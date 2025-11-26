@@ -15,12 +15,9 @@
     "initdb": "tsx src/vault/drivers/init.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
     "postinstall": "patch-package",
-    "start": "docker compose up -d api && vite",
+    "start": "docker compose up -d api && yarn dev",
     "test": "vitest",
-    "coverage": "vitest run --coverage",
-    "docker": "docker compose run --rm -it api bash",
-    "docker:test": "docker compose run --rm api yarn test",
-    "docker:initdb": "docker compose run --rm api yarn initdb"
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.513.0",
