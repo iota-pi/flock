@@ -20,5 +20,4 @@ module "vault" {
   code_bucket = var.code_bucket
   environment = local.environment
   full_domain = module.app.full_domain
-  git_version = var.vault_version
 }

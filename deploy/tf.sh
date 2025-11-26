@@ -14,7 +14,6 @@ fi
 
 docker compose run \
   --rm \
-  -e TF_VAR_vault_version="$(./version.sh vault)" \
   -e TF_VAR_cloudflare_api_token="${CLOUDFLARE_API_TOKEN}" \
   -e TF_IN_AUTOMATION="1" \
   -u "$(id -u):$(id -g)" \

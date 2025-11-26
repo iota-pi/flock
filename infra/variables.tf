@@ -12,10 +12,6 @@ variable "cloudflare_api_token" {
   sensitive = true
 }
 
-variable "vault_version" {
-  type = string
-}
-
 variable "code_bucket" {
   type    = string
   default = "crosscode-lambdas"

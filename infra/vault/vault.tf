@@ -4,152 +4,152 @@ locals {
     Component   = "vault"
     Application = "flock"
   }
+
+  lambda_runtime = "nodejs22.x"
+  source_path    = "${path.module}/../../src/vault"
 }
 
-resource "aws_lambda_function" "vault" {
+# Main Vault API Lambda
+module "vault_lambda" {
+  source  = "terraform-aws-modules/lambda/aws"
+  version = "~> 7.0"
+
   function_name = "flock-vault-${var.environment}"
+  description   = "Flock Vault API"
+  handler       = "lambda.handler"
+  runtime       = local.lambda_runtime
+  memory_size   = 512
+  timeout       = 5
 
-  handler     = "lambda.handler"
-  runtime     = "nodejs22.x"
-  memory_size = 512
-  timeout     = 5
-
-  s3_bucket = var.code_bucket
-  s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
-
-  role = aws_iam_role.vault_role.arn
-
-  environment {
-    variables = {
-      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
-      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
-      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
+  source_path = [
+    {
+      path             = local.source_path
+      npm_requirements = true
+      commands         = ["yarn build:vault", "cd dist/vault && :zip"]
+      patterns         = ["!.*", "dist/vault/.*"]
     }
+  ]
+
+  store_on_s3             = true
+  s3_bucket               = var.code_bucket
+  s3_prefix               = "flock/${var.environment}/"
+
+  environment_variables = {
+    ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
+    ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
+    SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
   }
+
+  attach_policy_json = true
+  policy_json        = data.aws_iam_policy_document.vault_policy.json
+
+  cloudwatch_logs_retention_in_days = 14
 
   tags = local.standard_tags
 }
 
-resource "aws_lambda_function" "vault_migrations" {
+# Migrations Lambda
+module "vault_migrations_lambda" {
+  source  = "terraform-aws-modules/lambda/aws"
+  version = "~> 7.0"
+
   function_name = "flock-vault-migrations-${var.environment}"
+  description   = "Flock Vault Migrations"
+  handler       = "lambda.migrationHandler"
+  runtime       = local.lambda_runtime
+  memory_size   = 512
+  timeout       = 60
 
-  handler     = "lambda.migrationHandler"
-  runtime     = "nodejs22.x"
-  memory_size = 512
-  timeout     = 60
-
-  s3_bucket = var.code_bucket
-  s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
-
-  role = aws_iam_role.vault_role.arn
-
-  environment {
-    variables = {
-      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
-      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
-      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
-    }
+  create_package = false
+  s3_existing_package = {
+    bucket = module.vault_lambda.s3_object.bucket
+    key    = module.vault_lambda.s3_object.key
   }
+
+  environment_variables = {
+    ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
+    ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
+    SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
+  }
+
+  attach_policy_json = true
+  policy_json        = data.aws_iam_policy_document.vault_policy.json
 
   tags = local.standard_tags
 }
 
-resource "aws_lambda_function" "vault_notifier" {
+# Notifier Lambda
+module "vault_notifier_lambda" {
+  source  = "terraform-aws-modules/lambda/aws"
+  version = "~> 7.0"
+
   function_name = "flock-vault-notifications-${var.environment}"
+  description   = "Flock Vault Push Notifications"
+  handler       = "lambda.notifierHandler"
+  runtime       = local.lambda_runtime
+  memory_size   = 512
+  timeout       = 60
 
-  handler     = "lambda.notifierHandler"
-  runtime     = "nodejs22.x"
-  memory_size = 512
-  timeout     = 60
+  create_package = false
+  s3_existing_package = {
+    bucket = module.vault_lambda.s3_object.bucket
+    key    = module.vault_lambda.s3_object.key
+  }
 
-  s3_bucket = var.code_bucket
-  s3_key    = "flock/${var.environment}/${var.git_version}/vault.zip"
+  environment_variables = {
+    ACCOUNTS_TABLE                 = aws_dynamodb_table.vault_accounts_table.name
+    ITEMS_TABLE                    = aws_dynamodb_table.vault_items_table.name
+    SUBSCRIPTIONS_TABLE            = aws_dynamodb_table.vault_subscriptions_table.name
+    PROD_APP_URL                   = "https://${var.full_domain}"
+    GOOGLE_APPLICATION_CREDENTIALS = "gcp-service-credentials.json"
+  }
 
-  role = aws_iam_role.vault_role.arn
+  attach_policy_json = true
+  policy_json        = data.aws_iam_policy_document.vault_policy.json
 
-  environment {
-    variables = {
-      ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
-      ITEMS_TABLE         = aws_dynamodb_table.vault_items_table.name
-      SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
-      PROD_APP_URL        = "https://${var.full_domain}"
-
-      GOOGLE_APPLICATION_CREDENTIALS = "gcp-service-credentials.json"
+  allowed_triggers = {
+    CloudWatchSchedule = {
+      principal  = "events.amazonaws.com"
+      source_arn = aws_cloudwatch_event_rule.notifier_trigger.arn
     }
   }
 
   tags = local.standard_tags
 }
 
-resource "aws_iam_role" "vault_role" {
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Action": "sts:AssumeRole",
-      "Principal": {
-        "Service": "lambda.amazonaws.com"
-      },
-      "Effect": "Allow",
-      "Sid": ""
-    }
-  ]
-}
-EOF
-}
+# IAM Policy Document
+data "aws_iam_policy_document" "vault_policy" {
+  statement {
+    sid    = "PutLogs"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
 
-resource "aws_iam_policy" "vault_policy" {
-  description = "Lambda policy to allow writing to DynamoDB and logging"
-
-  policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "PutLogs",
-      "Effect": "Allow",
-      "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ],
-      "Resource": ["arn:aws:logs:*:*:*"]
-    },
-    {
-      "Sid": "ReadWriteCreateTable",
-      "Effect": "Allow",
-      "Action": [
-          "dynamodb:BatchGetItem",
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:Scan",
-          "dynamodb:BatchWriteItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:CreateTable"
-      ],
-      "Resource": [
-        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_accounts_table.name}",
-        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_items_table.name}",
-        "arn:aws:dynamodb:*:*:table/${aws_dynamodb_table.vault_subscriptions_table.name}"
-      ]
-    }
-  ]
-}
-EOF
-}
-
-resource "aws_iam_role_policy_attachment" "vault_policy_attach" {
-  role       = aws_iam_role.vault_role.name
-  policy_arn = aws_iam_policy.vault_policy.arn
-}
-
-
-resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${aws_lambda_function.vault.function_name}"
-  retention_in_days = 14
+  statement {
+    sid    = "ReadWriteCreateTable"
+    effect = "Allow"
+    actions = [
+      "dynamodb:BatchGetItem",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:CreateTable"
+    ]
+    resources = [
+      aws_dynamodb_table.vault_accounts_table.arn,
+      aws_dynamodb_table.vault_items_table.arn,
+      aws_dynamodb_table.vault_subscriptions_table.arn
+    ]
+  }
 }
 
 
@@ -208,7 +208,7 @@ resource "aws_dynamodb_table" "vault_subscriptions_table" {
 resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.vault.function_name
+  function_name = module.vault_lambda.lambda_function_name
   principal     = "apigateway.amazonaws.com"
 
   # The "/*/*" portion grants access from any method on any resource
@@ -243,7 +243,7 @@ resource "aws_api_gateway_integration" "vault_lambda" {
   integration_http_method = "POST"
 
   type = "AWS_PROXY"
-  uri  = aws_lambda_function.vault.invoke_arn
+  uri  = module.vault_lambda.lambda_function_invoke_arn
 }
 
 resource "aws_api_gateway_method" "vault_proxy_method_root" {
@@ -261,7 +261,7 @@ resource "aws_api_gateway_integration" "vault_lambda_root" {
   integration_http_method = "POST"
 
   type = "AWS_PROXY"
-  uri  = aws_lambda_function.vault.invoke_arn
+  uri  = module.vault_lambda.lambda_function_invoke_arn
 }
 
 resource "aws_api_gateway_deployment" "vault_deployment" {
@@ -309,13 +309,6 @@ resource "aws_cloudwatch_event_rule" "notifier_trigger" {
 }
 
 resource "aws_cloudwatch_event_target" "notifier_target" {
-  rule  = aws_cloudwatch_event_rule.notifier_trigger.name
-  arn   = aws_lambda_function.vault_notifier.arn
-}
-
-resource "aws_lambda_permission" "allow_cloudwatch_to_call_notifier" {
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.vault_notifier.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.notifier_trigger.arn
+  rule = aws_cloudwatch_event_rule.notifier_trigger.name
+  arn  = module.vault_notifier_lambda.lambda_function_arn
 }

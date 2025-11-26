@@ -1,15 +1,14 @@
-variable environment {
-  type = string
+variable "environment" {
+  type        = string
+  description = "Deployment environment (e.g., dev, prod)"
 }
 
-variable code_bucket {
-  type = string
+variable "code_bucket" {
+  type        = string
+  description = "S3 bucket for storing Lambda deployment packages"
 }
 
-variable full_domain {
-  type = string
-}
-
-variable git_version {
-  type = string
+variable "full_domain" {
+  type        = string
+  description = "Full domain name for the application"
 }

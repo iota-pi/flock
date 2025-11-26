@@ -65,9 +65,6 @@ else
   fi
 fi
 
-stage "Building Vault API"
-./deploy-vault.sh
-
 stage "Building App"
 ./deploy-app.sh
 

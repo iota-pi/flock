@@ -23,38 +23,21 @@ jobs:
       with:
         node-version: 22
 
+    - name: Start dynamodb container
+      run: |
+        docker compose up -d dynamodb
+
     - name: Install dependencies
       run: |
-        cd app
         yarn install --immutable
-        cd ../vault
-        yarn install --immutable
-
-    - name: Start docker containers
-      run: docker compose up -d
-
-    - name: Wait for DynamoDB to be ready
-      run: |
-        echo "Waiting for DynamoDB to start..."
-        for i in $(seq 1 20); do
-          if curl -s http://localhost:8000/ > /dev/null; then
-            echo "DynamoDB is ready!"
-            exit 0
-          fi
-          echo "Still waiting... ($i/10)"
-          sleep 1
-        done
-        echo "DynamoDB did not start in time."
-        exit 1
 
     - name: Initialise database for testing
-      run: cd vault && yarn docker:initdb
+      run: yarn initdb
+      env:
+        DYNAMODB_ENDPOINT: http://localhost:8000
 
     - name: Run app unit tests
-      run: cd app && yarn test run
-
-    - name: Run vault unit tests
-      run: cd vault && yarn docker:test run
+      run: yarn test run
 
     - name: Initialise terraform
       run: cd deploy && ./tf.sh init
@@ -63,13 +46,6 @@ jobs:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-    - name: Deploy lambda
-      run: cd deploy && ./deploy-vault.sh
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_EC2_METADATA_DISABLED: true
 
     - name: Deploy app
       run: cd deploy && ./deploy-app.sh
@@ -88,11 +64,7 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Lint app
-      run: cd app && yarn lint
-
-    - name: Lint vault
-      run: cd vault && yarn lint
-
-    - name: Check IAC formatting
-      run: cd infra && ../deploy/tf.sh fmt -check
+    - name: Lint codebase
+      run: |
+        yarn lint
+        cd infra && ../deploy/tf.sh fmt -check
