@@ -1,4 +1,4 @@
-import type { AxiosInstance } from 'axios'
+import type { AxiosInstance, AxiosResponse } from 'axios'
 import {
   finishRequest as finishRequestAction,
   startRequest as startRequestAction,
@@ -25,7 +25,7 @@ function finishRequest(error?: string) {
 export type FlockRequestOptions = {
   allowNoInit?: boolean,
 }
-export type FlockRequestFactory<T> = (axios: AxiosInstance) => Promise<T>
+export type FlockRequestFactory<T> = (axios: AxiosInstance) => Promise<AxiosResponse<T>>
 export async function flockRequest<T>(
   params: FlockRequestFactory<T> | {
     factory: FlockRequestFactory<T>,
@@ -40,7 +40,7 @@ export async function flockRequest<T>(
     const promise = factory(getAxios(options.allowNoInit))
     const result = await promise
     finishRequest()
-    return result
+    return result.data
   } catch (error) {
     finishRequest('A request to the server failed. Please retry later.')
     throw error
@@ -55,7 +55,7 @@ export async function flockRequestChunked<T, S>(
     options = {},
   }: {
     data: T[],
-    requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<S>,
+    requestFactory: (axios: AxiosInstance) => (data: T[]) => Promise<AxiosResponse<S>>,
     chunkSize?: number,
     options?: FlockRequestOptions,
   },
@@ -68,7 +68,7 @@ export async function flockRequestChunked<T, S>(
       const batch = workingData.splice(0, chunkSize)
       const requestFunc = requestFactory(getAxios(options.allowNoInit))
       const batchResult = await requestFunc(batch)
-      result.push(batchResult)
+      result.push(batchResult.data)
     }
     finishRequest()
     return result

@@ -1,19 +1,35 @@
 import type { AccountMetadata } from '../state/account'
-import type { VaultItem, VaultKey, VaultSubscription, FlockPushSubscription } from '../shared/apiTypes'
+import type {
+  AccountCreationResponse,
+  CachedVaultItem,
+  CreateAccountBody,
+  FlockPushSubscription,
+  ItemsResponse,
+  LoginBody,
+  MetadataResponse,
+  SaltResponse,
+  SessionResponse,
+  SubscriptionBody,
+  SubscriptionGetResponse,
+  SuccessResponse,
+  VaultItem,
+  VaultKey,
+  VaultSubscription,
+} from '../shared/apiTypes'
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
 
 // Helper to check success flag and throw on failure
-function assertSuccess(success: boolean | undefined, operation: string) {
-  if (!success) {
+function assertSuccess<T extends { success: boolean }>(response: T, operation: string): asserts response is T & { success: true } {
+  if (!response.success) {
     throw new Error(`VaultAPI ${operation} operation failed`)
   }
 }
 
-// Helper to validate response type
-function assertValidType(value: unknown, expectedType: string, operation: string): void {
-  if (typeof value !== expectedType) {
-    throw new Error(`VaultAPI ${operation}: invalid ${expectedType} format`)
+// Helper to assert a value is defined
+function assertDefined<T>(value: T | undefined | null, operation: string, field: string): asserts value is T {
+  if (value === undefined || value === null) {
+    throw new Error(`VaultAPI ${operation}: missing ${field}`)
   }
 }
 
@@ -30,16 +46,16 @@ function subscriptionUrl(subscriptionId: string) {
   return accountUrl(`/subscriptions/${subscriptionId}`)
 }
 
-export type CachedVaultItem = Partial<VaultItem> & VaultKey
-
-
+// Overloads for vaultFetchMany - cacheTime returns partial items, ids returns full items
+export async function vaultFetchMany(params: { cacheTime: number | null; ids?: never }): Promise<CachedVaultItem[]>
+export async function vaultFetchMany(params: { cacheTime?: never; ids: string[] }): Promise<VaultItem[]>
 export async function vaultFetchMany({
   cacheTime,
   ids,
 }: {
   cacheTime?: number | null,
   ids?: string[],
-}): Promise<VaultItem[]> {
+}): Promise<CachedVaultItem[] | VaultItem[]> {
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
@@ -49,10 +65,10 @@ export async function vaultFetchMany({
     if (cacheTime) {
       urlWithQuery = `${url}?since=${cacheTime}`
     }
-    const result = await flockRequest(a => a.get(urlWithQuery))
-    return result.data.items
+    const result = await flockRequest<ItemsResponse>(a => a.get(urlWithQuery))
+    return result.items
   } else if (ids) {
-    const result = await flockRequestChunked(
+    const result = await flockRequestChunked<string[], ItemsResponse>(
       {
         data: [ids],
         requestFactory: (
@@ -62,7 +78,7 @@ export async function vaultFetchMany({
         ),
       },
     )
-    return result.flatMap(r => r.data.items)
+    return result.flatMap(r => r.items)
   } else {
     throw new Error('Must provide cacheTime or ids')
   }
@@ -70,90 +86,93 @@ export async function vaultFetchMany({
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
   const url = itemsUrl(item)
-  const result = await flockRequest(
+  const result = await flockRequest<SuccessResponse>(
     a => a.put(url, { cipher, ...metadata }),
   )
-  assertSuccess(result.data.success, 'put')
+  assertSuccess(result, 'put')
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   const url = itemsUrl()
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
-  const result = await flockRequestChunked(
+  const result = await flockRequestChunked<typeof data[number], SuccessResponse>(
     {
       data,
       requestFactory: a => batch => a.put(url, batch),
     },
   )
-  const success = result.filter(r => !r.data.success).length === 0
-  assertSuccess(success, 'putMany')
+  const allSuccess = result.every(r => r.success)
+  if (!allSuccess) {
+    throw new Error('VaultAPI putMany operation failed')
+  }
 }
 
 export async function vaultDelete({ item }: VaultKey) {
   const url = itemsUrl(item)
-  const result = await flockRequest(a => a.delete(url))
-  assertSuccess(result.data.success, 'delete')
+  const result = await flockRequest<SuccessResponse>(a => a.delete(url))
+  assertSuccess(result, 'delete')
 }
 
 export async function vaultDeleteMany({ items }: & { items: string[] }) {
   const url = itemsUrl()
-  const result = await flockRequestChunked(
+  const result = await flockRequestChunked<string, SuccessResponse>(
     {
       data: items,
       requestFactory: a => batch => a.delete(url, { data: batch }),
     },
   )
-  const success = result.filter(r => !r.data.success).length === 0
-  assertSuccess(success, 'deleteMany')
+  const allSuccess = result.every(r => r.success)
+  if (!allSuccess) {
+    throw new Error('VaultAPI deleteMany operation failed')
+  }
 }
 
-type VaultCreateAccountResult = { account: string }
 export async function vaultCreateAccount(
-  { salt, authToken }: { salt: string; authToken: string },
-): Promise<VaultCreateAccountResult> {
+  { salt, authToken }: CreateAccountBody,
+): Promise<AccountCreationResponse> {
   const url = '/account'
-  const result = await flockRequest({
+  const result = await flockRequest<AccountCreationResponse>({
     factory: a => a.post(url, { salt, authToken }),
     options: { allowNoInit: true },
   })
-  const { account } = result.data satisfies VaultCreateAccountResult
-  return { account }
+  return { account: result.account }
 }
 
-export async function vaultGetSalt() {
+export async function vaultGetSalt(): Promise<string> {
   const url = accountUrl('/salt')
-  const result = await flockRequest({
+  const result = await flockRequest<SaltResponse>({
     factory: a => a.get(url),
     options: { allowNoInit: true },
   })
-  assertSuccess(result.data.success && result.data.salt, 'getSalt')
-  assertValidType(result.data.salt, 'string', 'getSalt')
-  return result.data.salt as string
+  assertSuccess(result, 'getSalt')
+  assertDefined(result.salt, 'getSalt', 'salt')
+  return result.salt
 }
 
-export async function vaultGetSession(authToken: string) {
+export async function vaultGetSession(authToken: string): Promise<string> {
   const url = accountUrl('/login')
-  const result = await flockRequest({
-    factory: a => a.post(url, { authToken }),
+  const body: LoginBody = { authToken }
+  const result = await flockRequest<SessionResponse>({
+    factory: a => a.post(url, body),
     options: { allowNoInit: true },
   })
-  assertSuccess(result.data.success && result.data.session, 'getSession')
-  assertValidType(result.data.session, 'string', 'getSession')
-  return result.data.session as string
+  assertSuccess(result, 'getSession')
+  assertDefined(result.session, 'getSession', 'session')
+  return result.session
 }
 
-export async function vaultGetMetadata() {
+export async function vaultGetMetadata(): Promise<AccountMetadata | CryptoResult> {
   const url = accountUrl()
-  const result = await flockRequest(a => a.get(url))
-  assertSuccess(result.data.metadata, 'getMetadata')
+  const result = await flockRequest<MetadataResponse>(a => a.get(url))
+  assertSuccess(result, 'getMetadata')
   // Data is encrypted, but `AccountMetadata` is for backwards compatibility
-  return result.data.metadata as (AccountMetadata | CryptoResult) || {}
+  return (result.metadata as AccountMetadata | CryptoResult) || {}
 }
 
-export async function vaultSetMetadata(metadata: CryptoResult) {
+export async function vaultSetMetadata(metadata: CryptoResult): Promise<void> {
   const url = accountUrl()
-  const result = await flockRequest(a => a.patch(url, { metadata }))
-  assertSuccess(result.data.success, 'setMetadata')
+  const result = await flockRequest<SuccessResponse>(a => a.patch(url, { metadata }))
+  assertSuccess(result, 'setMetadata')
 }
 
 export async function vaultSetSubscription(
@@ -161,21 +180,22 @@ export async function vaultSetSubscription(
     subscriptionId,
     subscription,
   }: VaultSubscription & { subscriptionId: string },
-) {
+): Promise<void> {
   const url = subscriptionUrl(subscriptionId)
-  const result = await flockRequest(a => a.put(url, { ...subscription }))
-  assertSuccess(result.data.success, 'setSubscription')
+  const body: SubscriptionBody = { ...subscription }
+  const result = await flockRequest<SuccessResponse>(a => a.put(url, body))
+  assertSuccess(result, 'setSubscription')
 }
 
-export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }) {
+export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }): Promise<void> {
   const url = subscriptionUrl(subscriptionId)
-  const result = await flockRequest(a => a.delete(url))
-  assertSuccess(result.data.success, 'deleteSubscription')
+  const result = await flockRequest<SuccessResponse>(a => a.delete(url))
+  assertSuccess(result, 'deleteSubscription')
 }
 
-export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }) {
+export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }): Promise<FlockPushSubscription | null> {
   const url = subscriptionUrl(subscriptionId)
-  const result = await flockRequest(a => a.get(url))
-  assertSuccess(result.data.success, 'getSubscription')
-  return result.data.subscription as FlockPushSubscription | null
+  const result = await flockRequest<SubscriptionGetResponse>(a => a.get(url))
+  assertSuccess(result, 'getSubscription')
+  return result.subscription
 }

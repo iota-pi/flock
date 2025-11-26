@@ -1,5 +1,4 @@
 import {
-  CachedVaultItem,
   vaultDelete,
   vaultDeleteMany,
   vaultDeleteSubscription,
@@ -26,7 +25,7 @@ import { initAxios } from './axios'
 import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
-import { VaultItem } from '@flock/shared/apiTypes'
+import { CachedVaultItem, VaultItem } from 'src/shared/apiTypes'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -329,10 +328,10 @@ export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]
   if (cachedItems.length > 0) {
     const cachedMap = new Map(cachedItems.map(item => [item.item, item]))
     const items = await itemsPromise
-    const result = items.map(
+    const mergedResult = items.map(
       item => (item.cipher ? (item as VaultItem) : cachedMap.get(item.item)),
     )
-    const filteredResult = result.filter(
+    const filteredResult = mergedResult.filter(
       (item): item is NonNullable<typeof item> => item !== undefined,
     )
     const missingIds = (
@@ -340,7 +339,7 @@ export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]
         .map(item => item.item)
         .filter(id => !filteredResult.some(item => item.item === id))
     )
-    if (filteredResult.length !== result.length) {
+    if (filteredResult.length !== mergedResult.length) {
       console.warn('Some items were missing from the cache!')
       const newItems = await vaultFetchMany({ ids: missingIds }).catch(error => {
         handleVaultError(error, 'Failed to fetch some items from server')
