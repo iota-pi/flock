@@ -4,14 +4,13 @@ import {
   ForwardedRef,
   forwardRef,
   HTMLAttributes,
-  memo,
   PropsWithChildren,
   Ref,
   useCallback,
   useContext,
   useMemo,
 } from 'react'
-import { ListChildComponentProps, VariableSizeList } from 'react-window'
+import { List, RowComponentProps } from 'react-window'
 import {
   Autocomplete,
   autocompleteClasses,
@@ -48,7 +47,6 @@ import { useItems, useSortCriteria } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
-import { useResetCache } from '../utils/virtualisation'
 import { capitalise } from '../utils'
 
 const LISTBOX_PADDING = 8
@@ -244,13 +242,16 @@ interface SearchableRowSettings {
   selected: boolean,
 }
 type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings]
-type PropsAndOptionList = PropsAndOption[]
 
-const SearchableRow = memo((
-  props: ListChildComponentProps<PropsAndOptionList>,
-) => {
-  const { data, index, style } = props
-  const [optionProps, option, settings] = data[index]
+interface SearchableRowProps {
+  itemData: PropsAndOption[],
+}
+
+function SearchableRow(
+  props: RowComponentProps<SearchableRowProps>,
+) {
+  const { itemData, index, style } = props
+  const [optionProps, option, settings] = itemData[index]
   const inlineStyle = {
     ...style,
     top: (style.top as number) + LISTBOX_PADDING,
@@ -272,8 +273,7 @@ const SearchableRow = memo((
       />
     </OptionHolder>
   )
-})
-SearchableRow.displayName = 'SearchableRow'
+}
 
 const OuterElementContext = createContext({})
 
@@ -289,10 +289,9 @@ const ListBoxComponent = forwardRef(
     ref: ForwardedRef<HTMLDivElement>,
   ) => {
     const { children, ...otherProps } = props
-    const itemData = children as PropsAndOptionList
+    const itemData = children as PropsAndOption[]
     const itemSize = 56
 
-    const gridRef = useResetCache<PropsAndOptionList>(itemData.length)
     const getHeight = useCallback(
       () => itemSize * Math.min(itemData.length, 6),
       [itemData, itemSize],
@@ -301,19 +300,14 @@ const ListBoxComponent = forwardRef(
     return (
       <div ref={ref}>
         <OuterElementContext.Provider value={otherProps}>
-          <VariableSizeList<PropsAndOptionList>
-            itemData={itemData}
-            height={getHeight() + 2 * LISTBOX_PADDING}
-            width="100%"
-            ref={gridRef}
-            outerElementType={OuterElementType}
-            innerElementType="ul"
-            itemSize={() => itemSize}
+          <List<SearchableRowProps>
+            rowProps={{ itemData }}
+            style={{ height: getHeight() + 2 * LISTBOX_PADDING, width: '100%' }}
+            rowComponent={SearchableRow}
+            rowHeight={itemSize}
             overscanCount={2}
-            itemCount={itemData.length}
-          >
-            {SearchableRow}
-          </VariableSizeList>
+            rowCount={itemData.length}
+          />
         </OuterElementContext.Provider>
       </div>
     )

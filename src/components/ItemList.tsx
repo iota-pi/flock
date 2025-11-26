@@ -1,9 +1,7 @@
 import {
-  memo,
   MouseEvent,
   ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
 } from 'react'
@@ -26,14 +24,13 @@ import {
   useMediaQuery,
 } from '@mui/material'
 import {
-  ListChildComponentProps,
-  ListItemKeySelector,
-  VariableSizeList,
+  List as ReactWindowList,
+  RowComponentProps,
 } from 'react-window'
 import { getItemName, GroupItem, isItem, Item } from '../state/items'
 import TagDisplay from './TagDisplay'
 import { getIcon as getItemIcon } from './Icons'
-import { MostlyRequired, usePrevious, useStringMemo } from '../utils'
+import { MostlyRequired, useStringMemo } from '../utils'
 import { useItems } from '../state/selectors'
 
 const FADED_OPACITY = 0.65
@@ -116,8 +113,8 @@ export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   viewHeight?: number,
 }
 
-export function ItemListItem<T extends Item>(props: ListChildComponentProps<BaseProps<T>>) {
-  const { data, index, style } = props
+export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<T>>) {
+  const { index, style, ...data } = props
   const {
     checkboxes,
     checkboxSide,
@@ -341,7 +338,6 @@ export function ItemListItem<T extends Item>(props: ListChildComponentProps<Base
     </div>
   )
 }
-const MemoItemListItem = memo(ItemListItem) as typeof ItemListItem
 
 function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
@@ -430,10 +426,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     ],
   )
 
-  const getItemKey: ListItemKeySelector<BaseProps<Item>> = useCallback(
-    (index, data) => data.items[index].id,
-    [],
-  )
   const extraElementsByIndex = useMemo(
     () => items.map((_, index) => {
       const elementsForIndex = extraElements?.filter(ee => ee.index === index) || []
@@ -479,31 +471,11 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   )
   const memoisedHeights = useStringMemo(itemHeights)
   const getItemSize = useCallback(
-    (index: number) => memoisedHeights[index],
+    (index: number, _rowProps: BaseProps<Item>) => memoisedHeights[index],
     [memoisedHeights],
   )
 
   const noStyle = useRef({})
-  const listRef = useRef<VariableSizeList<BaseProps<Item>>>(null)
-
-  const prevHeights = usePrevious(memoisedHeights)
-  useEffect(
-    () => {
-      let firstChange = 0
-      if (prevHeights) {
-        const length = Math.min(prevHeights.length, memoisedHeights.length)
-        for (; firstChange < length; ++firstChange) {
-          if (memoisedHeights[firstChange] !== prevHeights[firstChange]) {
-            break
-          }
-        }
-        if (firstChange < length) {
-          listRef.current?.resetAfterIndex(firstChange, true)
-        }
-      }
-    },
-    [listRef, memoisedHeights, prevHeights],
-  )
 
   const rootStyles: SxProps = useMemo(() => ({ paddingBottom }), [paddingBottom])
 
@@ -517,21 +489,18 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
 
       {items.length > 0 ? (
         viewHeight !== undefined ? (
-          <VariableSizeList
-            height={viewHeight}
-            itemCount={items.length}
-            itemData={itemData as unknown as BaseProps<Item>}
-            itemKey={getItemKey}
-            itemSize={getItemSize}
-            width="100%"
-            ref={listRef}
-          >
-            {MemoItemListItem}
-          </VariableSizeList>
+          <ReactWindowList<BaseProps<Item>>
+            style={{ height: viewHeight, width: '100%' }}
+            rowCount={items.length}
+            rowProps={itemData as unknown as BaseProps<Item>}
+            rowHeight={getItemSize}
+            rowComponent={ItemListItem}
+          />
         ) : (
           items.map((item, index) => (
-            <MemoItemListItem
-              data={itemData}
+            <ItemListItem
+              {...itemData}
+              ariaAttributes={{ 'aria-posinset': index + 1, 'aria-setsize': items.length, role: 'listitem' }}
               index={index}
               key={item.id}
               style={noStyle.current}

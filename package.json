@@ -39,12 +39,11 @@
     "@mui/x-date-pickers": "^6.18.4",
     "@reduxjs/toolkit": "^2.0.1",
     "@simbathesailor/use-what-changed": "^2.0.0",
-    "@types/loadable__component": "^5.13.8",
+    "@types/loadable__component": "^5.13.10",
     "@types/node": "^24.10.1",
     "@types/react": "^18.2.45",
     "@types/react-dom": "18.2.17",
-    "@types/react-virtualized": "^9.21.13",
-    "@types/react-window": "^1.8.5",
+    "@types/react-virtualized": "^9.22.3",
     "@types/zxcvbn": "^4.4.1",
     "@vitejs/plugin-react": "^4.2.1",
     "axios": "^1.13.2",
@@ -73,7 +72,7 @@
     "react-redux": "^9.0.4",
     "react-router-dom": "^6.20.1",
     "react-virtualized": "^9.22.5",
-    "react-window": "^1.8.10",
+    "react-window": "^2.2.3",
     "redux": "^5.0.0",
     "redux-thunk": "^3.1.0",
     "serve": "^14.2.1",
@@ -118,6 +117,10 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "resolutions": {
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.17"
   },
   "packageManager": "yarn@4.1.0"
 }
