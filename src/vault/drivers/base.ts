@@ -1,5 +1,5 @@
 import { FastifyRequest } from 'fastify'
-import { FlockPushSubscription, ItemType } from '../../shared/apiTypes'
+import type { FlockPushSubscription, ItemType } from '../../shared/apiTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 

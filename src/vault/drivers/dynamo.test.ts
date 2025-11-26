@@ -1,7 +1,7 @@
 import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
-import { ItemType } from '../../shared/apiTypes'
 import { generateAccountId } from '../util'
+import type { ItemType } from 'src/shared/apiTypes'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -12,7 +12,7 @@ describe('DynamoDriver', function () {
   it('set, get, delete', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: VaultItemType = 'person'
+    const type: ItemType = 'person'
     const cipher = 'hello'
     const iv = 'there'
     const modified = new Date().getTime()
@@ -29,7 +29,7 @@ describe('DynamoDriver', function () {
   it('set can create and update', async () => {
     const account = generateAccountId()
     const item = generateItemId()
-    const type: VaultItemType = 'person'
+    const type: ItemType = 'person'
     let cipher = 'hello'
     let iv = 'there'
     const modified = new Date().getTime()
@@ -45,7 +45,7 @@ describe('DynamoDriver', function () {
   it('fetchAll works', async () => {
     const account = generateAccountId()
     const individuals = []
-    const type: VaultItemType = 'person'
+    const type: ItemType = 'person'
     const cipher = 'hello'
     const iv = 'there'
     const modified = new Date().getTime()
