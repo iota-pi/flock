@@ -33,7 +33,7 @@ module "vault_lambda" {
   attach_policy_json = true
   policy_json        = data.aws_iam_policy_document.vault_policy.json
 
-  cloudwatch_logs_retention_in_days = 14
+  use_existing_cloudwatch_log_group = true
 
   tags = local.standard_tags
 }
@@ -61,6 +61,8 @@ module "vault_migrations_lambda" {
 
   attach_policy_json = true
   policy_json        = data.aws_iam_policy_document.vault_policy.json
+
+  use_existing_cloudwatch_log_group = true
 
   tags = local.standard_tags
 }
@@ -90,6 +92,8 @@ module "vault_notifier_lambda" {
 
   attach_policy_json = true
   policy_json        = data.aws_iam_policy_document.vault_policy.json
+
+  use_existing_cloudwatch_log_group = true
 
   allowed_triggers = {
     CloudWatchSchedule = {
