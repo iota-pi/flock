@@ -11,8 +11,3 @@ variable "cloudflare_api_token" {
   type      = string
   sensitive = true
 }
-
-variable "code_bucket" {
-  type    = string
-  default = "crosscode-lambdas"
-}

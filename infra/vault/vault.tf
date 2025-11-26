@@ -21,12 +21,8 @@ module "vault_lambda" {
   memory_size   = 512
   timeout       = 5
 
-  create_package = false
+  create_package         = false
   local_existing_package = local.lambda_zip
-
-  store_on_s3  = true
-  s3_bucket    = var.code_bucket
-  s3_prefix    = "flock/${var.environment}/"
 
   environment_variables = {
     ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
@@ -54,11 +50,8 @@ module "vault_migrations_lambda" {
   memory_size   = 512
   timeout       = 60
 
-  create_package = false
-  s3_existing_package = {
-    bucket = module.vault_lambda.s3_object.bucket
-    key    = module.vault_lambda.s3_object.key
-  }
+  create_package         = false
+  local_existing_package = local.lambda_zip
 
   environment_variables = {
     ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name
@@ -84,11 +77,8 @@ module "vault_notifier_lambda" {
   memory_size   = 512
   timeout       = 60
 
-  create_package = false
-  s3_existing_package = {
-    bucket = module.vault_lambda.s3_object.bucket
-    key    = module.vault_lambda.s3_object.key
-  }
+  create_package         = false
+  local_existing_package = local.lambda_zip
 
   environment_variables = {
     ACCOUNTS_TABLE                 = aws_dynamodb_table.vault_accounts_table.name
