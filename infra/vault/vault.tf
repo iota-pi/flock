@@ -76,6 +76,7 @@ module "vault_notifier_lambda" {
   runtime       = local.lambda_runtime
   memory_size   = 512
   timeout       = 60
+  publish       = true
 
   create_package         = false
   local_existing_package = local.lambda_zip
