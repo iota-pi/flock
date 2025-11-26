@@ -65,8 +65,30 @@ else
   fi
 fi
 
-stage "Building App"
-./deploy-app.sh
-
 stage "Terraform Apply"
 ./tf.sh apply
+
+stage "Getting deployment info"
+outputs="$(./tf.sh output -json)"
+environment=$(echo "$outputs" | jq -r ".environment.value")
+app_bucket=$(echo "$outputs" | jq -r ".app_bucket.value")
+vault_endpoint=$(echo "$outputs" | jq -r ".vault_endpoint.value")
+
+if [[ $environment == "production" ]]; then
+  export VITE_BASE_URL="flock.cross-code.org"
+  export CACHE_MAX_AGE=7200
+else
+  export VITE_BASE_URL="$environment.flock.cross-code.org"
+  export CACHE_MAX_AGE=0
+fi
+export VITE_VAULT_ENDPOINT="$vault_endpoint"
+export APP_BUCKET="$app_bucket"
+
+stage "Building App"
+cd ..
+yarn build
+
+stage "Deploying App to S3"
+yarn deploy:app
+
+echo "Finished deployment to $environment"

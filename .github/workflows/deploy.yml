@@ -47,13 +47,6 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Deploy app
-      run: cd deploy && ./deploy-app.sh
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_EC2_METADATA_DISABLED: true
-
     - name: Deploy Terraform IAC
       run: |
         cd deploy
@@ -63,6 +56,32 @@ jobs:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Get Terraform outputs
+      id: tf
+      run: |
+        cd deploy
+        echo "app_bucket=$(./tf.sh output -raw app_bucket)" >> $GITHUB_OUTPUT
+        echo "vault_endpoint=$(./tf.sh output -raw vault_endpoint)" >> $GITHUB_OUTPUT
+        echo "environment=$(./tf.sh output -raw environment)" >> $GITHUB_OUTPUT
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Build app
+      run: yarn build
+      env:
+        VITE_VAULT_ENDPOINT: ${{ steps.tf.outputs.vault_endpoint }}
+        VITE_BASE_URL: ${{ steps.tf.outputs.environment == 'production' && 'flock.cross-code.org' || format('{0}.flock.cross-code.org', steps.tf.outputs.environment) }}
+
+    - name: Deploy app to S3
+      run: yarn deploy:app
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        APP_BUCKET: ${{ steps.tf.outputs.app_bucket }}
+        CACHE_MAX_AGE: ${{ steps.tf.outputs.environment == 'production' && '7200' || '0' }}
 
     - name: Lint codebase
       run: |
