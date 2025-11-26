@@ -30,10 +30,9 @@ module "vault_lambda" {
     SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
   }
 
-  attach_policy_json = true
-  policy_json        = data.aws_iam_policy_document.vault_policy.json
-
-  use_existing_cloudwatch_log_group = true
+  attach_policy_json            = true
+  policy_json                   = data.aws_iam_policy_document.vault_policy.json
+  attach_cloudwatch_logs_policy = false
 
   tags = local.standard_tags
 }
@@ -59,10 +58,9 @@ module "vault_migrations_lambda" {
     SUBSCRIPTIONS_TABLE = aws_dynamodb_table.vault_subscriptions_table.name
   }
 
-  attach_policy_json = true
-  policy_json        = data.aws_iam_policy_document.vault_policy.json
-
-  use_existing_cloudwatch_log_group = true
+  attach_policy_json            = true
+  policy_json                   = data.aws_iam_policy_document.vault_policy.json
+  attach_cloudwatch_logs_policy = false
 
   tags = local.standard_tags
 }
@@ -90,10 +88,9 @@ module "vault_notifier_lambda" {
     GOOGLE_APPLICATION_CREDENTIALS = "gcp-service-credentials.json"
   }
 
-  attach_policy_json = true
-  policy_json        = data.aws_iam_policy_document.vault_policy.json
-
-  use_existing_cloudwatch_log_group = true
+  attach_policy_json            = true
+  policy_json                   = data.aws_iam_policy_document.vault_policy.json
+  attach_cloudwatch_logs_policy = false
 
   allowed_triggers = {
     CloudWatchSchedule = {
