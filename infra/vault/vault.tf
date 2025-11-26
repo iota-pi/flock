@@ -12,7 +12,7 @@ locals {
 # Main Vault API Lambda
 module "vault_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "~> 7.0"
+  version = "~> 8.1"
 
   function_name = "flock-vault-${var.environment}"
   description   = "Flock Vault API"
@@ -51,7 +51,7 @@ module "vault_lambda" {
 # Migrations Lambda
 module "vault_migrations_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "~> 7.0"
+  version = "~> 8.1"
 
   function_name = "flock-vault-migrations-${var.environment}"
   description   = "Flock Vault Migrations"
@@ -81,7 +81,7 @@ module "vault_migrations_lambda" {
 # Notifier Lambda
 module "vault_notifier_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
-  version = "~> 7.0"
+  version = "~> 8.1"
 
   function_name = "flock-vault-notifications-${var.environment}"
   description   = "Flock Vault Push Notifications"
