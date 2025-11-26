@@ -471,7 +471,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   )
   const memoisedHeights = useStringMemo(itemHeights)
   const getItemSize = useCallback(
-    (index: number, _rowProps: BaseProps<Item>) => memoisedHeights[index],
+    (index: number) => memoisedHeights[index],
     [memoisedHeights],
   )
 
