@@ -6,7 +6,7 @@ locals {
   }
 
   lambda_runtime = "nodejs22.x"
-  source_path    = "${path.module}/../../src/vault"
+  lambda_zip     = "${path.module}/../../dist/vault/lambda.zip"
 }
 
 # Main Vault API Lambda
@@ -21,18 +21,12 @@ module "vault_lambda" {
   memory_size   = 512
   timeout       = 5
 
-  source_path = [
-    {
-      path             = local.source_path
-      npm_requirements = true
-      commands         = ["yarn build:vault", "cd dist/vault && :zip"]
-      patterns         = ["!.*", "dist/vault/.*"]
-    }
-  ]
+  create_package = false
+  local_existing_package = local.lambda_zip
 
-  store_on_s3             = true
-  s3_bucket               = var.code_bucket
-  s3_prefix               = "flock/${var.environment}/"
+  store_on_s3  = true
+  s3_bucket    = var.code_bucket
+  s3_prefix    = "flock/${var.environment}/"
 
   environment_variables = {
     ACCOUNTS_TABLE      = aws_dynamodb_table.vault_accounts_table.name

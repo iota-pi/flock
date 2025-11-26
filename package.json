@@ -9,7 +9,7 @@
   "scripts": {
     "analyse": "source-map-explorer 'dist/static/js/*.js'",
     "build": "tsc && vite build",
-    "build:vault": "esbuild src/vault/index.ts --outfile=dist/vault/lambda.js --bundle --minify --platform=node --target=node22 --external:@aws-sdk/*",
+    "build:vault": "esbuild src/vault/index.ts --outfile=dist/vault/lambda.js --bundle --minify --platform=node --target=node22 --external:@aws-sdk/* && cd dist/vault && bestzip lambda.zip lambda.js",
     "deploy:app": "aws s3 sync dist/ s3://$APP_BUCKET/ --delete --cache-control max-age=$CACHE_MAX_AGE",
     "dev": "vite",
     "dev:vault": "tsx watch src/vault/api/runServer.ts",
@@ -94,6 +94,7 @@
     "@types/uuid": "^9.0.7",
     "@vitest/coverage-v8": "^4.0.13",
     "@vitest/eslint-plugin": "^1.4.2",
+    "bestzip": "^2.2.1",
     "browserslist-to-esbuild": "^1.2.0",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",

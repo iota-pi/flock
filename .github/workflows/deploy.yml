@@ -39,6 +39,9 @@ jobs:
     - name: Run app unit tests
       run: yarn test run
 
+    - name: Build vault Lambda
+      run: yarn build:vault
+
     - name: Initialise terraform
       run: cd deploy && ./tf.sh init
       env:
