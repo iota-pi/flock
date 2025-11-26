@@ -12,6 +12,7 @@ vi.mock('./axios', () => ({
   getAxios: (allowNoInit?: boolean) => ({ mockedAxios: true, allowNoInit }),
 }))
 
+import type { AxiosResponse } from 'axios'
 import { getAccountId, flockRequest, flockRequestChunked } from './util'
 
 beforeEach(() => {
@@ -30,10 +31,10 @@ describe('api util', () => {
   })
 
   it('flockRequest calls start and finish and returns result', async () => {
-    const result = await flockRequest(async axios => {
+    const result = await flockRequest<string>(async axios => {
       // ensure axios passed through
       expect(axios).toHaveProperty('mockedAxios')
-      return 'ok'
+      return { data: 'ok' } as AxiosResponse<string>
     })
     expect(result).toBe('ok')
     expect(dispatch).toHaveBeenCalled()
@@ -53,7 +54,7 @@ describe('api util', () => {
     const data = Array.from({ length: 25 }, (_, i) => i)
     const requestFactory = () => async (batch: number[]) => {
       // return the batch length so we can assert correctness
-      return batch.length
+      return { data: batch.length } as AxiosResponse<number>
     }
 
     const results = await flockRequestChunked({ data, requestFactory, chunkSize: 10 })
