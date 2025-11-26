@@ -43,22 +43,6 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.get<{ Params: ItemParams; Reply: ItemsResponse }>(
-    '/:account/items/:item',
-    {
-      preHandler,
-      schema: {
-        params: { $ref: SCHEMA_REFS.ITEM_PARAMS },
-        response: { 200: { $ref: SCHEMA_REFS.ITEMS_RESPONSE } },
-      },
-    },
-    async request => {
-      const { account, item } = request.params
-      const result = await vault.get({ account, item })
-      return { success: true, items: [result] }
-    }
-  )
-
   fastify.put<{ Params: AccountParams; Body: PutItemsBatchBody; Reply: BatchResultResponse }>(
     '/:account/items',
     {

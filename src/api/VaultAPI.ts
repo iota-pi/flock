@@ -68,12 +68,6 @@ export async function vaultFetchMany({
   }
 }
 
-export async function vaultFetch({ item }: VaultKey): Promise<VaultItem> {
-  const url = itemsUrl(item)
-  const result = await flockRequest(a => a.get(url))
-  return result.data.items[0]
-}
-
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
   const url = itemsUrl(item)
   const result = await flockRequest(

@@ -33,13 +33,6 @@ describe('VaultAPI', () => {
     await expect(api.vaultFetchMany({} as any)).rejects.toThrow('Must provide cacheTime or ids')
   })
 
-  it('vaultFetch returns first item', async () => {
-    const item = { item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ data: { items: [item] } } as any)
-    const res = await api.vaultFetch({ item: 'x' })
-    expect(res).toEqual(item)
-  })
-
   it('vaultPut succeeds when api returns success', async () => {
     vi.spyOn(util, 'flockRequest').mockResolvedValue({ data: { success: true } } as any)
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).resolves.toBeUndefined()
