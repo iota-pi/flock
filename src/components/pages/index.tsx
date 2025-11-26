@@ -1,5 +1,5 @@
 import { ReactNode, useMemo } from 'react'
-import { Routes, Route, matchPath, useLocation } from 'react-router-dom'
+import { Routes, Route, matchPath, useLocation } from 'react-router'
 import loadable from '@loadable/component'
 import {
   GroupIcon,

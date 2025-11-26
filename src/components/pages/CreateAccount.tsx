@@ -1,5 +1,5 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import zxcvbn from 'zxcvbn'
 import {
   alpha,

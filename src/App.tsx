@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BrowserRouter as Router } from 'react-router-dom'
+import { BrowserRouter as Router } from 'react-router'
 import { styled, Toolbar, useMediaQuery } from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'

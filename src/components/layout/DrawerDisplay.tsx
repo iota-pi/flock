@@ -1,6 +1,6 @@
 import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
 import { DrawerData, removeActive, updateActive } from '../../state/ui'
 import { useAppDispatch, useAppSelector } from '../../store'
