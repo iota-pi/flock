@@ -1,9 +1,17 @@
 import { randomBytes } from 'crypto'
 import type { FastifyPluginCallback } from 'fastify'
 import {
-  AccountParams,
-  ACCOUNT_PARAMS_REF,
-} from '../schemas'
+  SCHEMA_REFS,
+  type AccountParams,
+  type CreateAccountBody,
+  type LoginBody,
+  type UpdateMetadataBody,
+  type AccountCreationResponse,
+  type SessionResponse,
+  type SuccessResponse,
+  type SaltResponse,
+  type MetadataResponse,
+} from '../../../shared/apiTypes'
 import { getAuthToken, hashString } from '../util'
 import { HttpError } from '../errors'
 
@@ -11,20 +19,12 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = fastify.vault
   const preHandler = fastify.auth([vault.auth.bind(vault)])
 
-  fastify.post<{
-    Body: { salt: string; authToken: string }
-  }>(
+  fastify.post<{ Body: CreateAccountBody; Reply: AccountCreationResponse }>(
     '/account',
     {
       schema: {
-        body: {
-          type: 'object',
-          properties: {
-            salt: { type: 'string', minLength: 1 },
-            authToken: { type: 'string', minLength: 1 },
-          },
-          required: ['salt', 'authToken'],
-        },
+        body: { $ref: SCHEMA_REFS.CREATE_ACCOUNT_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.ACCOUNT_CREATION_RESPONSE } },
       },
     },
     async request => {
@@ -45,18 +45,13 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.post<{ Params: AccountParams; Body: { authToken: string } }>(
+  fastify.post<{ Params: AccountParams; Body: LoginBody; Reply: SessionResponse }>(
     '/:account/login',
     {
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
-        body: {
-          type: 'object',
-          properties: {
-            authToken: { type: 'string' },
-          },
-          required: ['authToken'],
-        },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        body: { $ref: SCHEMA_REFS.LOGIN_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.SESSION_RESPONSE } },
       },
     },
     async request => {
@@ -76,18 +71,14 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   )
 
-  fastify.patch<{ Params: AccountParams; Body: { metadata?: Record<string, unknown> } }>(
+  fastify.patch<{ Params: AccountParams; Body: UpdateMetadataBody; Reply: SuccessResponse }>(
     '/:account',
     {
       preHandler,
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
-        body: {
-          type: 'object',
-          properties: {
-            metadata: { type: 'object' },
-          },
-        },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        body: { $ref: SCHEMA_REFS.UPDATE_METADATA_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.SUCCESS_RESPONSE } },
       },
     },
     async request => {
@@ -101,11 +92,12 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.get<{ Params: AccountParams }>(
+  fastify.get<{ Params: AccountParams; Reply: SaltResponse }>(
     '/:account/salt',
     {
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.SALT_RESPONSE } },
       },
     },
     async request => {
@@ -118,12 +110,13 @@ const accountsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.get<{ Params: AccountParams }>(
+  fastify.get<{ Params: AccountParams; Reply: MetadataResponse }>(
     '/:account',
     {
       preHandler,
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.METADATA_RESPONSE } },
       },
     },
     async request => {

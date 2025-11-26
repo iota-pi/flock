@@ -3,7 +3,31 @@ import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import { fastifyAuth } from '@fastify/auth'
-import { accountParams, itemParams, itemBody, itemsBody, subscriptionParams, subscriptionBody, itemsQuery } from './schemas'
+import {
+  // Params & Query
+  AccountParamsSchema,
+  ItemParamsSchema,
+  SubscriptionParamsSchema,
+  ItemsQuerySchema,
+  // Bodies
+  PutItemBodySchema,
+  PutItemsBatchBodySchema,
+  SubscriptionBodySchema,
+  CreateAccountBodySchema,
+  LoginBodySchema,
+  UpdateMetadataBodySchema,
+  DeleteItemsBatchBodySchema,
+  // Responses
+  SuccessResponseSchema,
+  ErrorResponseSchema,
+  AccountCreationResponseSchema,
+  SaltResponseSchema,
+  SessionResponseSchema,
+  MetadataResponseSchema,
+  ItemsResponseSchema,
+  BatchResultResponseSchema,
+  SubscriptionGetResponseSchema,
+} from '../../shared/apiTypes'
 import routes from './routes'
 import getDriver from '../drivers'
 
@@ -23,13 +47,32 @@ async function createServer() {
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
   })
   await server.register(fastifyAuth)
-  server.addSchema(accountParams)
-  server.addSchema(itemParams)
-  server.addSchema(itemBody)
-  server.addSchema(itemsBody)
-  server.addSchema(itemsQuery)
-  server.addSchema(subscriptionParams)
-  server.addSchema(subscriptionBody)
+
+  // Register param & query schemas
+  server.addSchema(AccountParamsSchema)
+  server.addSchema(ItemParamsSchema)
+  server.addSchema(SubscriptionParamsSchema)
+  server.addSchema(ItemsQuerySchema)
+
+  // Register body schemas
+  server.addSchema(PutItemBodySchema)
+  server.addSchema(PutItemsBatchBodySchema)
+  server.addSchema(SubscriptionBodySchema)
+  server.addSchema(CreateAccountBodySchema)
+  server.addSchema(LoginBodySchema)
+  server.addSchema(UpdateMetadataBodySchema)
+  server.addSchema(DeleteItemsBatchBodySchema)
+
+  // Register response schemas
+  server.addSchema(SuccessResponseSchema)
+  server.addSchema(ErrorResponseSchema)
+  server.addSchema(AccountCreationResponseSchema)
+  server.addSchema(SaltResponseSchema)
+  server.addSchema(SessionResponseSchema)
+  server.addSchema(MetadataResponseSchema)
+  server.addSchema(ItemsResponseSchema)
+  server.addSchema(BatchResultResponseSchema)
+  server.addSchema(SubscriptionGetResponseSchema)
 
   const vault = getDriver('dynamo')
   server.decorate('vault', vault)

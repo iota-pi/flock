@@ -1,22 +1,24 @@
 import type { FastifyPluginCallback } from 'fastify'
-import type { FlockPushSubscription } from '../../../shared/apiTypes'
 import {
-  SubscriptionParams,
-  SubscriptionBody,
-  SUBSCRIPTION_PARAMS_REF,
-  SUBSCRIPTION_BODY_REF,
-} from '../schemas'
+  SCHEMA_REFS,
+  type FlockPushSubscription,
+  type SubscriptionParams,
+  type SubscriptionBody,
+  type SubscriptionGetResponse,
+  type SuccessResponse,
+} from '../../../shared/apiTypes'
 
 const subscriptionsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = fastify.vault
   const preHandler = fastify.auth([vault.auth.bind(vault)])
 
-  fastify.get<{ Params: SubscriptionParams }>(
+  fastify.get<{ Params: SubscriptionParams; Reply: SubscriptionGetResponse }>(
     '/:account/subscriptions/:subscription',
     {
       preHandler,
       schema: {
-        params: { $ref: SUBSCRIPTION_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.SUBSCRIPTION_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.SUBSCRIPTION_GET_RESPONSE } },
       },
     },
     async request => {
@@ -29,13 +31,14 @@ const subscriptionsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.put<{ Params: SubscriptionParams; Body: SubscriptionBody }>(
+  fastify.put<{ Params: SubscriptionParams; Body: SubscriptionBody; Reply: SuccessResponse }>(
     '/:account/subscriptions/:subscription',
     {
       preHandler,
       schema: {
-        params: { $ref: SUBSCRIPTION_PARAMS_REF },
-        body: { $ref: SUBSCRIPTION_BODY_REF },
+        params: { $ref: SCHEMA_REFS.SUBSCRIPTION_PARAMS },
+        body: { $ref: SCHEMA_REFS.SUBSCRIPTION_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.SUCCESS_RESPONSE } },
       },
     },
     async request => {
@@ -50,12 +53,13 @@ const subscriptionsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.delete<{ Params: SubscriptionParams }>(
+  fastify.delete<{ Params: SubscriptionParams; Reply: SuccessResponse }>(
     '/:account/subscriptions/:subscription',
     {
       preHandler,
       schema: {
-        params: { $ref: SUBSCRIPTION_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.SUBSCRIPTION_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.SUCCESS_RESPONSE } },
       },
     },
     async request => {

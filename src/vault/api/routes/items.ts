@@ -1,29 +1,31 @@
 import type { FastifyPluginCallback } from 'fastify'
-import { asItemType, CachedVaultItem } from '../../drivers/base'
+import { asItemType } from '../../drivers/base'
 import {
-  ItemParams,
-  AccountParams,
-  ItemsQuery,
-  ItemsBody,
-  ItemBody,
-  ACCOUNT_PARAMS_REF,
-  ITEM_PARAMS_REF,
-  ITEMS_QUERY_REF,
-  ITEMS_BODY_REF,
-  ITEM_BODY_REF,
-} from '../schemas'
+  SCHEMA_REFS,
+  type ItemParams,
+  type AccountParams,
+  type ItemsQuery,
+  type PutItemsBatchBody,
+  type PutItemBody,
+  type DeleteItemsBatchBody,
+  type ItemsResponse,
+  type SuccessResponse,
+  type BatchResultResponse,
+  type CachedVaultItem,
+} from '../../../shared/apiTypes'
 
 const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = fastify.vault
   const preHandler = fastify.auth([vault.auth.bind(vault)])
 
-  fastify.get<{ Params: AccountParams; Querystring: ItemsQuery }>(
+  fastify.get<{ Params: AccountParams; Querystring: ItemsQuery; Reply: ItemsResponse }>(
     '/:account/items',
     {
       preHandler,
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
-        querystring: { $ref: ITEMS_QUERY_REF },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        querystring: { $ref: SCHEMA_REFS.ITEMS_QUERY },
+        response: { 200: { $ref: SCHEMA_REFS.ITEMS_RESPONSE } },
       },
     },
     async request => {
@@ -41,12 +43,13 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.get<{ Params: ItemParams }>(
+  fastify.get<{ Params: ItemParams; Reply: ItemsResponse }>(
     '/:account/items/:item',
     {
       preHandler,
       schema: {
-        params: { $ref: ITEM_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.ITEM_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.ITEMS_RESPONSE } },
       },
     },
     async request => {
@@ -56,13 +59,14 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   )
 
-  fastify.put<{ Params: AccountParams; Body: ItemsBody }>(
+  fastify.put<{ Params: AccountParams; Body: PutItemsBatchBody; Reply: BatchResultResponse }>(
     '/:account/items',
     {
       preHandler,
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
-        body: { $ref: ITEMS_BODY_REF },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        body: { $ref: SCHEMA_REFS.ITEMS_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.BATCH_RESULT_RESPONSE } },
       },
     },
     async request => {
@@ -96,13 +100,14 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     }
   )
 
-  fastify.put<{ Params: ItemParams; Body: ItemBody }>(
+  fastify.put<{ Params: ItemParams; Body: PutItemBody; Reply: SuccessResponse }>(
     '/:account/items/:item',
     {
       preHandler,
       schema: {
-        params: { $ref: ITEM_PARAMS_REF },
-        body: { $ref: ITEM_BODY_REF },
+        params: { $ref: SCHEMA_REFS.ITEM_PARAMS },
+        body: { $ref: SCHEMA_REFS.ITEM_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.SUCCESS_RESPONSE } },
       },
     },
     async request => {
@@ -114,16 +119,14 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.delete<{ Params: AccountParams; Body: string[] }>(
+  fastify.delete<{ Params: AccountParams; Body: DeleteItemsBatchBody; Reply: BatchResultResponse }>(
     '/:account/items',
     {
       preHandler,
       schema: {
-        params: { $ref: ACCOUNT_PARAMS_REF },
-        body: {
-          type: 'array',
-          items: { type: 'string' },
-        },
+        params: { $ref: SCHEMA_REFS.ACCOUNT_PARAMS },
+        body: { $ref: SCHEMA_REFS.DELETE_ITEMS_BODY },
+        response: { 200: { $ref: SCHEMA_REFS.BATCH_RESULT_RESPONSE } },
       },
     },
     async request => {
@@ -149,12 +152,13 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
   )
 
-  fastify.delete<{ Params: ItemParams }>(
+  fastify.delete<{ Params: ItemParams; Reply: SuccessResponse }>(
     '/:account/items/:item',
     {
       preHandler,
       schema: {
-        params: { $ref: ITEM_PARAMS_REF },
+        params: { $ref: SCHEMA_REFS.ITEM_PARAMS },
+        response: { 200: { $ref: SCHEMA_REFS.SUCCESS_RESPONSE } },
       },
     },
     async request => {
