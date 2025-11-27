@@ -5,12 +5,12 @@ locals {
 }
 
 # Root domain DNS and SSL Cert
-resource "cloudflare_record" "primary_cname" {
-  zone_id = var.cloudflare_zone_id
-  type    = "CNAME"
-  name    = local.subdomain != "" ? local.subdomain : "@"
-  content = aws_cloudfront_distribution.s3_distribution.domain_name
-}
+# resource "cloudflare_record" "primary_cname" {
+#   zone_id = var.cloudflare_zone_id
+#   type    = "CNAME"
+#   name    = local.subdomain != "" ? local.subdomain : "@"
+#   content = aws_cloudfront_distribution.s3_distribution.domain_name
+# }
 
 resource "aws_acm_certificate" "root_cert" {
   domain_name       = local.domain
