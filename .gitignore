@@ -42,5 +42,8 @@ pnpm-debug.log*
 .terraform/
 *.tfstate
 
+# SST
+.sst/
+
 # GCP Config Files
 gcp-*.json

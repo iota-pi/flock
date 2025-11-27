@@ -12,5 +12,6 @@ export default defineConfig({
   },
   build: {
     target: browserslistToEsbuild(),
+    outDir: 'dist/app',
   },
 });
