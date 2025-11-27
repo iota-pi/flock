@@ -13,6 +13,8 @@ export default defineConfig([
     'coverage',
     'eslint.config.js',
     'src/setupTests.ts',
+    'src/sst-env.d.ts',
+    'sst-env.d.ts',
   ]),
   eslint.configs.recommended,
   tseslint.configs.eslintRecommended,
