@@ -7,10 +7,6 @@ terraform {
       # Loosened constraint to allow newer provider versions (run `terraform init -upgrade` to fetch the latest)
       version = ">= 5.30"
     }
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 4.20"
-    }
   }
 
   backend "s3" {
@@ -28,8 +24,4 @@ provider "aws" {
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
-}
-
-provider "cloudflare" {
-  api_token = var.cloudflare_api_token
 }
