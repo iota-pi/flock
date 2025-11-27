@@ -43,6 +43,7 @@ async function createServer() {
     origin: [
       /^https?:\/\/([^.]+\.)?flock\.cross-code\.org$/,
       /^https?:\/\/localhost(:[0-9]+)?$/,
+      /^https?:\/\/[^.]+\.wofs12.workers.dev$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
   })
