@@ -45,7 +45,9 @@ async function createServer() {
       /^https?:\/\/localhost(:[0-9]+)?$/,
       /^https?:\/\/[^.]+\.wofs12.workers.dev$/,
     ],
-    methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   })
   await server.register(fastifyAuth)
 

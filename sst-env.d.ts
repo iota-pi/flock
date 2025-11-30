@@ -5,9 +5,30 @@
 
 declare module "sst" {
   export interface Resource {
+    "FlockAccounts": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
     "FlockApp": {
       "type": "sst.cloudflare.StaticSite"
       "url": string
+    }
+    "FlockItems": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
+    "FlockSubscriptions": {
+      "name": string
+      "type": "sst.aws.Dynamo"
+    }
+    "VaultApi": {
+      "name": string
+      "type": "sst.aws.Function"
+      "url": string
+    }
+    "VaultMigrations": {
+      "name": string
+      "type": "sst.aws.Function"
     }
   }
 }
