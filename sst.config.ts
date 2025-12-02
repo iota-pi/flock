@@ -13,57 +13,60 @@ export default $config({
         },
         cloudflare: true,
       },
-    };
+    }
   },
   async run() {
-    const stage = $app.stage === 'production' ? 'production' : $app.stage;
+    const stage = $app.stage === 'production' ? 'production' : $app.stage
 
     const domain =
       $app.stage === 'production'
         ? 'flock.cross-code.org'
-        : `${$app.stage}.flock.cross-code.org`;
-    const publicUrl = `https://${domain}`;
+        : `${$app.stage}.flock.cross-code.org`
+    const publicUrl = `https://${domain}`
 
     // -----------------------------------------------------------------
     // DynamoDB Tables
     // -----------------------------------------------------------------
     const accountsTable = new sst.aws.Dynamo('FlockAccounts', {
+      // deletionProtection: true,
       fields: {
         account: 'string',
       },
       primaryIndex: { hashKey: 'account' },
       transform: {
-        table: {
-          name: `FlockAccounts_${stage}`,
+        table: (args, opts) => {
+          args.name = `FlockAccounts_${stage}`
         },
       },
-    });
+    })
 
     const itemsTable = new sst.aws.Dynamo('FlockItems', {
+      // deletionProtection: true,
       fields: {
         account: 'string',
         item: 'string',
       },
       primaryIndex: { hashKey: 'account', rangeKey: 'item' },
       transform: {
-        table: {
-          name: `FlockItems_${stage}`,
+        table: (args, opts) => {
+          args.name = `FlockItems_${stage}`
         },
       },
-    });
+    })
 
     const subscriptionsTable = new sst.aws.Dynamo('FlockSubscriptions', {
+      // deletionProtection: true,
       fields: {
         id: 'string',
         account: 'string',
       },
       primaryIndex: { hashKey: 'id', rangeKey: 'account' },
       transform: {
-        table: {
-          name: `FlockSubscriptions_${stage}`,
+        table: (args, opts) => {
+          args.name = `FlockSubscriptions_${stage}`
         },
       },
-    });
+    })
 
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
@@ -82,7 +85,7 @@ export default $config({
         SUBSCRIPTIONS_TABLE: subscriptionsTable.name,
       },
       link: [accountsTable, itemsTable, subscriptionsTable],
-    });
+    })
 
     // -----------------------------------------------------------------
     // Migrations Lambda (invoked manually or via CI)
@@ -98,7 +101,7 @@ export default $config({
         SUBSCRIPTIONS_TABLE: subscriptionsTable.name,
       },
       link: [accountsTable, itemsTable, subscriptionsTable],
-    });
+    })
 
 
     // -----------------------------------------------------------------
@@ -120,7 +123,82 @@ export default $config({
         },
         link: [accountsTable, itemsTable, subscriptionsTable],
       },
-    });
+    })
+
+    // -----------------------------------------------------------------
+    // AWS Backup for DynamoDB tables
+    // -----------------------------------------------------------------
+    const backupVault = new aws.backup.Vault(
+      'FlockBackupVault',
+      {
+        name: `flock_dynamo_backup_vault_${stage}`,
+      },
+    )
+
+    const backupPlan = new aws.backup.Plan(
+      'FlockBackupPlan',
+      {
+        name: `flock_dynamo_backup_plan_${stage}`,
+        rules: [
+          {
+            ruleName: `flock_dynamo_weekly_backup_plan_${stage}`,
+            targetVaultName: backupVault.name,
+            // Backup at ~2am (AEST) on Sunday morning each week (UTC)
+            schedule: 'cron(0 4 ? * SAT *)',
+            lifecycle: {
+              deleteAfter: 30,
+            },
+          },
+          {
+            ruleName: `flock_dynamo_monthly_backup_${stage}`,
+            targetVaultName: backupVault.name,
+            // Backup at ~3am (AEST) on the 1st of each month (UTC)
+            schedule: 'cron(0 5 1 * ? *)',
+            lifecycle: {
+              deleteAfter: 365,
+            },
+          },
+        ],
+      },
+    )
+
+    const backupRole = new aws.iam.Role(
+      'FlockBackupRole',
+      {
+        name: `flock_dynamo_backup_role_${stage}`,
+        assumeRolePolicy: JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Action: ['sts:AssumeRole'],
+              Effect: 'Allow',
+              Principal: {
+                Service: ['backup.amazonaws.com'],
+              },
+            },
+          ],
+        }),
+      },
+    )
+
+    new aws.iam.RolePolicyAttachment(
+      'FlockBackupPolicyAttachment',
+      {
+        policyArn:
+          'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
+        role: backupRole.name,
+      },
+    )
+
+    new aws.backup.Selection(
+      'FlockBackupSelection',
+      {
+        iamRoleArn: backupRole.arn,
+        name: `flock_dynamo_backup_selection_${stage}`,
+        planId: backupPlan.id,
+        resources: [accountsTable.arn, itemsTable.arn],
+      },
+    )
 
     // -----------------------------------------------------------------
     // Frontend (Cloudflare Pages)
@@ -136,12 +214,12 @@ export default $config({
         VITE_VAULT_ENDPOINT: vaultApi.url,
         VITE_PUBLIC_URL: publicUrl,
       },
-    });
+    })
 
     return {
       appUrl: app.url,
       vaultEndpoint: vaultApi.url,
       migrationsLambda: migrationsLambda.name,
-    };
+    }
   },
-});
+})
