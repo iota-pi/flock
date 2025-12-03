@@ -6,7 +6,6 @@ This file gives focused, actionable guidance to an AI coding agent working in th
 Repository layout (high level)
 - `app/` — React + TypeScript front-end. Entry: `app/src/index.tsx`. Dev server: `yarn start` (runs vite and starts the API via docker).
 - `vault/` — Storage and API (Fastify + TypeScript). Dev server entry: `vault/api/runServer.ts`. DB driver init: `vault/drivers/init.ts`.
-- `infra/`, `deploy/` — Terraform and deploy scripts.
 
 Quick developer workflows (commands you can run)
 - Install (from repo root):
@@ -19,7 +18,6 @@ Quick developer workflows (commands you can run)
     - Services defined in `docker-compose.yml`:
       - `dynamodb` — Amazon DynamoDB Local image. Port: host 8000 -> container 8000. Volume: `dynamodata`.
       - `api` — the `vault` API service. Depends on `dynamodb`. Port: host 4000 -> container 4000. Environment vars set in compose include `DYNAMODB_ENDPOINT=http://dynamodb:8000`, `PROD_APP_URL`, `GOOGLE_APPLICATION_CREDENTIALS`, and `NODE_ENV=development`.
-      - `terraform` — a helper container using HashiCorp Terraform (used for infra operations only; it runs `tail -f /dev/null` by default).
     - To bring up only the API and DynamoDB for local dev:
       ```sh
       docker compose up -d dynamodb api
@@ -68,7 +66,7 @@ If you modify or add public APIs, update these files:
 - `vault/api/*` — server routes and contract
 - `app/cypress/**` or `**/*.spec.ts` — tests that validate the integration
 
-- Local DB & infra assumptions: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests. Terraform under `infra/` is intended for production/staging deployments only; local development should not require Terraform unless a maintainer documents a specific local Terraform flow.
- - Local DB & infra assumptions: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests. The compose file defines `dynamodb`, `api`, and a `terraform` helper container. The `api` service sets environment variables including `DYNAMODB_ENDPOINT`, `PROD_APP_URL`, and `GOOGLE_APPLICATION_CREDENTIALS` — ensure any referenced credential files (for example the GCP JSON key) are available in the project root or documented in the repo.
+- Local DB: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests.
+ - Local DB: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests. The compose file defines `dynamodb` and `api` containers. The `api` service sets environment variables including `DYNAMODB_ENDPOINT`, `PROD_APP_URL`, and `GOOGLE_APPLICATION_CREDENTIALS` — ensure any referenced credential files (for example the GCP JSON key) are available in the project root or documented in the repo.
 
 If this help needs to be expanded, tell me which areas you'd like more automation for (CI checks, local debug scripts, more example-driven recipes).

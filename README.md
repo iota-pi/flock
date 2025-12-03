@@ -56,11 +56,3 @@ yarn docker:initdb
 cd app
 yarn start
 ```
-
-## Repo Anatomy
-
-* `app` contains the front-end code written with React & Typescript
-* `vault` contains the storage and API code written with Typescript
-* `infra` contains IAC (Infrastructure As Code) using Terraform
-* `deploy` contains bash scripts to deploy the infrastructure
-  (credentials required)

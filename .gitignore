@@ -38,10 +38,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Terraform
-.terraform/
-*.tfstate
-
 # SST
 .sst/
 

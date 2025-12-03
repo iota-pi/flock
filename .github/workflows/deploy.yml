@@ -42,42 +42,12 @@ jobs:
     - name: Build vault Lambda
       run: yarn build:vault
 
-    - name: Initialise terraform
-      run: cd deploy && ./tf.sh init
-      env:
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-    - name: Deploy Terraform IAC (backend)
-      run: |
-        cd deploy
-        ./tf.sh apply -auto-approve
-      env:
-        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-    - name: Get Terraform outputs
-      id: tf
-      run: |
-        cd deploy
-        echo "vault_endpoint=$(./tf.sh output -raw vault_endpoint)" >> $GITHUB_OUTPUT
-      env:
-        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
     - name: Deploy frontend with SST (Cloudflare Pages)
       run: yarn deploy --stage production --print-logs
       env:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         CLOUDFLARE_DEFAULT_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        VAULT_ENDPOINT: ${{ steps.tf.outputs.vault_endpoint }}
 
     - name: Lint codebase
       run: |
         yarn lint
-        cd infra && ../deploy/tf.sh fmt -check

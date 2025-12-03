@@ -28,20 +28,5 @@ services:
         limits:
           cpus: '4'
 
-  terraform:
-    image: hashicorp/terraform:1.13.5
-    command: tail -f /dev/null
-    entrypoint: []
-    environment:
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - TF_IN_AUTOMATION
-      - TF_VAR_vault_version
-
-    volumes:
-      - .:/flock
-      - ${USERPROFILE:-${HOME:-}}/.aws:/root/.aws:ro
-    working_dir: /flock/infra
-
 volumes:
   dynamodata:
