@@ -36,23 +36,102 @@ related to or resulting from the use of Flock.
 This repository is for the development of Flock, if you would like to use Flock,
 please go to [flock.cross-code.org](https://flock.cross-code.org/).
 
+## Project Structure
+
+This is a unified TypeScript project containing both the front-end React application and the back-end Vault API:
+
+```
+flock/
+├── src/
+│   ├── api/           # Front-end API clients (Vault.ts, VaultAPI.ts, axios.ts)
+│   ├── components/    # React UI components
+│   ├── hooks/         # Custom React hooks
+│   ├── state/         # Redux state slices (account, items, ui)
+│   ├── utils/         # Utility functions
+│   └── vault/         # Back-end Vault API
+│       ├── api/       # Fastify server and routes
+│       ├── drivers/   # Database drivers (DynamoDB)
+│       ├── migrations/
+│       └── notifier/  # Notification services
+├── cypress/           # End-to-end tests
+├── public/            # Static assets
+├── sst.config.ts      # SST infrastructure configuration
+└── docker-compose.yml # Local development services
+```
+
+## Tech Stack
+
+- **Front-end**: React, TypeScript, Redux Toolkit, MUI (Material UI), Vite
+- **Back-end**: Fastify, TypeScript, DynamoDB
+- **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages
+- **Testing**: Vitest (unit tests), Cypress (e2e tests)
+
 ## Set up
 
 Requirements:
-1. Node & Yarn
-1. Docker & Docker Compose
+1. Node.js (v22+)
+2. Yarn 4 (via Corepack)
+3. Docker & Docker Compose
 
-```shell script
-cd app
+```shell
+# Install dependencies
 yarn install
-cd ../vault
-yarn install
+
+# Start local DynamoDB and API
 docker compose up -d
-yarn docker:initdb
+
+# Initialize the local database
+yarn initdb
 ```
 
 ## Run development server
-```shell script
-cd app
+
+```shell
+# Start Docker services and Vite dev server
 yarn start
 ```
+
+This command:
+1. Starts the local DynamoDB and API containers via Docker Compose
+2. Runs the Vite development server with SST dev mode
+
+Alternatively, run individual services:
+
+```shell
+# Run Vault API locally (with hot reload)
+yarn dev:vault
+
+# Run just the front-end (requires API to be running)
+yarn dev
+```
+
+## Testing
+
+```shell
+# Run unit tests
+yarn test
+
+# Run unit tests with coverage
+yarn coverage
+
+# Run Cypress e2e tests (ensure dev server is running)
+npx cypress open
+```
+
+## Deployment
+
+Infrastructure is managed via [SST](https://sst.dev/) (v3):
+
+```shell
+# Deploy to a development stage
+yarn deploy --stage dev
+
+# Deploy to production
+yarn deploy --stage production
+```
+
+The SST configuration (`sst.config.ts`) provisions:
+- DynamoDB tables (FlockAccounts, FlockItems, FlockSubscriptions)
+- Lambda function with Function URL for the Vault API
+- Cloudflare Pages for static site hosting
+- AWS Backup for data protection

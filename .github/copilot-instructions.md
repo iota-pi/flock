@@ -1,72 +1,187 @@
 <!-- Copilot instructions for the Flock repository -->
 # Flock — Copilot / AI Agent Guidance
 
-This file gives focused, actionable guidance to an AI coding agent working in the Flock monorepo. Keep instructions concrete and reference code examples so an agent can be immediately productive.
+This file gives focused, actionable guidance to an AI coding agent working in the Flock repository. Keep instructions concrete and reference code examples so an agent can be immediately productive.
 
-Repository layout (high level)
-- `app/` — React + TypeScript front-end. Entry: `app/src/index.tsx`. Dev server: `yarn start` (runs vite and starts the API via docker).
-- `vault/` — Storage and API (Fastify + TypeScript). Dev server entry: `vault/api/runServer.ts`. DB driver init: `vault/drivers/init.ts`.
+## Repository layout
 
-Quick developer workflows (commands you can run)
-- Install (from repo root):
-  - `cd app && yarn install`
-  - `cd ../vault && yarn install`
-- Start services locally (recommended):
- - Start services locally (recommended):
- - Start services locally (recommended):
-  - `docker compose up -d` — starts the API, local DynamoDB and other dependencies defined in `docker-compose.yml` (DynamoDB is run locally via the compose service).
-    - Services defined in `docker-compose.yml`:
-      - `dynamodb` — Amazon DynamoDB Local image. Port: host 8000 -> container 8000. Volume: `dynamodata`.
-      - `api` — the `vault` API service. Depends on `dynamodb`. Port: host 4000 -> container 4000. Environment vars set in compose include `DYNAMODB_ENDPOINT=http://dynamodb:8000`, `PROD_APP_URL`, `GOOGLE_APPLICATION_CREDENTIALS`, and `NODE_ENV=development`.
-    - To bring up only the API and DynamoDB for local dev:
-      ```sh
-      docker compose up -d dynamodb api
-      ```
-  - `cd app && yarn start` — starts Vite and runs `yarn vault:dev` which brings up the `api` service via Docker Compose.
-- Vault helper scripts (in `vault/package.json`):
-  - `yarn dev` — run API with `nodemon` (file changes restart server)
-  - `yarn initdb` — initialize local test DB via `vault/drivers/init.ts`
-  - Docker helpers: `yarn docker`, `yarn docker:test`, `yarn docker:initdb` (via docker compose)
+This is a unified TypeScript project (not a monorepo) containing both the front-end React application and the back-end Vault API:
 
-Architecture & patterns
-- Separation of concerns: the front-end is a single-page React app; the back-end (`vault`) is a small Fastify HTTP API that abstracts storage behind driver implementations (`vault/drivers/*`). Use the drivers module to locate storage-specific logic; `getDriver('dynamo')` is used to access Dynamo-related behaviour.
-- Client-side encryption: The front-end stores user data encrypted (see `app/src/api/Vault.ts` and `app/src/api/VaultAPI.ts` for how the client constructs requests to the vault). Respect the encryption flow — changing request/response shapes requires careful consideration of cryptographic flows.
-- Tests: both `app` and `vault` use Vitest. Front-end also includes Cypress e2e tests under `app/cypress/e2e`.
+```
+flock/
+├── src/
+│   ├── api/             # Front-end API clients
+│   │   ├── Vault.ts     # Encryption & vault operations
+│   │   ├── VaultAPI.ts  # HTTP API wrapper
+│   │   └── axios.ts     # Axios instance configuration
+│   ├── components/      # React UI components
+│   ├── hooks/           # Custom React hooks
+│   ├── state/           # Redux slices (account.ts, items.ts, ui.ts)
+│   ├── utils/           # Utility functions
+│   └── vault/           # Back-end Vault API (runs as Lambda)
+│       ├── api/         # Fastify server, routes
+│       │   ├── index.ts       # createServer entry
+│       │   ├── runServer.ts   # Local dev server entry
+│       │   └── routes/        # API route handlers
+│       ├── drivers/     # Database drivers
+│       │   ├── dynamo.ts      # DynamoDB implementation
+│       │   └── init.ts        # DB initialization script
+│       ├── migrations/  # Data migrations
+│       └── notifier/    # Notification services
+├── cypress/             # E2e tests
+├── public/              # Static assets
+├── sst.config.ts        # SST infrastructure config (Lambda, DynamoDB, Cloudflare)
+├── docker-compose.yml   # Local dev services (DynamoDB, API)
+├── vite.config.ts       # Vite bundler config
+└── vitest.config.ts     # Test runner config
+```
 
-Conventions and notable project-specific patterns
-- Yarn 4 (PNM v4) is used — `packageManager` in package.json is `yarn@4.1.0`. Use `yarn` commands not `npm`.
-- The `app` start script runs `yarn vault:dev` (which shells to `docker compose up -d api`) before starting Vite. When making changes that affect API types or contracts, prefer running the `vault` API locally via `yarn dev` or through Docker to mirror runtime.
-- Patch-package: `app` uses `patch-package` postinstall. If adding/updating dependencies that require patching upstream packages, update `app/patches/` and keep patches minimal.
-- TypeScript: project uses `tsconfig.json` per package. `app` compiles types with `tsc` during `build` step before `vite build`.
+Key entry points:
+- **Front-end entry**: `src/index.tsx`
+- **Vault API entry (Lambda)**: `src/vault/index.ts` (exports `handler`)
+- **Vault API entry (local dev)**: `src/vault/api/runServer.ts`
+- **DB initialization**: `src/vault/drivers/init.ts`
 
-Integration points & important files to inspect when changing behavior
-- Front-end API clients: `app/src/api/Vault.ts`, `app/src/api/VaultAPI.ts`, `app/src/api/axios.ts`.
-- Redux state and selectors: `app/src/store.ts`, `app/src/state/*` (account, items, ui). Look here for global state changes.
-- Fastify server boot: `vault/api/runServer.ts` and `vault/api/index.ts` (createServer entry) — changes to routing, plugins, or auth commonly live here.
-- DB drivers and DB init: `vault/drivers/*` and `vault/drivers/init.ts`.
-- Tests: `app/cypress` for e2e; `**/*.spec.ts` and vitest config files (`app/vitest.config.ts`, `vault/vitest.config.ts`) for unit tests.
+## Quick developer workflows
 
-When editing code, prefer these small checks before committing
-- Run lint and typecheck quickly:
-  - `cd app && yarn lint` and `cd vault && yarn lint` (eslint may be minimal; also run `tsc` via `yarn build` in `app`).
-- Run unit tests (fast): `cd app && yarn test` and `cd vault && yarn test`.
-- For server-side changes, restart the server (`yarn dev` in `vault`) or redeploy Docker compose (`docker compose up -d api`) and re-run the front-end if it depends on changed responses.
+### Installation
+```sh
+yarn install
+```
 
-Examples to reference in code changes
-- To see how the API is started: `vault/api/runServer.ts`.
-- To see DB init usage: `vault/drivers/init.ts`.
-- To see front-end boot including service worker: `app/src/index.tsx` and `app/src/serviceWorkerRegistration.ts`.
+### Start services locally
+```sh
+# Start DynamoDB and API via Docker, then run Vite dev server
+yarn start
+```
 
-Edge cases and constraints
-- Encryption/secret handling: client-side encryption means the server never has plaintext. Avoid attempts to add server-side decryption flows — instead follow the established patterns in `app/src/api/*`.
-- Small team, personal-data expectations: data is assumed to be personal and not shared between accounts. Be cautious about adding multi-user or sharing features without reviewing security implications.
+This runs `docker compose up -d api` followed by SST dev mode.
 
-If you modify or add public APIs, update these files:
-- `app/src/api/*` — client usage & tests
-- `vault/api/*` — server routes and contract
-- `app/cypress/**` or `**/*.spec.ts` — tests that validate the integration
+Alternatively, run services individually:
+```sh
+# Start just the Docker services (DynamoDB + API)
+docker compose up -d
 
-- Local DB: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests.
- - Local DB: DynamoDB is run locally via Docker Compose (see `docker-compose.yml`) — use `docker compose up -d` to bring it up for development and tests. The compose file defines `dynamodb` and `api` containers. The `api` service sets environment variables including `DYNAMODB_ENDPOINT`, `PROD_APP_URL`, and `GOOGLE_APPLICATION_CREDENTIALS` — ensure any referenced credential files (for example the GCP JSON key) are available in the project root or documented in the repo.
+# Run Vault API locally with hot reload (outside Docker)
+yarn dev:vault
 
-If this help needs to be expanded, tell me which areas you'd like more automation for (CI checks, local debug scripts, more example-driven recipes).
+# Initialize local DynamoDB tables
+yarn initdb
+```
+
+### Docker Compose services
+- `dynamodb` — Amazon DynamoDB Local. Port: 8000. Volume: `dynamodata`.
+- `api` — Vault API service. Port: 4000. Depends on `dynamodb`. Uses `yarn dev:vault`.
+
+### Testing
+```sh
+# Unit tests (Vitest)
+yarn test
+
+# With coverage
+yarn coverage
+
+# E2e tests (Cypress) — ensure dev server is running
+npx cypress open
+```
+
+### Linting & type-checking
+```sh
+yarn lint
+yarn build  # runs tsc then vite build
+```
+
+### Deployment (SST)
+```sh
+# Deploy to a stage
+yarn deploy --stage <stage-name>
+
+# Deploy to production
+yarn deploy --stage production
+```
+
+## Architecture & patterns
+
+### Separation of concerns
+- The **front-end** is a single-page React app built with Vite
+- The **back-end** (`src/vault/`) is a Fastify HTTP API deployed as an AWS Lambda with a Function URL
+- Storage is abstracted behind drivers (`src/vault/drivers/*`); DynamoDB is the production driver
+
+### Client-side encryption
+The front-end encrypts all user data before sending to the vault. See:
+- `src/api/Vault.ts` — encryption logic and vault operations
+- `src/api/VaultAPI.ts` — HTTP API wrapper
+
+**Important**: The server never has plaintext. Do not add server-side decryption — follow established patterns in `src/api/*`.
+
+### State management
+Redux Toolkit is used for global state:
+- `src/store.ts` — store configuration
+- `src/state/account.ts` — account/auth state
+- `src/state/items.ts` — item data state
+- `src/state/ui.ts` — UI state
+- `src/state/selectors.ts` — memoized selectors
+
+### Infrastructure (SST)
+Infrastructure is defined in `sst.config.ts` using SST v3:
+- **DynamoDB tables**: FlockAccounts, FlockItems, FlockSubscriptions
+- **Lambda + Function URL**: Vault API
+- **Cloudflare Pages**: Static site hosting
+- **AWS Backup**: Automated backups with point-in-time recovery
+
+## Conventions
+
+### Package management
+- **Yarn 4** is used (`packageManager` in package.json is `yarn@4.1.0`)
+- Use `yarn` commands, not `npm`
+- `patch-package` runs on postinstall — patches are in `patches/`
+
+### TypeScript
+- Single `tsconfig.json` at root
+- Build runs `tsc` before `vite build`
+- Lambda is bundled separately via esbuild (`yarn build:vault`)
+
+### Testing
+- Unit tests: `**/*.spec.ts` files, run with Vitest
+- E2e tests: `cypress/e2e/*.cy.ts`
+
+## Integration points & key files
+
+### When modifying API contracts
+- `src/api/Vault.ts`, `src/api/VaultAPI.ts` — client-side API usage
+- `src/vault/api/routes/*` — server-side route handlers
+- `cypress/e2e/*` — e2e tests that validate integration
+
+### When modifying state
+- `src/store.ts` — Redux store setup
+- `src/state/*` — individual slices
+
+### When modifying infrastructure
+- `sst.config.ts` — all AWS and Cloudflare resources
+- `docker-compose.yml` — local development services
+
+## Edge cases and constraints
+
+### Security
+- Client-side encryption means server never sees plaintext
+- Personal data only — not designed for multi-user or data sharing
+- Be cautious about adding sharing features without security review
+
+### Environment variables
+Local development uses:
+- `DYNAMODB_ENDPOINT=http://dynamodb:8000` (set in docker-compose.yml)
+- `PROD_APP_URL=https://flock.cross-code.org`
+- `NODE_ENV=development`
+
+For SST deployment, secrets are managed via SST's secret management.
+
+## Pre-commit checks
+
+Before committing changes:
+```sh
+yarn lint          # ESLint
+yarn build         # TypeScript + Vite build
+yarn test          # Unit tests
+```
+
+For API changes, ensure Docker services are running and test the integration manually or via Cypress.
