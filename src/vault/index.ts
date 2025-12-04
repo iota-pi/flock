@@ -3,7 +3,7 @@ import createServer from './api'
 import { handler as migrationHandler } from './migrations'
 import { handler as notifierHandler } from './notifier'
 
-const proxyPromise = createServer().then((server) =>
+const proxyPromise = createServer().then(server =>
   awsLambdaFastify(server, {
     decorateRequest: true,
     serializeLambdaArguments: true,
