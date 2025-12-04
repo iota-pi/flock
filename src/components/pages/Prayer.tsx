@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Divider, Grid, IconButton, Typography } from '@mui/material'
 import { AutoSizer } from 'react-virtualized'
+import { useToday } from '../../hooks/useToday'
 import { useItemMap, useItems, useMetadata } from '../../state/selectors'
 import { isSameDay, useStringMemo } from '../../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../../utils/prayer'
@@ -15,24 +16,28 @@ import PageContainer from '../PageContainer'
 import { storeItems } from '../../api/Vault'
 
 
-function isPrayedForToday(item: Item): boolean {
-  return isSameDay(new Date(), new Date(getLastPrayedFor(item)))
-}
-
-
 function PrayerPage() {
   const dispatch = useAppDispatch()
   const items = useItems()
   const itemMap = useItemMap()
+  const today = useToday()
 
   const [showGoalDialog, setShowGoalDialog] = useState(false)
+
+  const isPrayedForToday = useCallback(
+    (item: Item): boolean => isSameDay(today, new Date(getLastPrayedFor(item))),
+    [today],
+  )
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
   const [todaysGoal, setTodaysGoal] = useState(goal)
   useEffect(() => { setTodaysGoal(goal) }, [goal])
 
-  const rawPrayerSchedule = useMemo(() => getPrayerSchedule(items), [items])
+  const rawPrayerSchedule = useMemo(
+    () => getPrayerSchedule(items, today),
+    [items, today],
+  )
   const memoisedPrayerSchedule = useStringMemo(rawPrayerSchedule)
   const schedule = useMemo(
     () => memoisedPrayerSchedule.map(i => itemMap[i]),
@@ -45,7 +50,7 @@ function PrayerPage() {
 
   const completed = useMemo(
     () => items.filter(isPrayedForToday).length,
-    [items],
+    [items, isPrayedForToday],
   )
 
   const recordPrayerFor = useCallback(
@@ -63,7 +68,7 @@ function PrayerPage() {
       const newItem: Item = { ...item, prayedFor }
       storeItems(newItem)
     },
-    [],
+    [isPrayedForToday],
   )
   const handleClickPrayedFor = useCallback(
     (item: Item) => recordPrayerFor(item, true),

@@ -55,10 +55,10 @@ export function getLastPrayedFor(
   return prayedFor[prayedFor.length - 1] || 0
 }
 
-export function getPrayerSchedule(items: Item[]): string[] {
+export function getPrayerSchedule(items: Item[], day?: Date): string[] {
   const activeItems = getActiveItems(items)
   const freqMap = buildPrayerFreqMap(items)
-  const now = Date.now()
+  const calcTime = day?.getTime() ?? Date.now()
   const itemsWithSortInfo = activeItems.map(
     item => {
       const last = getLastPrayedFor(item, true)
@@ -67,7 +67,7 @@ export function getPrayerSchedule(items: Item[]): string[] {
       return {
         item,
         next: last + interval,
-        missed: Math.floor((now - last) / interval),
+        missed: Math.floor((calcTime - last) / interval),
       }
     },
   )
