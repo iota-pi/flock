@@ -74,6 +74,9 @@ export default abstract class BaseDriver<T = unknown> {
   // either `metadata` or `session` independently.
   abstract updateAccountData(data: Partial<AuthData> & { metadata?: Record<string, unknown>, session?: string }): Promise<void>
 
+  // Extend session expiry for an account (called on authenticated requests)
+  abstract extendSession(data: BaseData): Promise<void>
+
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
@@ -97,5 +100,7 @@ export default abstract class BaseDriver<T = unknown> {
     if (!valid) {
       throw new HttpError(403, 'Unauthorized')
     }
+    // Extend session expiry on successful authentication (fire-and-forget)
+    this.extendSession({ account }).catch(() => {})
   }
 }

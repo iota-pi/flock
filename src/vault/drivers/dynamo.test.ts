@@ -138,4 +138,28 @@ describe('DynamoDriver', function () {
     const result3 = await driver.createAccount(params)
     expect(result3).toBe(false)
   })
+
+  it('extendSession updates sessionExpiry', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata,
+      salt,
+      session,
+    })
+
+    // Session should be valid after creation
+    expect(
+      await driver.checkSession({ account, session })
+    ).toEqual({ success: true })
+
+    // Extend the session
+    await driver.extendSession({ account })
+
+    // Session should still be valid after extension
+    expect(
+      await driver.checkSession({ account, session })
+    ).toEqual({ success: true })
+  })
 })

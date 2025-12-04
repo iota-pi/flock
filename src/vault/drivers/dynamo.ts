@@ -325,6 +325,17 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
+  async extendSession({ account }: BaseData): Promise<void> {
+    await this.client.send(new UpdateCommand({
+      TableName: ACCOUNT_TABLE_NAME,
+      Key: { account },
+      UpdateExpression: 'SET sessionExpiry = :expiry',
+      ExpressionAttributeValues: {
+        ':expiry': Date.now() + SESSION_EXPIRY_MS,
+      },
+    }))
+  }
+
   async setSubscription(
     {
       account,
