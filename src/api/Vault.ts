@@ -21,7 +21,7 @@ import {
 import { AccountMetadata, setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
 import { FlockPushSubscription } from '../utils/firebase-types'
-import { initAxios } from './axios'
+import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
@@ -146,6 +146,27 @@ export async function initialiseVault({
   return updateKeyHash()
 }
 
+let isHandlingSessionExpiry = false
+
+function handleSessionExpired() {
+  // Prevent multiple simultaneous session expiry handlers
+  if (isHandlingSessionExpiry) return
+  isHandlingSessionExpiry = true
+
+  signOutVault()
+  store.dispatch(setUi({
+    message: {
+      message: 'Your session has expired. Please log in again.',
+      severity: 'warning',
+    },
+  }))
+
+  // Reset flag after a short delay to allow re-triggering if needed
+  setTimeout(() => {
+    isHandlingSessionExpiry = false
+  }, 1000)
+}
+
 export async function loadVault() {
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
@@ -161,9 +182,12 @@ export async function loadVault() {
       true,
       ['encrypt', 'decrypt'],
     )
+
     await updateKeyHash()
     session = await vaultGetSession(keyHash)
     initAxios(session)
+    setSessionExpiredHandler(handleSessionExpired)
+
     await initialLoadFromVault()
   }
 }

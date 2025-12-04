@@ -53,4 +53,80 @@ describe('app/src/api/axios', () => {
     const b = getAxios(true)
     expect(b).toBe(a)
   })
+
+  it('setSessionExpiredHandler registers a callback for 403 errors', async () => {
+    vi.resetModules()
+    const mod = await import('./axios')
+    const { initAxios, setSessionExpiredHandler } = mod
+
+    const handler = vi.fn()
+    setSessionExpiredHandler(handler)
+    initAxios('token')
+
+    // Handler should not have been called yet
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('calls session expired handler on 403 response', async () => {
+    vi.resetModules()
+    const mod = await import('./axios')
+    const { initAxios, getAxios, setSessionExpiredHandler } = mod
+
+    const handler = vi.fn()
+    setSessionExpiredHandler(handler)
+    initAxios('token')
+
+    const instance = getAxios()
+
+    // Manually trigger the response interceptor with a 403 error
+    const interceptors = (instance as any).interceptors.response.handlers
+    const errorHandler = interceptors[0]?.rejected
+
+    // Simulate a 403 error
+    const error = { response: { status: 403 } }
+    await errorHandler(error).catch(() => {})
+
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call session expired handler on non-403 errors', async () => {
+    vi.resetModules()
+    const mod = await import('./axios')
+    const { initAxios, getAxios, setSessionExpiredHandler } = mod
+
+    const handler = vi.fn()
+    setSessionExpiredHandler(handler)
+    initAxios('token')
+
+    const instance = getAxios()
+    const interceptors = (instance as any).interceptors.response.handlers
+    const errorHandler = interceptors[0]?.rejected
+
+    // Simulate a 401 error
+    const error401 = { response: { status: 401 } }
+    await errorHandler(error401).catch(() => {})
+
+    // Simulate a 500 error
+    const error500 = { response: { status: 500 } }
+    await errorHandler(error500).catch(() => {})
+
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('does not throw if no session expired handler is registered', async () => {
+    vi.resetModules()
+    const mod = await import('./axios')
+    const { initAxios, getAxios } = mod
+
+    // Don't register a handler
+    initAxios('token')
+
+    const instance = getAxios()
+    const interceptors = (instance as any).interceptors.response.handlers
+    const errorHandler = interceptors[0]?.rejected
+
+    // Simulate a 403 error - should not throw
+    const error = { response: { status: 403 } }
+    await expect(errorHandler(error)).rejects.toEqual(error)
+  })
 })
