@@ -1,6 +1,7 @@
 import type { AccountMetadata } from '../state/account'
 import type {
   AccountCreationResponse,
+  BatchResultResponse,
   CachedVaultItem,
   CreateAccountBody,
   FlockPushSubscription,
@@ -95,15 +96,15 @@ export async function vaultPut({ cipher, item, metadata }: VaultItem) {
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   const url = itemsUrl()
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
-  const result = await flockRequestChunked<typeof data[number], SuccessResponse>(
+  const results = await flockRequestChunked<typeof data[number], BatchResultResponse>(
     {
       data,
       requestFactory: a => batch => a.put(url, batch),
     },
   )
-  const allSuccess = result.every(r => r.success)
-  if (!allSuccess) {
-    throw new Error('VaultAPI putMany operation failed')
+  const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
+  if (failedItems.length > 0) {
+    throw new Error(`VaultAPI putMany operation failed for items: ${failedItems.map(f => f.item).join(', ')}`)
   }
 }
 
@@ -113,17 +114,17 @@ export async function vaultDelete({ item }: VaultKey) {
   assertSuccess(result, 'delete')
 }
 
-export async function vaultDeleteMany({ items }: & { items: string[] }) {
+export async function vaultDeleteMany({ items }: { items: string[] }) {
   const url = itemsUrl()
-  const result = await flockRequestChunked<string, SuccessResponse>(
+  const results = await flockRequestChunked<string, BatchResultResponse>(
     {
       data: items,
       requestFactory: a => batch => a.delete(url, { data: batch }),
     },
   )
-  const allSuccess = result.every(r => r.success)
-  if (!allSuccess) {
-    throw new Error('VaultAPI deleteMany operation failed')
+  const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
+  if (failedItems.length > 0) {
+    throw new Error(`VaultAPI deleteMany operation failed for items: ${failedItems.map(f => f.item).join(', ')}`)
   }
 }
 

@@ -43,17 +43,24 @@ describe('VaultAPI', () => {
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).rejects.toThrow()
   })
 
-  it('vaultPutMany succeeds when all chunks return success', async () => {
-    const ok = { success: true }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([ok, ok] as any)
+  it('vaultPutMany succeeds when all items in all chunks return success', async () => {
+    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: true }] }
+    const chunk2 = { success: true, details: [{ item: 'c', success: true }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
     await expect(api.vaultPutMany({ items: [] as any })).resolves.toBeUndefined()
   })
 
-  it('vaultPutMany throws when any chunk fails', async () => {
-    const ok = { success: true }
-    const bad = { success: false }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([ok, bad] as any)
-    await expect(api.vaultPutMany({ items: [] as any })).rejects.toThrow()
+  it('vaultPutMany throws when any item in details fails', async () => {
+    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: false }] }
+    const chunk2 = { success: true, details: [{ item: 'c', success: true }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
+    await expect(api.vaultPutMany({ items: [] as any })).rejects.toThrow('failed for items: b')
+  })
+
+  it('vaultPutMany includes all failed item ids in error message', async () => {
+    const chunk1 = { success: true, details: [{ item: 'a', success: false }, { item: 'b', success: false }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1] as any)
+    await expect(api.vaultPutMany({ items: [] as any })).rejects.toThrow('failed for items: a, b')
   })
 
   it('vaultDelete succeeds when api returns success', async () => {
@@ -66,17 +73,24 @@ describe('VaultAPI', () => {
     await expect(api.vaultDelete({ item: 'x' })).rejects.toThrow()
   })
 
-  it('vaultDeleteMany succeeds when all chunks succeed', async () => {
-    const ok = { success: true }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([ok, ok] as any)
-    await expect(api.vaultDeleteMany({ items: ['a', 'b'] } as any)).resolves.toBeUndefined()
+  it('vaultDeleteMany succeeds when all items in all chunks succeed', async () => {
+    const chunk1 = { success: true, details: [{ item: 'a', success: true }] }
+    const chunk2 = { success: true, details: [{ item: 'b', success: true }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
+    await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).resolves.toBeUndefined()
   })
 
-  it('vaultDeleteMany throws when a chunk fails', async () => {
-    const ok = { success: true }
-    const bad = { success: false }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([ok, bad] as any)
-    await expect(api.vaultDeleteMany({ items: ['a'] } as any)).rejects.toThrow()
+  it('vaultDeleteMany throws when any item in details fails', async () => {
+    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: false }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1] as any)
+    await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).rejects.toThrow('failed for items: b')
+  })
+
+  it('vaultDeleteMany includes all failed item ids in error message', async () => {
+    const chunk1 = { success: true, details: [{ item: 'x', success: false }] }
+    const chunk2 = { success: true, details: [{ item: 'y', success: false }, { item: 'z', success: true }] }
+    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
+    await expect(api.vaultDeleteMany({ items: ['x', 'y', 'z'] })).rejects.toThrow('failed for items: x, y')
   })
 
   it('vaultCreateAccount returns account from response', async () => {

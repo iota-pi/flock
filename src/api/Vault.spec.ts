@@ -22,7 +22,8 @@ describe('Vault', () => {
       vi.spyOn(vault, 'loadVault').mockImplementation(() => Promise.resolve())
 
       vi.spyOn(axios, 'getAxios').mockImplementation(() => ({
-        put: vi.fn(() => ({ data: { success: true } })),
+        put: vi.fn(() => ({ data: { success: true, details: [] } })),
+        delete: vi.fn(() => ({ data: { success: true, details: [] } })),
       }) as unknown as AxiosInstance)
 
       store.dispatch(setAccount({ account: '.' }))
