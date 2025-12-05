@@ -1,4 +1,5 @@
 import type { FastifyPluginCallback } from 'fastify'
+import pMap from 'p-map'
 import { asItemType } from '../../drivers/base'
 import {
   SCHEMA_REFS,
@@ -56,30 +57,30 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     async request => {
       const { account } = request.params
       const items = request.body
-      const promises: Promise<void>[] = []
-      const results: { item: string, success: boolean }[] = []
-      for (const item of items) {
-        const { cipher, id, iv, modified, type } = item
-        const _type = asItemType(type)
-        promises.push(
-          vault.set({
-            account,
-            item: id,
-            cipher,
-            metadata: {
-              type: _type,
-              iv,
-              modified,
-            },
-          }).then(() => {
-            results.push({ item: id, success: true })
-          }).catch(error => {
+      const results = await pMap(
+        items,
+        async item => {
+          const { cipher, id, iv, modified, type } = item
+          const _type = asItemType(type)
+          try {
+            await vault.set({
+              account,
+              item: id,
+              cipher,
+              metadata: {
+                type: _type,
+                iv,
+                modified,
+              },
+            })
+            return { item: id, success: true }
+          } catch (error) {
             fastify.log.error(error)
-            results.push({ item: id, success: false })
-          }),
-        )
-      }
-      await Promise.all(promises)
+            return { item: id, success: false }
+          }
+        },
+        { concurrency: 10 },
+      )
       return { details: results, success: true }
     }
   )
@@ -116,22 +117,19 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     async request => {
       const { account } = request.params
       const items = request.body
-      const promises: Promise<void>[] = []
-      const results: { item: string, success: boolean }[] = []
-      for (const item of items) {
-        promises.push(
-          vault.delete({
-            account,
-            item,
-          }).then(() => {
-            results.push({ item, success: true })
-          }).catch(error => {
+      const results = await pMap(
+        items,
+        async item => {
+          try {
+            await vault.delete({ account, item })
+            return { item, success: true }
+          } catch (error) {
             fastify.log.error(error)
-            results.push({ item, success: false })
-          }),
-        )
-      }
-      await Promise.all(promises)
+            return { item, success: false }
+          }
+        },
+        { concurrency: 10 },
+      )
       return { details: results, success: true }
     },
   )
