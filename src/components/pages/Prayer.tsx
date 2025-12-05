@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Button, Divider, Grid, IconButton, Typography } from '@mui/material'
-import { AutoSizer } from 'react-virtualized'
 import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import ItemList, { ItemListExtraElement } from '../ItemList'
 import { Item } from '../../state/items'
@@ -99,24 +98,19 @@ function PrayerPage() {
 
   return (
     <BasePage noScrollContainer>
-      <AutoSizer disableWidth>
-        {({ height }) => (
-          <ItemList
-            checkboxes
-            checkboxSide="right"
-            extraElements={extraElements}
-            getChecked={isPrayedForToday}
-            getForceFade={isPrayedForToday}
-            items={visibleSchedule}
-            showTags={false}
-            onClick={handleClick}
-            onCheck={handleCheck}
-            noItemsText="No items in prayer schedule"
-            showIcons
-            viewHeight={height}
-          />
-        )}
-      </AutoSizer>
+      <ItemList
+        checkboxes
+        checkboxSide="right"
+        extraElements={extraElements}
+        getChecked={isPrayedForToday}
+        getForceFade={isPrayedForToday}
+        items={visibleSchedule}
+        showTags={false}
+        onClick={handleClick}
+        onCheck={handleCheck}
+        noItemsText="No items in prayer schedule"
+        showIcons
+      />
 
       <GoalDialog
         naturalGoal={naturalGoal}

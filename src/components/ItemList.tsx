@@ -3,7 +3,6 @@ import {
   ReactNode,
   useCallback,
   useMemo,
-  useRef,
 } from 'react'
 import {
   Box,
@@ -110,7 +109,6 @@ export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   noItemsHint?: string,
   noItemsText?: string,
   paddingBottom?: number,
-  viewHeight?: number,
 }
 
 export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<T>>) {
@@ -368,7 +366,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     paddingBottom,
     showIcons = false,
     showTags = true,
-    viewHeight,
     wrapText,
   } = props
   const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT))
@@ -475,9 +472,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     [memoisedHeights],
   )
 
-  const noStyle = useRef({})
-
-  const rootStyles: SxProps = useMemo(() => ({ paddingBottom }), [paddingBottom])
+  const rootStyles: SxProps = useMemo(() => ({ paddingBottom, height: '100%' }), [paddingBottom])
 
   return (
     <List
@@ -488,25 +483,13 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       {dividers && items.length === 0 && <Divider />}
 
       {items.length > 0 ? (
-        viewHeight !== undefined ? (
-          <ReactWindowList<BaseProps<Item>>
-            style={{ height: viewHeight, width: '100%' }}
-            rowCount={items.length}
-            rowProps={itemData as unknown as BaseProps<Item>}
-            rowHeight={getItemSize}
-            rowComponent={ItemListItem}
-          />
-        ) : (
-          items.map((item, index) => (
-            <ItemListItem
-              {...itemData}
-              ariaAttributes={{ 'aria-posinset': index + 1, 'aria-setsize': items.length, role: 'listitem' }}
-              index={index}
-              key={item.id}
-              style={noStyle.current}
-            />
-          ))
-        )
+        <ReactWindowList<BaseProps<Item>>
+          style={{ height: '100%', width: '100%' }}
+          rowCount={items.length}
+          rowProps={itemData as unknown as BaseProps<Item>}
+          rowHeight={getItemSize}
+          rowComponent={ItemListItem}
+        />
       ) : (
         <ListItem>
           <ListItemText primary={noItemsText} secondary={noItemsHint} />

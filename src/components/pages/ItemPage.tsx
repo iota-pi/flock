@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
-import { AutoSizer } from 'react-virtualized'
 import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
 import ItemList from '../ItemList'
 import {
@@ -178,25 +177,20 @@ function ItemPage<T extends Item>({
       topBar
       topBarTitle={itemCountText}
     >
-      <AutoSizer disableWidth>
-        {({ height }) => (
-          <ItemList
-            checkboxes={checkboxes}
-            disablePadding
-            extraElements={extras}
-            getChecked={getChecked}
-            getDescription={getDescription}
-            getHighlighted={getHighlighted}
-            items={items}
-            maxTags={maxTags}
-            noItemsHint={noItemsHint}
-            noItemsText={`No ${pluralLabelLower} found`}
-            onCheck={handleCheck}
-            onClick={handleClickItem}
-            viewHeight={height}
-          />
-        )}
-      </AutoSizer>
+      <ItemList
+        checkboxes={checkboxes}
+        disablePadding
+        extraElements={extras}
+        getChecked={getChecked}
+        getDescription={getDescription}
+        getHighlighted={getHighlighted}
+        items={items}
+        maxTags={maxTags}
+        noItemsHint={noItemsHint}
+        noItemsText={`No ${pluralLabelLower} found`}
+        onCheck={handleCheck}
+        onClick={handleClickItem}
+      />
     </BasePage>
   )
 }
