@@ -1,11 +1,13 @@
 /// <reference path='./.sst/platform/config.d.ts' />
 
+const PROD = 'production'
+
 export default $config({
   app(input) {
     return {
       name: 'flock',
-      removal: input?.stage === 'production' ? 'retain' : 'remove',
-      protect: ['production'].includes(input?.stage),
+      removal: input?.stage === PROD ? 'retain' : 'remove',
+      protect: [PROD].includes(input?.stage),
       home: 'aws',
       providers: {
         aws: {
@@ -16,12 +18,13 @@ export default $config({
     }
   },
   async run() {
-    const stage = $app.stage === 'production' ? 'production' : $app.stage
+    const stage = $app.stage
+    const isProd = stage === PROD
 
     const domain =
-      $app.stage === 'production'
+      isProd
         ? 'flock.cross-code.org'
-        : `${$app.stage}.flock.cross-code.org`
+        : `${stage}.flock.cross-code.org`
     const publicUrl = `https://${domain}`
 
     // -----------------------------------------------------------------
@@ -126,79 +129,81 @@ export default $config({
     })
 
     // -----------------------------------------------------------------
-    // AWS Backup for DynamoDB tables
+    // AWS Backup for DynamoDB tables (prod only)
     // -----------------------------------------------------------------
-    const backupVault = new aws.backup.Vault(
-      'FlockBackupVault',
-      {
-        name: `flock_dynamo_backup_vault_${stage}`,
-      },
-    )
+    if (isProd) {
+      const backupVault = new aws.backup.Vault(
+        'FlockBackupVault',
+        {
+          name: `flock_dynamo_backup_vault_${stage}`,
+        },
+      )
 
-    const backupPlan = new aws.backup.Plan(
-      'FlockBackupPlan',
-      {
-        name: `flock_dynamo_backup_plan_${stage}`,
-        rules: [
-          {
-            ruleName: `flock_dynamo_weekly_backup_plan_${stage}`,
-            targetVaultName: backupVault.name,
-            // Backup at ~2am (AEST) on Sunday morning each week (UTC)
-            schedule: 'cron(0 4 ? * SAT *)',
-            lifecycle: {
-              deleteAfter: 30,
-            },
-          },
-          {
-            ruleName: `flock_dynamo_monthly_backup_${stage}`,
-            targetVaultName: backupVault.name,
-            // Backup at ~3am (AEST) on the 1st of each month (UTC)
-            schedule: 'cron(0 5 1 * ? *)',
-            lifecycle: {
-              deleteAfter: 365,
-            },
-          },
-        ],
-      },
-    )
-
-    const backupRole = new aws.iam.Role(
-      'FlockBackupRole',
-      {
-        name: `flock_dynamo_backup_role_${stage}`,
-        assumeRolePolicy: JSON.stringify({
-          Version: '2012-10-17',
-          Statement: [
+      const backupPlan = new aws.backup.Plan(
+        'FlockBackupPlan',
+        {
+          name: `flock_dynamo_backup_plan_${stage}`,
+          rules: [
             {
-              Action: ['sts:AssumeRole'],
-              Effect: 'Allow',
-              Principal: {
-                Service: ['backup.amazonaws.com'],
+              ruleName: `flock_dynamo_weekly_backup_plan_${stage}`,
+              targetVaultName: backupVault.name,
+              // Backup at ~2am (AEST) on Sunday morning each week (UTC)
+              schedule: 'cron(0 4 ? * SAT *)',
+              lifecycle: {
+                deleteAfter: 30,
+              },
+            },
+            {
+              ruleName: `flock_dynamo_monthly_backup_${stage}`,
+              targetVaultName: backupVault.name,
+              // Backup at ~3am (AEST) on the 1st of each month (UTC)
+              schedule: 'cron(0 5 1 * ? *)',
+              lifecycle: {
+                deleteAfter: 365,
               },
             },
           ],
-        }),
-      },
-    )
+        },
+      )
 
-    new aws.iam.RolePolicyAttachment(
-      'FlockBackupPolicyAttachment',
-      {
-        policyArn:
-          'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
-        role: backupRole.name,
-      },
-    )
+      const backupRole = new aws.iam.Role(
+        'FlockBackupRole',
+        {
+          name: `flock_dynamo_backup_role_${stage}`,
+          assumeRolePolicy: JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Action: ['sts:AssumeRole'],
+                Effect: 'Allow',
+                Principal: {
+                  Service: ['backup.amazonaws.com'],
+                },
+              },
+            ],
+          }),
+        },
+      )
 
-    new aws.backup.Selection(
-      'FlockBackupSelection',
-      {
-        iamRoleArn: backupRole.arn,
-        name: `flock_dynamo_backup_selection_${stage}`,
-        planId: backupPlan.id,
-        resources: [accountsTable.arn, itemsTable.arn],
-      },
-    )
+      new aws.iam.RolePolicyAttachment(
+        'FlockBackupPolicyAttachment',
+        {
+          policyArn:
+            'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
+          role: backupRole.name,
+        },
+      )
+
+      new aws.backup.Selection(
+        'FlockBackupSelection',
+        {
+          iamRoleArn: backupRole.arn,
+          name: `flock_dynamo_backup_selection_${stage}`,
+          planId: backupPlan.id,
+          resources: [accountsTable.arn, itemsTable.arn],
+        },
+      )
+    }
 
     // -----------------------------------------------------------------
     // Frontend (Cloudflare Pages)
