@@ -16,12 +16,10 @@ export type MetadataKey = keyof AccountMetadata
 export interface AccountState {
   account: AccountId,
   loggedIn: boolean,
-  metadata: AccountMetadata,
 }
 
 export const initialState: AccountState = {
   account: '',
-  metadata: {},
   loggedIn: false,
 }
 
@@ -33,7 +31,6 @@ const accountSlice = createSlice({
       return {
         ...state,
         ...action.payload,
-        metadata: { ...state.metadata, ...action.payload.metadata },
       }
     },
   },

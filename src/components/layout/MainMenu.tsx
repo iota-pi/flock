@@ -12,8 +12,9 @@ import {
   Toolbar,
 } from '@mui/material'
 import { PageId, pages, usePage } from '../pages'
-import { useAppDispatch, useAppSelector } from '../../store'
+import { useAppDispatch } from '../../store'
 import { setUi } from '../../state/ui'
+import { useMetadataQuery } from '../../api/queries'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 
 export const DRAWER_SPACING_FULL = 30
@@ -167,7 +168,7 @@ function MainMenu({
 }: Props) {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const metadata = useAppSelector(state => state.account.metadata)
+    const { data: metadata = {} } = useMetadataQuery()
   const page = usePage()
 
   const handleClick = useCallback(

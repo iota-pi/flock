@@ -7,6 +7,7 @@ import {
   useItems,
   useOptions,
   usePracticalFilterCount,
+  useMetadata,
   useSortCriteria,
 } from '../../state/selectors'
 import BasePage from './BasePage'
@@ -27,7 +28,7 @@ function ItemPage<T extends Item>({
   const rawItems = useItems<T>(itemType)
   const selected = useAppSelector(state => state.ui.selected)
   const filters = useAppSelector(state => state.ui.filters)
-  const defaultFrequencies = useAppSelector(state => state.account.metadata?.defaultPrayerFrequency)
+  const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
   const { bulkActionsOnMobile } = useOptions()

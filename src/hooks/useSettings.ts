@@ -4,7 +4,6 @@ import { setMessage, setUi } from '../state/ui'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   exportData,
-  setMetadata,
   signOutVault,
   storeItems,
 } from '../api/Vault'
@@ -39,9 +38,10 @@ export default function useSettings() {
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
-
-  const metadata = useAppSelector(state => state.account.metadata)
-  const defaultFrequencies: Partial<Record<'person'|'group', Frequency>> = metadata?.defaultPrayerFrequency ?? { person: 'none', group: 'none' }
+  const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
+    'defaultPrayerFrequency',
+    { person: 'none', group: 'none' },
+  )
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
   const itemCacheExists = useMemo(
@@ -142,15 +142,14 @@ export default function useSettings() {
   const closeDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(false), [])
 
   const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person'|'group', Frequency>>) => {
-    const newMetadata = { ...metadata, defaultPrayerFrequency: { ...(metadata?.defaultPrayerFrequency || {}), ...d } }
     try {
-      await setMetadata(newMetadata)
+      await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
       dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
     } catch (err) {
       dispatch(setMessage({ message: 'Failed to save defaults' }))
       console.error('Failed to save default frequencies', err)
     }
-  }, [metadata, dispatch])
+  }, [dispatch, setDefaultFrequencies])
 
   return {
     account,

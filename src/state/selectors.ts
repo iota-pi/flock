@@ -1,16 +1,15 @@
 import { Dispatch, SetStateAction, useCallback, useMemo } from 'react'
-import { useSelector } from 'react-redux'
 import { useAppDispatch, useAppSelector } from '../store'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
-import { Item, ItemId, selectAllItems, selectItems } from './items'
+import { Item, ItemId } from './items'
 import { setUi, UiOptions } from './ui'
-import { setMetadata } from '../api/Vault'
+import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const items = useSelector(selectAllItems)
+  const { data: items = [] } = useItemsQuery()
   return useMemo(
     () => (
       itemType
@@ -21,16 +20,15 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
   )
 }
 
-export const useItemMap = () => useSelector(selectItems)
-export const useItem = (id: ItemId) => useAppSelector(
-  state => {
-    const item: Item | undefined = state.items.entities[id]
-    if (item) {
-      return item
-    }
-    return undefined
-  },
-)
+export const useItemMap = () => {
+  const { data: items = [] } = useItemsQuery()
+  return useMemo(() => Object.fromEntries(items.map(item => [item.id, item])), [items])
+}
+
+export const useItem = (id: ItemId) => {
+  const { data: items = [] } = useItemsQuery()
+  return useMemo(() => items.find(item => item.id === id), [items, id])
+}
 
 export function useItemsById() {
   const itemMap = useItemMap()
@@ -58,16 +56,22 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const metadata = useAppSelector(state => state.account.metadata)
+  const { data: metadata = {} as Metadata } = useMetadataQuery()
+  const { mutateAsync: setMetadata } = useSetMetadataMutation()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      const newValue = typeof newValueOrFunc === 'function' ? newValueOrFunc(value) : newValueOrFunc
-      const newMetadata = { ...metadata, [key]: newValue }
-      await setMetadata(newMetadata)
+      await setMetadata(prevMetadata => {
+        const baseMetadata = prevMetadata ?? {} as Metadata
+        const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
+        const newValue = typeof newValueOrFunc === 'function'
+          ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
+          : newValueOrFunc
+        return { ...baseMetadata, [key]: newValue } as Metadata
+      })
     },
-    [key, metadata, value],
+    [defaultValue, key, setMetadata],
   )
   return [value, setValue]
 }

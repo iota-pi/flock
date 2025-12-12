@@ -2,7 +2,7 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { AlertColor } from '@mui/material'
 import { generateItemId } from '../utils'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
-import { deleteItems, ItemId, Item } from './items'
+import { ItemId, Item } from './items'
 
 export interface DrawerData {
   id: string,
@@ -141,31 +141,28 @@ const uiSlice = createSlice({
     removeActive(state) {
       state.drawers.splice(state.drawers.length - 1, 1)
     },
-  },
-  extraReducers(builder) {
-    builder
-      .addCase(deleteItems, (state, action) => {
-        const newDrawers: typeof state.drawers = []
-        let modified = false
-        for (const drawer of state.drawers) {
-          if (drawer.item && action.payload.includes(drawer.item)) {
-            modified = true
-          } else if (drawer.next && drawer.next.find(item => !action.payload.includes(item))) {
-            newDrawers.push({
-              ...drawer,
-              next: drawer.next.filter(item => !action.payload.includes(item)),
-            })
-            modified = true
-          } else {
-            newDrawers.push(drawer)
-          }
+    pruneItems(state, action: PayloadAction<ItemId[]>) {
+      const newDrawers: typeof state.drawers = []
+      let modified = false
+      for (const drawer of state.drawers) {
+        if (drawer.item && action.payload.includes(drawer.item)) {
+          modified = true
+        } else if (drawer.next && drawer.next.find(item => !action.payload.includes(item))) {
+          newDrawers.push({
+            ...drawer,
+            next: drawer.next.filter(item => !action.payload.includes(item)),
+          })
+          modified = true
+        } else {
+          newDrawers.push(drawer)
         }
-        if (modified) {
-          state.drawers = newDrawers
-        }
+      }
+      if (modified) {
+        state.drawers = newDrawers
+      }
 
-        state.selected = state.selected.filter(id => !action.payload.includes(id))
-      })
+      state.selected = state.selected.filter(id => !action.payload.includes(id))
+    },
   },
 })
 
@@ -179,6 +176,7 @@ export const {
   startRequest,
   toggleSelected,
   updateActive,
+  pruneItems,
 } = uiSlice.actions
 export default uiSlice.reducer
 

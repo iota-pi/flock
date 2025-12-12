@@ -1,7 +1,7 @@
 import { setMetadata, storeItems } from '../../api/Vault'
 import { clearQueryCache } from '../../api/queries'
-import store from '../../store'
-import { Item, convertItem, getBlankGroup, selectAllItems } from '../items'
+import { Item, convertItem, getBlankGroup } from '../items'
+import { AccountMetadata } from '../account'
 
 export interface ItemMigration {
   description?: string,
@@ -109,9 +109,8 @@ const migrations: ItemMigration[] = [
   },
 ]
 
-async function migrateItems() {
+async function migrateItems(items: Item[], metadata: AccountMetadata) {
   const reversedMigrations = migrations.slice()
-  const metadata = store.getState().account.metadata
   const previousMigrations = (metadata.completedMigrations as string[]) || []
   const completedMigrations = previousMigrations.slice()
 
@@ -121,7 +120,6 @@ async function migrateItems() {
     }
 
     try {
-      const items = selectAllItems(store.getState())
       const successful = await migration.migrate({ items })
       if (successful) {
         completedMigrations.push(migration.id)

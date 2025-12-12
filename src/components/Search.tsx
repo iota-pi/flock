@@ -43,7 +43,7 @@ import {
 } from '../state/items'
 import InlineText from './InlineText'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useSortCriteria } from '../state/selectors'
+import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
@@ -397,7 +397,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 }: Props<T>) {
   const items = useItems()
   const [sortCriteria] = useSortCriteria()
-  const defaultFrequencies = useAppSelector(state => state.account.metadata?.defaultPrayerFrequency)
+  const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
 
   const selectedIds = useMemo(
     () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),

@@ -1,12 +1,13 @@
 import type { AxiosInstance } from 'axios'
 import { vi } from 'vitest'
 import store from '../store'
-import { getBlankGroup, getBlankPerson, Item, setItems } from '../state/items'
+import { getBlankGroup, getBlankPerson, Item } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
 import * as api from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
 import type { VaultItem } from '../shared/apiTypes'
+import { queryClient, queryKeys } from './queries'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
@@ -33,7 +34,7 @@ describe('Vault', () => {
   )
 
   beforeEach(() => {
-    store.dispatch(setItems([]))
+    queryClient.clear()
   })
 
   it('encrypt and decrypt', async () => {
@@ -53,14 +54,15 @@ describe('Vault', () => {
   it('store a single item', async () => {
     const item = getBlankPerson()
     await vault.storeItems(item)
-    expect(store.getState().items.ids).toContain(item.id)
+    const cached = queryClient.getQueryData<Item[]>(queryKeys.items)
+    expect(cached?.map(i => i.id)).toContain(item.id)
   })
 
   it('store multiple items', async () => {
     const items = [getBlankPerson(), getBlankGroup()]
     await vault.storeItems(items)
-    expect(store.getState().items.ids).toContain(items[0].id)
-    expect(store.getState().items.ids).toContain(items[1].id)
+    const cached = queryClient.getQueryData<Item[]>(queryKeys.items)
+    expect(cached?.map(i => i.id)).toEqual(expect.arrayContaining([items[0].id, items[1].id]))
   })
 
   it('does not store items with missing properties (single)', async () => {
@@ -106,7 +108,8 @@ describe('Vault', () => {
 
     await vault.deleteItems(item.id)
 
-    expect(store.getState().items.ids).toHaveLength(0)
+    const cached = queryClient.getQueryData<Item[]>(queryKeys.items)
+    expect(cached).toEqual([])
     const apiCallParam = deleteAPI.mock.calls[0][0]
     expect(apiCallParam).toMatchObject({
       item: item.id,
@@ -121,7 +124,8 @@ describe('Vault', () => {
 
     await vault.deleteItems([items[1].id, items[2].id])
 
-    expect(store.getState().items.ids).toHaveLength(1)
+    const cached = queryClient.getQueryData<Item[]>(queryKeys.items)
+    expect(cached?.map(i => i.id)).toEqual([items[0].id])
     const apiCallParam = deleteAPI.mock.calls[0][0]
     expect(apiCallParam).toMatchObject({
       items: [items[1].id, items[2].id],
@@ -133,8 +137,7 @@ describe('Vault', () => {
     const metadataAPI = vi.spyOn(api, 'vaultSetMetadata').mockReturnValue(Promise.resolve())
 
     await vault.setMetadata(metadata)
-
-    expect(store.getState().account).toMatchObject({ metadata })
+    expect(queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)).toMatchObject(metadata)
     const apiCallParam = metadataAPI.mock.calls[0][0]
     const decrypted = await vault.decryptObject(
       apiCallParam as vault.CryptoResult,
@@ -150,7 +153,7 @@ describe('Vault', () => {
     const result = await vault.getMetadata()
 
     expect(result).toEqual(original)
-    expect(store.getState().account.metadata).toMatchObject(original)
+    expect(queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)).toMatchObject(original)
   })
 
   it('getMetadata plain', async () => {
@@ -160,7 +163,7 @@ describe('Vault', () => {
     const result = await vault.getMetadata()
 
     expect(result).toEqual(original)
-    expect(store.getState().account.metadata).toMatchObject(original)
+    expect(queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)).toMatchObject(original)
   })
 
   it('getMetadata throws', async () => {
@@ -185,7 +188,7 @@ describe('Vault', () => {
   it('signOutVault clears localStorage and resets axios/store', async () => {
     localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
     store.dispatch(setAccount({ account: 'acct' } as any))
-    store.dispatch(setItems([getBlankPerson() as any]))
+    queryClient.setQueryData(queryKeys.items, [getBlankPerson() as any])
 
     const initSpy = vi.spyOn(axios as any, 'initAxios')
 
@@ -193,8 +196,7 @@ describe('Vault', () => {
       vault.signOutVault()
 
       expect(localStorage.getItem(vault.VAULT_KEY_STORAGE_KEY)).toBeNull()
-      // store should have items cleared
-      expect(store.getState().items.ids.length).toBe(0)
+      expect(queryClient.getQueryData(queryKeys.items)).toBeUndefined()
       expect(initSpy).toHaveBeenCalledWith('')
       initSpy.mockRestore()
     } finally {

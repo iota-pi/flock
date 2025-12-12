@@ -118,12 +118,13 @@ The front-end encrypts all user data before sending to the vault. See:
 **Important**: The server never has plaintext. Do not add server-side decryption — follow established patterns in `src/api/*`.
 
 ### State management
-Redux Toolkit is used for global state:
-- `src/store.ts` — store configuration
-- `src/state/account.ts` — account/auth state
-- `src/state/items.ts` — item data state
-- `src/state/ui.ts` — UI state
-- `src/state/selectors.ts` — memoized selectors
+- TanStack Query holds all server data (items + metadata); mutations live in `src/api/queries.ts`.
+- Redux Toolkit is kept for UI/auth-only state:
+	- `src/store.ts` — store configuration
+	- `src/state/account.ts` — account/auth flags (no metadata)
+	- `src/state/items.ts` — item models/helpers (no Redux slice)
+	- `src/state/ui.ts` — UI state
+	- `src/state/selectors.ts` — memoized selectors wrapping Query + UI
 
 ### Infrastructure (SST)
 Infrastructure is defined in `sst.config.ts` using SST v3:

@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient, QueryClient } from '@tanstack/react-query'
-import { useCallback } from 'react'
 import {
   vaultDelete,
   vaultDeleteMany,
@@ -14,6 +13,8 @@ import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
 import { getAccountId } from './util'
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client'
+import store from '../store'
+import { pruneItems } from '../state/ui'
 
 // Query Keys
 export const queryKeys = {
@@ -135,6 +136,45 @@ export function useMetadataQuery(enabled = true) {
   })
 }
 
+// Hook: Update metadata
+export function useSetMetadataMutation() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) => {
+      const current = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
+      const next = typeof metadataOrUpdater === 'function'
+        ? metadataOrUpdater(current)
+        : metadataOrUpdater
+      const vault = await getVaultModule()
+      const { cipher, iv } = await vault.encryptObject(next)
+      await vaultSetMetadata({ cipher, iv })
+      return next
+    },
+    onMutate: async metadataOrUpdater => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
+
+      const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
+      const nextMetadata = typeof metadataOrUpdater === 'function'
+        ? metadataOrUpdater(previousMetadata)
+        : metadataOrUpdater
+
+      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, nextMetadata)
+
+      return { previousMetadata }
+    },
+    onError: (err, _, context) => {
+      if (context?.previousMetadata !== undefined) {
+        queryClient.setQueryData(queryKeys.metadata, context.previousMetadata)
+      }
+      handleVaultError(err as Error, 'Failed to update metadata')
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
+    },
+  })
+}
+
 // Hook: Store items mutation
 export function useStoreItemsMutation() {
   const queryClient = useQueryClient()
@@ -252,97 +292,14 @@ export function useDeleteItemsMutation() {
       }
       handleVaultError(err as Error, 'Failed to delete items')
     },
+    onSuccess: itemIds => {
+      const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+      store.dispatch(pruneItems(ids))
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.items })
     },
   })
-}
-
-// Hook: Update metadata mutation
-export function useUpdateMetadataMutation() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (metadata: AccountMetadata) => {
-      const vault = await getVaultModule()
-      const { cipher, iv } = await vault.encryptObject(metadata)
-      await vaultSetMetadata({ cipher, iv })
-      return metadata
-    },
-    onMutate: async metadata => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
-
-      const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)
-
-      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, metadata)
-
-      return { previousMetadata }
-    },
-    onError: (err, _, context) => {
-      if (context?.previousMetadata) {
-        queryClient.setQueryData(queryKeys.metadata, context.previousMetadata)
-      }
-      handleVaultError(err as Error, 'Failed to update metadata')
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-    },
-  })
-}
-
-// Helper hook for components that need to store items
-export function useStoreItems() {
-  const mutation = useStoreItemsMutation()
-  return useCallback(
-    (items: Item | Item[]) => mutation.mutateAsync(items),
-    [mutation],
-  )
-}
-
-// Helper hook for components that need to delete items
-export function useDeleteItems() {
-  const mutation = useDeleteItemsMutation()
-  return useCallback(
-    (itemIds: ItemId | ItemId[]) => mutation.mutateAsync(itemIds),
-    [mutation],
-  )
-}
-
-// Helper hook for getting items from the query cache
-export function useQueryItems<T extends Item>(itemType?: T['type']): T[] {
-  const { data: items = [] } = useItemsQuery()
-  if (itemType) {
-    return items.filter(i => i.type === itemType) as T[]
-  }
-  return items as T[]
-}
-
-// Helper hook for getting a single item
-export function useQueryItem(id: ItemId): Item | undefined {
-  const { data: items = [] } = useItemsQuery()
-  return items.find(item => item.id === id)
-}
-
-// Helper hook for getting metadata
-export function useQueryMetadata<K extends keyof AccountMetadata>(
-  key: K,
-  defaultValue?: AccountMetadata[K],
-): [AccountMetadata[K] | undefined, (value: AccountMetadata[K]) => void] {
-  const { data: metadata } = useMetadataQuery()
-  const updateMutation = useUpdateMetadataMutation()
-
-  const value = metadata?.[key] ?? defaultValue
-  const setValue = useCallback(
-    (newValue: AccountMetadata[K]) => {
-      updateMutation.mutate({
-        ...metadata,
-        [key]: newValue,
-      } as AccountMetadata)
-    },
-    [key, metadata, updateMutation],
-  )
-
-  return [value, setValue]
 }
 
 // Helper to clear the cache (e.g., on logout)

@@ -12,10 +12,7 @@ import {
 } from './VaultAPI'
 import {
   checkProperties,
-  deleteItems as deleteItemsAction,
   Item,
-  setItems,
-  updateItems,
 } from '../state/items'
 import { AccountMetadata, setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
@@ -226,19 +223,14 @@ async function initialLoadFromVault() {
     }),
   ])
 
-  // Sync to Redux for backward compatibility with existing selectors
-  store.dispatch(setAccount({ metadata }))
-  store.dispatch(setItems(items as Item[]))
-
-  await migrateItems()
+  await migrateItems(items as Item[], metadata)
 }
 
 export function signOutVault() {
   key = null
   keyHash = ''
   initAxios('')
-  store.dispatch(setItems([]))
-  store.dispatch(setAccount({ account: '', loggedIn: false, metadata: {} }))
+  store.dispatch(setAccount({ account: '', loggedIn: false }))
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
   // Clear TanStack Query cache
@@ -306,8 +298,7 @@ export async function storeOneItem(item: Item) {
     throw new Error(checkResult.message)
   }
 
-  // Optimistically update Redux and query cache
-  store.dispatch(updateItems([item]))
+  // Optimistically update the query cache
   queryClient.setQueryData<Item[]>(queryKeys.items, old => {
     if (!old) return [item]
     const next = [...old]
@@ -337,8 +328,7 @@ export async function storeManyItems(items: Item[]) {
     throw new Error(checkResult.message)
   }
 
-  // Optimistically update Redux and query cache
-  store.dispatch(updateItems(items))
+  // Optimistically update the query cache
   queryClient.setQueryData<Item[]>(queryKeys.items, old => {
     if (!old) return items
     const map = new Map(old.map(i => [i.id, i]))
@@ -377,7 +367,6 @@ export async function fetchAll(): Promise<Item[]> {
     queryKey: queryKeys.items,
     queryFn: fetchItems,
   })
-  store.dispatch(setItems(items as Item[]))
   return items as Item[]
 }
 
@@ -389,7 +378,6 @@ export function deleteItems(data: string | string[]) {
 }
 
 export async function deleteOneItem(itemId: string) {
-  store.dispatch(deleteItemsAction([itemId]))
   queryClient.setQueryData<Item[]>(queryKeys.items, old => (
     old ? old.filter(item => item.id !== itemId) : []
   ))
@@ -405,7 +393,6 @@ export async function deleteOneItem(itemId: string) {
 }
 
 export async function deleteManyItems(itemIds: string[]) {
-  store.dispatch(deleteItemsAction(itemIds))
   queryClient.setQueryData<Item[]>(queryKeys.items, old => (
     old ? old.filter(item => !itemIds.includes(item.id)) : []
   ))
@@ -421,8 +408,8 @@ export async function deleteManyItems(itemIds: string[]) {
 }
 
 export async function setMetadata(metadata: AccountMetadata) {
-  store.dispatch(setAccount({ metadata }))
   const { cipher, iv } = await encryptObject(metadata)
+  queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, metadata)
   return vaultSetMetadata({
     cipher,
     iv,
@@ -441,7 +428,7 @@ export async function getMetadata(): Promise<AccountMetadata> {
     // Backwards compatibility (10/07/21)
     metadata = result as AccountMetadata
   }
-  store.dispatch(setAccount({ metadata }))
+  queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, metadata)
   return metadata
 }
 

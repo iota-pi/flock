@@ -24,8 +24,8 @@ import { usePrevious } from '../utils'
 import ConfirmationDialog from './dialogs/ConfirmationDialog'
 import { setUi } from '../state/ui'
 import GroupDialog from './dialogs/GroupDialog'
-import { deleteItems, storeItems } from '../api/Vault'
 import FrequencyDialog from './dialogs/FrequencyDialog'
+import { useDeleteItemsMutation, useStoreItemsMutation } from '../api/queries'
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -52,6 +52,8 @@ function SelectedActions() {
   const dispatch = useAppDispatch()
   const getItemsById = useItemsById()
   const selected = useAppSelector(state => state.ui.selected)
+  const { mutateAsync: deleteItems } = useDeleteItemsMutation()
+  const { mutateAsync: storeItems } = useStoreItemsMutation()
 
   const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
   const prevSelectedItems = usePrevious(selectedItems) || []
@@ -69,17 +71,19 @@ function SelectedActions() {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }))
       storeItems(newItems)
     },
-    [selectedItems],
+    [selectedItems, storeItems],
   )
   const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived])
   const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived])
   const handleInitialDelete = useCallback(() => setShowConfirm(true), [])
   const handleConfirmDelete = useCallback(
     () => {
-      deleteItems(selectedItems.map(item => item.id)).catch(error => console.error(error))
+      const ids = selectedItems.map(item => item.id)
+      deleteItems(ids)
+        .catch(error => console.error(error))
       setShowConfirm(false)
     },
-    [selectedItems],
+    [deleteItems, selectedItems],
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(

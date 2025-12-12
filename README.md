@@ -46,7 +46,7 @@ flock/
 │   ├── api/           # Front-end API clients (Vault.ts, VaultAPI.ts, axios.ts)
 │   ├── components/    # React UI components
 │   ├── hooks/         # Custom React hooks
-│   ├── state/         # Redux state slices (account, items, ui)
+│   ├── state/         # UI state slices (account, ui) and item models/helpers
 │   ├── utils/         # Utility functions
 │   └── vault/         # Back-end Vault API
 │       ├── api/       # Fastify server and routes
@@ -61,7 +61,7 @@ flock/
 
 ## Tech Stack
 
-- **Front-end**: React, TypeScript, Redux Toolkit, MUI (Material UI), Vite
+- **Front-end**: React, TypeScript, TanStack Query (server data), Redux Toolkit (UI state), MUI (Material UI), Vite
 - **Back-end**: Fastify, TypeScript, DynamoDB
 - **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages
 - **Testing**: Vitest (unit tests), Cypress (e2e tests)

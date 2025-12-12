@@ -1,8 +1,6 @@
-import { createEntityAdapter, createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
 import { ITEM_TYPES, ItemType } from '../shared/apiTypes'
-import type { RootState } from '../store'
 
 export { ITEM_TYPES }
 export type { ItemType }
@@ -36,38 +34,6 @@ export interface GroupItem extends BaseItem {
 export type Item = PersonItem | GroupItem
 
 export type DirtyItem<T> = T & { dirty?: boolean }
-
-const itemsAdapter = createEntityAdapter<Item>({
-  sortComparer: compareItems,
-})
-
-const itemsSlice = createSlice({
-  name: 'items',
-  initialState: itemsAdapter.getInitialState(),
-  reducers: {
-    setItems(state, action: PayloadAction<Item[]>) {
-      const newItems = action.payload.map(item => supplyMissingAttributes(item))
-      itemsAdapter.setAll(state, newItems)
-    },
-    updateItems(state, action: PayloadAction<Item[]>) {
-      itemsAdapter.setMany(state, action.payload)
-    },
-    deleteItems(state, payload: PayloadAction<ItemId[]>) {
-      itemsAdapter.removeMany(state, payload)
-    },
-  },
-})
-
-export const { setItems, updateItems, deleteItems } = itemsSlice.actions
-export default itemsSlice.reducer
-
-export const {
-  selectById: selectItemById,
-  selectIds: selectItemIds,
-  selectEntities: selectItems,
-  selectAll: selectAllItems,
-  selectTotal: selectItemCount,
-} = itemsAdapter.getSelectors((state: RootState) => state.items)
 
 export function isItem(item: Item): item is Item {
   return (ITEM_TYPES as readonly Item['type'][]).includes(item.type)
