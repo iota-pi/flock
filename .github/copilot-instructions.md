@@ -96,6 +96,9 @@ yarn build  # runs tsc then vite build
 # Deploy to a stage
 yarn deploy --stage <stage-name>
 
+# Deploy to staging
+yarn deploy --stage dev
+
 # Deploy to production
 yarn deploy --stage production
 ```
@@ -181,7 +184,7 @@ Before committing changes:
 ```sh
 yarn lint          # ESLint
 yarn build         # TypeScript + Vite build
-yarn test          # Unit tests
+yarn test run      # Unit tests
 ```
 
 For API changes, ensure Docker services are running and test the integration manually or via Cypress.
@@ -189,6 +192,6 @@ For API changes, ensure Docker services are running and test the integration man
 ## Enforce safe command-line composition!
 When generating shell or terminal commands:
 - Never include the pipe (`|`), semicolon (`;`), or other shell control operators inside quoted strings (within `"..."` or `'...'`). Copilot Chat misinterprets these as command separators, breaking the line into multiple subcommands and triggering unnecessary approval prompts.
-- When running scripts in the terminal, assume the working directory is correct and avoid using `cd` commands unless necessary
+- When running scripts in the terminal, assume the working directory is the project root and avoid using `cd` commands
 - Do not redirect output using 2>&1 unless necessary
 - Prefer `yarn test run` instead of `yarn test`
