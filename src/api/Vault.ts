@@ -2,7 +2,6 @@ import {
   vaultDelete,
   vaultDeleteMany,
   vaultDeleteSubscription,
-  vaultFetchMany,
   vaultGetMetadata,
   vaultGetSession,
   vaultGetSubscription,
@@ -25,12 +24,10 @@ import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
 import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
-import { CachedVaultItem, VaultItem } from 'src/shared/apiTypes'
+import { queryClient, queryKeys, fetchItems } from './queries'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
-export const VAULT_ITEM_CACHE = 'vaultItemCache'
-export const VAULT_ITEM_CACHE_TIME = 'vaultItemCacheTime'
 
 function fromBytes(array: ArrayBuffer): string {
   const byteArray = Array.from(new Uint8Array(array))
@@ -201,17 +198,37 @@ export async function storeVault() {
 }
 
 async function initialLoadFromVault() {
-  const accountDataPromise = getMetadata().catch(error => {
-    handleVaultError(error, 'Failed to fetch account metadata from server')
-    throw error
-  })
-  const itemsPromise = fetchAll().catch(error => {
-    handleVaultError(error, 'Failed to fetch items from server')
-    throw error
-  })
+  // Use TanStack Query to fetch data - it handles caching automatically
+  const [metadata, items] = await Promise.all([
+    queryClient.fetchQuery({
+      queryKey: queryKeys.metadata,
+      queryFn: async () => {
+        const result = await vaultGetMetadata()
+        try {
+          return await decryptObject(result as CryptoResult) as AccountMetadata
+        } catch (error) {
+          if (result && 'cipher' in result && 'iv' in result) {
+            throw error
+          }
+          return result as AccountMetadata
+        }
+      },
+    }).catch(error => {
+      handleVaultError(error, 'Failed to fetch account metadata from server')
+      return {} as AccountMetadata
+    }),
+    queryClient.fetchQuery({
+      queryKey: queryKeys.items,
+      queryFn: fetchItems,
+    }).catch(error => {
+      handleVaultError(error, 'Failed to fetch items from server')
+      return [] as Item[]
+    }),
+  ])
 
-  await accountDataPromise
-  await itemsPromise
+  // Sync to Redux for backward compatibility with existing selectors
+  store.dispatch(setAccount({ metadata }))
+  store.dispatch(setItems(items as Item[]))
 
   await migrateItems()
 }
@@ -224,7 +241,8 @@ export function signOutVault() {
   store.dispatch(setAccount({ account: '', loggedIn: false, metadata: {} }))
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
-  clearItemCache()
+  // Clear TanStack Query cache
+  queryClient.clear()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
@@ -288,7 +306,16 @@ export async function storeOneItem(item: Item) {
     throw new Error(checkResult.message)
   }
 
+  // Optimistically update Redux and query cache
   store.dispatch(updateItems([item]))
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => {
+    if (!old) return [item]
+    const next = [...old]
+    const idx = next.findIndex(i => i.id === item.id)
+    if (idx >= 0) next[idx] = item
+    else next.push(item)
+    return next
+  })
   const { cipher, iv } = await encryptObject(item)
   await vaultPut({
     cipher,
@@ -299,6 +326,9 @@ export async function storeOneItem(item: Item) {
       modified: new Date().getTime(),
     },
   })
+
+  // Ensure TanStack Query stays in sync
+  queryClient.invalidateQueries({ queryKey: queryKeys.items })
 }
 
 export async function storeManyItems(items: Item[]) {
@@ -307,7 +337,16 @@ export async function storeManyItems(items: Item[]) {
     throw new Error(checkResult.message)
   }
 
+  // Optimistically update Redux and query cache
   store.dispatch(updateItems(items))
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => {
+    if (!old) return items
+    const map = new Map(old.map(i => [i.id, i]))
+    for (const item of items) {
+      map.set(item.id, item)
+    }
+    return Array.from(map.values())
+  })
   const encrypted = await Promise.all(
     items.map(
       item => encryptObject(item),
@@ -327,97 +366,19 @@ export async function storeManyItems(items: Item[]) {
       },
     })),
   })
+
+  // Ensure TanStack Query stays in sync
+  queryClient.invalidateQueries({ queryKey: queryKeys.items })
 }
 
-export function getItemCacheTime() {
-  const rawCache = localStorage.getItem(VAULT_ITEM_CACHE)
-  if (!rawCache || rawCache === '[]') {
-    return null
-  }
-  const raw = localStorage.getItem(VAULT_ITEM_CACHE_TIME)
-  if (raw) {
-    return parseInt(raw)
-  }
-  return null
-}
-
-export async function mergeWithItemCache(itemsPromise: Promise<CachedVaultItem[]>): Promise<VaultItem[]> {
-  const cacheAccount = localStorage.getItem(ACCOUNT_STORAGE_KEY)
-  if (cacheAccount !== getAccountId()) {
-    clearItemCache()
-    return itemsPromise as Promise<VaultItem[]>
-  }
-  const rawCache = localStorage.getItem(VAULT_ITEM_CACHE)
-  const cachedItems: VaultItem[] = JSON.parse(rawCache || '[]')
-  if (cachedItems.length > 0) {
-    const cachedMap = new Map(cachedItems.map(item => [item.item, item]))
-    const items = await itemsPromise
-    const mergedResult = items.map(
-      item => (item.cipher ? (item as VaultItem) : cachedMap.get(item.item)),
-    )
-    const filteredResult = mergedResult.filter(
-      (item): item is NonNullable<typeof item> => item !== undefined,
-    )
-    const missingIds = (
-      items
-        .map(item => item.item)
-        .filter(id => !filteredResult.some(item => item.item === id))
-    )
-    if (filteredResult.length !== mergedResult.length) {
-      console.warn('Some items were missing from the cache!')
-      const newItems = await vaultFetchMany({ ids: missingIds }).catch(error => {
-        handleVaultError(error, 'Failed to fetch some items from server')
-        return [] as VaultItem[]
-      })
-      filteredResult.push(...newItems)
-    }
-    setItemCache(filteredResult)
-    return filteredResult
-  }
-  const items = await itemsPromise
-  if (items.find(item => !item.cipher)) {
-    console.warn('Some items were missing from the cache!')
-  } else {
-    setItemCache(items as VaultItem[])
-  }
-  return items as VaultItem[]
-}
-
-export function setItemCache(items: VaultItem[]) {
-  const raw = JSON.stringify(items)
-  localStorage.setItem(VAULT_ITEM_CACHE, raw)
-  localStorage.setItem(VAULT_ITEM_CACHE_TIME, new Date().getTime().toString())
-}
-
-export function clearItemCache() {
-  localStorage.removeItem(VAULT_ITEM_CACHE)
-  localStorage.removeItem(VAULT_ITEM_CACHE_TIME)
-}
-
-export function checkItemCache() {
-  return !!localStorage.getItem(VAULT_ITEM_CACHE_TIME)
-}
-
+// Fetch all items - TanStack Query handles caching
 export async function fetchAll(): Promise<Item[]> {
-  const cacheTime = getItemCacheTime()
-  const fetchPromise = vaultFetchMany({
-    cacheTime,
-  }).catch(error => {
-    handleVaultError(error, 'Failed to fetch items from server')
-    return [] as VaultItem[]
+  const items = await queryClient.fetchQuery({
+    queryKey: queryKeys.items,
+    queryFn: fetchItems,
   })
-  const mergedFetch = await mergeWithItemCache(fetchPromise)
-  const resultPromise = Promise.all(mergedFetch.map(
-    item => decryptObject({
-      cipher: item.cipher,
-      iv: item.metadata.iv,
-    }) as Promise<Item>,
-  ))
-  resultPromise.then(items => store.dispatch(setItems(items)))
-  resultPromise.catch(error => {
-    handleVaultError(error, 'Failed to decrypt items')
-  })
-  return resultPromise
+  store.dispatch(setItems(items as Item[]))
+  return items as Item[]
 }
 
 export function deleteItems(data: string | string[]) {
@@ -429,22 +390,34 @@ export function deleteItems(data: string | string[]) {
 
 export async function deleteOneItem(itemId: string) {
   store.dispatch(deleteItemsAction([itemId]))
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => (
+    old ? old.filter(item => item.id !== itemId) : []
+  ))
   return vaultDelete({
     item: itemId,
   }).catch(error => {
     handleVaultError(error, 'Failed to delete item from server')
     return false
   }).then(() => true)
+    .finally(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    })
 }
 
 export async function deleteManyItems(itemIds: string[]) {
   store.dispatch(deleteItemsAction(itemIds))
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => (
+    old ? old.filter(item => !itemIds.includes(item.id)) : []
+  ))
   return vaultDeleteMany({
     items: itemIds,
   }).catch(error => {
     handleVaultError(error, 'Failed to delete item from server')
     return false
   }).then(() => true)
+    .finally(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    })
 }
 
 export async function setMetadata(metadata: AccountMetadata) {

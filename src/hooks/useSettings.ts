@@ -3,13 +3,12 @@ import { useAppDispatch, useAppSelector } from '../store'
 import { setMessage, setUi } from '../state/ui'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
-  checkItemCache,
-  clearItemCache,
   exportData,
   setMetadata,
   signOutVault,
   storeItems,
 } from '../api/Vault'
+import { clearQueryCache, hasItemsInCache } from '../api/queries'
 import { useItems, useMetadata } from '../state/selectors'
 import { subscribe, unsubscribe } from '../utils/firebase'
 import { getNextDarkMode } from '../themeUtils'
@@ -46,12 +45,12 @@ export default function useSettings() {
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? checkItemCache() : false),
+    () => (cacheClearCounter ? hasItemsInCache() : false),
     [cacheClearCounter],
   )
   const handleClearCache = useCallback(
     () => {
-      clearItemCache()
+      clearQueryCache()
       setCacheClearCounter(c => c + 1)
       dispatch(setMessage({ message: 'Item cache cleared' }))
     },

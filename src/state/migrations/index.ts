@@ -1,4 +1,5 @@
-import { clearItemCache, setMetadata, storeItems } from '../../api/Vault'
+import { setMetadata, storeItems } from '../../api/Vault'
+import { clearQueryCache } from '../../api/queries'
 import store from '../../store'
 import { Item, convertItem, getBlankGroup, selectAllItems } from '../items'
 
@@ -135,7 +136,7 @@ async function migrateItems() {
 
   if (previousMigrations.length !== completedMigrations.length) {
     await setMetadata({ ...metadata, completedMigrations })
-    clearItemCache()
+    clearQueryCache()
   }
   return completedMigrations
 }

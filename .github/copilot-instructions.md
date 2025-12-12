@@ -185,3 +185,10 @@ yarn test          # Unit tests
 ```
 
 For API changes, ensure Docker services are running and test the integration manually or via Cypress.
+
+## Enforce safe command-line composition!
+When generating shell or terminal commands:
+- Never include the pipe (`|`), semicolon (`;`), or other shell control operators inside quoted strings (within `"..."` or `'...'`). Copilot Chat misinterprets these as command separators, breaking the line into multiple subcommands and triggering unnecessary approval prompts.
+- When running scripts in the terminal, assume the working directory is correct and avoid using `cd` commands unless necessary
+- Do not redirect output using 2>&1 unless necessary
+- Prefer `yarn test run` instead of `yarn test`

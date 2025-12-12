@@ -6,7 +6,7 @@ import * as axios from './axios'
 import * as vault from './Vault'
 import * as api from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
-import type { CachedVaultItem, VaultItem } from '../shared/apiTypes'
+import type { VaultItem } from '../shared/apiTypes'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
@@ -184,7 +184,6 @@ describe('Vault', () => {
 
   it('signOutVault clears localStorage and resets axios/store', async () => {
     localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
-    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, 'someaccount')
     store.dispatch(setAccount({ account: 'acct' } as any))
     store.dispatch(setItems([getBlankPerson() as any]))
 
@@ -194,7 +193,6 @@ describe('Vault', () => {
       vault.signOutVault()
 
       expect(localStorage.getItem(vault.VAULT_KEY_STORAGE_KEY)).toBeNull()
-      expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeNull()
       // store should have items cleared
       expect(store.getState().items.ids.length).toBe(0)
       expect(initSpy).toHaveBeenCalledWith('')
@@ -202,60 +200,6 @@ describe('Vault', () => {
     } finally {
       await vault.initialiseVault(VAULT_TEST_PARAMS)
     }
-  })
-
-  it('getItemCacheTime returns null when cache missing and number when present', () => {
-    expect(vault.getItemCacheTime()).toBeNull()
-
-    localStorage.setItem(
-      vault.VAULT_ITEM_CACHE,
-      JSON.stringify([{ item: 'i' }]),
-    )
-    expect(vault.getItemCacheTime()).toBeNull()
-
-    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, '12345')
-    expect(vault.getItemCacheTime()).toBe(12345)
-  })
-
-  it('setItemCache and checkItemCache work', () => {
-    const items: VaultItem[] = [{ item: 'id1', cipher: 'c1', metadata: { iv: 'iv1', type: 'person', modified: 1 } }]
-    vault.setItemCache(items as any)
-    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE)).toBeTruthy()
-    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeTruthy()
-    expect(vault.checkItemCache()).toBe(true)
-    localStorage.removeItem(vault.VAULT_ITEM_CACHE)
-    localStorage.removeItem(vault.VAULT_ITEM_CACHE_TIME)
-  })
-
-  it('mergeWithItemCache clears cache when stored account differs', async () => {
-    store.dispatch(setAccount({ account: 'acct' }))
-    localStorage.setItem(vault.ACCOUNT_STORAGE_KEY, 'other-account')
-    localStorage.setItem(vault.VAULT_ITEM_CACHE, '[]')
-    localStorage.setItem(vault.VAULT_ITEM_CACHE_TIME, '12345')
-    const itemsFromApi: CachedVaultItem[] = [{ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }]
-
-    const result = await vault.mergeWithItemCache(Promise.resolve(itemsFromApi))
-
-    expect(result).toEqual(itemsFromApi)
-    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE)).toBeNull()
-    expect(localStorage.getItem(vault.VAULT_ITEM_CACHE_TIME)).toBeNull()
-    localStorage.removeItem(vault.ACCOUNT_STORAGE_KEY)
-  })
-
-  it('mergeWithItemCache uses cached items when API items lack cipher', async () => {
-    localStorage.setItem(vault.ACCOUNT_STORAGE_KEY, 'acct')
-    store.dispatch(setAccount({ account: 'acct' }))
-    const cached = [{ item: 'id1', cipher: 'cachedCipher', metadata: { iv: 'iv1', type: 'person', modified: 1 } }]
-    localStorage.setItem(vault.VAULT_ITEM_CACHE, JSON.stringify(cached))
-    const apiItems: CachedVaultItem[] = [{ item: 'id1' }]
-    const setCacheSpy = vi.spyOn(vault, 'setItemCache').mockImplementation(() => {})
-
-    const result = await vault.mergeWithItemCache(Promise.resolve(apiItems))
-
-    expect(result[0].cipher).toBe('cachedCipher')
-    setCacheSpy.mockRestore()
-    localStorage.removeItem(vault.VAULT_ITEM_CACHE)
-    localStorage.removeItem(vault.ACCOUNT_STORAGE_KEY)
   })
 
   it('exportData and importData roundtrip items', async () => {
