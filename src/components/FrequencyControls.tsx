@@ -112,7 +112,7 @@ function FrequencyControls(props: Props) {
           frequency={prayerFrequency}
           fullWidth
           icon={<PrayerIcon />}
-          id="prayer"
+          id="prayerFrequency"
           label="Prayer Frequency"
           onChange={newFrequency => onChange({ prayerFrequency: newFrequency })}
         />
@@ -155,6 +155,7 @@ function FrequencyControls(props: Props) {
                 }}
                 label="Pray For"
                 fullWidth
+                inputProps={{ 'data-cy': 'memberPrayerTarget' }}
               >
                 <MenuItem value="one">One group member</MenuItem>
                 <MenuItem value="all">Every group member</MenuItem>
@@ -167,7 +168,7 @@ function FrequencyControls(props: Props) {
               frequency={memberPrayerFrequency ?? 'none'}
               fullWidth
               icon={<FrequencyIcon />}
-              id="memberPrayer"
+              id="memberPrayerFrequency"
               label="How often"
               onChange={newFrequency => {
                 (props as GroupProps).onChange({

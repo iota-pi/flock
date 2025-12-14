@@ -76,7 +76,7 @@ function FrequencyPicker({
 
           <Select
             id={`frequency-selection-${id}`}
-            data-cy={`frequency-selection-${id}`}
+            data-cy={id}
             value={frequency}
             labelId={`frequency-selection-label-${id}`}
             onChange={handleChange}

@@ -114,6 +114,7 @@ function GoalDialog({
                 </InputAdornment>
               ),
             }}
+            inputProps={{ 'data-cy': 'dialog-goal-input' }}
           />
         </div>
       </DialogContent>
@@ -123,6 +124,7 @@ function GoalDialog({
           onClick={onClose}
           variant="outlined"
           fullWidth
+          data-cy='dialog-cancel'
         >
           Cancel
         </Button>
@@ -134,6 +136,7 @@ function GoalDialog({
           onClick={handleDone}
           startIcon={warning ? <WarningIcon /> : <SaveIcon />}
           variant="contained"
+          data-cy='dialog-confirm'
         >
           Done
         </Button>

@@ -168,6 +168,7 @@ function SelectedActions() {
             <ListItemButton
               className={action.classes?.join(' ')}
               onClick={action.onClick}
+              data-cy={`action-${action.id}`}
               dense
             >
               <ActionIconComponent

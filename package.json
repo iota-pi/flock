@@ -20,7 +20,8 @@
     "postinstall": "patch-package",
     "start": "docker compose up -d api && yarn dev",
     "test": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "e2e": "cypress run"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.513.0",
@@ -52,8 +53,6 @@
     "@vitejs/plugin-react": "^4.2.1",
     "axios": "^1.13.2",
     "csv-parse": "^5.5.5",
-    "cypress": "^13.6.1",
-    "cypress-file-upload": "^5.0.8",
     "date-fns": "^4.1.0",
     "debounce": "^2.0.0",
     "esbuild": "^0.27.0",
@@ -101,6 +100,7 @@
     "@vitest/eslint-plugin": "^1.4.2",
     "bestzip": "^2.2.1",
     "browserslist-to-esbuild": "^1.2.0",
+    "cypress": "^15.7.1",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import-x": "^4.16.1",

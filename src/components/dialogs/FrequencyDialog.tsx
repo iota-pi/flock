@@ -57,6 +57,7 @@ function FrequencyDialog({
       <DialogContent>
         <Grid item xs={12}>
           <FrequencyPicker
+            id='dialog-frequency'
             frequency={frequency}
             fullWidth
             icon={<PrayerIcon />}
@@ -71,6 +72,7 @@ function FrequencyDialog({
           onClick={handleDone}
           variant="outlined"
           fullWidth
+          data-cy='dialog-confirm'
         >
           Save
         </Button>

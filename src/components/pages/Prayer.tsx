@@ -64,7 +64,12 @@ function PrayerPage() {
                     </Typography>
                   </Typography>
 
-                  <IconButton size="medium" onClick={handleEditGoal} sx={{ ml: 1 }}>
+                  <IconButton
+                    size="medium"
+                    onClick={handleEditGoal}
+                    sx={{ ml: 1 }}
+                    data-cy="edit-goal"
+                  >
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Grid>

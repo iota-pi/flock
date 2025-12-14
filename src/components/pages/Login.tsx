@@ -88,7 +88,7 @@ function LoginPage() {
         try {
           await loginVault({ password, salt })
           dispatch(setAccount({ loggedIn: true }))
-          navigate(getPage('people').path)
+          navigate(getPage('prayer').path)
         } catch (error) {
           console.error('Error during vault initialization:', error)
           dispatch(setAccount({ account: '' }))

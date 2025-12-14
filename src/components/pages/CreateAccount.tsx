@@ -383,6 +383,7 @@ function CreateAccountPage() {
                 control={
                   <Checkbox
                     checked={agreement}
+                    inputProps={{ 'data-cy': 'acknowledge-account-id' }}
                     onChange={handleChangeAgreement}
                   />
                 }
@@ -399,6 +400,7 @@ function CreateAccountPage() {
               onClick={handleCloseCreatedAccountDialog}
               fullWidth
               variant="contained"
+              data-cy="continue-button"
             >
               Continue
             </Button>

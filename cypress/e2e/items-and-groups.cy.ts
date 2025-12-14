@@ -1,0 +1,35 @@
+describe('Items and groups', () => {
+  beforeEach(() => {
+    cy.visit('/')
+  })
+
+  it('creates people and groups, links members, and removes a member', () => {
+    const uniqueId = Date.now().toString().slice(-6, -2)
+    const frodoName = `Frodo_${uniqueId}`
+    const samwiseName = `Samwise_${uniqueId}`
+    const merryName = `Merry_${uniqueId}`
+    const fellowshipName = `Fellowship_${uniqueId}`
+
+    cy.createPerson({ name: frodoName }).saveDrawer()
+    cy.createPerson({ name: samwiseName }).saveDrawer()
+    cy.createPerson({ name: merryName }).saveDrawer()
+
+    cy.createGroup({ name: fellowshipName })
+      .addMember(frodoName)
+      .addMember(samwiseName)
+      .addMember(merryName)
+      .saveDrawer()
+
+    cy.page('groups')
+    cy.contains(fellowshipName).click()
+    cy.contains(samwiseName)
+      .parentsUntil('[data-cy=list-item]')
+      .parent()
+      .find('[data-cy=list-item-action]')
+      .click()
+      .saveDrawer()
+
+    cy.contains(fellowshipName).click()
+    cy.contains('2 members').should('exist')
+  })
+})

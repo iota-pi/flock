@@ -134,6 +134,7 @@ function TopBar({
           <Checkbox
             checked={allSelected}
             onClick={onSelectAll}
+            data-cy='select-all'
           />
         </CheckboxHolder>
       )}
@@ -189,6 +190,7 @@ function TopBar({
           <MenuItem
             key={menuItem.key}
             onClick={handleClick(menuItem)}
+            data-cy={menuItem.key}
           >
             <ListItemIcon>
               <menuItem.icon />

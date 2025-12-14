@@ -261,7 +261,6 @@ function ItemDrawer({
       <Grid item xs={showDescription ? 12 : 10} lg={showDescription ? 12 : 11}>
         <TextField
           autoFocus
-          data-cy="name"
           fullWidth
           key={item.id}
           label="Name"
@@ -271,6 +270,7 @@ function ItemDrawer({
           required
           value={item.name}
           variant="standard"
+          inputProps={{ 'data-cy': 'name' }}
         />
       </Grid>
     ),
@@ -281,11 +281,11 @@ function ItemDrawer({
   const descriptionField = useMemo(
     () => (
       item.description || showDescription ? (
-        <Grid item xs={12} lg={6}>
+        <Grid item xs={12}>
           <TextField
-            data-cy="description"
             fullWidth
             label="Short Description"
+            inputProps={{ 'data-cy': 'description' }}
             onChange={event => handleChange({ description: getValue(event) })}
             value={item.description}
             variant="standard"
@@ -300,14 +300,16 @@ function ItemDrawer({
           align-items="flex-end"
           justifyContent="flex-end"
         >
-          <Tooltip title="Add description">
-            <IconButton
-              data-cy="add-description"
-              onClick={handleClickAddDescription}
-            >
-              <NotesIcon />
-            </IconButton>
-          </Tooltip>
+          <div>
+            <Tooltip title="Add description">
+              <IconButton
+                data-cy="add-description"
+                onClick={handleClickAddDescription}
+              >
+                <NotesIcon />
+              </IconButton>
+            </Tooltip>
+          </div>
         </Grid>
       )
     ),
@@ -317,11 +319,11 @@ function ItemDrawer({
     () => (
       <Grid item xs={12}>
         <TextField
-          data-cy="summary"
           fullWidth
           label="Notes"
           multiline
           minRows={3}
+          inputProps={{ 'data-cy': 'summary' }}
           onChange={event => handleChange({ summary: getValue(event) })}
           value={item.summary}
           variant="outlined"

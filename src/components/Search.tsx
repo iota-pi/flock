@@ -571,7 +571,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           <TextField
             {...params}
             autoFocus={autoFocus}
-            data-cy={dataCy}
             inputRef={inputRef}
             InputProps={{
               ...params.InputProps,
@@ -586,6 +585,10 @@ function Search<T extends AnySearchableData = AnySearchableData>({
                   {params.InputProps.startAdornment}
                 </>
               ),
+            }}
+            inputProps={{
+              ...params.inputProps,
+              'data-cy': dataCy,
             }}
             label={label}
             placeholder={placeholder}

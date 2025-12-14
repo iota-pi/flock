@@ -107,7 +107,7 @@ function BasePage({
 
       <Box position="relative">
         <Fade in={loading}>
-          <StyledProgress />
+          <StyledProgress data-cy='loading-progress' />
         </Fade>
       </Box>
 

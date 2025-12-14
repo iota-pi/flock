@@ -1,27 +1,50 @@
 /// <reference types="cypress" />
-import { GroupItem, PersonItem } from '../../src/state/items';
+import type { GroupItem, PersonItem } from '../../src/state/items'
 
 declare global {
   namespace Cypress {
     interface Chainable {
       /**
-       * Custom command to select DOM element by data-cy attribute.
+       * Custom command to select DOM element(s) by data-cy attribute.
+       * Accepts one or more ids.
        * @example cy.dataCy('greeting')
        */
-      dataCy(value: string): Chainable<Element>;
+      dataCy(...value: string[]): Chainable<JQuery<HTMLElement>>
 
-      createAccount(password: string): Chainable;
-      login(credentials: { username: string, password: string }): Chainable;
-      page(page: string): Chainable;
+      ensureAccount(password: string): Chainable<string>
 
-      createPerson(data: Partial<PersonItem>): Chainable;
-      createGroup(data: Partial<GroupItem>): Chainable;
-      saveDrawer(): Chainable;
+      createAccount(password: string): Chainable
+      login(credentials: { username: string, password: string }): Chainable
+      page(page: string): Chainable
 
-      addToGroup(group: string): Chainable;
-      addMember(name: string): Chainable;
+      createPerson(data: Partial<PersonItem>): Chainable
+      createGroup(data: Partial<GroupItem>): Chainable
+      saveDrawer(): Chainable
+
+      addToGroup(group: string): Chainable
+      addMember(name: string): Chainable
     }
   }
 }
 
-import './commands';
+import './commands'
+
+const TEST_PASSWORD = 'TestPass123!'
+
+const establishSession = () => {
+  cy.ensureAccount(TEST_PASSWORD).then(accountId => {
+    cy.intercept({ method: 'GET', url: `**/${accountId}` }).as('loadMetadata')
+    cy.intercept({ method: 'GET', url: `**/${accountId}/items**` }).as('loadItems')
+
+    cy.visit('/')
+
+    cy.wait(['@loadMetadata', '@loadItems'])
+  })
+}
+
+beforeEach(() => {
+  cy.session('TEST_SESSION', establishSession, { cacheAcrossSpecs: true })
+  cy.visit('/')
+})
+
+Cypress.Keyboard.defaults({ keystrokeDelay: 5 })
