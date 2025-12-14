@@ -92,15 +92,27 @@ export async function fetchItems(): Promise<Item[]> {
     handleVaultError(error, 'Failed to fetch items from server')
     return [] as VaultItem[]
   })
-  const decrypted = await Promise.all(
-    items.map(
-      item => vault.decryptObject({
-        cipher: item.cipher!,
-        iv: item.metadata!.iv,
-      }) as Promise<Item>,
-    ),
-  )
-  return decrypted
+
+  const decryptPromises = items.map((item, index) => {
+    const cipher = item.cipher
+    const iv = item.metadata?.iv
+    if (!cipher || !iv) {
+      return Promise.reject(new Error(`Missing cipher or iv for item ${item.item ?? index}`))
+    }
+    return vault.decryptObject({ cipher, iv }) as Promise<Item>
+  })
+
+  const decrypted = await Promise.allSettled(decryptPromises)
+  const successful = decrypted.flatMap(result => {
+    if (result.status === 'fulfilled') {
+      return [result.value]
+    }
+
+    handleVaultError(result.reason as Error, 'Failed to decrypt item from server')
+    return [] as Item[]
+  })
+
+  return successful
 }
 
 // Fetch and decrypt metadata
