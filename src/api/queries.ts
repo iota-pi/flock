@@ -136,6 +136,9 @@ export function useItemsQuery(enabled = true) {
     queryKey: queryKeys.items,
     queryFn: fetchItems,
     enabled,
+    initialData: () => queryClient.getQueryData<Item[]>(queryKeys.items),
+    refetchOnMount: 'always',
+    staleTime: 0,
   })
 }
 
@@ -145,6 +148,9 @@ export function useMetadataQuery(enabled = true) {
     queryKey: queryKeys.metadata,
     queryFn: fetchMetadata,
     enabled,
+    initialData: () => queryClient.getQueryData<AccountMetadata>(queryKeys.metadata),
+    refetchOnMount: 'always',
+    staleTime: 0,
   })
 }
 
