@@ -9,11 +9,12 @@ import {
   Typography,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/Vault'
+import { useItems } from '../../state/selectors'
 
 export interface Props {
   onClose: () => void,
@@ -26,8 +27,31 @@ function RestoreBackupDialog({
   onConfirm,
   open,
 }: Props) {
+  const existingPeople = useItems('person')
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+
+  const { overwriteCount, addedCount } = useMemo(() => {
+    if (!importedItems.length) return { overwriteCount: 0, addedCount: 0 }
+    const existingMap = new Map(existingPeople.map(item => [item.id, item]))
+
+    let overwrite = 0
+    let added = 0
+
+    for (const item of importedItems) {
+      if (item.type !== 'person') continue
+      const existing = existingMap.get(item.id)
+      if (!existing) {
+        added += 1
+        continue
+      }
+      if (JSON.stringify(existing) !== JSON.stringify(item)) {
+        overwrite += 1
+      }
+    }
+
+    return { overwriteCount: overwrite, addedCount: added }
+  }, [existingPeople, importedItems])
 
   const handleChange = useCallback(
     async (files: File[]) => {
@@ -94,12 +118,22 @@ function RestoreBackupDialog({
                 : 'Upload a Flock backup file'
             )}
           </Alert>
+
+          {(!errorMessage && importedItems.length > 0) && (
+            <Box mt={2}>
+              <Alert severity={overwriteCount > 0 ? 'warning' : 'info'}>
+                {`${overwriteCount} ${overwriteCount !== 1 ? 'people' : 'person'} will be overwritten`}
+                <br />
+                {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
+              </Alert>
+            </Box>
+          )}
         </Box>
 
         <Typography paragraph>
           <InlineText fontWeight={500}>Important!</InlineText>
           {' '}
-          Importing a backup will overwrite all changes you have made since creating it.
+          Importing a backup will overwrite all changes to existing items you have made since creating it.
           It will not remove any items you have created since the backup.
           Imports are permanent and cannot be undone.
           We strongly recommend creating another backup before continuing with the import.

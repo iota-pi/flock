@@ -9,8 +9,9 @@ import {
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { importPeople, Item } from '../../state/items'
+import { useItems } from '../../state/selectors'
 import { UploadIcon } from '../Icons'
 
 
@@ -25,8 +26,34 @@ function ImportPeopleDialog({
   onConfirm,
   open,
 }: Props) {
+  const existingPeople = useItems('person')
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+
+  const { overwriteCount, addedCount } = useMemo(
+    () => {
+      if (!importedItems.length) return { overwriteCount: 0, addedCount: 0 }
+      const existingMap = new Map(existingPeople.map(item => [item.id, item]))
+
+      let overwrite = 0
+      let added = 0
+
+      for (const item of importedItems) {
+        if (item.type !== 'person') continue
+        const existing = existingMap.get(item.id)
+        if (!existing) {
+          added += 1
+          continue
+        }
+        if (JSON.stringify(existing) !== JSON.stringify(item)) {
+          overwrite += 1
+        }
+      }
+
+      return { overwriteCount: overwrite, addedCount: added }
+    },
+    [existingPeople, importedItems],
+  )
 
   const handleChange = useCallback(
     async (files: File[]) => {
@@ -118,6 +145,16 @@ function ImportPeopleDialog({
             )}
           </Alert>
         </Box>
+
+        {(!errorMessage && importedItems.length > 1) && (
+          <Box mt={2}>
+            <Alert severity={overwriteCount > 0 ? 'warning' : 'info'}>
+              {`${overwriteCount} ${overwriteCount !== 1 ? 'people' : 'person'} will be overwritten`}
+              <br />
+              {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
+            </Alert>
+          </Box>
+        )}
       </DialogContent>
 
       <DialogActions>
