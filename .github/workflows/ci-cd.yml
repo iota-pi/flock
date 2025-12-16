@@ -74,11 +74,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Debug OIDC (Staging)
-        uses: steve-todorov/oidc-debugger-action@f9915fe9dc64133704c072eb59436373c23e9fdd
-        with:
-          audience: sts.amazonaws.com
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -116,11 +111,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
-
-      - name: Debug OIDC (Prod)
-        uses: steve-todorov/oidc-debugger-action@f9915fe9dc64133704c072eb59436373c23e9fdd
-        with:
-          audience: sts.amazonaws.com
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
