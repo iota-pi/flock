@@ -29,13 +29,14 @@ jobs:
           node-version: 22
           cache: 'yarn'
 
+      - name: Start local DynamoDB
+        run: docker compose up -d dynamodb
+
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Run and initialise local DB
-        run: |
-          docker compose up -d dynamodb
-          yarn initdb
+      - name: Run local DB
+        run: yarn initdb
         env:
           DYNAMODB_ENDPOINT: http://localhost:8000
 
