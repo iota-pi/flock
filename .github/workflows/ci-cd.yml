@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Run local DB
+        run: docker compose up -d dynamodb
+
       - name: Run Tests
         run: yarn test run
 
