@@ -230,11 +230,15 @@ export function signOutVault() {
   key = null
   keyHash = ''
   initAxios('')
+
+  // Stop current queries and clear cache
+  queryClient.cancelQueries()
+  queryClient.clear()
+
+  // Clear state
   store.dispatch(setAccount({ account: '', loggedIn: false }))
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
-  // Clear TanStack Query cache
-  queryClient.clear()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
