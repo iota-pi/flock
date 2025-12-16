@@ -12,13 +12,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 1. Test: Runs on every push to any branch
+  # Test: Runs on every push to any branch
   test:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -32,6 +35,7 @@ jobs:
       - name: Run Tests
         run: yarn test run
 
+  # Lint: Runs on every push except for release branch
   lint:
     name: Run Lint
     runs-on: ubuntu-latest
@@ -39,6 +43,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -52,7 +59,7 @@ jobs:
       - name: Run Lint
         run: yarn lint
 
-  # 2. Deploy Staging: Runs only on master, after tests pass
+  # Deploy Staging: Runs only on master, after tests pass
   deploy-staging:
     name: Deploy to Staging (Dev)
     needs: test
@@ -61,6 +68,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -80,7 +90,7 @@ jobs:
       - name: Deploy to Dev
         run: yarn deploy --stage dev --print-logs
 
-  # 3. Deploy Production: Runs only on release, after tests pass
+  # Deploy Production: Runs only on release, after tests pass
   deploy-prod:
     name: Deploy to Production
     needs: test
@@ -89,6 +99,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
