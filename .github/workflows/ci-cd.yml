@@ -45,30 +45,8 @@ jobs:
       - name: Run Tests
         run: yarn test run
 
-  # Lint: Runs on every push except for release branch
-  lint:
-    name: Run Lint
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    if: github.ref != 'refs/heads/release'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Run Lint
+      - name: Run Lint (non-release branches)
+        if: github.ref != 'refs/heads/release'
         run: yarn lint
 
   # Deploy Staging: Runs only on master, after tests pass
@@ -80,6 +58,7 @@ jobs:
       contents: read
       id-token: write
     if: github.ref == 'refs/heads/master'
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -117,6 +96,7 @@ jobs:
       contents: read
       id-token: write
     if: github.ref == 'refs/heads/release'
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
