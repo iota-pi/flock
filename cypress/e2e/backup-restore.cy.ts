@@ -4,30 +4,36 @@ describe('Backup and restore', () => {
   })
 
   it('exports a backup, mutates data, and restores', () => {
-    cy.createPerson({ name: 'Frodo' }).saveDrawer()
-    cy.createPerson({ name: 'Merry' }).saveDrawer()
+    const uniqueId = Date.now().toString().slice(-6, -2)
+    const frodoName = `Frodo ${uniqueId}`
+    const merryName = `Merry ${uniqueId}`
+    const pippinName = `Pippin ${uniqueId}`
+    const bagginsName = `Baggins ${uniqueId}`
+
+    cy.createPerson({ name: frodoName }).saveDrawer()
+    cy.createPerson({ name: merryName }).saveDrawer()
 
     cy.page('settings')
     cy.dataCy('export').click()
 
-    cy.createPerson({ name: 'Pippin' }).saveDrawer()
+    cy.createPerson({ name: pippinName }).saveDrawer()
 
-    cy.contains('Merry').click()
+    cy.contains(merryName).click()
     cy.dataCy('drawer-cancel').click()
     cy.dataCy('confirm-confirm').click()
 
-    cy.contains('Frodo').click()
-    cy.dataCy('name').type(' Baggins').saveDrawer()
+    cy.contains(frodoName).click()
+    cy.dataCy('name').type(` ${bagginsName}`).saveDrawer()
 
     cy.page('settings')
     cy.dataCy('restore').click()
-    cy.get('input[type=file]').selectFile('../downloads/flock.backup.json')
+    cy.get('input[type=file]').selectFile('./cypress/downloads/flock.backup.json', { force: true })
     cy.dataCy('import-confirm').click()
 
     cy.page('people')
-    cy.contains('Frodo')
-    cy.contains('Merry')
-    cy.contains('Pippin')
-    cy.contains('Baggins').should('not.exist')
+    cy.contains(frodoName)
+    cy.contains(merryName)
+    cy.contains(pippinName)
+    cy.contains(bagginsName).should('not.exist')
   })
 })
