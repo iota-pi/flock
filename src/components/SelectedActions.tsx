@@ -186,6 +186,7 @@ function SelectedActions() {
       </List>
 
       <ConfirmationDialog
+        confirmColour="error"
         open={showConfirm}
         onCancel={handleConfirmCancel}
         onConfirm={handleConfirmDelete}

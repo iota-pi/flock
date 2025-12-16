@@ -1,6 +1,7 @@
 import { PropsWithChildren } from 'react'
 import {
   Button,
+  ButtonProps,
   Dialog,
   DialogActions,
   DialogContent,
@@ -10,6 +11,7 @@ import {
 export interface Props {
   cancel?: string,
   confirm?: string,
+  confirmColour?: ButtonProps['color'],
   onCancel: () => void,
   onConfirm: () => void,
   open: boolean,
@@ -21,6 +23,7 @@ function ConfirmationDialog({
   cancel = 'Cancel',
   children,
   confirm = 'Confirm',
+  confirmColour,
   onCancel,
   onConfirm,
   open,
@@ -50,7 +53,7 @@ function ConfirmationDialog({
         </Button>
 
         <Button
-          color="primary"
+          color={confirmColour ?? 'primary'}
           data-cy="confirm-confirm"
           fullWidth
           onClick={onConfirm}

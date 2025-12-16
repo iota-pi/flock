@@ -131,6 +131,7 @@ function ImportPeopleDialog({
         </Button>
 
         <Button
+          color="error"
           data-cy="import-confirm"
           disabled={importedItems.length === 1}
           fullWidth
