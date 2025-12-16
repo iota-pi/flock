@@ -9,7 +9,8 @@ import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const { data: items = [] } = useItemsQuery()
+  const loggedIn = useLoggedIn()
+  const { data: items = [] } = useItemsQuery(loggedIn)
   return useMemo(
     () => (
       itemType
@@ -21,12 +22,14 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
 }
 
 export const useItemMap = () => {
-  const { data: items = [] } = useItemsQuery()
+  const loggedIn = useLoggedIn()
+  const { data: items = [] } = useItemsQuery(loggedIn)
   return useMemo(() => Object.fromEntries(items.map(item => [item.id, item])), [items])
 }
 
 export const useItem = (id: ItemId) => {
-  const { data: items = [] } = useItemsQuery()
+  const loggedIn = useLoggedIn()
+  const { data: items = [] } = useItemsQuery(loggedIn)
   return useMemo(() => items.find(item => item.id === id), [items, id])
 }
 
@@ -56,7 +59,8 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const { data: metadata = {} as Metadata } = useMetadataQuery()
+  const loggedIn = useLoggedIn()
+  const { data: metadata = {} as Metadata } = useMetadataQuery(loggedIn)
   const { mutateAsync: setMetadata } = useSetMetadataMutation()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]

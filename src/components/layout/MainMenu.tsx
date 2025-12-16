@@ -16,6 +16,7 @@ import { useAppDispatch } from '../../store'
 import { setUi } from '../../state/ui'
 import { useMetadataQuery } from '../../api/queries'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
+import { useLoggedIn } from 'src/state/selectors'
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
@@ -168,7 +169,8 @@ function MainMenu({
 }: Props) {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
-    const { data: metadata = {} } = useMetadataQuery()
+  const loggedIn = useLoggedIn()
+  const { data: metadata = {} } = useMetadataQuery(loggedIn)
   const page = usePage()
 
   const handleClick = useCallback(
