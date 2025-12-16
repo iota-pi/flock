@@ -6,6 +6,8 @@ import { Item, ItemId } from './items'
 import { setUi, UiOptions } from './ui'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 
+export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
+
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
@@ -42,8 +44,6 @@ export function useItemsById() {
     [itemMap],
   )
 }
-
-export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
 
 export function useMetadata<K extends MetadataKey>(
   key: K,

@@ -1,7 +1,7 @@
-import * as React from 'react';
+import * as React from 'react'
 
 declare module 'react' {
   interface HTMLAttributes<T> extends AriaAttributes, DOMAttributes<T> {
-    'data-cy'?: string;
+    'data-cy'?: string
   }
 }
