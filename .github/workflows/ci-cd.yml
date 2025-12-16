@@ -103,6 +103,10 @@ jobs:
 
       - name: Deploy to Dev
         run: yarn deploy --stage dev --print-logs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
 
   # Deploy Production: Runs only on release, after tests pass
   deploy-prod:
@@ -136,3 +140,6 @@ jobs:
 
       - name: Deploy to Prod
         run: yarn deploy --stage production --print-logs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
