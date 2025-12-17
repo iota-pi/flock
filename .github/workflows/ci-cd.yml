@@ -58,7 +58,7 @@ jobs:
       contents: read
       id-token: write
     if: github.ref == 'refs/heads/master'
-    environment: staging
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
