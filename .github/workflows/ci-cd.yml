@@ -49,7 +49,7 @@ jobs:
         if: github.ref != 'refs/heads/release'
         run: yarn lint
 
-  # Deploy Staging: Runs on master and release, after tests pass
+  # Deploy Staging: Runs on master after tests pass
   deploy-staging:
     name: Deploy to Staging (Dev)
     needs: test
@@ -57,7 +57,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release'
+    if: github.ref == 'refs/heads/master'
     environment: staging
     steps:
       - name: Checkout code
@@ -107,9 +107,9 @@ jobs:
         run: yarn install --immutable
 
       - name: Run Cypress against staging
-        run: yarn e2e -- --config baseUrl=${{ env.STAGING_BASE_URL }}
+        run: yarn e2e
         env:
-          STAGING_BASE_URL: https://dev.flock.cross-code.org
+          CYPRESS_BASE_URL: https://dev.flock.cross-code.org
 
   # Deploy Production: Runs only on release, after tests pass
   deploy-prod:
