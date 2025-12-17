@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - '**'
-  pull_request:
-    branches:
-      - release
 
 # Concurrency ensures that we don't have two deployments running at the same time
 # for the same stage, which could cause lock conflicts.
@@ -92,22 +89,25 @@ jobs:
   # E2E on Staging: Run Cypress tests against staging after deploy
   e2e-staging:
     name: Cypress on Staging
-    needs: test
+    needs: deploy-staging
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'release'
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Run Cypress against staging
         uses: cypress-io/github-action@v6
         env:
           CYPRESS_BASE_URL: https://dev.flock.cross-code.org
 
-  # Deploy Production: Runs only on release, after tests pass
+  # Deploy Production: Runs only on release
   deploy-prod:
     name: Deploy to Production
-    needs: e2e-staging
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
