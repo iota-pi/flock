@@ -8,13 +8,12 @@ function getGroups(items: Item[]): GroupItem[] {
 }
 
 export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
-  const unarchived = filterArchived(items)
-  const groups = getGroups(unarchived)
+  const groups = getGroups(items)
 
   const map: Map<string, number> = new Map()
 
   // Initialise map with each person's own set frequency
-  for (const it of unarchived) {
+  for (const it of items) {
     if (it.type === 'person' && it.prayerFrequency && it.prayerFrequency !== 'none') {
       map.set(it.id, frequencyToDays(it.prayerFrequency))
     }
@@ -39,10 +38,12 @@ export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
   return map
 }
 
-export function getActiveItems(items: Item[]): Item[] {
-  const unarchived = filterArchived(items)
-  const freqMap = buildPrayerFreqMap(items)
-  return unarchived.filter(i => freqMap.has(i.id)).sort(compareItems)
+export function getActiveItems(
+  items: Item[],
+  frequencies?: Map<string, number>,
+): Item[] {
+  const freqMap = frequencies ?? buildPrayerFreqMap(items)
+  return items.filter(i => freqMap.has(i.id)).sort(compareItems)
 }
 
 export function getLastPrayedFor(
@@ -56,8 +57,9 @@ export function getLastPrayedFor(
 }
 
 export function getPrayerSchedule(items: Item[], day?: Date): string[] {
-  const activeItems = getActiveItems(items)
-  const freqMap = buildPrayerFreqMap(items)
+  const unarchived = filterArchived(items)
+  const freqMap = buildPrayerFreqMap(unarchived)
+  const activeItems = getActiveItems(unarchived, freqMap)
   const calcTime = day?.getTime() ?? Date.now()
   const itemsWithSortInfo = activeItems.map(
     item => {
@@ -78,8 +80,9 @@ export function getPrayerSchedule(items: Item[], day?: Date): string[] {
 }
 
 export function getNaturalPrayerGoal(items: Item[]) {
-  const freqMap = buildPrayerFreqMap(items)
-  const activeItems = getActiveItems(items)
+  const unarchived = filterArchived(items)
+  const freqMap = buildPrayerFreqMap(unarchived)
+  const activeItems = getActiveItems(unarchived, freqMap)
 
   let sum = 0
   for (const item of activeItems) {
