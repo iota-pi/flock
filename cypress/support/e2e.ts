@@ -33,14 +33,8 @@ import './commands'
 const TEST_PASSWORD = 'TestPass123!'
 
 const establishSession = () => {
-  cy.ensureAccount(TEST_PASSWORD).then(accountId => {
-    cy.intercept({ method: 'GET', url: `**/${accountId}` }).as('loadMetadata')
-    cy.intercept({ method: 'GET', url: `**/${accountId}/items**` }).as('loadItems')
-
+  cy.ensureAccount(TEST_PASSWORD).then(() => {
     cy.page('prayer')
-
-    // Wait for initial data load
-    cy.wait(['@loadMetadata', '@loadItems'])
 
     // Ensure axios has been initialised (initAxios called during login)
     cy.window().should(win => {
