@@ -86,9 +86,11 @@ function GoalDialog({
       <DialogContent>
         <Typography paragraph>
           To get through all your prayer items in the target time,
-          we recommend setting this value to at least
+          set to
           {' '}
-          <Typography component="span" fontWeight={500}>{naturalGoal}</Typography>.
+          <Typography component="span" fontWeight={500}>{naturalGoal}</Typography>
+          {' '}
+          or higher.
         </Typography>
 
         <div>

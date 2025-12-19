@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy
+    name: Deploy to Staging
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,7 +35,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   e2e:
-    name: Cypress E2E
+    name: Cypress on Staging
     needs: deploy
     runs-on: ubuntu-latest
     steps:
