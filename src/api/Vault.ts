@@ -164,7 +164,7 @@ function handleSessionExpired() {
 export async function loadVault() {
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
-    store.dispatch(setAccount({ account, loggedIn: true }))
+    store.dispatch(setAccount({ account }))
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
@@ -183,6 +183,8 @@ export async function loadVault() {
     setSessionExpiredHandler(handleSessionExpired)
 
     await initialLoadFromVault()
+
+    store.dispatch(setAccount({ loggedIn: true }))
   }
 }
 

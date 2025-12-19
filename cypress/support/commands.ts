@@ -1,4 +1,11 @@
-import type { GroupItem, PersonItem } from '../../src/state/items'
+import type { PageId } from '../../src/components/pages/types'
+import {
+  getBlankGroup,
+  getBlankPerson,
+  type GroupItem,
+  type PersonItem,
+} from '../../src/state/items'
+
 
 Cypress.Commands.add('dataCy', (...dataCy: string[]) => (
   cy.get(dataCy.map(id => `[data-cy="${id}"]`).join(','))
@@ -42,7 +49,7 @@ Cypress.Commands.add('createAccount', (password: string): Cypress.Chainable => {
 
 Cypress.Commands.add(
   'page',
-  (page: string): Cypress.Chainable => {
+  (page: PageId): Cypress.Chainable => {
     cy.dataCy(`page-${page}`).click({ force: true })
     const expectedPath = page === 'prayer' ? '/' : `/${page}`
     cy.location('pathname').should('equal', expectedPath)
@@ -54,35 +61,59 @@ Cypress.Commands.add(
 
 Cypress.Commands.add(
   'createPerson',
-  (data: Partial<PersonItem>): Cypress.Chainable => {
-    cy.page('people')
-    cy.dataCy('fab').click()
-    Object.entries(data).forEach(([key, value]) => {
-      if (key.includes('Frequency') && value !== undefined) {
-        cy.dataCy(key).click()
-        cy.dataCy(`frequency-${value}`).click()
-      } else if (value !== undefined) {
-        cy.dataCy(key).clear().type(String(value))
-      }
-    })
-    return cy
+  (data: Partial<PersonItem>, manual = false): Cypress.Chainable => {
+    if (manual) {
+      cy.page('people')
+      cy.dataCy('fab').click()
+      Object.entries(data).forEach(([key, value]) => {
+        if (key.includes('Frequency') && value !== undefined) {
+          cy.dataCy(key).click()
+          cy.dataCy(`frequency-${value}`).click()
+        } else if (value !== undefined) {
+          cy.dataCy(key).clear().type(String(value))
+        }
+      })
+      return cy
+    } else {
+      return cy.window().then(win => {
+        return win.vault.then(vault => {
+          const person = {
+            ...getBlankPerson(undefined, false),
+            ...data,
+          }
+          return vault.storeOneItem(person)
+        })
+      })
+    }
   },
 )
 
 Cypress.Commands.add(
   'createGroup',
-  (data: Partial<GroupItem>): Cypress.Chainable => {
-    cy.page('groups')
-    cy.dataCy('fab').click()
-    Object.entries(data).forEach(([key, value]) => {
-      if (key.includes('Frequency') && value !== undefined) {
-        cy.dataCy(key).click()
-        cy.dataCy(`frequency-${value}`).click()
-      } else if (value !== undefined) {
-        cy.dataCy(key).clear().type(String(value))
-      }
-    })
-    return cy
+  (data: Partial<GroupItem>, manual = false): Cypress.Chainable => {
+    if (manual) {
+      cy.page('groups')
+      cy.dataCy('fab').click()
+      Object.entries(data).forEach(([key, value]) => {
+        if (key.includes('Frequency') && value !== undefined) {
+          cy.dataCy(key).click()
+          cy.dataCy(`frequency-${value}`).click()
+        } else if (value !== undefined) {
+          cy.dataCy(key).clear().type(String(value))
+        }
+      })
+      return cy
+    } else {
+      return cy.window().then(win => {
+        return win.vault.then(vault => {
+          const group = {
+            ...getBlankGroup(undefined, false),
+            ...data,
+          }
+          return vault.storeOneItem(group)
+        })
+      })
+    }
   },
 )
 
@@ -107,9 +138,20 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'saveDrawer',
   (): Cypress.Chainable => {
-    cy.intercept({ method: /PUT|POST/, url: '**/items/**' }).as('saveItem')
-    cy.dataCy('drawer-done').last().click()
-    cy.wait('@saveItem')
-    return cy
+    return cy.dataCy('drawer-done').last().then($button => {
+      const shouldWait = $button.text().toLowerCase().includes('save')
+
+      if (shouldWait) {
+        cy.intercept({ method: /PUT|POST/, url: '**/items/**' }).as('saveItem')
+      }
+
+      cy.wrap($button).click()
+
+      if (shouldWait) {
+        cy.wait('@saveItem')
+      }
+
+      return cy
+    })
   },
 )

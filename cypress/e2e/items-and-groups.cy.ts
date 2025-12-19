@@ -1,8 +1,4 @@
 describe('Items and groups', () => {
-  beforeEach(() => {
-    cy.visit('/')
-  })
-
   it('creates people and groups, links members, and removes a member', () => {
     const uniqueId = Date.now().toString().slice(-6, -2)
     const frodoName = `Frodo_${uniqueId}`
@@ -10,11 +6,11 @@ describe('Items and groups', () => {
     const merryName = `Merry_${uniqueId}`
     const fellowshipName = `Fellowship_${uniqueId}`
 
-    cy.createPerson({ name: frodoName }).saveDrawer()
-    cy.createPerson({ name: samwiseName }).saveDrawer()
-    cy.createPerson({ name: merryName }).saveDrawer()
+    cy.createPerson({ name: frodoName }, true).saveDrawer()
+    cy.createPerson({ name: samwiseName })
+    cy.createPerson({ name: merryName })
 
-    cy.createGroup({ name: fellowshipName })
+    cy.createGroup({ name: fellowshipName }, true)
       .addMember(frodoName)
       .addMember(samwiseName)
       .addMember(merryName)

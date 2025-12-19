@@ -1,5 +1,6 @@
 /// <reference types="cypress" />
 import type { GroupItem, PersonItem } from '../../src/state/items'
+import type { PageId } from '../../src/components/pages/types'
 
 declare global {
   namespace Cypress {
@@ -15,10 +16,10 @@ declare global {
 
       createAccount(password: string): Chainable
       login(credentials: { username: string, password: string }): Chainable
-      page(page: string): Chainable
+      page(page: PageId): Chainable
 
-      createPerson(data: Partial<PersonItem>): Chainable
-      createGroup(data: Partial<GroupItem>): Chainable
+      createPerson(data: Partial<PersonItem>, manual?: boolean): Chainable
+      createGroup(data: Partial<GroupItem>, manual?: boolean): Chainable
       saveDrawer(): Chainable
 
       addToGroup(group: string): Chainable
@@ -32,13 +33,13 @@ import './commands'
 const TEST_PASSWORD = 'TestPass123!'
 
 const establishSession = () => {
-  cy.ensureAccount(TEST_PASSWORD).then(accountId => {
-    cy.intercept({ method: 'GET', url: `**/${accountId}` }).as('loadMetadata')
-    cy.intercept({ method: 'GET', url: `**/${accountId}/items**` }).as('loadItems')
+  cy.ensureAccount(TEST_PASSWORD).then(() => {
+    cy.page('prayer')
 
-    cy.visit('/')
-
-    cy.wait(['@loadMetadata', '@loadItems'])
+    // Ensure axios has been initialised (initAxios called during login)
+    cy.window().should(win => {
+      expect(win.checkAxios && win.checkAxios()).to.eq(true)
+    })
   })
 }
 

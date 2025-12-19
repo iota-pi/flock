@@ -11,7 +11,8 @@ import {
   styled,
   Toolbar,
 } from '@mui/material'
-import { PageId, pages, usePage } from '../pages'
+import { pages, usePage } from '../pages'
+import { PageId } from '../pages/types'
 import { useAppDispatch } from '../../store'
 import { setUi } from '../../state/ui'
 import { useMetadataQuery } from '../../api/queries'

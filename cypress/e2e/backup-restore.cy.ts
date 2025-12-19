@@ -1,8 +1,4 @@
 describe('Backup and restore', () => {
-  beforeEach(() => {
-    cy.visit('/')
-  })
-
   it('exports a backup, mutates data, and restores', () => {
     const uniqueId = Date.now().toString().slice(-6, -2)
     const frodoName = `Frodo ${uniqueId}`
@@ -10,14 +6,16 @@ describe('Backup and restore', () => {
     const pippinName = `Pippin ${uniqueId}`
     const bagginsName = `Baggins ${uniqueId}`
 
-    cy.createPerson({ name: frodoName }).saveDrawer()
-    cy.createPerson({ name: merryName }).saveDrawer()
+    cy.page('people')
+    cy.createPerson({ name: frodoName })
+    cy.createPerson({ name: merryName })
 
     cy.page('settings')
     cy.dataCy('export').click()
 
-    cy.createPerson({ name: pippinName }).saveDrawer()
+    cy.createPerson({ name: pippinName })
 
+    cy.page('people')
     cy.contains(merryName).click()
     cy.dataCy('drawer-cancel').click()
     cy.dataCy('confirm-confirm').click()
