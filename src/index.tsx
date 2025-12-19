@@ -26,3 +26,7 @@ root.render(
 )
 
 serviceWorkerRegistration.register()
+
+if (window.Cypress) {
+  window.vault = import('./api/Vault')
+}

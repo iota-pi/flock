@@ -57,3 +57,8 @@ function getAuth(authToken: string): AxiosRequestConfig {
     headers: { Authorization: `Basic ${authToken}` },
   }
 }
+
+if (window.Cypress) {
+  // Expose for Cypress tests
+  window.checkAxios = checkAxios
+}
