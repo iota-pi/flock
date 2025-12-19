@@ -23,7 +23,11 @@ export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
   for (const g of groups) {
     if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
       const groupDays = frequencyToDays(g.memberPrayerFrequency)
-      const effectiveGroupDays = g.memberPrayerTarget === 'one' ? groupDays : groupDays / g.members.length
+      const effectiveGroupDays = (
+        g.memberPrayerTarget === 'one'
+          ? groupDays * g.members.length
+          : groupDays
+      )
       for (const memberId of g.members) {
         const currDays = map.get(memberId)
         if (currDays === undefined) {
