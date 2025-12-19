@@ -2,8 +2,6 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches-ignore: [master, release] # Don't run this double on merge
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
