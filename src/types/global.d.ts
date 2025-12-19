@@ -1,4 +1,3 @@
-import type store from '../store'
 import type * as vault from '../api/Vault'
 import type { checkAxios } from '../api/axios'
 
