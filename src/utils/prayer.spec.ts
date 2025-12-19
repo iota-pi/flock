@@ -94,4 +94,32 @@ describe('prayer utilities', () => {
     // person contributions: 1/1 + 1/7 => ~1.1428 => ceil -> 2
     expect(goal).toBe(2)
   })
+
+  it('calculates correct goal for groups targeting "one" member', () => {
+    // Group: Daily, 2 members, target "One"
+    // Intent: Pray for 1 member of this group every day.
+    // Goal contribution should be 1.
+    const p1 = makePerson('p1', 'none')
+    const p2 = makePerson('p2', 'none')
+    const g1 = makeGroup('g1', ['p1', 'p2'], 'daily', 'one')
+
+    const items: Item[] = [p1, p2, g1]
+    const goal = getNaturalPrayerGoal(items)
+
+    expect(goal).toBe(1)
+  })
+
+  it('calculates correct goal for groups targeting "all" members', () => {
+    // Group: Daily, 2 members, target "All"
+    // Intent: Pray for ALL members of this group every day.
+    // Goal contribution should be 2.
+    const p1 = makePerson('p1', 'none')
+    const p2 = makePerson('p2', 'none')
+    const g1 = makeGroup('g1', ['p1', 'p2'], 'daily', 'all')
+
+    const items: Item[] = [p1, p2, g1]
+    const goal = getNaturalPrayerGoal(items)
+
+    expect(goal).toBe(2)
+  })
 })
