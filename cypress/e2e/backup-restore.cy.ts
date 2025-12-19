@@ -9,6 +9,7 @@ describe('Backup and restore', () => {
     cy.page('people')
     cy.createPerson({ name: frodoName })
     cy.createPerson({ name: merryName })
+    cy.contains(merryName).should('exist')
 
     cy.page('settings')
     cy.dataCy('export').click()
