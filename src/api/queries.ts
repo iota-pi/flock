@@ -15,6 +15,7 @@ import { getAccountId } from './util'
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client'
 import store from '../store'
 import { pruneItems } from '../state/ui'
+import { checkAxios } from './axios'
 
 // Query Keys
 export const queryKeys = {
@@ -86,6 +87,13 @@ function handleVaultError(error: Error, message: string) {
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function fetchItems(): Promise<Item[]> {
+  if (!checkAxios) {
+    // If Axios isn't ready, we can't fetch.
+    // Return empty array to satisfy the query temporarily.
+    // The real fetch will happen once loadVault completes and triggers a refetch.
+    return []
+  }
+
   const vault = await getVaultModule()
   // Pass cacheTime: null to fetch all items (no incremental fetch)
   const items = await vaultFetchMany({ cacheTime: null }).catch(error => {

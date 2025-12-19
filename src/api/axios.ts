@@ -48,6 +48,10 @@ export function getAxios(allowNoInit = false): AxiosInstance {
   return axiosWithAuth
 }
 
+export function checkAxios() {
+  return !!axiosWithAuth
+}
+
 function getAuth(authToken: string): AxiosRequestConfig {
   return {
     headers: { Authorization: `Basic ${authToken}` },
