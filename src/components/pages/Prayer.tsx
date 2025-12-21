@@ -78,7 +78,6 @@ function PrayerPage() {
             <Divider />
           </Fragment>
         ),
-        height: 68.5,
         index: 0,
       },
       {
@@ -94,7 +93,6 @@ function PrayerPage() {
             </Grid>
           </Fragment>
         ),
-        height: 68.5,
         index: -1,
       },
     ],
