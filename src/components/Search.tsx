@@ -1,13 +1,11 @@
 import {
   ChangeEvent,
-  createContext,
   ForwardedRef,
   forwardRef,
   HTMLAttributes,
   PropsWithChildren,
   Ref,
   useCallback,
-  useContext,
   useMemo,
 } from 'react'
 import { List, RowComponentProps } from 'react-window'
@@ -252,16 +250,12 @@ function SearchableRow(
 ) {
   const { itemData, index, style } = props
   const [optionProps, option, settings] = itemData[index]
-  const inlineStyle = {
-    ...style,
-    top: (style.top as number) + LISTBOX_PADDING,
-  }
 
   return (
     <OptionHolder
       {...optionProps}
       key={option.id}
-      style={inlineStyle}
+      style={style}
     >
       <OptionComponent
         option={option}
@@ -275,14 +269,6 @@ function SearchableRow(
   )
 }
 
-const OuterElementContext = createContext({})
-
-const OuterElementType = forwardRef<HTMLDivElement>((props, ref) => {
-  const outerProps = useContext(OuterElementContext)
-  return <div ref={ref} {...props} {...outerProps} />
-})
-OuterElementType.displayName = 'OuterElementType'
-
 const ListBoxComponent = forwardRef(
   (
     props: PropsWithChildren<HTMLAttributes<HTMLElement>>,
@@ -292,23 +278,28 @@ const ListBoxComponent = forwardRef(
     const itemData = children as PropsAndOption[]
     const itemSize = 56
 
-    const getHeight = useCallback(
-      () => itemSize * Math.min(itemData.length, 6),
-      [itemData, itemSize],
-    )
+    const itemsHeight = itemSize * Math.min(itemData.length, 6)
 
     return (
-      <div ref={ref}>
-        <OuterElementContext.Provider value={otherProps}>
-          <List<SearchableRowProps>
-            rowProps={{ itemData }}
-            style={{ height: getHeight() + 2 * LISTBOX_PADDING, width: '100%' }}
-            rowComponent={SearchableRow}
-            rowHeight={itemSize}
-            overscanCount={2}
-            rowCount={itemData.length}
-          />
-        </OuterElementContext.Provider>
+      <div
+        ref={ref}
+        {...otherProps}
+        style={{
+          paddingTop: LISTBOX_PADDING,
+          paddingBottom: LISTBOX_PADDING,
+        }}
+      >
+        <List<SearchableRowProps>
+          rowProps={{ itemData }}
+          style={{
+            height: itemsHeight,
+            width: '100%',
+          }}
+          rowComponent={SearchableRow}
+          rowHeight={itemSize}
+          overscanCount={2}
+          rowCount={itemData.length}
+        />
       </div>
     )
   },
