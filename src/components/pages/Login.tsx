@@ -17,7 +17,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { getPage } from '.'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setAccount } from '../../state/account'
-import { HomeIcon } from '../Icons'
+import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
 import { loginVault } from '../../api/Vault'
 import { vaultGetSalt } from '../../api/VaultAPI'
 import { setUi } from '../../state/ui'
@@ -176,6 +176,13 @@ function LoginPage() {
                 autoFocus
                 fullWidth
                 id="username"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon />
+                    </InputAdornment>
+                  ),
+                }}
                 label="Account ID"
                 name="username"
                 onChange={handleChangeAccount}
@@ -190,6 +197,11 @@ function LoginPage() {
                 fullWidth
                 id="current-password"
                 InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PasswordIcon />
+                    </InputAdornment>
+                  ),
                   endAdornment: (
                     <InputAdornment position="end">
                       <IconButton
