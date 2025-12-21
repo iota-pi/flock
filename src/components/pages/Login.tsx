@@ -11,6 +11,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import { LoadingButton } from '@mui/lab'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { getPage } from '.'
@@ -62,6 +63,7 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [accountInput, setAccountInput] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
   const createdAccountId = useAppSelector(state => state.account.account)
   const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount)
 
@@ -82,6 +84,8 @@ function LoginPage() {
 
   const handleClickLogin = useCallback(
     async () => {
+      setLoading(true)
+      setError('')
       dispatch(setAccount({ account: accountInput }))
       const salt = await vaultGetSalt().catch(() => '')
       if (salt.length) {
@@ -93,10 +97,13 @@ function LoginPage() {
           console.error('Error during vault initialization:', error)
           dispatch(setAccount({ account: '' }))
           setError('Login failed.')
+        } finally {
+          setLoading(false)
         }
       } else {
         dispatch(setAccount({ account: '' }))
         setError('Could not find matching account ID and password.')
+        setLoading(false)
       }
     },
     [accountInput, dispatch, navigate, password],
@@ -204,16 +211,17 @@ function LoginPage() {
               />
             </Box>
 
-            <Button
+            <LoadingButton
               color="primary"
               data-cy="login"
               disabled={!accountInput || !password}
+              loading={loading}
               onClick={handleClickLogin}
               size="large"
               variant="contained"
             >
               Login
-            </Button>
+            </LoadingButton>
 
             {error && (
               <Typography paragraph color="error" mt={2}>
