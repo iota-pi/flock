@@ -3085,15 +3085,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@simbathesailor/use-what-changed@npm:^2.0.0":
-  version: 2.0.0
-  resolution: "@simbathesailor/use-what-changed@npm:2.0.0"
-  peerDependencies:
-    react: ">=16"
-  checksum: 10c0/c1045bdab724ad3186d6ccba0b16e9069bae46a5e9f8bcd6534c427e7a2abf0ef8f0503ac8c9a2eacf27132191ca65739082335bfa9b5ebff7a8906a031c2c5e
-  languageName: node
-  linkType: hard
-
 "@smithy/abort-controller@npm:^4.2.5":
   version: 4.2.5
   resolution: "@smithy/abort-controller@npm:4.2.5"
@@ -7412,7 +7403,6 @@ __metadata:
     "@mui/types": "npm:^7.2.11"
     "@mui/x-date-pickers": "npm:^8.19.0"
     "@reduxjs/toolkit": "npm:^2.0.1"
-    "@simbathesailor/use-what-changed": "npm:^2.0.0"
     "@stylistic/eslint-plugin": "npm:^5.5.0"
     "@tanstack/query-sync-storage-persister": "npm:^5.90.14"
     "@tanstack/react-query": "npm:^5.90.12"
@@ -7449,7 +7439,6 @@ __metadata:
     firebase-admin: "npm:^10.0.0"
     happy-dom: "npm:^20.0.10"
     js-file-download: "npm:^0.4.12"
-    markdown-to-jsx: "npm:^7.3.2"
     match-sorter: "npm:^6.3.1"
     mui-file-dropzone: "npm:^4.0.2"
     nodemon: "npm:^2.0.7"
@@ -9416,18 +9405,6 @@ __metadata:
     promise-retry: "npm:^2.0.1"
     ssri: "npm:^13.0.0"
   checksum: 10c0/525f74915660be60b616bcbd267c4a5b59481b073ba125e45c9c3a041bb1a47a2bd0ae79d028eb6f5f95bf9851a4158423f5068539c3093621abb64027e8e461
-  languageName: node
-  linkType: hard
-
-"markdown-to-jsx@npm:^7.3.2":
-  version: 7.7.17
-  resolution: "markdown-to-jsx@npm:7.7.17"
-  peerDependencies:
-    react: ">= 0.14.0"
-  peerDependenciesMeta:
-    react:
-      optional: true
-  checksum: 10c0/581c5ee1b3c79445f9f8369dc2882d0289507e702b2fcf2bc276b163a984cdcca2d8463a609c9bf310a31dcbf10c3210721c42c9173d4f12da675d3b56243736
   languageName: node
   linkType: hard
 
