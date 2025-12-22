@@ -9,7 +9,6 @@ import {
 } from '../api/Vault'
 import { clearQueryCache, hasItemsInCache } from '../api/queries'
 import { useItems, useMetadata } from '../state/selectors'
-import { subscribe, unsubscribe } from '../utils/firebase'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
@@ -29,10 +28,12 @@ export default function useSettings() {
 
   const darkMode = useAppSelector(state => state.ui.darkMode)
   const handleToggleDarkMode = useCallback(
-    () => dispatch(setUi({ darkMode: (() => {
-      const next = getNextDarkMode(darkMode)
-      return next
-    })() })),
+    () => dispatch(setUi({
+      darkMode: (() => {
+        const next = getNextDarkMode(darkMode)
+        return next
+      })()
+    })),
     [darkMode, dispatch],
   )
 
@@ -120,6 +121,7 @@ export default function useSettings() {
   const handleSubscribe = useCallback(
     async (hours: number[] | null) => {
       try {
+        const { subscribe, unsubscribe } = await import('../utils/firebase')
         if (hours) {
           await subscribe(hours)
           dispatch(setMessage({ message: 'Subscription saved' }))
@@ -133,7 +135,7 @@ export default function useSettings() {
         console.error('Subscription update failed', err)
       }
     },
-    [closeSubscriptionDialog],
+    [closeSubscriptionDialog, dispatch],
   )
 
   // Default frequency dialog
@@ -141,7 +143,7 @@ export default function useSettings() {
   const openDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(true), [])
   const closeDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(false), [])
 
-  const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person'|'group', Frequency>>) => {
+  const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group', Frequency>>) => {
     try {
       await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
       dispatch(setMessage({ message: 'Default prayer frequencies saved' }))

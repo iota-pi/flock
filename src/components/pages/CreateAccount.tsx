@@ -1,6 +1,6 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import zxcvbn from 'zxcvbn'
+import type { ZXCVBNScore } from 'zxcvbn'
 import {
   alpha,
   Box,
@@ -92,10 +92,11 @@ export interface ChecklistItem {
   description: string,
 }
 
-function scorePassword(password: string): zxcvbn.ZXCVBNResult {
+async function scorePassword(password: string) {
+  const { default: zxcvbn } = await import('zxcvbn')
   const mainScore = zxcvbn(password, customDomainWords)
   const harshScore = zxcvbn(password.slice(3), customDomainWords)
-  mainScore.score = Math.min(mainScore.score, harshScore.score) as zxcvbn.ZXCVBNScore
+  mainScore.score = Math.min(mainScore.score, harshScore.score) as ZXCVBNScore
   return mainScore
 }
 
@@ -199,20 +200,26 @@ function CreateAccountPage() {
 
   useEffect(
     () => {
+      let cancelled = false
       if (password) {
-        const passwordStrength = scorePassword(password)
-        setPasswordScore(Math.max(passwordStrength.score, 1))
-        if (password.length < MIN_PASSWORD_LENGTH) {
-          setPasswordError(
-            `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`,
-          )
-        } else if (passwordStrength.feedback.warning) {
-          setPasswordError(passwordStrength.feedback.warning)
-        } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
-          setPasswordError('Please choose a stronger password')
-        } else {
-          setPasswordError('')
-        }
+        scorePassword(password).then(passwordStrength => {
+          if (cancelled) return
+          setPasswordScore(Math.max(passwordStrength.score, 1))
+          if (password.length < MIN_PASSWORD_LENGTH) {
+            setPasswordError(
+              `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`,
+            )
+          } else if (passwordStrength.feedback.warning) {
+            setPasswordError(passwordStrength.feedback.warning)
+          } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
+            setPasswordError('Please choose a stronger password')
+          } else {
+            setPasswordError('')
+          }
+        })
+      }
+      return () => {
+        cancelled = true
       }
     },
     [password],

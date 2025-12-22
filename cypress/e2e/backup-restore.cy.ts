@@ -28,6 +28,7 @@ describe('Backup and restore', () => {
     cy.dataCy('restore').click()
     cy.get('input[type=file]').selectFile('./cypress/downloads/flock.backup.json', { force: true })
     cy.dataCy('import-confirm').click()
+    cy.contains('Restore successful').should('be.visible')
 
     cy.page('people')
     cy.contains(frodoName)

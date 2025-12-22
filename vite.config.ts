@@ -13,5 +13,15 @@ export default defineConfig({
   build: {
     target: browserslistToEsbuild(),
     outDir: 'dist/app',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router'],
+          'vendor-mui': ['@mui/material', '@mui/icons-material', '@mui/lab'],
+          'vendor-firebase': ['firebase/app', 'firebase/messaging'],
+        },
+      },
+    },
   },
 });
