@@ -8,6 +8,7 @@ import {
   DialogTitle,
   Typography,
 } from '@mui/material'
+import LoadingButton from '@mui/lab/LoadingButton'
 import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
@@ -18,7 +19,7 @@ import { useItems } from '../../state/selectors'
 
 export interface Props {
   onClose: () => void,
-  onConfirm: (items: Item[]) => void,
+  onConfirm: (items: Item[]) => Promise<void> | void,
   open: boolean,
 }
 
@@ -30,6 +31,7 @@ function RestoreBackupDialog({
   const existingPeople = useItems('person')
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const { overwriteCount, addedCount } = useMemo(() => {
     if (!importedItems.length) return { overwriteCount: 0, addedCount: 0 }
@@ -73,8 +75,10 @@ function RestoreBackupDialog({
   )
 
   const handleConfirmImport = useCallback(
-    () => {
-      onConfirm(importedItems)
+    async () => {
+      setLoading(true)
+      await onConfirm(importedItems)
+      setLoading(false)
     },
     [importedItems, onConfirm],
   )
@@ -146,21 +150,24 @@ function RestoreBackupDialog({
           fullWidth
           onClick={onClose}
           variant="outlined"
+          disabled={loading}
         >
           Cancel
         </Button>
 
-        <Button
+        <LoadingButton
           color="error"
           data-cy="import-confirm"
-          disabled={importedItems.length === 0}
+          disabled={importedItems.length === 0 || loading}
           fullWidth
           onClick={handleConfirmImport}
+          loading={loading}
+          loadingPosition="start"
           startIcon={<UploadIcon />}
           variant="outlined"
         >
           Import
-        </Button>
+        </LoadingButton>
       </DialogActions>
     </Dialog>
   )
