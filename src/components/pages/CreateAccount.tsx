@@ -26,7 +26,7 @@ import { LoadingButton } from '@mui/lab'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { getPage } from '.'
-import { HomeIcon, SuccessIcon } from '../Icons'
+import { HomeIcon, PasswordIcon, SuccessIcon } from '../Icons'
 import { useAppDispatch } from '../../store'
 import customDomainWords from '../../utils/customDomainWords'
 import InlineText from '../InlineText'
@@ -268,6 +268,11 @@ function CreateAccountPage() {
               fullWidth
               id="password"
               InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PasswordIcon />
+                  </InputAdornment>
+                ),
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton

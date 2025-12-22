@@ -2,11 +2,12 @@ import {
   MouseEvent,
   ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import {
   Box,
-  Breakpoint,
   Checkbox,
   Divider,
   IconButton,
@@ -19,26 +20,23 @@ import {
   ListItemTextProps,
   styled,
   SxProps,
-  Theme,
-  useMediaQuery,
 } from '@mui/material'
 import {
   List as ReactWindowList,
   RowComponentProps,
+  useDynamicRowHeight,
 } from 'react-window'
 import { getItemName, GroupItem, isItem, Item } from '../state/items'
 import TagDisplay from './TagDisplay'
 import { getIcon as getItemIcon } from './Icons'
-import { MostlyRequired, useStringMemo } from '../utils'
+import { MostlyRequired } from '../utils'
 import { useItems } from '../state/selectors'
 
 const FADED_OPACITY = 0.65
-const TAG_ROW_BREAKPOINT: Breakpoint = 'md'
-const MIN_ROW_HEIGHT = 72
+const DEFAULT_ROW_HEIGHT = 72
 
 const StyledListItem = styled(ListItemButton)(
-  ({ dense }) => ({
-    minHeight: !dense ? MIN_ROW_HEIGHT : undefined,
+  () => ({
     '&.Mui-disabled': {
       opacity: '1 !important',
     },
@@ -75,7 +73,6 @@ const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
 
 export interface ItemListExtraElement {
   content: ReactNode,
-  height: number,
   index: number,
 }
 export interface BaseProps<T extends Item> {
@@ -140,6 +137,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
   } = data
   const item = items[index]
   const allGroups = useItems('group') as GroupItem[]
+  const rowRef = useRef<HTMLDivElement>(null)
 
   const handleClick = useCallback(
     () => onClick?.(item),
@@ -259,7 +257,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
   )
 
   return (
-    <div style={style}>
+    <div style={style} ref={rowRef} data-index={index}>
       {extras}
 
       {dividers && <Divider />}
@@ -281,7 +279,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
 
         <Box
           display="flex"
-          flexDirection={{ xs: 'column', [TAG_ROW_BREAKPOINT]: 'row' }}
+          flexDirection={{ xs: 'column', md: 'row' }}
           flexGrow={1}
           minWidth={0}
         >
@@ -368,7 +366,18 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     showTags = true,
     wrapText,
   } = props
-  const tagsOnSameRow = useMediaQuery<Theme>(theme => theme.breakpoints.up(TAG_ROW_BREAKPOINT))
+
+  const listRef = useRef<HTMLDivElement>(null)
+  const dynamicRowHeight = useDynamicRowHeight({
+    defaultRowHeight: DEFAULT_ROW_HEIGHT,
+  })
+
+  // Observe row elements for dynamic height measurement
+  useEffect(() => {
+    if (!listRef.current) return
+    const rows = listRef.current.querySelectorAll('[data-index]')
+    return dynamicRowHeight.observeRowElements(rows)
+  }, [dynamicRowHeight, items])
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -423,55 +432,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     ],
   )
 
-  const extraElementsByIndex = useMemo(
-    () => items.map((_, index) => {
-      const elementsForIndex = extraElements?.filter(ee => ee.index === index) || []
-      const elementsWithContent = elementsForIndex.filter(e => !!e.content)
-      return {
-        content: elementsWithContent.map(e => e.content),
-        height: elementsWithContent.reduce((total, e) => total + e.height, 0),
-      }
-    }),
-    [extraElements, items],
-  )
-  const allGroups = useMemo(
-    () => items.filter(i => i.type === 'group') as GroupItem[],
-    [items],
-  )
-  const itemHeights = useMemo(
-    () => items.map(
-      (item, index) => {
-        const textHeight = 24
-        const descriptionHeight = (
-          isItem(item)
-          && (getDescription?.(item) || item.description)
-            ? 20
-            : 0
-        )
-        const textMargin = 6 * 2
-        const memberOfGroups = allGroups.filter(g => g.members.includes(item.id))
-        const tagsHeight = !isItem(item) || memberOfGroups.length === 0 || tagsOnSameRow ? 0 : 40
-        const padding = 8 * 2
-        const total = Math.max(
-          (
-            textHeight + descriptionHeight + textMargin
-            + tagsHeight
-            + padding
-          ),
-          MIN_ROW_HEIGHT,
-        )
-        const extraElementsHeight = extraElementsByIndex[index].height
-        return total + extraElementsHeight
-      },
-    ),
-    [allGroups, extraElementsByIndex, getDescription, items, tagsOnSameRow],
-  )
-  const memoisedHeights = useStringMemo(itemHeights)
-  const getItemSize = useCallback(
-    (index: number) => memoisedHeights[index],
-    [memoisedHeights],
-  )
-
   const rootStyles: SxProps = useMemo(() => ({ paddingBottom, height: '100%' }), [paddingBottom])
 
   return (
@@ -483,13 +443,15 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       {dividers && items.length === 0 && <Divider />}
 
       {items.length > 0 ? (
-        <ReactWindowList<BaseProps<Item>>
-          style={{ height: '100%', width: '100%' }}
-          rowCount={items.length}
-          rowProps={itemData as unknown as BaseProps<Item>}
-          rowHeight={getItemSize}
-          rowComponent={ItemListItem}
-        />
+        <div ref={listRef}>
+          <ReactWindowList<BaseProps<Item>>
+            style={{ height: '100%', width: '100%' }}
+            rowCount={items.length}
+            rowProps={itemData as unknown as BaseProps<Item>}
+            rowHeight={dynamicRowHeight}
+            rowComponent={ItemListItem}
+          />
+        </div>
       ) : (
         <ListItem>
           <ListItemText primary={noItemsText} secondary={noItemsHint} />

@@ -12,7 +12,7 @@ import { checkProperties, Item, ItemId } from '../state/items'
 import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
 import { getAccountId } from './util'
-import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client'
+import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import store from '../store'
 import { pruneItems } from '../state/ui'
 import { checkAxios } from './axios'
@@ -41,26 +41,10 @@ export const queryClient = new QueryClient({
 // Create a persister to save cache to localStorage
 const CACHE_KEY = 'flock-query-cache'
 
-export const queryPersister: Persister = {
-  persistClient: async (client: PersistedClient) => {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(client))
-    } catch {
-      // Ignore storage errors (e.g., quota exceeded)
-    }
-  },
-  restoreClient: async () => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY)
-      return cached ? JSON.parse(cached) as PersistedClient : undefined
-    } catch {
-      return undefined
-    }
-  },
-  removeClient: async () => {
-    localStorage.removeItem(CACHE_KEY)
-  },
-}
+export const queryPersister = createAsyncStoragePersister({
+  storage: window.localStorage,
+  key: CACHE_KEY,
+})
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
