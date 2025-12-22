@@ -3625,6 +3625,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/query-async-storage-persister@npm:^5.90.14":
+  version: 5.90.14
+  resolution: "@tanstack/query-async-storage-persister@npm:5.90.14"
+  dependencies:
+    "@tanstack/query-core": "npm:5.90.12"
+    "@tanstack/query-persist-client-core": "npm:5.91.11"
+  checksum: 10c0/3afe86fa1ac1f29277c7cc6967e0e9373e795141cfb528963cfe9346d670f1b56f56860f99d3f855e472bc870e7bc09b3a04fb8fe8fbe40ecab849e483ffde98
+  languageName: node
+  linkType: hard
+
 "@tanstack/query-core@npm:5.90.12":
   version: 5.90.12
   resolution: "@tanstack/query-core@npm:5.90.12"
@@ -3638,16 +3648,6 @@ __metadata:
   dependencies:
     "@tanstack/query-core": "npm:5.90.12"
   checksum: 10c0/fe092c00680fb0e773e2e4ac840ee71ce39423abfd550aa3e13dbe43c9dbca855a2debcd9f85dd4104224d2323e9d30f0f7b5ab80dcf6d76602afe322a150079
-  languageName: node
-  linkType: hard
-
-"@tanstack/query-sync-storage-persister@npm:^5.90.14":
-  version: 5.90.14
-  resolution: "@tanstack/query-sync-storage-persister@npm:5.90.14"
-  dependencies:
-    "@tanstack/query-core": "npm:5.90.12"
-    "@tanstack/query-persist-client-core": "npm:5.91.11"
-  checksum: 10c0/14fe2039eeb95da419bc3a3c21841f40329f0c4c33480ee3cf85b6186da14d3c50040d56ccaac6df5c386a0401d3ce47affc163a4e6d3a762f4d0cc204ad97c4
   languageName: node
   linkType: hard
 
@@ -7404,7 +7404,7 @@ __metadata:
     "@mui/x-date-pickers": "npm:^8.19.0"
     "@reduxjs/toolkit": "npm:^2.0.1"
     "@stylistic/eslint-plugin": "npm:^5.5.0"
-    "@tanstack/query-sync-storage-persister": "npm:^5.90.14"
+    "@tanstack/query-async-storage-persister": "npm:^5.90.14"
     "@tanstack/react-query": "npm:^5.90.12"
     "@tanstack/react-query-persist-client": "npm:^5.90.14"
     "@testing-library/dom": "npm:^10.4.1"
