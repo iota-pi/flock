@@ -6,7 +6,7 @@ import {
 } from './prayer'
 import type { Item, GroupItem } from '../state/items'
 
-function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []) : Item {
+function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
   return {
     id,
     archived: false,
@@ -46,14 +46,23 @@ describe('prayer utilities', () => {
   it('builds effective frequency map including group member frequencies', () => {
     const p1 = makePerson('p1', 'none')
     const p2 = makePerson('p2', 'daily')
-    const g1 = makeGroup('g1', ['p1'], 'weekly', 'all')
+    const p3 = makePerson('p3', 'none')
+    const g1 = makeGroup('g1', ['p1', 'p2', 'p3'], 'weekly', 'one')
 
-    const items: Item[] = [p1, p2, g1]
-    const map = buildPrayerFreqMap(items)
+    let items: Item[] = [p1, p2, p3, g1]
+    let map = buildPrayerFreqMap(items)
 
-    expect(map.has('p1')).toBe(true)
+    expect(map.get('p1')).toBeCloseTo(21)
+    expect(map.get('p2')).toBeCloseTo(1)
+    expect(map.get('p3')).toBeCloseTo(21)
+
+    const g2 = makeGroup('g2', ['p1', 'p2', 'p3'], 'weekly', 'all')
+    items = [...items, g2]
+    map = buildPrayerFreqMap(items)
+
     expect(map.get('p1')).toBeCloseTo(7)
     expect(map.get('p2')).toBeCloseTo(1)
+    expect(map.get('p3')).toBeCloseTo(7)
   })
 
   it('includes persons covered by groups in active items and schedules them correctly', () => {
@@ -91,35 +100,37 @@ describe('prayer utilities', () => {
     const items: Item[] = [p1, p2, g1]
     const goal = getNaturalPrayerGoal(items)
 
-    // person contributions: 1/1 + 1/7 => ~1.1428 => ceil -> 2
+    // person contributions: 1/1 + 1/7 = ~1.1428 => ceil = 2
     expect(goal).toBe(2)
   })
 
   it('calculates correct goal for groups targeting "one" member', () => {
-    // Group: Daily, 2 members, target "One"
+    // Group: Daily, 3 members, target "One"
     // Intent: Pray for 1 member of this group every day.
     // Goal contribution should be 1.
     const p1 = makePerson('p1', 'none')
     const p2 = makePerson('p2', 'none')
-    const g1 = makeGroup('g1', ['p1', 'p2'], 'daily', 'one')
+    const p3 = makePerson('p3', 'none')
+    const g1 = makeGroup('g1', ['p1', 'p2', 'p3'], 'daily', 'one')
 
-    const items: Item[] = [p1, p2, g1]
+    const items: Item[] = [p1, p2, p3, g1]
     const goal = getNaturalPrayerGoal(items)
 
     expect(goal).toBe(1)
   })
 
   it('calculates correct goal for groups targeting "all" members', () => {
-    // Group: Daily, 2 members, target "All"
+    // Group: Daily, 3 members, target "All"
     // Intent: Pray for ALL members of this group every day.
-    // Goal contribution should be 2.
+    // Goal contribution should be 3.
     const p1 = makePerson('p1', 'none')
     const p2 = makePerson('p2', 'none')
-    const g1 = makeGroup('g1', ['p1', 'p2'], 'daily', 'all')
+    const p3 = makePerson('p3', 'none')
+    const g1 = makeGroup('g1', ['p1', 'p2', 'p3'], 'daily', 'all')
 
-    const items: Item[] = [p1, p2, g1]
+    const items: Item[] = [p1, p2, p3, g1]
     const goal = getNaturalPrayerGoal(items)
 
-    expect(goal).toBe(2)
+    expect(goal).toBe(3)
   })
 })
