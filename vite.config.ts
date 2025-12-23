@@ -20,6 +20,8 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router'],
           'vendor-mui': ['@mui/material', '@mui/icons-material', '@mui/lab'],
           'vendor-firebase': ['firebase/app', 'firebase/messaging'],
+          'vendor-utils': ['@mui/x-date-pickers', '@tanstack/react-query', 'axios', 'redux', '@reduxjs/toolkit', 'date-fns'],
+          'vendor-security': ['zxcvbn'],
         },
       },
     },
