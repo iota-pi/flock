@@ -76,8 +76,8 @@ function FrequencyControls(props: Props) {
         const newBaseDays = frequencyToDays(g.memberPrayerFrequency)
         const newDays = (
           g.memberPrayerTarget === 'one'
-            ? newBaseDays
-            : newBaseDays / g.members.length
+            ? newBaseDays * g.members.length
+            : newBaseDays
         )
         if (newDays < frequencyToDays(frequency)) {
           frequency = (
@@ -148,9 +148,9 @@ function FrequencyControls(props: Props) {
                 labelId="member-prayer-target-label"
                 id="member-prayer-target"
                 value={memberPrayerTarget ?? 'one'}
-                onChange={(e: SelectChangeEvent<'one'|'all'>) => {
+                onChange={(e: SelectChangeEvent<'one' | 'all'>) => {
                   (props as GroupProps).onChange({
-                    memberPrayerTarget: e.target.value as 'one'|'all',
+                    memberPrayerTarget: e.target.value as 'one' | 'all',
                   })
                 }}
                 label="Pray For"
