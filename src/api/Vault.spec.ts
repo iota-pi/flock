@@ -1,5 +1,4 @@
 import type { AxiosInstance } from 'axios'
-import { vi } from 'vitest'
 import store from '../store'
 import { getBlankGroup, getBlankPerson, Item } from '../state/items'
 import * as axios from './axios'
@@ -8,6 +7,7 @@ import * as api from './VaultAPI'
 import { setAccount, type AccountMetadata } from '../state/account'
 import type { VaultItem } from '../shared/apiTypes'
 import { queryClient, queryKeys } from './queries'
+import { getSalt } from './crypto-utils'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
@@ -177,8 +177,8 @@ describe('Vault', () => {
   })
 
   it('getSalt returns a non-empty, changing string', () => {
-    const a = vault.getSalt()
-    const b = vault.getSalt()
+    const a = getSalt()
+    const b = getSalt()
     expect(typeof a).toBe('string')
     expect(a.length).toBeGreaterThan(0)
     expect(b.length).toBeGreaterThan(0)

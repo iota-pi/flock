@@ -10,8 +10,7 @@ import {
 import { GroupItem, Item } from '../../state/items'
 import { usePrevious } from '../../utils'
 import Search from '../Search'
-import { storeItems } from '../../api/Vault'
-
+import { storeItems } from '../../api/VaultLazy'
 
 export interface Props {
   items: Item[],

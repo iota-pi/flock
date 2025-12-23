@@ -1,6 +1,10 @@
 import { initializeApp } from 'firebase/app'
 import { getMessaging, getToken as firebaseGetToken } from 'firebase/messaging'
-import { deleteSubscription, getSubscription, setSubscription } from '../api/Vault'
+import {
+  deleteSubscription,
+  getSubscription,
+  setSubscription,
+} from '../api/VaultLazy'
 import env from '../env'
 import firebaseConfig from './firebase-config'
 

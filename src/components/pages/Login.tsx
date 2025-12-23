@@ -18,8 +18,7 @@ import { getPage } from '.'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setAccount } from '../../state/account'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
-import { loginVault } from '../../api/Vault'
-import { vaultGetSalt } from '../../api/VaultAPI'
+import { fetchSalt, loginVault } from '../../api/VaultLazy'
 import { setUi } from '../../state/ui'
 
 
@@ -82,12 +81,13 @@ function LoginPage() {
     [navigate],
   )
 
+
   const handleClickLogin = useCallback(
     async () => {
       setLoading(true)
       setError('')
       dispatch(setAccount({ account: accountInput }))
-      const salt = await vaultGetSalt().catch(() => '')
+      const salt = await fetchSalt().catch(() => '')
       if (salt.length) {
         try {
           await loginVault({ password, salt })

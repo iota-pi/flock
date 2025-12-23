@@ -14,7 +14,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
-import { importData } from '../../api/Vault'
+import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
 
 export interface Props {

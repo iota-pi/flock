@@ -4,7 +4,7 @@ import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { storeItems } from '../api/Vault'
+import { storeItems } from '../api/VaultLazy'
 
 export function usePrayerSchedule() {
   const items = useItems()

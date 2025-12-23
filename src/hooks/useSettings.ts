@@ -6,7 +6,7 @@ import {
   exportData,
   signOutVault,
   storeItems,
-} from '../api/Vault'
+} from '../api/VaultLazy'
 import { clearQueryCache, hasItemsInCache } from '../api/queries'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'

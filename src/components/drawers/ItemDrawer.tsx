@@ -45,7 +45,7 @@ import {
   UnarchiveIcon,
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
-import { storeItems } from '../../api/Vault'
+import { storeItems } from '../../api/VaultLazy'
 import { useDeleteItemsMutation } from '../../api/queries'
 
 
