@@ -88,18 +88,8 @@ function WelcomePage() {
               </Link>
             </LargeText>
           </div>
-        </Section>
 
-        <Section>
-          <Typography
-            gutterBottom
-            variant="h3"
-            style={{ fontWeight: 300 }}
-          >
-            Get Started
-          </Typography>
-
-          <Grid container spacing={2} justifyContent="center">
+          <Grid container spacing={2} justifyContent="center" width="100%">
             <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 color="primary"
