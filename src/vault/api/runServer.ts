@@ -1,6 +1,7 @@
 import createServer from '.'
 
 async function runServer(port = 4000) {
+  process.env.DYNAMODB_ENDPOINT ??= 'http://localhost:8000'
   const server = await createServer()
   try {
     await server.listen({

@@ -18,7 +18,7 @@
     "initdb": "tsx src/vault/drivers/init.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
     "postinstall": "patch-package",
-    "start": "docker compose up -d api && yarn dev",
+    "start": "docker compose up -d && concurrently -n \"APP,API\" -c \"cyan,magenta\" \"yarn dev\" \"yarn dev:vault\"",
     "test": "vitest",
     "coverage": "vitest run --coverage",
     "e2e": "cypress run"
@@ -99,6 +99,7 @@
     "bestzip": "^2.2.1",
     "browserslist": "^4.28.1",
     "browserslist-to-esbuild": "^2.1.1",
+    "concurrently": "^9.2.1",
     "cypress": "^15.8.1",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
