@@ -5,7 +5,7 @@ import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
 import { useAppDispatch } from '../store'
 import { pushActive } from '../state/ui'
-import { storeItems } from '../api/VaultLazy'
+import { useStoreItemsMutation } from '../api/queries'
 import Search from './Search'
 
 export interface Props {
@@ -20,6 +20,7 @@ function GroupDisplay({
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
   const dispatch = useAppDispatch()
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),

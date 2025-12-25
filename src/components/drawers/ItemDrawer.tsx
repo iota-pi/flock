@@ -45,8 +45,7 @@ import {
   UnarchiveIcon,
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
-import { storeItems } from '../../api/VaultLazy'
-import { useDeleteItemsMutation } from '../../api/queries'
+import { useDeleteItemsMutation, useStoreItemsMutation } from '../../api/queries'
 
 
 export interface Props extends BaseDrawerProps {
@@ -79,6 +78,7 @@ function ItemDrawer({
   const groups = useItems<GroupItem>('group')
   const items = useItems()
   const { mutateAsync: deleteItem } = useDeleteItemsMutation()
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const [cancelled, setCancelled] = useState(false)
   const [duplicates, setDuplicates] = useState<Item[]>([])

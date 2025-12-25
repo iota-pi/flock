@@ -5,9 +5,8 @@ import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   exportData,
   signOutVault,
-  storeItems,
 } from '../api/VaultLazy'
-import { clearQueryCache, hasItemsInCache } from '../api/queries'
+import { clearQueryCache, hasItemsInCache, useStoreItemsMutation } from '../api/queries'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -25,6 +24,7 @@ export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
   const dispatch = useAppDispatch()
   const items = useItems()
+  const { mutateAsync: storeItems } = useStoreItemsMutation()
 
   // Actions
   const handleSignOut = useCallback(

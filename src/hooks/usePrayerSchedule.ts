@@ -4,7 +4,7 @@ import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { storeItems } from '../api/VaultLazy'
+import { useStoreItemsMutation } from '../api/queries'
 
 export function usePrayerSchedule() {
   const items = useItems()
@@ -14,6 +14,8 @@ export function usePrayerSchedule() {
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
   const [todaysGoal, setTodaysGoal] = useState(goal)
+
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   useEffect(() => {
     setTodaysGoal(goal)
@@ -60,7 +62,7 @@ export function usePrayerSchedule() {
       const newItem: Item = { ...item, prayedFor }
       storeItems(newItem)
     },
-    [isPrayedForToday],
+    [isPrayedForToday, storeItems],
   )
 
   const showMore = useCallback(() => {
