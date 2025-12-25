@@ -1,9 +1,8 @@
-import { Dispatch, SetStateAction, useCallback, useMemo } from 'react'
-import { useAppDispatch, useAppSelector } from '../store'
+import { useCallback, useMemo } from 'react'
+import { useAppSelector } from '../store'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
 import { Item, ItemId } from './items'
-import { setUi, UiOptions } from './ui'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 
 export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
@@ -49,9 +48,9 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue: Metadata[K],
 ): [
-  Exclude<Metadata[K], undefined>,
-  (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
-]
+    Exclude<Metadata[K], undefined>,
+    (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
+  ]
 export function useMetadata<K extends MetadataKey>(
   key: K,
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>]
@@ -98,27 +97,3 @@ export const useIsActive = () => {
 export const usePracticalFilterCount = () => useAppSelector(state => (
   state.ui.filters.filter(fc => fc.operator !== 'contains' || fc.value).length
 ))
-
-export const useOptions = () => useAppSelector(state => state.ui.options)
-export function useOption<T extends keyof UiOptions>(
-  optionKey: T,
-): [UiOptions[T], Dispatch<SetStateAction<UiOptions[T]>>] {
-  const option = useOptions()[optionKey]
-
-  const dispatch = useAppDispatch()
-  const setOption: Dispatch<SetStateAction<UiOptions[T]>> = useCallback(
-    valueOrFunction => {
-      let newValue: UiOptions[T]
-      if (typeof valueOrFunction === 'function') {
-        newValue = valueOrFunction(option)
-      } else {
-        newValue = valueOrFunction
-      }
-      dispatch(setUi({
-        options: { [optionKey]: newValue },
-      }))
-    },
-    [dispatch, option, optionKey],
-  )
-  return [option, setOption]
-}

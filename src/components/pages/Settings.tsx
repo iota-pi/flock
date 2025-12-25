@@ -179,7 +179,7 @@ function SettingsPage() {
       <Divider />
 
       <List disablePadding>
-        {settingsList.map((item) => {
+        {settingsList.map(item => {
           if (item.type === 'divider') {
             return <Divider key={item.key} />
           }

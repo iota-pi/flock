@@ -13,8 +13,6 @@ export interface DrawerData {
   open: boolean,
   praying?: boolean,
 }
-export interface UiOptions {
-}
 export interface RequestData {
   active: number,
 }
@@ -28,7 +26,6 @@ export interface UIState {
   drawers: DrawerData[],
   filters: FilterCriterion[],
   message: UIMessage | null,
-  options: UiOptions,
   requests: RequestData,
   selected: ItemId[],
   justCreatedAccount: boolean,
@@ -39,8 +36,6 @@ const initialState: UIState = {
   drawers: [],
   filters: DEFAULT_FILTER_CRITERIA,
   message: null,
-  options: {
-  },
   requests: {
     active: 0,
   },
@@ -48,8 +43,7 @@ const initialState: UIState = {
   justCreatedAccount: false,
 }
 
-export type setUi = Omit<Partial<UIState>, 'options' | 'requests' | 'drawers'> & {
-  options?: Partial<UIState['options']>,
+export type setUi = Omit<Partial<UIState>, 'requests' | 'drawers'> & {
   requests?: Partial<UIState['requests']>,
 }
 export type PushActiveOptions = (
@@ -67,10 +61,6 @@ const uiSlice = createSlice({
       return {
         ...state,
         ...action.payload,
-        options: {
-          ...state.options,
-          ...action.payload.options,
-        },
         requests: {
           ...state.requests,
           ...action.payload.requests,
