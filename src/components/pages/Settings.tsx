@@ -123,6 +123,15 @@ function SettingsPage() {
           onClick={handleSignOut}
           title="Sign out"
         />
+        <Divider />
+        <SettingsItem
+          disabled={!itemCacheExists}
+          icon={DeleteIcon}
+          id="clear-cache"
+          onClick={handleClearCache}
+          title="Clear item cache"
+        />
+        <Divider />
         <SettingsItem
           id="darkmode"
           onClick={handleToggleDarkMode}
@@ -141,6 +150,7 @@ function SettingsPage() {
             />
           )}
         />
+        <Divider />
         <SettingsItem
           icon={EditIcon}
           id="prayer-goal"
@@ -157,25 +167,20 @@ function SettingsPage() {
           )}
         />
         <SettingsItem
+          icon={FrequencyIcon}
+          id="default-frequency"
+          onClick={openDefaultFrequencyDialog}
+          title="Set default prayer frequency for new items"
+        />
+        <Divider />
+        <SettingsItem
           icon={NotificationIcon}
           id="reminders"
           onClick={handleEditSubscription}
           title="Prayer reminder notifications (temporarily unavailable)"
           disabled
         />
-        <SettingsItem
-          icon={FrequencyIcon}
-          id="default-frequency"
-          onClick={openDefaultFrequencyDialog}
-          title="Set default prayer frequency for new items"
-        />
-        <SettingsItem
-          disabled={!itemCacheExists}
-          icon={DeleteIcon}
-          id="clear-cache"
-          onClick={handleClearCache}
-          title="Clear item cache"
-        />
+        <Divider />
         <SettingsItem
           icon={DownloadIcon}
           id="export"
@@ -192,8 +197,9 @@ function SettingsPage() {
           icon={PersonIcon}
           id="import-people"
           onClick={handleImport}
-          title="Import people from CSV"
+          title="Import from CSV"
         />
+        <Divider />
       </List>
 
       <Suspense fallback={null}>

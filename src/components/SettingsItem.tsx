@@ -1,5 +1,5 @@
 import { memo, ReactNode } from 'react'
-import { Box, Divider, IconButton, ListItemButton, Typography } from '@mui/material'
+import { Box, IconButton, ListItemButton, Typography } from '@mui/material'
 import type { MuiIconType } from './Icons'
 
 export interface SettingsItemProps {
@@ -20,38 +20,34 @@ function SettingsItem({
   value = null,
 }: SettingsItemProps) {
   return (
-    <>
-      <ListItemButton
-        disabled={disabled || !onClick}
-        data-cy={id}
-        onClick={onClick}
-      >
-        <Box flexGrow={1}>
-          <Box py={1}>
-            <Typography>
-              {title}
-            </Typography>
-          </Box>
+    <ListItemButton
+      disabled={disabled || !onClick}
+      data-cy={id}
+      onClick={onClick}
+    >
+      <Box flexGrow={1}>
+        <Box py={1}>
+          <Typography>
+            {title}
+          </Typography>
         </Box>
+      </Box>
 
-        <Box display="flex" alignItems="center">
-          {value}
+      <Box display="flex" alignItems="center">
+        {value}
 
-          {Icon && (
-            <IconButton
-              data-cy="edit-button"
-              disableRipple
-              size="medium"
-              aria-label={`edit-${id}`}
-            >
-              <Icon fontSize="small" />
-            </IconButton>
-          )}
-        </Box>
-      </ListItemButton>
-
-      <Divider />
-    </>
+        {Icon && (
+          <IconButton
+            data-cy="edit-button"
+            disableRipple
+            size="medium"
+            aria-label={`edit-${id}`}
+          >
+            <Icon fontSize="small" />
+          </IconButton>
+        )}
+      </Box>
+    </ListItemButton>
   )
 }
 
