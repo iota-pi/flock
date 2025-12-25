@@ -19,6 +19,7 @@ coverage/
 # Build outputs
 build/
 dist/
+stats.html
 
 # IDEs and editors
 .idea/
