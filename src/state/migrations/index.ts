@@ -1,4 +1,4 @@
-import { setMetadata, storeItems } from '../../api/Vault'
+import { setMetadata, storeItems } from '../../api/VaultLazy'
 import { clearQueryCache } from '../../api/queries'
 import { Item, convertItem, getBlankGroup } from '../items'
 import { AccountMetadata } from '../account'

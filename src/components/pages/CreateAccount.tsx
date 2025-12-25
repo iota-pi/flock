@@ -22,7 +22,6 @@ import {
   Theme,
   Typography,
 } from '@mui/material'
-import { LoadingButton } from '@mui/lab'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { getPage } from '.'
@@ -32,8 +31,8 @@ import customDomainWords from '../../utils/customDomainWords'
 import InlineText from '../InlineText'
 import { setUi } from '../../state/ui'
 import { setAccount } from '../../state/account'
-import { getSalt, initialiseVault } from '../../api/Vault'
-import { vaultCreateAccount } from '../../api/VaultAPI'
+import { createAccount, initialiseVault } from '../../api/VaultLazy'
+import { getSalt } from '../../api/crypto-utils'
 
 const MIN_PASSWORD_LENGTH = 10
 const MIN_PASSWORD_STRENGTH = 3
@@ -146,6 +145,7 @@ function CreateAccountPage() {
     [],
   )
 
+
   const handleClickCreate = useCallback(
     async () => {
       setWaiting(true)
@@ -156,7 +156,7 @@ function CreateAccountPage() {
           salt,
           isNewAccount: true,
         })
-        const { account } = await vaultCreateAccount({ salt, authToken })
+        const { account } = await createAccount({ salt, authToken })
         if (account.length > 0) {
           dispatch(setAccount({ account }))
           setNewAccount(account)
@@ -323,7 +323,7 @@ function CreateAccountPage() {
               </Typography>
             </Collapse>
 
-            <LoadingButton
+            <Button
               color="primary"
               data-cy="create-account"
               disabled={!validPassword || waiting}
@@ -334,7 +334,7 @@ function CreateAccountPage() {
               loading={waiting}
             >
               Create Account
-            </LoadingButton>
+            </Button>
 
             {error && (
               <Typography paragraph color="error" mt={2}>

@@ -8,13 +8,12 @@ import {
   DialogTitle,
   Typography,
 } from '@mui/material'
-import LoadingButton from '@mui/lab/LoadingButton'
 import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
-import { importData } from '../../api/Vault'
+import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
 
 export interface Props {
@@ -155,7 +154,7 @@ function RestoreBackupDialog({
           Cancel
         </Button>
 
-        <LoadingButton
+        <Button
           color="error"
           data-cy="import-confirm"
           disabled={importedItems.length === 0 || loading}
@@ -167,7 +166,7 @@ function RestoreBackupDialog({
           variant="outlined"
         >
           Import
-        </LoadingButton>
+        </Button>
       </DialogActions>
     </Dialog>
   )

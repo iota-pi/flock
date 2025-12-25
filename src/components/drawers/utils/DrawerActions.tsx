@@ -99,7 +99,7 @@ function DrawerActions({
       <StyledContainer>
         <Grid container spacing={2}>
           {onSkip && (
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Button
                 data-cy="drawer-skip"
                 fullWidth
@@ -112,7 +112,7 @@ function DrawerActions({
           )}
 
           {onCancel && (
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <Button
                 color={itemIsNew ? undefined : 'error'}
                 data-cy="drawer-cancel"
@@ -127,7 +127,7 @@ function DrawerActions({
           )}
 
           {onSave && (
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <Button
                 color="primary"
                 data-cy="drawer-done"
@@ -143,7 +143,7 @@ function DrawerActions({
           )}
 
           {onDone && (
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Button
                 color="primary"
                 data-cy="drawer-done"
@@ -157,7 +157,7 @@ function DrawerActions({
           )}
 
           {onNext && (
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Button
                 color="primary"
                 data-cy="drawer-next"

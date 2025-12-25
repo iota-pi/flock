@@ -1,16 +1,12 @@
-import {
-  useCallback,
-  useMemo,
-} from 'react'
+import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, ItemId } from '../state/items'
 import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
 import { useAppDispatch } from '../store'
 import { pushActive } from '../state/ui'
+import { storeItems } from '../api/VaultLazy'
 import Search from './Search'
-import { storeItems } from '../api/Vault'
-
 
 export interface Props {
   editable?: boolean,

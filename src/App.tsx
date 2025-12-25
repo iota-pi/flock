@@ -9,7 +9,7 @@ import MainMenu from './components/layout/MainMenu'
 import PageView from './components/pages'
 import { useLoggedIn } from './state/selectors'
 import MainLayout from './components/layout/MainLayout'
-import { loadVault } from './api/Vault'
+import { loadVault } from './api/VaultLazy'
 
 const Root = styled('div')({
   display: 'flex',

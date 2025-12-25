@@ -8,7 +8,7 @@ import {
   Grid,
 } from '@mui/material'
 import { Item } from '../../state/items'
-import { storeItems } from '../../api/Vault'
+import { storeItems } from '../../api/VaultLazy'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
@@ -55,7 +55,7 @@ function FrequencyDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <FrequencyPicker
             id='dialog-frequency'
             frequency={frequency}

@@ -7,26 +7,5 @@ services:
     volumes:
       - dynamodata:/home/dynamodblocal
 
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: yarn dev:vault
-    depends_on:
-      - dynamodb
-    environment:
-      - DYNAMODB_ENDPOINT=http://dynamodb:8000
-      - PROD_APP_URL=https://flock.cross-code.org
-      - GOOGLE_APPLICATION_CREDENTIALS=gcp-service-credentials.json
-      - NODE_ENV=development
-    ports:
-      - 4000:4000
-    volumes:
-      - ./src:/flock/src
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-
 volumes:
   dynamodata:

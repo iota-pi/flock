@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   Box,
   Checkbox,
@@ -12,10 +12,8 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material'
-import Visibility from '@mui/icons-material/Visibility'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
-import { useOption, usePracticalFilterCount } from '../../state/selectors'
+import { usePracticalFilterCount } from '../../state/selectors'
 import SortDialog from '../dialogs/SortDialog'
 import FilterDialog from '../dialogs/FilterDialog'
 
@@ -63,7 +61,6 @@ function TopBar({
   sortable,
   title,
 }: Props) {
-  const [bulkActions, setBulkActions] = useOption('bulkActionsOnMobile')
   const [showOptions, setShowOptions] = useState(false)
   const [showFilter, setShowFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
@@ -74,19 +71,12 @@ function TopBar({
 
   const smallScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const alwaysShowCheckbox = !smallScreen
-  const showCheckbox = onSelectAll && (alwaysShowCheckbox || bulkActions)
+  const showCheckbox = onSelectAll && (alwaysShowCheckbox)
 
   const handleClickOptions = useCallback(() => setShowOptions(o => !o), [])
   const handleCloseOptions = useCallback(() => setShowOptions(false), [])
   const handleClickFilter = useCallback(() => setShowFilter(f => !f), [])
   const handleCloseFilter = useCallback(() => setShowFilter(false), [])
-  const handleToggleBulkActions = useCallback(
-    () => {
-      setBulkActions(b => !b)
-      handleCloseOptions()
-    },
-    [handleCloseOptions, setBulkActions],
-  )
   const handleClickSort = useCallback(
     () => {
       setShowSort(true)
@@ -95,27 +85,6 @@ function TopBar({
     [handleCloseOptions],
   )
   const handleCloseSort = useCallback(() => setShowSort(false), [])
-
-  const allMenuItems = useMemo(
-    () => {
-      const result = [...menuItems]
-      if (!alwaysShowCheckbox) {
-        result.push({
-          icon: bulkActions ? VisibilityOff : Visibility,
-          key: 'bulk-actions',
-          label: `${bulkActions ? 'Hide' : 'Show'} checkboxes`,
-          onClick: handleToggleBulkActions,
-        })
-      }
-      return result
-    },
-    [
-      alwaysShowCheckbox,
-      bulkActions,
-      handleToggleBulkActions,
-      menuItems,
-    ],
-  )
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
@@ -168,7 +137,7 @@ function TopBar({
         </IconButton>
       )}
 
-      {allMenuItems.length > 0 && (
+      {menuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
           aria-haspopup="true"
@@ -186,7 +155,7 @@ function TopBar({
         open={showOptions}
         onClose={handleCloseOptions}
       >
-        {allMenuItems.map(menuItem => (
+        {menuItems.map(menuItem => (
           <MenuItem
             key={menuItem.key}
             onClick={handleClick(menuItem)}

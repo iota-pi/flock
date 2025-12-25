@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, lazy, useCallback } from 'react'
+import { ReactNode, Suspense, lazy, useCallback, useMemo } from 'react'
 import {
   Checkbox,
   Divider,
@@ -22,21 +22,13 @@ import {
 } from '../Icons'
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
+
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
 const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
 import PageContainer from '../PageContainer'
-
-export interface SettingsItemProps {
-  disabled?: boolean,
-  icon?: MuiIconType,
-  id: string,
-  onClick?: () => void,
-  title: string,
-  value?: ReactNode,
-}
 
 const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
   marginRight: 0,
@@ -45,62 +37,132 @@ const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
     marginLeft: theme.spacing(1),
   },
 }))
+
+type SettingsItemConfig = {
+  type: 'item',
+  id: string,
+  title: string,
+  icon?: MuiIconType,
+  onClick?: () => void,
+  value?: ReactNode,
+  disabled?: boolean,
+} | {
+  type: 'divider',
+  key: string,
+}
+
 function SettingsPage() {
-  const {
-    account,
-    darkMode,
-    handleSignOut,
-    handleToggleDarkMode,
-    naturalGoal,
-    goal,
-    itemCacheExists,
-    handleClearCache,
-    handleExport,
-    showGoalDialog,
-    openGoalDialog,
-    closeGoalDialog,
-    showSubscriptionDialog,
-    openSubscriptionDialog,
-    closeSubscriptionDialog,
-    showRestoreDialog,
-    openRestoreDialog,
-    closeRestoreDialog,
-    showImportDialog,
-    openImportDialog,
-    closeImportDialog,
-    handleConfirmRestore,
-    handleConfirmImport,
-    handleSubscribe,
-    showDefaultFrequencyDialog,
-    openDefaultFrequencyDialog,
-    closeDefaultFrequencyDialog,
-    defaultFrequencies,
-    saveDefaultFrequencies,
-  } = useSettings()
-
-  const handleEditGoal = openGoalDialog
-  const handleCloseGoalDialog = closeGoalDialog
-  const handleEditSubscription = openSubscriptionDialog
-  const handleRestore = openRestoreDialog
-  const handleImport = openImportDialog
-  const handleCloseSubscriptionDialog = closeSubscriptionDialog
-  const handleCloseRestoreDialog = closeRestoreDialog
-  const handleCloseImportDialog = closeImportDialog
-
-  const darkOrLightLabel = darkMode ? 'Always dark mode' : 'Always light mode'
-  const darkModeLabel = darkMode === null ? 'System default' : darkOrLightLabel
+  const { actions, dialogs, values } = useSettings()
 
   const onExport = useCallback(
     async () => {
       try {
-        const json = await handleExport()
+        const json = await actions.handleExport()
         return download(json, 'flock.backup.json')
       } catch (err) {
         console.error('Export failed', err)
       }
     },
-    [handleExport],
+    [actions],
   )
+
+  const darkOrLightLabel = values.darkMode ? 'Always dark mode' : 'Always light mode'
+  const darkModeLabel = values.darkMode === null ? 'System default' : darkOrLightLabel
+
+  const settingsList: SettingsItemConfig[] = useMemo(() => [
+    {
+      type: 'item',
+      id: 'logout',
+      title: 'Sign out',
+      icon: SignOutIcon,
+      onClick: actions.handleSignOut,
+    },
+    { type: 'divider', key: 'd1' },
+    {
+      type: 'item',
+      id: 'clear-cache',
+      title: 'Clear item cache',
+      icon: DeleteIcon,
+      onClick: actions.handleClearCache,
+      disabled: !values.itemCacheExists,
+    },
+    { type: 'divider', key: 'd2' },
+    {
+      type: 'item',
+      id: 'darkmode',
+      title: 'Use dark mode',
+      onClick: actions.handleToggleDarkMode,
+      value: (
+        <LeftCheckboxLabel
+          control={(
+            <Checkbox
+              checked={values.darkMode || false}
+              indeterminate={values.darkMode === null}
+              size="small"
+            />
+          )}
+          label={darkModeLabel}
+          labelPlacement="start"
+        />
+      ),
+    },
+    { type: 'divider', key: 'd3' },
+    {
+      type: 'item',
+      id: 'prayer-goal',
+      title: 'Daily prayer goal',
+      icon: EditIcon,
+      onClick: () => dialogs.open('goal'),
+      value: (
+        <Typography
+          color={values.goal < values.naturalGoal ? 'secondary' : 'textPrimary'}
+          fontWeight={500}
+          sx={{ mr: 2 }}
+        >
+          {values.goal}
+        </Typography>
+      ),
+    },
+    {
+      type: 'item',
+      id: 'default-frequency',
+      title: 'Set default prayer frequency for new items',
+      icon: FrequencyIcon,
+      onClick: () => dialogs.open('defaultFrequency'),
+    },
+    { type: 'divider', key: 'd4' },
+    {
+      type: 'item',
+      id: 'reminders',
+      title: 'Prayer reminder notifications (temporarily unavailable)',
+      icon: NotificationIcon,
+      onClick: () => dialogs.open('subscription'),
+      disabled: true,
+    },
+    { type: 'divider', key: 'd5' },
+    {
+      type: 'item',
+      id: 'export',
+      title: 'Create a backup of your data',
+      icon: DownloadIcon,
+      onClick: onExport,
+    },
+    {
+      type: 'item',
+      id: 'restore',
+      title: 'Restore from a backup',
+      icon: UploadIcon,
+      onClick: () => dialogs.open('restore'),
+    },
+    {
+      type: 'item',
+      id: 'import-people',
+      title: 'Import from CSV',
+      icon: PersonIcon,
+      onClick: () => dialogs.open('import'),
+    },
+    { type: 'divider', key: 'd6' },
+  ], [actions, dialogs, darkModeLabel, onExport, values])
 
   return (
     <BasePage>
@@ -110,118 +172,57 @@ function SettingsPage() {
         </Typography>
 
         <Typography color="textSecondary">
-          Account ID: {account}
+          Account ID: {values.account}
         </Typography>
       </PageContainer>
 
       <Divider />
 
       <List disablePadding>
-        <SettingsItem
-          icon={SignOutIcon}
-          id="logout"
-          onClick={handleSignOut}
-          title="Sign out"
-        />
-        <SettingsItem
-          id="darkmode"
-          onClick={handleToggleDarkMode}
-          title="Use dark mode"
-          value={(
-            <LeftCheckboxLabel
-              control={(
-                <Checkbox
-                  checked={darkMode || false}
-                  indeterminate={darkMode === null}
-                  size="small"
-                />
-              )}
-              label={darkModeLabel}
-              labelPlacement="start"
+        {settingsList.map(item => {
+          if (item.type === 'divider') {
+            return <Divider key={item.key} />
+          }
+          return (
+            <SettingsItem
+              key={item.id}
+              id={item.id}
+              title={item.title}
+              icon={item.icon}
+              onClick={item.onClick}
+              value={item.value}
+              disabled={item.disabled}
             />
-          )}
-        />
-        <SettingsItem
-          icon={EditIcon}
-          id="prayer-goal"
-          onClick={handleEditGoal}
-          title="Daily prayer goal"
-          value={(
-            <Typography
-              color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
-              fontWeight={500}
-              sx={{ mr: 2 }}
-            >
-              {goal}
-            </Typography>
-          )}
-        />
-        <SettingsItem
-          icon={NotificationIcon}
-          id="reminders"
-          onClick={handleEditSubscription}
-          title="Prayer reminder notifications (temporarily unavailable)"
-          disabled
-        />
-        <SettingsItem
-          icon={FrequencyIcon}
-          id="default-frequency"
-          onClick={openDefaultFrequencyDialog}
-          title="Set default prayer frequency for new items"
-        />
-        <SettingsItem
-          disabled={!itemCacheExists}
-          icon={DeleteIcon}
-          id="clear-cache"
-          onClick={handleClearCache}
-          title="Clear item cache"
-        />
-        <SettingsItem
-          icon={DownloadIcon}
-          id="export"
-          onClick={onExport}
-          title="Create a backup of your data"
-        />
-        <SettingsItem
-          icon={UploadIcon}
-          id="restore"
-          onClick={handleRestore}
-          title="Restore from a backup"
-        />
-        <SettingsItem
-          icon={PersonIcon}
-          id="import-people"
-          onClick={handleImport}
-          title="Import people from CSV"
-        />
+          )
+        })}
       </List>
 
       <Suspense fallback={null}>
         <GoalDialog
-          naturalGoal={naturalGoal}
-          onClose={handleCloseGoalDialog}
-          open={showGoalDialog}
+          naturalGoal={values.naturalGoal}
+          onClose={dialogs.close}
+          open={dialogs.active === 'goal'}
         />
         <RestoreBackupDialog
-          onClose={handleCloseRestoreDialog}
-          onConfirm={handleConfirmRestore}
-          open={showRestoreDialog}
+          onClose={dialogs.close}
+          onConfirm={actions.handleConfirmRestore}
+          open={dialogs.active === 'restore'}
         />
         <ImportPeopleDialog
-          onClose={handleCloseImportDialog}
-          onConfirm={handleConfirmImport}
-          open={showImportDialog}
+          onClose={dialogs.close}
+          onConfirm={actions.handleConfirmImport}
+          open={dialogs.active === 'import'}
         />
         <SubscriptionDialog
-          onClose={handleCloseSubscriptionDialog}
-          onSave={handleSubscribe}
-          open={showSubscriptionDialog}
+          onClose={dialogs.close}
+          onSave={actions.handleSubscribe}
+          open={dialogs.active === 'subscription'}
         />
         <DefaultFrequencyDialog
-          open={showDefaultFrequencyDialog}
-          defaults={defaultFrequencies}
-          onClose={closeDefaultFrequencyDialog}
-          onSave={saveDefaultFrequencies}
+          open={dialogs.active === 'defaultFrequency'}
+          defaults={values.defaultFrequencies}
+          onClose={dialogs.close}
+          onSave={actions.saveDefaultFrequencies}
         />
       </Suspense>
     </BasePage>

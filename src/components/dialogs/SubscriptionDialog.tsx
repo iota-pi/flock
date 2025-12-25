@@ -16,7 +16,7 @@ import { RemoveIcon } from '../Icons'
 
 export interface Props {
   onClose: () => void,
-  onSave: (hours: number[] | null) => void,
+  onSave: (hours: number[] | null) => Promise<void>,
   open: boolean,
 }
 
@@ -183,6 +183,8 @@ function SubscriptionDialog({
     <Dialog
       open={open}
       onClose={onClose}
+      fullWidth
+      maxWidth="sm"
     >
       <DialogTitle>
         Manage Notifications
