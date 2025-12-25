@@ -2442,7 +2442,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/icons-material@npm:7.3.6":
+"@mui/icons-material@npm:^7.3.6":
   version: 7.3.6
   resolution: "@mui/icons-material@npm:7.3.6"
   dependencies:
@@ -2489,7 +2489,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/material@npm:7.3.6":
+"@mui/material@npm:^7.3.6":
   version: 7.3.6
   resolution: "@mui/material@npm:7.3.6"
   dependencies:
@@ -7369,9 +7369,9 @@ __metadata:
     "@fastify/cors": "npm:^11.1.0"
     "@fastify/type-provider-typebox": "npm:^6.1.0"
     "@loadable/component": "npm:^5.15.3"
-    "@mui/icons-material": "npm:7.3.6"
+    "@mui/icons-material": "npm:^7.3.6"
     "@mui/lab": "npm:^7.0.1-beta.20"
-    "@mui/material": "npm:7.3.6"
+    "@mui/material": "npm:^7.3.6"
     "@mui/types": "npm:^7.2.11"
     "@mui/x-date-pickers": "npm:^8.23.0"
     "@reduxjs/toolkit": "npm:^2.0.1"
