@@ -31,6 +31,7 @@ import TagDisplay from './TagDisplay'
 import { getIcon as getItemIcon } from './Icons'
 import { MostlyRequired } from '../utils'
 import { useItems } from '../state/selectors'
+import { useSize } from '../hooks/useSize'
 
 const FADED_OPACITY = 0.65
 const DEFAULT_ROW_HEIGHT = 72
@@ -368,6 +369,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   } = props
 
   const listRef = useRef<HTMLDivElement>(null)
+  const size = useSize(listRef)
   const dynamicRowHeight = useDynamicRowHeight({
     defaultRowHeight: DEFAULT_ROW_HEIGHT,
   })
@@ -443,14 +445,16 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       {dividers && items.length === 0 && <Divider />}
 
       {items.length > 0 ? (
-        <div ref={listRef}>
-          <ReactWindowList<BaseProps<Item>>
-            style={{ height: '100%', width: '100%' }}
-            rowCount={items.length}
-            rowProps={itemData as unknown as BaseProps<Item>}
-            rowHeight={dynamicRowHeight}
-            rowComponent={ItemListItem}
-          />
+        <div ref={listRef} style={{ height: '100%', width: '100%' }}>
+          {size && (
+            <ReactWindowList<BaseProps<Item>>
+              style={{ height: size.height, width: size.width }}
+              rowCount={items.length}
+              rowProps={itemData as unknown as BaseProps<Item>}
+              rowHeight={dynamicRowHeight}
+              rowComponent={ItemListItem}
+            />
+          )}
         </div>
       ) : (
         <ListItem>
