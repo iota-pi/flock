@@ -47,10 +47,10 @@ export function useItemsById() {
 export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue: Metadata[K],
-): [
-    Exclude<Metadata[K], undefined>,
-    (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
-  ]
+): ([
+  Exclude<Metadata[K], undefined>,
+  (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>,
+])
 export function useMetadata<K extends MetadataKey>(
   key: K,
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>]
