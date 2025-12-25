@@ -13,11 +13,20 @@ import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
 
+export type SettingsDialogType = (
+  | 'goal'
+  | 'subscription'
+  | 'restore'
+  | 'import'
+  | 'defaultFrequency'
+)
+
 export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
   const dispatch = useAppDispatch()
   const items = useItems()
 
+  // Actions
   const handleSignOut = useCallback(
     () => {
       signOutVault()
@@ -37,18 +46,7 @@ export default function useSettings() {
     [darkMode, dispatch],
   )
 
-  const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
-  const [goal] = useMetadata('prayerGoal', naturalGoal)
-  const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
-    'defaultPrayerFrequency',
-    { person: 'none', group: 'none' },
-  )
-
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
-  const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? hasItemsInCache() : false),
-    [cacheClearCounter],
-  )
   const handleClearCache = useCallback(
     () => {
       clearQueryCache()
@@ -72,36 +70,25 @@ export default function useSettings() {
     },
     [items],
   )
-  // Dialog state
-  const [showGoalDialog, setShowGoalDialog] = useState(false)
-  const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false)
-  const [showRestoreDialog, setShowRestoreDialog] = useState(false)
-  const [showImportDialog, setShowImportDialog] = useState(false)
 
-  const openGoalDialog = useCallback(() => setShowGoalDialog(true), [])
-  const closeGoalDialog = useCallback(() => setShowGoalDialog(false), [])
+  // Dialog State
+  const [activeDialog, setActiveDialog] = useState<SettingsDialogType | null>(null)
+  const openDialog = useCallback((type: SettingsDialogType) => setActiveDialog(type), [])
+  const closeDialog = useCallback(() => setActiveDialog(null), [])
 
-  const openSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(true), [])
-  const closeSubscriptionDialog = useCallback(() => setShowSubscriptionDialog(false), [])
-
-  const openRestoreDialog = useCallback(() => setShowRestoreDialog(true), [])
-  const closeRestoreDialog = useCallback(() => setShowRestoreDialog(false), [])
-
-  const openImportDialog = useCallback(() => setShowImportDialog(true), [])
-  const closeImportDialog = useCallback(() => setShowImportDialog(false), [])
-
+  // Dialog Actions
   const handleConfirmRestore = useCallback(
     async (restored: Item[]) => {
       try {
         await storeItems(restored)
         dispatch(setMessage({ message: 'Restore successful' }))
-        closeRestoreDialog()
+        closeDialog()
       } catch (err) {
         dispatch(setMessage({ message: 'Restore failed' }))
         console.error('Restore failed', err)
       }
     },
-    [dispatch, closeRestoreDialog],
+    [dispatch, closeDialog],
   )
 
   const handleConfirmImport = useCallback(
@@ -109,13 +96,13 @@ export default function useSettings() {
       try {
         await storeItems(imported)
         dispatch(setMessage({ message: 'Import successful' }))
-        closeImportDialog()
+        closeDialog()
       } catch (err) {
         dispatch(setMessage({ message: 'Import failed' }))
         console.error('Import failed', err)
       }
     },
-    [dispatch, closeImportDialog],
+    [dispatch, closeDialog],
   )
 
   const handleSubscribe = useCallback(
@@ -129,19 +116,19 @@ export default function useSettings() {
           await unsubscribe()
           dispatch(setMessage({ message: 'Subscription removed' }))
         }
-        closeSubscriptionDialog()
+        closeDialog()
       } catch (err) {
         dispatch(setMessage({ message: 'Failed to update subscription' }))
         console.error('Subscription update failed', err)
       }
     },
-    [closeSubscriptionDialog, dispatch],
+    [closeDialog, dispatch],
   )
 
-  // Default frequency dialog
-  const [showDefaultFrequencyDialog, setShowDefaultFrequencyDialog] = useState(false)
-  const openDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(true), [])
-  const closeDefaultFrequencyDialog = useCallback(() => setShowDefaultFrequencyDialog(false), [])
+  const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
+    'defaultPrayerFrequency',
+    { person: 'none', group: 'none' },
+  )
 
   const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group', Frequency>>) => {
     try {
@@ -153,35 +140,38 @@ export default function useSettings() {
     }
   }, [dispatch, setDefaultFrequencies])
 
+  // Values
+  const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
+  const [goal] = useMetadata('prayerGoal', naturalGoal)
+
+  const itemCacheExists = useMemo(
+    () => (cacheClearCounter ? hasItemsInCache() : false),
+    [cacheClearCounter],
+  )
+
   return {
-    account,
-    darkMode,
-    handleSignOut,
-    handleToggleDarkMode,
-    naturalGoal,
-    goal,
-    itemCacheExists,
-    handleClearCache,
-    handleExport,
-    showGoalDialog,
-    openGoalDialog,
-    closeGoalDialog,
-    showSubscriptionDialog,
-    openSubscriptionDialog,
-    closeSubscriptionDialog,
-    showRestoreDialog,
-    openRestoreDialog,
-    closeRestoreDialog,
-    showImportDialog,
-    openImportDialog,
-    closeImportDialog,
-    handleConfirmRestore,
-    handleConfirmImport,
-    handleSubscribe,
-    showDefaultFrequencyDialog,
-    openDefaultFrequencyDialog,
-    closeDefaultFrequencyDialog,
-    defaultFrequencies,
-    saveDefaultFrequencies,
+    actions: {
+      handleClearCache,
+      handleConfirmImport,
+      handleConfirmRestore,
+      handleExport,
+      handleSignOut,
+      handleSubscribe,
+      handleToggleDarkMode,
+      saveDefaultFrequencies,
+    },
+    dialogs: {
+      active: activeDialog,
+      open: openDialog,
+      close: closeDialog,
+    },
+    values: {
+      account,
+      darkMode,
+      defaultFrequencies,
+      goal,
+      itemCacheExists,
+      naturalGoal,
+    },
   }
 }
