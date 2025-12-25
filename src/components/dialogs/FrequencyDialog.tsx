@@ -55,7 +55,7 @@ function FrequencyDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <FrequencyPicker
             id='dialog-frequency'
             frequency={frequency}

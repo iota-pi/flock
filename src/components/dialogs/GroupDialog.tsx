@@ -95,7 +95,7 @@ function GroupDialog({
 
       <DialogContent>
         <Grid container spacing={2} paddingTop={1}>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Search<GroupItem>
               autoFocus
               label="Add to Groups"
@@ -109,7 +109,7 @@ function GroupDialog({
             />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <Search<GroupItem>
               label="Remove from Groups"
               onClear={handleClearRemove}

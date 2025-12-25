@@ -243,7 +243,7 @@ function ItemDrawer({
   const hasDescription = !!item.description
   const duplicateAlert = useMemo(
     () => (
-      <Grid item xs={12} mt={-1}>
+      <Grid size={{ xs: 12 }} mt={-1}>
         <Collapse in={duplicates.length > 0}>
           <DuplicateAlert
             count={duplicates.length}
@@ -258,7 +258,7 @@ function ItemDrawer({
 
   const nameFields = useMemo(
     () => (
-      <Grid item xs={showDescription ? 12 : 10} lg={showDescription ? 12 : 11}>
+      <Grid size={{ xs: showDescription ? 12 : 10, lg: showDescription ? 12 : 11 }}>
         <TextField
           autoFocus
           fullWidth
@@ -281,7 +281,7 @@ function ItemDrawer({
   const descriptionField = useMemo(
     () => (
       item.description || showDescription ? (
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <TextField
             fullWidth
             label="Short Description"
@@ -293,9 +293,10 @@ function ItemDrawer({
         </Grid>
       ) : (
         <Grid
-          item
-          xs={2}
-          lg={1}
+          size={{
+            xs: 2,
+            lg: 1,
+          }}
           display="flex"
           align-items="flex-end"
           justifyContent="flex-end"
@@ -317,7 +318,7 @@ function ItemDrawer({
   )
   const summaryField = useMemo(
     () => (
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <TextField
           fullWidth
           label="Notes"
@@ -338,7 +339,7 @@ function ItemDrawer({
   const memberTarget = item.type === 'group' ? item.memberPrayerTarget : undefined
   const frequencyFields = useMemo(
     () => (
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <FrequencyControls
           id={item.id}
           lastPrayer={lastPrayer}
@@ -361,7 +362,7 @@ function ItemDrawer({
 
   const archivedButton = useMemo(
     () => (
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <Button
           color="inherit"
           data-cy="archived"
@@ -381,9 +382,8 @@ function ItemDrawer({
   const changeTypeButtons = useMemo(
     () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
       <Grid
-        item
         key={itemType}
-        xs={12 / (ITEM_TYPES.length - 1)}
+        size={{ xs: 12 / (ITEM_TYPES.length - 1) }}
       >
         <Button
           color="inherit"
@@ -463,7 +463,7 @@ function ItemDrawer({
         {descriptionField}
         {summaryField}
 
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           {membersSection}
           {groupsSection}
         </Grid>

@@ -99,7 +99,7 @@ function FrequencyControls(props: Props) {
   return (
     <Grid container spacing={2}>
       {isGroup && (
-        <Grid item xs={12} mt={2}>
+        <Grid size={{ xs: 12 }} mt={2}>
           <Typography variant="body1" color="text.secondary">
             You can choose how often to pray for the group as a whole,
             and for individual members.
@@ -107,7 +107,7 @@ function FrequencyControls(props: Props) {
         </Grid>
       )}
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         <FrequencyPicker
           frequency={prayerFrequency}
           fullWidth
@@ -138,7 +138,7 @@ function FrequencyControls(props: Props) {
       </Grid>
       {isGroup && (
         <>
-          <Grid item xs={12} sm={6}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl
               variant="standard"
               sx={{ display: 'flex', flexGrow: 1 }}
@@ -163,7 +163,7 @@ function FrequencyControls(props: Props) {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={6}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <FrequencyPicker
               frequency={memberPrayerFrequency ?? 'none'}
               fullWidth
@@ -180,7 +180,7 @@ function FrequencyControls(props: Props) {
         </>
       )}
 
-      <Grid item xs={12}>
+      <Grid size={{ xs: 12 }}>
         {lastPrayerText ? (
           <Typography pt={1} color="text.secondary">
             {'Last prayed for: '}

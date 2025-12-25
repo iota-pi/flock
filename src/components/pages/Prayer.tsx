@@ -51,7 +51,7 @@ function PrayerPage() {
           <Fragment key="heading-today">
             <PageContainer maxWidth="xl">
               <Grid container spacing={2}>
-                <Grid item xs={12} display="flex" alignItems="center">
+                <Grid size={{ xs: 12 }} display="flex" alignItems="center">
                   <Typography>
                     {'Daily Goal: '}
                     {completed}
@@ -85,7 +85,7 @@ function PrayerPage() {
           <Fragment key="show-more">
             <Divider />
             <Grid container spacing={2} padding={2}>
-              <Grid item xs={12} display="flex" justifyContent="center">
+              <Grid size={{ xs: 12 }} display="flex" justifyContent="center">
                 <Button onClick={showMore} variant="outlined">
                   Show More
                 </Button>

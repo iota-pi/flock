@@ -137,8 +137,7 @@ function ItemPage<T extends Item>({
 
               <Grid container spacing={2} padding={2}>
                 <Grid
-                  item
-                  xs={12}
+                  size={{ xs: 12 }}
                   display="flex"
                   sx={{
                     justifyContent: 'center',

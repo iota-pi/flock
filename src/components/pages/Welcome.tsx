@@ -100,7 +100,7 @@ function WelcomePage() {
           </Typography>
 
           <Grid container spacing={2} justifyContent="center">
-            <Grid item xs={12} sm={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 color="primary"
                 data-cy="create-account"
@@ -113,7 +113,7 @@ function WelcomePage() {
               </Button>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 color="primary"
                 fullWidth
