@@ -725,7 +725,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/runtime@npm:^7.12.18, @babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.18.3, @babel/runtime@npm:^7.23.8, @babel/runtime@npm:^7.28.4, @babel/runtime@npm:^7.4.4, @babel/runtime@npm:^7.5.5, @babel/runtime@npm:^7.8.7":
+"@babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.18.3, @babel/runtime@npm:^7.23.8, @babel/runtime@npm:^7.28.4, @babel/runtime@npm:^7.4.4, @babel/runtime@npm:^7.5.5, @babel/runtime@npm:^7.8.7":
   version: 7.28.4
   resolution: "@babel/runtime@npm:7.28.4"
   checksum: 10c0/792ce7af9750fb9b93879cc9d1db175701c4689da890e6ced242ea0207c9da411ccf16dc04e689cc01158b28d7898c40d75598f4559109f761c12ce01e959bf7
@@ -2405,19 +2405,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@loadable/component@npm:^5.15.3":
-  version: 5.16.7
-  resolution: "@loadable/component@npm:5.16.7"
-  dependencies:
-    "@babel/runtime": "npm:^7.12.18"
-    hoist-non-react-statics: "npm:^3.3.1"
-    react-is: "npm:^16.12.0"
-  peerDependencies:
-    react: ^16.3.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/0f854babddb26b51a4081098ec4d8942940ef101f2a2ac294348faf8e683a3c675f2b7a2d1f0bba6e7420ea0df475a0a046b323a76a6014b9ac46e32103651fa
-  languageName: node
-  linkType: hard
-
 "@modelcontextprotocol/sdk@npm:1.6.1":
   version: 1.6.1
   resolution: "@modelcontextprotocol/sdk@npm:1.6.1"
@@ -2442,7 +2429,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/icons-material@npm:7.3.6":
+"@mui/icons-material@npm:^7.3.6":
   version: 7.3.6
   resolution: "@mui/icons-material@npm:7.3.6"
   dependencies:
@@ -2489,7 +2476,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mui/material@npm:7.3.6":
+"@mui/material@npm:^7.3.6":
   version: 7.3.6
   resolution: "@mui/material@npm:7.3.6"
   dependencies:
@@ -3832,15 +3819,6 @@ __metadata:
   dependencies:
     "@types/node": "npm:*"
   checksum: 10c0/4374b0f1b5641d1dd8847fa6f50bd34ec215f3244ea045556d2caa74ed559b2571502db73526bb8fbff038a60ff7e6bf56ffa79679c0b03539b55fda32617a23
-  languageName: node
-  linkType: hard
-
-"@types/loadable__component@npm:^5.13.10":
-  version: 5.13.10
-  resolution: "@types/loadable__component@npm:5.13.10"
-  dependencies:
-    "@types/react": "npm:*"
-  checksum: 10c0/143c9da15898eb73d4c53eccbc80f9b9659ef035049e82cc489dfcce7b29dbf558a08f278f8ab59981f2d66a494c637dc88e9cc8c258bca07b4bbe4dda7c0d3f
   languageName: node
   linkType: hard
 
@@ -7368,10 +7346,9 @@ __metadata:
     "@fastify/cookie": "npm:^11.0.2"
     "@fastify/cors": "npm:^11.1.0"
     "@fastify/type-provider-typebox": "npm:^6.1.0"
-    "@loadable/component": "npm:^5.15.3"
-    "@mui/icons-material": "npm:7.3.6"
+    "@mui/icons-material": "npm:^7.3.6"
     "@mui/lab": "npm:^7.0.1-beta.20"
-    "@mui/material": "npm:7.3.6"
+    "@mui/material": "npm:^7.3.6"
     "@mui/types": "npm:^7.2.11"
     "@mui/x-date-pickers": "npm:^8.23.0"
     "@reduxjs/toolkit": "npm:^2.0.1"
@@ -7383,7 +7360,6 @@ __metadata:
     "@testing-library/react": "npm:^16.3.0"
     "@testing-library/user-event": "npm:^14.6.1"
     "@types/debounce": "npm:^1.2.1"
-    "@types/loadable__component": "npm:^5.13.10"
     "@types/node": "npm:^24.10.1"
     "@types/react": "npm:^19.2.7"
     "@types/react-dom": "npm:^19.2.3"
@@ -10659,7 +10635,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-is@npm:^16.12.0, react-is@npm:^16.13.1, react-is@npm:^16.7.0":
+"react-is@npm:^16.13.1, react-is@npm:^16.7.0":
   version: 16.13.1
   resolution: "react-is@npm:16.13.1"
   checksum: 10c0/33977da7a5f1a287936a0c85639fec6ca74f4f15ef1e59a6bc20338fc73dc69555381e211f7a3529b8150a1f71e4225525b41b60b52965bda53ce7d47377ada1

@@ -236,7 +236,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        inputProps={{ 'aria-labelledby': `${item.id}-text` }}
+        slotProps={{ input: { 'aria-labelledby': `${item.id}-text` } }}
       />
     </CheckboxHolder>
   )

@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
-import { Routes, Route, matchPath, useLocation } from 'react-router'
-import loadable from '@loadable/component'
+import { lazy, Suspense, useMemo } from 'react'
+import { Navigate, useLocation, useRoutes, matchPath } from 'react-router'
+import { CircularProgress, Box } from '@mui/material'
 import {
   GroupIcon,
   OptionsIcon,
@@ -10,12 +10,12 @@ import {
 import { useLoggedIn } from '../../state/selectors'
 import { InternalPage, Page, AnyPageId } from './types'
 
-const CreateAccountPage = loadable(() => import('./CreateAccount'))
-const ItemPage = loadable(() => import('./ItemPage'))
-const LoginPage = loadable(() => import('./Login'))
-const PrayerPage = loadable(() => import('./Prayer'))
-const SettingsPage = loadable(() => import('./Settings'))
-const WelcomePage = loadable(() => import('./Welcome'))
+const CreateAccountPage = lazy(() => import('./CreateAccount'))
+const ItemPage = lazy(() => import('./ItemPage'))
+const LoginPage = lazy(() => import('./Login'))
+const PrayerPage = lazy(() => import('./Prayer'))
+const SettingsPage = lazy(() => import('./Settings'))
+const WelcomePage = lazy(() => import('./Welcome'))
 
 export const internalPages: InternalPage[] = [
   {
@@ -82,28 +82,53 @@ const allPages: (InternalPage | Page)[] = [
   ...reversedPages,
 ]
 
-function PageView() {
-  const loggedIn = useLoggedIn()
-
-  const pageRoutes = useMemo(
-    () => allPages.map(page => (
-      <Route
-        key={page.id}
-        path={page.path}
-        element={(
-          !page.requiresAuth || loggedIn
-            ? page.page
-            : getPage('welcome').page
-        )}
-      />
-    )),
-    [loggedIn],
+function Loading() {
+  return (
+    <Box display="flex" justifyContent="center" alignItems="center" height="100%" width="100%">
+      <CircularProgress />
+    </Box>
   )
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const loggedIn = useLoggedIn()
+  const location = useLocation()
+
+  if (!loggedIn) {
+    return <Navigate to="/welcome" state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
+
+function PageView() {
+  const routes = [
+    // Public routes
+    ...internalPages.filter(p => !p.requiresAuth).map(page => ({
+      path: page.path,
+      element: page.page,
+    })),
+    // Protected routes
+    ...pages.map(page => ({
+      path: page.path,
+      element: (
+        <RequireAuth>
+          {page.page}
+        </RequireAuth>
+      ),
+    })),
+    {
+      path: "*",
+      element: <Navigate to="/" replace />
+    }
+  ]
+
+  const element = useRoutes(routes)
 
   return (
-    <Routes>
-      {pageRoutes}
-    </Routes>
+    <Suspense fallback={<Loading />}>
+      {element}
+    </Suspense>
   )
 }
 
@@ -117,10 +142,10 @@ export function getPage(page: AnyPageId) {
   return result
 }
 
-export function usePage() {
+export function usePage(): Page | undefined {
   const location = useLocation()
   const page = useMemo(
-    () => reversedPages.find(p => matchPath(location.pathname, p.path)),
+    () => reversedPages.find(p => matchPath(p.path, location.pathname)),
     [location.pathname],
   )
   return page

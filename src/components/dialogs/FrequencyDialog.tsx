@@ -8,7 +8,7 @@ import {
   Grid,
 } from '@mui/material'
 import { Item } from '../../state/items'
-import { storeItems } from '../../api/VaultLazy'
+import { useStoreItemsMutation } from '../../api/queries'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
@@ -27,6 +27,7 @@ function FrequencyDialog({
   open,
 }: Props) {
   const [frequency, setFrequency] = useState<Frequency>('none')
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const handleDone = useCallback(
     () => {

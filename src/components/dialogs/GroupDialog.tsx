@@ -10,7 +10,7 @@ import {
 import { GroupItem, Item } from '../../state/items'
 import { usePrevious } from '../../utils'
 import Search from '../Search'
-import { storeItems } from '../../api/VaultLazy'
+import { useStoreItemsMutation } from '../../api/queries'
 
 export interface Props {
   items: Item[],
@@ -28,6 +28,7 @@ function GroupDialog({
 
   const [addGroups, setAddGroups] = useState<GroupItem[]>([])
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
   const selectedIds = useMemo(() => items.map(item => item.id), [items])

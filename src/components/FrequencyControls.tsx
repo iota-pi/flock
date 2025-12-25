@@ -155,7 +155,11 @@ function FrequencyControls(props: Props) {
                 }}
                 label="Pray For"
                 fullWidth
-                inputProps={{ 'data-cy': 'memberPrayerTarget' }}
+                slotProps={{
+                  input: {
+                    'data-cy': 'memberPrayerTarget',
+                  }
+                }}
               >
                 <MenuItem value="one">One group member</MenuItem>
                 <MenuItem value="all">Every group member</MenuItem>

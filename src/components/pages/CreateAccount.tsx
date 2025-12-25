@@ -1,41 +1,27 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import type { ZXCVBNScore } from 'zxcvbn'
 import {
-  alpha,
-  Box,
   Button,
-  Checkbox,
   Collapse,
   Container,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  FormGroup,
   IconButton,
   InputAdornment,
-  LinearProgress,
   styled,
   TextField,
-  Theme,
   Typography,
 } from '@mui/material'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { getPage } from '.'
-import { HomeIcon, PasswordIcon, SuccessIcon } from '../Icons'
+import { HomeIcon, PasswordIcon } from '../Icons'
 import { useAppDispatch } from '../../store'
-import customDomainWords from '../../utils/customDomainWords'
-import InlineText from '../InlineText'
 import { setUi } from '../../state/ui'
 import { setAccount } from '../../state/account'
 import { createAccount, initialiseVault } from '../../api/VaultLazy'
 import { getSalt } from '../../api/crypto-utils'
-
-const MIN_PASSWORD_LENGTH = 10
-const MIN_PASSWORD_STRENGTH = 3
+import { usePasswordStrength } from '../../hooks/usePasswordStrength'
+import PasswordMeter from '../PasswordMeter'
+import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -64,57 +50,11 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),
 }))
-const MeterHolder = styled('div')(({ theme }) => ({
-  marginTop: theme.spacing(1),
-  marginBottom: theme.spacing(1),
-  flexGrow: 1,
-  display: 'flex',
-  flexDirection: 'row',
-  alignItems: 'center',
-}))
-const PasswordMeter = styled(LinearProgress)<{ strength: number }>(({ strength, theme }) => {
-  const colour = passwordScoreToColour(strength, theme)
-  return {
-    height: 2,
-    flexGrow: 1,
-    marginLeft: theme.spacing(2),
-
-    backgroundColor: alpha(colour, 0.5),
-    '& .MuiLinearProgress-bar': {
-      backgroundColor: colour,
-    },
-  }
-})
 
 export interface ChecklistItem {
   id: string,
   description: string,
 }
-
-async function scorePassword(password: string) {
-  const { default: zxcvbn } = await import('zxcvbn')
-  const mainScore = zxcvbn(password, customDomainWords)
-  const harshScore = zxcvbn(password.slice(3), customDomainWords)
-  mainScore.score = Math.min(mainScore.score, harshScore.score) as ZXCVBNScore
-  return mainScore
-}
-
-function passwordScoreToWord(score: number) {
-  const words = ['', 'very bad', 'not good', 'passable', 'okay']
-  return words[Math.min(score, words.length - 1)]
-}
-
-function passwordScoreToColour(score: number, theme: Theme) {
-  const words = [
-    theme.palette.error.main,
-    theme.palette.error.main,
-    theme.palette.error.main,
-    theme.palette.warning.main,
-    theme.palette.success.main,
-  ]
-  return words[Math.min(score, words.length - 1)]
-}
-
 
 function CreateAccountPage() {
   const dispatch = useAppDispatch()
@@ -122,13 +62,12 @@ function CreateAccountPage() {
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [passwordError, setPasswordError] = useState('')
-  const [passwordScore, setPasswordScore] = useState(0)
   const [waiting, setWaiting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
-  const [agreement, setAgreement] = useState(false)
   const [newAccount, setNewAccount] = useState('')
+
+  const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
   const handleClickHome = useCallback(
     () => navigate(getPage('welcome').path),
@@ -144,7 +83,6 @@ function CreateAccountPage() {
     (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
     [],
   )
-
 
   const handleClickCreate = useCallback(
     async () => {
@@ -173,20 +111,13 @@ function CreateAccountPage() {
     [dispatch, navigate, password],
   )
 
-  function handleChangeAgreement(event: ChangeEvent<HTMLInputElement>): void {
-    setAgreement(event.target.checked)
-  }
-
   const handleCloseCreatedAccountDialog = useCallback(
     () => {
-      if (!agreement) {
-        return
-      }
       setShowCreatedAccountDialog(false)
       dispatch(setUi({ justCreatedAccount: true }))
       navigate(getPage('login').path)
     },
-    [agreement],
+    [dispatch, navigate],
   )
 
   const handleClickVisibility = useCallback(
@@ -196,33 +127,6 @@ function CreateAccountPage() {
   const handleMouseDownVisibility = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
-  )
-
-  useEffect(
-    () => {
-      let cancelled = false
-      if (password) {
-        scorePassword(password).then(passwordStrength => {
-          if (cancelled) return
-          setPasswordScore(Math.max(passwordStrength.score, 1))
-          if (password.length < MIN_PASSWORD_LENGTH) {
-            setPasswordError(
-              `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`,
-            )
-          } else if (passwordStrength.feedback.warning) {
-            setPasswordError(passwordStrength.feedback.warning)
-          } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
-            setPasswordError('Please choose a stronger password')
-          } else {
-            setPasswordError('')
-          }
-        })
-      }
-      return () => {
-        cancelled = true
-      }
-    },
-    [password],
   )
 
   const validPassword = !!password && !passwordError
@@ -274,23 +178,25 @@ function CreateAccountPage() {
               autoComplete="new-password"
               fullWidth
               id="password"
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PasswordIcon />
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={handleClickVisibility}
-                      onMouseDown={handleMouseDownVisibility}
-                      size="large"
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PasswordIcon />
+                    </InputAdornment>
+                  ),
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility}
+                        onMouseDown={handleMouseDownVisibility}
+                        size="large"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }
               }}
               label="Password"
               onChange={handleChangePassword}
@@ -299,21 +205,7 @@ function CreateAccountPage() {
               variant="standard"
             />
 
-            <MeterHolder>
-              <Typography>
-                Password Strength:
-                {' '}
-                <InlineText fontWeight={500}>
-                  {passwordScoreToWord(passwordScore)}
-                </InlineText>
-              </Typography>
-
-              <PasswordMeter
-                strength={passwordScore}
-                value={passwordScore * 25}
-                variant="determinate"
-              />
-            </MeterHolder>
+            <PasswordMeter score={passwordScore} />
 
             <Collapse in={!!passwordError}>
               <Typography color="error" paragraph>
@@ -360,64 +252,11 @@ function CreateAccountPage() {
           </Button>
         </Section>
 
-        <Dialog
+        <AccountCreatedDialog
           open={showCreatedAccountDialog}
-        >
-          <DialogTitle >
-            <Box display="flex" alignItems="center">
-              Account Created
-
-              <Box ml={1}>
-                <SuccessIcon color="success" />
-              </Box>
-            </Box>
-          </DialogTitle>
-
-          <DialogContent>
-            <Typography paragraph>
-              Your account has been created successfully.
-            </Typography>
-
-            <StyledTextField
-              fullWidth
-              label="Account ID"
-              value={newAccount}
-              variant="standard"
-            />
-
-            <Typography paragraph>
-              Please store your account ID and password in a secure location.
-              If you lose your account ID or password, your data will be lost permanently.
-            </Typography>
-
-            <FormGroup>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={agreement}
-                    inputProps={{ 'data-cy': 'acknowledge-account-id' }}
-                    onChange={handleChangeAgreement}
-                  />
-                }
-                label="I will stored my account ID and password in a secure location"
-                required
-              />
-            </FormGroup>
-          </DialogContent>
-
-          <DialogActions>
-            <Button
-              color="primary"
-              disabled={!agreement}
-              onClick={handleCloseCreatedAccountDialog}
-              fullWidth
-              variant="contained"
-              data-cy="continue-button"
-            >
-              Continue
-            </Button>
-          </DialogActions>
-        </Dialog>
+          accountId={newAccount}
+          onContinue={handleCloseCreatedAccountDialog}
+        />
       </MainContainer>
     </Root>
   )

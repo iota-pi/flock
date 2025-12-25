@@ -1,30 +1,20 @@
 import {
   ChangeEvent,
-  ForwardedRef,
-  forwardRef,
-  HTMLAttributes,
-  PropsWithChildren,
   Ref,
   useCallback,
   useMemo,
 } from 'react'
-import { List, RowComponentProps } from 'react-window'
 import {
   Autocomplete,
   autocompleteClasses,
-  Box,
-  Checkbox,
   Chip,
-  Divider,
   InputAdornment,
   Paper,
   PaperProps,
   Popper,
   styled,
   TextField,
-  Theme,
   ThemeProvider,
-  Typography,
 } from '@mui/material'
 import {
   AutocompleteChangeReason,
@@ -32,279 +22,27 @@ import {
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
 import {
-  compareItems,
   getBlankItem,
   getItemName,
-  getItemTypeLabel,
-  isItem,
   Item,
 } from '../state/items'
-import InlineText from './InlineText'
 import { getIcon, MuiIconType } from './Icons'
 import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
 import { capitalise } from '../utils'
-
-const LISTBOX_PADDING = 8
-
-const OptionHolder = styled('li')({
-  display: 'block',
-  padding: 0,
-})
-const AutocompleteOption = styled('div')(({ theme }) => ({
-  alignItems: 'center',
-  display: 'flex',
-  minWidth: 0,
-  padding: theme.spacing(1.75, 0),
-}))
-const OptionIconHolder = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  paddingRight: theme.spacing(2),
-}))
-const OptionName = styled(InlineText)({
-  flexGrow: 1,
-  minWidth: 0,
-})
-
-interface SearchableItem<T extends Item = Item> {
-  create?: false,
-  data: T,
-  dividerBefore?: boolean,
-  name: string,
-  id: string,
-  type: T['type'],
-}
-interface SearchableAddItem<T extends Item = Item> {
-  create: true,
-  data?: undefined,
-  default: Partial<T> & Pick<T, 'type'>,
-  dividerBefore?: boolean,
-  id: string,
-  type: T['type'],
-}
-export type AnySearchable = (
-  SearchableItem
-  | SearchableAddItem
-)
-export type AnySearchableData = Exclude<AnySearchable['data'], undefined>
-export type AnySearchableType = AnySearchable['type']
-export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
-  group: true,
-  person: true,
-}
-export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group']
-)
-
-export function getSearchableDataId(s: AnySearchableData): string {
-  return typeof s === 'string' ? s : s.id
-}
-
-function isSearchableStandardItem(s: AnySearchable): s is SearchableItem {
-  return s.type === 'person' || s.type === 'group'
-}
-
-function sortSearchables(a: AnySearchable, b: AnySearchable): number {
-  const typeIndexA = SEARCHABLE_BASE_SORT_ORDER.indexOf(a.type)
-  const typeIndexB = SEARCHABLE_BASE_SORT_ORDER.indexOf(b.type)
-  if (typeIndexA - typeIndexB) {
-    return typeIndexA - typeIndexB
-  }
-  if (isSearchableStandardItem(a) && isSearchableStandardItem(b)) {
-    return compareItems(a.data, b.data)
-  }
-  return +(a.id > b.id) - +(a.id < b.id)
-}
-
-function getName(option: AnySearchable) {
-  if (option.create) {
-    return getItemName(option.default)
-  }
-  return getItemName(option.data)
-}
-
-function OptionComponent({
-  option,
-  showDescription,
-  showGroupMemberCount,
-  showIcon,
-  showCheckbox,
-  selected,
-}: {
-  option: AnySearchable,
-  showDescription: boolean,
-  showGroupMemberCount: boolean,
-  showIcon: boolean,
-  showCheckbox: boolean,
-  selected: boolean,
-}) {
-  const icon = getIcon(option.type)
-  const name = getName(option)
-  const item = isSearchableStandardItem(option) ? option.data : undefined
-
-  const groupMembersText = useMemo(
-    () => {
-      if (item && item.type === 'group') {
-        const count = item.members.length
-        const s = count !== 1 ? 's' : ''
-        return ` (${count} member${s})`
-      }
-      return ''
-    },
-    [item],
-  )
-  const clippedDescription = useMemo(
-    () => {
-      if (item && isItem(item)) {
-        const base = item.description
-        const clipped = base.slice(0, 100)
-        if (clipped.length < base.length) {
-          const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '))
-          return `${clippedToWord}…`
-        }
-        return base
-      }
-      return null
-    },
-    [item],
-  )
-
-  const getFontSize = useCallback(
-    (theme: Theme) => theme.typography.caption.fontSize,
-    [],
-  )
-
-  return (
-    <>
-      {option.dividerBefore && <Divider />}
-
-      <AutocompleteOption>
-        {showCheckbox && (
-          <OptionIconHolder>
-            <Checkbox size="small" checked={!!selected} tabIndex={-1} disableRipple />
-          </OptionIconHolder>
-        )}
-        {showIcon && (
-          <OptionIconHolder>
-            {icon}
-          </OptionIconHolder>
-        )}
-
-        {option.create ? (
-          <div>
-            <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-            <Typography fontWeight={500}>
-              {name}
-            </Typography>
-          </div>
-        ) : (
-          <Box minWidth={0}>
-            <Typography display="flex" alignItems="center">
-              <OptionName noWrap>
-                {name}
-              </OptionName>
-
-              <InlineText
-                color="text.secondary"
-                fontWeight={300}
-                whiteSpace="pre"
-              >
-                {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
-              </InlineText>
-            </Typography>
-
-            {showDescription && clippedDescription && (
-              <InlineText
-                color="text.secondary"
-                fontSize={getFontSize}
-                noWrap
-              >
-                {clippedDescription}
-              </InlineText>
-            )}
-          </Box>
-        )}
-      </AutocompleteOption>
-    </>
-  )
-}
-
-interface SearchableRowSettings {
-  showDescriptions: boolean,
-  showGroupMemberCounts: boolean,
-  showIcons: boolean,
-  showCheckboxes: boolean,
-  selected: boolean,
-}
-type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings]
-
-interface SearchableRowProps {
-  itemData: PropsAndOption[],
-}
-
-function SearchableRow(
-  props: RowComponentProps<SearchableRowProps>,
-) {
-  const { itemData, index, style } = props
-  const [optionProps, option, settings] = itemData[index]
-
-  return (
-    <OptionHolder
-      {...optionProps}
-      key={option.id}
-      style={style}
-    >
-      <OptionComponent
-        option={option}
-        showDescription={settings.showDescriptions}
-        showGroupMemberCount={settings.showGroupMemberCounts}
-        showIcon={settings.showIcons}
-        showCheckbox={settings.showCheckboxes}
-        selected={settings.selected}
-      />
-    </OptionHolder>
-  )
-}
-
-const ListBoxComponent = forwardRef(
-  (
-    props: PropsWithChildren<HTMLAttributes<HTMLElement>>,
-    ref: ForwardedRef<HTMLDivElement>,
-  ) => {
-    const { children, ...otherProps } = props
-    const itemData = children as PropsAndOption[]
-    const itemSize = 56
-
-    const itemsHeight = itemSize * Math.min(itemData.length, 6)
-
-    return (
-      <div
-        ref={ref}
-        {...otherProps}
-        style={{
-          paddingTop: LISTBOX_PADDING,
-          paddingBottom: LISTBOX_PADDING,
-        }}
-      >
-        <List<SearchableRowProps>
-          rowProps={{ itemData }}
-          style={{
-            height: itemsHeight,
-            width: '100%',
-          }}
-          rowComponent={SearchableRow}
-          rowHeight={itemSize}
-          overscanCount={2}
-          rowCount={itemData.length}
-        />
-      </div>
-    )
-  },
-)
-ListBoxComponent.displayName = 'ListBoxComponent'
+import {
+  ALL_SEARCHABLE_TYPES,
+  AnySearchable,
+  AnySearchableData,
+  AnySearchableType,
+} from './search/types'
+import {
+  getName,
+  sortSearchables,
+} from './search/utils'
+import ListBoxComponent from './search/ListBox'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
@@ -551,41 +289,52 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         disableCloseOnSelect={showOptionCheckboxes}
         getOptionLabel={option => getName(option)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
-        ListboxComponent={ListBoxComponent}
+        slots={{
+          listbox: ListBoxComponent,
+          paper: ThemedPaper,
+          popper: StyledPopper,
+        }}
         multiple
         noOptionsText={noItemsText}
         onChange={handleChange}
         options={options}
-        PaperComponent={ThemedPaper}
-        PopperComponent={StyledPopper}
-        renderInput={params => (
-          <TextField
-            {...params}
-            autoFocus={autoFocus}
-            inputRef={inputRef}
-            InputProps={{
-              ...params.InputProps,
-              startAdornment: (
-                <>
-                  {InputIcon && (
-                    <InputAdornment position="start">
-                      <InputIcon />
-                    </InputAdornment>
-                  )}
+        renderInput={({ InputProps, InputLabelProps, inputProps, ...params }) => {
+          // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
+          // migrate to destructuring slotProps from params and using those instead of
+          // the deprecated InputProps and InputLabelProps.
+          // See: https://github.com/mui/material-ui/issues/45414 for status
+          return (
+            <TextField
+              {...params}
+              autoFocus={autoFocus}
+              inputRef={inputRef}
+              slotProps={{
+                input: {
+                  ...InputProps,
+                  startAdornment: (
+                    <>
+                      {InputIcon && (
+                        <InputAdornment position="start">
+                          <InputIcon />
+                        </InputAdornment>
+                      )}
 
-                  {params.InputProps.startAdornment}
-                </>
-              ),
-            }}
-            inputProps={{
-              ...params.inputProps,
-              'data-cy': dataCy,
-            }}
-            label={label}
-            placeholder={placeholder}
-            variant="outlined"
-          />
-        )}
+                      {InputProps.startAdornment}
+                    </>
+                  ),
+                },
+                inputLabel: InputLabelProps,
+                htmlInput: {
+                  ...inputProps,
+                  'data-cy': dataCy,
+                }
+              }}
+              label={label}
+              placeholder={placeholder}
+              variant="outlined"
+            />
+          )
+        }}
         renderOption={
           (props, option, { selected }) => ([
             props,

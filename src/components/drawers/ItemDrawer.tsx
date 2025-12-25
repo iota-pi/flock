@@ -45,8 +45,7 @@ import {
   UnarchiveIcon,
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
-import { storeItems } from '../../api/VaultLazy'
-import { useDeleteItemsMutation } from '../../api/queries'
+import { useDeleteItemsMutation, useStoreItemsMutation } from '../../api/queries'
 
 
 export interface Props extends BaseDrawerProps {
@@ -79,6 +78,7 @@ function ItemDrawer({
   const groups = useItems<GroupItem>('group')
   const items = useItems()
   const { mutateAsync: deleteItem } = useDeleteItemsMutation()
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const [cancelled, setCancelled] = useState(false)
   const [duplicates, setDuplicates] = useState<Item[]>([])
@@ -270,7 +270,7 @@ function ItemDrawer({
           required
           value={item.name}
           variant="standard"
-          inputProps={{ 'data-cy': 'name' }}
+          slotProps={{ htmlInput: { 'data-cy': 'name' } }}
         />
       </Grid>
     ),
@@ -285,7 +285,7 @@ function ItemDrawer({
           <TextField
             fullWidth
             label="Short Description"
-            inputProps={{ 'data-cy': 'description' }}
+            slotProps={{ htmlInput: { 'data-cy': 'description' } }}
             onChange={event => handleChange({ description: getValue(event) })}
             value={item.description}
             variant="standard"
@@ -324,7 +324,7 @@ function ItemDrawer({
           label="Notes"
           multiline
           minRows={3}
-          inputProps={{ 'data-cy': 'summary' }}
+          slotProps={{ htmlInput: { 'data-cy': 'summary' } }}
           onChange={event => handleChange({ summary: getValue(event) })}
           value={item.summary}
           variant="outlined"

@@ -103,18 +103,20 @@ function GoalDialog({
             type="number"
             value={newGoal}
             variant="outlined"
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    disabled={parseInt(newGoal) === naturalGoal}
-                    onClick={handleReset}
-                    size="large"
-                  >
-                    <ResetIcon />
-                  </IconButton>
-                </InputAdornment>
-              ),
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      disabled={parseInt(newGoal) === naturalGoal}
+                      onClick={handleReset}
+                      size="large"
+                    >
+                      <ResetIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }
             }}
             inputProps={{ 'data-cy': 'dialog-goal-input' }}
           />

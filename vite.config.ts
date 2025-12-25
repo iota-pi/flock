@@ -19,7 +19,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('src/api/Vault.ts') || id.includes('src/api/VaultAPI.ts')) {
+          if (id.includes('src/api/Vault.ts')) {
             return 'vault'
           }
           if (id.includes('node_modules')) {
