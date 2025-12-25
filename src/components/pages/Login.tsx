@@ -11,7 +11,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { LoadingButton } from '@mui/lab'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { getPage } from '.'
@@ -223,7 +222,7 @@ function LoginPage() {
               />
             </Box>
 
-            <LoadingButton
+            <Button
               color="primary"
               data-cy="login"
               disabled={!accountInput || !password}
@@ -233,7 +232,7 @@ function LoginPage() {
               variant="contained"
             >
               Login
-            </LoadingButton>
+            </Button>
 
             {error && (
               <Typography paragraph color="error" mt={2}>

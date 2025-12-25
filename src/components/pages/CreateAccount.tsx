@@ -22,7 +22,6 @@ import {
   Theme,
   Typography,
 } from '@mui/material'
-import { LoadingButton } from '@mui/lab'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { getPage } from '.'
@@ -324,7 +323,7 @@ function CreateAccountPage() {
               </Typography>
             </Collapse>
 
-            <LoadingButton
+            <Button
               color="primary"
               data-cy="create-account"
               disabled={!validPassword || waiting}
@@ -335,7 +334,7 @@ function CreateAccountPage() {
               loading={waiting}
             >
               Create Account
-            </LoadingButton>
+            </Button>
 
             {error && (
               <Typography paragraph color="error" mt={2}>
