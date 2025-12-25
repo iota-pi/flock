@@ -70,7 +70,11 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
             control={
               <Checkbox
                 checked={agreement}
-                inputProps={{ 'data-cy': 'acknowledge-account-id' }}
+                slotProps={{
+                  input: {
+                    'data-cy': 'acknowledge-account-id',
+                  },
+                }}
                 onChange={handleChangeAgreement}
               />
             }

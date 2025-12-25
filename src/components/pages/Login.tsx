@@ -175,12 +175,14 @@ function LoginPage() {
                 autoFocus
                 fullWidth
                 id="username"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonIcon />
-                    </InputAdornment>
-                  ),
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon />
+                      </InputAdornment>
+                    ),
+                  }
                 }}
                 label="Account ID"
                 name="username"
@@ -195,23 +197,25 @@ function LoginPage() {
                 autoComplete="current-password"
                 fullWidth
                 id="current-password"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PasswordIcon />
-                    </InputAdornment>
-                  ),
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={handleClickVisibility}
-                        onMouseDown={handleMouseDownVisibility}
-                        size="large"
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PasswordIcon />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={handleClickVisibility}
+                          onMouseDown={handleMouseDownVisibility}
+                          size="large"
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }
                 }}
                 label="Password"
                 name="password"

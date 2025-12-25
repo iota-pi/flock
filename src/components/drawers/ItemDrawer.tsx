@@ -270,7 +270,7 @@ function ItemDrawer({
           required
           value={item.name}
           variant="standard"
-          inputProps={{ 'data-cy': 'name' }}
+          slotProps={{ htmlInput: { 'data-cy': 'name' } }}
         />
       </Grid>
     ),
@@ -285,7 +285,7 @@ function ItemDrawer({
           <TextField
             fullWidth
             label="Short Description"
-            inputProps={{ 'data-cy': 'description' }}
+            slotProps={{ htmlInput: { 'data-cy': 'description' } }}
             onChange={event => handleChange({ description: getValue(event) })}
             value={item.description}
             variant="standard"
@@ -324,7 +324,7 @@ function ItemDrawer({
           label="Notes"
           multiline
           minRows={3}
-          inputProps={{ 'data-cy': 'summary' }}
+          slotProps={{ htmlInput: { 'data-cy': 'summary' } }}
           onChange={event => handleChange({ summary: getValue(event) })}
           value={item.summary}
           variant="outlined"

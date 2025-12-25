@@ -293,41 +293,52 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         disableCloseOnSelect={showOptionCheckboxes}
         getOptionLabel={option => getName(option)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
-        ListboxComponent={ListBoxComponent}
+        slots={{
+          listbox: ListBoxComponent,
+          paper: ThemedPaper,
+          popper: StyledPopper,
+        }}
         multiple
         noOptionsText={noItemsText}
         onChange={handleChange}
         options={options}
-        PaperComponent={ThemedPaper}
-        PopperComponent={StyledPopper}
-        renderInput={params => (
-          <TextField
-            {...params}
-            autoFocus={autoFocus}
-            inputRef={inputRef}
-            InputProps={{
-              ...params.InputProps,
-              startAdornment: (
-                <>
-                  {InputIcon && (
-                    <InputAdornment position="start">
-                      <InputIcon />
-                    </InputAdornment>
-                  )}
+        renderInput={({ InputProps, InputLabelProps, inputProps, ...params }) => {
+          // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
+          // migrate to destructuring slotProps from params and using those instead of
+          // the deprecated InputProps and InputLabelProps.
+          // See: https://github.com/mui/material-ui/issues/45414 for status
+          return (
+            <TextField
+              {...params}
+              autoFocus={autoFocus}
+              inputRef={inputRef}
+              slotProps={{
+                input: {
+                  ...InputProps,
+                  startAdornment: (
+                    <>
+                      {InputIcon && (
+                        <InputAdornment position="start">
+                          <InputIcon />
+                        </InputAdornment>
+                      )}
 
-                  {params.InputProps.startAdornment}
-                </>
-              ),
-            }}
-            inputProps={{
-              ...params.inputProps,
-              'data-cy': dataCy,
-            }}
-            label={label}
-            placeholder={placeholder}
-            variant="outlined"
-          />
-        )}
+                      {InputProps.startAdornment}
+                    </>
+                  ),
+                },
+                inputLabel: InputLabelProps,
+                htmlInput: {
+                  ...inputProps,
+                  'data-cy': dataCy,
+                }
+              }}
+              label={label}
+              placeholder={placeholder}
+              variant="outlined"
+            />
+          )
+        }}
         renderOption={
           (props, option, { selected }) => ([
             props,

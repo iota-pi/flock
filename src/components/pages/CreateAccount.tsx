@@ -179,23 +179,25 @@ function CreateAccountPage() {
               autoComplete="new-password"
               fullWidth
               id="password"
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PasswordIcon />
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={handleClickVisibility}
-                      onMouseDown={handleMouseDownVisibility}
-                      size="large"
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PasswordIcon />
+                    </InputAdornment>
+                  ),
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={handleClickVisibility}
+                        onMouseDown={handleMouseDownVisibility}
+                        size="large"
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }
               }}
               label="Password"
               onChange={handleChangePassword}
