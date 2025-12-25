@@ -1,7 +1,6 @@
 import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Box,
   Button,
   Collapse,
   Container,

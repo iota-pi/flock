@@ -7,7 +7,6 @@ import {
 import {
   Autocomplete,
   autocompleteClasses,
-  Box,
   Chip,
   InputAdornment,
   Paper,
@@ -16,7 +15,6 @@ import {
   styled,
   TextField,
   ThemeProvider,
-  Typography,
 } from '@mui/material'
 import {
   AutocompleteChangeReason,
@@ -29,7 +27,6 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import InlineText from './InlineText'
 import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
 import { useAppSelector } from '../store'
 import getTheme from '../theme'
@@ -46,7 +43,6 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent from './search/ListBox'
-import { AutocompleteOption, OptionIconHolder, OptionName } from './search/Option'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
