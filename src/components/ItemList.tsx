@@ -279,7 +279,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
 
         <Box
           display="flex"
-          flexDirection={{ xs: 'column', md: 'row' }}
+          flexDirection="row"
           flexGrow={1}
           minWidth={0}
         >

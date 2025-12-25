@@ -14,7 +14,6 @@ export interface DrawerData {
   praying?: boolean,
 }
 export interface UiOptions {
-  bulkActionsOnMobile: boolean,
 }
 export interface RequestData {
   active: number,
@@ -41,7 +40,6 @@ const initialState: UIState = {
   filters: DEFAULT_FILTER_CRITERIA,
   message: null,
   options: {
-    bulkActionsOnMobile: false,
   },
   requests: {
     active: 0,

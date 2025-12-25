@@ -5,7 +5,6 @@ import ItemList from '../ItemList'
 import {
   useIsActive,
   useItems,
-  useOptions,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
@@ -30,7 +29,6 @@ function ItemPage<T extends Item>({
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
-  const { bulkActionsOnMobile } = useOptions()
 
   const [showArchived, setShowArchived] = useState(false)
   const handleClickShowArchived = useCallback(
@@ -106,11 +104,8 @@ function ItemPage<T extends Item>({
     [isActive],
   )
 
-  const sm = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
-  const checkboxes = !sm || bulkActionsOnMobile
   const pluralLabel = getItemTypeLabel(itemType, true)
   const pluralLabelLower = pluralLabel.toLowerCase()
-  const maxTags = sm ? 2 : 3
 
   const noItemsHint = (
     hiddenItemCount
@@ -167,21 +162,22 @@ function ItemPage<T extends Item>({
       fabLabel={`Add ${pluralLabel}`}
       noScrollContainer
       onClickFab={handleClickAdd}
-      onSelectAll={checkboxes ? handleSelectAll : undefined}
+      onSelectAll={handleSelectAll}
       showFilter
       showSort
       topBar
       topBarTitle={itemCountText}
     >
       <ItemList
-        checkboxes={checkboxes}
+        checkboxes
         disablePadding
         extraElements={extras}
         getChecked={getChecked}
         getDescription={getDescription}
         getHighlighted={getHighlighted}
         items={items}
-        maxTags={maxTags}
+        showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
+        maxTags={3}
         noItemsHint={noItemsHint}
         noItemsText={`No ${pluralLabelLower} found`}
         onCheck={handleCheck}
