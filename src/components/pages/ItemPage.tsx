@@ -13,8 +13,7 @@ import {
 import BasePage from './BasePage'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setUi, replaceActive, toggleSelected } from '../../state/ui'
-import { sortItems } from '../../utils/customSort'
-import { filterItems } from '../../utils/customFilter'
+import { useAsyncItems } from '../../hooks/useAsyncItems'
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -48,14 +47,11 @@ function ItemPage<T extends Item>({
     [rawItems],
   )
 
-  const items = useMemo(
-    () => {
-      const filtered = filterItems(applicableItems, filters)
-      const sorted = sortItems(filtered, sortCriteria)
-      return sorted
-    },
-    [filters, applicableItems, sortCriteria],
-  )
+  const items = useAsyncItems({
+    items: applicableItems,
+    filters,
+    sortCriteria,
+  })
 
   const hiddenItemCount = applicableItems.length - items.length
 
