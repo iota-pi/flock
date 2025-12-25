@@ -16,7 +16,7 @@ import {
   useEffect,
   useMemo,
 } from 'react'
-import { GlobalHotKeys, KeyMap } from 'react-hotkeys'
+import { useHotkeys } from 'react-hotkeys-hook'
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
 import UnmountWatcher from './utils/UnmountWatcher'
@@ -203,34 +203,22 @@ function BaseDrawer({
     [containerRef, itemKey, prevKey],
   )
 
-  const handleSaveHotkey = useCallback(
-    (event?: KeyboardEvent) => {
-      if (event && ActionProps?.canSave !== false && ActionProps?.onSave) {
+
+  useHotkeys(
+    ['ctrl+s', 'meta+s'],
+    (event) => {
+      if (ActionProps?.canSave !== false && ActionProps?.onSave) {
         event.preventDefault()
         ActionProps.onSave()
       }
     },
+    { enableOnFormTags: true },
     [ActionProps],
-  )
-  const keyMap: KeyMap = useMemo(
-    () => ({
-      SAVE: [
-        { sequence: 'ctrl+s', action: 'keydown' },
-        { sequence: 'command+s', action: 'keydown' },
-      ],
-    }),
-    [],
-  )
-  const handlers = useMemo(
-    () => ({
-      SAVE: handleSaveHotkey,
-    }),
-    [handleSaveHotkey],
   )
 
   return (
     <>
-      <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
+
       <StyledDrawer
         anchor="right"
         disableSwipeToOpen

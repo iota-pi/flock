@@ -3,7 +3,7 @@ import {
   useMemo,
   useRef,
 } from 'react'
-import { GlobalHotKeys, KeyMap } from 'react-hotkeys'
+import { useHotkeys } from 'react-hotkeys-hook'
 import { Item } from '../../state/items'
 import { replaceActive } from '../../state/ui'
 import { useAppDispatch } from '../../store'
@@ -31,18 +31,7 @@ function EverythingSearch({
     },
     [searchInput],
   )
-  const keyMap: KeyMap = useMemo(
-    () => ({
-      SEARCH: { sequence: '/', action: 'keyup' },
-    }),
-    [],
-  )
-  const handlers = useMemo(
-    () => ({
-      SEARCH: focusSearch,
-    }),
-    [focusSearch],
-  )
+  useHotkeys('/', focusSearch, { keyup: true, keydown: false })
 
   const handleCreate = useCallback(
     (newItem: Item) => {
@@ -63,21 +52,18 @@ function EverythingSearch({
   )
 
   return (
-    <>
-      <GlobalHotKeys keyMap={keyMap} handlers={handlers} />
-      <Search
-        forceDarkTheme
-        inputIcon={SearchIcon}
-        inputRef={searchInput}
-        placeholder={label}
-        onCreate={handleCreate}
-        onSelect={handleSelect}
-        noItemsText={noItemsText}
-        searchDescription
-        searchSummary
-        showIcons
-      />
-    </>
+    <Search
+      forceDarkTheme
+      inputIcon={SearchIcon}
+      inputRef={searchInput}
+      placeholder={label}
+      onCreate={handleCreate}
+      onSelect={handleSelect}
+      noItemsText={noItemsText}
+      searchDescription
+      searchSummary
+      showIcons
+    />
   )
 }
 
