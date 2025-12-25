@@ -13,7 +13,7 @@ import {
 } from '@mui/material'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
-import { getPage } from '.'
+import { ROUTES } from './routes'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { setAccount } from '../../state/account'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
@@ -76,7 +76,7 @@ function LoginPage() {
   )
 
   const handleClickHome = useCallback(
-    () => navigate(getPage('welcome').path),
+    () => navigate(ROUTES.welcome.path),
     [navigate],
   )
 
@@ -91,7 +91,7 @@ function LoginPage() {
         try {
           await loginVault({ password, salt })
           dispatch(setAccount({ loggedIn: true }))
-          navigate(getPage('prayer').path)
+          navigate(ROUTES.prayer.path)
         } catch (error) {
           console.error('Error during vault initialization:', error)
           dispatch(setAccount({ account: '' }))
@@ -109,7 +109,7 @@ function LoginPage() {
   )
   const handleClickCreate = useCallback(
     () => {
-      navigate(getPage('signup').path)
+      navigate(ROUTES.signup.path)
     },
     [navigate],
   )
@@ -144,7 +144,7 @@ function LoginPage() {
         </HomeIconContainer>
 
         <CenterSection>
-          <Link to={getPage('welcome').path}>
+          <Link to={ROUTES.welcome.path}>
             <img
               src="/flock.png"
               alt=""

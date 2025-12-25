@@ -8,7 +8,7 @@ import {
   styled,
   Typography,
 } from '@mui/material'
-import { getPage } from '.'
+import { ROUTES } from './routes'
 import AboutDrawer from '../drawers/AboutDrawer'
 
 
@@ -44,12 +44,12 @@ function WelcomePage() {
   const handleCloseAbout = useCallback(() => setShowAbout(false), [])
   const handleClickCreate = useCallback(
     () => {
-      navigate(getPage('signup').path)
+      navigate(ROUTES.signup.path)
     },
     [navigate],
   )
   const handleClickLogin = useCallback(
-    () => navigate(getPage('login').path),
+    () => navigate(ROUTES.login.path),
     [navigate],
   )
 

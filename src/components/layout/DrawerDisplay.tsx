@@ -107,6 +107,8 @@ function IndividualDrawer({
   return null
 }
 
+const noop = () => {}
+
 function DrawerDisplay() {
   const dispatch = useAppDispatch()
   const drawers = useAppSelector(state => state.ui.drawers)
@@ -149,7 +151,7 @@ function DrawerDisplay() {
       {showPlaceholder && (
         <PlaceholderDrawer
           open
-          onClose={() => {}}
+          onClose={noop}
         />
       )}
     </>
