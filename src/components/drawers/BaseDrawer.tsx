@@ -206,7 +206,7 @@ function BaseDrawer({
 
   useHotkeys(
     ['ctrl+s', 'meta+s'],
-    (event) => {
+    event => {
       if (ActionProps?.canSave !== false && ActionProps?.onSave) {
         event.preventDefault()
         ActionProps.onSave()

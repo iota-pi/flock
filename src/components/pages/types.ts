@@ -32,23 +32,3 @@ export interface InternalPage extends InternalRouteConfig {
 export interface Page extends MenuRouteConfig {
   id: PageId
 }
-
-export interface BasePageConfig {
-  path: string
-  requiresAuth: boolean
-}
-
-// Config shape for internal routes (no ID)
-export interface InternalRouteConfig extends BasePageConfig {
-  page: ReactNode
-}
-
-// Config shape for menu routes (no ID)
-export interface MenuRouteConfig extends BasePageConfig {
-  icon: MuiIconType
-  page: ReactNode
-  name: string
-  dividerBefore?: boolean
-  noPlaceholderDrawer?: boolean
-  metadataControl?: (metadata: AccountMetadata) => boolean
-}

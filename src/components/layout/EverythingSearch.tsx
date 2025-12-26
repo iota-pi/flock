@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useMemo,
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
