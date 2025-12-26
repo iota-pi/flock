@@ -1,86 +1,14 @@
-import { lazy, Suspense, useMemo } from 'react'
-import { Navigate, useLocation, useRoutes, matchPath } from 'react-router'
+import { Suspense } from 'react'
+import { Navigate, useLocation, useRoutes, useMatches, RouteObject } from 'react-router'
 import { CircularProgress, Box } from '@mui/material'
-import {
-  GroupIcon,
-  OptionsIcon,
-  PersonIcon,
-  PrayerIcon,
-} from '../Icons'
 import { useLoggedIn } from '../../state/selectors'
-import { InternalPage, Page, AnyPageId } from './types'
 
-const CreateAccountPage = lazy(() => import('./CreateAccount'))
-const ItemPage = lazy(() => import('./ItemPage'))
-const LoginPage = lazy(() => import('./Login'))
-const PrayerPage = lazy(() => import('./Prayer'))
-const SettingsPage = lazy(() => import('./Settings'))
-const WelcomePage = lazy(() => import('./Welcome'))
+import { INTERNAL_ROUTES, MENU_ROUTES } from './routes'
+import { Page, PageId } from './types'
 
-export const internalPages: InternalPage[] = [
-  {
-    id: 'welcome',
-    page: <WelcomePage />,
-    path: '/welcome',
-    requiresAuth: false,
-  },
-  {
-    id: 'login',
-    page: <LoginPage />,
-    path: '/login',
-    requiresAuth: false,
-  },
-  {
-    id: 'signup',
-    page: <CreateAccountPage />,
-    path: '/signup',
-    requiresAuth: false,
-  },
-]
+export const pages: Page[] = (Object.entries(MENU_ROUTES) as [PageId, typeof MENU_ROUTES[PageId]][])
+  .map(([id, config]) => ({ ...config, id }))
 
-export const pages: Page[] = [
-  {
-    icon: PrayerIcon,
-    id: 'prayer',
-    name: 'Prayer',
-    page: <PrayerPage />,
-    path: '/',
-    requiresAuth: true,
-  },
-  {
-    dividerBefore: true,
-    icon: PersonIcon,
-    id: 'people',
-    name: 'People',
-    page: <ItemPage itemType="person" />,
-    path: '/people',
-    requiresAuth: true,
-  },
-  {
-    icon: GroupIcon,
-    id: 'groups',
-    name: 'Groups',
-    page: <ItemPage itemType="group" />,
-    path: '/groups',
-    requiresAuth: true,
-  },
-  {
-    dividerBefore: true,
-    icon: OptionsIcon,
-    id: 'settings',
-    name: 'Settings',
-    noPlaceholderDrawer: true,
-    page: <SettingsPage />,
-    path: '/settings',
-    requiresAuth: true,
-  },
-]
-
-const reversedPages = pages.slice().reverse()
-const allPages: (InternalPage | Page)[] = [
-  ...internalPages,
-  ...reversedPages,
-]
 
 function Loading() {
   return (
@@ -102,20 +30,22 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function PageView() {
-  const routes = [
+  const routes: RouteObject[] = [
     // Public routes
-    ...internalPages.filter(p => !p.requiresAuth).map(page => ({
-      path: page.path,
-      element: page.page,
+    ...Object.values(INTERNAL_ROUTES).filter(p => !p.requiresAuth).map(p => ({
+      path: p.path,
+      element: p.page,
+      handle: p,
     })),
     // Protected routes
-    ...pages.map(page => ({
-      path: page.path,
+    ...Object.values(MENU_ROUTES).map(p => ({
+      path: p.path,
       element: (
         <RequireAuth>
-          {page.page}
+          {p.page}
         </RequireAuth>
       ),
+      handle: p,
     })),
     {
       path: "*",
@@ -134,19 +64,15 @@ function PageView() {
 
 export default PageView
 
-export function getPage(page: AnyPageId) {
-  const result = allPages.find(p => p.id === page)
-  if (result === undefined) {
-    throw new Error(`Unknown page id ${page}`)
-  }
-  return result
-}
 
 export function usePage(): Page | undefined {
-  const location = useLocation()
-  const page = useMemo(
-    () => reversedPages.find(p => matchPath(p.path, location.pathname)),
-    [location.pathname],
-  )
-  return page
+  const matches = useMatches()
+
+  // Find the last match that has a handle which looks like a Page
+  const match = matches.findLast(m => {
+    const handle = m.handle as Page | undefined
+    return handle?.id && handle?.name
+  })
+
+  return match?.handle as Page | undefined
 }

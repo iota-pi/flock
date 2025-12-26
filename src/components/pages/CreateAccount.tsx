@@ -12,7 +12,7 @@ import {
 } from '@mui/material'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
-import { getPage } from '.'
+import { ROUTES } from './routes'
 import { HomeIcon, PasswordIcon } from '../Icons'
 import { useAppDispatch } from '../../store'
 import { setUi } from '../../state/ui'
@@ -70,12 +70,12 @@ function CreateAccountPage() {
   const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
   const handleClickHome = useCallback(
-    () => navigate(getPage('welcome').path),
+    () => navigate(ROUTES.welcome.path),
     [navigate],
   )
 
   const handleClickLogin = useCallback(
-    () => navigate(getPage('login').path),
+    () => navigate(ROUTES.login.path),
     [navigate],
   )
 
@@ -115,7 +115,7 @@ function CreateAccountPage() {
     () => {
       setShowCreatedAccountDialog(false)
       dispatch(setUi({ justCreatedAccount: true }))
-      navigate(getPage('login').path)
+      navigate(ROUTES.login.path)
     },
     [dispatch, navigate],
   )
@@ -145,7 +145,7 @@ function CreateAccountPage() {
         </HomeIconContainer>
 
         <CenterSection>
-          <Link to={getPage('welcome').path}>
+          <Link to={ROUTES.welcome.path}>
             <img
               src="/flock.png"
               alt=""

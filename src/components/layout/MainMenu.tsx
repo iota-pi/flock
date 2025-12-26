@@ -12,7 +12,7 @@ import {
   Toolbar,
 } from '@mui/material'
 import { pages, usePage } from '../pages'
-import { PageId } from '../pages/types'
+import { PageId } from '../pages/routes'
 import { useAppDispatch } from '../../store'
 import { setUi } from '../../state/ui'
 import { useMetadataQuery } from '../../api/queries'

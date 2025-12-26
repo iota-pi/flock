@@ -4,10 +4,8 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import * as serviceWorkerRegistration from './serviceWorkerRegistration'
 import store from './store'
 import { queryClient, queryPersister } from './api/queries'
-import configureHokeys from './utils/hotkeys'
 import ThemedApp from './ThemedApp'
 
-configureHokeys()
 
 const rootElement = document.getElementById('root')!
 const root = createRoot(rootElement)
