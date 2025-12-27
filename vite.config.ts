@@ -19,23 +19,17 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('src/api/Vault.ts')) {
-            return 'vault'
-          }
           if (id.includes('node_modules')) {
-            if (id.match(/react|react-dom|react-router/)) {
-              return 'vendor-react'
-            }
             if (id.match(/@mui\/icons-material|react-icons/)) {
               return 'vendor-icons'
-            }
-            if (id.match(/@mui\/(material|lab)/)) {
-              return 'vendor-mui'
             }
             if (id.match(/firebase\/(app|messaging)/)) {
               return 'vendor-firebase'
             }
-            if (id.match(/@mui\/x-date-pickers|@tanstack\/react-query|axios|redux|@reduxjs\/toolkit|date-fns/)) {
+            if (id.match(/@mui\/x-date-pickers|date-fns/)) {
+              return 'vendor-date-utils'
+            }
+            if (id.match(/@tanstack\/react-query|axios|redux|@reduxjs\/toolkit/)) {
               return 'vendor-utils'
             }
             if (id.match(/zxcvbn/)) {
