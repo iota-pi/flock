@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { Navigate, useLocation, useRoutes, useMatches, RouteObject } from 'react-router'
+import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
 import { CircularProgress, Box } from '@mui/material'
 import { useLoggedIn } from '../../state/selectors'
 
@@ -29,40 +29,34 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-function PageView() {
-  const routes: RouteObject[] = [
-    // Public routes
-    ...Object.values(INTERNAL_ROUTES).filter(p => !p.requiresAuth).map(p => ({
-      path: p.path,
-      element: p.page,
-      handle: p,
-    })),
-    // Protected routes
-    ...Object.values(MENU_ROUTES).map(p => ({
-      path: p.path,
-      element: (
-        <RequireAuth>
+export const routes: RouteObject[] = [
+  // Public routes
+  ...Object.values(INTERNAL_ROUTES).filter(p => !p.requiresAuth).map(p => ({
+    path: p.path,
+    element: (
+      <Suspense fallback={<Loading />}>
+        {p.page}
+      </Suspense>
+    ),
+    handle: p,
+  })),
+  // Protected routes
+  ...Object.values(MENU_ROUTES).map(p => ({
+    path: p.path,
+    element: (
+      <RequireAuth>
+        <Suspense fallback={<Loading />}>
           {p.page}
-        </RequireAuth>
-      ),
-      handle: p,
-    })),
-    {
-      path: "*",
-      element: <Navigate to="/" replace />
-    }
-  ]
-
-  const element = useRoutes(routes)
-
-  return (
-    <Suspense fallback={<Loading />}>
-      {element}
-    </Suspense>
-  )
-}
-
-export default PageView
+        </Suspense>
+      </RequireAuth>
+    ),
+    handle: p,
+  })),
+  {
+    path: "*",
+    element: <Navigate to="/" replace />
+  }
+]
 
 
 export function usePage(): Page | undefined {
