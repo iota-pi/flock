@@ -29,14 +29,31 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function RedirectIfLoggedIn(
+  { children, redirect }: {
+    children: React.ReactNode,
+    redirect: string,
+  },
+) {
+  const loggedIn = useLoggedIn()
+
+  if (loggedIn) {
+    return <Navigate to={redirect} replace />
+  }
+
+  return <>{children}</>
+}
+
 export const routes: RouteObject[] = [
   // Public routes
   ...Object.values(INTERNAL_ROUTES).filter(p => !p.requiresAuth).map(p => ({
     path: p.path,
     element: (
-      <Suspense fallback={<Loading />}>
-        {p.page}
-      </Suspense>
+      <RedirectIfLoggedIn redirect="/">
+        <Suspense fallback={<Loading />}>
+          {p.page}
+        </Suspense>
+      </RedirectIfLoggedIn>
     ),
     handle: p,
   })),
