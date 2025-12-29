@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BrowserRouter as Router } from 'react-router'
+import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
 import { styled, Toolbar, useMediaQuery } from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
-import PageView from './components/pages'
+import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/VaultLazy'
@@ -21,7 +21,7 @@ const Content = styled('div')({
   flexDirection: 'column',
 })
 
-export default function App() {
+function RootLayout() {
   const loggedIn = useLoggedIn()
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
@@ -62,37 +62,46 @@ export default function App() {
   )
 
   return (
-    <>
-      <LocalizationProvider dateAdapter={AdapterDateFns}>
-        <Router>
-          <Root>
-            {loggedIn && (
-              <>
-                <AppBar
-                  minimisedMenu={miniMenu}
-                  onToggleMenu={handleToggleShowMenu}
-                />
-                <MainMenu
-                  minimised={miniMenu}
-                  open={openMenu}
-                  onClick={handleMenuClick}
-                  onMinimise={handleToggleMiniMenu}
-                />
-              </>
-            )}
+    <Root>
+      {loggedIn && (
+        <>
+          <AppBar
+            minimisedMenu={miniMenu}
+            onToggleMenu={handleToggleShowMenu}
+          />
+          <MainMenu
+            minimised={miniMenu}
+            open={openMenu}
+            onClick={handleMenuClick}
+            onMinimise={handleToggleMiniMenu}
+          />
+        </>
+      )}
 
-            <Content>
-              {loggedIn && (
-                <Toolbar />
-              )}
+      <Content>
+        {loggedIn && (
+          <Toolbar />
+        )}
 
-              <MainLayout>
-                <PageView />
-              </MainLayout>
-            </Content>
-          </Root>
-        </Router>
-      </LocalizationProvider>
-    </>
+        <MainLayout>
+          <Outlet />
+        </MainLayout>
+      </Content>
+    </Root>
+  )
+}
+
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: routes,
+  }
+])
+
+export default function App() {
+  return (
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <RouterProvider router={router} />
+    </LocalizationProvider>
   )
 }
