@@ -145,7 +145,6 @@ export function useItemsQuery(enabled = true) {
     queryFn: fetchItems,
     enabled,
     refetchOnMount: 'always',
-    staleTime: 0,
   })
 }
 
@@ -156,7 +155,6 @@ export function useMetadataQuery(enabled = true) {
     queryFn: fetchMetadata,
     enabled,
     refetchOnMount: 'always',
-    staleTime: 0,
   })
 }
 
