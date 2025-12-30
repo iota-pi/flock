@@ -36,22 +36,17 @@ function ItemPage<T extends Item>({
     [],
   )
 
-  const applicableItems = useMemo(
-    () => showArchived ? rawItems : rawItems.filter(item => !item.archived),
-    [rawItems, showArchived],
-  )
-  const archivedCount = useMemo(
-    () => rawItems.filter(item => item.archived).length,
-    [rawItems],
-  )
-
-  const items = useAsyncItems({
-    items: applicableItems,
+  const {
+    items,
+    totalApplicable,
+    archivedCount,
+  } = useAsyncItems({
+    items: rawItems,
     filters,
     sortCriteria,
+    showArchived,
   })
-
-  const hiddenItemCount = applicableItems.length - items.length
+  const hiddenItemCount = totalApplicable - items.length
 
   const handleClickItem = useCallback(
     (item: T) => {
