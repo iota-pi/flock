@@ -13,6 +13,7 @@ export interface BasePageConfig {
 // Config shape for internal routes (no ID)
 export interface InternalRouteConfig extends BasePageConfig {
   page: ReactNode
+  requiresAuth: false
 }
 
 // Config shape for menu routes (no ID)
@@ -23,6 +24,7 @@ export interface MenuRouteConfig extends BasePageConfig {
   dividerBefore?: boolean
   noPlaceholderDrawer?: boolean
   metadataControl?: (metadata: AccountMetadata) => boolean
+  requiresAuth: true
 }
 
 export interface InternalPage extends InternalRouteConfig {

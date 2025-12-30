@@ -15,7 +15,7 @@ const SettingsPage = lazy(() => import('./Settings'))
 const WelcomePage = lazy(() => import('./Welcome'))
 
 // Internal routes (not in the main menu)
-export const INTERNAL_ROUTES = {
+export const PUBLIC_ROUTES = {
   welcome: {
     path: '/welcome',
     requiresAuth: false,
@@ -34,7 +34,7 @@ export const INTERNAL_ROUTES = {
 } as const satisfies Record<string, InternalRouteConfig>
 
 // Main menu routes
-export const MENU_ROUTES = {
+export const PROTECTED_ROUTES = {
   prayer: {
     name: 'Prayer',
     icon: PrayerIcon,
@@ -69,10 +69,10 @@ export const MENU_ROUTES = {
 } as const satisfies Record<string, MenuRouteConfig>
 
 export const ROUTES = {
-  ...INTERNAL_ROUTES,
-  ...MENU_ROUTES,
+  ...PUBLIC_ROUTES,
+  ...PROTECTED_ROUTES,
 }
 
-export type InternalPageId = keyof typeof INTERNAL_ROUTES
-export type PageId = keyof typeof MENU_ROUTES
+export type InternalPageId = keyof typeof PUBLIC_ROUTES
+export type PageId = keyof typeof PROTECTED_ROUTES
 export type AnyPageId = InternalPageId | PageId

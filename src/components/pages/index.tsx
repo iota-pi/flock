@@ -3,10 +3,10 @@ import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
 import { CircularProgress, Box } from '@mui/material'
 import { useLoggedIn } from '../../state/selectors'
 
-import { INTERNAL_ROUTES, MENU_ROUTES } from './routes'
+import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { Page, PageId } from './types'
 
-export const pages: Page[] = (Object.entries(MENU_ROUTES) as [PageId, typeof MENU_ROUTES[PageId]][])
+export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
   .map(([id, config]) => ({ ...config, id }))
 
 
@@ -46,7 +46,7 @@ function RedirectIfLoggedIn(
 
 export const routes: RouteObject[] = [
   // Public routes
-  ...Object.values(INTERNAL_ROUTES).filter(p => !p.requiresAuth).map(p => ({
+  ...Object.entries(PUBLIC_ROUTES).map(([id, p]) => ({
     path: p.path,
     element: (
       <RedirectIfLoggedIn redirect="/">
@@ -55,10 +55,10 @@ export const routes: RouteObject[] = [
         </Suspense>
       </RedirectIfLoggedIn>
     ),
-    handle: p,
+    handle: { ...p, id },
   })),
   // Protected routes
-  ...Object.values(MENU_ROUTES).map(p => ({
+  ...Object.entries(PROTECTED_ROUTES).map(([id, p]) => ({
     path: p.path,
     element: (
       <RequireAuth>
@@ -67,7 +67,7 @@ export const routes: RouteObject[] = [
         </Suspense>
       </RequireAuth>
     ),
-    handle: p,
+    handle: { ...p, id },
   })),
   {
     path: "*",
