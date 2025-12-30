@@ -454,7 +454,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
               style={{ height: size.height, width: size.width }}
               rowCount={items.length}
               rowProps={itemData as unknown as BaseProps<Item>}
-              rowHeight={useDynamicHeight ? dynamicRowHeight : (() => DEFAULT_ROW_HEIGHT)}
+              rowHeight={dynamicRowHeight}
               rowComponent={ItemListItem}
             />
           )}
