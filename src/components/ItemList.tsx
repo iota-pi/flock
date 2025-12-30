@@ -34,7 +34,7 @@ import { useItems } from '../state/selectors'
 import { useSize } from '../hooks/useSize'
 
 const FADED_OPACITY = 0.65
-const DEFAULT_ROW_HEIGHT = 72
+const DEFAULT_ROW_HEIGHT = 58
 
 const StyledListItem = styled(ListItemButton)(
   () => ({
@@ -374,12 +374,15 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     defaultRowHeight: DEFAULT_ROW_HEIGHT,
   })
 
+  const useDynamicHeight = wrapText || (extraElements && extraElements.length > 0) || compact
+
   // Observe row elements for dynamic height measurement
   useEffect(() => {
+    if (!useDynamicHeight) return
     if (!listRef.current) return
     const rows = listRef.current.querySelectorAll('[data-index]')
     return dynamicRowHeight.observeRowElements(rows)
-  }, [dynamicRowHeight, items])
+  }, [dynamicRowHeight, items, useDynamicHeight])
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -451,7 +454,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
               style={{ height: size.height, width: size.width }}
               rowCount={items.length}
               rowProps={itemData as unknown as BaseProps<Item>}
-              rowHeight={dynamicRowHeight}
+              rowHeight={useDynamicHeight ? dynamicRowHeight : (() => DEFAULT_ROW_HEIGHT)}
               rowComponent={ItemListItem}
             />
           )}
