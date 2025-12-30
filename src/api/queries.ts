@@ -69,6 +69,9 @@ function handleVaultError(error: Error, message: string) {
   })
 }
 
+// Cache for decrypted items
+const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
+
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function fetchItems(): Promise<Item[]> {
   if (!checkAxios) {
@@ -85,17 +88,29 @@ export async function fetchItems(): Promise<Item[]> {
     return [] as VaultItem[]
   })
 
-  const decryptPromises = items.map((item, index) => {
+  const decryptPromises = items.map(async (item, index) => {
     const cipher = item.cipher
     const iv = item.metadata?.iv
+    const id = item.item
+
     if (!cipher || !iv) {
       return Promise.reject(new Error(`Missing cipher or iv for item ${item.item ?? index}`))
     }
-    return vault.decryptObject({ cipher, iv }) as Promise<Item>
+
+    // Check cache
+    const cached = decryptionCache.get(id)
+    if (cached && cached.cipher === cipher && cached.iv === iv) {
+      return cached.item
+    }
+
+    // Decrypt and cache
+    const decrypted = await vault.decryptObject({ cipher, iv }) as Item
+    decryptionCache.set(id, { cipher, iv, item: decrypted })
+    return decrypted
   })
 
-  const decrypted = await Promise.allSettled(decryptPromises)
-  const successful = decrypted.flatMap(result => {
+  const decryptedResults = await Promise.allSettled(decryptPromises)
+  const successful = decryptedResults.flatMap(result => {
     if (result.status === 'fulfilled') {
       return [result.value]
     }
