@@ -16,6 +16,7 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import store from '../store'
 import { pruneItems } from '../state/ui'
 import { checkAxios } from './axios'
+import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 
 // Query Keys
 export const queryKeys = {
@@ -119,7 +120,7 @@ export async function fetchItems(): Promise<Item[]> {
     return [] as Item[]
   })
 
-  return successful
+  return sortItems(successful, DEFAULT_CRITERIA)
 }
 
 // Fetch and decrypt metadata
