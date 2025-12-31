@@ -6,7 +6,7 @@ import { AccountMetadata } from '../account'
 export interface ItemMigration {
   description?: string,
   id: string,
-  migrate: (args: { items: Item[] }) => Promise<boolean>,
+  migrate: (args: { items: Item[] }) => Promise<Item[]>,
 }
 
 const migrations: ItemMigration[] = [
@@ -24,16 +24,7 @@ const migrations: ItemMigration[] = [
           updatedItems.push(item)
         }
       }
-      if (updatedItems.length > 0) {
-        try {
-          await storeItems(updatedItems)
-        } catch (error) {
-          console.warn('Error storing items during migration')
-          console.error(error)
-          return false
-        }
-      }
-      return true
+      return updatedItems
     },
   },
   {
@@ -71,16 +62,7 @@ const migrations: ItemMigration[] = [
         }
       }
       const updatedItems: typeof items = Object.values(tagMap)
-      if (updatedItems.length > 0) {
-        try {
-          await storeItems(updatedItems)
-        } catch (error) {
-          console.warn('Error storing items during migration')
-          console.error(error)
-          return false
-        }
-      }
-      return true
+      return updatedItems
     },
   },
   {
@@ -93,16 +75,7 @@ const migrations: ItemMigration[] = [
           updatedItems.push(convertItem(item, 'person'))
         }
       }
-      if (updatedItems.length > 0) {
-        try {
-          await storeItems(updatedItems)
-        } catch (error) {
-          console.warn('Error storing items during migration')
-          console.error(error)
-          return false
-        }
-      }
-      return true
+      return updatedItems
     },
   },
   {
@@ -120,16 +93,7 @@ const migrations: ItemMigration[] = [
           }
         }
       }
-      if (updatedItems.length > 0) {
-        try {
-          await storeItems(updatedItems)
-        } catch (error) {
-          console.warn('Error storing items during migration')
-          console.error(error)
-          return false
-        }
-      }
-      return true
+      return updatedItems
     },
   },
 ]
@@ -145,12 +109,11 @@ async function migrateItems(items: Item[], metadata: AccountMetadata) {
     }
 
     try {
-      const successful = await migration.migrate({ items })
-      if (successful) {
-        completedMigrations.push(migration.id)
-      } else {
-        console.warn(`Migration failed: ${migration.id}`)
+      const itemsToStore = await migration.migrate({ items })
+      if (itemsToStore.length > 0) {
+        await storeItems(itemsToStore)
       }
+      completedMigrations.push(migration.id)
     } catch (error) {
       console.warn(`Uncaught error in migration ${migration.id}`)
       console.error(error)
