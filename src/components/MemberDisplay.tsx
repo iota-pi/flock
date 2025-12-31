@@ -79,6 +79,7 @@ function MemberDisplay({
       <ItemList
         compact
         dividers
+        fullHeight={false}
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={members}
         noItemsHint="No group members"
