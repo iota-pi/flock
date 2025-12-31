@@ -172,6 +172,8 @@ export async function loadVault() {
 
     store.dispatch(setAccount({ loggedIn: true }))
   }
+
+  store.dispatch(setAccount({ initializing: false }))
 }
 
 export async function storeVault() {

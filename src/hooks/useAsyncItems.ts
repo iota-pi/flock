@@ -7,14 +7,24 @@ interface UseAsyncItemsProps<T extends Item> {
   items: T[],
   filters: FilterCriterion[],
   sortCriteria: SortCriterion[],
+  showArchived: boolean,
 }
 
 export function useAsyncItems<T extends Item>({
   items,
   filters,
   sortCriteria,
+  showArchived,
 }: UseAsyncItemsProps<T>) {
-  const [processedItems, setProcessedItems] = useState<T[]>(items)
+  const [processedItems, setProcessedItems] = useState<T[]>(() => (
+    showArchived ? items : items.filter(i => !i.archived) as T[]
+  ))
+  const [totalApplicable, setTotalApplicable] = useState(() => (
+    showArchived ? items.length : items.filter(i => !i.archived).length
+  ))
+  const [archivedCount, setArchivedCount] = useState(() => (
+    items.filter(i => i.archived).length
+  ))
   const workerRef = useRef<Worker | null>(null)
 
   useEffect(() => {
@@ -23,7 +33,10 @@ export function useAsyncItems<T extends Item>({
     })
 
     workerRef.current.onmessage = e => {
-      setProcessedItems(e.data)
+      const { results, totalApplicable, archivedCount } = e.data
+      setProcessedItems(results)
+      setTotalApplicable(totalApplicable)
+      setArchivedCount(archivedCount)
     }
 
     return () => {
@@ -32,8 +45,8 @@ export function useAsyncItems<T extends Item>({
   }, [])
 
   useEffect(() => {
-    workerRef.current?.postMessage({ items, filters, sortCriteria })
-  }, [items, filters, sortCriteria])
+    workerRef.current?.postMessage({ items, filters, sortCriteria, showArchived })
+  }, [items, filters, sortCriteria, showArchived])
 
-  return processedItems
+  return { items: processedItems, totalApplicable, archivedCount }
 }

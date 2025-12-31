@@ -6,6 +6,7 @@ import { Item, ItemId } from './items'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 
 export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
+export const useAuthInitializing = () => useAppSelector(state => state.account.initializing)
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]

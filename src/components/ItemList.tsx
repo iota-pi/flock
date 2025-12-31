@@ -34,7 +34,7 @@ import { useItems } from '../state/selectors'
 import { useSize } from '../hooks/useSize'
 
 const FADED_OPACITY = 0.65
-const DEFAULT_ROW_HEIGHT = 72
+const DEFAULT_ROW_HEIGHT = 58
 
 const StyledListItem = styled(ListItemButton)(
   () => ({
@@ -103,6 +103,8 @@ export interface BaseProps<T extends Item> {
 }
 export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
+  defaultRowHeight?: number,
+  fullHeight?: boolean,
   disablePadding?: boolean,
   noItemsHint?: string,
   noItemsText?: string,
@@ -336,18 +338,20 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
   )
 }
 
-function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
+export function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
     getActionIcon,
     compact,
     checkboxes,
     checkboxSide,
     className,
+    defaultRowHeight = DEFAULT_ROW_HEIGHT,
     disablePadding,
     dividers,
     extraElements,
     fadeArchived = true,
     filterTags,
+    fullHeight = true,
     getChecked,
     getDescription,
     getForceFade,
@@ -371,15 +375,18 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null)
   const size = useSize(listRef)
   const dynamicRowHeight = useDynamicRowHeight({
-    defaultRowHeight: DEFAULT_ROW_HEIGHT,
+    defaultRowHeight,
   })
+
+  const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
 
   // Observe row elements for dynamic height measurement
   useEffect(() => {
+    if (!useDynamicHeight) return
     if (!listRef.current) return
     const rows = listRef.current.querySelectorAll('[data-index]')
     return dynamicRowHeight.observeRowElements(rows)
-  }, [dynamicRowHeight, items])
+  }, [dynamicRowHeight, items, useDynamicHeight])
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -434,7 +441,53 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     ],
   )
 
-  const rootStyles: SxProps = useMemo(() => ({ paddingBottom, height: '100%' }), [paddingBottom])
+  const rootStyles: SxProps = useMemo(
+    () => ({
+      paddingBottom,
+      height: fullHeight ? '100%' : undefined,
+    }),
+    [fullHeight, paddingBottom],
+  )
+
+  const renderContent = () => {
+    if (items.length === 0) {
+      return (
+        <ListItem>
+          <ListItemText primary={noItemsText} secondary={noItemsHint} />
+        </ListItem>
+      )
+    }
+
+    if (!fullHeight) {
+      return items.map((_, index) => (
+        <ItemListItem
+          key={items[index].id}
+          index={index}
+          style={{}}
+          ariaAttributes={{
+            'aria-posinset': index + 1,
+            'aria-setsize': items.length,
+            role: 'listitem',
+          }}
+          {...itemData}
+        />
+      ))
+    }
+
+    return (
+      <div ref={listRef} style={{ height: '100%', width: '100%' }}>
+        {size && (
+          <ReactWindowList<BaseProps<Item>>
+            style={{ height: size.height, width: size.width }}
+            rowCount={items.length}
+            rowProps={itemData as unknown as BaseProps<Item>}
+            rowHeight={dynamicRowHeight}
+            rowComponent={ItemListItem}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <List
@@ -444,23 +497,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     >
       {dividers && items.length === 0 && <Divider />}
 
-      {items.length > 0 ? (
-        <div ref={listRef} style={{ height: '100%', width: '100%' }}>
-          {size && (
-            <ReactWindowList<BaseProps<Item>>
-              style={{ height: size.height, width: size.width }}
-              rowCount={items.length}
-              rowProps={itemData as unknown as BaseProps<Item>}
-              rowHeight={dynamicRowHeight}
-              rowComponent={ItemListItem}
-            />
-          )}
-        </div>
-      ) : (
-        <ListItem>
-          <ListItemText primary={noItemsText} secondary={noItemsHint} />
-        </ListItem>
-      )}
+      {renderContent()}
 
       {dividers && <Divider />}
     </List>

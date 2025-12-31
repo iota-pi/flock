@@ -75,6 +75,7 @@ function GroupDisplay({
       <ItemList
         compact
         dividers
+        fullHeight={false}
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         items={currentGroups}
         noItemsHint="Not in any groups"
