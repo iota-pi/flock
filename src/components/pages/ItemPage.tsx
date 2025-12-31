@@ -164,6 +164,8 @@ function ItemPage<T extends Item>({
       topBarTitle={itemCountText}
     >
       <ItemList
+        key={itemType}
+        defaultRowHeight={itemType === 'group' ? 72 : undefined}
         checkboxes
         disablePadding
         extraElements={extras}

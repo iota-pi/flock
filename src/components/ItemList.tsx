@@ -103,6 +103,7 @@ export interface BaseProps<T extends Item> {
 }
 export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
+  defaultRowHeight?: number,
   disablePadding?: boolean,
   noItemsHint?: string,
   noItemsText?: string,
@@ -343,6 +344,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     checkboxes,
     checkboxSide,
     className,
+    defaultRowHeight = DEFAULT_ROW_HEIGHT,
     disablePadding,
     dividers,
     extraElements,
@@ -371,7 +373,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null)
   const size = useSize(listRef)
   const dynamicRowHeight = useDynamicRowHeight({
-    defaultRowHeight: DEFAULT_ROW_HEIGHT,
+    defaultRowHeight,
   })
 
   const useDynamicHeight = wrapText || (extraElements && extraElements.length > 0) || compact
