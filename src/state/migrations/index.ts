@@ -10,7 +10,32 @@ export interface ItemMigration {
 }
 
 const migrations: ItemMigration[] = [
-  // TODO remove tags from old items in future migration
+
+  {
+    description: 'Remove legacy tags property',
+    id: 'remove-legacy-tags',
+    migrate: async ({ items }) => {
+      const updatedItems: Item[] = []
+      for (const item of items) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((item as any).tags) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          delete (item as any).tags
+          updatedItems.push(item)
+        }
+      }
+      if (updatedItems.length > 0) {
+        try {
+          await storeItems(updatedItems)
+        } catch (error) {
+          console.warn('Error storing items during migration')
+          console.error(error)
+          return false
+        }
+      }
+      return true
+    },
+  },
   {
     description: 'Convert tags to groups',
     id: 'convert-tags-to-groups',
@@ -110,7 +135,7 @@ const migrations: ItemMigration[] = [
 ]
 
 async function migrateItems(items: Item[], metadata: AccountMetadata) {
-  const reversedMigrations = migrations.slice()
+  const reversedMigrations = migrations.slice().reverse()
   const previousMigrations = (metadata.completedMigrations as string[]) || []
   const completedMigrations = previousMigrations.slice()
 
