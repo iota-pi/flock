@@ -8,7 +8,7 @@ import {
   vaultPutMany,
   vaultSetMetadata,
 } from './VaultAPI'
-import { checkProperties, Item, ItemId } from '../state/items'
+import { checkProperties, Item, ItemId, supplyMissingAttributes } from '../state/items'
 import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
 import { getAccountId } from './util'
@@ -106,8 +106,9 @@ export async function fetchItems(): Promise<Item[]> {
 
     // Decrypt and cache
     const decrypted = await vault.decryptObject({ cipher, iv }) as Item
-    decryptionCache.set(id, { cipher, iv, item: decrypted })
-    return decrypted
+    const filled = supplyMissingAttributes(decrypted)
+    decryptionCache.set(id, { cipher, iv, item: filled })
+    return filled
   })
 
   const decryptedResults = await Promise.allSettled(decryptPromises)
