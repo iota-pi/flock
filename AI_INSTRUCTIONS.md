@@ -57,7 +57,7 @@
 ## Common Workflows (Commands)
 
 ### Development
-- **Install Dependencies**: `yarn install` (Also runs `patch-package`).
+- **Install Dependencies**: `yarn install`
 - **Start Full Stack**: `yarn start` (Requires Docker).
     - Starts Docker (API + DynamoDB) and Vite Dev Server.
 - **Start Frontend Only**: `yarn dev`
