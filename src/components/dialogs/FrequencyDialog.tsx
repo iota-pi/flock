@@ -41,7 +41,7 @@ function FrequencyDialog({
       storeItems(updatedItems)
       onClose()
     },
-    [frequency, items, onClose],
+    [frequency, items, onClose, storeItems],
   )
 
   return (

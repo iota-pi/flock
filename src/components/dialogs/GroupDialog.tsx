@@ -80,7 +80,7 @@ function GroupDialog({
       storeItems(updated)
       onClose()
     },
-    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],
+    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds, storeItems],
   )
 
   return (

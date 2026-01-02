@@ -53,7 +53,7 @@ export default function useSettings() {
       setCacheClearCounter(c => c + 1)
       dispatch(setMessage({ message: 'Item cache cleared' }))
     },
-    [],
+    [dispatch],
   )
 
   const handleExport = useCallback(
@@ -68,7 +68,7 @@ export default function useSettings() {
         throw err
       }
     },
-    [items],
+    [dispatch, items],
   )
 
   // Dialog State
@@ -88,7 +88,7 @@ export default function useSettings() {
         console.error('Restore failed', err)
       }
     },
-    [dispatch, closeDialog],
+    [dispatch, closeDialog, storeItems],
   )
 
   const handleConfirmImport = useCallback(
@@ -102,7 +102,7 @@ export default function useSettings() {
         console.error('Import failed', err)
       }
     },
-    [dispatch, closeDialog],
+    [dispatch, closeDialog, storeItems],
   )
 
   const handleSubscribe = useCallback(

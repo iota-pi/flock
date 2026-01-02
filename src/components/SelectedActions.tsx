@@ -148,6 +148,7 @@ function SelectedActions() {
       handleArchive,
       handleClear,
       handleInitialDelete,
+      handleShowFrequency,
       handleShowGroup,
       handleUnarchive,
       workingItems,

@@ -3,6 +3,7 @@ import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import importPlugin from 'eslint-plugin-import-x'
 import stylistic from '@stylistic/eslint-plugin'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 
 export default defineConfig([
@@ -26,8 +27,10 @@ export default defineConfig([
   {
     plugins: {
       '@stylistic': stylistic,
+      'react-hooks': reactHooks,
     },
     rules: {
+      ...reactHooks.configs.recommended.rules,
       'arrow-parens': ['error', 'as-needed'],
       'lines-between-class-members': ['error', 'always', { exceptAfterSingleLine: true }],
       'no-console': ['error', { allow: ['warn', 'error', 'info'] }],

@@ -160,7 +160,7 @@ function ItemDrawer({
       }
       storeItems(updatedGroupItems)
     },
-    [item.id, memberGroups],
+    [item.id, memberGroups, storeItems],
   )
 
   const handleSave = useCallback(
@@ -174,7 +174,7 @@ function ItemDrawer({
       }
       return undefined
     },
-    [],
+    [storeItems],
   )
   const handleSaveAndClose = useCallback(
     () => {
@@ -352,8 +352,8 @@ function ItemDrawer({
     ),
     [
       handleChange,
+      item.id,
       item.prayerFrequency,
-      item.type,
       memberFrequency,
       memberTarget,
       lastPrayer,

@@ -78,3 +78,6 @@
 ## Formatting & Linting
 - **Lint**: `yarn lint`
 - **Pre-commit**: Ensure `lint`, `build`, and `test` pass.
+
+## General Agent Instructions
+- **Temp files**: If you create files for reading command output, delete them before returning to the user.

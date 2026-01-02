@@ -41,7 +41,7 @@ function useDrawerRouting(drawers: DrawerData[]) {
         navigate(`#${topItem}`)
       }
     },
-    [drawers, routerLocation, prevDrawers],
+    [drawers, routerLocation, prevDrawers, navigate],
   )
 
   const secondTopItem = drawers[drawers.length - 2]?.item

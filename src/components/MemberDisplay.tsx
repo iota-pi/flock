@@ -53,9 +53,10 @@ function MemberDisplay({
     [memberIds, onChange],
   )
 
+  const groupName = group?.name
   const filterTags = useCallback(
-    (tag: string) => !group?.name || group.name !== tag,
-    [group?.name],
+    (tag: string) => !groupName || groupName !== tag,
+    [groupName],
   )
 
   return (
