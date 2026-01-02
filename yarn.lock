@@ -4360,7 +4360,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@zxcvbn-ts/core@npm:latest":
+"@zxcvbn-ts/core@npm:^3.0.4":
   version: 3.0.4
   resolution: "@zxcvbn-ts/core@npm:3.0.4"
   dependencies:
@@ -4369,14 +4369,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@zxcvbn-ts/language-common@npm:latest":
+"@zxcvbn-ts/language-common@npm:^3.0.4":
   version: 3.0.4
   resolution: "@zxcvbn-ts/language-common@npm:3.0.4"
   checksum: 10c0/0dc6185c4289a876a236e498c4b1b4bd181a56f14068fb5610d7238918cab5ce56e08d5e8c7fe980cd28dbed57650defc202bc57bd1bffc302bb600aec4769c8
   languageName: node
   linkType: hard
 
-"@zxcvbn-ts/language-en@npm:latest":
+"@zxcvbn-ts/language-en@npm:^3.0.2":
   version: 3.0.2
   resolution: "@zxcvbn-ts/language-en@npm:3.0.2"
   checksum: 10c0/b5930a41d014c99f585721c9f14baa0bf4f538de5f444e752fa9e671e6aebd5844bc85b136ba8474753e288320cde33aa5a9c5888ab5f1f7ccb6de0f0dfcf7ba
@@ -7017,9 +7017,9 @@ __metadata:
     "@vitejs/plugin-react": "npm:^5.1.2"
     "@vitest/coverage-v8": "npm:^4.0.16"
     "@vitest/eslint-plugin": "npm:^1.5.2"
-    "@zxcvbn-ts/core": "npm:latest"
-    "@zxcvbn-ts/language-common": "npm:latest"
-    "@zxcvbn-ts/language-en": "npm:latest"
+    "@zxcvbn-ts/core": "npm:^3.0.4"
+    "@zxcvbn-ts/language-common": "npm:^3.0.4"
+    "@zxcvbn-ts/language-en": "npm:^3.0.2"
     axios: "npm:^1.13.2"
     bestzip: "npm:^2.2.1"
     browserslist: "npm:^4.28.1"
