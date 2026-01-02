@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   Box,
   Checkbox,
@@ -67,7 +67,7 @@ function TopBar({
 
   const filterCount = usePracticalFilterCount()
 
-  const optionsAnchor = useRef<HTMLButtonElement>(null)
+  const [optionsAnchor, setOptionsAnchor] = useState<HTMLButtonElement | null>(null)
 
   const smallScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const alwaysShowCheckbox = !smallScreen
@@ -142,7 +142,7 @@ function TopBar({
           aria-controls={MENU_POPUP_ID}
           aria-haspopup="true"
           onClick={handleClickOptions}
-          ref={optionsAnchor}
+          ref={setOptionsAnchor}
           size="large"
         >
           <OptionsIcon />
@@ -150,7 +150,7 @@ function TopBar({
       )}
 
       <Menu
-        anchorEl={optionsAnchor.current}
+        anchorEl={optionsAnchor}
         id={MENU_POPUP_ID}
         open={showOptions}
         onClose={handleCloseOptions}

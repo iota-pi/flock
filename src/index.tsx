@@ -27,7 +27,6 @@ serviceWorkerRegistration.register()
 
 if (window.Cypress) {
   window.vault = import('./api/Vault')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ; (window as any).invalidateQuery = (key: string) => queryClient.invalidateQueries({ queryKey: (queryKeys as any)[key] })
+  window.invalidateQuery = (key: keyof typeof queryKeys) => queryClient.invalidateQueries({ queryKey: queryKeys[key] })
   window.queryKeys = queryKeys
 }

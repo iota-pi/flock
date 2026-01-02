@@ -1,4 +1,4 @@
-import { MutableRefObject, useEffect, useMemo, useRef } from 'react'
+import { useMemo, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 export type MostlyRequired<T> = { [K in keyof Required<T>]: T[K] }
@@ -33,41 +33,33 @@ export function isSameDay(d1: Date, d2: Date) {
 }
 
 export function useToday() {
-  const d = useRef(new Date())
-  if (!isSameDay(d.current, new Date())) {
-    d.current = new Date()
-  }
-  return d.current
+  const todayStr = new Date().toDateString()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => new Date(), [todayStr])
 }
 
-export function usePreviousRef<T>(state: T): MutableRefObject<T | undefined> {
-  const ref = useRef<T>()
-  useEffect(() => {
-    ref.current = state
+export function usePrevious<T>(value: T): T | undefined {
+  const [state, setState] = useState<{ curr: T, prev: T | undefined }>({
+    curr: value,
+    prev: undefined,
   })
-  return ref
-}
 
-export function usePrevious<T>(state: T): T | undefined {
-  const ref = usePreviousRef<T>(state)
-  return ref.current
+  if (state.curr !== value) {
+    setState({
+      curr: value,
+      prev: state.curr,
+    })
+  }
+
+  return state.prev
 }
 
 export function useStringMemo<T>(state: T[]): T[] {
-  const prev = useRef<T[]>(state)
-  const prevKey = useRef<string>('')
-  return useMemo(
-    () => {
-      const sep = '~'
-      const key = state.join(sep)
-      if (!prev.current || prevKey.current !== key) {
-        prev.current = state
-        prevKey.current = key
-      }
-      return prev.current
-    },
-    [prev, prevKey, state],
-  )
+  // Join strings if the array reference changes
+  const key = useMemo(() => state.join('~'), [state])
+  // Only change the returned array reference if the key changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => state, [key])
 }
 
 export function capitalise(name: string) {
