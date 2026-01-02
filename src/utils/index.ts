@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { v4 as uuidv4 } from 'uuid'
 
 export type MostlyRequired<T> = { [K in keyof Required<T>]: T[K] }
 
@@ -10,7 +9,7 @@ export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | un
 }
 
 export function generateItemId() {
-  return uuidv4()
+  return crypto.randomUUID()
 }
 
 export function formatDate(date: Date) {
