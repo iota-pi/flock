@@ -1,7 +1,6 @@
 import {
   ReactNode,
   useCallback,
-  useEffect,
   useState,
 } from 'react'
 import {
@@ -61,7 +60,7 @@ export interface Props {
 function CollapsibleSection({
   icon: Icon,
   id,
-  initialExpanded = false,
+  initialExpanded = true,
   title,
   content,
   actions,
@@ -69,15 +68,6 @@ function CollapsibleSection({
   const [expanded, setExpanded] = useState<boolean>(initialExpanded)
 
   const handleChange = useCallback(() => setExpanded(e => !e), [])
-
-  useEffect(
-    () => {
-      if (initialExpanded) {
-        setExpanded(true)
-      }
-    },
-    [initialExpanded],
-  )
 
   return (
     <StyledAccordion

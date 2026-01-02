@@ -414,7 +414,6 @@ function ItemDrawer({
         )}
         icon={PersonIcon}
         id="members"
-        initialExpanded={true}
         title="Members"
       />
     ),
@@ -427,11 +426,10 @@ function ItemDrawer({
         content={<GroupDisplay itemId={item.id} />}
         icon={GroupIcon}
         id="groups"
-        initialExpanded={item.isNew}
         title="Groups"
       />
     ),
-    [item.id, item.isNew, item.type],
+    [item.id, item.type],
   )
 
   return (
