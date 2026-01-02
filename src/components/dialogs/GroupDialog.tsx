@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -8,7 +8,6 @@ import {
   Grid,
 } from '@mui/material'
 import { GroupItem, Item } from '../../state/items'
-import { usePrevious } from '../../utils'
 import Search from '../Search'
 import { useStoreItemsMutation } from '../../api/queries'
 
@@ -24,8 +23,6 @@ function GroupDialog({
   onClose,
   open,
 }: Props) {
-  const prevOpen = usePrevious(open)
-
   const [addGroups, setAddGroups] = useState<GroupItem[]>([])
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
   const { mutate: storeItems } = useStoreItemsMutation()
@@ -33,15 +30,14 @@ function GroupDialog({
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
   const selectedIds = useMemo(() => items.map(item => item.id), [items])
 
-  useEffect(
-    () => {
-      if (open && !prevOpen) {
-        setAddGroups([])
-        setRemoveGroups([])
-      }
-    },
-    [open, prevOpen],
-  )
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open && !prevOpen) {
+    setPrevOpen(true)
+    setAddGroups([])
+    setRemoveGroups([])
+  } else if (!open && prevOpen) {
+    setPrevOpen(false)
+  }
 
   const handleClearAdd = useCallback(() => setAddGroups([]), [])
   const handleSelectAdd = useCallback(

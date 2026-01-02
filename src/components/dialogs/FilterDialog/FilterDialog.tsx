@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -10,7 +10,6 @@ import {
 import { useAppDispatch, useAppSelector } from '../../../store'
 import { setUi } from '../../../state/ui'
 import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP } from '../../../utils/customFilter'
-import { usePrevious } from '../../../utils'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from '../../../utils/customFilter'
 
@@ -26,21 +25,18 @@ function FilterDialog({
   const dispatch = useAppDispatch()
   const filterCriteria = useAppSelector(state => state.ui.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
-  const prevOpen = usePrevious(open)
-
-  useEffect(
-    () => {
-      if (open && !prevOpen) {
-        const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type])
-        if (criteria.length > 0) {
-          setLocalCriteria(criteria)
-        } else {
-          setLocalCriteria(DEFAULT_FILTER_CRITERIA)
-        }
-      }
-    },
-    [filterCriteria, open, prevOpen],
-  )
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open && !prevOpen) {
+    setPrevOpen(true)
+    const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type])
+    if (criteria.length > 0) {
+      setLocalCriteria(criteria)
+    } else {
+      setLocalCriteria(DEFAULT_FILTER_CRITERIA)
+    }
+  } else if (!open && prevOpen) {
+    setPrevOpen(false)
+  }
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {

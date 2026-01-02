@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Alert, Snackbar } from '@mui/material'
 import { useAppDispatch, useAppSelector } from '../store'
 import { setUi } from '../state/ui'
@@ -16,14 +16,14 @@ function GeneralMessage() {
     [dispatch],
   )
 
-  useEffect(
-    () => {
-      if (message) {
-        setOpen(true)
-      }
-    },
-    [message],
-  )
+  // Derived state to open snackbar when message changes
+  const [prevMessage, setPrevMessage] = useState(message)
+  if (message !== prevMessage) {
+    setPrevMessage(message)
+    if (message) {
+      setOpen(true)
+    }
+  }
 
   return (
     <Snackbar

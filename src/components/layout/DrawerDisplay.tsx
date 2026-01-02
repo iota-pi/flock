@@ -88,7 +88,12 @@ function IndividualDrawer({
     [],
   )
 
-  useEffect(() => setLocalItem(item), [item])
+  // Update localItem when item changes
+  const [prevItem, setPrevItem] = useState(item)
+  if (item !== prevItem) {
+    setPrevItem(item)
+    setLocalItem(item)
+  }
 
   if (localItem) {
     return (

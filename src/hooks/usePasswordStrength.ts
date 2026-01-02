@@ -24,6 +24,13 @@ export function usePasswordStrength(password: string): PasswordFeedback {
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState<ZXCVBNResult['feedback']>({ warning: '', suggestions: [] })
 
+  // Reset state if password is empty (i.e. don't score blank passwords)
+  if (!password) {
+    setScore(0)
+    setError('')
+    setFeedback({ warning: '', suggestions: [] })
+  }
+
   useEffect(() => {
     let cancelled = false
     if (password) {
@@ -42,10 +49,6 @@ export function usePasswordStrength(password: string): PasswordFeedback {
           setError('')
         }
       })
-    } else {
-      setScore(0)
-      setError('')
-      setFeedback({ warning: '', suggestions: [] })
     }
     return () => {
       cancelled = true
