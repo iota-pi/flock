@@ -45,8 +45,10 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@types/zxcvbn": "^4.4.1",
     "@vitejs/plugin-react": "^5.1.2",
+    "@zxcvbn-ts/core": "^3.0.4",
+    "@zxcvbn-ts/language-common": "^3.0.4",
+    "@zxcvbn-ts/language-en": "^3.0.2",
     "axios": "^1.13.2",
     "csv-parse": "^5.5.5",
     "date-fns": "^4.1.0",
@@ -68,8 +70,7 @@
     "react-window": "^2.2.3",
     "tsx": "^4.20.6",
     "typebox": "^1.0.53",
-    "vite-tsconfig-paths": "^6.0.3",
-    "zxcvbn": "^4.4.2"
+    "vite-tsconfig-paths": "^6.0.3"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.5.0",
