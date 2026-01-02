@@ -155,3 +155,15 @@ Cypress.Commands.add(
     })
   },
 )
+
+Cypress.Commands.add(
+  'invalidateQuery',
+  (key: AppQueryKey): Cypress.Chainable => {
+    return cy.window({ log: false }).then(win => {
+      if (!win.invalidateQuery) {
+        throw new Error('invalidateQuery function not found on window object')
+      }
+      return win.invalidateQuery(key)
+    })
+  },
+)

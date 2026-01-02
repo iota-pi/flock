@@ -3,7 +3,7 @@ import { Provider } from 'react-redux'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import * as serviceWorkerRegistration from './serviceWorkerRegistration'
 import store from './store'
-import { queryClient, queryPersister } from './api/queries'
+import { queryClient, queryKeys, queryPersister } from './api/queries'
 import ThemedApp from './ThemedApp'
 
 
@@ -27,4 +27,7 @@ serviceWorkerRegistration.register()
 
 if (window.Cypress) {
   window.vault = import('./api/Vault')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ; (window as any).invalidateQuery = (key: string) => queryClient.invalidateQueries({ queryKey: (queryKeys as any)[key] })
+  window.queryKeys = queryKeys
 }
