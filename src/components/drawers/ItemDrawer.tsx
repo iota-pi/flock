@@ -81,7 +81,6 @@ function ItemDrawer({
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const [cancelled, setCancelled] = useState(false)
-  const [duplicates, setDuplicates] = useState<Item[]>([])
   const [forceShowDescription, setShowDescription] = useState(false)
 
   const prevItem = usePrevious(item)
@@ -111,26 +110,19 @@ function ItemDrawer({
     [items],
   )
 
-  useEffect(
-    () => {
-      if (prevItem?.id !== item.id) {
-        setShowDescription(!!item.description)
-      }
-    },
-    [item.description, item.id, prevItem?.id],
-  )
+  // Reset forceShowDescription when item changes
+  if (prevItem?.id !== item.id && forceShowDescription) {
+    setShowDescription(false)
+  }
   const showDescription = forceShowDescription || !!item.description
 
-  useEffect(
+  const duplicates = useMemo(
     () => {
       const potential = itemsByName[getItemName(item)]
       if (potential) {
-        setDuplicates(
-          potential.filter(i => i.type === item.type && i.id !== item.id),
-        )
-      } else {
-        setDuplicates([])
+        return potential.filter(i => i.type === item.type && i.id !== item.id)
       }
+      return []
     },
     [item, itemsByName],
   )
@@ -160,7 +152,7 @@ function ItemDrawer({
       }
       storeItems(updatedGroupItems)
     },
-    [item.id, memberGroups],
+    [item.id, memberGroups, storeItems],
   )
 
   const handleSave = useCallback(
@@ -174,7 +166,7 @@ function ItemDrawer({
       }
       return undefined
     },
-    [],
+    [storeItems],
   )
   const handleSaveAndClose = useCallback(
     () => {
@@ -352,8 +344,8 @@ function ItemDrawer({
     ),
     [
       handleChange,
+      item.id,
       item.prayerFrequency,
-      item.type,
       memberFrequency,
       memberTarget,
       lastPrayer,
@@ -414,7 +406,6 @@ function ItemDrawer({
         )}
         icon={PersonIcon}
         id="members"
-        initialExpanded={true}
         title="Members"
       />
     ),
@@ -427,11 +418,10 @@ function ItemDrawer({
         content={<GroupDisplay itemId={item.id} />}
         icon={GroupIcon}
         id="groups"
-        initialExpanded={item.isNew}
         title="Groups"
       />
     ),
-    [item.id, item.isNew, item.type],
+    [item.id, item.type],
   )
 
   return (

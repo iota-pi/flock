@@ -7,7 +7,7 @@
 - Vault storage uses DynamoDB driver at src/vault/drivers/dynamo.ts; routes under src/vault/api/routes/ are Fastify+TypeBox. Item migrations run on the client in src/state/migrations; server migrations live in src/vault/migrations.
 - Theming/UI: MUI v5 with wrapper in src/ThemedApp.tsx and theme config in src/theme.tsx; markdown rendered via src/components/Markdown.tsx; dialogs and drawers under src/components/dialogs and src/components/drawers.
 - Dev workflows: yarn install; yarn start (docker compose up -d api + Vite/SST dev). Alternatives: docker compose up -d, yarn dev (front only), yarn dev:vault (Fastify via tsx watch), yarn initdb (local Dynamo setup). Env defaults are provided by docker-compose.
-- Build/deploy: yarn build (tsc then vite build), yarn build:vault (esbuild bundle + lambda.zip), yarn deploy --stage <stage>, yarn analyse for bundle inspection. Patch-package runs postinstall; keep fixes in patches/.
+- Build/deploy: yarn build (tsc then vite build), yarn build:vault (esbuild bundle + lambda.zip), yarn deploy --stage <stage>, yarn analyse for bundle inspection.
 - Testing: yarn test (Vitest), yarn coverage, yarn e2e (cypress run) or npx cypress open. happy-dom configured in src/setupTests.ts; cypress specs in cypress/e2e/.
 - Integration changes: update both client (src/api/Vault.ts, src/api/VaultAPI.ts) and server routes (src/vault/api/routes/*); adjust types in src/shared/apiTypes.ts and refresh e2e coverage.
 - Infrastructure: SST v3 config in sst.config.ts provisions DynamoDB tables (FlockAccounts/FlockItems/FlockSubscriptions), Lambda Function URL, Cloudflare Pages, AWS Backup. Local services defined in docker-compose.yml.

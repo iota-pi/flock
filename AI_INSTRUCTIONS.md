@@ -57,7 +57,7 @@
 ## Common Workflows (Commands)
 
 ### Development
-- **Install Dependencies**: `yarn install` (Also runs `patch-package`).
+- **Install Dependencies**: `yarn install`
 - **Start Full Stack**: `yarn start` (Requires Docker).
     - Starts Docker (API + DynamoDB) and Vite Dev Server.
 - **Start Frontend Only**: `yarn dev`
@@ -78,3 +78,6 @@
 ## Formatting & Linting
 - **Lint**: `yarn lint`
 - **Pre-commit**: Ensure `lint`, `build`, and `test` pass.
+
+## General Agent Instructions
+- **Temp files**: If you create files for reading command output, delete them before returning to the user.

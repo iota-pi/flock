@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react'
+import { useCallback, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -28,10 +28,12 @@ function DefaultFrequencyDialog({ open, defaults, onClose, onSave }: Props) {
   const [person, setPerson] = useState<Frequency>(defaults.person ?? 'monthly')
   const [group, setGroup] = useState<Frequency>(defaults.group ?? 'monthly')
 
-  useEffect(() => {
+  const [prevDefaults, setPrevDefaults] = useState(defaults)
+  if (defaults !== prevDefaults) {
+    setPrevDefaults(defaults)
     setPerson(defaults.person ?? 'monthly')
     setGroup(defaults.group ?? 'monthly')
-  }, [defaults])
+  }
 
   const handleSave = useCallback(() => {
     onSave({ person, group })

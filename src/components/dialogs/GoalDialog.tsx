@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useState } from 'react'
+import { ChangeEvent, useCallback, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -27,29 +27,18 @@ function GoalDialog({
 }: Props) {
   const [goal, setGoal] = useMetadata('prayerGoal', naturalGoal)
   const [newGoal, setNewGoal] = useState(goal.toString())
-  const [hintMessage, setHintMessage] = useState<string>()
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) {
+      setNewGoal(goal.toString())
+    }
+  }
+
+  const numericValue = parseInt(newGoal)
+  const hintMessage = numericValue > 0 ? undefined : 'Please enter a positive number'
   const error = !!hintMessage
   const warning = !!newGoal && parseInt(newGoal) < naturalGoal
-
-  useEffect(
-    () => {
-      if (open) {
-        setNewGoal(goal.toString())
-      }
-    },
-    [goal, open],
-  )
-  useEffect(
-    () => {
-      const numericValue = parseInt(newGoal)
-      if (numericValue > 0) {
-        setHintMessage(undefined)
-      } else {
-        setHintMessage('Please enter a positive number')
-      }
-    },
-    [newGoal],
-  )
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {

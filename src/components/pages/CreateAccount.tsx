@@ -108,7 +108,7 @@ function CreateAccountPage() {
       }
       setWaiting(false)
     },
-    [dispatch, navigate, password],
+    [dispatch, password],
   )
 
   const handleCloseCreatedAccountDialog = useCallback(

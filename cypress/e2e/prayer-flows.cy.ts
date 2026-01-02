@@ -2,7 +2,8 @@ describe('Prayer flows', () => {
   it('sets prayer frequencies and verifies ordering on prayer page', () => {
     // Test deleting everything which also ensures a clean prayer schedule
     cy.page('people')
-    cy.createPerson({ name: 'Linden' })
+    cy.createPerson({ name: 'Linden', prayerFrequency: 'daily' })
+    cy.invalidateQuery('items')
     cy.dataCy('select-all').click()
     cy.dataCy('action-delete').click()
     cy.dataCy('confirm-confirm').click()
@@ -11,6 +12,7 @@ describe('Prayer flows', () => {
     cy.createPerson({ name: 'Athelas' })
     cy.createPerson({ name: 'Mallorn', prayerFrequency: 'annually' })
     cy.createPerson({ name: 'One Ring', prayerFrequency: 'daily' })
+    cy.invalidateQuery('items')
 
     // Assign prayer frequency through bulk selection actions
     cy.dataCy('list-item-checkbox').first().click()

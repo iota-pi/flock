@@ -170,7 +170,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       )
       return results
     },
-    [filteredItems, types],
+    [filteredItems],
   )
 
   const matchSorterKeys = useMemo(
@@ -270,7 +270,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onClear()
       }
     },
-    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedSearchables],
+    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedIds, selectedSearchables],
   )
 
   const theme = useMemo(

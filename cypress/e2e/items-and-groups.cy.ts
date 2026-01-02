@@ -9,6 +9,7 @@ describe('Items and groups', () => {
     cy.createPerson({ name: frodoName }, true).saveDrawer()
     cy.createPerson({ name: samwiseName })
     cy.createPerson({ name: merryName })
+    cy.invalidateQuery('items')
 
     cy.createGroup({ name: fellowshipName }, true)
       .addMember(frodoName)

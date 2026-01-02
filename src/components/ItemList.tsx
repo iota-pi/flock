@@ -198,7 +198,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
     () => (
       allGroups.filter(g => g.members.includes(item.id))
     ),
-    [item.id, items],
+    [allGroups, item.id],
   )
   const tags = useMemo(
     () => {
@@ -208,11 +208,11 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
       }
       return groupNames
     },
-    [groups],
+    [filterTags, groups],
   )
   const groupIds = useMemo(
     () => linkTags ? groups.map(g => g.id) : undefined,
-    [groups],
+    [groups, linkTags],
   )
 
   const faded = useMemo(
@@ -338,7 +338,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
   )
 }
 
-export function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
+function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
     getActionIcon,
     compact,
@@ -385,7 +385,22 @@ export function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     if (!useDynamicHeight) return
     if (!listRef.current) return
     const rows = listRef.current.querySelectorAll('[data-index]')
-    return dynamicRowHeight.observeRowElements(rows)
+    let cleanup: (() => void) | undefined
+    try {
+      cleanup = dynamicRowHeight.observeRowElements(rows)
+    } catch {
+      // Ignore errors during observation
+    }
+
+    return () => {
+      try {
+        if (cleanup) {
+          cleanup()
+        }
+      } catch {
+        // Ignore errors during cleanup (likely detached DOM nodes)
+      }
+    }
   }, [dynamicRowHeight, items, useDynamicHeight])
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(

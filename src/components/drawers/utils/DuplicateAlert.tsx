@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useState } from 'react'
 import { Alert, styled, Typography } from '@mui/material'
 import { getItemTypeLabel, ItemType } from '../../../state/items'
 import InlineText from '../../InlineText'
@@ -16,13 +16,11 @@ const DuplicateAlert = memo(({
   hasDescription: boolean;
   itemType: ItemType;
 }) => {
-  const ref = useRef<number>(1)
-  useEffect(() => {
-    if (count > 0) {
-      ref.current = count
-    }
-  })
-  const displayCount = count || ref.current
+  const [lastNonZeroCount, setLastNonZeroCount] = useState(1)
+  if (count > 0 && count !== lastNonZeroCount) {
+    setLastNonZeroCount(count)
+  }
+  const displayCount = count || lastNonZeroCount
 
   const plural = displayCount !== 1
   const areOrIs = plural ? 'are' : 'is'

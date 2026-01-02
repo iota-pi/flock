@@ -35,7 +35,7 @@ function GroupDisplay({
       }
       storeItems(newGroup)
     },
-    [itemId],
+    [itemId, storeItems],
   )
   const handleRemove = useCallback(
     (group: GroupItem) => {
@@ -45,7 +45,7 @@ function GroupDisplay({
       }
       storeItems(newGroup)
     },
-    [itemId],
+    [itemId, storeItems],
   )
   const handleClickGroup = useCallback(
     (group: GroupItem) => {
