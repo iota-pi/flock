@@ -313,7 +313,7 @@ export async function storeOneItem(item: Item) {
   })
 
   // Ensure TanStack Query stays in sync
-  queryClient.invalidateQueries({ queryKey: queryKeys.items })
+  await queryClient.invalidateQueries({ queryKey: queryKeys.items })
 }
 
 export async function storeManyItems(items: Item[]) {
@@ -352,7 +352,7 @@ export async function storeManyItems(items: Item[]) {
   })
 
   // Ensure TanStack Query stays in sync
-  queryClient.invalidateQueries({ queryKey: queryKeys.items })
+  await queryClient.invalidateQueries({ queryKey: queryKeys.items })
 }
 
 // Fetch all items - TanStack Query handles caching
@@ -381,8 +381,8 @@ export async function deleteOneItem(itemId: string) {
     handleVaultError(error, 'Failed to delete item from server')
     return false
   }).then(() => true)
-    .finally(() => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    .finally(async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
     })
 }
 
@@ -396,8 +396,8 @@ export async function deleteManyItems(itemIds: string[]) {
     handleVaultError(error, 'Failed to delete item from server')
     return false
   }).then(() => true)
-    .finally(() => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    .finally(async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
     })
 }
 
