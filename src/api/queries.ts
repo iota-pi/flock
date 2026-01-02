@@ -275,9 +275,9 @@ export function useStoreItemsMutation() {
       }
       handleVaultError(err as Error, 'Failed to store items')
     },
-    onSettled: () => {
+    onSettled: async () => {
       // Always refetch after error or success
-      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
     },
   })
 }
@@ -319,8 +319,8 @@ export function useDeleteItemsMutation() {
       const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
       store.dispatch(pruneItems(ids))
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
     },
   })
 }
