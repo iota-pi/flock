@@ -6465,7 +6465,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"esbuild@npm:~0.27.0":
+"esbuild@npm:^0.27.2, esbuild@npm:~0.27.0":
   version: 0.27.2
   resolution: "esbuild@npm:0.27.2"
   dependencies:
@@ -7331,7 +7331,7 @@ __metadata:
     csv-parse: "npm:^6.1.0"
     cypress: "npm:^15.8.1"
     date-fns: "npm:^4.1.0"
-    esbuild: "npm:^0.27.0"
+    esbuild: "npm:^0.27.2"
     eslint: "npm:^9.39.1"
     eslint-import-resolver-typescript: "npm:^4.4.4"
     eslint-plugin-import-x: "npm:^4.16.1"
