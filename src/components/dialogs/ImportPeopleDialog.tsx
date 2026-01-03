@@ -60,7 +60,7 @@ function ImportPeopleDialog({
       if (files.length > 0) {
         const file = files[0]
         const text = await file.text()
-        const data = await parse(text, {
+        const data = parse<Record<string, string>>(text, {
           skipEmptyLines: true,
           columns: (headers: string[]) => headers.map(header => {
             const normalised = header.replace(/[ _-]/g, '').toLowerCase()
