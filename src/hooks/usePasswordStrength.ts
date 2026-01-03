@@ -33,41 +33,52 @@ async function scorePassword(password: string) {
   return mainScore
 }
 
-export function usePasswordStrength(password: string): PasswordFeedback {
-  const [score, setScore] = useState(0)
-  const [error, setError] = useState('')
-  const [feedback, setFeedback] = useState<ZxcvbnResult['feedback']>({ warning: '', suggestions: [] })
+const DEFAULT_RESULT: PasswordFeedback = {
+  score: 0,
+  error: '',
+  feedback: { warning: '', suggestions: [] },
+}
 
-  // Reset state if password is empty (i.e. don't score blank passwords)
-  if (!password) {
-    setScore(0)
-    setError('')
-    setFeedback({ warning: '', suggestions: [] })
-  }
+export function usePasswordStrength(password: string): PasswordFeedback {
+  const [result, setResult] = useState<PasswordFeedback & { scoredPassword?: string }>({
+    ...DEFAULT_RESULT,
+    scoredPassword: '',
+  })
+
+  // Derived state: if password has changed but not yet scored, return defaults
+  // This avoids flashing stale data or invalid empty states
+  const effectiveResult = password === result.scoredPassword ? result : DEFAULT_RESULT
 
   useEffect(() => {
     let cancelled = false
-    if (password) {
+
+    // Only score if there is a password and it's different from what we last scored
+    if (password && password !== result.scoredPassword) {
       scorePassword(password).then(passwordStrength => {
         if (cancelled) return
-        setScore(Math.max(passwordStrength.score, 1))
-        setFeedback(passwordStrength.feedback)
 
+        let error = ''
         if (password.length < MIN_PASSWORD_LENGTH) {
-          setError(`Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`)
+          error = `Please use a password that is at least ${MIN_PASSWORD_LENGTH} characters long`
         } else if (passwordStrength.feedback.warning) {
-          setError(passwordStrength.feedback.warning)
+          error = passwordStrength.feedback.warning
         } else if (passwordStrength.score < MIN_PASSWORD_STRENGTH) {
-          setError('Please choose a stronger password')
-        } else {
-          setError('')
+          error = 'Please choose a stronger password'
         }
+
+        setResult({
+          score: Math.max(passwordStrength.score, 1),
+          feedback: passwordStrength.feedback,
+          error,
+          scoredPassword: password,
+        })
       })
     }
+
     return () => {
       cancelled = true
     }
-  }, [password])
+  }, [password, result.scoredPassword])
 
-  return { score, error, feedback }
+  return effectiveResult
 }

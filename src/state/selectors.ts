@@ -5,6 +5,8 @@ import { AccountMetadata as Metadata, MetadataKey } from './account'
 import { Item, ItemId } from './items'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 
+const EMPTY_ARRAY: [] = []
+
 export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
 export const useAuthInitializing = () => useAppSelector(state => state.account.initializing)
 
@@ -12,7 +14,7 @@ export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
   const loggedIn = useLoggedIn()
-  const { data: items = [] } = useItemsQuery(loggedIn)
+  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
   return useMemo(
     () => (
       itemType
@@ -25,13 +27,13 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
 
 export const useItemMap = () => {
   const loggedIn = useLoggedIn()
-  const { data: items = [] } = useItemsQuery(loggedIn)
+  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
   return useMemo(() => Object.fromEntries(items.map(item => [item.id, item])), [items])
 }
 
 export const useItem = (id: ItemId) => {
   const loggedIn = useLoggedIn()
-  const { data: items = [] } = useItemsQuery(loggedIn)
+  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
   return useMemo(() => items.find(item => item.id === id), [items, id])
 }
 
