@@ -26,7 +26,6 @@ describe('Items and groups', () => {
       .click()
       .saveDrawer()
 
-    cy.contains(fellowshipName).click()
     cy.contains('2 members').should('exist')
   })
 })

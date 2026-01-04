@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react'
 import {
   Box,
@@ -372,19 +373,22 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     wrapText,
   } = props
 
-  const listRef = useRef<HTMLDivElement>(null)
-  const size = useSize(listRef)
+  const [listNode, setListNode] = useState<HTMLDivElement | null>(null)
+  const size = useSize(listNode)
   const dynamicRowHeight = useDynamicRowHeight({
     defaultRowHeight,
   })
 
   const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const listComponentRef = useRef<any>(null)
+
   // Observe row elements for dynamic height measurement
   useEffect(() => {
     if (!useDynamicHeight) return
-    if (!listRef.current) return
-    const rows = listRef.current.querySelectorAll('[data-index]')
+    if (!listNode) return
+    const rows = listNode.querySelectorAll('[data-index]')
     let cleanup: (() => void) | undefined
     try {
       cleanup = dynamicRowHeight.observeRowElements(rows)
@@ -401,7 +405,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
         // Ignore errors during cleanup (likely detached DOM nodes)
       }
     }
-  }, [dynamicRowHeight, items, useDynamicHeight])
+  }, [dynamicRowHeight, items, listNode, useDynamicHeight])
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -490,10 +494,11 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     }
 
     return (
-      <div ref={listRef} style={{ height: '100%', width: '100%' }}>
+      <div ref={setListNode} style={{ height: '100%', width: '100%' }}>
         {size && (
           <ReactWindowList<BaseProps<Item>>
-            style={{ height: size.height, width: size.width }}
+            listRef={listComponentRef}
+            style={{ height: size.height }}
             rowCount={items.length}
             rowProps={itemData as unknown as BaseProps<Item>}
             rowHeight={dynamicRowHeight}

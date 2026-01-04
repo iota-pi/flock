@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 export type MostlyRequired<T> = { [K in keyof Required<T>]: T[K] }
 
@@ -38,19 +38,14 @@ export function useToday() {
 }
 
 export function usePrevious<T>(value: T): T | undefined {
-  const [state, setState] = useState<{ curr: T, prev: T | undefined }>({
-    curr: value,
-    prev: undefined,
+  const ref = useRef<T>(undefined)
+
+  useEffect(() => {
+    ref.current = value
   })
 
-  if (state.curr !== value) {
-    setState({
-      curr: value,
-      prev: state.curr,
-    })
-  }
-
-  return state.prev
+  // eslint-disable-next-line react-hooks/refs
+  return ref.current
 }
 
 export function useStringMemo<T>(state: T[]): T[] {

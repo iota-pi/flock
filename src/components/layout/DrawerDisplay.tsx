@@ -44,17 +44,25 @@ function useDrawerRouting(drawers: DrawerData[]) {
     [drawers, routerLocation, prevDrawers, navigate],
   )
 
-  const secondTopItem = drawers[drawers.length - 2]?.item
   useEffect(
     () => {
       const id = routerLocation.hash.replace(/^#/, '')
+
+      const topItem = drawers[drawers.length - 1]
+      const topItemId = topItem?.item || topItem?.newItem?.id
+      const secondTopItem = drawers[drawers.length - 2]?.item
+
       if (prevLocationHash !== routerLocation.hash && secondTopItem === id) {
         dispatch(removeActive())
       } else if (prevLocationHash && !id && drawers.length > 0) {
-        dispatch(removeActive())
+        // Only close if the hash that was removed matches the current top item
+        const prevId = prevLocationHash.replace(/^#/, '')
+        if (prevId === topItemId) {
+          dispatch(removeActive())
+        }
       }
     },
-    [dispatch, drawers.length, prevLocationHash, routerLocation, secondTopItem],
+    [dispatch, drawers, prevLocationHash, routerLocation],
   )
 }
 
