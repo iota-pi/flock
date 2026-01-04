@@ -377,7 +377,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const size = useSize(listNode)
   const dynamicRowHeight = useDynamicRowHeight({
     defaultRowHeight,
-    key: size?.width ?? 0,
   })
 
   const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
