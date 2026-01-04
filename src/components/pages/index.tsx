@@ -5,6 +5,7 @@ import { useLoggedIn, useAuthInitializing } from '../../state/selectors'
 
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { Page, PageId } from './types'
+import ErrorPage from './ErrorPage'
 
 export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
   .map(([id, config]) => ({ ...config, id }))
@@ -65,6 +66,7 @@ export const routes: RouteObject[] = [
         </Suspense>
       </RedirectIfLoggedIn>
     ),
+    errorElement: <ErrorPage />,
     handle: { ...p, id },
   })),
   // Protected routes
@@ -77,6 +79,7 @@ export const routes: RouteObject[] = [
         </Suspense>
       </RequireAuth>
     ),
+    errorElement: <ErrorPage />,
     handle: { ...p, id },
   })),
   {

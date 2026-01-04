@@ -160,7 +160,7 @@ function CreateAccountPage() {
             Create a New Account
           </Typography>
 
-          <Typography paragraph>
+          <Typography>
             Please ensure that you
             {' '}
             <b>store your account ID and password</b>
@@ -168,7 +168,7 @@ function CreateAccountPage() {
             in a secure location.
           </Typography>
 
-          <Typography paragraph>
+          <Typography>
             Because your data is client-side encrypted, it will not be possible to recover your data
             if you forget your account ID or password.
           </Typography>
@@ -208,7 +208,7 @@ function CreateAccountPage() {
             <PasswordMeter score={passwordScore} />
 
             <Collapse in={!!passwordError}>
-              <Typography color="error" paragraph>
+              <Typography color="error">
                 {passwordError}
                 {/* non-breaking space preserves height, smoothing exit transition */}
                 &nbsp;
@@ -229,7 +229,7 @@ function CreateAccountPage() {
             </Button>
 
             {error && (
-              <Typography paragraph color="error" mt={2}>
+              <Typography color="error" mt={2}>
                 {error}
               </Typography>
             )}

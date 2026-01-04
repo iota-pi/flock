@@ -20,7 +20,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.match(/@mui\/icons-material|react-icons/)) {
+            if (id.match(/@mui\/icons-material/)) {
               return 'vendor-icons'
             }
             if (id.match(/firebase\/(app|messaging)/)) {

@@ -27,7 +27,7 @@ function AboutDrawer({
         Flock
       </Typography>
 
-      <Typography paragraph>
+      <Typography>
         Flock is Pastoral Relationship Management (PRM) software. Our prayer is that
         Flock will help you to care diligently for the flock of God that is among you.
       </Typography>
@@ -40,12 +40,12 @@ function AboutDrawer({
         Intent
       </Typography>
 
-      <Typography paragraph>
+      <Typography>
         Flock is intended as a tool to help you to care for and serve the people you
         personally look after. It is not designed to be used by multiple users,
         or to share data between users.
       </Typography>
-      <Typography paragraph>
+      <Typography>
         Because Flock is a personal tool, any data you enter should not belong to your
         organisation or church.
       </Typography>
@@ -58,7 +58,7 @@ function AboutDrawer({
         Security
       </Typography>
 
-      <Typography paragraph>
+      <Typography>
         Any data you enter is stored encrypted using
         {' '}<i>client-side encryption</i>{' '}
         (sometimes also referred to as <i>end-to-end encryption</i>).
@@ -66,7 +66,7 @@ function AboutDrawer({
         to read or recover your data without your password
         (and the account ID generated for you when creating your account).
       </Typography>
-      <Typography paragraph>
+      <Typography>
         As such, the security of Flock can only be as good as your own online security.
         We <b>strongly</b> recommend using a password manager
         to create and record a strong password and your account ID.
@@ -80,7 +80,7 @@ function AboutDrawer({
         Disclaimer
       </Typography>
 
-      <Typography paragraph>
+      <Typography>
         Flock is free software, provided as-is, with no guarantee of data retention,
         security, or availability. By choosing to use Flock, you agree that the
         creators and contributors shall not be liable for any damages or losses
@@ -95,10 +95,10 @@ function AboutDrawer({
         Development
       </Typography>
 
-      <Typography paragraph>
+      <Typography>
         Flock is open-source software created and maintained by volunteers.
       </Typography>
-      <Typography paragraph>
+      <Typography>
         If you would like to report any issues you find, make suggestions, or contribute
         to the development of Flock, please head to our
         {' '}
@@ -111,7 +111,7 @@ function AboutDrawer({
         </Link>
         .
       </Typography>
-      <Typography paragraph>
+      <Typography>
         Use the &quot;Issues&quot; tab to report issues or make suggestions.
       </Typography>
     </BaseDrawer>

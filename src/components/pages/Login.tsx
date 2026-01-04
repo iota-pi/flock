@@ -239,7 +239,7 @@ function LoginPage() {
             </Button>
 
             {error && (
-              <Typography paragraph color="error" mt={2}>
+              <Typography color="error" mt={2}>
                 {error}
               </Typography>
             )}

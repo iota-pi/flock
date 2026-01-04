@@ -192,11 +192,11 @@ function SelectedActions() {
         onCancel={handleConfirmCancel}
         onConfirm={handleConfirmDelete}
       >
-        <Typography paragraph>
+        <Typography>
           Are you sure you want to delete {selected.length} items?
         </Typography>
 
-        <Typography paragraph>
+        <Typography>
           This action cannot be undone.
         </Typography>
       </ConfirmationDialog>
