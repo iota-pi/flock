@@ -41,10 +41,10 @@ export default function ErrorPage() {
         <Typography variant="h2" gutterBottom>
           Oops!
         </Typography>
-        <Typography variant="h5" paragraph>
+        <Typography variant="h5" mt={2}>
           Sorry, something went wrong.
         </Typography>
-        <Typography color="error" paragraph>
+        <Typography color="error" mt={2}>
           {errorMessage}
         </Typography>
         <Box mt={4}>

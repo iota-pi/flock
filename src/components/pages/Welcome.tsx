@@ -69,16 +69,16 @@ function WelcomePage() {
 
         <Section>
           <div>
-            <LargeText paragraph>
+            <LargeText>
               Flock is a tool to help you care diligently for the flock of God that is among you.
             </LargeText>
 
-            <LargeText paragraph>
+            <LargeText>
               Flock aims to provide you with a secure, digital &quot;notebook&quot; to help you to
               remember and care for your Flock, especially in prayer.
             </LargeText>
 
-            <LargeText paragraph>
+            <LargeText>
               <Link
                 component="button"
                 onClick={handleClickLearnMore}

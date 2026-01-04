@@ -133,7 +133,7 @@ function RestoreBackupDialog({
           )}
         </Box>
 
-        <Typography paragraph>
+        <Typography>
           <InlineText fontWeight={500}>Important!</InlineText>
           {' '}
           Importing a backup will overwrite all changes to existing items you have made since creating it.

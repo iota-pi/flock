@@ -179,7 +179,7 @@ function DrawerActions({
           onConfirm={onDelete}
           onCancel={handleClickConfirmCancel}
         >
-          <Typography paragraph>
+          <Typography>
             Are you sure you want to delete
             {' '}
             <InlineText fontWeight={500}>
@@ -188,7 +188,7 @@ function DrawerActions({
             ?
           </Typography>
 
-          <Typography paragraph>
+          <Typography>
             This action cannot be undone.
           </Typography>
         </ConfirmationDialog>

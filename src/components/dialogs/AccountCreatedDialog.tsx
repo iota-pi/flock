@@ -44,7 +44,7 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
       </DialogTitle>
 
       <DialogContent>
-        <Typography paragraph>
+        <Typography>
           Your account has been created successfully.
         </Typography>
 
@@ -60,7 +60,7 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
           }}
         />
 
-        <Typography paragraph>
+        <Typography>
           Please store your account ID and password in a secure location.
           If you lose your account ID or password, your data will be lost permanently.
         </Typography>

@@ -29,7 +29,7 @@ const DuplicateAlert = memo(({
     <StyledAlert
       severity={hasDescription ? 'info' : 'warning'}
     >
-      <Typography paragraph={!hasDescription}>
+      <Typography>
         There {areOrIs} <InlineText fontWeight={500}>{displayCount}</InlineText>
         {' other '}
         {getItemTypeLabel(itemType, plural).toLowerCase()}

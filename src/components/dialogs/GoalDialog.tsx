@@ -73,7 +73,7 @@ function GoalDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Typography paragraph>
+        <Typography>
           To get through all your prayer items in the target time,
           set to
           {' '}
