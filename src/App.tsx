@@ -10,6 +10,7 @@ import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/VaultLazy'
+import ErrorPage from './components/pages/ErrorPage'
 
 const Root = styled('div')({
   display: 'flex',
@@ -94,6 +95,7 @@ function RootLayout() {
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    errorElement: <ErrorPage />,
     children: routes,
   }
 ])
