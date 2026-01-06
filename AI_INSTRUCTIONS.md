@@ -40,7 +40,6 @@
     - **Client-Side Only**: Plaintext data remains on the client.
 2.  **Encryption Implementation**:
     - Use `src/api/Vault.ts` helpers: `encryptObject`, `decryptObject`, `storeItems`, `deleteItems`.
-    - Use `src/api/VaultAPI.ts` HTTP wrapper for backend calls.
 3.  **Package Management**:
     - **MUST** use `yarn` (Berry, v4.1.0) as configured in `package.json`.
     - **DO NOT** use `npm`.

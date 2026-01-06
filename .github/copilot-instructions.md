@@ -2,7 +2,7 @@
 # Flock — Copilot / AI Agent Guidance
 
 - Unified TypeScript repo: React front-end (entry: src/index.tsx) + Fastify vault API (lambda: src/vault/index.ts, local dev: src/vault/api/runServer.ts).
-- Client-side encryption only; never add server-side decryption. Use helpers in src/api/Vault.ts (encryptObject/decryptObject, storeItems/deleteItems) and HTTP wrapper in src/api/VaultAPI.ts. Session handling lives in src/api/axios.ts via initAxios/setSessionExpiredHandler.
+- Client-side encryption only; never add server-side decryption. Use helpers in src/api/Vault.ts (encryptObject/decryptObject, storeItems/deleteItems). Session handling lives in src/api/axios.ts via initAxios/setSessionExpiredHandler.
 - Data flow: TanStack Query caches items/metadata (queryClient/queryKeys/fetchItems in src/api/queries.ts). Mutations optimistically update query cache then invalidate; Redux is UI/auth-only (src/state/account.ts, ui.ts; items.ts holds models/migrations; selectors wrap Query + UI).
 - Vault storage uses DynamoDB driver at src/vault/drivers/dynamo.ts; routes under src/vault/api/routes/ are Fastify+TypeBox. Item migrations run on the client in src/state/migrations; server migrations live in src/vault/migrations.
 - Theming/UI: MUI v5 with wrapper in src/ThemedApp.tsx and theme config in src/theme.tsx; markdown rendered via src/components/Markdown.tsx; dialogs and drawers under src/components/dialogs and src/components/drawers.
