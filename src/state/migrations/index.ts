@@ -1,5 +1,4 @@
-import { setMetadata, storeItems } from '../../api/VaultLazy'
-import { clearQueryCache } from '../../api/queries'
+import { mutateSetMetadata, mutateStoreItems } from '../../api/mutations'
 import { Item } from '../items'
 import { AccountMetadata } from '../account'
 import { migrations } from './migrations'
@@ -17,7 +16,7 @@ async function migrateItems(items: Item[], metadata: AccountMetadata) {
     try {
       const itemsToStore = await migration.migrate({ items })
       if (itemsToStore.length > 0) {
-        await storeItems(itemsToStore)
+        await mutateStoreItems(itemsToStore)
       }
       completedMigrations.push(migration.id)
     } catch (error) {
@@ -27,8 +26,7 @@ async function migrateItems(items: Item[], metadata: AccountMetadata) {
   }
 
   if (previousMigrations.length !== completedMigrations.length) {
-    await setMetadata({ ...metadata, completedMigrations })
-    clearQueryCache()
+    await mutateSetMetadata({ ...metadata, completedMigrations })
   }
   return completedMigrations
 }

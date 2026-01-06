@@ -40,7 +40,6 @@
     - **Client-Side Only**: Plaintext data remains on the client.
 2.  **Encryption Implementation**:
     - Use `src/api/Vault.ts` helpers: `encryptObject`, `decryptObject`, `storeItems`, `deleteItems`.
-    - Use `src/api/VaultAPI.ts` HTTP wrapper for backend calls.
 3.  **Package Management**:
     - **MUST** use `yarn` (Berry, v4.1.0) as configured in `package.json`.
     - **DO NOT** use `npm`.
@@ -81,3 +80,4 @@
 
 ## General Agent Instructions
 - **Temp files**: If you create files for reading command output, delete them before returning to the user.
+- **In-code thinking comments**: Do not include code comments in the code that reflect your thinking process. Comments that provide concise explanations of the code are good, but not comments that explain your thought process.

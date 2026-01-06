@@ -10,6 +10,7 @@ export interface PasswordFeedback {
   score: number,
   error: string,
   feedback: ZxcvbnResult['feedback'],
+  scoredPassword: string,
 }
 
 let optionsSet = false
@@ -37,12 +38,12 @@ const DEFAULT_RESULT: PasswordFeedback = {
   score: 0,
   error: '',
   feedback: { warning: '', suggestions: [] },
+  scoredPassword: '',
 }
 
 export function usePasswordStrength(password: string): PasswordFeedback {
-  const [result, setResult] = useState<PasswordFeedback & { scoredPassword?: string }>({
+  const [result, setResult] = useState<PasswordFeedback>({
     ...DEFAULT_RESULT,
-    scoredPassword: '',
   })
 
   // Derived state: if password has changed but not yet scored, return defaults
