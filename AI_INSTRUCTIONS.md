@@ -81,3 +81,4 @@
 
 ## General Agent Instructions
 - **Temp files**: If you create files for reading command output, delete them before returning to the user.
+- **In-code thinking comments**: Do not include code comments in the code that reflect your thinking process. Comments that provide concise explanations of the code are good, but not comments that explain your thought process.

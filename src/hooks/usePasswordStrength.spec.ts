@@ -24,17 +24,11 @@ import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core'
 
 describe('usePasswordStrength', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-      // Reset the internal state of the module (optionsSet) is tricky without rewriting code,
-      // but the hook uses a module-level variable `optionsSet`...
-      // We can't easily reset that module-level variable in ES modules unless we reload the module.
-      // However, for testing outcome, we mainly care that zxcvbn is called.
-
-      // Default mock implementation
-      ; (zxcvbn as any).mockReturnValue({
-        score: 4,
-        feedback: { warning: '', suggestions: [] }
-      })
+    vi.clearAllMocks();
+    (zxcvbn as any).mockReturnValue({
+      score: 4,
+      feedback: { warning: '', suggestions: [] },
+    })
   })
 
   it('returns default state initially', () => {
