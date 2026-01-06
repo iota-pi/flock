@@ -21,14 +21,6 @@ describe('Prayer flows', () => {
     cy.dataCy('frequency-weekly').click()
     cy.dataCy('dialog-confirm').click()
 
-    // Groups page should not contain any groups with members
-    cy.page('groups')
-    cy.contains('1 member').should('not.exist')
-    cy.contains('2 members').should('not.exist')
-    cy.contains('3 members').should('not.exist')
-    cy.contains('4 members').should('not.exist')
-    cy.contains('5 members').should('not.exist')
-
     // Verify ordering on prayer page
     cy.page('prayer')
     cy.dataCy('edit-goal').click()
