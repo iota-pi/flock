@@ -13,31 +13,14 @@ import {
   vaultSetMetadata,
 } from './VaultAPI'
 import { getAccountId } from './util'
-import { queryClient, queryKeys, fetchItems } from './queries'
+import { fetchItems } from './queries'
+import { queryClient, queryKeys, handleVaultError } from './client'
 import { pruneItems } from '../state/ui'
 import store from '../store'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
 async function getVaultModule() {
   return import('./Vault')
-}
-
-// Error handling helper similar to queries.ts
-function handleVaultError(error: Error, message: string) {
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
-    return
-  }
-  console.error(error)
-  import('../state/ui').then(({ setUi }) => {
-    import('../store').then(({ default: store }) => {
-      store.dispatch(setUi({
-        message: {
-          message,
-          severity: 'error',
-        },
-      }))
-    })
-  })
 }
 
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {

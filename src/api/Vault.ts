@@ -1,32 +1,24 @@
 import {
-  vaultDelete,
-  vaultDeleteMany,
   vaultDeleteSubscription,
-  vaultGetMetadata,
   vaultGetSession,
   vaultGetSubscription,
-  vaultPut,
-  vaultPutMany,
-  vaultSetMetadata,
   vaultSetSubscription,
 } from './VaultAPI'
 import {
-  checkProperties,
   Item,
 } from '../state/items'
-import { AccountMetadata, setAccount } from '../state/account'
+import { setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
 import { FlockPushSubscription } from '../utils/firebase-types'
 import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
-import migrateItems from '../state/migrations'
 import { setUi } from '../state/ui'
-import { queryClient, queryKeys, fetchItems } from './queries'
 import {
   fromBytes,
   fromBytesUrlSafe,
   toBytes,
 } from './crypto-utils'
+import { queryClient } from './client'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -89,7 +81,6 @@ export async function loginVault({
   await initialiseVault({ password, salt })
   session = await vaultGetSession(keyHash)
   initAxios(session)
-  await initialLoadFromVault()
   await storeVault()
 }
 
@@ -168,8 +159,6 @@ export async function loadVault() {
     initAxios(session)
     setSessionExpiredHandler(handleSessionExpired)
 
-    await initialLoadFromVault()
-
     store.dispatch(setAccount({ loggedIn: true }))
   }
 
@@ -182,38 +171,6 @@ export async function storeVault() {
     fromBytes(await crypto.subtle.exportKey('raw', getKey())),
   )
   localStorage.setItem(ACCOUNT_STORAGE_KEY, getAccountId())
-}
-
-async function initialLoadFromVault() {
-  // Use TanStack Query to fetch data - it handles caching automatically
-  const [metadata, items] = await Promise.all([
-    queryClient.fetchQuery({
-      queryKey: queryKeys.metadata,
-      queryFn: async () => {
-        const result = await vaultGetMetadata()
-        try {
-          return await decryptObject(result as CryptoResult) as AccountMetadata
-        } catch (error) {
-          if (result && 'cipher' in result && 'iv' in result) {
-            throw error
-          }
-          return result as AccountMetadata
-        }
-      },
-    }).catch(error => {
-      handleVaultError(error, 'Failed to fetch account metadata from server')
-      return {} as AccountMetadata
-    }),
-    queryClient.fetchQuery({
-      queryKey: queryKeys.items,
-      queryFn: fetchItems,
-    }).catch(error => {
-      handleVaultError(error, 'Failed to fetch items from server')
-      return [] as Item[]
-    }),
-  ])
-
-  await migrateItems(items as Item[], metadata)
 }
 
 export function signOutVault() {

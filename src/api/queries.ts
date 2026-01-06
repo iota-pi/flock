@@ -1,4 +1,4 @@
-import { useMutation, useQuery, QueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   vaultFetchMany,
   vaultGetMetadata,
@@ -9,7 +9,6 @@ import {
 } from '../state/items'
 import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
-import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import { checkAxios } from './axios'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import {
@@ -17,57 +16,12 @@ import {
   mutateSetMetadata,
   mutateStoreItems,
 } from './mutations'
-
-// Query Keys
-export const queryKeys = {
-  items: ['items'] as const,
-  metadata: ['metadata'] as const,
-}
-
-// Create a query client instance with TanStack Query's native caching
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // Data is considered fresh for 5 minutes
-      staleTime: 5 * 60 * 1000,
-      // Keep unused data in cache for 24 hours
-      gcTime: 24 * 60 * 60 * 1000,
-      retry: 2,
-      // Refetch when user returns to the app
-      refetchOnWindowFocus: true,
-    },
-  },
-})
-
-// Create a persister to save cache to localStorage
-const CACHE_KEY = 'flock-query-cache'
-
-export const queryPersister = createAsyncStoragePersister({
-  storage: window.localStorage,
-  key: CACHE_KEY,
-})
+import { handleVaultError, queryClient, queryKeys } from './client'
+import migrateItems from '../state/migrations'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
   return import('./Vault')
-}
-
-function handleVaultError(error: Error, message: string) {
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
-    return
-  }
-  console.error(error)
-  // Import dynamically to avoid circular dependency
-  import('../state/ui').then(({ setUi }) => {
-    import('../store').then(({ default: store }) => {
-      store.dispatch(setUi({
-        message: {
-          message,
-          severity: 'error',
-        },
-      }))
-    })
-  })
 }
 
 // Cache for decrypted items
@@ -121,11 +75,23 @@ export async function fetchItems(): Promise<Item[]> {
     return [] as Item[]
   })
 
+  // Run migrations
+  try {
+    const metadata = await queryClient.fetchQuery({
+      queryKey: queryKeys.metadata,
+      queryFn: fetchMetadata,
+      staleTime: 5 * 60 * 1000,
+    })
+    await migrateItems(successful, metadata)
+  } catch (err) {
+    console.error('Migration check failed during fetchItems', err)
+  }
+
   return sortItems(successful, DEFAULT_CRITERIA)
 }
 
 // Fetch and decrypt metadata
-async function fetchMetadata(): Promise<AccountMetadata> {
+export async function fetchMetadata(): Promise<AccountMetadata> {
   const vault = await getVaultModule()
   const result = await vaultGetMetadata()
   try {

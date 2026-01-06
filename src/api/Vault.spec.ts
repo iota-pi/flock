@@ -1,12 +1,10 @@
 import type { AxiosInstance } from 'axios'
 import store from '../store'
-import { getBlankGroup, getBlankPerson, Item } from '../state/items'
+import { getBlankPerson } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
-import * as api from './VaultAPI'
-import { setAccount, type AccountMetadata } from '../state/account'
-import type { VaultItem } from '../shared/apiTypes'
-import { queryClient, queryKeys } from './queries'
+import { setAccount } from '../state/account'
+import { queryClient, queryKeys } from './client'
 import { getSalt } from './crypto-utils'
 
 const VAULT_TEST_PARAMS = {
