@@ -17,7 +17,7 @@ export function formatDate(date: Date) {
 }
 
 export function formatTime(date: Date) {
-  const hours = ((date.getHours() % 12) + 1) || 12
+  const hours = (date.getHours() % 12) || 12
   const minutes = date.getMinutes().toString().padStart(2, '0')
   const amPm = date.getHours() < 12 ? 'am' : 'pm'
   return `${hours}:${minutes}${amPm}`
