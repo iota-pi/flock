@@ -1,28 +1,22 @@
-import { useMutation, useQuery, useQueryClient, QueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, QueryClient } from '@tanstack/react-query'
 import {
-  vaultDelete,
-  vaultDeleteMany,
   vaultFetchMany,
   vaultGetMetadata,
-  vaultPut,
-  vaultPutMany,
-  vaultSetMetadata,
 } from './VaultAPI'
 import {
-  checkProperties,
-  GroupItem,
   Item,
-  ItemId,
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
-import { getAccountId } from './util'
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
-import store from '../store'
-import { pruneItems } from '../state/ui'
 import { checkAxios } from './axios'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
+import {
+  mutateDeleteItems,
+  mutateSetMetadata,
+  mutateStoreItems,
+} from './mutations'
 
 // Query Keys
 export const queryKeys = {
@@ -167,221 +161,22 @@ export function useMetadataQuery(enabled = true) {
 
 // Hook: Update metadata
 export function useSetMetadataMutation() {
-  const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: async (metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) => {
-      const current = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
-      const next = typeof metadataOrUpdater === 'function'
-        ? metadataOrUpdater(current)
-        : metadataOrUpdater
-      const vault = await getVaultModule()
-      const { cipher, iv } = await vault.encryptObject(next)
-      await vaultSetMetadata({ cipher, iv })
-      return next
-    },
-    onMutate: async metadataOrUpdater => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
-
-      const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
-      const nextMetadata = typeof metadataOrUpdater === 'function'
-        ? metadataOrUpdater(previousMetadata)
-        : metadataOrUpdater
-
-      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, nextMetadata)
-
-      return { previousMetadata }
-    },
-    onError: (err, _, context) => {
-      if (context?.previousMetadata !== undefined) {
-        queryClient.setQueryData(queryKeys.metadata, context.previousMetadata)
-      }
-      handleVaultError(err as Error, 'Failed to update metadata')
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-    },
+    mutationFn: mutateSetMetadata,
   })
 }
 
 // Hook: Store items mutation
 export function useStoreItemsMutation() {
-  const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: async (items: Item | Item[]) => {
-      const vault = await getVaultModule()
-      const itemArray = Array.isArray(items) ? items : [items]
-      const checkResult = checkProperties(itemArray)
-      if (checkResult.error) {
-        throw new Error(checkResult.message)
-      }
-
-      const encrypted = await Promise.all(
-        itemArray.map(item => vault.encryptObject(item)),
-      )
-      const modifiedTime = new Date().getTime()
-
-      if (itemArray.length === 1) {
-        await vaultPut({
-          cipher: encrypted[0].cipher,
-          item: itemArray[0].id,
-          metadata: {
-            iv: encrypted[0].iv,
-            type: itemArray[0].type,
-            modified: modifiedTime,
-          },
-        })
-      } else {
-        await vaultPutMany({
-          items: encrypted.map(({ cipher, iv }, i) => ({
-            account: getAccountId(),
-            cipher,
-            item: itemArray[i].id,
-            metadata: {
-              iv,
-              type: itemArray[i].type,
-              modified: modifiedTime,
-            },
-          })),
-        })
-      }
-
-      return itemArray
-    },
-    onMutate: async items => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: queryKeys.items })
-
-      // Snapshot the previous value
-      const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
-
-      // Optimistically update
-      const itemArray = Array.isArray(items) ? items : [items]
-      queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-        if (!old) return itemArray
-        const newItems = [...old]
-        for (const item of itemArray) {
-          const index = newItems.findIndex(i => i.id === item.id)
-          if (index >= 0) {
-            newItems[index] = item
-          } else {
-            newItems.push(item)
-          }
-        }
-        return newItems
-      })
-
-      return { previousItems }
-    },
-    onError: (err, _, context) => {
-      // Rollback on error
-      if (context?.previousItems) {
-        queryClient.setQueryData(queryKeys.items, context.previousItems)
-      }
-      handleVaultError(err as Error, 'Failed to store items')
-    },
-    onSettled: async () => {
-      // Always refetch after error or success
-      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    },
+    mutationFn: mutateStoreItems,
   })
 }
 
 // Hook: Delete items mutation
 export function useDeleteItemsMutation() {
-  const queryClient = useQueryClient()
-
   return useMutation({
-    mutationFn: async (itemIds: ItemId | ItemId[]) => {
-      const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
-      const idsSet = new Set(ids)
-      const vault = await getVaultModule()
-
-      // 1. Fetch latest items to ensure we identify all groups that need updating
-      const allItems = await queryClient.ensureQueryData({
-        queryKey: queryKeys.items,
-        queryFn: fetchItems,
-      })
-
-      // 2. Identify and Update Groups
-      const groupsToUpdate = allItems.filter((item): item is GroupItem =>
-        item.type === 'group' && item.members.some(mId => idsSet.has(mId))
-      )
-
-      if (groupsToUpdate.length > 0) {
-        const modifiedGroups = groupsToUpdate.map(g => ({
-          ...g,
-          members: g.members.filter(mId => !idsSet.has(mId)),
-        }))
-
-        const encrypted = await Promise.all(
-          modifiedGroups.map(item => vault.encryptObject(item))
-        )
-        const modifiedTime = new Date().getTime()
-
-        await vaultPutMany({
-          items: encrypted.map(({ cipher, iv }, i) => ({
-            account: getAccountId(),
-            cipher,
-            item: modifiedGroups[i].id,
-            metadata: {
-              iv,
-              type: modifiedGroups[i].type,
-              modified: modifiedTime,
-            },
-          })),
-        })
-      }
-
-      // 3. Delete items
-      if (ids.length === 1) {
-        await vaultDelete({ item: ids[0] })
-      } else {
-        await vaultDeleteMany({ items: ids })
-      }
-      return ids
-    },
-    onMutate: async itemIds => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.items })
-
-      const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
-      const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
-      const idsSet = new Set(ids)
-
-      queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-        if (!old) return []
-        return old
-          .filter(item => !idsSet.has(item.id))
-          .map(item => {
-            if (
-              item.type === 'group'
-              && (item as GroupItem).members.some(m => idsSet.has(m))
-            ) {
-              return {
-                ...item,
-                members: (item as GroupItem).members.filter(m => !idsSet.has(m)),
-              }
-            }
-            return item
-          })
-      })
-
-      return { previousItems }
-    },
-    onError: (err, _, context) => {
-      if (context?.previousItems) {
-        queryClient.setQueryData(queryKeys.items, context.previousItems)
-      }
-      handleVaultError(err as Error, 'Failed to delete items')
-    },
-    onSuccess: itemIds => {
-      const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
-      store.dispatch(pruneItems(ids))
-    },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    },
+    mutationFn: mutateDeleteItems,
   })
 }
 
