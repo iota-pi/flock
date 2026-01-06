@@ -8,7 +8,13 @@ import {
   vaultPutMany,
   vaultSetMetadata,
 } from './VaultAPI'
-import { checkProperties, Item, ItemId, supplyMissingAttributes } from '../state/items'
+import {
+  checkProperties,
+  GroupItem,
+  Item,
+  ItemId,
+  supplyMissingAttributes,
+} from '../state/items'
 import { AccountMetadata } from '../state/account'
 import { VaultItem } from '../shared/apiTypes'
 import { getAccountId } from './util'
@@ -289,6 +295,46 @@ export function useDeleteItemsMutation() {
   return useMutation({
     mutationFn: async (itemIds: ItemId | ItemId[]) => {
       const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+      const idsSet = new Set(ids)
+      const vault = await getVaultModule()
+
+      // 1. Fetch latest items to ensure we identify all groups that need updating
+      const allItems = await queryClient.ensureQueryData({
+        queryKey: queryKeys.items,
+        queryFn: fetchItems,
+      })
+
+      // 2. Identify and Update Groups
+      const groupsToUpdate = allItems.filter((item): item is GroupItem =>
+        item.type === 'group' && item.members.some(mId => idsSet.has(mId))
+      )
+
+      if (groupsToUpdate.length > 0) {
+        const modifiedGroups = groupsToUpdate.map(g => ({
+          ...g,
+          members: g.members.filter(mId => !idsSet.has(mId)),
+        }))
+
+        const encrypted = await Promise.all(
+          modifiedGroups.map(item => vault.encryptObject(item))
+        )
+        const modifiedTime = new Date().getTime()
+
+        await vaultPutMany({
+          items: encrypted.map(({ cipher, iv }, i) => ({
+            account: getAccountId(),
+            cipher,
+            item: modifiedGroups[i].id,
+            metadata: {
+              iv,
+              type: modifiedGroups[i].type,
+              modified: modifiedTime,
+            },
+          })),
+        })
+      }
+
+      // 3. Delete items
       if (ids.length === 1) {
         await vaultDelete({ item: ids[0] })
       } else {
@@ -301,10 +347,24 @@ export function useDeleteItemsMutation() {
 
       const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
       const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+      const idsSet = new Set(ids)
 
       queryClient.setQueryData<Item[]>(queryKeys.items, old => {
         if (!old) return []
-        return old.filter(item => !ids.includes(item.id))
+        return old
+          .filter(item => !idsSet.has(item.id))
+          .map(item => {
+            if (
+              item.type === 'group'
+              && (item as GroupItem).members.some(m => idsSet.has(m))
+            ) {
+              return {
+                ...item,
+                members: (item as GroupItem).members.filter(m => !idsSet.has(m)),
+              }
+            }
+            return item
+          })
       })
 
       return { previousItems }

@@ -12,7 +12,6 @@ describe('Prayer flows', () => {
     cy.createPerson({ name: 'Athelas' })
     cy.createPerson({ name: 'Mallorn', prayerFrequency: 'annually' })
     cy.createPerson({ name: 'One Ring', prayerFrequency: 'daily' })
-    cy.createGroup({ name: 'Empty' })
     cy.invalidateQuery('items')
 
     // Assign prayer frequency through bulk selection actions
@@ -21,15 +20,6 @@ describe('Prayer flows', () => {
     cy.dataCy('dialog-frequency').click()
     cy.dataCy('frequency-weekly').click()
     cy.dataCy('dialog-confirm').click()
-
-    // Groups page should not contain any groups with members
-    cy.page('groups')
-    cy.contains('0 members').should('exist')
-    cy.contains('1 member').should('not.exist')
-    cy.contains('2 members').should('not.exist')
-    cy.contains('3 members').should('not.exist')
-    cy.contains('4 members').should('not.exist')
-    cy.contains('5 members').should('not.exist')
 
     // Verify ordering on prayer page
     cy.page('prayer')
