@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { mutateStoreItems } from './mutations'
+import { mutateDeleteItems, mutateStoreItems } from './mutations'
 import { queryClient, queryKeys } from './client'
 import { getBlankPerson, Item } from '../state/items'
 import * as VaultAPI from './VaultAPI'
@@ -19,6 +19,10 @@ vi.mock('./VaultAPI', () => ({
 vi.mock('./Vault', () => ({
   encryptObject: vi.fn().mockResolvedValue({ cipher: 'cipher', iv: 'iv' }),
   decryptObject: vi.fn(),
+}))
+
+vi.mock('./util', () => ({
+  getAccountId: vi.fn().mockReturnValue('test-account'),
 }))
 
 describe('mutations', () => {
@@ -141,6 +145,49 @@ describe('mutations', () => {
 
       expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
       expect(VaultAPI.vaultFetchMany).toHaveBeenCalledWith({ ids: [item.id] })
+    })
+  })
+  describe('mutateDeleteItems', () => {
+    it('updates group version when deleting a member', async () => {
+      const gItem = { ...getBlankPerson(), id: 'g1', type: 'group', members: ['p1'], version: 1 } as unknown as GroupItem
+      const pItem = { ...getBlankPerson(), id: 'p1' }
+
+      // Cache has items
+      queryClient.setQueryData(queryKeys.items, [gItem, pItem])
+
+      // Mock Fetch Many (called by fetchItems to get fresh group state)
+      // @ts-ignore
+      VaultAPI.vaultFetchMany.mockResolvedValue([
+        {
+          item: gItem.id,
+          cipher: 'cipher-group',
+          metadata: { iv: 'iv-group', type: 'group', modified: 1, version: 1 }
+        }
+      ])
+
+      // Mock Decrypt
+      // @ts-ignore
+      Vault.decryptObject.mockImplementation(async ({ cipher }) => {
+        if (cipher === 'cipher-group') return gItem
+        return {}
+      })
+
+      await mutateDeleteItems('p1')
+
+      // Verify Group Update
+      expect(VaultAPI.vaultPutMany).toHaveBeenCalledWith(expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            item: 'g1',
+            metadata: expect.objectContaining({
+              version: 2
+            })
+          })
+        ])
+      }))
+
+      // Verify Item Delete
+      expect(VaultAPI.vaultDelete).toHaveBeenCalledWith({ item: 'p1' })
     })
   })
 })

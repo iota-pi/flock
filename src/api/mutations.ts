@@ -133,11 +133,8 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
 
     const vault = await getVaultModule()
 
-    // 2. Fetch latest for group logic (Wait, earlier implementation called fetchItems inside mutationFn.
-    const allItems = await queryClient.ensureQueryData({
-      queryKey: queryKeys.items,
-      queryFn: fetchItems,
-    })
+    // 2. Fetch latest for group logic
+    const allItems = await fetchItems()
 
     // 3. Identify and Update Groups
     const groupsToUpdate = allItems.filter((item): item is GroupItem =>
@@ -145,10 +142,14 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     )
 
     if (groupsToUpdate.length > 0) {
-      const modifiedGroups = groupsToUpdate.map(g => ({
+      const baseItems = new Map(groupsToUpdate.map(g => [g.id, g]))
+      let modifiedGroups: Item[] = groupsToUpdate.map(g => ({
         ...g,
         members: g.members.filter(mId => !idsSet.has(mId)),
       }))
+
+      // Increment version
+      modifiedGroups = prepareItemsForSave(modifiedGroups, baseItems)
 
       const encrypted = await Promise.all(
         modifiedGroups.map(item => vault.encryptObject(item))
@@ -164,6 +165,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
             iv,
             type: modifiedGroups[i].type,
             modified: modifiedTime,
+            version: modifiedGroups[i].version,
           },
         })),
       })
