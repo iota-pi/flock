@@ -235,6 +235,7 @@ export const BatchResultResponseSchema = Type.Object(
     details: Type.Array(Type.Object({
       item: Type.String(),
       success: Type.Boolean(),
+      error: Type.Optional(Type.String()),
     })),
   },
   { $id: 'vault.batchResultResponse' },

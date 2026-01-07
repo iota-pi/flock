@@ -3,6 +3,7 @@ import { mutateStoreItems } from './mutations'
 import { queryClient, queryKeys } from './client'
 import { getBlankPerson, Item } from '../state/items'
 import * as VaultAPI from './VaultAPI'
+import * as Vault from './Vault'
 
 // Mock VaultAPI
 vi.mock('./VaultAPI', () => ({
@@ -11,14 +12,13 @@ vi.mock('./VaultAPI', () => ({
   vaultDelete: vi.fn(),
   vaultDeleteMany: vi.fn(),
   vaultSetMetadata: vi.fn(),
+  vaultFetchMany: vi.fn(),
 }))
 
 // Mock Vault (for encryption/getVaultModule dynamic import resolution)
-// mutateStoreItems calls `getVaultModule` which does `import('./Vault')`.
-// In vitest, vi.mock('./Vault') should handle the dynamic import if the path matches?
-// Actually `getVaultModule` imports it. We can mock the module globally.
 vi.mock('./Vault', () => ({
   encryptObject: vi.fn().mockResolvedValue({ cipher: 'cipher', iv: 'iv' }),
+  decryptObject: vi.fn(),
 }))
 
 describe('mutations', () => {
@@ -91,6 +91,56 @@ describe('mutations', () => {
           version: 1,
         }),
       }))
+    })
+
+    it('resolves version conflicts by merging and retrying', async () => {
+      const item = getBlankPerson()
+      item.version = 1
+      item.name = 'Base'
+
+      const baseItem = { ...item }
+      // Cache has base
+      queryClient.setQueryData(queryKeys.items, [baseItem])
+
+      // "Yours" - we change description
+      const yours = { ...item, description: 'Yours' }
+
+      // "Theirs" - server has name change (version is higher)
+      const theirs = { ...item, name: 'Theirs', version: 2 }
+
+      // Mock Put failure once, then success
+      // @ts-ignore
+      VaultAPI.vaultPut
+        .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
+        .mockResolvedValue(undefined)
+
+      // Mock Fetch Many to return "Theirs" (encrypted)
+      // @ts-ignore
+      VaultAPI.vaultFetchMany.mockResolvedValue([
+        {
+          item: item.id,
+          cipher: 'cipher-theirs',
+          metadata: { iv: 'iv-theirs', type: 'person', modified: 2, version: 2 }
+        }
+      ])
+
+      // Mock Decrypt to return "Theirs" when asked
+      // @ts-ignore
+      Vault.decryptObject.mockImplementation(async ({ cipher }) => {
+        if (cipher === 'cipher-theirs') return theirs
+        return {} // shouldn't happen
+      })
+
+      const result = await mutateStoreItems(yours)
+
+      // Expect merge: Name from Theirs (since Yours didn't change it), Description from Yours
+      expect(result[0].name).toBe('Theirs')
+      expect(result[0].description).toBe('Yours')
+      // Version should be Theirs + 1
+      expect(result[0].version).toBe(3)
+
+      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
+      expect(VaultAPI.vaultFetchMany).toHaveBeenCalledWith({ ids: [item.id] })
     })
   })
 })

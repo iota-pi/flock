@@ -20,6 +20,16 @@ import type {
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
 
+export class VaultBatchError extends Error {
+  failures: Array<{ item: string, error?: string }>
+
+  constructor(failures: Array<{ item: string, error?: string }>) {
+    super(`VaultAPI batch operation failed for items: ${failures.map(f => f.item).join(', ')}`)
+    this.name = 'VaultBatchError'
+    this.failures = failures
+  }
+}
+
 // Helper to check success flag and throw on failure
 function assertSuccess<T extends { success: boolean }>(response: T, operation: string): asserts response is T & { success: true } {
   if (!response.success) {
@@ -104,7 +114,7 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   )
   const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
   if (failedItems.length > 0) {
-    throw new Error(`VaultAPI putMany operation failed for items: ${failedItems.map(f => f.item).join(', ')}`)
+    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
   }
 }
 
@@ -124,7 +134,7 @@ export async function vaultDeleteMany({ items }: { items: string[] }) {
   )
   const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
   if (failedItems.length > 0) {
-    throw new Error(`VaultAPI deleteMany operation failed for items: ${failedItems.map(f => f.item).join(', ')}`)
+    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
   }
 }
 
