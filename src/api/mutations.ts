@@ -69,125 +69,25 @@ export async function mutateStoreItems(items: Item | Item[]) {
     while (attempt < MAX_RETRIES) {
       attempt++
 
-      // 1. Calculate Versions and Validate
+      // 1. Prepare
       if (attempt === 1) {
-        currentItems = currentItems.map(item => {
-          const existing = baseItems.get(item.id)
-          return {
-            ...item,
-            version: (existing?.version ?? 0) + 1,
-          }
-        })
+        currentItems = prepareItemsForSave(currentItems, baseItems)
       }
 
       const checkResult = checkProperties(currentItems)
-      if (checkResult.error) {
-        throw new Error(checkResult.message)
-      }
+      if (checkResult.error) throw new Error(checkResult.message)
 
       // 2. Optimistic Update
-      await queryClient.cancelQueries({ queryKey: queryKeys.items })
-      queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-        if (!old) return currentItems
-        const newItems = [...old]
-        for (const item of currentItems) {
-          const index = newItems.findIndex(i => i.id === item.id)
-          if (index >= 0) {
-            newItems[index] = item
-          } else {
-            newItems.push(item)
-          }
-        }
-        return newItems
-      })
-
-      // 3. Prepare for API
-      const vault = await getVaultModule()
-      const encrypted = await Promise.all(
-        currentItems.map(item => vault.encryptObject(item)),
-      )
-      const modifiedTime = new Date().getTime()
+      await updateCacheOptimistically(currentItems)
 
       try {
-        // 4. API Call
-        if (currentItems.length === 1) {
-          await vaultPut({
-            cipher: encrypted[0].cipher,
-            item: currentItems[0].id,
-            metadata: {
-              iv: encrypted[0].iv,
-              type: currentItems[0].type,
-              modified: modifiedTime,
-              version: currentItems[0].version,
-            },
-          })
-        } else {
-          await vaultPutMany({
-            items: encrypted.map(({ cipher, iv }, i) => ({
-              account: getAccountId(),
-              cipher,
-              item: currentItems[i].id,
-              metadata: {
-                iv,
-                type: currentItems[i].type,
-                modified: modifiedTime,
-                version: currentItems[i].version,
-              },
-            })),
-          })
-        }
-
+        // 3. Save
+        await saveItemsToVault(currentItems)
         return currentItems
 
-      } catch (err: any) {
-        // Check for version conflict
-        let conflictIds: string[] = []
-
-        if (currentItems.length === 1 && err instanceof Error && err.message.includes('Version conflict')) {
-          conflictIds = [currentItems[0].id]
-        }
-        else if (err instanceof VaultBatchError) {
-          conflictIds = err.failures
-            .filter(f => f.error && f.error.includes('Version conflict'))
-            .map(f => f.item)
-
-          if (conflictIds.length === 0) throw err
-        } else {
-          throw err
-        }
-
-        if (attempt >= MAX_RETRIES) throw err
-
-        // Fetch latest version of conflicting items
-        const serverEncrypted = await vaultFetchMany({ ids: conflictIds })
-
-        for (const encryptedItem of serverEncrypted) {
-          if (!encryptedItem.metadata || !encryptedItem.cipher) continue
-
-          const decrypted = await vault.decryptObject({
-            cipher: encryptedItem.cipher,
-            iv: encryptedItem.metadata.iv
-          }) as Item
-          const theirs = supplyMissingAttributes(decrypted)
-          if (typeof encryptedItem.metadata.version === 'number') {
-            theirs.version = encryptedItem.metadata.version
-          }
-
-          const id = theirs.id
-          const base = baseItems.get(id) || theirs
-          const yours = currentItems.find(i => i.id === id)
-
-          if (!yours) continue
-
-          const merged = threeWayMerge(base, theirs, yours)
-          merged.version = (theirs.version || 0) + 1
-
-          const idx = currentItems.findIndex(i => i.id === id)
-          if (idx >= 0) currentItems[idx] = merged
-
-          // Update base for next iteration
-          baseItems.set(id, theirs)
-        }
+      } catch (err) {
+        // 4. Handle Conflict
+        currentItems = await handleConflict(err, currentItems, baseItems, attempt, MAX_RETRIES)
       }
     }
     throw new Error('Max retries exceeded')
@@ -289,4 +189,131 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
   } finally {
     await queryClient.invalidateQueries({ queryKey: queryKeys.items })
   }
+}
+
+// Helpers
+
+function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[] {
+  return items.map(item => {
+    const existing = baseItems.get(item.id)
+    return {
+      ...item,
+      version: (existing?.version ?? 0) + 1,
+    }
+  })
+}
+
+async function updateCacheOptimistically(items: Item[]) {
+  await queryClient.cancelQueries({ queryKey: queryKeys.items })
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => {
+    if (!old) return items
+    const newItems = [...old]
+    for (const item of items) {
+      const index = newItems.findIndex(i => i.id === item.id)
+      if (index >= 0) {
+        newItems[index] = item
+      } else {
+        newItems.push(item)
+      }
+    }
+    return newItems
+  })
+}
+
+async function saveItemsToVault(items: Item[]) {
+  const vault = await getVaultModule()
+  const encrypted = await Promise.all(
+    items.map(item => vault.encryptObject(item)),
+  )
+  const modifiedTime = new Date().getTime()
+
+  if (items.length === 1) {
+    await vaultPut({
+      cipher: encrypted[0].cipher,
+      item: items[0].id,
+      metadata: {
+        iv: encrypted[0].iv,
+        type: items[0].type,
+        modified: modifiedTime,
+        version: items[0].version,
+      },
+    })
+  } else {
+    await vaultPutMany({
+      items: encrypted.map(({ cipher, iv }, i) => ({
+        account: getAccountId(),
+        cipher,
+        item: items[i].id,
+        metadata: {
+          iv,
+          type: items[i].type,
+          modified: modifiedTime,
+          version: items[i].version,
+        },
+      })),
+    })
+  }
+}
+
+async function handleConflict(
+  err: any,
+  currentItems: Item[],
+  baseItems: Map<string, Item>,
+  attempt: number,
+  maxRetries: number
+): Promise<Item[]> {
+  // Check for version conflict
+  let conflictIds: string[] = []
+
+  if (currentItems.length === 1 && err instanceof Error && err.message.includes('Version conflict')) {
+    conflictIds = [currentItems[0].id]
+  }
+  else if (err instanceof VaultBatchError) {
+    conflictIds = err.failures
+      .filter(f => f.error && f.error.includes('Version conflict'))
+      .map(f => f.item)
+
+    if (conflictIds.length === 0) throw err
+  } else {
+    throw err
+  }
+
+  if (attempt >= maxRetries) throw err
+
+  const vault = await getVaultModule()
+  const serverEncrypted = await vaultFetchMany({ ids: conflictIds })
+
+  // Modifying currentItems in place (or rather returning a mutated clone logic)
+  // We can treat currentItems as mutable for this calculation or map it.
+  const nextItems = [...currentItems]
+
+  for (const encryptedItem of serverEncrypted) {
+    if (!encryptedItem.metadata || !encryptedItem.cipher) continue
+
+    const decrypted = await vault.decryptObject({
+      cipher: encryptedItem.cipher,
+      iv: encryptedItem.metadata.iv
+    }) as Item
+    const theirs = supplyMissingAttributes(decrypted)
+    if (typeof encryptedItem.metadata.version === 'number') {
+      theirs.version = encryptedItem.metadata.version
+    }
+
+    const id = theirs.id
+    const base = baseItems.get(id) || theirs
+    const yours = nextItems.find(i => i.id === id)
+
+    if (!yours) continue
+
+    const merged = threeWayMerge(base, theirs, yours)
+    merged.version = (theirs.version || 0) + 1
+
+    const idx = nextItems.findIndex(i => i.id === id)
+    if (idx >= 0) nextItems[idx] = merged
+
+    // Update base for next iteration
+    baseItems.set(id, theirs)
+  }
+
+  return nextItems
 }
