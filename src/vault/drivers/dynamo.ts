@@ -11,6 +11,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  PutCommandInput,
   QueryCommand,
   QueryCommandOutput,
   ScanCommand,
@@ -508,12 +509,29 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
     }
 
-    await this.client.send(new PutCommand(
-      {
-        TableName: ITEM_TABLE_NAME,
-        Item: item,
-      },
-    ))
+    const params: PutCommandInput = {
+      TableName: ITEM_TABLE_NAME,
+      Item: item,
+    }
+
+    if (typeof item.metadata.version === 'number') {
+      params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+      params.ExpressionAttributeNames = {
+        '#item': 'item',
+      }
+      params.ExpressionAttributeValues = {
+        ':newVersion': item.metadata.version,
+      }
+    }
+
+    try {
+      await this.client.send(new PutCommand(params))
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new Error('Version conflict: The item has been modified by another client.')
+      }
+      throw err
+    }
   }
 
   async get({ account, item }: VaultKey) {

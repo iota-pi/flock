@@ -61,6 +61,12 @@ export async function fetchItems(): Promise<Item[]> {
     // Decrypt and cache
     const decrypted = await vault.decryptObject({ cipher, iv }) as Item
     const filled = supplyMissingAttributes(decrypted)
+
+    // Use server version if available as the source of truth
+    if (typeof item.metadata?.version === 'number') {
+      filled.version = item.metadata.version
+    }
+
     decryptionCache.set(id, { cipher, iv, item: filled })
     return filled
   })

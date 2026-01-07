@@ -60,7 +60,7 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
       const results = await pMap(
         items,
         async item => {
-          const { cipher, id, iv, modified, type } = item
+          const { cipher, id, iv, modified, type, version } = item
           const _type = asItemType(type)
           try {
             await vault.set({
@@ -71,6 +71,7 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
                 type: _type,
                 iv,
                 modified,
+                version,
               },
             })
             return { item: id, success: true }
@@ -97,9 +98,9 @@ const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
     },
     async request => {
       const { account, item } = request.params
-      const { cipher, iv, modified, type } = request.body
+      const { cipher, iv, modified, type, version } = request.body
       const _type = asItemType(type)
-      await vault.set({ account, item, cipher, metadata: { type: _type, iv, modified } })
+      await vault.set({ account, item, cipher, metadata: { type: _type, iv, modified, version } })
       return { success: true }
     },
   )

@@ -57,9 +57,17 @@ export async function mutateStoreItems(items: Item | Item[]) {
   const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
 
   try {
-    // 1. Validate
+    // 1. Calculate Versions and Validate
     const itemArray = Array.isArray(items) ? items : [items]
-    const checkResult = checkProperties(itemArray)
+    const itemsWithVersion = itemArray.map(item => {
+      const existing = previousItems?.find(p => p.id === item.id)
+      return {
+        ...item,
+        version: (existing?.version ?? 0) + 1,
+      }
+    })
+
+    const checkResult = checkProperties(itemsWithVersion)
     if (checkResult.error) {
       throw new Error(checkResult.message)
     }
@@ -67,9 +75,9 @@ export async function mutateStoreItems(items: Item | Item[]) {
     // 2. Optimistic Update
     await queryClient.cancelQueries({ queryKey: queryKeys.items })
     queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-      if (!old) return itemArray
+      if (!old) return itemsWithVersion
       const newItems = [...old]
-      for (const item of itemArray) {
+      for (const item of itemsWithVersion) {
         const index = newItems.findIndex(i => i.id === item.id)
         if (index >= 0) {
           newItems[index] = item
@@ -83,19 +91,20 @@ export async function mutateStoreItems(items: Item | Item[]) {
     // 3. Prepare for API
     const vault = await getVaultModule()
     const encrypted = await Promise.all(
-      itemArray.map(item => vault.encryptObject(item)),
+      itemsWithVersion.map(item => vault.encryptObject(item)),
     )
     const modifiedTime = new Date().getTime()
 
     // 4. API Call
-    if (itemArray.length === 1) {
+    if (itemsWithVersion.length === 1) {
       await vaultPut({
         cipher: encrypted[0].cipher,
-        item: itemArray[0].id,
+        item: itemsWithVersion[0].id,
         metadata: {
           iv: encrypted[0].iv,
-          type: itemArray[0].type,
+          type: itemsWithVersion[0].type,
           modified: modifiedTime,
+          version: itemsWithVersion[0].version,
         },
       })
     } else {
@@ -103,17 +112,18 @@ export async function mutateStoreItems(items: Item | Item[]) {
         items: encrypted.map(({ cipher, iv }, i) => ({
           account: getAccountId(),
           cipher,
-          item: itemArray[i].id,
+          item: itemsWithVersion[i].id,
           metadata: {
             iv,
-            type: itemArray[i].type,
+            type: itemsWithVersion[i].type,
             modified: modifiedTime,
+            version: itemsWithVersion[i].version,
           },
         })),
       })
     }
 
-    return itemArray
+    return itemsWithVersion
   } catch (err) {
     // 5. Rollback
     if (previousItems) {
