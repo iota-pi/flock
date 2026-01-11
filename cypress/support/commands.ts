@@ -76,12 +76,12 @@ Cypress.Commands.add(
       return cy
     } else {
       return cy.window().then(win => {
-        return win.vault.then(vault => {
+        return win.mutations.then(mutations => {
           const person = {
             ...getBlankPerson(undefined, false),
             ...data,
           }
-          return vault.storeOneItem(person)
+          return mutations.mutateStoreItems(person)
         })
       })
     }
@@ -105,12 +105,12 @@ Cypress.Commands.add(
       return cy
     } else {
       return cy.window().then(win => {
-        return win.vault.then(vault => {
+        return win.mutations.then(mutations => {
           const group = {
             ...getBlankGroup(undefined, false),
             ...data,
           }
-          return vault.storeOneItem(group)
+          return mutations.mutateStoreItems(group)
         })
       })
     }

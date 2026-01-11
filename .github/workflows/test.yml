@@ -5,7 +5,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true # Save money/time by cancelling outdated runs
+  cancel-in-progress: true
 
 jobs:
   test:
