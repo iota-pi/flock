@@ -73,10 +73,10 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
           let theirs: AccountMetadata = {}
 
           if ('cipher' in serverData && 'iv' in serverData) {
-            theirs = await vault.decryptObject(serverData as any) as AccountMetadata
+            theirs = await vault.decryptObject(serverData) as AccountMetadata
             // Add version if it was passed alongside
-            if ('version' in serverData) {
-              theirs.version = (serverData as any).version
+            if ('version' in serverData && typeof serverData.version === 'number') {
+              theirs.version = serverData.version
             }
           } else {
             theirs = serverData as AccountMetadata
