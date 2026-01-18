@@ -14,6 +14,7 @@ import {
   vaultPut,
   vaultPutMany,
   vaultSetMetadata,
+  vaultGetMetadata,
   VaultBatchError,
 } from './VaultAPI'
 import { getAccountId } from './util'
@@ -29,30 +30,78 @@ async function getVaultModule() {
 
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {
   const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
+  let currentMetadata: AccountMetadata | null = null // Will be calculated
 
   try {
-    // 1. Calculate new state
-    const nextMetadata = typeof metadataOrUpdater === 'function'
-      ? metadataOrUpdater(previousMetadata)
-      : metadataOrUpdater
+    const MAX_RETRIES = 3
+    let attempt = 0
+    let baseMetadata = previousMetadata
 
-    // 2. Optimistic Update
-    await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
-    queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, nextMetadata)
+    while (attempt < MAX_RETRIES) {
+      attempt++
 
-    // 3. API Call
-    const vault = await getVaultModule()
-    const { cipher, iv } = await vault.encryptObject(nextMetadata)
-    await vaultSetMetadata({ cipher, iv })
+      // 1. Calculate new state (on first attempt apply updater to base, on retry apply merge)
+      if (attempt === 1) {
+        currentMetadata = typeof metadataOrUpdater === 'function'
+          ? metadataOrUpdater(baseMetadata)
+          : metadataOrUpdater
+      }
 
-    return nextMetadata
+      if (!currentMetadata) throw new Error('Metadata calculation failed')
+
+      // Versioning
+      currentMetadata.version = (baseMetadata.version || 0) + 1
+
+      // 2. Optimistic Update
+      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
+      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, currentMetadata)
+
+      try {
+        // 3. API Call
+        const vault = await getVaultModule()
+        const { cipher, iv } = await vault.encryptObject(currentMetadata)
+        await vaultSetMetadata({ cipher, iv, version: currentMetadata.version })
+
+        return currentMetadata
+      } catch (err: any) {
+        // 4. Handle Conflict
+        const isConflict = err.message.includes('ConditionalCheckFailed') || err.message.includes('Version conflict') || err.toString().includes('conditional request failed')
+
+        if (isConflict && attempt < MAX_RETRIES) {
+          const vault = await getVaultModule()
+          const serverData = await vaultGetMetadata()
+          let theirs: AccountMetadata = {}
+
+          if ('cipher' in serverData && 'iv' in serverData) {
+            theirs = await vault.decryptObject(serverData as any) as AccountMetadata
+            // Add version if it was passed alongside
+            if ('version' in serverData) {
+              theirs.version = (serverData as any).version
+            }
+          } else {
+            theirs = serverData as AccountMetadata
+          }
+
+          // Merge
+          const merged: AccountMetadata = threeWayMerge(baseMetadata, theirs, currentMetadata)
+
+          // Rebase
+          baseMetadata = theirs
+          currentMetadata = merged
+          continue
+        }
+        throw err
+      }
+    }
+    throw new Error('Max retries exceeded')
+
   } catch (err) {
-    // 4. Rollback on error
+    // 5. Rollback on error
     queryClient.setQueryData(queryKeys.metadata, previousMetadata)
     handleVaultError(err as Error, 'Failed to update metadata')
     throw err
   } finally {
-    // 5. Invalidate
+    // 6. Invalidate
     queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
   }
 }

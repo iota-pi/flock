@@ -9,6 +9,7 @@ export interface AccountMetadata {
   prayerGoal?: number,
   sortCriteria?: SortCriterion[];
   defaultPrayerFrequency?: Partial<Record<'person' | 'group', Frequency>>;
+  version?: number;
 }
 
 export type MetadataKey = keyof AccountMetadata

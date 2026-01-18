@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { mutateDeleteItems, mutateStoreItems } from './mutations'
+import { mutateDeleteItems, mutateStoreItems, mutateSetMetadata } from './mutations'
 import { queryClient, queryKeys } from './client'
-import { getBlankPerson, Item } from '../state/items'
+import { getBlankPerson, Item, GroupItem } from '../state/items'
 import * as VaultAPI from './VaultAPI'
 import * as Vault from './Vault'
 
@@ -12,6 +12,7 @@ vi.mock('./VaultAPI', () => ({
   vaultDelete: vi.fn(),
   vaultDeleteMany: vi.fn(),
   vaultSetMetadata: vi.fn(),
+  vaultGetMetadata: vi.fn(),
   vaultFetchMany: vi.fn(),
 }))
 
@@ -110,11 +111,10 @@ describe('mutations', () => {
       const yours = { ...item, description: 'Yours' }
 
       // "Theirs" - server has name change (version is higher)
-      const theirs = { ...item, name: 'Theirs', version: 2 }
+      const theirs = { ...item, name: 'Theirs', version: 2 };
 
       // Mock Put failure once, then success
-      // @ts-ignore
-      VaultAPI.vaultPut
+      (VaultAPI.vaultPut as any)
         .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
         .mockResolvedValue(undefined)
 
@@ -188,6 +188,44 @@ describe('mutations', () => {
 
       // Verify Item Delete
       expect(VaultAPI.vaultDelete).toHaveBeenCalledWith({ item: 'p1' })
+    })
+  })
+
+  describe('mutateSetMetadata', () => {
+    it('resolves version conflict by merging', async () => {
+      const initialMetadata = { prayerGoal: 10, version: 1 }
+      queryClient.setQueryData(queryKeys.metadata, initialMetadata)
+
+      // Mock Set Metadata Conflict sequence
+      // @ts-ignore
+      const setMetadataSpy = vi.spyOn(VaultAPI, 'vaultSetMetadata')
+        .mockRejectedValueOnce(new Error('ConditionalCheckFailed'))
+        .mockResolvedValue(undefined)
+
+      // Mock Get Metadata (Server state)
+      const serverMetadata = { prayerGoal: 10, version: 2, completedMigrations: ['mig1'] }
+      // @ts-ignore
+      const getMetadataSpy = vi.spyOn(VaultAPI, 'vaultGetMetadata')
+        .mockResolvedValue(serverMetadata)
+
+      await mutateSetMetadata((prev) => ({ ...prev, prayerGoal: 20 }))
+
+      // Verify Retry call
+      expect(setMetadataSpy).toHaveBeenCalledTimes(2)
+
+      // First call: version 2
+      expect(setMetadataSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ version: 2 }))
+
+      // Second call: version 3 (merged)
+      expect(setMetadataSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ version: 3 }))
+
+      // Verify Cache
+      const cached = queryClient.getQueryData(queryKeys.metadata)
+      expect(cached).toEqual({
+        prayerGoal: 20,
+        version: 3,
+        completedMigrations: ['mig1']
+      })
     })
   })
 })

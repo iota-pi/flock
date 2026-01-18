@@ -17,6 +17,7 @@ import {
   ScanCommand,
   ScanCommandOutput,
   UpdateCommand,
+  UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { randomBytes } from 'crypto'
 import {
@@ -304,17 +305,22 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     if (metadata && Object.keys(metadata).length > 0) {
+      const params: UpdateCommandInput = {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET metadata=:metadata',
+        ExpressionAttributeValues: {
+          ':metadata': metadata,
+        },
+      }
+
+      if (typeof metadata.version === 'number') {
+        params.ConditionExpression = 'attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+        params.ExpressionAttributeValues![':newVersion'] = metadata.version
+      }
+
       promises.push(
-        this.client.send(new UpdateCommand(
-          {
-            TableName: ACCOUNT_TABLE_NAME,
-            Key: { account },
-            UpdateExpression: 'SET metadata=:metadata',
-            ExpressionAttributeValues: {
-              ':metadata': metadata,
-            },
-          },
-        ))
+        this.client.send(new UpdateCommand(params))
       )
     }
 

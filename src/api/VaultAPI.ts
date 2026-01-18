@@ -180,7 +180,7 @@ export async function vaultGetMetadata(): Promise<AccountMetadata | CryptoResult
   return (result.metadata as AccountMetadata | CryptoResult) || {}
 }
 
-export async function vaultSetMetadata(metadata: CryptoResult): Promise<void> {
+export async function vaultSetMetadata(metadata: CryptoResult & { version?: number }): Promise<void> {
   const url = accountUrl()
   const result = await flockRequest<SuccessResponse>(a => a.patch(url, { metadata }))
   assertSuccess(result, 'setMetadata')
