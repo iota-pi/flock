@@ -135,4 +135,63 @@ describe('prayer utilities', () => {
 
     expect(goal).toBe(3)
   })
+
+  it('should spread group members when multiple are overdue', () => {
+    // Setup: Two groups, G1 and G2. 3 members each.
+    // G1 members: A1, A2, A3
+    // G2 members: B1, B2, B3
+    // Both groups "daily". All members never prayed for (very overdue).
+
+    const A1 = makePerson('A1', 'none')
+    const A2 = makePerson('A2', 'none')
+    const A3 = makePerson('A3', 'none')
+    const G1 = makeGroup('G1', ['A1', 'A2', 'A3'], 'daily')
+
+    const B1 = makePerson('B1', 'none')
+    const B2 = makePerson('B2', 'none')
+    const B3 = makePerson('B3', 'none')
+    const G2 = makeGroup('G2', ['B1', 'B2', 'B3'], 'daily')
+
+    // Scrambled input order
+    const items = [A1, A2, B1, G1, B2, A3, G2, B3]
+
+    const schedule = getPrayerSchedule(items)
+
+    expect(schedule.length).toBe(6)
+
+    // Check that we have exactly 2 As and 2 Bs in the first 4 items
+    // This proves they are interleaved (or at least not clumped as AAA or BBB)
+    expect(schedule.slice(0, 4).filter(id => id.startsWith('A')).length).toBe(2)
+  })
+
+  it('should shift by full frequency when target is "one"', () => {
+    // Group G1: Weekly, 3 Members, Target One.
+    // A1/A2 Last Prayed: 70 days ago (10 weeks).
+    // A1 Next Due: 63 days ago (9 weeks).
+    // A2 Effective Next: 56 days ago (8 weeks) [Shifted by 1 week].
+
+    // Competing Item C1: Weekly.
+    // We want C1 Next to be between 63 and 56 days ago (e.g. 60 days ago).
+    // C1 Last Prayed: 67 days ago (60 + 7).
+
+    // Result order should be: A1 (-63d), C1 (-60d), A2 (-56d).
+
+    const now = Date.now()
+    const oneDay = 24 * 60 * 60 * 1000
+    // A interval is 14 days (Weekly * 2 members)
+    // We want A Next = T - 63d. So Last = T - 63 - 14 = T - 77d.
+    const aLast = now - 77 * oneDay
+    const cLast = now - 67 * oneDay
+
+    const A1 = makePerson('A1', 'none', [aLast])
+    const A2 = makePerson('A2', 'none', [aLast])
+    const G1 = makeGroup('G1', ['A1', 'A2'], 'weekly', 'one')
+
+    const C1 = makePerson('C1', 'weekly', [cLast])
+
+    const items = [A1, A2, C1, G1]
+    const schedule = getPrayerSchedule(items)
+
+    expect(schedule).toEqual(['A1', 'C1', 'A2'])
+  })
 })

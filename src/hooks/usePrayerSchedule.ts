@@ -27,7 +27,9 @@ export function usePrayerSchedule() {
   )
 
   const rawPrayerSchedule = useMemo(
-    () => getPrayerSchedule(items, today),
+    () => getPrayerSchedule(items),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Force prayer schedule to update on a new day
     [items, today],
   )
   const scheduleIds = useStringMemo(rawPrayerSchedule)
