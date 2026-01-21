@@ -2,7 +2,7 @@
   "name": "flock",
   "type": "module",
   "version": "1.0.0",
-  "description": "Flock app and vault API",
+  "description": "Flock app and API",
   "author": "David Adams",
   "license": "MIT",
   "private": true,
