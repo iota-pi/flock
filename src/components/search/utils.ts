@@ -1,9 +1,5 @@
 import { compareItems, getItemName } from '../../state/items'
-import { AnySearchable, AnySearchableData, SEARCHABLE_BASE_SORT_ORDER } from './types'
-
-export function getSearchableDataId(s: AnySearchableData): string {
-  return typeof s === 'string' ? s : s.id
-}
+import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
 
 export function isSearchableStandardItem(s: AnySearchable): s is AnySearchable & { create?: false, data: object } {
   return s.type === 'person' || s.type === 'group'

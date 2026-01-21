@@ -34,7 +34,7 @@ export const queryPersister = createAsyncStoragePersister({
 
 // Error handling helper
 export function handleVaultError(error: Error, message: string) {
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
     return
   }
   console.error(error)
@@ -49,9 +49,4 @@ export function handleVaultError(error: Error, message: string) {
 // Helper to clear the cache (e.g., on logout)
 export function clearQueryCache() {
   queryClient.clear()
-}
-
-// Helper to check if we have cached data (for UI purposes)
-export function hasItemsInCache(): boolean {
-  return queryClient.getQueryData(queryKeys.items) !== undefined
 }
