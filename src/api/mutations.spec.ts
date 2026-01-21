@@ -114,13 +114,12 @@ describe('mutations', () => {
       const theirs = { ...item, name: 'Theirs', version: 2 };
 
       // Mock Put failure once, then success
-      (VaultAPI.vaultPut as any)
+      vi.mocked(VaultAPI.vaultPut)
         .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
         .mockResolvedValue(undefined)
 
       // Mock Fetch Many to return "Theirs" (encrypted)
-      // @ts-ignore
-      VaultAPI.vaultFetchMany.mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
         {
           item: item.id,
           cipher: 'cipher-theirs',
@@ -129,8 +128,7 @@ describe('mutations', () => {
       ])
 
       // Mock Decrypt to return "Theirs" when asked
-      // @ts-ignore
-      Vault.decryptObject.mockImplementation(async ({ cipher }) => {
+      vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher-theirs') return theirs
         return {} // shouldn't happen
       })
@@ -156,8 +154,7 @@ describe('mutations', () => {
       queryClient.setQueryData(queryKeys.items, [gItem, pItem])
 
       // Mock Fetch Many (called by fetchItems to get fresh group state)
-      // @ts-ignore
-      VaultAPI.vaultFetchMany.mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
         {
           item: gItem.id,
           cipher: 'cipher-group',
@@ -166,11 +163,13 @@ describe('mutations', () => {
       ])
 
       // Mock Decrypt
-      // @ts-ignore
-      Vault.decryptObject.mockImplementation(async ({ cipher }) => {
+      vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher-group') return gItem
         return {}
       })
+
+      // Mock Metadata
+      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
 
       await mutateDeleteItems('p1')
 
@@ -197,14 +196,13 @@ describe('mutations', () => {
       queryClient.setQueryData(queryKeys.metadata, initialMetadata)
 
       // Mock Set Metadata Conflict sequence
-      // @ts-ignore
+      // Mock Set Metadata Conflict sequence
       const setMetadataSpy = vi.spyOn(VaultAPI, 'vaultSetMetadata')
         .mockRejectedValueOnce(new Error('ConditionalCheckFailed'))
         .mockResolvedValue(undefined)
 
       // Mock Get Metadata (Server state)
       const serverMetadata = { prayerGoal: 10, version: 2, completedMigrations: ['mig1'] }
-      // @ts-ignore
       const getMetadataSpy = vi.spyOn(VaultAPI, 'vaultGetMetadata')
         .mockResolvedValue(serverMetadata)
 
