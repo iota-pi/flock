@@ -9,19 +9,24 @@
  * 2. If theirs changed and yours didn't -> use theirs
  * 3. If both changed -> use yours (local wins conflict)
  */
-export function threeWayMerge<T extends Record<string, any>>(base: T, theirs: T, yours: T): T {
+export function threeWayMerge<T extends object>(base: T, theirs: T, yours: T): T {
   const keys = new Set([
     ...Object.keys(base || {}),
     ...Object.keys(theirs || {}),
     ...Object.keys(yours || {}),
   ])
 
-  const result: any = {}
+  // Internal access helpers
+  const bObj = (base || {}) as Record<string, unknown>
+  const tObj = (theirs || {}) as Record<string, unknown>
+  const yObj = (yours || {}) as Record<string, unknown>
+
+  const result = {} as Record<string, unknown>
 
   for (const key of keys) {
-    const b = base?.[key]
-    const t = theirs?.[key]
-    const y = yours?.[key]
+    const b = bObj[key]
+    const t = tObj[key]
+    const y = yObj[key]
 
     const yoursChanged = !isEqual(b, y)
     const theirsChanged = !isEqual(b, t)
@@ -42,6 +47,7 @@ export function threeWayMerge<T extends Record<string, any>>(base: T, theirs: T,
   return result as T
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isEqual(a: any, b: any): boolean {
   if (a === b) return true
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false

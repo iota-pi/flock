@@ -38,7 +38,7 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
     let baseMetadata = previousMetadata
 
     while (attempt < MAX_RETRIES) {
-      attempt++
+      attempt += 1
 
       // 1. Calculate new state (on first attempt apply updater to base, on retry apply merge)
       if (attempt === 1) {
@@ -63,7 +63,9 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
         await vaultSetMetadata({ cipher, iv, version: currentMetadata.version })
 
         return currentMetadata
-      } catch (err: any) {
+      } catch (err) {
+        if (!(err instanceof Error)) throw err
+
         // 4. Handle Conflict
         const isConflict = err.message.includes('ConditionalCheckFailed') || err.message.includes('Version conflict') || err.toString().includes('conditional request failed')
 
@@ -82,8 +84,10 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
             theirs = serverData as AccountMetadata
           }
 
+          if (!currentMetadata) throw err
+
           // Merge
-          const merged: AccountMetadata = threeWayMerge(baseMetadata, theirs, currentMetadata)
+          const merged = threeWayMerge(baseMetadata, theirs, currentMetadata)
 
           // Rebase
           baseMetadata = theirs
@@ -116,7 +120,7 @@ export async function mutateStoreItems(items: Item | Item[]) {
     const MAX_RETRIES = 3
 
     while (attempt < MAX_RETRIES) {
-      attempt++
+      attempt += 1
 
       // 1. Prepare
       if (attempt === 1) {
@@ -136,7 +140,7 @@ export async function mutateStoreItems(items: Item | Item[]) {
 
       } catch (err) {
         // 4. Handle Conflict
-        currentItems = await handleConflict(err, currentItems, baseItems, attempt, MAX_RETRIES)
+        currentItems = await handleConflict(err as Error, currentItems, baseItems, attempt, MAX_RETRIES)
       }
     }
     throw new Error('Max retries exceeded')
@@ -307,7 +311,7 @@ async function saveItemsToVault(items: Item[]) {
 }
 
 async function handleConflict(
-  err: any,
+  err: Error,
   currentItems: Item[],
   baseItems: Map<string, Item>,
   attempt: number,

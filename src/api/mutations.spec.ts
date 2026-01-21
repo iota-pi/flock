@@ -111,7 +111,7 @@ describe('mutations', () => {
       const yours = { ...item, description: 'Yours' }
 
       // "Theirs" - server has name change (version is higher)
-      const theirs = { ...item, name: 'Theirs', version: 2 };
+      const theirs = { ...item, name: 'Theirs', version: 2 }
 
       // Mock Put failure once, then success
       vi.mocked(VaultAPI.vaultPut)
@@ -203,8 +203,7 @@ describe('mutations', () => {
 
       // Mock Get Metadata (Server state)
       const serverMetadata = { prayerGoal: 10, version: 2, completedMigrations: ['mig1'] }
-      const getMetadataSpy = vi.spyOn(VaultAPI, 'vaultGetMetadata')
-        .mockResolvedValue(serverMetadata)
+      vi.spyOn(VaultAPI, 'vaultGetMetadata').mockResolvedValue(serverMetadata)
 
       await mutateSetMetadata(prev => ({ ...prev, prayerGoal: 20 }))
 
