@@ -208,7 +208,7 @@ describe('mutations', () => {
       const getMetadataSpy = vi.spyOn(VaultAPI, 'vaultGetMetadata')
         .mockResolvedValue(serverMetadata)
 
-      await mutateSetMetadata((prev) => ({ ...prev, prayerGoal: 20 }))
+      await mutateSetMetadata(prev => ({ ...prev, prayerGoal: 20 }))
 
       // Verify Retry call
       expect(setMetadataSpy).toHaveBeenCalledTimes(2)

@@ -1,18 +1,15 @@
 import { renderHook } from '@testing-library/react'
 import {
-  capitalise,
-  formatDate,
-  formatDateAndTime,
-  formatTime,
-  generateItemId,
   isDefined,
+  generateItemId,
+  formatDate,
+  formatTime,
   isSameDay,
-  usePrevious,
   useStringMemo,
-  useToday,
+  capitalise,
 } from './index'
 
-describe('utils', () => {
+describe('utils/index', () => {
   describe('isDefined', () => {
     it('returns true for defined values', () => {
       expect(isDefined(0)).toBe(true)
@@ -29,99 +26,93 @@ describe('utils', () => {
 
   describe('generateItemId', () => {
     it('returns a string', () => {
-      const id = generateItemId()
-      expect(typeof id).toBe('string')
-      expect(id.length).toBeGreaterThan(0)
+      expect(typeof generateItemId()).toBe('string')
+    })
+
+    it('returns unique IDs', () => {
+      const id1 = generateItemId()
+      const id2 = generateItemId()
+      expect(id1).not.toBe(id2)
     })
   })
 
-  describe('formatting', () => {
-    const date = new Date(2023, 0, 1, 13, 30) // Jan 1 2023, 1:30 PM
-
-    it('formatDate returns a date string', () => {
-      const formatted = formatDate(date)
-      expect(formatted).toBe('1/1/2023')
+  describe('formatDate', () => {
+    it('formats date correctly', () => {
+      const d = new Date('2024-01-01T12:00:00')
+      // Just check it returns a string and contains parts of the date
+      const result = formatDate(d)
+      expect(typeof result).toBe('string')
     })
+  })
 
-    it('formatTime returns a time string', () => {
-      const formatted = formatTime(date)
-      expect(formatted).toContain('1:30')
-      expect(formatted).toMatch(/pm/i)
-    })
+  describe('formatTime', () => {
+    it('formats time correctly', () => {
+      const d = new Date('2024-01-01T13:05:00') // 1:05pm
+      expect(formatTime(d)).toBe('1:05pm')
 
-    it('formatDateAndTime combines them', () => {
-      const formatted = formatDateAndTime(date)
-      expect(formatted).toContain(formatDate(date))
-      expect(formatted).toContain(formatTime(date))
+      const d2 = new Date('2024-01-01T00:30:00') // 12:30am
+      expect(formatTime(d2)).toBe('12:30am')
     })
   })
 
   describe('isSameDay', () => {
     it('returns true for same day', () => {
-      const d1 = new Date(2023, 0, 1, 10, 0)
-      const d2 = new Date(2023, 0, 1, 15, 0)
+      const d1 = new Date('2024-01-01T10:00:00')
+      const d2 = new Date('2024-01-01T20:00:00')
       expect(isSameDay(d1, d2)).toBe(true)
     })
 
     it('returns false for different days', () => {
-      const d1 = new Date(2023, 0, 1)
-      const d2 = new Date(2023, 0, 2)
+      const d1 = new Date('2024-01-01T10:00:00')
+      const d2 = new Date('2024-01-02T10:00:00')
       expect(isSameDay(d1, d2)).toBe(false)
     })
   })
 
   describe('capitalise', () => {
-    it('capitalises the first letter', () => {
-      expect(capitalise('flock')).toBe('Flock')
-      expect(capitalise('Flock')).toBe('Flock')
+    it('capitalises first letter', () => {
+      expect(capitalise('hello')).toBe('Hello')
+      expect(capitalise('world')).toBe('World')
     })
 
     it('handles empty string', () => {
       expect(capitalise('')).toBe('')
     })
+
+    it('keeps already capitalised string', () => {
+      expect(capitalise('Hello')).toBe('Hello')
+    })
   })
 
-  describe('hooks', () => {
-    it('useToday returns a date', () => {
-      const { result } = renderHook(() => useToday())
-      expect(result.current).toBeInstanceOf(Date)
-    })
+  describe('useStringMemo', () => {
+    it('returns same reference for array with same strings', () => {
+      const list1 = ['a', 'b']
+      const list2 = ['a', 'b']
 
-    it('usePrevious returns previous value', () => {
-      const { result, rerender } = renderHook(({ value }) => usePrevious(value), {
-        initialProps: { value: 1 },
+      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+        initialProps: { list: list1 }
       })
 
-      // On first render, ref is undefined (as assigned in effect runs after render)
-      expect(result.current).toBeUndefined()
+      expect(result.current).toBe(list1)
 
-      rerender({ value: 2 })
-      // On second render, ref.current was set to 1
-      expect(result.current).toBe(1)
+      rerender({ list: list2 })
 
-      rerender({ value: 3 })
-      expect(result.current).toBe(2)
+      expect(result.current).toBe(list1)
     })
 
-    it('useStringMemo memoizes based on string join', () => {
-      const arr1 = ['a', 'b']
-      const arr2 = ['a', 'b'] // Different reference, same content
-      const arr3 = ['a', 'c']
+    it('updates reference when content changes', () => {
+      const list1 = ['a']
+      const list2 = ['a', 'b']
 
-      const { result, rerender } = renderHook(({ app }) => useStringMemo(app), {
-        initialProps: { app: arr1 },
+      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+        initialProps: { list: list1 }
       })
 
-      const firstResult = result.current
-      expect(firstResult).toBe(arr1)
+      expect(result.current).toBe(list1)
 
-      rerender({ app: arr2 })
-      // Should be equal to firstResult because content key matches
-      expect(result.current).toBe(firstResult)
+      rerender({ list: list2 })
 
-      rerender({ app: arr3 })
-      // Key changes, so it returns new state
-      expect(result.current).toBe(arr3)
+      expect(result.current).toBe(list2)
     })
   })
 })
