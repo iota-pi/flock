@@ -12,6 +12,7 @@ export interface VaultMetaData {
   type: ItemType,
   iv: string,
   modified: number,
+  version?: number,
 }
 
 export interface VaultData {

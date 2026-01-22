@@ -92,4 +92,12 @@ export const migrations: ItemMigration[] = [
       return updatedItems
     },
   },
+  {
+    description: 'Initialize item version',
+    id: 'add-version-to-items',
+    migrate: async ({ items }) => {
+      // Return all items to force a save with version 1 (set by supplyMissingAttributes)
+      return [...items]
+    },
+  },
 ]

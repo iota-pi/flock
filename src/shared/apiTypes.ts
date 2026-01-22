@@ -22,6 +22,7 @@ export const VaultItemMetadataSchema = Type.Object({
   type: ItemTypeSchema,
   iv: Type.String(),
   modified: Type.Number(),
+  version: Type.Optional(Type.Number()),
 })
 export type VaultItemMetadata = Static<typeof VaultItemMetadataSchema>
 
@@ -128,6 +129,7 @@ export const PutItemBodySchema = Type.Object(
     iv: Type.String(),
     modified: Type.Number(),
     type: Type.String(),
+    version: Type.Optional(Type.Number()),
   },
   { $id: 'vault.itemBody' },
 )
@@ -139,6 +141,7 @@ export const PutItemsBatchEntrySchema = Type.Object({
   iv: Type.String(),
   modified: Type.Number(),
   type: Type.String(),
+  version: Type.Optional(Type.Number()),
 })
 export type PutItemsBatchEntry = Static<typeof PutItemsBatchEntrySchema>
 
@@ -232,6 +235,7 @@ export const BatchResultResponseSchema = Type.Object(
     details: Type.Array(Type.Object({
       item: Type.String(),
       success: Type.Boolean(),
+      error: Type.Optional(Type.String()),
     })),
   },
   { $id: 'vault.batchResultResponse' },

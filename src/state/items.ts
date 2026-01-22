@@ -19,6 +19,7 @@ export interface BaseItem {
   prayerFrequency: Frequency,
   summary: string,
   type: ItemType,
+  version: number,
 }
 export interface PersonItem extends BaseItem {
   memberPrayerFrequency?: undefined,
@@ -50,6 +51,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     prayerFrequency: 'none',
     summary: '',
     type: 'person',
+    version: 1,
   }
 }
 

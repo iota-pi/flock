@@ -72,7 +72,7 @@
 
 ### Deployment
 - **Deploy (SST)**: `yarn deploy --stage <stage>` (e.g., `dev`, `production`).
-- **Build**: `yarn build` (Frontend) / `yarn build:vault` (Backend Lambda).
+- **Build**: `yarn build` (Frontend)
 
 ## Formatting & Linting
 - **Lint**: `yarn lint`

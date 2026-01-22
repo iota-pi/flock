@@ -11,11 +11,13 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  PutCommandInput,
   QueryCommand,
   QueryCommandOutput,
   ScanCommand,
   ScanCommandOutput,
   UpdateCommand,
+  UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { randomBytes } from 'crypto'
 import {
@@ -303,17 +305,22 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     if (metadata && Object.keys(metadata).length > 0) {
+      const params: UpdateCommandInput = {
+        TableName: ACCOUNT_TABLE_NAME,
+        Key: { account },
+        UpdateExpression: 'SET metadata=:metadata',
+        ExpressionAttributeValues: {
+          ':metadata': metadata,
+        },
+      }
+
+      if (typeof metadata.version === 'number') {
+        params.ConditionExpression = 'attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+        params.ExpressionAttributeValues![':newVersion'] = metadata.version
+      }
+
       promises.push(
-        this.client.send(new UpdateCommand(
-          {
-            TableName: ACCOUNT_TABLE_NAME,
-            Key: { account },
-            UpdateExpression: 'SET metadata=:metadata',
-            ExpressionAttributeValues: {
-              ':metadata': metadata,
-            },
-          },
-        ))
+        this.client.send(new UpdateCommand(params))
       )
     }
 
@@ -508,12 +515,29 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
     }
 
-    await this.client.send(new PutCommand(
-      {
-        TableName: ITEM_TABLE_NAME,
-        Item: item,
-      },
-    ))
+    const params: PutCommandInput = {
+      TableName: ITEM_TABLE_NAME,
+      Item: item,
+    }
+
+    if (typeof item.metadata.version === 'number') {
+      params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+      params.ExpressionAttributeNames = {
+        '#item': 'item',
+      }
+      params.ExpressionAttributeValues = {
+        ':newVersion': item.metadata.version,
+      }
+    }
+
+    try {
+      await this.client.send(new PutCommand(params))
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) {
+        throw new Error('Version conflict: The item has been modified by another client.')
+      }
+      throw err
+    }
   }
 
   async get({ account, item }: VaultKey) {

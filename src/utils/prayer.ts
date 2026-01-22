@@ -60,27 +60,90 @@ export function getLastPrayedFor(
   return prayedFor[prayedFor.length - 1] || 0
 }
 
-export function getPrayerSchedule(items: Item[], day?: Date): string[] {
+export function getPrayerSchedule(items: Item[]): string[] {
   const unarchived = filterArchived(items)
   const freqMap = buildPrayerFreqMap(unarchived)
   const activeItems = getActiveItems(unarchived, freqMap)
-  const calcTime = day?.getTime() ?? Date.now()
-  const itemsWithSortInfo = activeItems.map(
-    item => {
-      const last = getLastPrayedFor(item, true)
-      const interval = frequencyToMilliseconds(freqMap.get(item.id)!)
 
-      return {
-        item,
-        next: last + interval,
-        missed: Math.floor((calcTime - last) / interval),
+  // 1. Pre-calculate next due date and shift quantum for each item
+  const candidates = activeItems.map(item => {
+    const last = getLastPrayedFor(item, true)
+    const interval = frequencyToMilliseconds(freqMap.get(item.id)!)
+
+    // Determine group properties
+    let groupId = item.id // Default to self as group if no group found
+    let groupShiftQuantum = 0
+
+    // Find groups this item belongs to
+    const groups = unarchived.filter((g): g is GroupItem =>
+      g.type === 'group' && g.members.includes(item.id)
+    )
+
+    if (groups.length > 0) {
+      // Select best group: Higher frequency (lower interval) wins.
+      // Tie-breaker: Fewer members wins.
+      const bestGroup = groups.reduce((best, curr) => {
+        const bestFreq = frequencyToMilliseconds(best.memberPrayerFrequency)
+        const currFreq = frequencyToMilliseconds(curr.memberPrayerFrequency)
+        if (currFreq < bestFreq) return curr
+        if (currFreq === bestFreq) {
+          return (curr.members.length < best.members.length) ? curr : best
+        }
+        return best
+      })
+
+      groupId = bestGroup.id
+      const memberCount = bestGroup.members.length || 1
+      const groupFreqMs = frequencyToMilliseconds(bestGroup.memberPrayerFrequency)
+
+      // Quantum calculation based on target
+      if (bestGroup.memberPrayerTarget === 'one') {
+        groupShiftQuantum = groupFreqMs
+      } else {
+        groupShiftQuantum = groupFreqMs / memberCount
       }
-    },
-  )
-  itemsWithSortInfo.sort(
-    (a, b) => (b.missed - a.missed) || (a.next - b.next)
-  )
-  return itemsWithSortInfo.map(x => x.item.id)
+    }
+
+    return {
+      id: item.id,
+      groupId,
+      groupShiftQuantum,
+      next: last + interval,
+      originalItem: item,
+    }
+  })
+
+  const schedule: string[] = []
+  const groupCounts: Record<string, number> = {}
+
+  // 2. Iterative Selection
+  while (candidates.length > 0) {
+    // Sort by effective urgency:
+    // How long ago was effectiveNext?
+    // (effectiveNext = next + (groupCount * quantum)
+    candidates.sort((a, b) => {
+      const countA = groupCounts[a.groupId] || 0
+      const countB = groupCounts[b.groupId] || 0
+
+      const effectiveNextA = a.next + (countA * a.groupShiftQuantum)
+      const effectiveNextB = b.next + (countB * b.groupShiftQuantum)
+
+      // We want the item whose effectiveNext is smallest (earliest in time), i.e. most overdue relative to now
+      return effectiveNextA - effectiveNextB
+    })
+
+    // Pick top
+    const top = candidates[0]
+    schedule.push(top.id)
+
+    // Update group counts
+    groupCounts[top.groupId] = (groupCounts[top.groupId] || 0) + 1
+
+    // Remove from candidates
+    candidates.shift()
+  }
+
+  return schedule
 }
 
 export function getNaturalPrayerGoal(items: Item[]) {

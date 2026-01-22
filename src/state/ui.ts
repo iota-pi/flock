@@ -129,7 +129,7 @@ const uiSlice = createSlice({
     removeActive(state) {
       state.drawers.splice(state.drawers.length - 1, 1)
     },
-    pruneItems(state, action: PayloadAction<ItemId[]>) {
+    pruneItemDrawers(state, action: PayloadAction<ItemId[]>) {
       const newDrawers: typeof state.drawers = []
       let modified = false
       for (const drawer of state.drawers) {
@@ -164,7 +164,7 @@ export const {
   startRequest,
   toggleSelected,
   updateActive,
-  pruneItems,
+  pruneItemDrawers,
 } = uiSlice.actions
 export default uiSlice.reducer
 

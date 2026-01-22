@@ -42,6 +42,35 @@ describe('DynamoDriver', function () {
     expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
   })
 
+  it('set enforces versioning', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const cipher = 'hello'
+    const iv = 'there'
+    const modified = new Date().getTime()
+
+    // 1. Initial set v1
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 1 } })
+
+    // 2. Update with same version (should fail)
+    await expect(
+      driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 1 } })
+    ).rejects.toThrow('Version conflict')
+
+    // 3. Update with lower version (should fail)
+    await expect(
+      driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 0 } })
+    ).rejects.toThrow('Version conflict')
+
+    // 4. Update with higher version (should succeed)
+    await driver.set({ account, item, cipher: 'new', metadata: { type, iv, modified, version: 2 } })
+
+    const result = await driver.get({ account, item })
+    expect(result.metadata.version).toBe(2)
+    expect(result.cipher).toBe('new')
+  })
+
   it('fetchAll works', async () => {
     const account = generateAccountId()
     const individuals = []
