@@ -144,44 +144,49 @@ function RestoreBackupDialog({
           />
 
           <Box my={2}>
-            <Alert
-              severity={(
-                (errorMessage && 'error')
-                || (importedItems.length > 0 && 'success')
-                || 'info'
-              )}
-            >
-              {errorMessage}
+            {errorMessage && (
+              <Alert severity={"error"}>
+                {errorMessage}
+              </Alert>
+            )}
 
-              {!errorMessage && (
-                importedItems.length > 0
-                  ? `Found ${changedItems.length} items to restore`
+            {!errorMessage && (
+              <Alert
+                severity={importedItems.length > 0 ? 'success' : 'info'}
+              >
+                {(importedItems.length > 0
+                  ? (
+                    `Loaded ${importedItems.length} items (`
+                    + `${importedItems.length - changedItems.length} unchanged`
+                    + `, ${changedItems.length} can be restored)`
+                  )
                   : 'Upload a Flock backup file'
-              )}
+                )}
 
-              {!errorMessage && changedItems.length > 0 && (
-                <Box mt={1}>
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    onClick={() => setIsSelectionOpen(true)}
-                  >
-                    {`${selectedIds.size}/${changedItems.length} selected`}
-                  </Button>
-                </Box>
-              )}
-            </Alert>
-
-            {(!errorMessage && changedItems.length > 0) && (
-              <Box mt={2}>
-                <Alert severity="info">
-                  {`${modifiedCount} ${modifiedCount !== 1 ? 'people' : 'person'} will be updated`}
-                  <br />
-                  {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
-                </Alert>
-              </Box>
+                {changedItems.length > 0 && (
+                  <Box mt={1}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      onClick={() => setIsSelectionOpen(true)}
+                    >
+                      {`${selectedIds.size}/${changedItems.length} selected`}
+                    </Button>
+                  </Box>
+                )}
+              </Alert>
             )}
           </Box>
+
+          {changedItems.length > 0 && (
+            <Box mt={2}>
+              <Alert severity="info">
+                {`${modifiedCount} ${modifiedCount !== 1 ? 'people' : 'person'} will be updated`}
+                <br />
+                {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
+              </Alert>
+            </Box>
+          )}
 
           <Typography>
             <InlineText fontWeight={500}>Important!</InlineText>
