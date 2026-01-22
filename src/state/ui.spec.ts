@@ -9,7 +9,7 @@ import uiReducer, {
   replaceActive,
   updateActive,
   removeActive,
-  pruneItems,
+  pruneItemDrawers,
   UIState,
 } from './ui'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
@@ -132,7 +132,7 @@ describe('ui reducer', () => {
     })
   })
 
-  describe('pruneItems', () => {
+  describe('pruneItemDrawers', () => {
     it('should remove pruned items from drawers', () => {
       const state: UIState = {
         ...initialState,
@@ -143,7 +143,7 @@ describe('ui reducer', () => {
         selected: ['keep', 'delete']
       }
 
-      const newState = uiReducer(state, pruneItems(['delete']))
+      const newState = uiReducer(state, pruneItemDrawers(['delete']))
       expect(newState.drawers).toHaveLength(1)
       expect(newState.drawers[0].item).toBe('keep')
       expect(newState.selected).toEqual(['keep'])
@@ -156,7 +156,7 @@ describe('ui reducer', () => {
           { id: '1', open: true, item: '1', next: ['2', '3', '4'] },
         ]
       }
-      const newState = uiReducer(state, pruneItems(['3']))
+      const newState = uiReducer(state, pruneItemDrawers(['3']))
       expect(newState.drawers[0].next).toEqual(['2', '4'])
     })
   })

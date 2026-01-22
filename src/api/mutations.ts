@@ -19,7 +19,7 @@ import {
 import { getAccountId } from './util'
 import { fetchItems, decryptVaultItems, fetchMetadata } from './queries'
 import { queryClient, queryKeys, handleVaultError } from './client'
-import { pruneItems } from '../state/ui'
+import { pruneItemDrawers } from '../state/ui'
 import store from '../store'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
@@ -109,15 +109,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
       await mutateStoreItems(modifiedGroups)
     }
 
-    // 4. Delete items
-    if (ids.length === 1) {
-      await vaultDelete({ item: ids[0] })
-    } else {
-      await vaultDeleteMany({ items: ids })
-    }
-
-    // 5. Store dispatch (Side effect)
-    store.dispatch(pruneItems(ids))
+    store.dispatch(pruneItemDrawers(ids))
 
     return ids
   } catch (err) {
