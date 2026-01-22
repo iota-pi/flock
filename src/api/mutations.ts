@@ -88,26 +88,17 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
   try {
     await queryClient.cancelQueries({ queryKey: queryKeys.items })
 
-    // 1. Optimistic Update
+    // Optimistic Update
     queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticDeleteUpdate(old, idsSet))
 
-    // 2. Fetch latest for group logic
+    // Remove deleted members from groups
     const allItems = await fetchItems()
-
-    // 3. Identify and Update Groups
-    const groupsToUpdate = allItems.filter((item): item is GroupItem =>
-      item.type === 'group' && item.members.some(mId => idsSet.has(mId))
-    )
-
+    const groupsToUpdate = updateGroupsForDeletedMembers(allItems, idsSet)
     if (groupsToUpdate.length > 0) {
-      const modifiedGroups = groupsToUpdate.map(g => ({
-        ...g,
-        members: g.members.filter(mId => !idsSet.has(mId)),
-      }))
-
-      // Delegate update to mutateStoreItems
-      await mutateStoreItems(modifiedGroups)
+      await mutateStoreItems(groupsToUpdate)
     }
+
+    await deleteItemsFromVault(ids)
 
     store.dispatch(pruneItemDrawers(ids))
 
@@ -133,6 +124,21 @@ function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[
   })
 }
 
+function removeMembersFromGroup(group: GroupItem, idsSet: Set<string>): GroupItem {
+  return {
+    ...group,
+    members: group.members.filter(m => !idsSet.has(m)),
+  }
+}
+
+function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<string>): GroupItem[] {
+  return allItems
+    .filter((item): item is GroupItem =>
+      item.type === 'group' && item.members.some(mId => idsSet.has(mId))
+    )
+    .map(g => removeMembersFromGroup(g, idsSet))
+}
+
 function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): Item[] {
   if (!old) return []
   return old
@@ -142,10 +148,7 @@ function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): I
         item.type === 'group'
         && (item as GroupItem).members.some(m => idsSet.has(m))
       ) {
-        return {
-          ...item,
-          members: (item as GroupItem).members.filter(m => !idsSet.has(m)),
-        }
+        return removeMembersFromGroup(item as GroupItem, idsSet)
       }
       return item
     })
@@ -200,6 +203,14 @@ async function saveItemsToVault(items: Item[]) {
         },
       })),
     })
+  }
+}
+
+async function deleteItemsFromVault(ids: string[]) {
+  if (ids.length === 1) {
+    await vaultDelete({ item: ids[0] })
+  } else {
+    await vaultDeleteMany({ items: ids })
   }
 }
 
