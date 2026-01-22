@@ -16,6 +16,7 @@ import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
 import { threeWayMerge } from '../../utils/merge'
+import { diffItems } from 'src/utils/diff'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
 
 export interface Props {
@@ -30,7 +31,7 @@ function getChangedItems(importedItems: Item[], existingItems: Item[]): Item[] {
     const existing = existingMap.get(item.id)
     if (!existing) return true
     if (existing.version !== item.version) return true
-    return JSON.stringify(existing) !== JSON.stringify(item)
+    return diffItems(existing, item).length > 0
   })
 }
 
