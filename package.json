@@ -88,7 +88,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "rollup-plugin-visualizer": "^6.0.5",
     "source-map-explorer": "^2.5.2",
-    "sst": "^3.17.25",
+    "sst": "^3.17.37",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
