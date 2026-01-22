@@ -1,10 +1,10 @@
 import { AccountMetadata } from '../state/account'
+import { VaultItem } from '../shared/apiTypes'
 import {
   checkProperties,
   GroupItem,
   Item,
   ItemId,
-  supplyMissingAttributes,
 } from '../state/items'
 import { threeWayMerge } from '../utils/merge'
 import {
@@ -14,147 +14,70 @@ import {
   vaultPut,
   vaultPutMany,
   vaultSetMetadata,
-  vaultGetMetadata,
   VaultBatchError,
 } from './VaultAPI'
 import { getAccountId } from './util'
-import { fetchItems } from './queries'
+import { fetchItems, decryptVaultItems, fetchMetadata } from './queries'
 import { queryClient, queryKeys, handleVaultError } from './client'
 import { pruneItems } from '../state/ui'
 import store from '../store'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
-async function getVaultModule() {
+function getVaultModule() {
   return import('./Vault')
 }
 
+export type ConflictResolution<TData, TBase = TData> = {
+  next: TData
+  base: TBase
+}
+
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {
-  const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) ?? {} as AccountMetadata
-  let currentMetadata: AccountMetadata | null = null // Will be calculated
-
-  try {
-    const MAX_RETRIES = 3
-    let attempt = 0
-    let baseMetadata = previousMetadata
-
-    while (attempt < MAX_RETRIES) {
-      attempt += 1
-
-      // 1. Calculate new state (on first attempt apply updater to base, on retry apply merge)
-      if (attempt === 1) {
-        currentMetadata = typeof metadataOrUpdater === 'function'
-          ? metadataOrUpdater(baseMetadata)
+  return mutateWithRetry<AccountMetadata, AccountMetadata>(
+    {
+      queryKey: queryKeys.metadata,
+      getBaseState: previous => previous || {} as AccountMetadata,
+      calculateNextState: async base => {
+        const current = typeof metadataOrUpdater === 'function'
+          ? metadataOrUpdater(base)
           : metadataOrUpdater
-      }
-
-      if (!currentMetadata) throw new Error('Metadata calculation failed')
-
-      // Versioning
-      currentMetadata.version = (baseMetadata.version || 0) + 1
-
-      // 2. Optimistic Update
-      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
-      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, currentMetadata)
-
-      try {
-        // 3. API Call
+        current.version = (base.version || 0) + 1
+        return current
+      },
+      performSave: async current => {
         const vault = await getVaultModule()
-        const { cipher, iv } = await vault.encryptObject(currentMetadata)
-        await vaultSetMetadata({ cipher, iv, version: currentMetadata.version })
-
-        return currentMetadata
-      } catch (err) {
-        if (!(err instanceof Error)) throw err
-
-        // 4. Handle Conflict
-        const isConflict = err.message.includes('ConditionalCheckFailed') || err.message.includes('Version conflict') || err.toString().includes('conditional request failed')
-
-        if (isConflict && attempt < MAX_RETRIES) {
-          const vault = await getVaultModule()
-          const serverData = await vaultGetMetadata()
-          let theirs: AccountMetadata = {}
-
-          if ('cipher' in serverData && 'iv' in serverData) {
-            theirs = await vault.decryptObject(serverData) as AccountMetadata
-            // Add version if it was passed alongside
-            if ('version' in serverData && typeof serverData.version === 'number') {
-              theirs.version = serverData.version
-            }
-          } else {
-            theirs = serverData as AccountMetadata
-          }
-
-          if (!currentMetadata) throw err
-
-          // Merge
-          const merged = threeWayMerge(baseMetadata, theirs, currentMetadata)
-
-          // Rebase
-          baseMetadata = theirs
-          currentMetadata = merged
-          continue
-        }
-        throw err
-      }
-    }
-    throw new Error('Max retries exceeded')
-
-  } catch (err) {
-    // 5. Rollback on error
-    queryClient.setQueryData(queryKeys.metadata, previousMetadata)
-    handleVaultError(err as Error, 'Failed to update metadata')
-    throw err
-  } finally {
-    // 6. Invalidate
-    queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-  }
+        const { cipher, iv } = await vault.encryptObject(current)
+        await vaultSetMetadata({ cipher, iv, version: current.version })
+        return current
+      },
+      handleConflict: handleMetadataConflict,
+    },
+  )
 }
 
 export async function mutateStoreItems(items: Item | Item[]) {
-  const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
-
-  try {
-    let currentItems = Array.isArray(items) ? [...items] : [items]
-    const baseItems = new Map((previousItems || []).map(i => [i.id, i]))
-    let attempt = 0
-    const MAX_RETRIES = 3
-
-    while (attempt < MAX_RETRIES) {
-      attempt += 1
-
-      // 1. Prepare
-      if (attempt === 1) {
-        currentItems = prepareItemsForSave(currentItems, baseItems)
-      }
-
-      const checkResult = checkProperties(currentItems)
-      if (checkResult.error) throw new Error(checkResult.message)
-
-      // 2. Optimistic Update
-      await updateCacheOptimistically(currentItems)
-
-      try {
-        // 3. Save
-        await saveItemsToVault(currentItems)
-        return currentItems
-
-      } catch (err) {
-        // 4. Handle Conflict
-        currentItems = await handleConflict(err as Error, currentItems, baseItems, attempt, MAX_RETRIES)
-      }
-    }
-    throw new Error('Max retries exceeded')
-  } catch (err) {
-    // 5. Rollback
-    if (previousItems) {
-      queryClient.setQueryData(queryKeys.items, previousItems)
-    }
-    handleVaultError(err as Error, 'Failed to store items')
-    throw err
-  } finally {
-    // 6. Invalidate
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-  }
+  return mutateWithRetry<Item[], Map<string, Item>>(
+    {
+      queryKey: queryKeys.items,
+      getBaseState: previous => (
+        new Map((previous || []).map(i => [i.id, i]))
+      ),
+      calculateNextState: async base => {
+        const currentItems = Array.isArray(items) ? [...items] : [items]
+        return prepareItemsForSave(currentItems, base)
+      },
+      performSave: async current => {
+        await saveItemsToVault(current)
+        return current
+      },
+      handleConflict: handleItemsConflict,
+      optimisticUpdate: current => {
+        const checkResult = checkProperties(current)
+        if (checkResult.error) throw new Error(checkResult.message)
+        updateCacheOptimistically(current)
+      },
+    },
+  )
 }
 
 export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
@@ -166,25 +89,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     await queryClient.cancelQueries({ queryKey: queryKeys.items })
 
     // 1. Optimistic Update
-    queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-      if (!old) return []
-      return old
-        .filter(item => !idsSet.has(item.id))
-        .map(item => {
-          if (
-            item.type === 'group'
-            && (item as GroupItem).members.some(m => idsSet.has(m))
-          ) {
-            return {
-              ...item,
-              members: (item as GroupItem).members.filter(m => !idsSet.has(m)),
-            }
-          }
-          return item
-        })
-    })
-
-    const vault = await getVaultModule()
+    queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticDeleteUpdate(old, idsSet))
 
     // 2. Fetch latest for group logic
     const allItems = await fetchItems()
@@ -195,33 +100,13 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     )
 
     if (groupsToUpdate.length > 0) {
-      const baseItems = new Map(groupsToUpdate.map(g => [g.id, g]))
-      let modifiedGroups: Item[] = groupsToUpdate.map(g => ({
+      const modifiedGroups = groupsToUpdate.map(g => ({
         ...g,
         members: g.members.filter(mId => !idsSet.has(mId)),
       }))
 
-      // Increment version
-      modifiedGroups = prepareItemsForSave(modifiedGroups, baseItems)
-
-      const encrypted = await Promise.all(
-        modifiedGroups.map(item => vault.encryptObject(item))
-      )
-      const modifiedTime = new Date().getTime()
-
-      await vaultPutMany({
-        items: encrypted.map(({ cipher, iv }, i) => ({
-          account: getAccountId(),
-          cipher,
-          item: modifiedGroups[i].id,
-          metadata: {
-            iv,
-            type: modifiedGroups[i].type,
-            modified: modifiedTime,
-            version: modifiedGroups[i].version,
-          },
-        })),
-      })
+      // Delegate update to mutateStoreItems
+      await mutateStoreItems(modifiedGroups)
     }
 
     // 4. Delete items
@@ -246,8 +131,6 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
   }
 }
 
-// Helpers
-
 function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[] {
   return items.map(item => {
     const existing = baseItems.get(item.id)
@@ -256,6 +139,24 @@ function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[
       version: (existing?.version ?? 0) + 1,
     }
   })
+}
+
+function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): Item[] {
+  if (!old) return []
+  return old
+    .filter(item => !idsSet.has(item.id))
+    .map(item => {
+      if (
+        item.type === 'group'
+        && (item as GroupItem).members.some(m => idsSet.has(m))
+      ) {
+        return {
+          ...item,
+          members: (item as GroupItem).members.filter(m => !idsSet.has(m)),
+        }
+      }
+      return item
+    })
 }
 
 async function updateCacheOptimistically(items: Item[]) {
@@ -310,14 +211,12 @@ async function saveItemsToVault(items: Item[]) {
   }
 }
 
-async function handleConflict(
+async function handleItemsConflict(
   err: Error,
   currentItems: Item[],
   baseItems: Map<string, Item>,
-  attempt: number,
-  maxRetries: number
-): Promise<Item[]> {
-  // Check for version conflict
+): Promise<ConflictResolution<Item[], Map<string, Item>>> {
+  const nextBase = new Map(baseItems)
   let conflictIds: string[] = []
 
   if (currentItems.length === 1 && err instanceof Error && err.message.includes('Version conflict')) {
@@ -333,29 +232,14 @@ async function handleConflict(
     throw err
   }
 
-  if (attempt >= maxRetries) throw err
-
-  const vault = await getVaultModule()
   const serverEncrypted = await vaultFetchMany({ ids: conflictIds })
+  const serverDecrypted = await decryptVaultItems(serverEncrypted as VaultItem[])
 
-  // Modifying currentItems in place (or rather returning a mutated clone logic)
-  // We can treat currentItems as mutable for this calculation or map it.
   const nextItems = [...currentItems]
 
-  for (const encryptedItem of serverEncrypted) {
-    if (!encryptedItem.metadata || !encryptedItem.cipher) continue
-
-    const decrypted = await vault.decryptObject({
-      cipher: encryptedItem.cipher,
-      iv: encryptedItem.metadata.iv
-    }) as Item
-    const theirs = supplyMissingAttributes(decrypted)
-    if (typeof encryptedItem.metadata.version === 'number') {
-      theirs.version = encryptedItem.metadata.version
-    }
-
+  for (const theirs of serverDecrypted) {
     const id = theirs.id
-    const base = baseItems.get(id) || theirs
+    const base = nextBase.get(id) || theirs
     const yours = nextItems.find(i => i.id === id)
 
     if (!yours) continue
@@ -366,9 +250,114 @@ async function handleConflict(
     const idx = nextItems.findIndex(i => i.id === id)
     if (idx >= 0) nextItems[idx] = merged
 
-    // Update base for next iteration
-    baseItems.set(id, theirs)
+    nextBase.set(id, theirs)
   }
 
-  return nextItems
+  return {
+    next: nextItems,
+    base: nextBase,
+  }
+}
+
+async function handleMetadataConflict(
+  err: Error,
+  current: AccountMetadata,
+  base: AccountMetadata,
+): Promise<ConflictResolution<AccountMetadata>> {
+  const isConflict = err.message.includes('ConditionalCheckFailed') || err.message.includes('Version conflict') || err.toString().includes('conditional request failed')
+
+  if (isConflict) {
+    // Fetch latest metadata
+    const theirs = await fetchMetadata()
+
+    // Merge
+    const merged = threeWayMerge(base, theirs, current)
+    merged.version = (theirs.version || 0) + 1
+
+    // Return new state to retry with
+    return {
+      next: merged,
+      base: theirs
+    }
+  }
+  throw err
+}
+
+/**
+ * Generic helper to handle the common flow of:
+ * 1. Calculate new state
+ * 2. Optimistic update
+ * 3. Save to Vault
+ * 4. Handle (verify/retry) conflicts on error
+ * 5. Rollback on failure
+ */
+async function mutateWithRetry<TData, TBase>(
+  {
+    queryKey,
+    getBaseState,
+    calculateNextState,
+    performSave,
+    handleConflict,
+    optimisticUpdate,
+  }: {
+    queryKey: readonly string[]
+    getBaseState: (previous: TData | undefined) => TBase
+    calculateNextState: (base: TBase) => TData | Promise<TData>
+    performSave: (data: TData) => Promise<TData>
+    handleConflict: (err: Error, current: TData, base: TBase) => Promise<{ next: TData; base: TBase }>
+    optimisticUpdate?: (data: TData) => void
+  },
+): Promise<TData> {
+  const previousState = queryClient.getQueryData<TData>(queryKey)
+
+  try {
+    let base = getBaseState(previousState)
+    let current: TData | null = null
+    const MAX_RETRIES = 3
+    let attempt = 0
+
+    while (attempt < MAX_RETRIES) {
+      attempt += 1
+
+      // 1. Calculate / Prepare
+      if (attempt === 1) {
+        current = await calculateNextState(base)
+      }
+
+      if (!current) throw new Error('State calculation failed')
+
+      // 2. Optimistic Update
+      await queryClient.cancelQueries({ queryKey })
+      if (optimisticUpdate) {
+        optimisticUpdate(current)
+      } else {
+        queryClient.setQueryData(queryKey, current)
+      }
+
+      try {
+        // 3. Save
+        return await performSave(current)
+      } catch (err) {
+        if (!(err instanceof Error)) throw err
+        if (attempt >= MAX_RETRIES) throw err
+
+        // 4. Handle Conflict
+        const resolved = await handleConflict(err, current, base)
+        current = resolved.next
+        base = resolved.base
+      }
+    }
+    throw new Error('Max retries exceeded')
+
+  } catch (err) {
+    // 5. Rollback
+    if (previousState !== undefined) {
+      queryClient.setQueryData(queryKey, previousState)
+    }
+    handleVaultError(err as Error, 'Operation failed')
+    throw err
+  } finally {
+    // 6. Invalidate
+    await queryClient.invalidateQueries({ queryKey })
+  }
 }

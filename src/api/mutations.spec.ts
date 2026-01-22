@@ -26,6 +26,10 @@ vi.mock('./util', () => ({
   getAccountId: vi.fn().mockReturnValue('test-account'),
 }))
 
+vi.mock('./axios', () => ({
+  checkAxios: vi.fn().mockReturnValue(true),
+}))
+
 describe('mutations', () => {
   beforeEach(() => {
     queryClient.clear()
@@ -174,15 +178,11 @@ describe('mutations', () => {
       await mutateDeleteItems('p1')
 
       // Verify Group Update
-      expect(VaultAPI.vaultPutMany).toHaveBeenCalledWith(expect.objectContaining({
-        items: expect.arrayContaining([
-          expect.objectContaining({
-            item: 'g1',
-            metadata: expect.objectContaining({
-              version: 2
-            })
-          })
-        ])
+      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+        item: 'g1',
+        metadata: expect.objectContaining({
+          version: 2
+        })
       }))
 
       // Verify Item Delete
