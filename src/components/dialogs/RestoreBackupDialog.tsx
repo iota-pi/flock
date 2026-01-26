@@ -15,6 +15,9 @@ import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
+import { threeWayMerge } from '../../utils/merge'
+import { diffItems } from 'src/utils/diff'
+import SelectImportItemsDialog from './SelectImportItemsDialog'
 
 export interface Props {
   onClose: () => void,
@@ -22,37 +25,55 @@ export interface Props {
   open: boolean,
 }
 
+function getChangedItems(importedItems: Item[], existingItems: Item[]): Item[] {
+  const existingMap = new Map(existingItems.map(item => [item.id, item]))
+  return importedItems.filter(item => {
+    const existing = existingMap.get(item.id)
+    if (!existing) return true
+    return diffItems(existing, item).length > 0
+  })
+}
+
 function RestoreBackupDialog({
   onClose,
   onConfirm,
   open,
 }: Props) {
-  const existingPeople = useItems('person')
+  const existingItems = useItems()
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isSelectionOpen, setIsSelectionOpen] = useState(false)
 
-  const { overwriteCount, addedCount } = useMemo(() => {
-    if (!importedItems.length) return { overwriteCount: 0, addedCount: 0 }
-    const existingMap = new Map(existingPeople.map(item => [item.id, item]))
+  const changedItems = useMemo(
+    () => getChangedItems(importedItems, existingItems),
+    [existingItems, importedItems],
+  )
 
-    let overwrite = 0
-    let added = 0
-
-    for (const item of importedItems) {
-      if (item.type !== 'person') continue
-      const existing = existingMap.get(item.id)
-      if (!existing) {
-        added += 1
-        continue
+  const { modifiedCount, addedCount } = useMemo(
+    () => {
+      if (!importedItems.length) {
+        return { modifiedCount: 0, addedCount: 0 }
       }
-      if (JSON.stringify(existing) !== JSON.stringify(item)) {
-        overwrite += 1
-      }
-    }
+      const existingMap = new Map(existingItems.map(item => [item.id, item]))
 
-    return { overwriteCount: overwrite, addedCount: added }
-  }, [existingPeople, importedItems])
+      let modified = 0
+      let added = 0
+
+      for (const item of changedItems) {
+        if (!selectedIds.has(item.id)) continue
+        if (existingMap.has(item.id)) {
+          modified += 1
+        } else {
+          added += 1
+        }
+      }
+
+      return { modifiedCount: modified, addedCount: added }
+    },
+    [existingItems, importedItems, selectedIds, changedItems],
+  )
 
   const handleChange = useCallback(
     async (files: File[]) => {
@@ -65,110 +86,158 @@ function RestoreBackupDialog({
           setErrorMessage('Could not decrypt file successfully')
           return [] as Item[]
         })
+
+        const changed = getChangedItems(items, existingItems)
         setImportedItems(items)
+        setSelectedIds(new Set(changed.map(i => i.id)))
       } else {
         setImportedItems([])
+        setSelectedIds(new Set())
       }
     },
-    [],
+    [existingItems],
   )
 
   const handleConfirmImport = useCallback(
     async () => {
       setLoading(true)
-      await onConfirm(importedItems)
+      const existingMap = new Map(existingItems.map(item => [item.id, item]))
+      const itemsToImport = importedItems
+        .filter(item => selectedIds.has(item.id))
+        .map(item => {
+          const existing = existingMap.get(item.id)
+          if (!existing) return item
+          const merged = threeWayMerge({} as Item, existing, item)
+          merged.version = Math.max(existing.version, item.version) + 1
+          return merged
+        })
+
+      await onConfirm(itemsToImport)
       setLoading(false)
     },
-    [importedItems, onConfirm],
+    [existingItems, importedItems, onConfirm, selectedIds],
   )
 
   return (
-    <Dialog
-      onClose={onClose}
-      open={open}
-      fullWidth
-      maxWidth="sm"
-    >
-      <DialogTitle>
-        Restore from backup
-      </DialogTitle>
+    <>
+      <Dialog
+        onClose={onClose}
+        open={open}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          Restore from backup
+        </DialogTitle>
 
-      <DialogContent>
-        <DropzoneArea
-          acceptedFiles={['.json']}
-          dropzoneText="Upload a backup file here"
-          fileObjects={null} // Shouldn't be needed, seems to be a TS glitch
-          filesLimit={1}
-          showAlerts={['error']}
-          showPreviewsInDropzone={false}
-          maxFileSize={10000000}
-          onChange={handleChange}
-        />
+        <DialogContent>
+          <DropzoneArea
+            acceptedFiles={['.json']}
+            dropzoneText="Upload a backup file here"
+            fileObjects={null}
+            filesLimit={1}
+            showAlerts={['error']}
+            showPreviewsInDropzone={false}
+            maxFileSize={10000000}
+            onChange={handleChange}
+          />
 
-        <Box my={2}>
-          <Alert
-            severity={(
-              (errorMessage && 'error')
-              || (importedItems.length > 0 && 'success')
-              || 'info'
+          <Box my={2}>
+            {errorMessage && (
+              <Alert severity={"error"}>
+                {errorMessage}
+              </Alert>
             )}
-          >
-            {errorMessage}
 
             {!errorMessage && (
-              importedItems.length > 0
-                ? `Ready to restore ${importedItems.length} items from backup`
-                : 'Upload a Flock backup file'
-            )}
-          </Alert>
+              <Alert
+                severity={importedItems.length > 0 ? 'success' : 'info'}
+              >
+                {(importedItems.length > 0
+                  ? (
+                    `Loaded ${importedItems.length} items (`
+                    + `${importedItems.length - changedItems.length} unchanged`
+                    + `, ${changedItems.length} can be restored)`
+                  )
+                  : 'Upload a Flock backup file'
+                )}
 
-          {(!errorMessage && importedItems.length > 0) && (
+                {changedItems.length > 0 && (
+                  <Box mt={1}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      onClick={() => setIsSelectionOpen(true)}
+                    >
+                      {`${selectedIds.size}/${changedItems.length} selected`}
+                    </Button>
+                  </Box>
+                )}
+              </Alert>
+            )}
+          </Box>
+
+          {changedItems.length > 0 && (
             <Box mt={2}>
-              <Alert severity={overwriteCount > 0 ? 'warning' : 'info'}>
-                {`${overwriteCount} ${overwriteCount !== 1 ? 'people' : 'person'} will be overwritten`}
+              <Alert severity="info">
+                {`${modifiedCount} ${modifiedCount !== 1 ? 'items' : 'item'} will be updated`}
                 <br />
-                {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
+                {`${addedCount} ${addedCount !== 1 ? 'items' : 'item'} will be added`}
               </Alert>
             </Box>
           )}
-        </Box>
 
-        <Typography>
-          <InlineText fontWeight={500}>Important!</InlineText>
-          {' '}
-          Importing a backup will overwrite all changes to existing items you have made since creating it.
-          It will not remove any items you have created since the backup.
-          Imports are permanent and cannot be undone.
-          We strongly recommend creating another backup before continuing with the import.
-        </Typography>
-      </DialogContent>
+          <Typography>
+            <InlineText fontWeight={500}>Important!</InlineText>
+            {' '}
+            Importing a backup will undo changes you have made to items since the backup.
+            It will not remove any items you have created since the backup.
+            Imports are permanent and cannot be undone.
+            We strongly recommend creating another backup before continuing with the import.
+          </Typography>
+        </DialogContent>
 
-      <DialogActions>
-        <Button
-          data-cy="import-cancel"
-          fullWidth
-          onClick={onClose}
-          variant="outlined"
-          disabled={loading}
-        >
-          Cancel
-        </Button>
+        <DialogActions>
+          <Button
+            data-cy="import-cancel"
+            fullWidth
+            onClick={onClose}
+            variant="outlined"
+            disabled={loading}
+          >
+            Cancel
+          </Button>
 
-        <Button
-          color="error"
-          data-cy="import-confirm"
-          disabled={importedItems.length === 0 || loading}
-          fullWidth
-          onClick={handleConfirmImport}
-          loading={loading}
-          loadingPosition="start"
-          startIcon={<UploadIcon />}
-          variant="outlined"
-        >
-          Import
-        </Button>
-      </DialogActions>
-    </Dialog>
+          <Button
+            color="error"
+            data-cy="import-confirm"
+            disabled={selectedIds.size === 0 || loading}
+            fullWidth
+            onClick={handleConfirmImport}
+            loading={loading}
+            loadingPosition="start"
+            startIcon={<UploadIcon />}
+            variant="outlined"
+          >
+            Import
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {isSelectionOpen && (
+        <SelectImportItemsDialog
+          open={isSelectionOpen}
+          items={changedItems}
+          existingItems={new Map(existingItems.map(item => [item.id, item]))}
+          initialSelectedIds={selectedIds}
+          onClose={() => setIsSelectionOpen(false)}
+          onConfirm={newSelected => {
+            setSelectedIds(newSelected)
+            setIsSelectionOpen(false)
+          }}
+        />
+      )}
+    </>
   )
 }
 
