@@ -30,7 +30,6 @@ function getChangedItems(importedItems: Item[], existingItems: Item[]): Item[] {
   return importedItems.filter(item => {
     const existing = existingMap.get(item.id)
     if (!existing) return true
-    if (existing.version !== item.version) return true
     return diffItems(existing, item).length > 0
   })
 }
@@ -40,7 +39,7 @@ function RestoreBackupDialog({
   onConfirm,
   open,
 }: Props) {
-  const existingPeople = useItems('person')
+  const existingItems = useItems()
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,22 +47,22 @@ function RestoreBackupDialog({
   const [isSelectionOpen, setIsSelectionOpen] = useState(false)
 
   const changedItems = useMemo(
-    () => getChangedItems(importedItems, existingPeople),
-    [existingPeople, importedItems],
+    () => getChangedItems(importedItems, existingItems),
+    [existingItems, importedItems],
   )
 
   const { modifiedCount, addedCount } = useMemo(
     () => {
-      if (!importedItems.length) return { modifiedCount: 0, addedCount: 0 }
-      const existingMap = new Map(existingPeople.map(item => [item.id, item]))
+      if (!importedItems.length) {
+        return { modifiedCount: 0, addedCount: 0 }
+      }
+      const existingMap = new Map(existingItems.map(item => [item.id, item]))
 
       let modified = 0
       let added = 0
 
       for (const item of changedItems) {
         if (!selectedIds.has(item.id)) continue
-        if (item.type !== 'person') continue
-
         if (existingMap.has(item.id)) {
           modified += 1
         } else {
@@ -73,7 +72,7 @@ function RestoreBackupDialog({
 
       return { modifiedCount: modified, addedCount: added }
     },
-    [existingPeople, importedItems, selectedIds, changedItems],
+    [existingItems, importedItems, selectedIds, changedItems],
   )
 
   const handleChange = useCallback(
@@ -88,7 +87,7 @@ function RestoreBackupDialog({
           return [] as Item[]
         })
 
-        const changed = getChangedItems(items, existingPeople)
+        const changed = getChangedItems(items, existingItems)
         setImportedItems(items)
         setSelectedIds(new Set(changed.map(i => i.id)))
       } else {
@@ -96,13 +95,13 @@ function RestoreBackupDialog({
         setSelectedIds(new Set())
       }
     },
-    [existingPeople],
+    [existingItems],
   )
 
   const handleConfirmImport = useCallback(
     async () => {
       setLoading(true)
-      const existingMap = new Map(existingPeople.map(item => [item.id, item]))
+      const existingMap = new Map(existingItems.map(item => [item.id, item]))
       const itemsToImport = importedItems
         .filter(item => selectedIds.has(item.id))
         .map(item => {
@@ -116,7 +115,7 @@ function RestoreBackupDialog({
       await onConfirm(itemsToImport)
       setLoading(false)
     },
-    [existingPeople, importedItems, onConfirm, selectedIds],
+    [existingItems, importedItems, onConfirm, selectedIds],
   )
 
   return (
@@ -181,9 +180,9 @@ function RestoreBackupDialog({
           {changedItems.length > 0 && (
             <Box mt={2}>
               <Alert severity="info">
-                {`${modifiedCount} ${modifiedCount !== 1 ? 'people' : 'person'} will be updated`}
+                {`${modifiedCount} ${modifiedCount !== 1 ? 'items' : 'item'} will be updated`}
                 <br />
-                {`${addedCount} ${addedCount !== 1 ? 'people' : 'person'} will be added`}
+                {`${addedCount} ${addedCount !== 1 ? 'items' : 'item'} will be added`}
               </Alert>
             </Box>
           )}
@@ -229,7 +228,7 @@ function RestoreBackupDialog({
         <SelectImportItemsDialog
           open={isSelectionOpen}
           items={changedItems}
-          existingItems={new Map(existingPeople.map(item => [item.id, item]))}
+          existingItems={new Map(existingItems.map(item => [item.id, item]))}
           initialSelectedIds={selectedIds}
           onClose={() => setIsSelectionOpen(false)}
           onConfirm={newSelected => {
