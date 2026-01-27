@@ -28,6 +28,7 @@ import SuccessIcon from '@mui/icons-material/CheckCircle'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
 import WarningIcon from '@mui/icons-material/Warning'
+import TopicIcon from '@mui/icons-material/Lightbulb'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
@@ -68,12 +69,14 @@ export {
   UnarchiveIcon,
   UploadIcon,
   WarningIcon,
+  TopicIcon,
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
+    topic: TopicIcon,
   }
   return iconTypeMap[itemType]
 }

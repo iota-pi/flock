@@ -32,7 +32,12 @@ export interface GroupItem extends BaseItem {
   members: ItemId[],
   type: 'group',
 }
-export type Item = PersonItem | GroupItem
+export interface TopicItem extends BaseItem {
+  memberPrayerFrequency?: undefined,
+  members?: undefined,
+  type: 'topic',
+}
+export type Item = PersonItem | GroupItem | TopicItem
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -74,12 +79,23 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
+export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
+  return {
+    ...getBlankBaseItem(id),
+    isNew: isNew || undefined,
+    type: 'topic',
+  }
+}
+
 export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
   if (itemType === 'person' || itemType === 'general') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
     return getBlankGroup(undefined, isNew)
+  }
+  if (itemType === 'topic') {
+    return getBlankTopic(undefined, isNew)
   }
   throw new Error('Unknown item type')
 }
@@ -114,6 +130,9 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   }
   if (itemType === 'group') {
     return plural ? 'Groups' : 'Group'
+  }
+  if (itemType === 'topic') {
+    return plural ? 'Topics' : 'Topic'
   }
   return plural ? 'Items' : 'Item'
 }

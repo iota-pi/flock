@@ -2,7 +2,7 @@ import { compareItems, getItemName } from '../../state/items'
 import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
 
 export function isSearchableStandardItem(s: AnySearchable): s is AnySearchable & { create?: false, data: object } {
-  return s.type === 'person' || s.type === 'group'
+  return s.type === 'person' || s.type === 'group' || s.type === 'topic'
 }
 
 export function sortSearchables(a: AnySearchable, b: AnySearchable): number {

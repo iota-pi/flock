@@ -4,6 +4,7 @@ import {
   OptionsIcon,
   PersonIcon,
   PrayerIcon,
+  TopicIcon,
 } from '../Icons'
 import { InternalRouteConfig, MenuRouteConfig } from './types'
 
@@ -56,6 +57,13 @@ export const PROTECTED_ROUTES = {
     path: '/groups',
     requiresAuth: true,
     page: <ItemPage itemType="group" />,
+  },
+  topics: {
+    name: 'Topics',
+    icon: TopicIcon,
+    path: '/topics',
+    requiresAuth: true,
+    page: <ItemPage itemType="topic" />,
   },
   settings: {
     name: 'Settings',

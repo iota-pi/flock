@@ -225,6 +225,15 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             id: 'add-group',
             type: 'group',
           },
+          {
+            create: true,
+            default: {
+              type: 'topic',
+              name: capitalise(state.inputValue.trim()),
+            },
+            id: 'add-topic',
+            type: 'topic',
+          },
         )
       }
 
