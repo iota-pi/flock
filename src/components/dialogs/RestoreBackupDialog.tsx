@@ -107,7 +107,7 @@ function RestoreBackupDialog({
         .map(item => {
           const existing = existingMap.get(item.id)
           if (!existing) return item
-          const merged = threeWayMerge({} as Item, existing, item)
+          const merged = threeWayMerge(null, existing, item)
           merged.version = Math.max(existing.version, item.version) + 1
           return merged
         })

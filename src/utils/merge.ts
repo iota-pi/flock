@@ -9,15 +9,13 @@
  * 2. If theirs changed and yours didn't -> use theirs
  * 3. If both changed -> use yours (local wins conflict)
  */
-function mergeArrays(base: unknown[] | null | undefined, theirs: unknown[], yours: unknown[]): unknown[] {
+function mergeArrays<T>(base: T[] | null | undefined, theirs: T[], yours: T[]): T[] {
   const b = base || []
   const t = theirs || []
   const y = yours || []
 
-  // If no base, simple union (order agnostic)
-  if (!base) {
+  if (!b.length && !base) {
     const combined = [...t, ...y]
-    // Deduplicate
     return combined.filter((item, index) => {
       const firstIndex = combined.findIndex(i => isEqual(i, item))
       return firstIndex === index
@@ -29,8 +27,8 @@ function mergeArrays(base: unknown[] | null | undefined, theirs: unknown[], your
   // Calculate Q (changes in theirs relative to base)
   // Result = Base + P + Q
 
-  const hash = (item: unknown) => (
-    typeof item === "string" ? item : JSON.stringify(item)
+  const hash = (item: T) => (
+    typeof item === 'string' ? item : JSON.stringify(item)
   )
 
   const baseSet = new Set(b.map(hash))
@@ -57,21 +55,20 @@ function mergeArrays(base: unknown[] | null | undefined, theirs: unknown[], your
   })
 
   // Reconstruct array
-  const lookup = new Map<string, unknown>()
+  const lookup = new Map<string, T>()
   const allSets = [...b, ...t, ...y]
   allSets.forEach(item => lookup.set(hash(item), item))
 
-  return Array.from(finalSet).map(h => lookup.get(h))
+  return Array.from(finalSet).map(h => lookup.get(h)!)
 }
 
-export function threeWayMerge<T extends object>(base: T, theirs: T, yours: T): T {
+export function threeWayMerge<T extends object>(base: T | null | undefined, theirs: T, yours: T): T {
   const keys = new Set([
     ...Object.keys(base || {}),
     ...Object.keys(theirs || {}),
     ...Object.keys(yours || {}),
   ])
 
-  // Internal access helpers
   const bObj = (base || {}) as Record<string, unknown>
   const tObj = (theirs || {}) as Record<string, unknown>
   const yObj = (yours || {}) as Record<string, unknown>
@@ -107,16 +104,17 @@ export function threeWayMerge<T extends object>(base: T, theirs: T, yours: T): T
   return result as T
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isEqual(a: any, b: any): boolean {
+function isEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
 
   if (Array.isArray(a) !== Array.isArray(b)) return false
   if (Array.isArray(a)) {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (!isEqual(a[i], b[i])) return false
+    const arrA = a as unknown[]
+    const arrB = b as unknown[]
+    if (arrA.length !== arrB.length) return false
+    for (let i = 0; i < arrA.length; i++) {
+      if (!isEqual(arrA[i], arrB[i])) return false
     }
     return true
   }
@@ -124,8 +122,15 @@ function isEqual(a: any, b: any): boolean {
   const keysA = Object.keys(a)
   const keysB = Object.keys(b)
   if (keysA.length !== keysB.length) return false
+
+  const objA = a as Record<string, unknown>
+  const objB = b as Record<string, unknown>
+
   for (const key of keysA) {
-    if (!keysB.includes(key) || !isEqual(a[key], b[key])) return false
+    if (
+      !Object.prototype.hasOwnProperty.call(objB, key)
+      || !isEqual(objA[key], objB[key])
+    ) return false
   }
 
   return true
