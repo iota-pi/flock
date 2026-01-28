@@ -8,6 +8,13 @@ export type { ItemType }
 export type ItemId = string
 export type OldItemType = 'general'
 
+export interface Note {
+  id: string
+  text: string
+  archived: boolean
+  created: number
+}
+
 export interface BaseItem {
   archived: boolean,
   created: number,
@@ -15,6 +22,7 @@ export interface BaseItem {
   id: ItemId,
   isNew?: true,
   name: string,
+  notes: Note[],
   prayedFor: number[],
   prayerFrequency: Frequency,
   summary: string,
@@ -52,6 +60,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     description: '',
     id: id || generateItemId(),
     name: '',
+    notes: [],
     prayedFor: [],
     prayerFrequency: 'none',
     summary: '',
@@ -166,10 +175,13 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
-  return {
-    ...getBlankItem(item.type, false),
+  const blank = getBlankItem(item.type, false)
+  const filled = {
+    ...blank,
     ...item,
   }
+
+  return filled
 }
 
 export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
@@ -213,7 +225,13 @@ export function importPeople(data: Record<string, string>[]): Item[] {
       ...blankPerson,
       name,
       description: row.description || blankPerson.description,
-      summary: row.summary || blankPerson.summary,
+      summary: '',
+      notes: row.summary ? [{
+        id: generateItemId(),
+        text: row.summary,
+        archived: false,
+        created: blankPerson.created,
+      }] : [],
     })
     importGroup.members.push(blankPerson.id)
   }

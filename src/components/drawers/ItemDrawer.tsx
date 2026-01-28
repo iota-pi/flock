@@ -46,6 +46,7 @@ import {
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
 import { useDeleteItemsMutation, useStoreItemsMutation } from '../../api/queries'
+import NotesSection from '../NotesSection'
 
 
 export interface Props extends BaseDrawerProps {
@@ -308,22 +309,16 @@ function ItemDrawer({
     ),
     [handleChange, handleClickAddDescription, item.description, showDescription],
   )
-  const summaryField = useMemo(
+  const notesSection = useMemo(
     () => (
       <Grid size={{ xs: 12 }}>
-        <TextField
-          fullWidth
-          label="Notes"
-          multiline
-          minRows={3}
-          slotProps={{ htmlInput: { 'data-cy': 'summary' } }}
-          onChange={event => handleChange({ summary: getValue(event) })}
-          value={item.summary}
-          variant="outlined"
+        <NotesSection
+          notes={item.notes}
+          onChange={notes => handleChange({ notes })}
         />
       </Grid>
     ),
-    [handleChange, item.summary],
+    [handleChange, item.notes],
   )
 
   const lastPrayer = getLastPrayedFor(item)
@@ -451,7 +446,7 @@ function ItemDrawer({
         {nameFields}
 
         {descriptionField}
-        {summaryField}
+        {notesSection}
 
         <Grid size={{ xs: 12 }}>
           {membersSection}

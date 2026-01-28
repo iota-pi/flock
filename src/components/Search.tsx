@@ -181,7 +181,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         result.push({ key: 'data.description', threshold })
       }
       if (searchSummary) {
-        result.push({ key: 'data.summary', threshold })
+        result.push({ key: 'data.notes.*.text', threshold })
       }
       return result
     },

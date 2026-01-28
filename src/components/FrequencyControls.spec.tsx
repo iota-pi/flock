@@ -68,6 +68,7 @@ describe('FrequencyControls', () => {
       archived: false,
       prayedFor: [],
       prayerFrequency: 'none',
+      notes: [],
       summary: '',
       members: [personId],
       memberPrayerFrequency: 'daily',
