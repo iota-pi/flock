@@ -225,13 +225,12 @@ export function importPeople(data: Record<string, string>[]): Item[] {
       ...blankPerson,
       name,
       description: row.description || blankPerson.description,
-      summary: '',
-      notes: row.summary ? [{
+      notes: row.notes ? [{
         id: generateItemId(),
-        text: row.summary,
+        text: row.notes,
         archived: false,
         created: blankPerson.created,
-      }] : [],
+      }] : blankPerson.notes,
     })
     importGroup.members.push(blankPerson.id)
   }

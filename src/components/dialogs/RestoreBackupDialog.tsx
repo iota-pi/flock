@@ -82,10 +82,16 @@ function RestoreBackupDialog({
         const text = await file.text()
         const data = JSON.parse(text)
         setErrorMessage('')
-        const items = await importData(data).catch(() => {
+        let items = await importData(data).catch(() => {
           setErrorMessage('Could not decrypt file successfully')
           return [] as Item[]
         })
+
+        // Run migrations on restored items to ensure they match current schema
+        if (items.length > 0) {
+          const { runAllMigrationsInMemory } = await import('../../state/migrations/utils')
+          items = await runAllMigrationsInMemory(items)
+        }
 
         const changed = getChangedItems(items, existingItems)
         setImportedItems(items)
