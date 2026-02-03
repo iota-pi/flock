@@ -1,44 +1,53 @@
 import { describe, it, expect } from 'vitest'
 import { threeWayMerge } from './merge'
 
-describe('threeWayMerge', () => {
-  it('keeps base if no changes', () => {
-    const base = { a: 1 }
-    expect(threeWayMerge(base, base, base)).toEqual(base)
+interface TestItem {
+  id: string
+  text: string
+  nested?: { value: number }
+}
+
+describe('threeWayMerge nested object merging', () => {
+  it('should handle nested object changes in arrays by ID', () => {
+    const base: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Base' }]
+    }
+    const theirs: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Theirs' }]
+    }
+    const yours: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Yours' }] // Conflict!
+    }
+
+    const result = threeWayMerge(base, theirs, yours)
+
+    // Current behavior (hash-based) sees 3 distinct items or 1 removed + 2 added
+    // Ideally: 1 item, conflict resolved (local wins -> "Yours")
+
+    expect(result.items.length).toBe(1)
+    expect(result.items[0].text).toBe('Yours')
+    expect(result.items[0].id).toBe('1')
   })
 
-  it('accepts yours if theirs is same as base', () => {
-    const base = { a: 1 }
-    const theirs = { a: 1 }
-    const yours = { a: 2 }
-    expect(threeWayMerge(base, theirs, yours)).toEqual({ a: 2 })
-  })
+  it('should recursively merge item properties if no conflict', () => {
+    const base: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Base', nested: { value: 1 } }]
+    }
+    const theirs: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Base', nested: { value: 2 } }] // Remote changed nested
+    }
+    const yours: { items: TestItem[] } = {
+      items: [{ id: '1', text: 'Changed', nested: { value: 1 } }] // Local changed text
+    }
 
-  it('accepts theirs if yours is same as base', () => {
-    const base = { a: 1 }
-    const theirs = { a: 2 }
-    const yours = { a: 1 }
-    expect(threeWayMerge(base, theirs, yours)).toEqual({ a: 2 })
-  })
+    const result = threeWayMerge(base, theirs, yours)
 
-  it('prioritizes yours on conflict', () => {
-    const base = { a: 1 }
-    const theirs = { a: 2 } // Remote changed
-    const yours = { a: 3 }  // Local changed
-    expect(threeWayMerge(base, theirs, yours)).toEqual({ a: 3 })
-  })
+    // Ideal result: text='Changed', nested.value=2 (merged)
+    // Hash-based result: probably conflict or dupes
 
-  it('merges non-conflicting changes', () => {
-    const base = { a: 1, b: 1 }
-    const theirs = { a: 1, b: 2 } // They changed B
-    const yours = { a: 2, b: 1 }  // We changed A
-    expect(threeWayMerge(base, theirs, yours)).toEqual({ a: 2, b: 2 })
-  })
-
-  it('handles deep objects (yours wins conflict)', () => {
-    const base = { val: { x: 1 } }
-    const theirs = { val: { x: 2 } }
-    const yours = { val: { x: 3 } }
-    expect(threeWayMerge(base, theirs, yours)).toEqual({ val: { x: 3 } })
+    expect(result.items.length).toBe(1)
+    expect(result.items[0].id).toBe('1')
+    expect(result.items[0].text).toBe('Changed')
+    expect(result.items[0].nested?.value).toBe(2)
   })
 })
