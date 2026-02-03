@@ -29,8 +29,22 @@ function NotesSection({
 }: Props) {
   const [showArchived, setShowArchived] = useState(false)
 
-  const activeNotes = useMemo(() => notes.filter(n => !n.archived).sort((a, b) => b.created - a.created), [notes])
-  const archivedNotes = useMemo(() => notes.filter(n => n.archived).sort((a, b) => b.created - a.created), [notes])
+  const activeNotes = useMemo(
+    () => (
+      notes
+        .filter(n => !n.archived)
+        .sort((a, b) => b.created - a.created)
+    ),
+    [notes],
+  )
+  const archivedNotes = useMemo(
+    () => (
+      notes
+        .filter(n => n.archived)
+        .sort((a, b) => b.created - a.created)
+    ),
+    [notes],
+  )
 
   const handleAddNote = useCallback(() => {
     const newNote: Note = {
