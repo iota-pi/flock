@@ -11,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import {
+  AddIcon,
   ArchiveIcon,
   NotesIcon,
   UnarchiveIcon,
@@ -72,7 +73,7 @@ function NotesSection({
           <Typography variant="h6">Notes</Typography>
         </Box>
         <Button
-          startIcon={<NotesIcon />}
+          startIcon={<AddIcon />}
           onClick={handleAddNote}
           variant="outlined"
           size="small"
