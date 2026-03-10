@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { DateCalendar } from '@mui/x-date-pickers'
 import {
   Box,
@@ -122,6 +123,7 @@ function NotesSection({
   notes,
   onChange,
 }: Props) {
+  const [activeListRef] = useAutoAnimate<HTMLUListElement>()
   const [showArchived, setShowArchived] = useState(false)
 
   const activeNotes = useMemo(
@@ -184,7 +186,7 @@ function NotesSection({
         </Button>
       </Box>
 
-      <List disablePadding>
+      <List disablePadding ref={activeListRef}>
         {activeNotes.map(note => (
           <NoteItem
             key={note.id}
