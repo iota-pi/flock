@@ -97,7 +97,7 @@ function FrequencyControls(props: Props) {
   )
 
   return (
-    <Grid container spacing={2}>
+    <Grid container spacing={1}>
       {isGroup && (
         <Grid size={{ xs: 12 }} mt={2}>
           <Typography variant="body1" color="text.secondary">

@@ -312,7 +312,7 @@ function ItemDrawer({
   )
   const notesSection = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
+      <Grid size={{ xs: 12 }} mt={1}>
         <NotesSection
           notes={item.notes}
           onChange={notes => handleChange({ notes })}
@@ -480,16 +480,15 @@ function ItemDrawer({
 
         {descriptionField}
         {notesSection}
+        {frequencyFields}
 
         <Grid size={{ xs: 12 }}>
           {membersSection}
           {groupsSection}
         </Grid>
-
-        {frequencyFields}
       </Grid>
 
-      <Grid container spacing={1} mt={1}>
+      <Grid container spacing={1} mt={2}>
         {markPrayedButton}
         {archivedButton}
         {changeTypeButtons}

@@ -91,6 +91,9 @@ const IconHolder = styled('div')(({ theme }) => ({
   height: theme.spacing(6),
   marginBottom: theme.spacing(1),
   opacity: 0.8,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-start',
 }))
 const BackButtonHolder = styled('div')(({ theme }) => ({
   position: 'absolute',
