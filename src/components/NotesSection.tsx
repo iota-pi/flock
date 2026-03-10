@@ -84,7 +84,7 @@ function NotesSection({
 
       <List disablePadding>
         {activeNotes.map(note => (
-          <ListItem key={note.id} disableGutters sx={{ alignItems: 'flex-start' }}>
+          <ListItem key={note.id} disableGutters sx={{ alignItems: 'center' }}>
             <TextField
               fullWidth
               multiline
@@ -96,7 +96,7 @@ function NotesSection({
               placeholder="Write a note..."
             />
             <Tooltip title="Archive Note">
-              <IconButton onClick={() => handleArchiveNote(note.id, true)} size="small" sx={{ ml: 1, mt: 1 }}>
+              <IconButton onClick={() => handleArchiveNote(note.id, true)} size="small" sx={{ ml: 1 }}>
                 <ArchiveIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -122,7 +122,7 @@ function NotesSection({
           <Collapse in={showArchived}>
             <List disablePadding>
               {archivedNotes.map(note => (
-                <ListItem key={note.id} disableGutters sx={{ alignItems: 'flex-start' }}>
+                <ListItem key={note.id} disableGutters sx={{ alignItems: 'center' }}>
                   <TextField
                     fullWidth
                     multiline
@@ -130,10 +130,11 @@ function NotesSection({
                     disabled
                     variant="filled"
                     size="small"
+                    hiddenLabel
                     sx={{ bgcolor: 'action.hover' }}
                   />
                   <Tooltip title="Unarchive Note">
-                    <IconButton onClick={() => handleArchiveNote(note.id, false)} size="small" sx={{ ml: 1, mt: 1 }}>
+                    <IconButton onClick={() => handleArchiveNote(note.id, false)} size="small" sx={{ ml: 1 }}>
                       <UnarchiveIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
