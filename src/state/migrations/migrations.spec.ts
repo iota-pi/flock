@@ -30,7 +30,7 @@ describe('migrations', () => {
       const item: Item = {
         ...getBlankPerson(),
         summary: 'Legacy summary',
-        notes: [{ id: '1', text: 'Existing note', archived: false, created: 0 }],
+        notes: [{ id: '1', text: 'Existing note', archived: false, time: 0 }],
       }
 
       const result = await migration!.migrate({ items: [item] })

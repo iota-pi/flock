@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { DateCalendar } from '@mui/x-date-pickers'
 import {
   Box,
   Button,
@@ -6,6 +7,7 @@ import {
   IconButton,
   List,
   ListItem,
+  Popover,
   TextField,
   Tooltip,
   Typography,
@@ -30,14 +32,18 @@ interface Props {
 function NoteItem({
   note,
   onUpdate,
+  onUpdateDate,
   onArchive,
   onDelete,
 }: {
   note: Note
   onUpdate?: (id: string, text: string) => void
+  onUpdateDate?: (id: string, date: number) => void
   onArchive: (id: string, archived: boolean) => void
   onDelete: (id: string) => void
 }) {
+  const [datePickerAnchor, setDatePickerAnchor] = useState<HTMLElement | null>(null)
+
   return (
     <ListItem disableGutters sx={{ alignItems: 'center' }}>
       <TextField
@@ -54,33 +60,61 @@ function NoteItem({
         slotProps={{
           input: {
             endAdornment: (
-              <Typography
-                variant="caption"
-                color="textSecondary"
-                sx={{ position: 'absolute', bottom: 2, right: 8, pointerEvents: 'none' }}
-              >
-                {formatDate(new Date(note.created))}
-              </Typography>
+              <Box sx={{ position: 'absolute', bottom: 2, right: 8 }}>
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  sx={{ cursor: note.archived ? 'default' : 'pointer' }}
+                  onClick={e => !note.archived && setDatePickerAnchor(e.currentTarget)}
+                >
+                  {formatDate(new Date(note.time))}
+                </Typography>
+                <Popover
+                  open={Boolean(datePickerAnchor)}
+                  anchorEl={datePickerAnchor}
+                  onClose={() => setDatePickerAnchor(null)}
+                  anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'right',
+                  }}
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                >
+                  <DateCalendar
+                    value={new Date(note.time)}
+                    onChange={newDate => {
+                      if (onUpdateDate && newDate) onUpdateDate(note.id, newDate.getTime())
+                      setDatePickerAnchor(null)
+                    }}
+                  />
+                </Popover>
+              </Box>
             ),
             sx: { pb: 3 },
           }
         }}
       />
-      {(note.text.trim() || note.archived) && (
-        <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
-          <IconButton onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
-            {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-      )}
-      {(note.archived || !note.text.trim()) && (
-        <Tooltip title="Delete Note">
-          <IconButton onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      )}
-    </ListItem>
+      {
+        (note.text.trim() || note.archived) && (
+          <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
+            <IconButton onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
+              {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )
+      }
+      {
+        (note.archived || !note.text.trim()) && (
+          <Tooltip title="Delete Note">
+            <IconButton onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
+      }
+    </ListItem >
   )
 }
 
@@ -94,7 +128,7 @@ function NotesSection({
     () => (
       notes
         .filter(n => !n.archived)
-        .sort((a, b) => b.created - a.created)
+        .sort((a, b) => b.time - a.time)
     ),
     [notes],
   )
@@ -102,7 +136,7 @@ function NotesSection({
     () => (
       notes
         .filter(n => n.archived)
-        .sort((a, b) => b.created - a.created)
+        .sort((a, b) => b.time - a.time)
     ),
     [notes],
   )
@@ -112,13 +146,17 @@ function NotesSection({
       id: generateItemId(),
       text: '',
       archived: false,
-      created: Date.now(),
+      time: Date.now(),
     }
     onChange([newNote, ...notes])
   }, [notes, onChange])
 
   const handleUpdateNote = useCallback((id: string, text: string) => {
     onChange(notes.map(n => n.id === id ? { ...n, text } : n))
+  }, [notes, onChange])
+
+  const handleUpdateNoteDate = useCallback((id: string, time: number) => {
+    onChange(notes.map(n => n.id === id ? { ...n, time } : n))
   }, [notes, onChange])
 
   const handleArchiveNote = useCallback((id: string, archived: boolean) => {
@@ -152,6 +190,7 @@ function NotesSection({
             key={note.id}
             note={note}
             onUpdate={handleUpdateNote}
+            onUpdateDate={handleUpdateNoteDate}
             onArchive={handleArchiveNote}
             onDelete={handleDeleteNote}
           />
@@ -179,6 +218,7 @@ function NotesSection({
                 <NoteItem
                   key={note.id}
                   note={note}
+                  onUpdateDate={handleUpdateNoteDate}
                   onArchive={handleArchiveNote}
                   onDelete={handleDeleteNote}
                 />

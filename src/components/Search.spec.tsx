@@ -89,7 +89,7 @@ describe('Search Component', () => {
       ...items[0],
       id: '5',
       name: 'HasNote',
-      notes: [{ id: 'n1', text: 'SecretDetail', archived: false, created: 0 }]
+      notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
     }
     vi.mocked(useItems).mockReturnValue([...items, itemWithNote])
 

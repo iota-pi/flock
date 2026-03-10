@@ -12,7 +12,7 @@ export interface Note {
   id: string
   text: string
   archived: boolean
-  created: number
+  time: number
 }
 
 export interface BaseItem {
@@ -229,7 +229,7 @@ export function importPeople(data: Record<string, string>[]): Item[] {
         id: generateItemId(),
         text: row.notes,
         archived: false,
-        created: blankPerson.created,
+        time: blankPerson.created,
       }] : blankPerson.notes,
     })
     importGroup.members.push(blankPerson.id)

@@ -20,7 +20,7 @@ export const migrations: ItemMigration[] = [
               id: generateItemId(),
               text: item.summary,
               archived: false,
-              created: item.created,
+              time: item.created,
             }
           ]
           item.summary = ''

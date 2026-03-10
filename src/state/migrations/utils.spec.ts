@@ -24,7 +24,7 @@ describe('runAllMigrationsInMemory', () => {
     const modernItem: Item = {
       ...getBlankPerson(),
       name: 'Modern item',
-      notes: [{ id: '1', text: 'Note', archived: false, created: 0 }],
+      notes: [{ id: '1', text: 'Note', archived: false, time: 0 }],
     }
 
     const migrated = await runAllMigrationsInMemory([modernItem])
