@@ -13,15 +13,75 @@ import {
 import {
   AddIcon,
   ArchiveIcon,
+  CollapseIcon,
+  DeleteIcon,
+  ExpandIcon,
   NotesIcon,
   UnarchiveIcon,
 } from './Icons'
 import type { Note } from '../state/items'
-import { generateItemId } from '../utils'
+import { formatDate, generateItemId } from '../utils'
 
 interface Props {
   notes: Note[],
   onChange: (notes: Note[]) => void,
+}
+
+function NoteItem({
+  note,
+  onUpdate,
+  onArchive,
+  onDelete,
+}: {
+  note: Note
+  onUpdate?: (id: string, text: string) => void
+  onArchive: (id: string, archived: boolean) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <ListItem disableGutters sx={{ alignItems: 'center' }}>
+      <TextField
+        fullWidth
+        multiline
+        minRows={note.archived ? undefined : 2}
+        value={note.text}
+        onChange={e => onUpdate?.(note.id, e.target.value)}
+        disabled={note.archived}
+        variant={note.archived ? 'filled' : 'outlined'}
+        size="small"
+        placeholder={note.archived ? undefined : "Write a note..."}
+        hiddenLabel={note.archived}
+        slotProps={{
+          input: {
+            endAdornment: (
+              <Typography
+                variant="caption"
+                color="textSecondary"
+                sx={{ position: 'absolute', bottom: 2, right: 8, pointerEvents: 'none' }}
+              >
+                {formatDate(new Date(note.created))}
+              </Typography>
+            ),
+            sx: { pb: 3 },
+          }
+        }}
+      />
+      {(note.text.trim() || note.archived) && (
+        <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
+          <IconButton onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
+            {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+      )}
+      {(note.archived || !note.text.trim()) && (
+        <Tooltip title="Delete Note">
+          <IconButton onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </ListItem>
+  )
 }
 
 function NotesSection({
@@ -65,6 +125,10 @@ function NotesSection({
     onChange(notes.map(n => n.id === id ? { ...n, archived } : n))
   }, [notes, onChange])
 
+  const handleDeleteNote = useCallback((id: string) => {
+    onChange(notes.filter(n => n.id !== id))
+  }, [notes, onChange])
+
   return (
     <Box width="100%">
       <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
@@ -84,23 +148,13 @@ function NotesSection({
 
       <List disablePadding>
         {activeNotes.map(note => (
-          <ListItem key={note.id} disableGutters sx={{ alignItems: 'center' }}>
-            <TextField
-              fullWidth
-              multiline
-              minRows={2}
-              value={note.text}
-              onChange={e => handleUpdateNote(note.id, e.target.value)}
-              variant="outlined"
-              size="small"
-              placeholder="Write a note..."
-            />
-            <Tooltip title="Archive Note">
-              <IconButton onClick={() => handleArchiveNote(note.id, true)} size="small" sx={{ ml: 1 }}>
-                <ArchiveIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </ListItem>
+          <NoteItem
+            key={note.id}
+            note={note}
+            onUpdate={handleUpdateNote}
+            onArchive={handleArchiveNote}
+            onDelete={handleDeleteNote}
+          />
         ))}
         {activeNotes.length === 0 && (
           <Typography variant="body2" color="textSecondary" sx={{ fontStyle: 'italic', py: 1 }}>
@@ -110,35 +164,24 @@ function NotesSection({
       </List>
 
       {archivedNotes.length > 0 && (
-        <Box mt={2}>
+        <Box mb={2}>
           <Button
             onClick={() => setShowArchived(!showArchived)}
             size="small"
             color="inherit"
-            startIcon={showArchived ? <UnarchiveIcon /> : <ArchiveIcon />}
+            startIcon={showArchived ? <CollapseIcon /> : <ExpandIcon />}
           >
             {showArchived ? 'Hide' : 'Show'} Archived Notes ({archivedNotes.length})
           </Button>
           <Collapse in={showArchived}>
             <List disablePadding>
               {archivedNotes.map(note => (
-                <ListItem key={note.id} disableGutters sx={{ alignItems: 'center' }}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    value={note.text}
-                    disabled
-                    variant="filled"
-                    size="small"
-                    hiddenLabel
-                    sx={{ bgcolor: 'action.hover' }}
-                  />
-                  <Tooltip title="Unarchive Note">
-                    <IconButton onClick={() => handleArchiveNote(note.id, false)} size="small" sx={{ ml: 1 }}>
-                      <UnarchiveIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </ListItem>
+                <NoteItem
+                  key={note.id}
+                  note={note}
+                  onArchive={handleArchiveNote}
+                  onDelete={handleDeleteNote}
+                />
               ))}
             </List>
           </Collapse>

@@ -4,9 +4,11 @@ import type { OverridableComponent } from '@mui/material/OverridableComponent'
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
+import CollapseIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
+import ExpandIcon from '@mui/icons-material/ExpandMore'
 import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
@@ -43,9 +45,11 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CollapseIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,
+  ExpandIcon,
   FilterIcon,
   FrequencyIcon,
   GroupIcon,
