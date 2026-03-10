@@ -208,6 +208,7 @@ function NotesSection({
             onClick={() => setShowArchived(!showArchived)}
             size="small"
             color="inherit"
+            sx={{ color: 'text.secondary', textTransform: 'none', fontWeight: 'normal' }}
             startIcon={showArchived ? <CollapseIcon /> : <ExpandIcon />}
           >
             {showArchived ? 'Hide' : 'Show'} Archived Notes ({archivedNotes.length})
