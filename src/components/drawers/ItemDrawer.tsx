@@ -10,6 +10,7 @@ import {
   Collapse,
   Grid,
   IconButton,
+  InputAdornment,
   TextField,
   Tooltip,
 } from '@mui/material'
@@ -37,6 +38,7 @@ import DuplicateAlert from './utils/DuplicateAlert'
 import { isSameDay, usePrevious } from '../../utils'
 import {
   ArchiveIcon,
+  DeleteIcon,
   getIcon,
   getIconType,
   GroupIcon,
@@ -83,7 +85,7 @@ function ItemDrawer({
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const [cancelled, setCancelled] = useState(false)
-  const [forceShowDescription, setShowDescription] = useState(false)
+  const [showDescription, setShowDescription] = useState(!!item.description)
 
   const prevItem = usePrevious(item)
 
@@ -112,11 +114,10 @@ function ItemDrawer({
     [items],
   )
 
-  // Reset forceShowDescription when item changes
-  if (prevItem?.id !== item.id && forceShowDescription) {
-    setShowDescription(false)
+  // Reset showDescription when item changes
+  if (prevItem?.id !== item.id && showDescription !== !!item.description) {
+    setShowDescription(!!item.description)
   }
-  const showDescription = forceShowDescription || !!item.description
 
   const duplicates = useMemo(
     () => {
@@ -129,7 +130,6 @@ function ItemDrawer({
     [item, itemsByName],
   )
 
-  const handleClickAddDescription = useCallback(() => setShowDescription(true), [])
   const handleChange = useCallback(
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
@@ -141,6 +141,12 @@ function ItemDrawer({
     },
     [onChange],
   )
+
+  const handleAddDescription = useCallback(() => setShowDescription(true), [])
+  const handleRemoveDescription = useCallback(() => {
+    handleChange({ description: '' })
+    setShowDescription(false)
+  }, [handleChange])
 
   const removeFromAllGroups = useCallback(
     () => {
@@ -252,7 +258,7 @@ function ItemDrawer({
 
   const nameFields = useMemo(
     () => (
-      <Grid size={{ xs: showDescription ? 12 : 10, lg: showDescription ? 12 : 11 }}>
+      <Grid size={{ xs: 12 }}>
         <TextField
           autoFocus
           fullWidth
@@ -264,51 +270,64 @@ function ItemDrawer({
           required
           value={item.name}
           variant="standard"
-          slotProps={{ htmlInput: { 'data-cy': 'name' } }}
+          slotProps={{
+            htmlInput: { 'data-cy': 'name' },
+            input: !showDescription ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title="Add description">
+                    <IconButton
+                      data-cy="add-description"
+                      onClick={handleAddDescription}
+                      size="small"
+                    >
+                      <NotesIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            } : undefined,
+          }}
         />
       </Grid>
     ),
-    [item.name, handleChange, item.id, showDescription],
+    [item.name, handleChange, item.id, showDescription, handleAddDescription],
   )
 
   const { archived } = item
   const descriptionField = useMemo(
     () => (
-      item.description || showDescription ? (
+      showDescription && (
         <Grid size={{ xs: 12 }}>
           <TextField
             fullWidth
             label="Short Description"
-            slotProps={{ htmlInput: { 'data-cy': 'description' } }}
+            slotProps={{
+              htmlInput: { 'data-cy': 'description' },
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Remove description">
+                      <IconButton
+                        data-cy="remove-description"
+                        onClick={handleRemoveDescription}
+                        size="small"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
+            }}
             onChange={event => handleChange({ description: getValue(event) })}
             value={item.description}
             variant="standard"
           />
         </Grid>
-      ) : (
-        <Grid
-          size={{
-            xs: 2,
-            lg: 1,
-          }}
-          display="flex"
-          align-items="flex-end"
-          justifyContent="flex-end"
-        >
-          <div>
-            <Tooltip title="Add description">
-              <IconButton
-                data-cy="add-description"
-                onClick={handleClickAddDescription}
-              >
-                <NotesIcon />
-              </IconButton>
-            </Tooltip>
-          </div>
-        </Grid>
       )
     ),
-    [handleChange, handleClickAddDescription, item.description, showDescription],
+    [handleChange, item.description, showDescription, handleRemoveDescription],
   )
   const notesSection = useMemo(
     () => (
