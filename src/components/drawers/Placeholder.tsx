@@ -10,6 +10,7 @@ import InlineText from '../InlineText'
 const pagesWithAddButton: PageId[] = [
   'groups',
   'people',
+  'topics',
 ]
 
 const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
@@ -17,12 +18,14 @@ const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   people: 'person',
   prayer: 'item',
   settings: 'item',
+  topics: 'topic',
 }
 const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'prayer point',
   settings: 'item',
+  topics: 'topic',
 }
 
 function PlaceholderDrawer({

@@ -222,7 +222,8 @@ async function handleItemsConflict(
   const nextBase = new Map(baseItems)
   let conflictIds: string[] = []
 
-  if (currentItems.length === 1 && err instanceof Error && err.message.includes('Version conflict')) {
+  const errorMessage = err.message || ''
+  if (currentItems.length === 1 && errorMessage.includes('Version conflict')) {
     conflictIds = [currentItems[0].id]
   }
   else if (err instanceof VaultBatchError) {
@@ -267,7 +268,8 @@ async function handleMetadataConflict(
   current: AccountMetadata,
   base: AccountMetadata,
 ): Promise<ConflictResolution<AccountMetadata>> {
-  const isConflict = err.message.includes('ConditionalCheckFailed') || err.message.includes('Version conflict') || err.toString().includes('conditional request failed')
+  const errorMessage = err.message || ''
+  const isConflict = errorMessage.includes('ConditionalCheckFailed') || errorMessage.includes('Version conflict') || errorMessage.includes('conditional request failed')
 
   if (isConflict) {
     // Fetch latest metadata

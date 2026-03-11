@@ -1,36 +1,87 @@
-/**
- * Three-way merge:
- * - base: The common ancestor state
- * - theirs: The remote state (server)
- * - yours: The local state (client changes)
- *
- * Rules:
- * 1. If yours changed and theirs didn't -> use yours
- * 2. If theirs changed and yours didn't -> use theirs
- * 3. If both changed -> use yours (local wins conflict)
- */
-function mergeArrays(base: unknown[] | null | undefined, theirs: unknown[], yours: unknown[]): unknown[] {
+interface ObjectWithId {
+  id: string | number
+}
+
+function hasId(item: unknown): item is ObjectWithId {
+  return typeof item === 'object' && item !== null && 'id' in item
+}
+
+function mergeArraysById<T extends ObjectWithId>(base: T[] | null | undefined, theirs: T[], yours: T[]): T[] {
+  const bList = (base || []).filter(hasId)
+  const tList = theirs.filter(hasId)
+  const yList = yours.filter(hasId)
+
+  const baseMap = new Map(bList.map(i => [String(i.id), i]))
+  const theirsMap = new Map(tList.map(i => [String(i.id), i]))
+  const yoursMap = new Map(yList.map(i => [String(i.id), i]))
+
+  const allIds = new Set([
+    ...baseMap.keys(),
+    ...theirsMap.keys(),
+    ...yoursMap.keys(),
+  ])
+
+  const results: T[] = []
+
+  for (const id of allIds) {
+    const b = baseMap.get(id)
+    const t = theirsMap.get(id)
+    const y = yoursMap.get(id)
+
+    // Exists in all 3 -> 3-way merge
+    if (b && t && y) {
+      results.push(threeWayMerge(b, t, y))
+      continue
+    }
+
+    // New in theirs and yours -> 3-way merge (base is undefined)
+    if (!b && t && y) {
+      results.push(threeWayMerge(undefined, t, y))
+      continue
+    }
+
+    // Deleted in yours?
+    if (b && t && !y) {
+      if (!isEqual(b, t)) {
+        // Conflict: Remote modified, Local deleted.
+        // Local wins -> Delete.
+      }
+      continue
+    }
+
+    // Deleted in theirs?
+    if (b && !t && y) {
+      if (!isEqual(b, y)) {
+        // Conflict: Remote deleted, Local modified.
+        // Local wins -> Keep.
+        results.push(y)
+      }
+      continue
+    }
+
+    // Only in theirs (new) -> Keep
+    if (!b && t && !y) {
+      results.push(t)
+      continue
+    }
+
+    // Only in yours (new) -> Keep
+    if (!b && !t && y) {
+      results.push(y)
+      continue
+    }
+  }
+
+  return results
+}
+
+function mergeArraysByHash<T>(base: T[] | null | undefined, theirs: T[], yours: T[]): T[] {
   const b = base || []
   const t = theirs || []
   const y = yours || []
 
-  // If no base, simple union (order agnostic)
-  if (!base) {
-    const combined = [...t, ...y]
-    // Deduplicate
-    return combined.filter((item, index) => {
-      const firstIndex = combined.findIndex(i => isEqual(i, item))
-      return firstIndex === index
-    })
-  }
-
-  // 3-way hash-based set merge
-  // Calculate P (changes in yours relative to base)
-  // Calculate Q (changes in theirs relative to base)
-  // Result = Base + P + Q
-
-  const hash = (item: unknown) => (
-    typeof item === "string" ? item : JSON.stringify(item)
+  const hash = (item: T) => (
+    typeof item === 'string' ? item : JSON.stringify(item)
   )
 
   const baseSet = new Set(b.map(hash))
@@ -57,21 +108,47 @@ function mergeArrays(base: unknown[] | null | undefined, theirs: unknown[], your
   })
 
   // Reconstruct array
-  const lookup = new Map<string, unknown>()
+  const lookup = new Map<string, T>()
   const allSets = [...b, ...t, ...y]
   allSets.forEach(item => lookup.set(hash(item), item))
 
-  return Array.from(finalSet).map(h => lookup.get(h))
+  return Array.from(finalSet).map(h => lookup.get(h)!)
 }
 
-export function threeWayMerge<T extends object>(base: T, theirs: T, yours: T): T {
+function mergeArrays<T>(base: T[] | null | undefined, theirs: T[], yours: T[]): T[] {
+  if (
+    base?.find(hasId)
+    || theirs.find(hasId)
+    || yours.find(hasId)
+  ) {
+    return mergeArraysById(
+      base as ObjectWithId[] | null | undefined,
+      theirs as ObjectWithId[],
+      yours as ObjectWithId[],
+    ) as unknown as T[]
+  }
+
+  return mergeArraysByHash(base, theirs, yours)
+}
+
+/**
+ * Three-way merge:
+ * - base: The common ancestor state
+ * - theirs: The remote state (server)
+ * - yours: The local state (client changes)
+ *
+ * Rules:
+ * 1. If yours changed and theirs didn't -> use yours
+ * 2. If theirs changed and yours didn't -> use theirs
+ * 3. If both changed -> use yours (local wins conflict)
+ */
+export function threeWayMerge<T extends object>(base: T | null | undefined, theirs: T, yours: T): T {
   const keys = new Set([
     ...Object.keys(base || {}),
     ...Object.keys(theirs || {}),
     ...Object.keys(yours || {}),
   ])
 
-  // Internal access helpers
   const bObj = (base || {}) as Record<string, unknown>
   const tObj = (theirs || {}) as Record<string, unknown>
   const yObj = (yours || {}) as Record<string, unknown>
@@ -107,16 +184,17 @@ export function threeWayMerge<T extends object>(base: T, theirs: T, yours: T): T
   return result as T
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isEqual(a: any, b: any): boolean {
+function isEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false
 
   if (Array.isArray(a) !== Array.isArray(b)) return false
   if (Array.isArray(a)) {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (!isEqual(a[i], b[i])) return false
+    const arrA = a as unknown[]
+    const arrB = b as unknown[]
+    if (arrA.length !== arrB.length) return false
+    for (let i = 0; i < arrA.length; i++) {
+      if (!isEqual(arrA[i], arrB[i])) return false
     }
     return true
   }
@@ -124,8 +202,15 @@ function isEqual(a: any, b: any): boolean {
   const keysA = Object.keys(a)
   const keysB = Object.keys(b)
   if (keysA.length !== keysB.length) return false
+
+  const objA = a as Record<string, unknown>
+  const objB = b as Record<string, unknown>
+
   for (const key of keysA) {
-    if (!keysB.includes(key) || !isEqual(a[key], b[key])) return false
+    if (
+      !Object.prototype.hasOwnProperty.call(objB, key)
+      || !isEqual(objA[key], objB[key])
+    ) return false
   }
 
   return true

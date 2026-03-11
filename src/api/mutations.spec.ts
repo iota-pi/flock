@@ -6,15 +6,19 @@ import * as VaultAPI from './VaultAPI'
 import * as Vault from './Vault'
 
 // Mock VaultAPI
-vi.mock('./VaultAPI', () => ({
-  vaultPut: vi.fn(),
-  vaultPutMany: vi.fn(),
-  vaultDelete: vi.fn(),
-  vaultDeleteMany: vi.fn(),
-  vaultSetMetadata: vi.fn(),
-  vaultGetMetadata: vi.fn(),
-  vaultFetchMany: vi.fn(),
-}))
+vi.mock('./VaultAPI', async importOriginal => {
+  const actual = await importOriginal<typeof import('./VaultAPI')>()
+  return {
+    ...actual,
+    vaultPut: vi.fn(),
+    vaultPutMany: vi.fn(),
+    vaultDelete: vi.fn(),
+    vaultDeleteMany: vi.fn(),
+    vaultSetMetadata: vi.fn(),
+    vaultGetMetadata: vi.fn(),
+    vaultFetchMany: vi.fn(),
+  }
+})
 
 // Mock Vault (for encryption/getVaultModule dynamic import resolution)
 vi.mock('./Vault', () => ({
@@ -149,6 +153,7 @@ describe('mutations', () => {
       expect(VaultAPI.vaultFetchMany).toHaveBeenCalledWith({ ids: [item.id] })
     })
   })
+
   describe('mutateDeleteItems', () => {
     it('updates group version when deleting a member', async () => {
       const gItem = { ...getBlankPerson(), id: 'g1', type: 'group', members: ['p1'], version: 1 } as unknown as GroupItem

@@ -34,7 +34,7 @@ import GroupDisplay from '../GroupDisplay'
 import MemberDisplay from '../MemberDisplay'
 import CollapsibleSection from './utils/CollapsibleSection'
 import DuplicateAlert from './utils/DuplicateAlert'
-import { usePrevious } from '../../utils'
+import { isSameDay, usePrevious } from '../../utils'
 import {
   ArchiveIcon,
   getIcon,
@@ -42,10 +42,12 @@ import {
   GroupIcon,
   NotesIcon,
   PersonIcon,
+  PrayerIcon,
   UnarchiveIcon,
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
 import { useDeleteItemsMutation, useStoreItemsMutation } from '../../api/queries'
+import NotesSection from '../NotesSection'
 
 
 export interface Props extends BaseDrawerProps {
@@ -308,22 +310,16 @@ function ItemDrawer({
     ),
     [handleChange, handleClickAddDescription, item.description, showDescription],
   )
-  const summaryField = useMemo(
+  const notesSection = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
-        <TextField
-          fullWidth
-          label="Notes"
-          multiline
-          minRows={3}
-          slotProps={{ htmlInput: { 'data-cy': 'summary' } }}
-          onChange={event => handleChange({ summary: getValue(event) })}
-          value={item.summary}
-          variant="outlined"
+      <Grid size={{ xs: 12 }} mt={1}>
+        <NotesSection
+          notes={item.notes}
+          onChange={notes => handleChange({ notes })}
         />
       </Grid>
     ),
-    [handleChange, item.summary],
+    [handleChange, item.notes],
   )
 
   const lastPrayer = getLastPrayedFor(item)
@@ -392,6 +388,38 @@ function ItemDrawer({
     )),
     [item.type, handleChange],
   )
+  const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
+  const markPrayedButton = useMemo(
+    () => (
+      <Grid size={{ xs: 12 }}>
+        <Button
+          color="inherit"
+          data-cy="mark-prayed"
+          disabled={item.isNew}
+          fullWidth
+          onClick={() => {
+            handleChange(prev => {
+              let prayedFor = prev.prayedFor
+              if (isPrayedForToday) {
+                const startOfDay = new Date()
+                startOfDay.setHours(0, 0, 0, 0)
+                prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
+              } else {
+                prayedFor = [...prayedFor, new Date().getTime()]
+              }
+              return { ...prev, prayedFor }
+            })
+          }}
+          size="large"
+          startIcon={<PrayerIcon />}
+          variant="outlined"
+        >
+          {isPrayedForToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
+        </Button>
+      </Grid>
+    ),
+    [handleChange, item.isNew, isPrayedForToday],
+  )
 
   const members = item.type === 'group' ? item.members : undefined
   const membersSection = useMemo(
@@ -451,17 +479,17 @@ function ItemDrawer({
         {nameFields}
 
         {descriptionField}
-        {summaryField}
+        {notesSection}
+        {frequencyFields}
 
         <Grid size={{ xs: 12 }}>
           {membersSection}
           {groupsSection}
         </Grid>
-
-        {frequencyFields}
       </Grid>
 
-      <Grid container spacing={1} mt={1}>
+      <Grid container spacing={1} mt={2}>
+        {markPrayedButton}
         {archivedButton}
         {changeTypeButtons}
       </Grid>

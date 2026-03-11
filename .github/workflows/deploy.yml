@@ -9,6 +9,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
@@ -39,6 +40,7 @@ jobs:
     name: Cypress on Staging
     needs: deploy-staging
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - run: corepack enable
@@ -51,6 +53,7 @@ jobs:
     name: Deploy to Production
     needs: e2e-staging
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     concurrency:
       group: deploy-production
       cancel-in-progress: false

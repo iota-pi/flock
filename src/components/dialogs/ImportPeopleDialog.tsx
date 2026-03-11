@@ -71,7 +71,8 @@ function ImportPeopleDialog({
               lastname: 'lastname',
               surname: 'lastname',
               description: 'description',
-              summary: 'summary',
+              summary: 'notes',
+              notes: 'notes',
             }
             return headersMap[normalised] || null
           }),

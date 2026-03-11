@@ -1,4 +1,5 @@
 import { Item, convertItem, getBlankGroup } from '../items'
+import { generateItemId } from '../../utils'
 
 export interface ItemMigration {
   description?: string,
@@ -7,6 +8,28 @@ export interface ItemMigration {
 }
 
 export const migrations: ItemMigration[] = [
+  {
+    description: 'Migrate summary to notes',
+    id: 'migrate-summary-to-notes',
+    migrate: async ({ items }) => {
+      const updatedItems: Item[] = []
+      for (const item of items) {
+        if (item.summary && item.notes.length === 0) {
+          item.notes = [
+            {
+              id: generateItemId(),
+              text: item.summary,
+              archived: false,
+              time: item.created,
+            }
+          ]
+          item.summary = ''
+          updatedItems.push(item)
+        }
+      }
+      return updatedItems
+    },
+  },
   {
     description: 'Remove legacy tags property',
     id: 'remove-legacy-tags',

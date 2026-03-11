@@ -26,7 +26,8 @@ export type AnySearchableType = AnySearchable['type']
 export const ALL_SEARCHABLE_TYPES: Readonly<Record<AnySearchableType, boolean>> = {
   group: true,
   person: true,
+  topic: true,
 }
 export const SEARCHABLE_BASE_SORT_ORDER: AnySearchableType[] = (
-  ['person', 'group']
+  ['person', 'group', 'topic']
 )

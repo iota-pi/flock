@@ -4,9 +4,11 @@ import type { OverridableComponent } from '@mui/material/OverridableComponent'
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
+import CollapseIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
+import ExpandIcon from '@mui/icons-material/ExpandMore'
 import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
@@ -28,6 +30,7 @@ import SuccessIcon from '@mui/icons-material/CheckCircle'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
 import WarningIcon from '@mui/icons-material/Warning'
+import TopicIcon from '@mui/icons-material/Lightbulb'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
@@ -42,9 +45,11 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CollapseIcon,
   DeleteIcon,
   DownloadIcon,
   EditIcon,
+  ExpandIcon,
   FilterIcon,
   FrequencyIcon,
   GroupIcon,
@@ -68,12 +73,14 @@ export {
   UnarchiveIcon,
   UploadIcon,
   WarningIcon,
+  TopicIcon,
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {
   const iconTypeMap: Record<typeof itemType, MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
+    topic: TopicIcon,
   }
   return iconTypeMap[itemType]
 }

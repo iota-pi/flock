@@ -10,9 +10,10 @@ import { Type, Static } from 'typebox'
 export const ItemTypeSchema = Type.Union([
   Type.Literal('person'),
   Type.Literal('group'),
+  Type.Literal('topic'),
 ])
 export type ItemType = Static<typeof ItemTypeSchema>
-export const ITEM_TYPES = ['person', 'group'] as const
+export const ITEM_TYPES = ['person', 'group', 'topic'] as const
 
 // =============================================================================
 // Vault Item Schemas

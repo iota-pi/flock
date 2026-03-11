@@ -30,6 +30,11 @@ describe('search/utils.ts', () => {
       expect(isSearchableStandardItem(item)).toBe(true)
     })
 
+    it('should return true for topic type', () => {
+      const item = { type: 'topic', data: {} } as unknown as AnySearchable
+      expect(isSearchableStandardItem(item)).toBe(true)
+    })
+
     it('should return false for other types', () => {
       // Assuming 'create' or other types exist in AnySearchable union
       const item = { type: 'other' } as unknown as AnySearchable // Force to test predicate

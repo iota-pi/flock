@@ -37,10 +37,10 @@ describe('Search Component', () => {
   const mockOnCreate = vi.fn()
 
   const items: Item[] = [
-    { id: '1', version: 0, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', summary: '' },
-    { id: '2', version: 0, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', summary: '' },
-    { id: '3', version: 0, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', summary: '', members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
-    { id: '4', version: 0, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', summary: '' },
+    { id: '1', version: 0, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [], summary: '' },
+    { id: '2', version: 0, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [], summary: '' },
+    { id: '3', version: 0, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], summary: '', members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
+    { id: '4', version: 0, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [], summary: '' },
   ]
 
   beforeEach(() => {
@@ -80,6 +80,26 @@ describe('Search Component', () => {
     const listbox = await screen.findByRole('listbox')
     expect(within(listbox).getByText('Alice')).toBeTruthy()
     expect(within(listbox).queryByText('Bob')).toBeNull()
+  })
+
+  it('filters items by searching notes', async () => {
+    const user = userEvent.setup()
+
+    const itemWithNote = {
+      ...items[0],
+      id: '5',
+      name: 'HasNote',
+      notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
+    }
+    vi.mocked(useItems).mockReturnValue([...items, itemWithNote])
+
+    renderWithTheme(<Search searchSummary />) // searchSummary enables note search
+
+    const input = screen.getByRole('combobox')
+    await user.type(input, 'Secret')
+
+    const listbox = await screen.findByRole('listbox')
+    expect(within(listbox).getByText('HasNote')).toBeTruthy()
   })
 
   it('shows archived items when includeArchived is true', async () => {

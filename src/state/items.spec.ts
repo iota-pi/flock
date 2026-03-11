@@ -34,6 +34,8 @@ describe('items helpers', () => {
     expect(p.type).toBe('person')
     const g = getBlankItem('group')
     expect(g.type).toBe('group')
+    const t = getBlankItem('topic')
+    expect(t.type).toBe('topic')
   })
 
   it('supplyMissingAttributes fills defaults', () => {

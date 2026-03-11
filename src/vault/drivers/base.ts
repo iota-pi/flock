@@ -46,7 +46,7 @@ export interface VaultSubscriptionFull extends FlockPushSubscription {
 }
 
 export function asItemType(type: string): ItemType {
-  const allowedTypes: ItemType[] = ['person', 'group']
+  const allowedTypes: ItemType[] = ['person', 'group', 'topic']
   if (allowedTypes.includes(type as ItemType)) {
     return type as ItemType
   }

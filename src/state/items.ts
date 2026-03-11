@@ -8,6 +8,13 @@ export type { ItemType }
 export type ItemId = string
 export type OldItemType = 'general'
 
+export interface Note {
+  id: string
+  text: string
+  archived: boolean
+  time: number
+}
+
 export interface BaseItem {
   archived: boolean,
   created: number,
@@ -15,6 +22,7 @@ export interface BaseItem {
   id: ItemId,
   isNew?: true,
   name: string,
+  notes: Note[],
   prayedFor: number[],
   prayerFrequency: Frequency,
   summary: string,
@@ -32,7 +40,12 @@ export interface GroupItem extends BaseItem {
   members: ItemId[],
   type: 'group',
 }
-export type Item = PersonItem | GroupItem
+export interface TopicItem extends BaseItem {
+  memberPrayerFrequency?: undefined,
+  members?: undefined,
+  type: 'topic',
+}
+export type Item = PersonItem | GroupItem | TopicItem
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -47,6 +60,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     description: '',
     id: id || generateItemId(),
     name: '',
+    notes: [],
     prayedFor: [],
     prayerFrequency: 'none',
     summary: '',
@@ -74,12 +88,23 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
+export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
+  return {
+    ...getBlankBaseItem(id),
+    isNew: isNew || undefined,
+    type: 'topic',
+  }
+}
+
 export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
   if (itemType === 'person' || itemType === 'general') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
     return getBlankGroup(undefined, isNew)
+  }
+  if (itemType === 'topic') {
+    return getBlankTopic(undefined, isNew)
   }
   throw new Error('Unknown item type')
 }
@@ -115,6 +140,9 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   if (itemType === 'group') {
     return plural ? 'Groups' : 'Group'
   }
+  if (itemType === 'topic') {
+    return plural ? 'Topics' : 'Topic'
+  }
   return plural ? 'Items' : 'Item'
 }
 
@@ -147,10 +175,13 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
-  return {
-    ...getBlankItem(item.type, false),
+  const blank = getBlankItem(item.type, false)
+  const filled = {
+    ...blank,
     ...item,
   }
+
+  return filled
 }
 
 export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
@@ -194,7 +225,12 @@ export function importPeople(data: Record<string, string>[]): Item[] {
       ...blankPerson,
       name,
       description: row.description || blankPerson.description,
-      summary: row.summary || blankPerson.summary,
+      notes: row.notes ? [{
+        id: generateItemId(),
+        text: row.notes,
+        archived: false,
+        time: blankPerson.created,
+      }] : blankPerson.notes,
     })
     importGroup.members.push(blankPerson.id)
   }
