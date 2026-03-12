@@ -15,11 +15,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
-import UnmountWatcher from './utils/UnmountWatcher'
 import { ItemId } from '../../state/items'
 import { usePrevious } from '../../utils'
 
@@ -165,14 +165,6 @@ function BaseDrawer({
     },
     [onBack, onClose],
   )
-  const handleKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.ctrlKey && event.key === 'Enter') {
-        onClose()
-      }
-    },
-    [onClose],
-  )
   const handleSave = useMemo(
     () => {
       if (ActionProps?.onSave) {
@@ -187,6 +179,20 @@ function BaseDrawer({
     },
     [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
   )
+
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.ctrlKey && event.key === 'Enter') {
+        if (handleSave) {
+          handleSave()
+        } else {
+          onClose()
+        }
+      }
+    },
+    [handleSave, onClose],
+  )
+
   const modifiedActionProps = useMemo(
     () => ActionProps && ({
       ...ActionProps,
@@ -219,9 +225,16 @@ function BaseDrawer({
     [ActionProps],
   )
 
+  const unmountRef = useRef(onUnmount)
+  useEffect(() => {
+    unmountRef.current = onUnmount
+  }, [onUnmount])
+  useEffect(() => () => {
+    if (unmountRef.current) unmountRef.current()
+  }, [])
+
   return (
     <>
-
       <StyledDrawer
         anchor="right"
         disableSwipeToOpen
@@ -235,8 +248,6 @@ function BaseDrawer({
         stacked={stacked}
         variant={permanentDrawer ? 'permanent' : 'temporary'}
       >
-        <UnmountWatcher onUnmount={onUnmount} />
-
         {permanentDrawer && (
           <Toolbar />
         )}

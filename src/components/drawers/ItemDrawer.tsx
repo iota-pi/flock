@@ -84,7 +84,7 @@ function ItemDrawer({
   const { mutateAsync: deleteItem } = useDeleteItemsMutation()
   const { mutate: storeItems } = useStoreItemsMutation()
 
-  const [cancelled, setCancelled] = useState(false)
+  const [disableAutoSave, setDisableAutoSave] = useState(false)
   const [showDescription, setShowDescription] = useState(!!item.description)
 
   const prevItem = usePrevious(item)
@@ -134,6 +134,7 @@ function ItemDrawer({
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
     ) => {
+      setDisableAutoSave(false)
       if (typeof data === 'function') {
         return onChange(originalItem => dirtyItem(data(originalItem)))
       }
@@ -178,6 +179,7 @@ function ItemDrawer({
   )
   const handleSaveAndClose = useCallback(
     () => {
+      setDisableAutoSave(true)
       handleSave(item)
       onClose()
     },
@@ -192,7 +194,7 @@ function ItemDrawer({
     },
     [handleSave, item, onChange],
   )
-  const handleCancel = useCallback(() => setCancelled(true), [])
+  const handleCancel = useCallback(() => setDisableAutoSave(true), [])
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups()
@@ -205,18 +207,18 @@ function ItemDrawer({
 
   const handleUnmount = useCallback(
     () => {
-      if (!cancelled) {
+      if (!disableAutoSave) {
         handleSave(item)
       }
     },
-    [cancelled, handleSave, item],
+    [disableAutoSave, handleSave, item],
   )
 
   useEffect(
     () => {
-      if (cancelled) onClose()
+      if (disableAutoSave) onClose()
     },
-    [cancelled, onClose],
+    [disableAutoSave, onClose],
   )
   useEffect(
     () => {
