@@ -1,8 +1,22 @@
 import { useMemo } from 'react'
-import { Grid, styled, Typography, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent } from '@mui/material'
+import {
+  Grid,
+  styled,
+  Typography,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  SelectChangeEvent,
+} from '@mui/material'
 import { GroupItem, Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
-import { Due, FrequencyOrDays, frequencyToDays, isDue } from '../utils/frequencies'
+import {
+  Due,
+  FrequencyOrDays,
+  frequencyToDays,
+  isDue,
+} from '../utils/frequencies'
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './InlineText'
