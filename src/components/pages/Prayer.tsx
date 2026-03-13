@@ -4,7 +4,7 @@ import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import ItemList, { ItemListExtraElement } from '../ItemList'
 import { Item } from '../../state/items'
 import { useAppDispatch } from '../../store'
-import { EditIcon } from '../Icons'
+import { EditIcon, ExpandIcon } from '../Icons'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
 import { replaceActive } from '../../state/ui'
@@ -43,6 +43,8 @@ function PrayerPage() {
 
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
+
+  console.log(scheduleIds.length, visibleSchedule.length)
 
   const extraElements: ItemListExtraElement[] = useMemo(
     () => [
@@ -86,8 +88,13 @@ function PrayerPage() {
             <Divider />
             <Grid container spacing={2} padding={2}>
               <Grid size={{ xs: 12 }} display="flex" justifyContent="center">
-                <Button onClick={showMore} variant="outlined">
-                  Show More
+                <Button
+                  onClick={showMore}
+                  variant="outlined"
+                  disabled={visibleSchedule.length >= scheduleIds.length}
+                  startIcon={<ExpandIcon />}
+                >
+                  See Next
                 </Button>
               </Grid>
             </Grid>
@@ -96,7 +103,7 @@ function PrayerPage() {
         index: -1,
       },
     ],
-    [completed, goal, handleEditGoal, naturalGoal, showMore],
+    [completed, goal, handleEditGoal, naturalGoal, visibleSchedule, scheduleIds, showMore],
   )
 
   return (
