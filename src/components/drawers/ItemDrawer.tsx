@@ -6,10 +6,14 @@ import {
   useState,
 } from 'react'
 import {
-  Button,
   Collapse,
   Grid,
   IconButton,
+  InputAdornment,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
   TextField,
   Tooltip,
 } from '@mui/material'
@@ -37,9 +41,12 @@ import DuplicateAlert from './utils/DuplicateAlert'
 import { isSameDay, usePrevious } from '../../utils'
 import {
   ArchiveIcon,
+  DeleteIcon,
+  FrequencyIcon,
   getIcon,
   getIconType,
   GroupIcon,
+  MoreOptionsIcon,
   NotesIcon,
   PersonIcon,
   PrayerIcon,
@@ -51,6 +58,7 @@ import NotesSection from '../NotesSection'
 
 
 export interface Props extends BaseDrawerProps {
+  fromPrayerPage?: boolean,
   item: DirtyItem<Item>,
   onChange: (
     item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
@@ -69,6 +77,7 @@ function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
 
 function ItemDrawer({
   alwaysTemporary,
+  fromPrayerPage = false,
   item,
   onBack,
   onChange,
@@ -82,8 +91,10 @@ function ItemDrawer({
   const { mutateAsync: deleteItem } = useDeleteItemsMutation()
   const { mutate: storeItems } = useStoreItemsMutation()
 
-  const [cancelled, setCancelled] = useState(false)
-  const [forceShowDescription, setShowDescription] = useState(false)
+  const [disableAutoSave, setDisableAutoSave] = useState(false)
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [showDescription, setShowDescription] = useState(!!item.description)
+  const menuOpen = Boolean(menuAnchorEl)
 
   const prevItem = usePrevious(item)
 
@@ -112,11 +123,10 @@ function ItemDrawer({
     [items],
   )
 
-  // Reset forceShowDescription when item changes
-  if (prevItem?.id !== item.id && forceShowDescription) {
-    setShowDescription(false)
+  // Reset showDescription when item changes
+  if (prevItem?.id !== item.id && showDescription !== !!item.description) {
+    setShowDescription(!!item.description)
   }
-  const showDescription = forceShowDescription || !!item.description
 
   const duplicates = useMemo(
     () => {
@@ -129,11 +139,11 @@ function ItemDrawer({
     [item, itemsByName],
   )
 
-  const handleClickAddDescription = useCallback(() => setShowDescription(true), [])
   const handleChange = useCallback(
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
     ) => {
+      setDisableAutoSave(false)
       if (typeof data === 'function') {
         return onChange(originalItem => dirtyItem(data(originalItem)))
       }
@@ -141,6 +151,13 @@ function ItemDrawer({
     },
     [onChange],
   )
+
+  const handleAddDescription = useCallback(() => setShowDescription(true), [])
+  const handleMenuClose = useCallback(() => setMenuAnchorEl(null), [])
+  const handleRemoveDescription = useCallback(() => {
+    handleChange({ description: '' })
+    setShowDescription(false)
+  }, [handleChange])
 
   const removeFromAllGroups = useCallback(
     () => {
@@ -160,6 +177,7 @@ function ItemDrawer({
   const handleSave = useCallback(
     (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
+        setDisableAutoSave(true)
         const clean = cleanItem(itemToSave)
         if (isItem(clean)) {
           storeItems(clean)
@@ -170,9 +188,11 @@ function ItemDrawer({
     },
     [storeItems],
   )
-  const handleSaveAndClose = useCallback(
-    () => {
-      handleSave(item)
+  const handleClose = useCallback(
+    (disableSave?: boolean) => {
+      if (!disableSave) {
+        handleSave(item)
+      }
       onClose()
     },
     [handleSave, item, onClose],
@@ -186,7 +206,13 @@ function ItemDrawer({
     },
     [handleSave, item, onChange],
   )
-  const handleCancel = useCallback(() => setCancelled(true), [])
+  const handleCancel = useCallback(
+    () => {
+      setDisableAutoSave(true)
+      onClose()
+    },
+    [onClose],
+  )
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups()
@@ -199,27 +225,17 @@ function ItemDrawer({
 
   const handleUnmount = useCallback(
     () => {
-      if (!cancelled) {
+      if (!disableAutoSave) {
         handleSave(item)
       }
     },
-    [cancelled, handleSave, item],
+    [disableAutoSave, handleSave, item],
   )
 
-  useEffect(
-    () => {
-      if (cancelled) onClose()
-    },
-    [cancelled, onClose],
-  )
-  useEffect(
-    () => {
-      if (open && prevItem && prevItem.id !== item.id) {
-        handleSave(prevItem)
-      }
-    },
-    [handleSave, item.id, open, prevItem],
-  )
+  if (open && prevItem && prevItem.id !== item.id) {
+    handleSave(prevItem)
+  }
+
   useEffect(
     () => {
       if (item.dirty && !item.isNew) {
@@ -235,6 +251,7 @@ function ItemDrawer({
   )
 
   const hasDescription = !!item.description
+  const defaultExpandAccordions = !fromPrayerPage
   const duplicateAlert = useMemo(
     () => (
       <Grid size={{ xs: 12 }} mt={-1}>
@@ -252,7 +269,7 @@ function ItemDrawer({
 
   const nameFields = useMemo(
     () => (
-      <Grid size={{ xs: showDescription ? 12 : 10, lg: showDescription ? 12 : 11 }}>
+      <Grid size={{ xs: 12 }}>
         <TextField
           autoFocus
           fullWidth
@@ -264,51 +281,64 @@ function ItemDrawer({
           required
           value={item.name}
           variant="standard"
-          slotProps={{ htmlInput: { 'data-cy': 'name' } }}
+          slotProps={{
+            htmlInput: { 'data-cy': 'name' },
+            input: !showDescription ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title="Add description">
+                    <IconButton
+                      data-cy="add-description"
+                      onClick={handleAddDescription}
+                      size="small"
+                    >
+                      <NotesIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            } : undefined,
+          }}
         />
       </Grid>
     ),
-    [item.name, handleChange, item.id, showDescription],
+    [item.name, handleChange, item.id, showDescription, handleAddDescription],
   )
 
   const { archived } = item
   const descriptionField = useMemo(
     () => (
-      item.description || showDescription ? (
+      showDescription && (
         <Grid size={{ xs: 12 }}>
           <TextField
             fullWidth
             label="Short Description"
-            slotProps={{ htmlInput: { 'data-cy': 'description' } }}
+            slotProps={{
+              htmlInput: { 'data-cy': 'description' },
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Remove description">
+                      <IconButton
+                        data-cy="remove-description"
+                        onClick={handleRemoveDescription}
+                        size="small"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
+            }}
             onChange={event => handleChange({ description: getValue(event) })}
             value={item.description}
             variant="standard"
           />
         </Grid>
-      ) : (
-        <Grid
-          size={{
-            xs: 2,
-            lg: 1,
-          }}
-          display="flex"
-          align-items="flex-end"
-          justifyContent="flex-end"
-        >
-          <div>
-            <Tooltip title="Add description">
-              <IconButton
-                data-cy="add-description"
-                onClick={handleClickAddDescription}
-              >
-                <NotesIcon />
-              </IconButton>
-            </Tooltip>
-          </div>
-        </Grid>
       )
     ),
-    [handleChange, handleClickAddDescription, item.description, showDescription],
+    [handleChange, item.description, showDescription, handleRemoveDescription],
   )
   const notesSection = useMemo(
     () => (
@@ -325,20 +355,29 @@ function ItemDrawer({
   const lastPrayer = getLastPrayedFor(item)
   const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
   const memberTarget = item.type === 'group' ? item.memberPrayerTarget : undefined
-  const frequencyFields = useMemo(
+  const frequencySection = useMemo(
     () => (
       <Grid size={{ xs: 12 }}>
-        <FrequencyControls
-          id={item.id}
-          lastPrayer={lastPrayer}
-          onChange={handleChange}
-          prayerFrequency={item.prayerFrequency}
-          memberPrayerFrequency={memberFrequency}
-          memberPrayerTarget={memberTarget}
+        <CollapsibleSection
+          content={(
+            <FrequencyControls
+              id={item.id}
+              lastPrayer={lastPrayer}
+              onChange={handleChange}
+              prayerFrequency={item.prayerFrequency}
+              memberPrayerFrequency={memberFrequency}
+              memberPrayerTarget={memberTarget}
+            />
+          )}
+          icon={FrequencyIcon}
+          id="frequency"
+          initialExpanded={defaultExpandAccordions}
+          title="Prayer Frequency"
         />
       </Grid>
     ),
     [
+      defaultExpandAccordions,
       handleChange,
       item.id,
       item.prayerFrequency,
@@ -348,77 +387,99 @@ function ItemDrawer({
     ],
   )
 
-  const archivedButton = useMemo(
+  const archiveMenuItem = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
-        <Button
-          color="inherit"
-          data-cy="archived"
-          disabled={item.isNew}
-          fullWidth
-          onClick={() => handleChange({ archived: !archived })}
-          size="large"
-          startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-          variant="outlined"
-        >
-          {archived ? 'Unarchive' : 'Archive'}
-        </Button>
-      </Grid>
-    ),
-    [archived, handleChange, item.isNew],
-  )
-  const changeTypeButtons = useMemo(
-    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
-      <Grid
-        key={itemType}
-        size={{ xs: 12 / (ITEM_TYPES.length - 1) }}
+      <MenuItem
+        data-cy="archived"
+        disabled={item.isNew}
+        onClick={() => {
+          handleChange({ archived: !archived })
+          handleMenuClose()
+        }}
       >
-        <Button
-          color="inherit"
-          data-cy="change-type"
-          fullWidth
-          onClick={() => handleChange(i => convertItem(i, itemType))}
-          size="large"
-          startIcon={getIcon(itemType)}
-          variant="outlined"
-        >
-          Convert to {getItemTypeLabel(itemType)}
-        </Button>
-      </Grid>
+        <ListItemIcon>
+          {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+        </ListItemIcon>
+        <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
+      </MenuItem>
+    ),
+    [archived, handleChange, item.isNew, handleMenuClose],
+  )
+  const changeTypeMenuItems = useMemo(
+    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
+      <MenuItem
+        data-cy="change-type"
+        key={itemType}
+        onClick={() => {
+          handleChange(i => convertItem(i, itemType))
+          handleMenuClose()
+        }}
+      >
+        <ListItemIcon>
+          {getIcon(itemType)}
+        </ListItemIcon>
+        <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
+      </MenuItem>
     )),
-    [item.type, handleChange],
+    [item.type, handleChange, handleMenuClose],
   )
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-  const markPrayedButton = useMemo(
+  const markPrayedMenuItem = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
-        <Button
-          color="inherit"
-          data-cy="mark-prayed"
-          disabled={item.isNew}
-          fullWidth
-          onClick={() => {
-            handleChange(prev => {
-              let prayedFor = prev.prayedFor
-              if (isPrayedForToday) {
-                const startOfDay = new Date()
-                startOfDay.setHours(0, 0, 0, 0)
-                prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-              } else {
-                prayedFor = [...prayedFor, new Date().getTime()]
-              }
-              return { ...prev, prayedFor }
-            })
-          }}
-          size="large"
-          startIcon={<PrayerIcon />}
-          variant="outlined"
-        >
+      <MenuItem
+        data-cy="mark-prayed"
+        disabled={item.isNew}
+        onClick={() => {
+          handleChange(prev => {
+            let prayedFor = prev.prayedFor
+            if (isPrayedForToday) {
+              const startOfDay = new Date()
+              startOfDay.setHours(0, 0, 0, 0)
+              prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
+            } else {
+              prayedFor = [...prayedFor, new Date().getTime()]
+            }
+            return { ...prev, prayedFor }
+          })
+          handleMenuClose()
+        }}
+      >
+        <ListItemIcon>
+          <PrayerIcon />
+        </ListItemIcon>
+        <ListItemText>
           {isPrayedForToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
-        </Button>
-      </Grid>
+        </ListItemText>
+      </MenuItem>
     ),
-    [handleChange, item.isNew, isPrayedForToday],
+    [handleChange, item.isNew, isPrayedForToday, handleMenuClose],
+  )
+
+  const headerActions = useMemo(
+    () => (
+      <>
+        <IconButton
+          data-cy="item-menu-button"
+          onClick={event => setMenuAnchorEl(event.currentTarget)}
+          size="large"
+        >
+          <MoreOptionsIcon />
+        </IconButton>
+
+        <Menu
+          anchorEl={menuAnchorEl}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          onClose={handleMenuClose}
+          open={menuOpen}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          {markPrayedMenuItem}
+          {archiveMenuItem}
+          {changeTypeMenuItems}
+        </Menu>
+      </>
+    ),
+    [archiveMenuItem, changeTypeMenuItems, handleMenuClose, markPrayedMenuItem, menuAnchorEl, menuOpen],
   )
 
   const members = item.type === 'group' ? item.members : undefined
@@ -434,10 +495,11 @@ function ItemDrawer({
         )}
         icon={PersonIcon}
         id="members"
+        initialExpanded={defaultExpandAccordions}
         title="Members"
       />
     ),
-    [handleChange, item, members],
+    [defaultExpandAccordions, handleChange, item, members],
   )
 
   const groupsSection = useMemo(
@@ -446,10 +508,11 @@ function ItemDrawer({
         content={<GroupDisplay itemId={item.id} />}
         icon={GroupIcon}
         id="groups"
+        initialExpanded={defaultExpandAccordions}
         title="Groups"
       />
     ),
-    [item.id, item.type],
+    [defaultExpandAccordions, item.id, item.type],
   )
 
   return (
@@ -464,9 +527,10 @@ function ItemDrawer({
         promptSave: !!item.dirty,
       }}
       alwaysTemporary={alwaysTemporary}
+      headerActions={headerActions}
       itemKey={item.id}
       onBack={onBack}
-      onClose={handleSaveAndClose}
+      onClose={handleClose}
       onExited={onExited}
       onUnmount={handleUnmount}
       open={open}
@@ -480,18 +544,12 @@ function ItemDrawer({
 
         {descriptionField}
         {notesSection}
-        {frequencyFields}
+        {frequencySection}
 
         <Grid size={{ xs: 12 }}>
           {membersSection}
           {groupsSection}
         </Grid>
-      </Grid>
-
-      <Grid container spacing={1} mt={2}>
-        {markPrayedButton}
-        {archivedButton}
-        {changeTypeButtons}
       </Grid>
     </BaseDrawer>
   )

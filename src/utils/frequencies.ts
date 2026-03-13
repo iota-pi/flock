@@ -10,8 +10,10 @@ const FREQUENCIES_TO_DAYS = {
   annually: 365.25,
   none: Infinity,
 }
-export type Frequency = keyof typeof FREQUENCIES_TO_DAYS
-export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
+export type BaseFrequency = keyof typeof FREQUENCIES_TO_DAYS
+export type Frequency = BaseFrequency | number
+
+export const FREQUENCIES_TO_LABELS: Record<BaseFrequency, string> = {
   daily: 'Daily',
   biweekly: 'Every few days',
   weekly: 'Weekly',
@@ -21,7 +23,7 @@ export const FREQUENCIES_TO_LABELS: Record<Frequency, string> = {
   annually: 'Annually',
   none: 'No target',
 }
-export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as Frequency[]
+export const FREQUENCIES = Object.keys(FREQUENCIES_TO_DAYS) as BaseFrequency[]
 
 export type FrequencyOrDays = Frequency | number
 

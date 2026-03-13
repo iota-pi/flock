@@ -165,6 +165,15 @@ export function threeWayMerge<T extends object>(base: T | null | undefined, thei
       continue
     }
 
+    if (isPlainObject(t) && isPlainObject(y)) {
+      result[key] = threeWayMerge(
+        isPlainObject(b) ? b : undefined,
+        t,
+        y,
+      )
+      continue
+    }
+
     const yoursChanged = !isEqual(b, y)
     const theirsChanged = !isEqual(b, t)
 
@@ -214,4 +223,10 @@ function isEqual(a: unknown, b: unknown): boolean {
   }
 
   return true
+}
+
+function isPlainObject(item: unknown): item is Record<string, unknown> {
+  if (item === null || typeof item !== 'object') return false
+  const proto = Object.getPrototypeOf(item)
+  return proto === Object.prototype || proto === null
 }

@@ -14,6 +14,7 @@ import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
 import MenuIcon from '@mui/icons-material/Menu'
+import MoreOptionsIcon from '@mui/icons-material/MoreVert'
 import NextIcon from '@mui/icons-material/ChevronRight'
 import NotesIcon from '@mui/icons-material/Notes'
 import NotificationIcon from '@mui/icons-material/Notifications'
@@ -55,6 +56,7 @@ export {
   GroupIcon,
   HomeIcon,
   MenuIcon,
+  MoreOptionsIcon,
   NextIcon,
   NextIcon as ExpandMenuIcon,
   NotesIcon,

@@ -1,4 +1,5 @@
 import {
+  Box,
   Container,
   CSSObject,
   IconButton,
@@ -15,11 +16,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
-import UnmountWatcher from './utils/UnmountWatcher'
 import { ItemId } from '../../state/items'
 import { usePrevious } from '../../utils'
 
@@ -95,17 +96,19 @@ const IconHolder = styled('div')(({ theme }) => ({
   alignItems: 'center',
   justifyContent: 'flex-start',
 }))
-const BackButtonHolder = styled('div')(({ theme }) => ({
+const TopRightActionsHolder = styled('div')(({ theme }) => ({
   position: 'absolute',
   display: 'flex',
   top: theme.spacing(2),
   right: theme.spacing(2),
+  alignItems: 'center',
+  gap: theme.spacing(1),
 }))
 
 
 interface BaseProps {
   onBack?: () => void,
-  onClose: () => void,
+  onClose: (disableSave?: boolean) => void,
   onExited?: () => void,
   onUnmount?: () => void,
   open: boolean,
@@ -117,6 +120,7 @@ interface SpecificProps {
   alwaysShowBack?: boolean,
   disableAutoCloseOnSave?: boolean,
   fullScreen?: boolean,
+  headerActions?: React.ReactNode,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
   itemKey?: ItemId,
@@ -133,6 +137,7 @@ function BaseDrawer({
   children,
   disableAutoCloseOnSave = false,
   fullScreen = false,
+  headerActions,
   hideBackButton = false,
   hideTypeIcon = false,
   itemKey,
@@ -155,6 +160,11 @@ function BaseDrawer({
   )
   const showTypeIcon = !hideTypeIcon
 
+  const handleDrawerClose = useCallback(
+    () => onClose(),
+    [onClose],
+  )
+
   const handleBack = useCallback(
     () => {
       if (onBack) {
@@ -165,21 +175,13 @@ function BaseDrawer({
     },
     [onBack, onClose],
   )
-  const handleKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.ctrlKey && event.key === 'Enter') {
-        onClose()
-      }
-    },
-    [onClose],
-  )
   const handleSave = useMemo(
     () => {
       if (ActionProps?.onSave) {
         return () => {
           ActionProps.onSave()
           if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
-            onClose()
+            onClose(true)
           }
         }
       }
@@ -187,6 +189,20 @@ function BaseDrawer({
     },
     [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
   )
+
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.ctrlKey && event.key === 'Enter') {
+        if (handleSave) {
+          handleSave()
+        } else {
+          onClose()
+        }
+      }
+    },
+    [handleSave, onClose],
+  )
+
   const modifiedActionProps = useMemo(
     () => ActionProps && ({
       ...ActionProps,
@@ -219,14 +235,21 @@ function BaseDrawer({
     [ActionProps],
   )
 
+  const unmountRef = useRef(onUnmount)
+  useEffect(() => {
+    unmountRef.current = onUnmount
+  }, [onUnmount])
+  useEffect(() => () => {
+    if (unmountRef.current) unmountRef.current()
+  }, [])
+
   return (
     <>
-
       <StyledDrawer
         anchor="right"
         disableSwipeToOpen
         fullScreen={fullScreen}
-        onClose={onClose}
+        onClose={handleDrawerClose}
         onOpen={noOp}
         onKeyDown={handleKeyDown}
         open={open}
@@ -235,8 +258,6 @@ function BaseDrawer({
         stacked={stacked}
         variant={permanentDrawer ? 'permanent' : 'temporary'}
       >
-        <UnmountWatcher onUnmount={onUnmount} />
-
         {permanentDrawer && (
           <Toolbar />
         )}
@@ -247,18 +268,23 @@ function BaseDrawer({
             ref={containerRef}
           >
             <>
-              {showTypeIcon && Icon && (
-                <IconHolder>
-                  <Icon />
-                </IconHolder>
-              )}
+              <Box>
+                {showTypeIcon && Icon && (
+                  <IconHolder>
+                    <Icon />
+                  </IconHolder>
+                )}
+              </Box>
 
-              {showBackButton && (
-                <BackButtonHolder>
-                  <IconButton data-cy="back-button" onClick={handleBack} size="large">
-                    <RemoveIcon />
-                  </IconButton>
-                </BackButtonHolder>
+              {(showBackButton || headerActions) && (
+                <TopRightActionsHolder>
+                  {headerActions}
+                  {showBackButton && (
+                    <IconButton data-cy="back-button" onClick={handleBack} size="large">
+                      <RemoveIcon />
+                    </IconButton>
+                  )}
+                </TopRightActionsHolder>
               )}
 
               {children}

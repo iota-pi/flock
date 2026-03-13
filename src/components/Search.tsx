@@ -3,6 +3,7 @@ import {
   Ref,
   useCallback,
   useMemo,
+  useRef,
 } from 'react'
 import {
   Autocomplete,
@@ -21,6 +22,7 @@ import {
   FilterOptionsState,
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
+import { useListRef } from 'react-window'
 import {
   getBlankItem,
   getItemName,
@@ -286,6 +288,28 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     () => (forceDarkTheme ? DARK_THEME : {}),
     [forceDarkTheme],
   )
+  const internalListRef = useListRef(null)
+  const optionIndexMapRef = useRef<Map<string, number>>(new Map())
+
+  const handleItemsBuilt = useCallback(
+    (optionIndexMap: Map<string, number>) => {
+      optionIndexMapRef.current = optionIndexMap
+    },
+    [],
+  )
+  const handleHighlightChange = useCallback(
+    (_event: React.SyntheticEvent, option: AnySearchable | null) => {
+      if (!option || !internalListRef.current) {
+        return
+      }
+
+      const index = optionIndexMapRef.current.get(option.id)
+      if (index !== undefined) {
+        internalListRef.current.scrollToRow({ align: 'auto', index })
+      }
+    },
+    [internalListRef],
+  )
 
   return (
     <ThemeProvider theme={theme}>
@@ -299,13 +323,21 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         getOptionLabel={option => getName(option)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         slots={{
-          listbox: ListBoxComponent,
           paper: ThemedPaper,
           popper: StyledPopper,
+        }}
+        slotProps={{
+          listbox: {
+            component: ListBoxComponent,
+            internalListRef,
+            onItemsBuilt: handleItemsBuilt,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any,
         }}
         multiple
         noOptionsText={noItemsText}
         onChange={handleChange}
+        onHighlightChange={handleHighlightChange}
         options={options}
         renderInput={({ InputProps, InputLabelProps, inputProps, ...params }) => {
           // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
