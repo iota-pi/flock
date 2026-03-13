@@ -57,6 +57,7 @@ export default defineConfig([
         {
           argsIgnorePattern: '^_$',
           caughtErrorsIgnorePattern: '^_$',
+          ignoreRestSiblings: true,
         },
       ],
       '@typescript-eslint/dot-notation': 'error',

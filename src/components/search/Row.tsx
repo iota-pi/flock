@@ -5,7 +5,8 @@ import OptionComponent from './Option'
 import { AnySearchable } from './types'
 
 export const OptionHolder = styled('li')({
-  display: 'block',
+  // Force border-box sizing so MUI's padding doesn't exceed react-window's height calculations
+  boxSizing: 'border-box',
   padding: 0,
 })
 
