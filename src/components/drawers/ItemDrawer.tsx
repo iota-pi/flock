@@ -177,6 +177,7 @@ function ItemDrawer({
   const handleSave = useCallback(
     (itemToSave: DirtyItem<Item>) => {
       if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
+        setDisableAutoSave(true)
         const clean = cleanItem(itemToSave)
         if (isItem(clean)) {
           storeItems(clean)
@@ -187,10 +188,11 @@ function ItemDrawer({
     },
     [storeItems],
   )
-  const handleSaveAndClose = useCallback(
-    () => {
-      setDisableAutoSave(true)
-      handleSave(item)
+  const handleClose = useCallback(
+    (disableSave?: boolean) => {
+      if (!disableSave) {
+        handleSave(item)
+      }
       onClose()
     },
     [handleSave, item, onClose],
@@ -204,7 +206,13 @@ function ItemDrawer({
     },
     [handleSave, item, onChange],
   )
-  const handleCancel = useCallback(() => setDisableAutoSave(true), [])
+  const handleCancel = useCallback(
+    () => {
+      setDisableAutoSave(true)
+      onClose()
+    },
+    [onClose],
+  )
   const handleDelete = useCallback(
     () => {
       removeFromAllGroups()
@@ -224,12 +232,6 @@ function ItemDrawer({
     [disableAutoSave, handleSave, item],
   )
 
-  useEffect(
-    () => {
-      if (disableAutoSave) onClose()
-    },
-    [disableAutoSave, onClose],
-  )
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
@@ -532,7 +534,7 @@ function ItemDrawer({
       headerActions={headerActions}
       itemKey={item.id}
       onBack={onBack}
-      onClose={handleSaveAndClose}
+      onClose={handleClose}
       onExited={onExited}
       onUnmount={handleUnmount}
       open={open}

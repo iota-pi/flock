@@ -107,7 +107,7 @@ const TopRightActionsHolder = styled('div')(({ theme }) => ({
 
 interface BaseProps {
   onBack?: () => void,
-  onClose: () => void,
+  onClose: (disableSave?: boolean) => void,
   onExited?: () => void,
   onUnmount?: () => void,
   open: boolean,
@@ -159,6 +159,11 @@ function BaseDrawer({
   )
   const showTypeIcon = !hideTypeIcon
 
+  const handleDrawerClose = useCallback(
+    () => onClose(),
+    [onClose],
+  )
+
   const handleBack = useCallback(
     () => {
       if (onBack) {
@@ -175,7 +180,7 @@ function BaseDrawer({
         return () => {
           ActionProps.onSave()
           if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
-            onClose()
+            onClose(true)
           }
         }
       }
@@ -243,7 +248,7 @@ function BaseDrawer({
         anchor="right"
         disableSwipeToOpen
         fullScreen={fullScreen}
-        onClose={onClose}
+        onClose={handleDrawerClose}
         onOpen={noOp}
         onKeyDown={handleKeyDown}
         open={open}
