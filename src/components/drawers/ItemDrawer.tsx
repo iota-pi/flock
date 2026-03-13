@@ -232,14 +232,10 @@ function ItemDrawer({
     [disableAutoSave, handleSave, item],
   )
 
-  useEffect(
-    () => {
-      if (open && prevItem && prevItem.id !== item.id) {
-        handleSave(prevItem)
-      }
-    },
-    [handleSave, item.id, open, prevItem],
-  )
+  if (open && prevItem && prevItem.id !== item.id) {
+    handleSave(prevItem)
+  }
+
   useEffect(
     () => {
       if (item.dirty && !item.isNew) {
