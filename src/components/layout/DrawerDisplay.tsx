@@ -106,6 +106,7 @@ function IndividualDrawer({
   if (localItem) {
     return (
       <ItemDrawer
+        fromPrayerPage={!!drawer.praying}
         item={localItem}
         onBack={onClose}
         onChange={handleChange}

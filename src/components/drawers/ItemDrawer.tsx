@@ -42,6 +42,7 @@ import { isSameDay, usePrevious } from '../../utils'
 import {
   ArchiveIcon,
   DeleteIcon,
+  FrequencyIcon,
   getIcon,
   getIconType,
   GroupIcon,
@@ -57,6 +58,7 @@ import NotesSection from '../NotesSection'
 
 
 export interface Props extends BaseDrawerProps {
+  fromPrayerPage?: boolean,
   item: DirtyItem<Item>,
   onChange: (
     item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
@@ -75,6 +77,7 @@ function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
 
 function ItemDrawer({
   alwaysTemporary,
+  fromPrayerPage = false,
   item,
   onBack,
   onChange,
@@ -250,6 +253,7 @@ function ItemDrawer({
   )
 
   const hasDescription = !!item.description
+  const defaultExpandAccordions = !fromPrayerPage
   const duplicateAlert = useMemo(
     () => (
       <Grid size={{ xs: 12 }} mt={-1}>
@@ -353,20 +357,29 @@ function ItemDrawer({
   const lastPrayer = getLastPrayedFor(item)
   const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
   const memberTarget = item.type === 'group' ? item.memberPrayerTarget : undefined
-  const frequencyFields = useMemo(
+  const frequencySection = useMemo(
     () => (
       <Grid size={{ xs: 12 }}>
-        <FrequencyControls
-          id={item.id}
-          lastPrayer={lastPrayer}
-          onChange={handleChange}
-          prayerFrequency={item.prayerFrequency}
-          memberPrayerFrequency={memberFrequency}
-          memberPrayerTarget={memberTarget}
+        <CollapsibleSection
+          content={(
+            <FrequencyControls
+              id={item.id}
+              lastPrayer={lastPrayer}
+              onChange={handleChange}
+              prayerFrequency={item.prayerFrequency}
+              memberPrayerFrequency={memberFrequency}
+              memberPrayerTarget={memberTarget}
+            />
+          )}
+          icon={FrequencyIcon}
+          id="frequency"
+          initialExpanded={defaultExpandAccordions}
+          title="Prayer Frequency"
         />
       </Grid>
     ),
     [
+      defaultExpandAccordions,
       handleChange,
       item.id,
       item.prayerFrequency,
@@ -484,10 +497,11 @@ function ItemDrawer({
         )}
         icon={PersonIcon}
         id="members"
+        initialExpanded={defaultExpandAccordions}
         title="Members"
       />
     ),
-    [handleChange, item, members],
+    [defaultExpandAccordions, handleChange, item, members],
   )
 
   const groupsSection = useMemo(
@@ -496,10 +510,11 @@ function ItemDrawer({
         content={<GroupDisplay itemId={item.id} />}
         icon={GroupIcon}
         id="groups"
+        initialExpanded={defaultExpandAccordions}
         title="Groups"
       />
     ),
-    [item.id, item.type],
+    [defaultExpandAccordions, item.id, item.type],
   )
 
   return (
@@ -531,7 +546,7 @@ function ItemDrawer({
 
         {descriptionField}
         {notesSection}
-        {frequencyFields}
+        {frequencySection}
 
         <Grid size={{ xs: 12 }}>
           {membersSection}
