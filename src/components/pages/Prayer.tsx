@@ -44,8 +44,6 @@ function PrayerPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
 
-  console.log(scheduleIds.length, visibleSchedule.length)
-
   const extraElements: ItemListExtraElement[] = useMemo(
     () => [
       {
