@@ -1,4 +1,5 @@
 import {
+  Box,
   Container,
   CSSObject,
   IconButton,
@@ -267,11 +268,13 @@ function BaseDrawer({
             ref={containerRef}
           >
             <>
-              {showTypeIcon && Icon && (
-                <IconHolder>
-                  <Icon />
-                </IconHolder>
-              )}
+              <Box>
+                {showTypeIcon && Icon && (
+                  <IconHolder>
+                    <Icon />
+                  </IconHolder>
+                )}
+              </Box>
 
               {(showBackButton || headerActions) && (
                 <TopRightActionsHolder>
