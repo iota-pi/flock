@@ -6,11 +6,14 @@ import {
   useState,
 } from 'react'
 import {
-  Button,
   Collapse,
   Grid,
   IconButton,
   InputAdornment,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
   TextField,
   Tooltip,
 } from '@mui/material'
@@ -42,6 +45,7 @@ import {
   getIcon,
   getIconType,
   GroupIcon,
+  MoreOptionsIcon,
   NotesIcon,
   PersonIcon,
   PrayerIcon,
@@ -85,7 +89,9 @@ function ItemDrawer({
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const [disableAutoSave, setDisableAutoSave] = useState(false)
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [showDescription, setShowDescription] = useState(!!item.description)
+  const menuOpen = Boolean(menuAnchorEl)
 
   const prevItem = usePrevious(item)
 
@@ -144,6 +150,7 @@ function ItemDrawer({
   )
 
   const handleAddDescription = useCallback(() => setShowDescription(true), [])
+  const handleMenuClose = useCallback(() => setMenuAnchorEl(null), [])
   const handleRemoveDescription = useCallback(() => {
     handleChange({ description: '' })
     setShowDescription(false)
@@ -369,77 +376,99 @@ function ItemDrawer({
     ],
   )
 
-  const archivedButton = useMemo(
+  const archiveMenuItem = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
-        <Button
-          color="inherit"
-          data-cy="archived"
-          disabled={item.isNew}
-          fullWidth
-          onClick={() => handleChange({ archived: !archived })}
-          size="large"
-          startIcon={archived ? <UnarchiveIcon /> : <ArchiveIcon />}
-          variant="outlined"
-        >
-          {archived ? 'Unarchive' : 'Archive'}
-        </Button>
-      </Grid>
-    ),
-    [archived, handleChange, item.isNew],
-  )
-  const changeTypeButtons = useMemo(
-    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
-      <Grid
-        key={itemType}
-        size={{ xs: 12 / (ITEM_TYPES.length - 1) }}
+      <MenuItem
+        data-cy="archived"
+        disabled={item.isNew}
+        onClick={() => {
+          handleChange({ archived: !archived })
+          handleMenuClose()
+        }}
       >
-        <Button
-          color="inherit"
-          data-cy="change-type"
-          fullWidth
-          onClick={() => handleChange(i => convertItem(i, itemType))}
-          size="large"
-          startIcon={getIcon(itemType)}
-          variant="outlined"
-        >
-          Convert to {getItemTypeLabel(itemType)}
-        </Button>
-      </Grid>
+        <ListItemIcon>
+          {archived ? <UnarchiveIcon /> : <ArchiveIcon />}
+        </ListItemIcon>
+        <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
+      </MenuItem>
+    ),
+    [archived, handleChange, item.isNew, handleMenuClose],
+  )
+  const changeTypeMenuItems = useMemo(
+    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
+      <MenuItem
+        data-cy="change-type"
+        key={itemType}
+        onClick={() => {
+          handleChange(i => convertItem(i, itemType))
+          handleMenuClose()
+        }}
+      >
+        <ListItemIcon>
+          {getIcon(itemType)}
+        </ListItemIcon>
+        <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
+      </MenuItem>
     )),
-    [item.type, handleChange],
+    [item.type, handleChange, handleMenuClose],
   )
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-  const markPrayedButton = useMemo(
+  const markPrayedMenuItem = useMemo(
     () => (
-      <Grid size={{ xs: 12 }}>
-        <Button
-          color="inherit"
-          data-cy="mark-prayed"
-          disabled={item.isNew}
-          fullWidth
-          onClick={() => {
-            handleChange(prev => {
-              let prayedFor = prev.prayedFor
-              if (isPrayedForToday) {
-                const startOfDay = new Date()
-                startOfDay.setHours(0, 0, 0, 0)
-                prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
-              } else {
-                prayedFor = [...prayedFor, new Date().getTime()]
-              }
-              return { ...prev, prayedFor }
-            })
-          }}
-          size="large"
-          startIcon={<PrayerIcon />}
-          variant="outlined"
-        >
+      <MenuItem
+        data-cy="mark-prayed"
+        disabled={item.isNew}
+        onClick={() => {
+          handleChange(prev => {
+            let prayedFor = prev.prayedFor
+            if (isPrayedForToday) {
+              const startOfDay = new Date()
+              startOfDay.setHours(0, 0, 0, 0)
+              prayedFor = prayedFor.filter(d => d < startOfDay.getTime())
+            } else {
+              prayedFor = [...prayedFor, new Date().getTime()]
+            }
+            return { ...prev, prayedFor }
+          })
+          handleMenuClose()
+        }}
+      >
+        <ListItemIcon>
+          <PrayerIcon />
+        </ListItemIcon>
+        <ListItemText>
           {isPrayedForToday ? 'Unmark Prayed' : 'Mark as Prayed Today'}
-        </Button>
-      </Grid>
+        </ListItemText>
+      </MenuItem>
     ),
-    [handleChange, item.isNew, isPrayedForToday],
+    [handleChange, item.isNew, isPrayedForToday, handleMenuClose],
+  )
+
+  const headerActions = useMemo(
+    () => (
+      <>
+        <IconButton
+          data-cy="item-menu-button"
+          onClick={event => setMenuAnchorEl(event.currentTarget)}
+          size="large"
+        >
+          <MoreOptionsIcon />
+        </IconButton>
+
+        <Menu
+          anchorEl={menuAnchorEl}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          onClose={handleMenuClose}
+          open={menuOpen}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          {markPrayedMenuItem}
+          {archiveMenuItem}
+          {changeTypeMenuItems}
+        </Menu>
+      </>
+    ),
+    [archiveMenuItem, changeTypeMenuItems, handleMenuClose, markPrayedMenuItem, menuAnchorEl, menuOpen],
   )
 
   const members = item.type === 'group' ? item.members : undefined
@@ -485,6 +514,7 @@ function ItemDrawer({
         promptSave: !!item.dirty,
       }}
       alwaysTemporary={alwaysTemporary}
+      headerActions={headerActions}
       itemKey={item.id}
       onBack={onBack}
       onClose={handleSaveAndClose}
@@ -507,12 +537,6 @@ function ItemDrawer({
           {membersSection}
           {groupsSection}
         </Grid>
-      </Grid>
-
-      <Grid container spacing={1} mt={2}>
-        {markPrayedButton}
-        {archivedButton}
-        {changeTypeButtons}
       </Grid>
     </BaseDrawer>
   )

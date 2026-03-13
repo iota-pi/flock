@@ -95,11 +95,13 @@ const IconHolder = styled('div')(({ theme }) => ({
   alignItems: 'center',
   justifyContent: 'flex-start',
 }))
-const BackButtonHolder = styled('div')(({ theme }) => ({
+const TopRightActionsHolder = styled('div')(({ theme }) => ({
   position: 'absolute',
   display: 'flex',
   top: theme.spacing(2),
   right: theme.spacing(2),
+  alignItems: 'center',
+  gap: theme.spacing(1),
 }))
 
 
@@ -117,6 +119,7 @@ interface SpecificProps {
   alwaysShowBack?: boolean,
   disableAutoCloseOnSave?: boolean,
   fullScreen?: boolean,
+  headerActions?: React.ReactNode,
   hideBackButton?: boolean,
   hideTypeIcon?: boolean,
   itemKey?: ItemId,
@@ -133,6 +136,7 @@ function BaseDrawer({
   children,
   disableAutoCloseOnSave = false,
   fullScreen = false,
+  headerActions,
   hideBackButton = false,
   hideTypeIcon = false,
   itemKey,
@@ -264,12 +268,15 @@ function BaseDrawer({
                 </IconHolder>
               )}
 
-              {showBackButton && (
-                <BackButtonHolder>
-                  <IconButton data-cy="back-button" onClick={handleBack} size="large">
-                    <RemoveIcon />
-                  </IconButton>
-                </BackButtonHolder>
+              {(showBackButton || headerActions) && (
+                <TopRightActionsHolder>
+                  {headerActions}
+                  {showBackButton && (
+                    <IconButton data-cy="back-button" onClick={handleBack} size="large">
+                      <RemoveIcon />
+                    </IconButton>
+                  )}
+                </TopRightActionsHolder>
               )}
 
               {children}
