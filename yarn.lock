@@ -7359,6 +7359,7 @@ __metadata:
     react-icons: "npm:^5.5.0"
     react-redux: "npm:^9.0.4"
     react-router: "npm:^7.9.6"
+    react-swipeable: "npm:^7.0.2"
     react-window: "npm:^2.2.3"
     rollup-plugin-visualizer: "npm:^6.0.5"
     source-map-explorer: "npm:^2.5.2"
@@ -10345,6 +10346,15 @@ __metadata:
     react-dom:
       optional: true
   checksum: 10c0/2a177bbe19021e3b8211df849ea5b3f3a4f482327e6de3341aaeaa4f1406dc9be7b675b229eefea6761e04a59a40ccaaf8188f2ee88eb2d0b2a6b6448daea368
+  languageName: node
+  linkType: hard
+
+"react-swipeable@npm:^7.0.2":
+  version: 7.0.2
+  resolution: "react-swipeable@npm:7.0.2"
+  peerDependencies:
+    react: ^16.8.3 || ^17 || ^18 || ^19.0.0 || ^19.0.0-rc
+  checksum: 10c0/cca3ec9e6321f73d187a8ac4beece2ad8cce1f4efa0215de93e2635492e7c514ccbc30311bb0e88bafb79d302916550603cdcd44ac81054a8c0f6679b18eb04d
   languageName: node
   linkType: hard
 

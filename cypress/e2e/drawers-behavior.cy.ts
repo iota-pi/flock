@@ -24,9 +24,9 @@ describe('Drawer behavior', () => {
     cy.saveDrawer()
 
     cy.contains(bilboName).click()
+    cy.dataCy('name').should('have.value', bilboName)
     cy.page('prayer')
     cy.dataCy('page-content-prayer').contains(bilboName).click()
-    cy.contains(frodoName).click()
-    cy.dataCy('drawer-content').first().contains(bilboName).should('not.exist')
+    cy.dataCy('item-name').should('contain.text', bilboName)
   })
 })

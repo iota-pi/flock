@@ -129,6 +129,9 @@ const uiSlice = createSlice({
     removeActive(state) {
       state.drawers.splice(state.drawers.length - 1, 1)
     },
+    clearDrawers(state) {
+      state.drawers = []
+    },
     pruneItemDrawers(state, action: PayloadAction<ItemId[]>) {
       const newDrawers: typeof state.drawers = []
       let modified = false
@@ -157,6 +160,7 @@ const uiSlice = createSlice({
 export const {
   finishRequest,
   pushActive,
+  clearDrawers,
   removeActive,
   replaceActive,
   setMessage,
