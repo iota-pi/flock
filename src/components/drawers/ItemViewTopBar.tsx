@@ -89,6 +89,7 @@ function ItemViewTopBar({
         <Typography
           sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           variant="h6"
+          data-cy="item-name"
         >
           {item.name}
         </Typography>

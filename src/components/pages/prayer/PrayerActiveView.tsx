@@ -1,4 +1,4 @@
-import { TouchEvent, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -6,8 +6,8 @@ import {
   ListItemIcon,
   ListItemText,
   MenuItem,
-  MobileStepper,
 } from '@mui/material'
+import { useSwipeable } from 'react-swipeable'
 import {
   DirtyItem,
   Item,
@@ -23,6 +23,7 @@ import {
   UnarchiveIcon,
 } from '../../Icons'
 import BasePage from '../BasePage'
+import PrayerStepper from './PrayerStepper'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
 
@@ -38,8 +39,6 @@ interface Props {
   onEditDrawerChange: (
     data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
   ) => void,
-  onTouchStart: (e: TouchEvent) => void,
-  onTouchEnd: (e: TouchEvent) => void,
   onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
 }
 
@@ -53,8 +52,6 @@ function PrayerActiveView({
   onOpenEditDrawer,
   onCloseEditDrawer,
   onEditDrawerChange,
-  onTouchStart,
-  onTouchEnd,
   onItemChange,
 }: Props) {
   const isLast = index >= totalSteps - 1
@@ -111,6 +108,26 @@ function PrayerActiveView({
     [activeItemArchived, localItem.isNew, onItemChange],
   )
 
+  const handleSwiped = useCallback(
+    ({ deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+      if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
+      if (deltaX < 0) {
+        onNext()
+      } else {
+        onBack()
+      }
+    },
+    [onBack, onNext],
+  )
+
+  const swipeHandlers = useSwipeable({
+    delta: 60,
+    onSwiped: handleSwiped,
+    preventScrollOnSwipe: false,
+    trackMouse: false,
+    trackTouch: true,
+  })
+
   return (
     <BasePage noScrollContainer>
       <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
@@ -126,9 +143,8 @@ function PrayerActiveView({
         />
 
         <Box
+          {...swipeHandlers}
           sx={{ flexGrow: 1, overflowY: 'auto' }}
-          onTouchEnd={onTouchEnd}
-          onTouchStart={onTouchStart}
         >
           <Container maxWidth={false} sx={{ py: 2 }}>
             <ItemFormContent
@@ -142,7 +158,7 @@ function PrayerActiveView({
           </Container>
         </Box>
 
-        <MobileStepper
+        <PrayerStepper
           activeStep={index}
           backButton={(
             <Button onClick={onBack} startIcon={<BackIcon />}>
@@ -154,9 +170,7 @@ function PrayerActiveView({
               {isLast ? 'Finish' : 'Next'}
             </Button>
           )}
-          position="static"
           steps={totalSteps}
-          variant="dots"
         />
       </Box>
 

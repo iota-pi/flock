@@ -39,7 +39,7 @@ function PrayerFinishedView({
           textAlign: 'center',
         }}
       >
-        <PrayerIcon sx={{ fontSize: 64, color: 'primary.main' }} />
+        <PrayerIcon sx={{ fontSize: 90 }} />
         <Typography variant="h5">All done!</Typography>
         <Typography color="text.secondary">
           {'You prayed for '}

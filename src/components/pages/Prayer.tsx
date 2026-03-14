@@ -1,11 +1,10 @@
 import {
-  TouchEvent,
   useCallback,
   useMemo,
-  useRef,
   useState,
 } from 'react'
-import { Button } from '@mui/material'
+import { Box, Button } from '@mui/material'
+import { useSwipeable } from 'react-swipeable'
 import {
   cleanItem,
   DirtyItem,
@@ -17,7 +16,6 @@ import { useItemMap } from '../../state/selectors'
 import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useStoreItemsMutation } from '../../api/queries'
 import ItemList, { ItemListExtraElement } from '../ItemList'
-import { NextIcon } from '../Icons'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
 import { isSameDay } from '../../utils'
@@ -25,6 +23,8 @@ import { getLastPrayedFor } from '../../utils/prayer'
 import PrayerActiveView from './prayer/PrayerActiveView'
 import PrayerFinishedView from './prayer/PrayerFinishedView'
 import PrayerOverviewHeader from './prayer/PrayerOverviewHeader'
+import PrayerStepper from './prayer/PrayerStepper'
+import { NextIcon } from '../Icons'
 
 
 type FlowState =
@@ -41,8 +41,6 @@ function PrayerPage() {
   const [localItem, setLocalItem] = useState<DirtyItem<Item> | null>(null)
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
-
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
 
   const {
     completed,
@@ -203,30 +201,21 @@ function PrayerPage() {
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
   const handleOpenEditDrawer = useCallback(() => setIsEditDrawerOpen(true), [])
   const handleCloseEditDrawer = useCallback(() => setIsEditDrawerOpen(false), [])
+  const handleStartFirst = useCallback(() => handleStart(0), [handleStart])
 
-  const handleTouchStart = useCallback(
-    (e: TouchEvent) => {
-      touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
-    },
-    [],
-  )
-
-  const handleTouchEnd = useCallback(
-    (e: TouchEvent) => {
-      if (!touchStart.current) return
-      const deltaX = e.changedTouches[0].clientX - touchStart.current.x
-      const deltaY = e.changedTouches[0].clientY - touchStart.current.y
-      touchStart.current = null
-      if (Math.abs(deltaX) < 60) return
+  const overviewSwipeHandlers = useSwipeable({
+    delta: 60,
+    onSwiped: ({ deltaX, deltaY }) => {
+      if (visibleSchedule.length === 0) return
       if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
       if (deltaX < 0) {
-        handleNext()
-      } else {
-        handleBack()
+        handleStartFirst()
       }
     },
-    [handleNext, handleBack],
-  )
+    preventScrollOnSwipe: false,
+    trackMouse: false,
+    trackTouch: true,
+  })
 
   const extraElements: ItemListExtraElement[] = useMemo(
     () => [
@@ -237,14 +226,14 @@ function PrayerPage() {
             goal={goal}
             naturalGoal={naturalGoal}
             onEditGoal={handleEditGoal}
-            onStart={() => handleStart(0)}
+            onStart={handleStartFirst}
             visibleScheduleLength={visibleSchedule.length}
           />
         ),
         index: 0,
       },
     ],
-    [completed, goal, handleEditGoal, handleStart, naturalGoal, visibleSchedule.length],
+    [completed, goal, handleEditGoal, handleStartFirst, naturalGoal, visibleSchedule.length],
   )
 
   if (flow.type === 'active' && localItem) {
@@ -259,8 +248,6 @@ function PrayerPage() {
         onItemChange={handleChange}
         onNext={handleNext}
         onOpenEditDrawer={handleOpenEditDrawer}
-        onTouchEnd={handleTouchEnd}
-        onTouchStart={handleTouchStart}
         totalSteps={visibleSchedule.length}
       />
     )
@@ -279,19 +266,32 @@ function PrayerPage() {
 
   return (
     <BasePage noScrollContainer>
-      <ItemList
-        checkboxes
-        checkboxSide="right"
-        extraElements={extraElements}
-        getChecked={isPrayedForToday}
-        getForceFade={isPrayedForToday}
-        items={visibleSchedule}
-        noItemsText="No items in prayer schedule"
-        onCheck={handleCheck}
-        onClick={handleItemClick}
-        showIcons
-        showTags={false}
-      />
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box {...overviewSwipeHandlers} sx={{ flexGrow: 1, minHeight: 0 }}>
+          <ItemList
+            checkboxes
+            checkboxSide="right"
+            extraElements={extraElements}
+            getChecked={isPrayedForToday}
+            getForceFade={isPrayedForToday}
+            items={visibleSchedule}
+            noItemsText="No items in prayer schedule"
+            onCheck={handleCheck}
+            onClick={handleItemClick}
+            showIcons
+            showTags={false}
+          />
+        </Box>
+
+        <PrayerStepper
+          steps={visibleSchedule.length}
+          nextButton={(
+            <Button endIcon={<NextIcon />} onClick={handleStartFirst}>
+              Start
+            </Button>
+          )}
+        />
+      </Box>
 
       <GoalDialog
         naturalGoal={naturalGoal}

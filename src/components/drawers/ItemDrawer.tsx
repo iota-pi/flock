@@ -170,6 +170,7 @@ function ItemDrawer({
   useEffect(
     () => {
       if (open && prevItem && prevItem.id !== item.id) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         handleSave(prevItem)
       }
     },

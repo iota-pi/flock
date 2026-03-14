@@ -2,7 +2,7 @@ import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
-import { DrawerData, removeActive, updateActive } from '../../state/ui'
+import { clearDrawers, DrawerData, removeActive, updateActive } from '../../state/ui'
 import { useAppDispatch, useAppSelector } from '../../store'
 import ItemDrawer from '../drawers/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
@@ -15,7 +15,17 @@ function useDrawerRouting(drawers: DrawerData[]) {
   const routerLocation = useLocation()
   const navigate = useNavigate()
   const prevDrawers = usePrevious(drawers)
+  const prevPathname = usePrevious(routerLocation.pathname)
   const prevLocationHash = usePrevious(routerLocation.hash)
+
+  useEffect(
+    () => {
+      if (prevPathname && prevPathname !== routerLocation.pathname && drawers.length > 0) {
+        dispatch(clearDrawers())
+      }
+    },
+    [dispatch, drawers.length, prevPathname, routerLocation.pathname],
+  )
 
   useEffect(
     () => {
