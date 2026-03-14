@@ -41,6 +41,7 @@ export const PROTECTED_ROUTES = {
     icon: PrayerIcon,
     path: '/',
     requiresAuth: true,
+    noPlaceholderDrawer: true,
     page: <PrayerPage />,
   },
   people: {

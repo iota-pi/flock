@@ -1,4 +1,4 @@
-import { createSvgIcon, SvgIconTypeMap } from '@mui/material'
+import { SvgIcon, SvgIconProps, SvgIconTypeMap } from '@mui/material'
 import type { OverridableComponent } from '@mui/material/OverridableComponent'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -37,7 +37,9 @@ import { FaPrayingHands } from 'react-icons/fa'
 
 import { Item } from '../state/items'
 
-const PrayerIcon = createSvgIcon(<FaPrayingHands />, 'PrayerIcon')
+const PrayerIcon = (props: SvgIconProps) => (
+  <SvgIcon component={FaPrayingHands} viewBox="0 0 640 512" {...props} />
+)
 
 export type MuiIconType = OverridableComponent<SvgIconTypeMap<object, 'svg'>>
 

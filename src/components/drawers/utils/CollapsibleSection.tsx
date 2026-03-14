@@ -54,6 +54,7 @@ export interface Props {
   title: string,
   content: ReactNode,
   actions?: ReactNode,
+  disabled?: boolean,
 }
 
 
@@ -64,6 +65,7 @@ function CollapsibleSection({
   title,
   content,
   actions,
+  disabled,
 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(initialExpanded)
 
@@ -77,6 +79,7 @@ function CollapsibleSection({
       onChange={handleChange}
       square
       TransitionProps={{ unmountOnExit: true }}
+      sx={disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
     >
       <StyledAccordionSummary
         aria-controls={`${id}-content`}

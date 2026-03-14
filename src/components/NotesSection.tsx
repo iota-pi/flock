@@ -179,7 +179,7 @@ function NotesSection({
         <Button
           startIcon={<AddIcon />}
           onClick={handleAddNote}
-          variant="outlined"
+          variant="contained"
           size="small"
         >
           Add Note
