@@ -1,9 +1,11 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from 'react'
 import { Box, Button } from '@mui/material'
+import { useLocation } from 'react-router'
 import { useSwipeable } from 'react-swipeable'
 import {
   cleanItem,
@@ -34,11 +36,12 @@ type FlowState =
 
 
 function PrayerPage() {
+  const location = useLocation()
   const itemMap = useItemMap()
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const [flow, setFlow] = useState<FlowState>({ type: 'overview' })
-  const [localItem, setLocalItem] = useState<DirtyItem<Item> | null>(null)
+  const [localItems, setLocalItems] = useState<DirtyItem<Item>[]>([])
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
 
@@ -48,44 +51,86 @@ function PrayerPage() {
     isPrayedForToday,
     naturalGoal,
     recordPrayerFor,
+    schedule,
     scheduleIds,
-    showMore,
+    showUntil,
     visibleSchedule,
   } = usePrayerSchedule()
 
-  const canKeepPraying = visibleSchedule.length < scheduleIds.length
+  const canKeepPraying = useMemo(
+    () => schedule.some((item, idx) => idx >= visibleSchedule.length && !isPrayedForToday(item)),
+    [isPrayedForToday, schedule, visibleSchedule.length],
+  )
+
+  useEffect(
+    () => {
+      const state = location.state as { resetPrayerAt?: number } | null
+      if (state?.resetPrayerAt) {
+        setFlow({ type: 'overview' })
+        setIsEditDrawerOpen(false)
+      }
+    },
+    [location.state],
+  )
+
+  const buildLocalItems = useCallback(
+    (count: number) => (
+      scheduleIds
+        .slice(0, count)
+        .map(id => itemMap[id])
+        .filter((item): item is Item => !!item)
+        .map(item => ({ ...item }) as DirtyItem<Item>)
+    ),
+    [itemMap, scheduleIds],
+  )
 
   const handleChange = useCallback(
     <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => {
-      setLocalItem(prev => {
-        if (!prev) return prev
+      setLocalItems(prevItems => {
+        if (flow.type !== 'active') return prevItems
+        const activeItem = prevItems[flow.index]
+        if (!activeItem) return prevItems
+
         if (typeof data === 'function') {
-          return { ...data(prev), dirty: true } as DirtyItem<Item>
+          const nextItem = { ...data(activeItem), dirty: true } as DirtyItem<Item>
+          const nextItems = [...prevItems]
+          nextItems[flow.index] = nextItem
+          return nextItems
         }
-        return { ...prev, ...data, dirty: true } as DirtyItem<Item>
+
+        const nextItems = [...prevItems]
+        nextItems[flow.index] = { ...activeItem, ...data, dirty: true } as DirtyItem<Item>
+        return nextItems
       })
     },
-    [],
+    [flow],
   )
 
   const handleEditDrawerChange = useCallback(
     (
       data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
     ) => {
-      setLocalItem(prevItem => {
-        if (!prevItem) {
-          return prevItem
+      setLocalItems(prevItems => {
+        if (flow.type !== 'active') {
+          return prevItems
         }
+        const activeItem = prevItems[flow.index]
+        if (!activeItem) return prevItems
+
         if (typeof data === 'function') {
-          return data(prevItem) as DirtyItem<Item>
+          const nextItems = [...prevItems]
+          nextItems[flow.index] = data(activeItem) as DirtyItem<Item>
+          return nextItems
         }
-        return {
-          ...prevItem,
+        const nextItems = [...prevItems]
+        nextItems[flow.index] = {
+          ...activeItem,
           ...data,
         } as DirtyItem<Item>
+        return nextItems
       })
     },
-    [],
+    [flow],
   )
 
   const saveLocalItem = useCallback(
@@ -113,56 +158,68 @@ function PrayerPage() {
 
   const handleStart = useCallback(
     (fromIndex: number) => {
-      const schedItem = visibleSchedule[fromIndex]
-      if (!schedItem) return
-      const fullItem = itemMap[schedItem.id] ?? schedItem
-      setLocalItem({ ...fullItem } as DirtyItem<Item>)
+      const items = buildLocalItems(visibleSchedule.length)
+      if (!items[fromIndex]) return
+      setLocalItems(items)
       setFlow({ type: 'active', index: fromIndex })
     },
-    [itemMap, visibleSchedule],
+    [buildLocalItems, visibleSchedule.length],
   )
 
   const handleNext = useCallback(
     () => {
-      if (flow.type !== 'active' || !localItem) return
-      const alreadyPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(localItem)))
-      const withPrayer = recordPrayedForLocalItem(localItem)
+      if (flow.type !== 'active') return
+      const currentItem = localItems[flow.index]
+      if (!currentItem) return
+
+      const alreadyPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(currentItem)))
+      const withPrayer = recordPrayedForLocalItem(currentItem)
+      setLocalItems(prevItems => {
+        const nextItems = [...prevItems]
+        nextItems[flow.index] = withPrayer
+        return nextItems
+      })
       saveLocalItem(withPrayer)
 
       const nextIndex = flow.index + 1
-      if (nextIndex >= visibleSchedule.length) {
-        setLocalItem(null)
+      if (nextIndex >= localItems.length) {
         setFlow({
           type: 'finished',
           prayedCount: completed + (alreadyPrayedToday ? 0 : 1),
         })
       } else {
-        const nextScheduleItem = visibleSchedule[nextIndex]
-        const nextFullItem = itemMap[nextScheduleItem.id] ?? nextScheduleItem
-        setLocalItem({ ...nextFullItem } as DirtyItem<Item>)
         setFlow({ type: 'active', index: nextIndex })
       }
     },
-    [flow, localItem, recordPrayedForLocalItem, saveLocalItem, visibleSchedule, itemMap, completed],
+    [completed, flow, localItems, recordPrayedForLocalItem, saveLocalItem],
   )
 
   const handleBack = useCallback(
     () => {
-      if (flow.type !== 'active' || !localItem) return
-      saveLocalItem(localItem)
+      if (flow.type !== 'active') return
+      const currentItem = localItems[flow.index]
+      if (!currentItem) return
+
+      saveLocalItem(currentItem)
 
       if (flow.index === 0) {
-        setLocalItem(null)
         setFlow({ type: 'overview' })
       } else {
-        const prevIndex = flow.index - 1
-        const prevScheduleItem = visibleSchedule[prevIndex]
-        const prevFullItem = itemMap[prevScheduleItem.id] ?? prevScheduleItem
-        setLocalItem({ ...prevFullItem } as DirtyItem<Item>)
-        setFlow({ type: 'active', index: prevIndex })
+        setFlow({ type: 'active', index: flow.index - 1 })
       }
     },
-    [flow, localItem, saveLocalItem, visibleSchedule, itemMap],
+    [flow, localItems, saveLocalItem],
+  )
+
+  const handleStepClick = useCallback(
+    (index: number) => {
+      if (flow.type !== 'active') return
+      const currentItem = localItems[flow.index]
+      if (!currentItem) return
+      saveLocalItem(currentItem)
+      setFlow({ type: 'active', index })
+    },
+    [flow, localItems, saveLocalItem],
   )
 
   const handleItemClick = useCallback(
@@ -182,26 +239,60 @@ function PrayerPage() {
 
   const handleKeepPraying = useCallback(
     () => {
-      if (!canKeepPraying) return
-      const nextIndex = visibleSchedule.length
-      const nextItemId = scheduleIds[nextIndex]
-      const nextItem = nextItemId ? itemMap[nextItemId] : undefined
-      if (!nextItem) {
-        return
+      const nextUnprayed: number[] = []
+      for (let i = visibleSchedule.length; i < schedule.length; i++) {
+        const item = schedule[i]
+        if (item && !isPrayedForToday(item)) {
+          nextUnprayed.push(i)
+          if (nextUnprayed.length === 3) break
+        }
       }
+      if (nextUnprayed.length === 0) return
 
-      showMore()
-      setLocalItem({ ...nextItem } as DirtyItem<Item>)
-      setFlow({ type: 'active', index: nextIndex })
+      const firstNewIndex = nextUnprayed[0]
+      const newVisibleCount = nextUnprayed[nextUnprayed.length - 1] + 1
+      showUntil(newVisibleCount)
+      const expandedItems = buildLocalItems(newVisibleCount)
+      setLocalItems(expandedItems)
+      setFlow({ type: 'active', index: firstNewIndex })
     },
-    [canKeepPraying, itemMap, scheduleIds, showMore, visibleSchedule.length],
+    [buildLocalItems, isPrayedForToday, schedule, showUntil, visibleSchedule.length],
   )
 
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
   const handleOpenEditDrawer = useCallback(() => setIsEditDrawerOpen(true), [])
   const handleCloseEditDrawer = useCallback(() => setIsEditDrawerOpen(false), [])
-  const handleStartFirst = useCallback(() => handleStart(0), [handleStart])
+  const firstUnprayedIndex = useMemo(
+    () => {
+      const index = visibleSchedule.findIndex(item => !isPrayedForToday(item))
+      return index >= 0 ? index : 0
+    },
+    [isPrayedForToday, visibleSchedule],
+  )
+  const hasPrayedItems = useMemo(
+    () => visibleSchedule.some(isPrayedForToday),
+    [isPrayedForToday, visibleSchedule],
+  )
+  const allVisiblePrayed = useMemo(
+    () => visibleSchedule.length > 0 && visibleSchedule.every(isPrayedForToday),
+    [isPrayedForToday, visibleSchedule],
+  )
+  const startButtonLabel = allVisiblePrayed ? 'Keep Praying' : (hasPrayedItems ? 'Continue' : 'Start')
+  const handleOverviewPrimaryAction = useCallback(
+    () => {
+      if (allVisiblePrayed && canKeepPraying) {
+        handleKeepPraying()
+      } else {
+        handleStart(firstUnprayedIndex)
+      }
+    },
+    [allVisiblePrayed, canKeepPraying, firstUnprayedIndex, handleKeepPraying, handleStart],
+  )
+  const handleStartFirst = useCallback(
+    () => handleOverviewPrimaryAction(),
+    [handleOverviewPrimaryAction],
+  )
 
   const overviewSwipeHandlers = useSwipeable({
     delta: 60,
@@ -227,28 +318,43 @@ function PrayerPage() {
             naturalGoal={naturalGoal}
             onEditGoal={handleEditGoal}
             onStart={handleStartFirst}
+            startDisabled={allVisiblePrayed && !canKeepPraying}
+            startLabel={startButtonLabel}
             visibleScheduleLength={visibleSchedule.length}
           />
         ),
         index: 0,
       },
     ],
-    [completed, goal, handleEditGoal, handleStartFirst, naturalGoal, visibleSchedule.length],
+    [
+      allVisiblePrayed,
+      canKeepPraying,
+      completed,
+      goal,
+      handleEditGoal,
+      handleStartFirst,
+      naturalGoal,
+      startButtonLabel,
+      visibleSchedule.length,
+    ],
   )
 
-  if (flow.type === 'active' && localItem) {
+  const activeItem = flow.type === 'active' ? localItems[flow.index] : undefined
+
+  if (flow.type === 'active' && activeItem) {
     return (
       <PrayerActiveView
-        index={flow.index}
+        activeIndex={flow.index}
+        items={localItems}
         isEditDrawerOpen={isEditDrawerOpen && flow.type === 'active'}
-        localItem={localItem}
         onBack={handleBack}
         onCloseEditDrawer={handleCloseEditDrawer}
         onEditDrawerChange={handleEditDrawerChange}
         onItemChange={handleChange}
         onNext={handleNext}
         onOpenEditDrawer={handleOpenEditDrawer}
-        totalSteps={visibleSchedule.length}
+        onStepClick={handleStepClick}
+        totalSteps={localItems.length}
       />
     )
   }
@@ -286,8 +392,12 @@ function PrayerPage() {
         <PrayerStepper
           steps={visibleSchedule.length}
           nextButton={(
-            <Button endIcon={<NextIcon />} onClick={handleStartFirst}>
-              Start
+            <Button
+              disabled={allVisiblePrayed && !canKeepPraying}
+              endIcon={<NextIcon />}
+              onClick={handleStartFirst}
+            >
+              {startButtonLabel}
             </Button>
           )}
         />

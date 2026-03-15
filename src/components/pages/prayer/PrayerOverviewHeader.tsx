@@ -18,6 +18,8 @@ interface Props {
   goal: number,
   naturalGoal: number,
   visibleScheduleLength: number,
+  startLabel: string,
+  startDisabled?: boolean,
   onEditGoal: () => void,
   onStart: () => void,
 }
@@ -26,6 +28,8 @@ function PrayerOverviewHeader({
   completed,
   goal,
   naturalGoal,
+  startDisabled,
+  startLabel,
   visibleScheduleLength,
   onEditGoal,
   onStart,
@@ -60,13 +64,13 @@ function PrayerOverviewHeader({
 
             <Button
               data-cy="start-prayer"
-              disabled={visibleScheduleLength === 0}
+              disabled={visibleScheduleLength === 0 || startDisabled}
               endIcon={<NextIcon />}
               onClick={onStart}
               size="small"
               variant="contained"
             >
-              Start
+              {startLabel}
             </Button>
           </Grid>
         </Grid>

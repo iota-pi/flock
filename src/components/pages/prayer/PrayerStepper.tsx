@@ -6,6 +6,7 @@ interface Props {
   activeStep?: number,
   backButton?: ReactNode,
   nextButton?: ReactNode,
+  onStepClick?: (index: number) => void,
 }
 
 function PrayerStepper({
@@ -13,6 +14,7 @@ function PrayerStepper({
   activeStep,
   backButton,
   nextButton,
+  onStepClick,
 }: Props) {
   const getBackgroundColor = useCallback(
     (index: number) => {
@@ -59,9 +61,11 @@ function PrayerStepper({
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}
+            onClick={onStepClick ? () => onStepClick(index) : undefined}
             sx={{
               backgroundColor: getBackgroundColor(index),
               borderRadius: '50%',
+              cursor: onStepClick ? 'pointer' : 'default',
               height: 8,
               transition: theme => theme.transitions.create('background-color'),
               width: 8,

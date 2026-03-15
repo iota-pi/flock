@@ -28,8 +28,8 @@ import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
 
 interface Props {
-  index: number,
-  localItem: DirtyItem<Item>,
+  activeIndex: number,
+  items: DirtyItem<Item>[],
   totalSteps: number,
   isEditDrawerOpen: boolean,
   onBack: () => void,
@@ -40,11 +40,12 @@ interface Props {
     data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
   ) => void,
   onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
+  onStepClick?: (index: number) => void,
 }
 
 function PrayerActiveView({
-  index,
-  localItem,
+  activeIndex,
+  items,
   totalSteps,
   isEditDrawerOpen,
   onBack,
@@ -53,17 +54,19 @@ function PrayerActiveView({
   onCloseEditDrawer,
   onEditDrawerChange,
   onItemChange,
+  onStepClick,
 }: Props) {
-  const isLast = index >= totalSteps - 1
-  const activeItemArchived = localItem.archived
-  const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(localItem)))
+  const activeItem = items[activeIndex]
+  const isLast = activeIndex >= totalSteps - 1
+  const activeItemArchived = activeItem.archived
+  const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
 
   const markPrayedMenuItem = useMemo(
     () => (
       <MenuItem
         data-cy="mark-prayed"
         key="mark-prayed"
-        disabled={localItem.isNew}
+        disabled={activeItem.isNew}
         onClick={() => {
           onItemChange((prev: Item) => {
             let prayedFor = prev.prayedFor
@@ -86,7 +89,7 @@ function PrayerActiveView({
         </ListItemText>
       </MenuItem>
     ),
-    [activeItemPrayedToday, localItem.isNew, onItemChange],
+    [activeItem.isNew, activeItemPrayedToday, onItemChange],
   )
 
   const archiveMenuItem = useMemo(
@@ -94,7 +97,7 @@ function PrayerActiveView({
       <MenuItem
         data-cy="archive"
         key="archive"
-        disabled={localItem.isNew}
+        disabled={activeItem.isNew}
         onClick={() => {
           onItemChange({ archived: !activeItemArchived })
         }}
@@ -105,7 +108,7 @@ function PrayerActiveView({
         <ListItemText>{activeItemArchived ? 'Unarchive' : 'Archive'}</ListItemText>
       </MenuItem>
     ),
-    [activeItemArchived, localItem.isNew, onItemChange],
+    [activeItem.isNew, activeItemArchived, onItemChange],
   )
 
   const handleSwiped = useCallback(
@@ -133,7 +136,7 @@ function PrayerActiveView({
       <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
         <ItemViewTopBar
           editButtonDataCy="active-item-edit-button"
-          item={localItem}
+          item={activeItem}
           menuButtonDataCy="active-item-menu-button"
           menuItems={[
             markPrayedMenuItem,
@@ -142,24 +145,40 @@ function PrayerActiveView({
           onEdit={onOpenEditDrawer}
         />
 
-        <Box
-          {...swipeHandlers}
-          sx={{ flexGrow: 1, overflowY: 'auto' }}
-        >
-          <Container maxWidth={false} sx={{ py: 2 }}>
-            <ItemFormContent
-              autoFocusName={false}
-              fromPrayerPage
-              handleChange={onItemChange}
-              hideHeaderFields
-              hideRelationships
-              item={localItem}
-            />
-          </Container>
+        <Box {...swipeHandlers} sx={{ flexGrow: 1, overflow: 'hidden', width: '100%' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              height: '100%',
+              transform: `translateX(-${activeIndex * 100}%)`,
+              transition: 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+              width: '100%',
+            }}
+          >
+            {items.map((item, itemIndex) => (
+              <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
+                <Container maxWidth={false} sx={{ py: 2 }}>
+                  <ItemFormContent
+                    autoFocusName={false}
+                    fromPrayerPage
+                    handleChange={
+                      itemIndex === activeIndex
+                        ? onItemChange
+                        : (() => undefined)
+                    }
+                    hideHeaderFields
+                    hideRelationships
+                    item={item}
+                  />
+                </Container>
+              </Box>
+            ))}
+          </Box>
         </Box>
 
         <PrayerStepper
-          activeStep={index}
+          activeStep={activeIndex}
+          onStepClick={onStepClick}
           backButton={(
             <Button onClick={onBack} startIcon={<BackIcon />}>
               Back
@@ -177,7 +196,7 @@ function PrayerActiveView({
       <ItemDrawer
         alwaysTemporary
         fromPrayerPage
-        item={localItem}
+        item={activeItem}
         onBack={onCloseEditDrawer}
         onChange={onEditDrawerChange}
         onClose={onCloseEditDrawer}

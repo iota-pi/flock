@@ -180,6 +180,13 @@ function MainMenu({
         const newPage = pages.find(p => p.id === pageId)!
         navigate(newPage.path)
         dispatch(setUi({ selected: [] }))
+      } else if (pageId === 'prayer' && page?.id === 'prayer') {
+        navigate('/', {
+          replace: true,
+          state: {
+            resetPrayerAt: Date.now(),
+          },
+        })
       }
       onClick()
     },
