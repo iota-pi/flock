@@ -202,6 +202,7 @@ function ItemFormContent({
         sx={isArchivedInPrayer ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
       >
         <NotesSection
+          key={item.id}
           notes={item.notes}
           onChange={notes => handleChange({ notes })}
         />
