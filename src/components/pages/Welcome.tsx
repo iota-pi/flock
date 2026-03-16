@@ -74,8 +74,8 @@ function WelcomePage() {
             </LargeText>
 
             <LargeText>
-              Flock aims to provide you with a secure, digital &quot;notebook&quot; to help you to
-              remember and care for your Flock, especially in prayer.
+              Flock aims to provide you with a secure, digital notebook to help you to care for
+              your Flock, especially in prayer.
             </LargeText>
 
             <LargeText>
