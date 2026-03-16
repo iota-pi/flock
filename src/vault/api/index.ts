@@ -7,12 +7,14 @@ import {
   // Params & Query
   AccountParamsSchema,
   ItemParamsSchema,
-  SubscriptionParamsSchema,
   ItemsQuerySchema,
   // Bodies
   PutItemBodySchema,
   PutItemsBatchBodySchema,
-  SubscriptionBodySchema,
+  PushSubscriptionBodySchema,
+  PushSubscriptionDeleteBodySchema,
+  ReminderSettingsBodySchema,
+  PrayerCompletionBodySchema,
   CreateAccountBodySchema,
   LoginBodySchema,
   UpdateMetadataBodySchema,
@@ -24,9 +26,9 @@ import {
   SaltResponseSchema,
   SessionResponseSchema,
   MetadataResponseSchema,
+  ReminderSettingsResponseSchema,
   ItemsResponseSchema,
   BatchResultResponseSchema,
-  SubscriptionGetResponseSchema,
 } from '../../shared/apiTypes'
 import routes from './routes'
 import getDriver from '../drivers'
@@ -41,9 +43,8 @@ async function createServer() {
   await server.register(cookie)
   await server.register(cors, {
     origin: [
-      /^https?:\/\/([^.]+\.)?flock\.cross-code\.org$/,
+      /^https?:\/\/flock(-[^.]+)?\.cross-code\.org$/,
       /^https?:\/\/localhost(:[0-9]+)?$/,
-      /^https?:\/\/[^.]+\.wofs12.workers.dev$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -54,13 +55,15 @@ async function createServer() {
   // Register param & query schemas
   server.addSchema(AccountParamsSchema)
   server.addSchema(ItemParamsSchema)
-  server.addSchema(SubscriptionParamsSchema)
   server.addSchema(ItemsQuerySchema)
 
   // Register body schemas
   server.addSchema(PutItemBodySchema)
   server.addSchema(PutItemsBatchBodySchema)
-  server.addSchema(SubscriptionBodySchema)
+  server.addSchema(PushSubscriptionBodySchema)
+  server.addSchema(PushSubscriptionDeleteBodySchema)
+  server.addSchema(ReminderSettingsBodySchema)
+  server.addSchema(PrayerCompletionBodySchema)
   server.addSchema(CreateAccountBodySchema)
   server.addSchema(LoginBodySchema)
   server.addSchema(UpdateMetadataBodySchema)
@@ -73,9 +76,9 @@ async function createServer() {
   server.addSchema(SaltResponseSchema)
   server.addSchema(SessionResponseSchema)
   server.addSchema(MetadataResponseSchema)
+  server.addSchema(ReminderSettingsResponseSchema)
   server.addSchema(ItemsResponseSchema)
   server.addSchema(BatchResultResponseSchema)
-  server.addSchema(SubscriptionGetResponseSchema)
 
   const vault = getDriver('dynamo')
   server.decorate('vault', vault)

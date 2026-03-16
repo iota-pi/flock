@@ -24,7 +24,7 @@ export default $config({
     const domain =
       isProd
         ? 'flock.cross-code.org'
-        : `${stage}.flock.cross-code.org`
+        : `flock-${stage}.cross-code.org`
     const publicUrl = `https://${domain}`
 
     // -----------------------------------------------------------------
@@ -57,19 +57,9 @@ export default $config({
       },
     })
 
-    const subscriptionsTable = new sst.aws.Dynamo('FlockSubscriptions', {
-      // deletionProtection: true,
-      fields: {
-        id: 'string',
-        account: 'string',
-      },
-      primaryIndex: { hashKey: 'id', rangeKey: 'account' },
-      transform: {
-        table: (args, opts) => {
-          args.name = `FlockSubscriptions_${stage}`
-        },
-      },
-    })
+    const vapidSubject = new sst.Secret('VAPID_SUBJECT')
+    const vapidPublicKey = new sst.Secret('VAPID_PUBLIC_KEY')
+    const vapidPrivateKey = new sst.Secret('VAPID_PRIVATE_KEY')
 
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
@@ -85,9 +75,14 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        SUBSCRIPTIONS_TABLE: subscriptionsTable.name,
       },
-      link: [accountsTable, itemsTable, subscriptionsTable],
+      link: [
+        accountsTable,
+        itemsTable,
+        vapidSubject,
+        vapidPublicKey,
+        vapidPrivateKey,
+      ],
     })
 
     // -----------------------------------------------------------------
@@ -101,30 +96,32 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        SUBSCRIPTIONS_TABLE: subscriptionsTable.name,
       },
-      link: [accountsTable, itemsTable, subscriptionsTable],
+      link: [accountsTable, itemsTable],
     })
 
 
     // -----------------------------------------------------------------
-    // Notifier Lambda (scheduled hourly)
+    // Reminder Lambda (scheduled every 15 minutes)
     // -----------------------------------------------------------------
-    new sst.aws.Cron('NotifierSchedule', {
-      schedule: 'rate(1 hour)',
+    new sst.aws.Cron('ReminderCron', {
+      schedule: 'rate(15 minutes)',
       job: {
-        handler: 'src/vault/index.notifierHandler',
+        handler: 'src/vault/notifier/reminders.handler',
         runtime: 'nodejs22.x',
         memory: '512 MB',
         timeout: '60 seconds',
         environment: {
           ACCOUNTS_TABLE: accountsTable.name,
           ITEMS_TABLE: itemsTable.name,
-          SUBSCRIPTIONS_TABLE: subscriptionsTable.name,
-          PROD_APP_URL: publicUrl,
-          GOOGLE_APPLICATION_CREDENTIALS: 'gcp-service-credentials.json',
         },
-        link: [accountsTable, itemsTable, subscriptionsTable],
+        link: [
+          accountsTable,
+          itemsTable,
+          vapidSubject,
+          vapidPublicKey,
+          vapidPrivateKey,
+        ],
       },
     })
 

@@ -108,7 +108,7 @@ export default function useSettings() {
   const handleSubscribe = useCallback(
     async (hours: number[] | null) => {
       try {
-        const { subscribe, unsubscribe } = await import('../utils/firebase')
+        const { subscribe, unsubscribe } = await import('../utils/pushNotifications')
         if (hours) {
           await subscribe(hours)
           dispatch(setMessage({ message: 'Subscription saved' }))
@@ -118,7 +118,7 @@ export default function useSettings() {
         }
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Failed to update subscription' }))
+        dispatch(setMessage({ message: 'Failed to update subscription', severity: 'error' }))
         console.error('Subscription update failed', err)
       }
     },

@@ -51,18 +51,32 @@ export type CachedVaultItem = Static<typeof CachedVaultItemSchema>
 // Subscription Schemas
 // =============================================================================
 
-export const FlockPushSubscriptionSchema = Type.Object({
-  failures: Type.Number(),
-  hours: Type.Array(Type.Number()),
-  timezone: Type.String(),
-  token: Type.String(),
+export const WebPushSubscriptionKeysSchema = Type.Object({
+  p256dh: Type.String(),
+  auth: Type.String(),
 })
-export type FlockPushSubscription = Static<typeof FlockPushSubscriptionSchema>
+export type WebPushSubscriptionKeys = Static<typeof WebPushSubscriptionKeysSchema>
 
-export const VaultSubscriptionSchema = Type.Object({
-  subscription: FlockPushSubscriptionSchema,
+export const WebPushSubscriptionSchema = Type.Object({
+  endpoint: Type.String(),
+  keys: WebPushSubscriptionKeysSchema,
 })
-export type VaultSubscription = Static<typeof VaultSubscriptionSchema>
+export type WebPushSubscription = Static<typeof WebPushSubscriptionSchema>
+
+export const ReminderSettingsSchema = Type.Object({
+  reminderEnabled: Type.Boolean({ default: false }),
+  reminderTime: Type.String({ default: '08:00' }),
+  reminderTimezone: Type.String({ default: 'UTC' }),
+})
+export type ReminderSettings = Static<typeof ReminderSettingsSchema>
+
+export const AccountPushSettingsSchema = Type.Intersect([
+  ReminderSettingsSchema,
+  Type.Object({
+    pushSubscriptions: Type.Array(WebPushSubscriptionSchema),
+  }),
+])
+export type AccountPushSettings = Static<typeof AccountPushSettingsSchema>
 
 // =============================================================================
 // Request Params Schemas
@@ -79,12 +93,6 @@ export const ItemParamsSchema = Type.Object(
   { $id: 'vault.itemParams' },
 )
 export type ItemParams = Static<typeof ItemParamsSchema>
-
-export const SubscriptionParamsSchema = Type.Object(
-  { account: Type.String(), subscription: Type.String() },
-  { $id: 'vault.subscriptionParams' },
-)
-export type SubscriptionParams = Static<typeof SubscriptionParamsSchema>
 
 // =============================================================================
 // Request Query Schemas
@@ -158,16 +166,40 @@ export const DeleteItemsBatchBodySchema = Type.Array(
 )
 export type DeleteItemsBatchBody = Static<typeof DeleteItemsBatchBodySchema>
 
-export const SubscriptionBodySchema = Type.Object(
+export const PushSubscriptionBodySchema = Type.Object(
   {
-    failures: Type.Number(),
-    hours: Type.Array(Type.Number()),
-    timezone: Type.String(),
-    token: Type.String(),
+    endpoint: Type.String({ minLength: 1 }),
+    keys: WebPushSubscriptionKeysSchema,
   },
-  { $id: 'vault.subscriptionBody' },
+  { $id: 'vault.pushSubscriptionBody' },
 )
-export type SubscriptionBody = Static<typeof SubscriptionBodySchema>
+export type PushSubscriptionBody = Static<typeof PushSubscriptionBodySchema>
+
+export const PushSubscriptionDeleteBodySchema = Type.Object(
+  {
+    endpoint: Type.String({ minLength: 1 }),
+  },
+  { $id: 'vault.pushSubscriptionDeleteBody' },
+)
+export type PushSubscriptionDeleteBody = Static<typeof PushSubscriptionDeleteBodySchema>
+
+export const ReminderSettingsBodySchema = Type.Object(
+  {
+    reminderEnabled: Type.Boolean(),
+    reminderTime: Type.String({ minLength: 5, maxLength: 5 }),
+    reminderTimezone: Type.String({ minLength: 1 }),
+  },
+  { $id: 'vault.reminderSettingsBody' },
+)
+export type ReminderSettingsBody = Static<typeof ReminderSettingsBodySchema>
+
+export const PrayerCompletionBodySchema = Type.Object(
+  {
+    completedAt: Type.Number(),
+  },
+  { $id: 'vault.prayerCompletionBody' },
+)
+export type PrayerCompletionBody = Static<typeof PrayerCompletionBodySchema>
 
 // =============================================================================
 // Response Schemas
@@ -243,14 +275,16 @@ export const BatchResultResponseSchema = Type.Object(
 )
 export type BatchResultResponse = Static<typeof BatchResultResponseSchema>
 
-export const SubscriptionGetResponseSchema = Type.Object(
+export const ReminderSettingsResponseSchema = Type.Object(
   {
     success: Type.Boolean(),
-    subscription: Type.Union([FlockPushSubscriptionSchema, Type.Null()]),
+    reminderEnabled: Type.Boolean(),
+    reminderTime: Type.String(),
+    reminderTimezone: Type.String(),
   },
-  { $id: 'vault.subscriptionGetResponse' },
+  { $id: 'vault.reminderSettingsResponse' },
 )
-export type SubscriptionGetResponse = Static<typeof SubscriptionGetResponseSchema>
+export type ReminderSettingsResponse = Static<typeof ReminderSettingsResponseSchema>
 
 // =============================================================================
 // Schema $id References (for Fastify schema registration)
@@ -260,7 +294,6 @@ export const SCHEMA_REFS = {
   // Params
   ACCOUNT_PARAMS: 'vault.accountParams#',
   ITEM_PARAMS: 'vault.itemParams#',
-  SUBSCRIPTION_PARAMS: 'vault.subscriptionParams#',
   // Query
   ITEMS_QUERY: 'vault.itemsQuery#',
   // Bodies
@@ -270,7 +303,10 @@ export const SCHEMA_REFS = {
   ITEM_BODY: 'vault.itemBody#',
   ITEMS_BODY: 'vault.itemsBody#',
   DELETE_ITEMS_BODY: 'vault.deleteItemsBody#',
-  SUBSCRIPTION_BODY: 'vault.subscriptionBody#',
+  PUSH_SUBSCRIPTION_BODY: 'vault.pushSubscriptionBody#',
+  PUSH_SUBSCRIPTION_DELETE_BODY: 'vault.pushSubscriptionDeleteBody#',
+  REMINDER_SETTINGS_BODY: 'vault.reminderSettingsBody#',
+  PRAYER_COMPLETION_BODY: 'vault.prayerCompletionBody#',
   // Responses
   SUCCESS_RESPONSE: 'vault.successResponse#',
   ERROR_RESPONSE: 'vault.errorResponse#',
@@ -280,6 +316,6 @@ export const SCHEMA_REFS = {
   METADATA_RESPONSE: 'vault.metadataResponse#',
   ITEMS_RESPONSE: 'vault.itemsResponse#',
   BATCH_RESULT_RESPONSE: 'vault.batchResultResponse#',
-  SUBSCRIPTION_GET_RESPONSE: 'vault.subscriptionGetResponse#',
+  REMINDER_SETTINGS_RESPONSE: 'vault.reminderSettingsResponse#',
 } as const
 

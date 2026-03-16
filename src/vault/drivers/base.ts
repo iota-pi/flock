@@ -1,5 +1,8 @@
 import { FastifyRequest } from 'fastify'
-import type { FlockPushSubscription, ItemType } from '../../shared/apiTypes'
+import type {
+  ItemType,
+  WebPushSubscription,
+} from '../../shared/apiTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 
@@ -30,6 +33,11 @@ export interface AuthData extends BaseData {
 
 export interface VaultAccount extends BaseData {
   metadata: Record<string, unknown>,
+  pushSubscriptions?: WebPushSubscription[],
+  reminderEnabled?: boolean,
+  reminderTime?: string,
+  reminderTimezone?: string,
+  lastPrayerCompletedAt?: number,
   // Salt is not in AuthData since it is only used client-side for logins
   salt: string,
 }
@@ -39,11 +47,6 @@ export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
 export interface VaultItem extends VaultKey, VaultData {}
 
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
-
-export interface VaultSubscriptionFull extends FlockPushSubscription {
-  account: string,
-  id: string,
-}
 
 export function asItemType(type: string): ItemType {
   const allowedTypes: ItemType[] = ['person', 'group', 'topic']
@@ -73,7 +76,15 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Update account-level data. Accepts partial auth data so callers can update
   // either `metadata` or `session` independently.
-  abstract updateAccountData(data: Partial<AuthData> & { metadata?: Record<string, unknown>, session?: string }): Promise<void>
+  abstract updateAccountData(data: Partial<AuthData> & {
+    metadata?: Record<string, unknown>,
+    session?: string,
+    pushSubscriptions?: WebPushSubscription[],
+    reminderEnabled?: boolean,
+    reminderTime?: string,
+    reminderTimezone?: string,
+    lastPrayerCompletedAt?: number,
+  }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
   abstract extendSession(data: BaseData): Promise<void>
@@ -87,12 +98,6 @@ export default abstract class BaseDriver<T = unknown> {
   ): Promise<CachedVaultItem[]>
 
   abstract delete(key: VaultKey): Promise<void>
-
-  // Subscription management
-  abstract setSubscription(data: { account: string, id: string, subscription: FlockPushSubscription }): Promise<void>
-  abstract deleteSubscription(data: { account: string, id: string }): Promise<void>
-  abstract countSubscriptionFailure(data: { account: string, token: string, maxFailures: number }): Promise<void>
-  abstract getSubscription(data: { account: string, id: string }): Promise<FlockPushSubscription | null>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account

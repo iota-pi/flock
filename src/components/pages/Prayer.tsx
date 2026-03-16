@@ -17,6 +17,7 @@ import {
 import { useItemMap } from '../../state/selectors'
 import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useStoreItemsMutation } from '../../api/queries'
+import { recordPrayerCompletion } from '../../api/VaultLazy'
 import ItemList, { ItemListExtraElement } from '../ItemList'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
@@ -184,6 +185,8 @@ function PrayerPage() {
 
       const nextIndex = flow.index + 1
       if (nextIndex >= localItems.length) {
+        const completedAt = Date.now()
+        recordPrayerCompletion(completedAt).catch(() => {})
         setFlow({
           type: 'finished',
           prayedCount: completed + (alreadyPrayedToday ? 0 : 1),

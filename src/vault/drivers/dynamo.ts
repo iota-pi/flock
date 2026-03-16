@@ -14,8 +14,6 @@ import {
   PutCommandInput,
   QueryCommand,
   QueryCommandOutput,
-  ScanCommand,
-  ScanCommandOutput,
   UpdateCommand,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
@@ -31,14 +29,12 @@ import BaseDriver, {
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
-  VaultSubscriptionFull,
 } from './base'
-import type { FlockPushSubscription } from '../../utils/firebase-types'
+import type { WebPushSubscription } from '../../shared/apiTypes'
 import { ExpiredSessionError } from '../api/errors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-export const SUBSCRIPTION_TABLE_NAME = process.env.SUBSCRIPTIONS_TABLE || 'FlockSubscriptions'
 const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
 export const MAX_ITEM_SIZE = 50000
@@ -118,39 +114,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
-    try {
-      await client.send(new CreateTableCommand(
-        {
-          TableName: SUBSCRIPTION_TABLE_NAME,
-          KeySchema: [
-            {
-              AttributeName: 'id',
-              KeyType: 'HASH',
-            },
-            {
-              AttributeName: 'account',
-              KeyType: 'RANGE',
-            },
-          ],
-          AttributeDefinitions: [
-            {
-              AttributeName: 'id',
-              AttributeType: 'S',
-            },
-            {
-              AttributeName: 'account',
-              AttributeType: 'S',
-            },
-          ],
-          BillingMode: 'PAY_PER_REQUEST',
-        },
-      ))
-    } catch (err: unknown) {
-      if (!(err instanceof ResourceInUseException)) {
-        throw err
-      }
-    }
-
     return this
   }
 
@@ -179,6 +142,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         created: Date.now(),
         lastAccess: Date.now(),
         metadata,
+        pushSubscriptions: [],
+        reminderEnabled: false,
+        reminderTime: '08:00',
+        reminderTimezone: 'UTC',
         salt,
         session,
         // This session is just a placeholder, so set it as expired
@@ -277,10 +244,20 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     {
       account,
       metadata,
+      pushSubscriptions,
+      reminderEnabled,
+      reminderTime,
       session,
+      reminderTimezone,
+      lastPrayerCompletedAt,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
+      pushSubscriptions?: WebPushSubscription[],
+      reminderEnabled?: boolean,
+      reminderTime?: string,
       session?: string,
+      reminderTimezone?: string,
+      lastPrayerCompletedAt?: number,
     },
   ): Promise<void> {
     const promises: Promise<unknown>[] = []
@@ -324,6 +301,41 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       )
     }
 
+    const accountSettingsUpdates: string[] = []
+    const accountSettingsValues: Record<string, unknown> = {}
+
+    if (pushSubscriptions) {
+      accountSettingsUpdates.push('pushSubscriptions = :pushSubscriptions')
+      accountSettingsValues[':pushSubscriptions'] = pushSubscriptions
+    }
+    if (typeof reminderEnabled === 'boolean') {
+      accountSettingsUpdates.push('reminderEnabled = :reminderEnabled')
+      accountSettingsValues[':reminderEnabled'] = reminderEnabled
+    }
+    if (typeof reminderTime === 'string') {
+      accountSettingsUpdates.push('reminderTime = :reminderTime')
+      accountSettingsValues[':reminderTime'] = reminderTime
+    }
+    if (typeof reminderTimezone === 'string') {
+      accountSettingsUpdates.push('reminderTimezone = :reminderTimezone')
+      accountSettingsValues[':reminderTimezone'] = reminderTimezone
+    }
+    if (typeof lastPrayerCompletedAt === 'number') {
+      accountSettingsUpdates.push('lastPrayerCompletedAt = :lastPrayerCompletedAt')
+      accountSettingsValues[':lastPrayerCompletedAt'] = lastPrayerCompletedAt
+    }
+
+    if (accountSettingsUpdates.length > 0) {
+      promises.push(
+        this.client.send(new UpdateCommand({
+          TableName: ACCOUNT_TABLE_NAME,
+          Key: { account },
+          UpdateExpression: `SET ${accountSettingsUpdates.join(', ')}`,
+          ExpressionAttributeValues: accountSettingsValues,
+        }))
+      )
+    }
+
     const results = await Promise.allSettled(promises)
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -341,122 +353,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ':expiry': Date.now() + SESSION_EXPIRY_MS,
       },
     }))
-  }
-
-  async setSubscription(
-    {
-      account,
-      id,
-      subscription,
-    }: Pick<AuthData, 'account'> & {
-      id: string,
-      subscription: FlockPushSubscription,
-    },
-  ) {
-    await this.client.send(new PutCommand({
-      TableName: SUBSCRIPTION_TABLE_NAME,
-      Item: { account, id, ...subscription },
-    }))
-  }
-
-  async deleteSubscription(
-    {
-      account,
-      id,
-    }: Pick<AuthData, 'account'> & {
-      id: string,
-    },
-  ) {
-    await this.client.send(new DeleteCommand({
-      TableName: SUBSCRIPTION_TABLE_NAME,
-      Key: { account, id },
-    }))
-  }
-
-  async countSubscriptionFailure(
-    { account, token, maxFailures }: Pick<AuthData, 'account'> & { token: string, maxFailures: number },
-  ) {
-    try {
-      await this.client.send(new UpdateCommand({
-        TableName: SUBSCRIPTION_TABLE_NAME,
-        Key: { account, token },
-        UpdateExpression: 'set failures = failures + :inc',
-        ConditionExpression: 'failures < :max',
-        ExpressionAttributeValues: {
-          ':inc': 1,
-          ':max': maxFailures,
-        },
-      }))
-    } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
-        await this.client.send(new DeleteCommand({
-          TableName: SUBSCRIPTION_TABLE_NAME,
-          Key: { account, token },
-          ConditionExpression: 'failures >= :max',
-          ExpressionAttributeValues: {
-            ':max': maxFailures,
-          },
-        }))
-        console.info(`Deleting subscription after failing to push ${maxFailures} times`)
-      } else {
-        throw error
-      }
-    }
-  }
-
-  async getSubscription(
-    { account, id }: Pick<AuthData, 'account'> & { id: string },
-  ): Promise<FlockPushSubscription | null> {
-    const response = await this.client.send(new GetCommand(
-      {
-        TableName: SUBSCRIPTION_TABLE_NAME,
-        Key: { account, id },
-      },
-    ))
-    if (response?.Item) {
-      const {
-        failures,
-        hours,
-        timezone,
-        token,
-      } = response.Item as VaultSubscriptionFull
-      return {
-        failures,
-        hours,
-        timezone,
-        token,
-      }
-    }
-    return null
-  }
-
-  async getEverySubscription() {
-    // Warning: uses full table scan
-    const maxItems = 1000
-    const items: VaultSubscriptionFull[] = []
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined
-    while (items.length < maxItems) {
-      try {
-        const response: ScanCommandOutput = await this.client.send(new ScanCommand({
-          TableName: SUBSCRIPTION_TABLE_NAME,
-          ExclusiveStartKey: lastEvaluatedKey,
-        }))
-
-        if (response?.Items) {
-          items.push(...response?.Items as object as VaultSubscriptionFull[])
-        }
-        lastEvaluatedKey = response?.LastEvaluatedKey
-        if (!lastEvaluatedKey) {
-          break
-        }
-      } catch (_) {
-        if (items.length === 0) {
-          throw new Error(`Could not scan for subscription items`)
-        }
-        break
-      }
-    }
-    return items
   }
 
   async startNewSession({ account }: BaseData): Promise<string> {

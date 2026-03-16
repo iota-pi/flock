@@ -4,18 +4,20 @@ import type {
   BatchResultResponse,
   CachedVaultItem,
   CreateAccountBody,
-  FlockPushSubscription,
   ItemsResponse,
   LoginBody,
   MetadataResponse,
+  PrayerCompletionBody,
+  PushSubscriptionBody,
+  PushSubscriptionDeleteBody,
+  ReminderSettingsBody,
+  ReminderSettingsResponse,
   SaltResponse,
   SessionResponse,
-  SubscriptionBody,
-  SubscriptionGetResponse,
   SuccessResponse,
   VaultItem,
   VaultKey,
-  VaultSubscription,
+  WebPushSubscription,
 } from '../shared/apiTypes'
 import { getAccountId, flockRequestChunked, flockRequest } from './util'
 import type { CryptoResult } from './Vault'
@@ -53,8 +55,16 @@ function itemsUrl(itemId?: string) {
   return accountUrl(itemId ? `/items/${itemId}` : '/items')
 }
 
-function subscriptionUrl(subscriptionId: string) {
-  return accountUrl(`/subscriptions/${subscriptionId}`)
+function pushSubscriptionsUrl() {
+  return accountUrl('/push-subscriptions')
+}
+
+function reminderSettingsUrl() {
+  return accountUrl('/reminder-settings')
+}
+
+function prayerCompletionUrl() {
+  return accountUrl('/prayer-completion')
 }
 
 // Overloads for vaultFetchMany - cacheTime returns partial items, ids returns full items
@@ -186,27 +196,36 @@ export async function vaultSetMetadata(metadata: CryptoResult & { version?: numb
   assertSuccess(result, 'setMetadata')
 }
 
-export async function vaultSetSubscription(
-  {
-    subscriptionId,
-    subscription,
-  }: VaultSubscription & { subscriptionId: string },
-): Promise<void> {
-  const url = subscriptionUrl(subscriptionId)
-  const body: SubscriptionBody = { ...subscription }
-  const result = await flockRequest<SuccessResponse>(a => a.put(url, body))
-  assertSuccess(result, 'setSubscription')
+export async function vaultAddPushSubscription(subscription: WebPushSubscription): Promise<void> {
+  const url = pushSubscriptionsUrl()
+  const body: PushSubscriptionBody = { ...subscription }
+  const result = await flockRequest<SuccessResponse>(a => a.post(url, body))
+  assertSuccess(result, 'addPushSubscription')
 }
 
-export async function vaultDeleteSubscription({ subscriptionId }: { subscriptionId: string }): Promise<void> {
-  const url = subscriptionUrl(subscriptionId)
-  const result = await flockRequest<SuccessResponse>(a => a.delete(url))
-  assertSuccess(result, 'deleteSubscription')
+export async function vaultDeletePushSubscription(endpoint: string): Promise<void> {
+  const url = pushSubscriptionsUrl()
+  const body: PushSubscriptionDeleteBody = { endpoint }
+  const result = await flockRequest<SuccessResponse>(a => a.delete(url, { data: body }))
+  assertSuccess(result, 'deletePushSubscription')
 }
 
-export async function vaultGetSubscription({ subscriptionId }: { subscriptionId: string }): Promise<FlockPushSubscription | null> {
-  const url = subscriptionUrl(subscriptionId)
-  const result = await flockRequest<SubscriptionGetResponse>(a => a.get(url))
-  assertSuccess(result, 'getSubscription')
-  return result.subscription
+export async function vaultGetReminderSettings(): Promise<ReminderSettingsResponse> {
+  const url = reminderSettingsUrl()
+  const result = await flockRequest<ReminderSettingsResponse>(a => a.get(url))
+  assertSuccess(result, 'getReminderSettings')
+  return result
+}
+
+export async function vaultUpdateReminderSettings(settings: ReminderSettingsBody): Promise<void> {
+  const url = reminderSettingsUrl()
+  const result = await flockRequest<SuccessResponse>(a => a.post(url, settings))
+  assertSuccess(result, 'updateReminderSettings')
+}
+
+export async function vaultRecordPrayerCompletion(completedAt: number): Promise<void> {
+  const url = prayerCompletionUrl()
+  const body: PrayerCompletionBody = { completedAt }
+  const result = await flockRequest<SuccessResponse>(a => a.post(url, body))
+  assertSuccess(result, 'recordPrayerCompletion')
 }

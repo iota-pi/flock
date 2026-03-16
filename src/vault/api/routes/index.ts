@@ -1,7 +1,6 @@
 import type { FastifyPluginCallback } from 'fastify'
 import itemsRoutes from './items'
 import accountsRoutes from './accounts'
-import subscriptionsRoutes from './subscriptions'
 import { HttpError } from '../errors'
 
 const routes: FastifyPluginCallback = (fastify, opts, next) => {
@@ -32,7 +31,6 @@ const routes: FastifyPluginCallback = (fastify, opts, next) => {
   // Register resource route modules
   void fastify.register(itemsRoutes)
   void fastify.register(accountsRoutes)
-  void fastify.register(subscriptionsRoutes)
 
   next()
 }

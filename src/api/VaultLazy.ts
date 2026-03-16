@@ -1,6 +1,6 @@
 import type { Item } from '../state/items'
-import type { FlockPushSubscription } from '../utils/firebase-types'
 import type { CryptoResult } from './Vault'
+import type { WebPushSubscription } from '../shared/apiTypes'
 
 // Lazy wrappers for Vault functions
 
@@ -44,17 +44,24 @@ export const importData = async (data: CryptoResult) => {
   return importData(data)
 }
 
-export const getSubscription = async (subscriptionToken: string) => {
-  const { getSubscription } = await import('./Vault')
-  return getSubscription(subscriptionToken)
+export const addPushSubscription = async (subscription: WebPushSubscription) => {
+  const { addPushSubscription } = await import('./Vault')
+  return addPushSubscription(subscription)
 }
 
-export const setSubscription = async (subscription: FlockPushSubscription) => {
-  const { setSubscription } = await import('./Vault')
-  return setSubscription(subscription)
+export const deletePushSubscription = async (endpoint: string) => {
+  const { deletePushSubscription } = await import('./Vault')
+  return deletePushSubscription(endpoint)
 }
 
-export const deleteSubscription = async (subscriptionToken: string) => {
-  const { deleteSubscription } = await import('./Vault')
-  return deleteSubscription(subscriptionToken)
+export const updateReminderSettings = async (
+  settings: { reminderEnabled: boolean, reminderTime: string, reminderTimezone: string },
+) => {
+  const { updateReminderSettings } = await import('./Vault')
+  return updateReminderSettings(settings)
+}
+
+export const recordPrayerCompletion = async (completedAt?: number) => {
+  const { recordPrayerCompletion } = await import('./Vault')
+  return recordPrayerCompletion(completedAt)
 }

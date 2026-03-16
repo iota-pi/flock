@@ -4,6 +4,7 @@ import viteTsconfigPaths from 'vite-tsconfig-paths';
 import browserslistToEsbuild from 'browserslist-to-esbuild';
 
 import { visualizer } from 'rollup-plugin-visualizer';
+import { main } from 'bun';
 
 export default defineConfig({
   base: '',
@@ -17,14 +18,21 @@ export default defineConfig({
     outDir: 'dist/app',
     sourcemap: true,
     rollupOptions: {
+      input: {
+        main: './index.html',
+        'service-worker': './src/service-worker.ts',
+      },
       output: {
+        entryFileNames(chunkInfo) {
+          if (chunkInfo.name === 'service-worker') {
+            return 'service-worker.js'
+          }
+          return 'assets/[name]-[hash].js'
+        },
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.match(/@mui\/icons-material/)) {
               return 'vendor-icons'
-            }
-            if (id.match(/firebase\/(app|messaging)/)) {
-              return 'vendor-firebase'
             }
             if (id.match(/@mui\/x-date-pickers|date-fns/)) {
               return 'vendor-date-utils'

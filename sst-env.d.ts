@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /* deno-fmt-ignore-file */
+/* biome-ignore-all lint: auto-generated */
 
 declare module "sst" {
   export interface Resource {
@@ -17,9 +18,17 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Dynamo"
     }
-    "FlockSubscriptions": {
-      "name": string
-      "type": "sst.aws.Dynamo"
+    "VAPID_PRIVATE_KEY": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "VAPID_PUBLIC_KEY": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "VAPID_SUBJECT": {
+      "type": "sst.sst.Secret"
+      "value": string
     }
     "VaultApi": {
       "name": string

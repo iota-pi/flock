@@ -11,7 +11,7 @@ import {
   TextField,
 } from '@mui/material'
 import { ChangeEvent, useCallback, useEffect, useState } from 'react'
-import { checkSubscription } from '../../utils/firebase'
+import { checkSubscription } from '../../utils/pushNotifications'
 import { RemoveIcon } from '../Icons'
 
 export interface Props {

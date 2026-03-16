@@ -1,24 +1,24 @@
 import {
-  vaultDeleteSubscription,
+  vaultAddPushSubscription,
   vaultGetSession,
-  vaultGetSubscription,
-  vaultSetSubscription,
+  vaultRecordPrayerCompletion,
+  vaultUpdateReminderSettings,
+  vaultDeletePushSubscription,
 } from './VaultAPI'
 import {
   Item,
 } from '../state/items'
 import { setAccount } from '../state/account'
 import store, { AppDispatch } from '../store'
-import { FlockPushSubscription } from '../utils/firebase-types'
 import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
 import { setUi } from '../state/ui'
 import {
   fromBytes,
-  fromBytesUrlSafe,
   toBytes,
 } from './crypto-utils'
 import { queryClient } from './client'
+import type { WebPushSubscription } from '../shared/apiTypes'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -237,28 +237,20 @@ export async function importData(data: CryptoResult): Promise<Item[]> {
   return JSON.parse(plainData)
 }
 
-async function getSubscriptionId(subscriptionToken: string): Promise<string> {
-  const enc = new TextEncoder()
-  const buffer = await crypto.subtle.digest('SHA-512', enc.encode(subscriptionToken))
-  return fromBytesUrlSafe(buffer)
+export async function addPushSubscription(subscription: WebPushSubscription): Promise<void> {
+  await vaultAddPushSubscription(subscription)
 }
 
-export async function getSubscription(subscriptionToken: string): Promise<FlockPushSubscription | null> {
-  const result = await vaultGetSubscription({
-    subscriptionId: await getSubscriptionId(subscriptionToken),
-  })
-  return result
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  await vaultDeletePushSubscription(endpoint)
 }
 
-export async function setSubscription(subscription: FlockPushSubscription): Promise<void> {
-  await vaultSetSubscription({
-    subscriptionId: await getSubscriptionId(subscription.token),
-    subscription,
-  })
+export async function updateReminderSettings(
+  settings: { reminderEnabled: boolean, reminderTime: string, reminderTimezone: string },
+): Promise<void> {
+  await vaultUpdateReminderSettings(settings)
 }
 
-export async function deleteSubscription(subscriptionToken: string): Promise<void> {
-  await vaultDeleteSubscription({
-    subscriptionId: await getSubscriptionId(subscriptionToken),
-  })
+export async function recordPrayerCompletion(completedAt = Date.now()): Promise<void> {
+  await vaultRecordPrayerCompletion(completedAt)
 }

@@ -134,10 +134,9 @@ function SettingsPage() {
     {
       type: 'item',
       id: 'reminders',
-      title: 'Prayer reminder notifications (temporarily unavailable)',
+      title: 'Prayer reminder notifications',
       icon: NotificationIcon,
       onClick: () => dialogs.open('subscription'),
-      disabled: true,
     },
     { type: 'divider', key: 'd5' },
     {

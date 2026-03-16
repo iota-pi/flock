@@ -138,19 +138,34 @@ describe('VaultAPI', () => {
     await api.vaultSetMetadata({ cipher: 'c', iv: 'i' } as any)
   })
 
-  it('vaultSetSubscription and vaultDeleteSubscription succeed when api returns success', async () => {
+  it('vaultAddPushSubscription and vaultDeletePushSubscription succeed when api returns success', async () => {
     vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
-    await api.vaultSetSubscription({ subscriptionId: 's', subscription: {} as any } as any)
-    await api.vaultDeleteSubscription({ subscriptionId: 's' } as any)
+    await api.vaultAddPushSubscription({ endpoint: 'e', keys: { auth: 'a', p256dh: 'p' } } as any)
+    await api.vaultDeletePushSubscription('e')
   })
 
-  it('vaultGetSubscription throws on !success and returns subscription on success', async () => {
+  it('vaultGetReminderSettings throws on !success and returns response on success', async () => {
     vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
-    await expect(api.vaultGetSubscription({ subscriptionId: 's' } as any)).rejects.toThrow()
+    await expect(api.vaultGetReminderSettings()).rejects.toThrow()
 
-    const sub = { endpoint: 'e' }
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, subscription: sub } as any)
-    const res = await api.vaultGetSubscription({ subscriptionId: 's' } as any)
-    expect(res).toEqual(sub)
+    const settings = {
+      success: true,
+      reminderEnabled: true,
+      reminderTime: '08:00',
+      reminderTimezone: 'UTC',
+    }
+    vi.spyOn(util, 'flockRequest').mockResolvedValue(settings as any)
+    const res = await api.vaultGetReminderSettings()
+    expect(res).toEqual(settings)
+  })
+
+  it('vaultUpdateReminderSettings and vaultRecordPrayerCompletion succeed', async () => {
+    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
+    await expect(api.vaultUpdateReminderSettings({
+      reminderEnabled: true,
+      reminderTime: '09:00',
+      reminderTimezone: 'Australia/Sydney',
+    })).resolves.toBeUndefined()
+    await expect(api.vaultRecordPrayerCompletion(123)).resolves.toBeUndefined()
   })
 })
