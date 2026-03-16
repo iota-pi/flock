@@ -64,7 +64,7 @@ export default function useSettings() {
         dispatch(setMessage({ message: 'Backup created' }))
         return json
       } catch (err) {
-        dispatch(setMessage({ message: 'Failed to create backup' }))
+        dispatch(setMessage({ message: 'Failed to create backup', severity: 'error' }))
         throw err
       }
     },
@@ -84,7 +84,7 @@ export default function useSettings() {
         dispatch(setMessage({ message: 'Restore successful' }))
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Restore failed' }))
+        dispatch(setMessage({ message: 'Restore failed', severity: 'error' }))
         console.error('Restore failed', err)
       }
     },
@@ -98,7 +98,7 @@ export default function useSettings() {
         dispatch(setMessage({ message: 'Import successful' }))
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Import failed' }))
+        dispatch(setMessage({ message: 'Import failed', severity: 'error' }))
         console.error('Import failed', err)
       }
     },
@@ -135,7 +135,7 @@ export default function useSettings() {
       await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
       dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
     } catch (err) {
-      dispatch(setMessage({ message: 'Failed to save defaults' }))
+      dispatch(setMessage({ message: 'Failed to save defaults', severity: 'error' }))
       console.error('Failed to save default frequencies', err)
     }
   }, [dispatch, setDefaultFrequencies])
