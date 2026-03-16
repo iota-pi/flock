@@ -66,6 +66,7 @@ function PrayerPage() {
     () => {
       const state = location.state as { resetPrayerAt?: number } | null
       if (state?.resetPrayerAt) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setFlow({ type: 'overview' })
         setIsEditDrawerOpen(false)
       }

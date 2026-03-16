@@ -208,7 +208,7 @@ function ItemFormContent({
         />
       </Grid>
     ),
-    [handleChange, isArchivedInPrayer, item.notes],
+    [handleChange, isArchivedInPrayer, item.id, item.notes],
   )
 
   const lastPrayer = getLastPrayedFor(item)
