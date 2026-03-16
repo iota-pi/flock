@@ -71,14 +71,20 @@ export function usePrayerSchedule() {
     setTodaysGoal(g => g + 3)
   }, [])
 
+  const showUntil = useCallback((newCount: number) => {
+    setTodaysGoal(g => Math.max(g, newCount))
+  }, [])
+
   return {
     completed,
     goal,
     isPrayedForToday,
     naturalGoal,
     recordPrayerFor,
+    schedule,
     scheduleIds,
     showMore,
+    showUntil,
     visibleSchedule,
   }
 }
