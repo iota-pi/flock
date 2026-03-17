@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
+import { precacheAndRoute } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope
+
+precacheAndRoute(self.__WB_MANIFEST)
 
 type PushPayload = {
   title?: string,
@@ -65,7 +68,3 @@ self.addEventListener('notificationclick', event => {
     }),
   )
 })
-
-// @ts-expect-error - This is a hack to make Webpack include the manifest
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const ignored = self.__WB_MANIFEST

@@ -1,5 +1,4 @@
 import { AccountMetadata } from '../state/metadata'
-import type { VaultItem } from './client'
 import {
   checkProperties,
   GroupItem,
@@ -15,10 +14,12 @@ import {
   vaultPutMany,
   vaultSetMetadata,
   VaultBatchError,
+  type VaultItem,
 } from './VaultAPI'
 import { getAccountId } from './util'
 import { fetchItems, decryptVaultItems, fetchMetadata } from './queries'
-import { queryClient, queryKeys, handleVaultError } from './client'
+import { queryClient, queryKeys } from './queryClient'
+import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
 
 // Helper to avoid circular dependency on Vault.ts for encryption

@@ -2,7 +2,7 @@ import {
   sendNotification,
   setVapidDetails,
 } from 'web-push'
-import type { WebPushSubscription } from '../api/schemas'
+import type { WebPushSubscription } from '../types'
 
 let vapidConfigured = false
 

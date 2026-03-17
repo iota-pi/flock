@@ -2,7 +2,7 @@
 import type * as vault from '../api/Vault'
 import type * as mutations from '../api/mutations'
 import type { checkAxios } from '../api/axios'
-import type { queryKeys } from '../api/client'
+import type { queryKeys } from '../api/queryClient'
 
 // Expose store for Cypress in a typed way
 declare global {

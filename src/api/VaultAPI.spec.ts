@@ -2,19 +2,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './VaultAPI'
 import * as util from './util'
 
-const apiClientMock = vi.hoisted(() => ({
-  DELETE: vi.fn(),
-  GET: vi.fn(),
-  PATCH: vi.fn(),
-  POST: vi.fn(),
-  PUT: vi.fn(),
+const trpcMock = vi.hoisted(() => ({
+  items: {
+    fetchMany: { query: vi.fn() },
+    put: { mutate: vi.fn() },
+    putMany: { mutate: vi.fn() },
+    delete: { mutate: vi.fn() },
+    deleteMany: { mutate: vi.fn() },
+  },
+  accounts: {
+    createAccount: { mutate: vi.fn() },
+    getSalt: { query: vi.fn() },
+    login: { mutate: vi.fn() },
+    getMetadata: { query: vi.fn() },
+    updateMetadata: { mutate: vi.fn() },
+    addPushSubscription: { mutate: vi.fn() },
+    deletePushSubscription: { mutate: vi.fn() },
+    getReminderSettings: { query: vi.fn() },
+    updateReminderSettings: { mutate: vi.fn() },
+    recordPrayerCompletion: { mutate: vi.fn() },
+  },
 }))
 
-vi.mock('./client', async importOriginal => {
-  const actual = await importOriginal<typeof import('./client')>()
+vi.mock('./trpcClient', () => {
   return {
-    ...actual,
-    apiClient: apiClientMock,
+    trpcClient: trpcMock,
   }
 })
 
@@ -25,18 +37,17 @@ function ok<T>(data: T) {
   }
 }
 
-function notOk(error?: unknown, status = 500) {
-  return {
-    error,
-    response: new Response(null, { status }),
-  }
-}
-
 describe('VaultAPI', () => {
+  const putManyItems = [
+    { item: 'a', cipher: 'cipher-a', metadata: { iv: 'iv-a', type: 'person', modified: 1 } },
+    { item: 'b', cipher: 'cipher-b', metadata: { iv: 'iv-b', type: 'person', modified: 2 } },
+  ] as any
+
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(util, 'getAccountId').mockReturnValue('acct1')
-    Object.values(apiClientMock).forEach(mockFn => mockFn.mockReset())
+    Object.values(trpcMock.items).forEach(method => Object.values(method).forEach(mockFn => mockFn.mockReset()))
+    Object.values(trpcMock.accounts).forEach(method => Object.values(method).forEach(mockFn => mockFn.mockReset()))
   })
 
   afterEach(() => {
@@ -45,16 +56,14 @@ describe('VaultAPI', () => {
 
   it('vaultFetchMany with cacheTime returns items', async () => {
     const expected = [{ item: 'a', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }]
-    apiClientMock.GET.mockResolvedValue(ok({ success: true, items: expected }))
+    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: expected }).data)
 
     const result = await api.vaultFetchMany({ cacheTime: 123 })
     expect(result).toEqual(expected)
   })
 
   it('vaultFetchMany with ids fetches chunks and flattens results', async () => {
-    apiClientMock.GET
-      .mockResolvedValueOnce(ok({ success: true, items: [{ item: 'a' }] }))
-      .mockResolvedValueOnce(ok({ success: true, items: [{ item: 'b' }] }))
+    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: [{ item: 'a' }, { item: 'b' }] }).data)
 
     const result = await api.vaultFetchMany({ ids: Array.from({ length: 11 }, (_, index) => String(index + 1)) })
     expect(result).toEqual([{ item: 'a' }, { item: 'b' }])
@@ -65,127 +74,127 @@ describe('VaultAPI', () => {
   })
 
   it('vaultPut succeeds when api returns success', async () => {
-    apiClientMock.PUT.mockResolvedValue(ok({ success: true }))
+    trpcMock.items.put.mutate.mockResolvedValue(ok({ success: true }).data)
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).resolves.toBeUndefined()
   })
 
   it('vaultPut throws when api request fails', async () => {
-    apiClientMock.PUT.mockResolvedValue(notOk())
+    trpcMock.items.put.mutate.mockResolvedValue(ok({ success: false }).data)
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).rejects.toThrow()
   })
 
   it('vaultPutMany succeeds when all batch items succeed', async () => {
-    apiClientMock.PUT.mockResolvedValue(ok({
+    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: true }, { item: 'b', success: true }],
-    }))
-    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).resolves.toBeUndefined()
+    }).data)
+    await expect(api.vaultPutMany({ items: putManyItems })).resolves.toBeUndefined()
   })
 
   it('vaultPutMany throws when any item in details fails', async () => {
-    apiClientMock.PUT.mockResolvedValue(ok({
+    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: true }, { item: 'b', success: false }],
-    }))
-    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).rejects.toThrow('failed for items: b')
+    }).data)
+    await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('failed for items: b')
   })
 
   it('vaultPutMany includes all failed item ids in error message', async () => {
-    apiClientMock.PUT.mockResolvedValue(ok({
+    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: false }, { item: 'b', success: false }],
-    }))
-    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).rejects.toThrow('failed for items: a, b')
+    }).data)
+    await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('failed for items: a, b')
   })
 
   it('vaultDelete succeeds when api returns success', async () => {
-    apiClientMock.DELETE.mockResolvedValue(ok({ success: true }))
+    trpcMock.items.delete.mutate.mockResolvedValue(ok({ success: true }).data)
     await expect(api.vaultDelete({ item: 'x' })).resolves.toBeUndefined()
   })
 
   it('vaultDelete throws when api request fails', async () => {
-    apiClientMock.DELETE.mockResolvedValue(notOk())
+    trpcMock.items.delete.mutate.mockResolvedValue(ok({ success: false }).data)
     await expect(api.vaultDelete({ item: 'x' })).rejects.toThrow()
   })
 
   it('vaultDeleteMany succeeds when all items in all chunks succeed', async () => {
-    apiClientMock.DELETE.mockResolvedValue(ok({
+    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: true }, { item: 'b', success: true }],
-    }))
+    }).data)
     await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).resolves.toBeUndefined()
   })
 
   it('vaultDeleteMany throws when any item in details fails', async () => {
-    apiClientMock.DELETE.mockResolvedValue(ok({
+    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: true }, { item: 'b', success: false }],
-    }))
+    }).data)
     await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).rejects.toThrow('failed for items: b')
   })
 
   it('vaultDeleteMany includes all failed item ids in error message', async () => {
-    apiClientMock.DELETE.mockResolvedValue(ok({
+    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'x', success: false }, { item: 'y', success: false }, { item: 'z', success: true }],
-    }))
+    }).data)
     await expect(api.vaultDeleteMany({ items: ['x', 'y', 'z'] })).rejects.toThrow('failed for items: x, y')
   })
 
   it('vaultCreateAccount returns account from response', async () => {
-    apiClientMock.POST.mockResolvedValue(ok({ account: 'acct1' }))
+    trpcMock.accounts.createAccount.mutate.mockResolvedValue(ok({ account: 'acct1' }).data)
     const res = await api.vaultCreateAccount({ salt: 's', authToken: 't' })
     expect(res).toEqual({ account: 'acct1' })
   })
 
   it('vaultGetSalt validates response', async () => {
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, salt: 'saltx' }))
+    trpcMock.accounts.getSalt.query.mockResolvedValueOnce(ok({ success: true, salt: 'saltx' }).data)
     await expect(api.vaultGetSalt()).resolves.toBe('saltx')
 
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
+    trpcMock.accounts.getSalt.query.mockResolvedValueOnce(ok({ success: false }).data)
     await expect(api.vaultGetSalt()).rejects.toThrow()
 
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, salt: undefined }))
+    trpcMock.accounts.getSalt.query.mockResolvedValueOnce(ok({ success: true, salt: undefined }).data)
     await expect(api.vaultGetSalt()).rejects.toThrow()
   })
 
   it('vaultGetSession validates response', async () => {
-    apiClientMock.POST.mockResolvedValueOnce(ok({ success: true, session: 'sess' }))
+    trpcMock.accounts.login.mutate.mockResolvedValueOnce(ok({ success: true, session: 'sess' }).data)
     await expect(api.vaultGetSession('t')).resolves.toBe('sess')
 
-    apiClientMock.POST.mockResolvedValueOnce(ok({ success: false }))
+    trpcMock.accounts.login.mutate.mockResolvedValueOnce(ok({ success: false }).data)
     await expect(api.vaultGetSession('t')).rejects.toThrow()
 
-    apiClientMock.POST.mockResolvedValueOnce(ok({ success: true, session: undefined }))
+    trpcMock.accounts.login.mutate.mockResolvedValueOnce(ok({ success: true, session: undefined }).data)
     await expect(api.vaultGetSession('t')).rejects.toThrow()
   })
 
   it('vaultGetMetadata returns metadata when present', async () => {
     const meta = { prayerGoal: 1 }
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, metadata: meta }))
+    trpcMock.accounts.getMetadata.query.mockResolvedValueOnce(ok({ success: true, metadata: meta }).data)
     const res = await api.vaultGetMetadata()
     expect(res).toEqual(meta)
   })
 
   it('vaultGetMetadata throws when success is false', async () => {
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
+    trpcMock.accounts.getMetadata.query.mockResolvedValueOnce(ok({ success: false }).data)
     await expect(api.vaultGetMetadata()).rejects.toThrow()
   })
 
   it('vaultSetMetadata succeeds when api returns success', async () => {
-    apiClientMock.PATCH.mockResolvedValue(ok({ success: true }))
+    trpcMock.accounts.updateMetadata.mutate.mockResolvedValue(ok({ success: true }).data)
     await api.vaultSetMetadata({ cipher: 'c', iv: 'i' } as any)
   })
 
   it('vaultAddPushSubscription and vaultDeletePushSubscription succeed when api returns success', async () => {
-    apiClientMock.POST.mockResolvedValue(ok({ success: true }))
-    apiClientMock.DELETE.mockResolvedValue(ok({ success: true }))
+    trpcMock.accounts.addPushSubscription.mutate.mockResolvedValue(ok({ success: true }).data)
+    trpcMock.accounts.deletePushSubscription.mutate.mockResolvedValue(ok({ success: true }).data)
     await api.vaultAddPushSubscription({ endpoint: 'e', keys: { auth: 'a', p256dh: 'p' } })
     await api.vaultDeletePushSubscription('e')
   })
 
   it('vaultGetReminderSettings throws on !success and returns response on success', async () => {
-    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
+    trpcMock.accounts.getReminderSettings.query.mockResolvedValueOnce(ok({ success: false }).data)
     await expect(api.vaultGetReminderSettings()).rejects.toThrow()
 
     const settings = {
@@ -194,13 +203,14 @@ describe('VaultAPI', () => {
       reminderTime: '08:00',
       reminderTimezone: 'UTC',
     }
-    apiClientMock.GET.mockResolvedValueOnce(ok(settings))
+    trpcMock.accounts.getReminderSettings.query.mockResolvedValueOnce(ok(settings).data)
     const res = await api.vaultGetReminderSettings()
     expect(res).toEqual(settings)
   })
 
   it('vaultUpdateReminderSettings and vaultRecordPrayerCompletion succeed', async () => {
-    apiClientMock.POST.mockResolvedValue(ok({ success: true }))
+    trpcMock.accounts.updateReminderSettings.mutate.mockResolvedValue(ok({ success: true }).data)
+    trpcMock.accounts.recordPrayerCompletion.mutate.mockResolvedValue(ok({ success: true }).data)
     await expect(api.vaultUpdateReminderSettings({
       reminderEnabled: true,
       reminderTime: '09:00',

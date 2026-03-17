@@ -4,7 +4,7 @@ import {
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
-import type { WebPushSubscription } from '../api/schemas'
+import type { WebPushSubscription } from '../types'
 import {
   ACCOUNT_TABLE_NAME,
   getConnectionParams,

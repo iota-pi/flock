@@ -43,13 +43,14 @@ This is a unified TypeScript project containing both the front-end React applica
 ```
 flock/
 ├── src/
-│   ├── api/           # Front-end API clients (Vault.ts, VaultAPI.ts, axios.ts)
+│   ├── api/           # Front-end API + tRPC clients (Vault.ts, VaultAPI.ts, trpcClient.ts)
 │   ├── components/    # React UI components
 │   ├── hooks/         # Custom React hooks
-│   ├── state/         # UI state slices (account, ui) and item models/helpers
+│   ├── state/         # Zustand auth/ui stores and item models/helpers
 │   ├── utils/         # Utility functions
 │   └── vault/         # Back-end Vault API
-│       ├── api/       # Fastify server and routes
+│       ├── api/       # Fastify server bootstrap
+│       ├── trpc/      # tRPC routers, schemas, context
 │       ├── drivers/   # Database drivers (DynamoDB)
 │       ├── migrations/
 │       └── notifier/  # Notification services
@@ -61,8 +62,8 @@ flock/
 
 ## Tech Stack
 
-- **Front-end**: React, TypeScript, TanStack Query (server data), Redux Toolkit (UI state), MUI (Material UI), Vite
-- **Back-end**: Fastify, TypeScript, DynamoDB
+- **Front-end**: React, TypeScript, TanStack Query (server data), Zustand (auth/UI state), MUI (Material UI), Vite
+- **Back-end**: Fastify, tRPC, Zod, TypeScript, DynamoDB
 - **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages
 - **Testing**: Vitest (unit tests), Cypress (e2e tests)
 
@@ -108,8 +109,8 @@ yarn dev
 ## Testing
 
 ```shell
-# Run unit tests
-yarn test
+# Run unit tests once
+yarn test run
 
 # Run unit tests with coverage
 yarn coverage

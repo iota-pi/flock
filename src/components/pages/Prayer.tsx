@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import {
   useCallback,
   useEffect,
@@ -50,14 +51,18 @@ function PrayerPage() {
   const [localItems, setLocalItems] = useState<DirtyItem<Item>[]>([])
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
+  const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
 
-  // Ref that preserves the last active/finished flow state so the overlay
-  // can continue rendering its content during the Slide exit animation.
-  const lastOverlayFlowRef = useRef<FlowState | null>(null)
-  if (flow.type !== 'overview') {
-    lastOverlayFlowRef.current = flow
-  }
-  const overlayFlow = flow.type !== 'overview' ? flow : lastOverlayFlowRef.current
+  useEffect(
+    () => {
+      if (flow.type !== 'overview') {
+        setLastOverlayFlow(flow)
+      }
+    },
+    [flow],
+  )
+
+  const overlayFlow = flow.type !== 'overview' ? flow : lastOverlayFlow
 
   const {
     completed,
@@ -80,7 +85,6 @@ function PrayerPage() {
     () => {
       const state = location.state as { resetPrayerAt?: number } | null
       if (state?.resetPrayerAt) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setFlow({ type: 'overview' })
         setIsEditDrawerOpen(false)
       }

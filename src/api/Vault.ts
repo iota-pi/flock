@@ -15,8 +15,8 @@ import {
   fromBytes,
   toBytes,
 } from './crypto-utils'
-import { queryClient } from './client'
-import type { WebPushSubscription } from './client'
+import { queryClient } from './queryClient'
+import type { WebPushSubscription } from '../vault/types'
 import { useAuthStore } from '../state/authStore'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'

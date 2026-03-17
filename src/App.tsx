@@ -4,6 +4,7 @@ import { styled, Toolbar, useMediaQuery } from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { httpBatchLink } from '@trpc/client'
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
@@ -11,6 +12,10 @@ import { useLoggedIn } from './state/selectors'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/VaultLazy'
 import ErrorPage from './components/pages/ErrorPage'
+import env from './env'
+import { trpc } from './api/trpc'
+import { queryClient } from './api/queryClient'
+import { getApiAuthToken, trackedFetch } from './api/runtime'
 
 const Root = styled('div')({
   display: 'flex',
@@ -101,9 +106,24 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
+  const [trpcClient] = useState(() => trpc.createClient({
+    links: [
+      httpBatchLink({
+        url: `${env.VAULT_ENDPOINT}/trpc`,
+        headers: () => {
+          const authToken = getApiAuthToken()
+          return authToken ? { Authorization: `Basic ${authToken}` } : {}
+        },
+        fetch: trackedFetch,
+      }),
+    ],
+  }))
+
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <RouterProvider router={router} />
-    </LocalizationProvider>
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
+        <RouterProvider router={router} />
+      </LocalizationProvider>
+    </trpc.Provider>
   )
 }

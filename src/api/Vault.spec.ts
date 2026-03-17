@@ -2,7 +2,7 @@ import type { AxiosInstance } from 'axios'
 import { getBlankPerson } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
-import { queryClient, queryKeys } from './client'
+import { queryClient, queryKeys } from './queryClient'
 import { getSalt } from './crypto-utils'
 import { useAuthStore } from '../state/authStore'
 

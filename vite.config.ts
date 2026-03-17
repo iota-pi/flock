@@ -2,13 +2,43 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
 import browserslistToEsbuild from 'browserslist-to-esbuild';
+import { VitePWA } from 'vite-plugin-pwa';
 
 import { visualizer } from 'rollup-plugin-visualizer';
-import { main } from 'bun';
 
 export default defineConfig({
   base: '',
-  plugins: [react(), viteTsconfigPaths(), visualizer()],
+  plugins: [
+    react(),
+    viteTsconfigPaths(),
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'service-worker.ts',
+      registerType: 'autoUpdate',
+      manifest: {
+        short_name: 'Flock',
+        name: 'Flock',
+        icons: [
+          {
+            src: '/android-chrome-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: '/android-chrome-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+        start_url: '.',
+        display: 'standalone',
+        theme_color: '#004d40',
+        background_color: '#202020',
+      },
+    }),
+    visualizer() as any,
+  ],
   server: {
     open: true,
     port: 3000,
@@ -18,17 +48,7 @@ export default defineConfig({
     outDir: 'dist/app',
     sourcemap: true,
     rollupOptions: {
-      input: {
-        main: './index.html',
-        'service-worker': './src/service-worker.ts',
-      },
       output: {
-        entryFileNames(chunkInfo) {
-          if (chunkInfo.name === 'service-worker') {
-            return 'service-worker.js'
-          }
-          return 'assets/[name]-[hash].js'
-        },
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.match(/@mui\/icons-material/)) {

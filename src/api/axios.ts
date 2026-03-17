@@ -8,7 +8,7 @@ import {
   hasApiAuthToken,
   setApiAuthToken,
   setApiSessionExpiredHandler,
-} from './client'
+} from './runtime'
 
 let axiosWithAuth: AxiosInstance | null = null
 let onSessionExpired: (() => void) | null = null

@@ -158,21 +158,21 @@ function PrayerActiveView({
               <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
                 {Math.abs(itemIndex - activeIndex) <= 1
                   ? (
-                      <Container maxWidth={false} sx={{ py: 2 }}>
-                        <ItemFormContent
-                          autoFocusName={false}
-                          fromPrayerPage
-                          handleChange={
-                            itemIndex === activeIndex
-                              ? onItemChange
-                              : (() => undefined)
-                          }
-                          hideHeaderFields
-                          hideRelationships
-                          item={item}
-                        />
-                      </Container>
-                    )
+                    <Container maxWidth={false} sx={{ py: 2 }}>
+                      <ItemFormContent
+                        autoFocusName={false}
+                        fromPrayerPage
+                        handleChange={
+                          itemIndex === activeIndex
+                            ? onItemChange
+                            : (() => undefined)
+                        }
+                        hideHeaderFields
+                        hideRelationships
+                        item={item}
+                      />
+                    </Container>
+                  )
                   : <Box sx={{ height: '100%', width: '100%' }} />}
               </Box>
             ))}

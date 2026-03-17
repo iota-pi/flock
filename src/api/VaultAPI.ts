@@ -1,21 +1,56 @@
 import type { AccountMetadata } from '../state/metadata'
-import { apiClient } from './client'
-import type {
-  AccountCreationResponse,
-  BatchResultResponse,
-  CachedVaultItem,
-  CreateAccountBody,
-  LoginBody,
-  PrayerCompletionBody,
-  PushSubscriptionBody,
-  PushSubscriptionDeleteBody,
-  ReminderSettingsBody,
-  ReminderSettingsResponse,
-  VaultItem,
-  WebPushSubscription,
-} from './client'
 import { getAccountId } from './util'
+import { trpcClient } from './trpcClient'
 import type { CryptoResult } from './Vault'
+import type { ItemType, WebPushSubscription } from '../vault/types'
+
+export type CreateAccountBody = {
+  salt: string,
+  authToken: string,
+}
+
+export type AccountCreationResponse = {
+  account: string,
+}
+
+export type LoginBody = {
+  authToken: string,
+}
+
+export type CachedVaultItem = {
+  item: string,
+  cipher?: string,
+  metadata?: {
+    type: ItemType,
+    iv: string,
+    modified: number,
+    version?: number,
+  },
+}
+
+export type VaultItem = {
+  account?: string,
+  item: string,
+  cipher: string,
+  metadata: {
+    type: ItemType,
+    iv: string,
+    modified: number,
+    version?: number,
+  },
+}
+
+export type BatchResultResponse = {
+  success: boolean,
+  details: Array<{ item: string, success: boolean, error?: string }>,
+}
+
+export type ReminderSettingsResponse = {
+  success: boolean,
+  reminderEnabled: boolean,
+  reminderTime: string,
+  reminderTimezone: string,
+}
 
 export class VaultBatchError extends Error {
   failures: Array<{ item: string, error?: string }>
@@ -27,42 +62,12 @@ export class VaultBatchError extends Error {
   }
 }
 
-// Helper to check success flag and throw on failure
-function assertSuccess<T extends { success: boolean }>(response: T, operation: string): asserts response is T & { success: true } {
+function assertSuccess(response: { success: boolean }, operation: string) {
   if (!response.success) {
     throw new Error(`VaultAPI ${operation} operation failed`)
   }
 }
 
-// Helper to assert a value is defined
-function assertDefined<T>(value: T | undefined | null, operation: string, field: string): asserts value is T {
-  if (value === undefined || value === null) {
-    throw new Error(`VaultAPI ${operation}: missing ${field}`)
-  }
-}
-
-function getErrorMessage(error: unknown) {
-  if (error && typeof error === 'object' && 'error' in error && typeof error.error === 'string') {
-    return error.error
-  }
-  return undefined
-}
-
-function assertApiResult<T>(
-  result: { data?: T; error?: unknown; response: Response },
-  operation: string,
-): T {
-  if (result.response.ok && result.data !== undefined) {
-    return result.data
-  }
-
-  const message = getErrorMessage(result.error)
-  throw new Error(message ? `VaultAPI ${operation}: ${message}` : `VaultAPI ${operation} request failed`)
-}
-
-type VaultKey = { item: string }
-
-// Overloads for vaultFetchMany - cacheTime returns partial items, ids returns full items
 export async function vaultFetchMany(params: { cacheTime: number | null; ids?: never }): Promise<CachedVaultItem[]>
 export async function vaultFetchMany(params: { cacheTime?: never; ids: string[] }): Promise<VaultItem[]>
 export async function vaultFetchMany({
@@ -75,201 +80,150 @@ export async function vaultFetchMany({
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
-  const account = getAccountId()
-  if (cacheTime !== undefined) {
-    const result = await apiClient.GET('/{account}/items', {
-      params: {
-        path: { account },
-        query: cacheTime ? { since: cacheTime } : {},
-      },
-    })
-    const data = assertApiResult(result, 'fetchMany')
-    assertSuccess(data, 'fetchMany')
-    return data.items
-  } else if (ids) {
-    const result: CachedVaultItem[] = []
-    const workingIds = ids.slice()
-
-    while (workingIds.length > 0) {
-      const batch = workingIds.splice(0, 10)
-      const response = await apiClient.GET('/{account}/items', {
-        params: {
-          path: { account },
-          query: { ids: batch.join(',') },
-        },
-      })
-      const data = assertApiResult(response, 'fetchMany')
-      assertSuccess(data, 'fetchMany')
-      result.push(...data.items)
-    }
-
-    return result as VaultItem[]
-  } else {
+  if (cacheTime === undefined && !ids) {
     throw new Error('Must provide cacheTime or ids')
   }
+
+  const account = getAccountId()
+  const data = await trpcClient.items.fetchMany.query({
+    account,
+    cacheTime,
+    ids,
+  })
+  assertSuccess(data, 'fetchMany')
+  return data.items as CachedVaultItem[] | VaultItem[]
 }
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
-  const response = await apiClient.PUT('/{account}/items/{item}', {
-    params: {
-      path: {
-        account: getAccountId(),
-        item,
-      },
-    },
-    body: { cipher, ...metadata },
+  const response = await trpcClient.items.put.mutate({
+    account: getAccountId(),
+    item,
+    cipher,
+    iv: metadata.iv,
+    modified: metadata.modified,
+    type: metadata.type,
+    version: metadata.version,
   })
-  const data = assertApiResult(response, 'put')
-  assertSuccess(data, 'put')
+  assertSuccess(response, 'put')
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
-  const account = getAccountId()
-  const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
-  const results: BatchResultResponse[] = []
+  const response = await trpcClient.items.putMany.mutate({
+    account: getAccountId(),
+    items: items.map(({ cipher, item, metadata }) => ({
+      id: item,
+      cipher,
+      iv: metadata.iv,
+      modified: metadata.modified,
+      type: metadata.type,
+      version: metadata.version,
+    })),
+  })
 
-  for (let i = 0; i < data.length; i += 10) {
-    const batch = data.slice(i, i + 10)
-    const response = await apiClient.PUT('/{account}/items', {
-      params: { path: { account } },
-      body: batch,
-    })
-    results.push(assertApiResult(response, 'putMany'))
-  }
-
-  const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
+  const failedItems = response.details.filter(d => !d.success)
   if (failedItems.length > 0) {
-    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
+    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
   }
 }
 
-export async function vaultDelete({ item }: VaultKey) {
-  const response = await apiClient.DELETE('/{account}/items/{item}', {
-    params: {
-      path: {
-        account: getAccountId(),
-        item,
-      },
-    },
+export async function vaultDelete({ item }: { item: string }) {
+  const response = await trpcClient.items.delete.mutate({
+    account: getAccountId(),
+    item,
   })
-  const data = assertApiResult(response, 'delete')
-  assertSuccess(data, 'delete')
+  assertSuccess(response, 'delete')
 }
 
 export async function vaultDeleteMany({ items }: { items: string[] }) {
-  const account = getAccountId()
-  const results: BatchResultResponse[] = []
+  const response = await trpcClient.items.deleteMany.mutate({
+    account: getAccountId(),
+    items,
+  })
 
-  for (let i = 0; i < items.length; i += 10) {
-    const batch = items.slice(i, i + 10)
-    const response = await apiClient.DELETE('/{account}/items', {
-      params: { path: { account } },
-      body: batch,
-    })
-    results.push(assertApiResult(response, 'deleteMany'))
-  }
-
-  const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
+  const failedItems = response.details.filter(d => !d.success)
   if (failedItems.length > 0) {
-    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
+    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
   }
 }
 
 export async function vaultCreateAccount(
   { salt, authToken }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
-  const response = await apiClient.POST('/account', {
-    body: { salt, authToken },
-  })
-  const data = assertApiResult(response, 'createAccount')
-  return { account: data.account }
+  return trpcClient.accounts.createAccount.mutate({ salt, authToken })
 }
 
 export async function vaultGetSalt(): Promise<string> {
-  const response = await apiClient.GET('/{account}/salt', {
-    params: { path: { account: getAccountId() } },
-  })
-  const data = assertApiResult(response, 'getSalt')
-  assertSuccess(data, 'getSalt')
-  assertDefined(data.salt, 'getSalt', 'salt')
-  return data.salt
+  const response = await trpcClient.accounts.getSalt.query({ account: getAccountId() })
+  assertSuccess(response, 'getSalt')
+  if (!response.salt) {
+    throw new Error('VaultAPI getSalt: missing salt')
+  }
+  return response.salt
 }
 
 export async function vaultGetSession(authToken: string): Promise<string> {
-  const body: LoginBody = { authToken }
-  const response = await apiClient.POST('/{account}/login', {
-    params: { path: { account: getAccountId() } },
-    body,
+  const response = await trpcClient.accounts.login.mutate({
+    account: getAccountId(),
+    authToken,
   })
-  const data = assertApiResult(response, 'getSession')
-  assertSuccess(data, 'getSession')
-  assertDefined(data.session, 'getSession', 'session')
-  return data.session
+  assertSuccess(response, 'getSession')
+  if (!response.session) {
+    throw new Error('VaultAPI getSession: missing session')
+  }
+  return response.session
 }
 
 export async function vaultGetMetadata(): Promise<AccountMetadata | CryptoResult> {
-  const response = await apiClient.GET('/{account}', {
-    params: { path: { account: getAccountId() } },
-  })
-  const data = assertApiResult(response, 'getMetadata')
-  assertSuccess(data, 'getMetadata')
-  // Data is encrypted, but `AccountMetadata` is for backwards compatibility
-  return (data.metadata as AccountMetadata | CryptoResult) || {}
+  const response = await trpcClient.accounts.getMetadata.query({ account: getAccountId() })
+  assertSuccess(response, 'getMetadata')
+  return (response.metadata as AccountMetadata | CryptoResult) || {}
 }
 
 export async function vaultSetMetadata(metadata: CryptoResult & { version?: number }): Promise<void> {
-  const response = await apiClient.PATCH('/{account}', {
-    params: { path: { account: getAccountId() } },
-    body: { metadata: metadata as unknown as Record<string, unknown> },
+  const response = await trpcClient.accounts.updateMetadata.mutate({
+    account: getAccountId(),
+    metadata: metadata as unknown as Record<string, unknown>,
   })
-  const data = assertApiResult(response, 'setMetadata')
-  assertSuccess(data, 'setMetadata')
+  assertSuccess(response, 'setMetadata')
 }
 
 export async function vaultAddPushSubscription(subscription: WebPushSubscription): Promise<void> {
-  const body: PushSubscriptionBody = { ...subscription }
-  const response = await apiClient.POST('/{account}/push-subscriptions', {
-    params: { path: { account: getAccountId() } },
-    body,
+  const response = await trpcClient.accounts.addPushSubscription.mutate({
+    account: getAccountId(),
+    endpoint: subscription.endpoint,
+    keys: subscription.keys,
   })
-  const data = assertApiResult(response, 'addPushSubscription')
-  assertSuccess(data, 'addPushSubscription')
+  assertSuccess(response, 'addPushSubscription')
 }
 
 export async function vaultDeletePushSubscription(endpoint: string): Promise<void> {
-  const body: PushSubscriptionDeleteBody = { endpoint }
-  const response = await apiClient.DELETE('/{account}/push-subscriptions', {
-    params: { path: { account: getAccountId() } },
-    body,
+  const response = await trpcClient.accounts.deletePushSubscription.mutate({
+    account: getAccountId(),
+    endpoint,
   })
-  const data = assertApiResult(response, 'deletePushSubscription')
-  assertSuccess(data, 'deletePushSubscription')
+  assertSuccess(response, 'deletePushSubscription')
 }
 
 export async function vaultGetReminderSettings(): Promise<ReminderSettingsResponse> {
-  const response = await apiClient.GET('/{account}/reminder-settings', {
-    params: { path: { account: getAccountId() } },
-  })
-  const data = assertApiResult(response, 'getReminderSettings')
-  assertSuccess(data, 'getReminderSettings')
-  return data
+  const response = await trpcClient.accounts.getReminderSettings.query({ account: getAccountId() })
+  assertSuccess(response, 'getReminderSettings')
+  return response
 }
 
-export async function vaultUpdateReminderSettings(settings: ReminderSettingsBody): Promise<void> {
-  const response = await apiClient.POST('/{account}/reminder-settings', {
-    params: { path: { account: getAccountId() } },
-    body: settings,
+export async function vaultUpdateReminderSettings(
+  settings: { reminderEnabled: boolean, reminderTime: string, reminderTimezone: string },
+): Promise<void> {
+  const response = await trpcClient.accounts.updateReminderSettings.mutate({
+    account: getAccountId(),
+    ...settings,
   })
-  const data = assertApiResult(response, 'updateReminderSettings')
-  assertSuccess(data, 'updateReminderSettings')
+  assertSuccess(response, 'updateReminderSettings')
 }
 
 export async function vaultRecordPrayerCompletion(completedAt: number): Promise<void> {
-  const body: PrayerCompletionBody = { completedAt }
-  const response = await apiClient.POST('/{account}/prayer-completion', {
-    params: { path: { account: getAccountId() } },
-    body,
+  const response = await trpcClient.accounts.recordPrayerCompletion.mutate({
+    account: getAccountId(),
+    completedAt,
   })
-  const data = assertApiResult(response, 'recordPrayerCompletion')
-  assertSuccess(data, 'recordPrayerCompletion')
+  assertSuccess(response, 'recordPrayerCompletion')
 }

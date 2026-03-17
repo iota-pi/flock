@@ -5,8 +5,8 @@
 **Core Principle**: Data privacy is paramount. It uses **client-side encryption**. The server **NEVER** sees plaintext data. Even the user must possess their password (and account ID) to decrypt their own data.
 
 ## Tech Stack
-- **Frontend**: React 19, TypeScript, Material UI (MUI v5), Redux Toolkit (Auth/UI state), TanStack Query (Server data/Caching).
-- **Backend**: Fastify (Vault API), TypeScript, AWS Lambda.
+- **Frontend**: React 19, TypeScript, Material UI (MUI v5), Zustand (Auth/UI state), TanStack Query (Server data/Caching).
+- **Backend**: Fastify + tRPC (Vault API), Zod, TypeScript, AWS Lambda.
 - **Database**: DynamoDB (Single-table design via drivers).
 - **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages, AWS Backup.
 - **Testing**: Vitest (Unit), Cypress (E2E).
@@ -18,11 +18,11 @@
 - **Backend Entry**: `src/vault/index.ts` (Lambda environment), `src/vault/api/runServer.ts` (Local dev).
 
 ### Key Directories
-- `src/api/`: Client-side API clients, encryption wrappers (`Vault.ts`, `VaultAPI.ts`), and session management (`axios.ts`).
+- `src/api/`: Client-side API clients, encryption wrappers (`Vault.ts`, `VaultAPI.ts`), tRPC clients, and session management (`axios.ts`).
 - `src/vault/`: Backend implementation.
-    - `src/vault/api/routes/`: Fastify routes defined with TypeBox schemas.
+    - `src/vault/trpc/`: tRPC routers, schemas, and shared procedure middleware.
     - `src/vault/drivers/`: Database drivers (DynamoDB logic).
-- `src/state/`: Redux slices (`account.ts`, `ui.ts`) and item models/migrations.
+- `src/state/`: Zustand stores (`authStore.ts`, `uiStore.ts`) and item models/migrations.
 - `src/components/`: React UI components (MUI based).
 - `sst.config.ts`: Infrastructure-as-Code (SST v3) configuration.
 - `docker-compose.yml`: Local development service orchestration (DynamoDB, API).
@@ -31,7 +31,7 @@
 1.  **Read**: TanStack Query caches encrypted items/metadata (`src/api/queries.ts`).
 2.  **Write**: Mutations optimistically update the query cache, then invalidate to refetch.
 3.  **Storage**: Encrypted data persists in DynamoDB.
-4.  **State**: Redux handles UI state and Authentication only.
+4.  **State**: Zustand handles UI and Authentication state only.
 
 ## Critical Rules & Guidelines
 1.  **Security First**:
@@ -50,8 +50,8 @@
 5.  **Integration Changes**:
     - Updates typically require changes in both:
         - Client: `src/api/Vault.ts` / `src/api/VaultAPI.ts`
-        - Server: `src/vault/api/routes/*`
-    - Logic often shared via types in `src/shared/apiTypes.ts`.
+        - Server: `src/vault/trpc/routers/*`
+    - Shared API contract types live in tRPC router outputs and `src/vault/types.ts`.
 
 ## Common Workflows (Commands)
 

@@ -16,7 +16,7 @@ import { getBlankPerson } from '../state/items'
 import {
   queryClient,
   queryKeys,
-} from './client'
+} from './queryClient'
 import { useStoreItemsMutation } from './queries'
 import * as mutations from './mutations'
 

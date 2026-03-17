@@ -2,7 +2,7 @@ import { FastifyRequest } from 'fastify'
 import type {
   ItemType,
   WebPushSubscription,
-} from '../api/schemas'
+} from '../types'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 

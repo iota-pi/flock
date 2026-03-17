@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import * as serviceWorkerRegistration from './serviceWorkerRegistration'
-import { queryClient, queryKeys, queryPersister } from './api/client'
+// eslint-disable-next-line import-x/no-unresolved
+import { registerSW } from 'virtual:pwa-register'
+import { queryClient, queryKeys, queryPersister } from './api/queryClient'
 import ThemedApp from './ThemedApp'
 
 
@@ -19,7 +20,7 @@ root.render(
   </PersistQueryClientProvider>,
 )
 
-serviceWorkerRegistration.register()
+registerSW()
 
 if (window.Cypress) {
   window.vault = import('./api/Vault')

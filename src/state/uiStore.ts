@@ -76,10 +76,10 @@ const initialUiState: UIState = {
 
 export const useUiStore = create<UiStore>()(
   persist(
-    (set) => ({
+    set => ({
       ...initialUiState,
-      setUi: (payload) => {
-        set((state) => ({
+      setUi: payload => {
+        set(state => ({
           ...payload,
           requests: {
             ...state.requests,
@@ -88,19 +88,19 @@ export const useUiStore = create<UiStore>()(
         }))
       },
       startRequest: () => {
-        set((state) => ({
+        set(state => ({
           requests: { active: state.requests.active + 1 },
         }))
       },
-      finishRequest: (error) => {
-        set((state) => ({
+      finishRequest: error => {
+        set(state => ({
           requests: { active: Math.max(0, state.requests.active - 1) },
           message: error
             ? { severity: 'error', message: error }
             : state.message,
         }))
       },
-      setMessage: (payload) => {
+      setMessage: payload => {
         set(() => ({
           message: {
             severity: payload.severity || 'success',
@@ -108,15 +108,15 @@ export const useUiStore = create<UiStore>()(
           },
         }))
       },
-      toggleSelected: (itemId) => {
-        set((state) => ({
+      toggleSelected: itemId => {
+        set(state => ({
           selected: state.selected.includes(itemId)
             ? state.selected.filter(id => id !== itemId)
             : [...state.selected, itemId],
         }))
       },
-      replaceActive: (payload) => {
-        set((state) => {
+      replaceActive: payload => {
+        set(state => {
           const openItems = state.drawers.filter(drawer => drawer.open)
           const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
           const newItem: DrawerData = {
@@ -133,8 +133,8 @@ export const useUiStore = create<UiStore>()(
           return { drawers }
         })
       },
-      updateActive: (payload) => {
-        set((state) => {
+      updateActive: payload => {
+        set(state => {
           const openItems = state.drawers.filter(drawer => drawer.open)
           const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
           const newItem: DrawerData = {
@@ -148,8 +148,8 @@ export const useUiStore = create<UiStore>()(
           return { drawers }
         })
       },
-      pushActive: (payload) => {
-        set((state) => ({
+      pushActive: payload => {
+        set(state => ({
           drawers: [
             ...state.drawers,
             {
@@ -161,7 +161,7 @@ export const useUiStore = create<UiStore>()(
         }))
       },
       removeActive: () => {
-        set((state) => ({
+        set(state => ({
           drawers: state.drawers.slice(0, -1),
         }))
       },
@@ -170,8 +170,8 @@ export const useUiStore = create<UiStore>()(
           drawers: [],
         }))
       },
-      pruneItemDrawers: (itemIds) => {
-        set((state) => {
+      pruneItemDrawers: itemIds => {
+        set(state => {
           const newDrawers: typeof state.drawers = []
           let modified = false
           for (const drawer of state.drawers) {

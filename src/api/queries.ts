@@ -3,13 +3,13 @@ import type { UseQueryOptions } from '@tanstack/react-query'
 import {
   vaultFetchMany,
   vaultGetMetadata,
+  type VaultItem,
 } from './VaultAPI'
 import {
   Item,
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/metadata'
-import type { VaultItem } from './client'
 import { checkAxios } from './axios'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import {
@@ -19,10 +19,11 @@ import {
   optimisticStoreItemsUpdate,
 } from './mutations'
 import {
-  handleVaultError,
   queryClient,
   queryKeys,
-} from './client'
+  clearQueryCache as clearQueryClientCache,
+} from './queryClient'
+import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
@@ -151,7 +152,7 @@ export function useMetadataQuery(enabled = true) {
 export function useSetMetadataMutation() {
   return useMutation<AccountMetadata, Error, AccountMetadata | ((prev: AccountMetadata) => AccountMetadata), { previousMetadata: AccountMetadata | undefined }>({
     mutationFn: mutateSetMetadata,
-    onMutate: async (variables) => {
+    onMutate: async variables => {
       await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
 
       const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)
@@ -207,7 +208,7 @@ export function useDeleteItemsMutation() {
 
 // Helper to clear the cache (e.g., on logout)
 export function clearQueryCache() {
-  queryClient.clear()
+  clearQueryClientCache()
 }
 
 // Helper to check if we have cached data (for UI purposes)

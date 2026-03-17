@@ -16,6 +16,7 @@ export default defineConfig([
     'src/setupTests.ts',
     'src/sst-env.d.ts',
     'src/types/react.d.ts',
+    'src/vault/types.d.ts',
     'sst-env.d.ts',
   ]),
   eslint.configs.recommended,

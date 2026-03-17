@@ -24,12 +24,14 @@
     "types": [
       "node",
       "vitest/globals",
-      "vite/client"
+      "vite/client",
+      "vite-plugin-pwa/client"
     ],
     "noFallthroughCasesInSwitch": true
   },
   "include": [
     "src",
+    "src/vault/types.d.ts",
     "vitest.config.ts"
   ],
   "exclude": [
