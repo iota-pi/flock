@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from 'react'
-import { useAppSelector } from '../store'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
 import { Item, ItemId } from './items'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 import { useAuth } from '../hooks/useAuth'
+import { useUiStore } from './uiStore'
 
 const EMPTY_ARRAY: [] = []
 
@@ -86,7 +86,7 @@ export function useMetadata<K extends MetadataKey>(
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
 export const useIsActive = () => {
-  const drawers = useAppSelector(state => state.ui.drawers)
+  const drawers = useUiStore(state => state.drawers)
   return useCallback(
     (itemId: ItemId) => (
       drawers.findIndex(drawer => (
@@ -98,6 +98,6 @@ export const useIsActive = () => {
   )
 }
 
-export const usePracticalFilterCount = () => useAppSelector(state => (
-  state.ui.filters.filter(fc => fc.operator !== 'contains' || fc.value).length
+export const usePracticalFilterCount = () => useUiStore(state => (
+  state.filters.filter(fc => fc.operator !== 'contains' || fc.value).length
 ))

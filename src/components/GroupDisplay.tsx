@@ -3,9 +3,9 @@ import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, ItemId } from '../state/items'
 import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
-import { useAppActions } from '../store'
 import { useStoreItemsMutation } from '../api/queries'
 import Search from './Search'
+import { useUiStore } from '../state/uiStore'
 
 export interface Props {
   editable?: boolean,
@@ -18,7 +18,7 @@ function GroupDisplay({
   itemId,
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
-  const { pushActive } = useAppActions()
+  const pushActive = useUiStore(state => state.pushActive)
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const currentGroups = useMemo(

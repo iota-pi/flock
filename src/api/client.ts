@@ -3,13 +3,29 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import createClient from 'openapi-fetch'
 import env from '../env'
 import type { paths } from '../shared/schema'
-import store from '../store'
+import { useUiStore } from '../state/uiStore'
+import { initialState as initialAccountState } from '../state/account'
+import type { AccountState } from '../state/account'
 
 // Query Keys
 export const queryKeys = {
   account: ['account'] as const,
   items: ['items'] as const,
   metadata: ['metadata'] as const,
+}
+
+export function getAccountState(): AccountState {
+  return queryClient.getQueryData<AccountState>(queryKeys.account) || initialAccountState
+}
+
+export function setAccountState(payload: Partial<AccountState>) {
+  queryClient.setQueryData<AccountState>(
+    queryKeys.account,
+    (previous) => ({
+      ...(previous || initialAccountState),
+      ...payload,
+    }),
+  )
 }
 
 // Create a query client instance with TanStack Query's native caching
@@ -39,11 +55,11 @@ let authToken = ''
 let onSessionExpired: (() => void) | null = null
 
 function startRequest() {
-  store.actions.startRequest()
+  useUiStore.getState().startRequest()
 }
 
 function finishRequest(error?: string) {
-  store.actions.finishRequest(error)
+  useUiStore.getState().finishRequest(error)
 }
 
 async function trackedFetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -138,7 +154,7 @@ export function handleVaultError(error: Error, message: string) {
     return
   }
   console.error(error)
-  store.actions.setUi({
+  useUiStore.getState().setUi({
     message: {
       message,
       severity: 'error',

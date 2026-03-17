@@ -25,24 +25,3 @@ export const initialState: AccountState = {
   loggedIn: false,
   initializing: true,
 }
-
-export const ACCOUNT_SET = 'account/setAccount'
-
-export function setAccount(payload: Partial<AccountState>) {
-  return {
-    type: ACCOUNT_SET,
-    payload,
-  }
-}
-
-export type AccountAction = ReturnType<typeof setAccount>
-
-export function reduceAccount(state: AccountState, action: AccountAction): AccountState {
-  if (action.type === ACCOUNT_SET) {
-    return {
-      ...state,
-      ...action.payload,
-    }
-  }
-  return state
-}

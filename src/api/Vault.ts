@@ -8,14 +8,14 @@ import {
 import {
   Item,
 } from '../state/items'
-import store from '../store'
+import { useUiStore } from '../state/uiStore'
 import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
 import {
   fromBytes,
   toBytes,
 } from './crypto-utils'
-import { queryClient } from './client'
+import { queryClient, setAccountState } from './client'
 import type { WebPushSubscription } from './client'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
@@ -41,7 +41,7 @@ export function handleVaultError(error: Error, message: string) {
     return
   }
   console.error(error)
-  store.actions.setUi({
+  useUiStore.getState().setUi({
     message: {
       message,
       severity: 'error',
@@ -117,7 +117,7 @@ function handleSessionExpired() {
   isHandlingSessionExpiry = true
 
   signOutVault()
-  store.actions.setUi({
+  useUiStore.getState().setUi({
     message: {
       message: 'Your session has expired. Please log in again.',
       severity: 'warning',
@@ -133,7 +133,7 @@ function handleSessionExpired() {
 export async function loadVault() {
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
-    store.actions.setAccount({ account })
+    setAccountState({ account })
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
@@ -151,10 +151,10 @@ export async function loadVault() {
     initAxios(session)
     setSessionExpiredHandler(handleSessionExpired)
 
-    store.actions.setAccount({ loggedIn: true })
+    setAccountState({ loggedIn: true })
   }
 
-  store.actions.setAccount({ initializing: false })
+  setAccountState({ initializing: false })
 }
 
 export async function storeVault() {
@@ -175,7 +175,7 @@ export function signOutVault() {
   queryClient.clear()
 
   // Clear state
-  store.actions.setAccount({ account: '', loggedIn: false })
+  setAccountState({ account: '', loggedIn: false })
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
 }

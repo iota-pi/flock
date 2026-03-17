@@ -30,7 +30,7 @@ import {
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
 import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
-import { useAppSelector } from '../store'
+import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
 import { capitalise } from '../utils'
@@ -57,7 +57,7 @@ const StyledPopper = styled(Popper)({
 })
 
 function ThemedPaper({ children, ...props }: PaperProps) {
-  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const darkMode = useUiStore(state => state.darkMode)
   const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (

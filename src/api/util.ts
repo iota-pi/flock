@@ -1,9 +1,10 @@
 import type { AxiosInstance, AxiosResponse } from 'axios'
-import store from '../store'
+import { useUiStore } from '../state/uiStore'
+import { getAccountState } from './client'
 import { getAxios } from './axios'
 
 export function getAccountId() {
-  const account = store.getState().account.account
+  const account = getAccountState().account
   if (!account) {
     throw new Error('Account ID not set; cannot use API without account ID.')
   }
@@ -11,11 +12,11 @@ export function getAccountId() {
 }
 
 function startRequest() {
-  store.actions.startRequest()
+  useUiStore.getState().startRequest()
 }
 
 function finishRequest(error?: string) {
-  store.actions.finishRequest(error)
+  useUiStore.getState().finishRequest(error)
 }
 
 export type FlockRequestOptions = {

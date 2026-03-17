@@ -7,7 +7,7 @@ import {
   DialogTitle,
   Divider,
 } from '@mui/material'
-import { useAppActions, useAppSelector } from '../../../store'
+import { useUiStore } from '../../../state/uiStore'
 import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP } from '../../../utils/customFilter'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from '../../../utils/customFilter'
@@ -21,8 +21,8 @@ function FilterDialog({
   onClose,
   open,
 }: Props) {
-  const { setUi } = useAppActions()
-  const filterCriteria = useAppSelector(state => state.ui.filters)
+  const setUi = useUiStore(state => state.setUi)
+  const filterCriteria = useUiStore(state => state.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
   const [prevOpen, setPrevOpen] = useState(open)
   if (open && !prevOpen) {

@@ -14,12 +14,13 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { ROUTES } from './routes'
 import { HomeIcon, PasswordIcon } from '../Icons'
-import { useAppActions } from '../../store'
+import { useUiStore } from '../../state/uiStore'
 import { createAccount, initialiseVault } from '../../api/VaultLazy'
 import { getSalt } from '../../api/crypto-utils'
 import { usePasswordStrength } from '../../hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
+import { setAccountState } from '../../api/client'
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -55,7 +56,7 @@ export interface ChecklistItem {
 }
 
 function CreateAccountPage() {
-  const { setAccount, setUi } = useAppActions()
+  const setUi = useUiStore(state => state.setUi)
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
@@ -94,7 +95,7 @@ function CreateAccountPage() {
         })
         const { account } = await createAccount({ salt, authToken })
         if (account.length > 0) {
-          setAccount({ account })
+          setAccountState({ account })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
         } else {
@@ -106,7 +107,7 @@ function CreateAccountPage() {
       }
       setWaiting(false)
     },
-    [password, setAccount],
+    [password],
   )
 
   const handleCloseCreatedAccountDialog = useCallback(

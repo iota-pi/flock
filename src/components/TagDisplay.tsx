@@ -1,7 +1,7 @@
 import { MouseEvent, useCallback } from 'react'
 import { Box, Chip, Stack, styled, Typography } from '@mui/material'
-import { useAppActions } from '../store'
 import { ItemId } from '../state/items'
+import { useUiStore } from '../state/uiStore'
 
 const StyledChip = styled(Chip)(({ theme }) => ({
   marginTop: theme.spacing(0.5),
@@ -29,7 +29,7 @@ function TagChip({
   tag,
   linkedId,
 }: TagChipProps) {
-  const { replaceActive } = useAppActions()
+  const replaceActive = useUiStore(state => state.replaceActive)
 
   const handleClick = useCallback(
     (event: MouseEvent) => {

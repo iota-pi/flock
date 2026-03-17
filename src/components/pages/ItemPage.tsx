@@ -10,7 +10,7 @@ import {
   useSortCriteria,
 } from '../../state/selectors'
 import BasePage from './BasePage'
-import { useAppActions, useAppSelector } from '../../store'
+import { useUiStore } from '../../state/uiStore'
 import { useAsyncItems } from '../../hooks/useAsyncItems'
 
 export interface Props<T extends Item> {
@@ -20,15 +20,13 @@ export interface Props<T extends Item> {
 function ItemPage<T extends Item>({
   itemType,
 }: Props<T>) {
-  const {
-    replaceActive,
-    setUi,
-    toggleSelected,
-  } = useAppActions()
+  const replaceActive = useUiStore(state => state.replaceActive)
+  const setUi = useUiStore(state => state.setUi)
+  const toggleSelected = useUiStore(state => state.toggleSelected)
   const isActive = useIsActive()
   const rawItems = useItems<T>(itemType)
-  const selected = useAppSelector(state => state.ui.selected)
-  const filters = useAppSelector(state => state.ui.filters)
+  const selected = useUiStore(state => state.selected)
+  const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()

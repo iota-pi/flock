@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useAppActions, useAppSelector } from '../store'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   exportData,
@@ -10,6 +9,8 @@ import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
+import { useUiStore } from '../state/uiStore'
+import { useAuth } from './useAuth'
 
 export type SettingsDialogType = (
   | 'goal'
@@ -20,8 +21,9 @@ export type SettingsDialogType = (
 )
 
 export default function useSettings() {
-  const account = useAppSelector(state => state.account.account)
-  const { setMessage, setUi } = useAppActions()
+  const { account } = useAuth()
+  const setMessage = useUiStore(state => state.setMessage)
+  const setUi = useUiStore(state => state.setUi)
   const items = useItems()
   const { mutateAsync: storeItems } = useStoreItemsMutation()
 
@@ -34,7 +36,7 @@ export default function useSettings() {
     [setMessage],
   )
 
-  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const darkMode = useUiStore(state => state.darkMode)
   const handleToggleDarkMode = useCallback(
     () => setUi({
       darkMode: (() => {

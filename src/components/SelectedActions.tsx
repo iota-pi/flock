@@ -8,7 +8,6 @@ import {
   styled,
   Typography,
 } from '@mui/material'
-import { useAppActions, useAppSelector } from '../store'
 import {
   ArchiveIcon,
   DeleteIcon,
@@ -25,6 +24,7 @@ import ConfirmationDialog from './dialogs/ConfirmationDialog'
 import GroupDialog from './dialogs/GroupDialog'
 import FrequencyDialog from './dialogs/FrequencyDialog'
 import { useDeleteItemsMutation, useStoreItemsMutation } from '../api/queries'
+import { useUiStore } from '../state/uiStore'
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -48,9 +48,9 @@ const PADDING_HEIGHT = 2
 const ACTION_HEIGHT = 36.02
 
 function SelectedActions() {
-  const { setUi } = useAppActions()
+  const setUi = useUiStore(state => state.setUi)
   const getItemsById = useItemsById()
-  const selected = useAppSelector(state => state.ui.selected)
+  const selected = useUiStore(state => state.selected)
   const { mutateAsync: deleteItems } = useDeleteItemsMutation()
   const { mutateAsync: storeItems } = useStoreItemsMutation()
 

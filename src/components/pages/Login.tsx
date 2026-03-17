@@ -14,9 +14,11 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { ROUTES } from './routes'
-import { useAppActions, useAppSelector } from '../../store'
+import { useUiStore } from '../../state/uiStore'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
 import { fetchSalt, loginVault } from '../../api/VaultLazy'
+import { useAuth } from '../../hooks/useAuth'
+import { setAccountState } from '../../api/client'
 
 
 const Root = styled('div')({
@@ -52,7 +54,7 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 
 function LoginPage() {
-  const { setAccount, setUi } = useAppActions()
+  const setUi = useUiStore(state => state.setUi)
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
@@ -60,8 +62,8 @@ function LoginPage() {
   const [accountInput, setAccountInput] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const createdAccountId = useAppSelector(state => state.account.account)
-  const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount)
+  const { account: createdAccountId } = useAuth()
+  const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
 
   useEffect(
     () => {
@@ -83,27 +85,27 @@ function LoginPage() {
     async () => {
       setLoading(true)
       setError('')
-      setAccount({ account: accountInput })
+      setAccountState({ account: accountInput })
       const salt = await fetchSalt().catch(() => '')
       if (salt.length) {
         try {
           await loginVault({ password, salt })
-          setAccount({ loggedIn: true })
+          setAccountState({ loggedIn: true })
           navigate(ROUTES.prayer.path)
         } catch (error) {
           console.error('Error during vault initialization:', error)
-          setAccount({ account: '' })
+          setAccountState({ account: '' })
           setError('Login failed.')
         } finally {
           setLoading(false)
         }
       } else {
-        setAccount({ account: '' })
+        setAccountState({ account: '' })
         setError('Could not find matching account ID and password.')
         setLoading(false)
       }
     },
-    [accountInput, navigate, password, setAccount],
+    [accountInput, navigate, password],
   )
   const handleClickCreate = useCallback(
     () => {

@@ -5,16 +5,16 @@ import {
   handleVaultError,
   clearQueryCache,
 } from './client'
-import store from '../store'
 
-// Mock store actions
-vi.mock('../store', () => ({
-  default: {
-    actions: {
-      setUi: vi.fn(),
+const setUi = vi.hoisted(() => vi.fn())
+
+vi.mock('../state/uiStore', () => ({
+  useUiStore: {
+    getState: () => ({
+      setUi,
       startRequest: vi.fn(),
       finishRequest: vi.fn(),
-    },
+    }),
   },
 }))
 
@@ -63,7 +63,7 @@ describe('client.ts', () => {
 
       handleVaultError(err, 'Test failed')
 
-      expect(store.actions.setUi).not.toHaveBeenCalled()
+      expect(setUi).not.toHaveBeenCalled()
       expect(console.error).not.toHaveBeenCalled()
     })
 
@@ -73,7 +73,7 @@ describe('client.ts', () => {
 
       handleVaultError(err, 'Something went wrong')
 
-      expect(store.actions.setUi).toHaveBeenCalledWith({
+      expect(setUi).toHaveBeenCalledWith({
         message: {
           message: 'Something went wrong',
           severity: 'error',

@@ -5,12 +5,12 @@ import {
 } from '@mui/material'
 import { useMemo } from 'react'
 import App from './App'
-import { useAppSelector } from './store'
+import { useUiStore } from './state/uiStore'
 import getTheme from './theme'
 
 
 export default function ThemedApp() {
-  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const darkMode = useUiStore(state => state.darkMode)
   const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (

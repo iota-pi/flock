@@ -1,15 +1,22 @@
 const startRequest = vi.hoisted(() => vi.fn())
 const finishRequest = vi.hoisted(() => vi.fn())
-const getState = vi.hoisted(() => vi.fn(() => ({ account: { account: 'acct1' } })))
+const getAccountState = vi.hoisted(() => vi.fn(() => ({ account: 'acct1', loggedIn: false, initializing: false })))
 
-vi.mock('../store', () => ({
-  default: {
-    actions: {
+vi.mock('./client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client')>()
+  return {
+    ...actual,
+    getAccountState,
+  }
+})
+
+vi.mock('../state/uiStore', () => ({
+  useUiStore: {
+    getState: () => ({
       startRequest,
       finishRequest,
-    },
-    getState,
-  }
+    }),
+  },
 }))
 
 vi.mock('./axios', () => ({
@@ -22,7 +29,7 @@ import { getAccountId, flockRequest, flockRequestChunked } from './util'
 beforeEach(() => {
   startRequest.mockClear()
   finishRequest.mockClear()
-  getState.mockImplementation(() => ({ account: { account: 'acct1' } }))
+  getAccountState.mockImplementation(() => ({ account: 'acct1', loggedIn: false, initializing: false }))
 })
 
 describe('api util', () => {
@@ -31,7 +38,7 @@ describe('api util', () => {
   })
 
   it('getAccountId throws when account not set', () => {
-    getState.mockImplementation(() => ({ account: { account: '' } }))
+    getAccountState.mockImplementation(() => ({ account: '', loggedIn: false, initializing: false }))
     expect(() => getAccountId()).toThrow('Account ID not set')
   })
 

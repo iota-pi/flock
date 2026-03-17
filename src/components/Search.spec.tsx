@@ -11,8 +11,8 @@ vi.mock('../state/selectors', () => ({
   useMetadata: vi.fn(),
   useSortCriteria: vi.fn(),
 }))
-vi.mock('../store', () => ({
-  useAppSelector: vi.fn(),
+vi.mock('../state/uiStore', () => ({
+  useUiStore: vi.fn(),
 }))
 vi.mock('../utils/customSort', () => ({
   sortItems: vi.fn(items => items),
@@ -29,7 +29,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
 }
 
 import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
-import { useAppSelector } from '../store'
+import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
 
 describe('Search Component', () => {
@@ -48,7 +48,7 @@ describe('Search Component', () => {
     vi.mocked(useItems).mockReturnValue(items)
     vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
     vi.mocked(useSortCriteria).mockReturnValue([[], vi.fn()])
-    vi.mocked(useAppSelector).mockReturnValue(false)
+    vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 
   it('renders input field', () => {

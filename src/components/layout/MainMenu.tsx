@@ -13,10 +13,10 @@ import {
 } from '@mui/material'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { useAppActions } from '../../store'
 import { useMetadataQuery } from '../../api/queries'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
+import { useUiStore } from '../../state/uiStore'
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
@@ -167,7 +167,7 @@ function MainMenu({
   onMinimise,
   open,
 }: Props) {
-  const { setUi } = useAppActions()
+  const setUi = useUiStore(state => state.setUi)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useMetadataQuery(loggedIn)

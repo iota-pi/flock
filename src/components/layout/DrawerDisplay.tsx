@@ -2,8 +2,7 @@ import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
-import { DrawerData } from '../../state/ui'
-import { useAppActions, useAppSelector } from '../../store'
+import { DrawerData, useUiStore } from '../../state/uiStore'
 import ItemDrawer from '../drawers/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
 import { useItem, useLoggedIn } from '../../state/selectors'
@@ -11,7 +10,8 @@ import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
 
 function useDrawerRouting(drawers: DrawerData[]) {
-  const { clearDrawers, removeActive } = useAppActions()
+  const clearDrawers = useUiStore(state => state.clearDrawers)
+  const removeActive = useUiStore(state => state.removeActive)
   const routerLocation = useLocation()
   const navigate = useNavigate()
   const prevDrawers = usePrevious(drawers)
@@ -134,8 +134,9 @@ function IndividualDrawer({
 const noop = () => {}
 
 function DrawerDisplay() {
-  const { removeActive, updateActive } = useAppActions()
-  const drawers = useAppSelector(state => state.ui.drawers)
+  const removeActive = useUiStore(state => state.removeActive)
+  const updateActive = useUiStore(state => state.updateActive)
+  const drawers = useUiStore(state => state.drawers)
   const loggedIn = useLoggedIn()
   const page = usePage()
 

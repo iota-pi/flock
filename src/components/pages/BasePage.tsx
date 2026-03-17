@@ -2,7 +2,7 @@ import { PropsWithChildren, ReactNode } from 'react'
 import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material'
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
-import { useAppSelector } from '../../store'
+import { useUiStore } from '../../state/uiStore'
 import { usePage } from '.'
 
 interface BaseProps {
@@ -85,7 +85,7 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useAppSelector(state => state.ui.requests.active)
+  const activeRequests = useUiStore(state => state.requests.active)
   const loading = activeRequests > 0
 
   const page = usePage()

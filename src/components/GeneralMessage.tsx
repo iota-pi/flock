@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react'
 import { Alert, Snackbar } from '@mui/material'
-import { useAppActions, useAppSelector } from '../store'
+import { useUiStore } from '../state/uiStore'
 
 
 function GeneralMessage() {
-  const { setUi } = useAppActions()
-  const data = useAppSelector(state => state.ui.message)
+  const setUi = useUiStore(state => state.setUi)
+  const data = useUiStore(state => state.message)
   const { message, severity } = data || {}
 
   const [open, setOpen] = useState(false)

@@ -6,9 +6,9 @@ import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items'
 import { useItemsById, useSortCriteria } from '../state/selectors'
 import ItemList from './ItemList'
-import { useAppActions } from '../store'
 import { sortItems } from '../utils/customSort'
 import Search from './Search'
+import { useUiStore } from '../state/uiStore'
 
 
 export interface Props {
@@ -24,7 +24,7 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const { pushActive } = useAppActions()
+  const pushActive = useUiStore(state => state.pushActive)
   const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
 
