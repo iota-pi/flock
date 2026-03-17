@@ -1,10 +1,10 @@
 import type { AxiosInstance, AxiosResponse } from 'axios'
 import { useUiStore } from '../state/uiStore'
-import { getAccountState } from './client'
+import { useAuthStore } from '../state/authStore'
 import { getAxios } from './axios'
 
 export function getAccountId() {
-  const account = getAccountState().account
+  const account = useAuthStore.getState().account
   if (!account) {
     throw new Error('Account ID not set; cannot use API without account ID.')
   }

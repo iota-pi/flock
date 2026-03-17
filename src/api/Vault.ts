@@ -15,8 +15,9 @@ import {
   fromBytes,
   toBytes,
 } from './crypto-utils'
-import { queryClient, setAccountState } from './client'
+import { queryClient } from './client'
 import type { WebPushSubscription } from './client'
+import { useAuthStore } from '../state/authStore'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -131,9 +132,10 @@ function handleSessionExpired() {
 }
 
 export async function loadVault() {
+  const { setAccount } = useAuthStore.getState()
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
-    setAccountState({ account })
+    setAccount({ account })
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
@@ -151,10 +153,10 @@ export async function loadVault() {
     initAxios(session)
     setSessionExpiredHandler(handleSessionExpired)
 
-    setAccountState({ loggedIn: true })
+    setAccount({ loggedIn: true })
   }
 
-  setAccountState({ initializing: false })
+  setAccount({ initializing: false })
 }
 
 export async function storeVault() {
@@ -166,6 +168,7 @@ export async function storeVault() {
 }
 
 export function signOutVault() {
+  const { setAccount } = useAuthStore.getState()
   key = null
   keyHash = ''
   initAxios('')
@@ -175,7 +178,7 @@ export function signOutVault() {
   queryClient.clear()
 
   // Clear state
-  setAccountState({ account: '', loggedIn: false })
+  setAccount({ account: '', loggedIn: false })
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
 }

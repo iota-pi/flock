@@ -5,6 +5,7 @@ import {
   handleVaultError,
   clearQueryCache,
 } from './client'
+import { useAuthStore } from '../state/authStore'
 
 const setUi = vi.hoisted(() => vi.fn())
 
@@ -83,13 +84,17 @@ describe('client.ts', () => {
   })
 
   describe('clearQueryCache', () => {
-    it('should clear the query client', () => {
+    it('should clear query client and reset auth state', () => {
       queryClient.setQueryData(queryKeys.items, ['data'])
+      useAuthStore.getState().setAccount({ account: 'acct1', loggedIn: true, initializing: false })
       expect(queryClient.getQueryData(queryKeys.items)).toBeDefined()
 
       clearQueryCache()
 
       expect(queryClient.getQueryData(queryKeys.items)).toBeUndefined()
+      expect(useAuthStore.getState().account).toBe('')
+      expect(useAuthStore.getState().loggedIn).toBe(false)
+      expect(useAuthStore.getState().initializing).toBe(true)
     })
   })
 })

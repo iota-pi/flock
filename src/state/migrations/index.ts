@@ -1,6 +1,6 @@
 import { mutateSetMetadata, mutateStoreItems } from '../../api/mutations'
 import { Item } from '../items'
-import { AccountMetadata } from '../account'
+import { AccountMetadata } from '../metadata'
 import { migrations } from './migrations'
 
 async function migrateItems(items: Item[], metadata: AccountMetadata) {

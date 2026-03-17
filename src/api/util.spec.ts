@@ -1,14 +1,12 @@
 const startRequest = vi.hoisted(() => vi.fn())
 const finishRequest = vi.hoisted(() => vi.fn())
-const getAccountState = vi.hoisted(() => vi.fn(() => ({ account: 'acct1', loggedIn: false, initializing: false })))
+const authState = vi.hoisted(() => ({ account: 'acct1', loggedIn: false, initializing: false }))
 
-vi.mock('./client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./client')>()
-  return {
-    ...actual,
-    getAccountState,
-  }
-})
+vi.mock('../state/authStore', () => ({
+  useAuthStore: {
+    getState: () => authState,
+  },
+}))
 
 vi.mock('../state/uiStore', () => ({
   useUiStore: {
@@ -29,7 +27,9 @@ import { getAccountId, flockRequest, flockRequestChunked } from './util'
 beforeEach(() => {
   startRequest.mockClear()
   finishRequest.mockClear()
-  getAccountState.mockImplementation(() => ({ account: 'acct1', loggedIn: false, initializing: false }))
+  authState.account = 'acct1'
+  authState.loggedIn = false
+  authState.initializing = false
 })
 
 describe('api util', () => {
@@ -38,7 +38,7 @@ describe('api util', () => {
   })
 
   it('getAccountId throws when account not set', () => {
-    getAccountState.mockImplementation(() => ({ account: '', loggedIn: false, initializing: false }))
+    authState.account = ''
     expect(() => getAccountId()).toThrow('Account ID not set')
   })
 

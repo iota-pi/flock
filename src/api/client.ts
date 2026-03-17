@@ -4,28 +4,12 @@ import createClient from 'openapi-fetch'
 import env from '../env'
 import type { paths } from '../shared/schema'
 import { useUiStore } from '../state/uiStore'
-import { initialState as initialAccountState } from '../state/account'
-import type { AccountState } from '../state/account'
+import { getInitialAuthState, useAuthStore } from '../state/authStore'
 
 // Query Keys
 export const queryKeys = {
-  account: ['account'] as const,
   items: ['items'] as const,
   metadata: ['metadata'] as const,
-}
-
-export function getAccountState(): AccountState {
-  return queryClient.getQueryData<AccountState>(queryKeys.account) || initialAccountState
-}
-
-export function setAccountState(payload: Partial<AccountState>) {
-  queryClient.setQueryData<AccountState>(
-    queryKeys.account,
-    (previous) => ({
-      ...(previous || initialAccountState),
-      ...payload,
-    }),
-  )
 }
 
 // Create a query client instance with TanStack Query's native caching
@@ -165,4 +149,6 @@ export function handleVaultError(error: Error, message: string) {
 // Helper to clear the cache (e.g., on logout)
 export function clearQueryCache() {
   queryClient.clear()
+  const { setAccount } = useAuthStore.getState()
+  setAccount(getInitialAuthState())
 }

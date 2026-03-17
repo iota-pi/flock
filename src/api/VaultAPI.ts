@@ -1,4 +1,4 @@
-import type { AccountMetadata } from '../state/account'
+import type { AccountMetadata } from '../state/metadata'
 import { apiClient } from './client'
 import type {
   AccountCreationResponse,

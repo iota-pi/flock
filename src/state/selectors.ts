@@ -1,41 +1,54 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
-import { AccountMetadata as Metadata, MetadataKey } from './account'
+import { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import { Item, ItemId } from './items'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
-import { useAuth } from '../hooks/useAuth'
+import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
 const EMPTY_ARRAY: [] = []
+const EMPTY_ITEM_MAP: Record<string, Item> = {}
 
-export const useLoggedIn = () => useAuth().loggedIn
-export const useAuthInitializing = () => useAuth().initializing
+export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
+export const useAuthInitializing = () => useAuthStore(state => state.initializing)
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
   const loggedIn = useLoggedIn()
-  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
-  return useMemo(
-    () => (
+  const selectItems = useCallback(
+    (items: Item[]) => (
       itemType
         ? items.filter(i => i.type === itemType)
         : items
     ) as T[],
-    [items, itemType],
+    [itemType],
   )
+  const { data: items = EMPTY_ARRAY as T[] } = useItemsQuery<T[]>({ enabled: loggedIn, select: selectItems })
+  return items
 }
 
 export const useItemMap = () => {
   const loggedIn = useLoggedIn()
-  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
-  return useMemo(() => Object.fromEntries(items.map(item => [item.id, item])), [items])
+  const selectItemMap = useCallback(
+    (items: Item[]) => Object.fromEntries(items.map(item => [item.id, item])) as Record<string, Item>,
+    [],
+  )
+  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsQuery<Record<string, Item>>({
+    enabled: loggedIn,
+    select: selectItemMap,
+  })
+  return itemMap
 }
 
 export const useItem = (id: ItemId) => {
   const loggedIn = useLoggedIn()
-  const { data: items = EMPTY_ARRAY } = useItemsQuery(loggedIn)
-  return useMemo(() => items.find(item => item.id === id), [items, id])
+  const selectItem = useCallback(
+    (items: Item[]) => items.find(item => item.id === id),
+    [id],
+  )
+  const { data: item } = useItemsQuery<Item | undefined>({ enabled: loggedIn, select: selectItem })
+  return item
 }
 
 export function useItemsById() {

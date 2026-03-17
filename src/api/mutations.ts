@@ -1,4 +1,4 @@
-import { AccountMetadata } from '../state/account'
+import { AccountMetadata } from '../state/metadata'
 import type { VaultItem } from './client'
 import {
   checkProperties,

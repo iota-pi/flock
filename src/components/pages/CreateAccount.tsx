@@ -20,7 +20,7 @@ import { getSalt } from '../../api/crypto-utils'
 import { usePasswordStrength } from '../../hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
-import { setAccountState } from '../../api/client'
+import { useAuthStore } from '../../state/authStore'
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -65,6 +65,7 @@ function CreateAccountPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
   const [newAccount, setNewAccount] = useState('')
+  const setAccount = useAuthStore(state => state.setAccount)
 
   const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
@@ -95,7 +96,7 @@ function CreateAccountPage() {
         })
         const { account } = await createAccount({ salt, authToken })
         if (account.length > 0) {
-          setAccountState({ account })
+          setAccount({ account })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
         } else {
@@ -107,7 +108,7 @@ function CreateAccountPage() {
       }
       setWaiting(false)
     },
-    [password],
+    [password, setAccount],
   )
 
   const handleCloseCreatedAccountDialog = useCallback(

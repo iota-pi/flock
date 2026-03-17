@@ -2,8 +2,9 @@ import type { AxiosInstance } from 'axios'
 import { getBlankPerson } from '../state/items'
 import * as axios from './axios'
 import * as vault from './Vault'
-import { queryClient, queryKeys, setAccountState } from './client'
+import { queryClient, queryKeys } from './client'
 import { getSalt } from './crypto-utils'
+import { useAuthStore } from '../state/authStore'
 
 const VAULT_TEST_PARAMS = {
   password: 'example',
@@ -23,7 +24,7 @@ describe('Vault', () => {
         delete: vi.fn(() => ({ data: { success: true, details: [] } })),
       }) as unknown as AxiosInstance)
 
-      setAccountState({ account: '.' })
+      useAuthStore.getState().setAccount({ account: '.' })
       await vault.initialiseVault(VAULT_TEST_PARAMS)
     },
     10000,
@@ -58,7 +59,7 @@ describe('Vault', () => {
 
   it('signOutVault clears localStorage and resets axios/store', async () => {
     localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
-    setAccountState({ account: 'acct' })
+    useAuthStore.getState().setAccount({ account: 'acct' })
     queryClient.setQueryData(queryKeys.items, [getBlankPerson() as any])
 
     const initSpy = vi.spyOn(axios as any, 'initAxios')

@@ -1,15 +1,17 @@
 import { useMemo } from 'react'
-import { useAccountQuery } from '../api/queries'
+import { useAuthStore } from '../state/authStore'
 
 export function useAuth() {
-  const { data } = useAccountQuery()
+  const account = useAuthStore(state => state.account)
+  const loggedIn = useAuthStore(state => state.loggedIn)
+  const initializing = useAuthStore(state => state.initializing)
 
   return useMemo(
     () => ({
-      account: data?.account || '',
-      loggedIn: !!data?.loggedIn,
-      initializing: data?.initializing ?? true,
+      account,
+      loggedIn,
+      initializing,
     }),
-    [data?.account, data?.initializing, data?.loggedIn],
+    [account, initializing, loggedIn],
   )
 }

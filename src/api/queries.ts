@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import type { UseQueryOptions } from '@tanstack/react-query'
 import {
   vaultFetchMany,
   vaultGetMetadata,
@@ -7,7 +8,7 @@ import {
   Item,
   supplyMissingAttributes,
 } from '../state/items'
-import { AccountMetadata } from '../state/account'
+import { AccountMetadata } from '../state/metadata'
 import type { VaultItem } from './client'
 import { checkAxios } from './axios'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
@@ -18,7 +19,6 @@ import {
   optimisticStoreItemsUpdate,
 } from './mutations'
 import {
-  getAccountState,
   handleVaultError,
   queryClient,
   queryKeys,
@@ -125,12 +125,15 @@ export async function fetchMetadata(): Promise<AccountMetadata> {
 }
 
 // Hook: Fetch items
-export function useItemsQuery(enabled = true) {
+export function useItemsQuery<TData = Item[]>(
+  options?: Omit<UseQueryOptions<Item[], Error, TData>, 'queryKey' | 'queryFn'>,
+) {
   return useQuery({
+    ...options,
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    enabled,
     refetchOnMount: 'always',
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -144,20 +147,28 @@ export function useMetadataQuery(enabled = true) {
   })
 }
 
-export function useAccountQuery(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.account,
-    queryFn: async () => getAccountState(),
-    initialData: getAccountState,
-    enabled,
-    staleTime: Infinity,
-  })
-}
-
 // Hook: Update metadata
 export function useSetMetadataMutation() {
-  return useMutation({
+  return useMutation<AccountMetadata, Error, AccountMetadata | ((prev: AccountMetadata) => AccountMetadata), { previousMetadata: AccountMetadata | undefined }>({
     mutationFn: mutateSetMetadata,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
+
+      const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)
+      const nextMetadata = typeof variables === 'function'
+        ? variables(previousMetadata || {} as AccountMetadata)
+        : variables
+
+      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, nextMetadata)
+
+      return { previousMetadata }
+    },
+    onError: (_error, _variables, context) => {
+      queryClient.setQueryData(queryKeys.metadata, context?.previousMetadata)
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
+    },
   })
 }
 
