@@ -13,7 +13,7 @@ import {
   type SuccessResponse,
   type BatchResultResponse,
   type CachedVaultItem,
-} from '../../../shared/apiTypes'
+} from '../schemas'
 
 const itemsRoutes: FastifyPluginCallback = (fastify, opts, next) => {
   const vault = fastify.vault

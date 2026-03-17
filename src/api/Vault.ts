@@ -18,7 +18,7 @@ import {
   toBytes,
 } from './crypto-utils'
 import { queryClient } from './client'
-import type { WebPushSubscription } from '../shared/apiTypes'
+import type { WebPushSubscription } from './client'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'

@@ -11,7 +11,7 @@ import {
   format,
   toZonedTime,
 } from 'date-fns-tz'
-import type { WebPushSubscription } from '../../shared/apiTypes'
+import type { WebPushSubscription } from '../api/schemas'
 import {
   ACCOUNT_TABLE_NAME,
   getConnectionParams,

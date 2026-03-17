@@ -1,6 +1,6 @@
 import type { Item } from '../state/items'
 import type { CryptoResult } from './Vault'
-import type { WebPushSubscription } from '../shared/apiTypes'
+import type { WebPushSubscription } from './client'
 
 // Lazy wrappers for Vault functions
 

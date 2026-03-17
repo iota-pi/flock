@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import swagger from '@fastify/swagger'
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
@@ -29,7 +30,7 @@ import {
   ReminderSettingsResponseSchema,
   ItemsResponseSchema,
   BatchResultResponseSchema,
-} from '../../shared/apiTypes'
+} from './schemas'
 import routes from './routes'
 import getDriver from '../drivers'
 
@@ -40,6 +41,15 @@ async function createServer() {
       level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
     },
   }).withTypeProvider<TypeBoxTypeProvider>()
+  await server.register(swagger, {
+    openapi: {
+      openapi: '3.0.0',
+      info: {
+        title: 'Flock Vault API',
+        version: '1.0.0',
+      },
+    },
+  })
   await server.register(cookie)
   await server.register(cors, {
     origin: [
@@ -84,6 +94,17 @@ async function createServer() {
   server.decorate('vault', vault)
 
   await server.register(routes)
+  server.get('/docs/json', {
+    schema: {
+      hide: true,
+      response: {
+        200: {
+          type: 'object',
+          additionalProperties: true,
+        },
+      },
+    },
+  }, async () => server.swagger() as unknown as Record<string, unknown>)
   return server
 }
 

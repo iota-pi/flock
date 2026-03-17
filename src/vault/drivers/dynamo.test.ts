@@ -1,7 +1,7 @@
 import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
-import type { ItemType } from 'src/shared/apiTypes'
+import type { ItemType } from 'src/shared/itemTypes'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {

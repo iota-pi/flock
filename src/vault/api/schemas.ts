@@ -1,11 +1,4 @@
-// Shared API wire types between frontend (app) and backend (vault)
-// Uses TypeBox for runtime validation schemas with derived TypeScript types
-
 import { Type, Static } from 'typebox'
-
-// =============================================================================
-// Core Types
-// =============================================================================
 
 export const ItemTypeSchema = Type.Union([
   Type.Literal('person'),
@@ -13,11 +6,6 @@ export const ItemTypeSchema = Type.Union([
   Type.Literal('topic'),
 ])
 export type ItemType = Static<typeof ItemTypeSchema>
-export const ITEM_TYPES = ['person', 'group', 'topic'] as const
-
-// =============================================================================
-// Vault Item Schemas
-// =============================================================================
 
 export const VaultItemMetadataSchema = Type.Object({
   type: ItemTypeSchema,
@@ -39,17 +27,12 @@ export const VaultItemSchema = Type.Object({
 })
 export type VaultItem = Static<typeof VaultItemSchema>
 
-// CachedVaultItem allows partial data (used in responses)
 export const CachedVaultItemSchema = Type.Object({
   item: Type.String(),
   cipher: Type.Optional(Type.String()),
   metadata: Type.Optional(VaultItemMetadataSchema),
 })
 export type CachedVaultItem = Static<typeof CachedVaultItemSchema>
-
-// =============================================================================
-// Subscription Schemas
-// =============================================================================
 
 export const WebPushSubscriptionKeysSchema = Type.Object({
   p256dh: Type.String(),
@@ -78,10 +61,6 @@ export const AccountPushSettingsSchema = Type.Intersect([
 ])
 export type AccountPushSettings = Static<typeof AccountPushSettingsSchema>
 
-// =============================================================================
-// Request Params Schemas
-// =============================================================================
-
 export const AccountParamsSchema = Type.Object(
   { account: Type.String() },
   { $id: 'vault.accountParams' },
@@ -94,10 +73,6 @@ export const ItemParamsSchema = Type.Object(
 )
 export type ItemParams = Static<typeof ItemParamsSchema>
 
-// =============================================================================
-// Request Query Schemas
-// =============================================================================
-
 export const ItemsQuerySchema = Type.Object(
   {
     since: Type.Optional(Type.Number()),
@@ -106,10 +81,6 @@ export const ItemsQuerySchema = Type.Object(
   { $id: 'vault.itemsQuery' },
 )
 export type ItemsQuery = Static<typeof ItemsQuerySchema>
-
-// =============================================================================
-// Request Body Schemas
-// =============================================================================
 
 export const CreateAccountBodySchema = Type.Object(
   {
@@ -201,10 +172,6 @@ export const PrayerCompletionBodySchema = Type.Object(
 )
 export type PrayerCompletionBody = Static<typeof PrayerCompletionBodySchema>
 
-// =============================================================================
-// Response Schemas
-// =============================================================================
-
 export const SuccessResponseSchema = Type.Object(
   { success: Type.Boolean() },
   { $id: 'vault.successResponse' },
@@ -286,17 +253,10 @@ export const ReminderSettingsResponseSchema = Type.Object(
 )
 export type ReminderSettingsResponse = Static<typeof ReminderSettingsResponseSchema>
 
-// =============================================================================
-// Schema $id References (for Fastify schema registration)
-// =============================================================================
-
 export const SCHEMA_REFS = {
-  // Params
   ACCOUNT_PARAMS: 'vault.accountParams#',
   ITEM_PARAMS: 'vault.itemParams#',
-  // Query
   ITEMS_QUERY: 'vault.itemsQuery#',
-  // Bodies
   CREATE_ACCOUNT_BODY: 'vault.createAccountBody#',
   LOGIN_BODY: 'vault.loginBody#',
   UPDATE_METADATA_BODY: 'vault.updateMetadataBody#',
@@ -307,7 +267,6 @@ export const SCHEMA_REFS = {
   PUSH_SUBSCRIPTION_DELETE_BODY: 'vault.pushSubscriptionDeleteBody#',
   REMINDER_SETTINGS_BODY: 'vault.reminderSettingsBody#',
   PRAYER_COMPLETION_BODY: 'vault.prayerCompletionBody#',
-  // Responses
   SUCCESS_RESPONSE: 'vault.successResponse#',
   ERROR_RESPONSE: 'vault.errorResponse#',
   ACCOUNT_CREATION_RESPONSE: 'vault.accountCreationResponse#',
@@ -318,4 +277,3 @@ export const SCHEMA_REFS = {
   BATCH_RESULT_RESPONSE: 'vault.batchResultResponse#',
   REMINDER_SETTINGS_RESPONSE: 'vault.reminderSettingsResponse#',
 } as const
-

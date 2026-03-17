@@ -30,7 +30,7 @@ import BaseDriver, {
   VaultItem,
   VaultKey,
 } from './base'
-import type { WebPushSubscription } from '../../shared/apiTypes'
+import type { WebPushSubscription } from '../api/schemas'
 import { ExpiredSessionError } from '../api/errors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'

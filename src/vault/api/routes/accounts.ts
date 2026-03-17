@@ -16,7 +16,7 @@ import {
   type SaltResponse,
   type MetadataResponse,
   type ReminderSettingsResponse,
-} from '../../../shared/apiTypes'
+} from '../schemas'
 import { getAuthToken, hashString } from '../util'
 import { HttpError } from '../errors'
 

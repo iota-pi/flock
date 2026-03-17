@@ -1,25 +1,20 @@
 import type { AccountMetadata } from '../state/account'
+import { apiClient } from './client'
 import type {
   AccountCreationResponse,
   BatchResultResponse,
   CachedVaultItem,
   CreateAccountBody,
-  ItemsResponse,
   LoginBody,
-  MetadataResponse,
   PrayerCompletionBody,
   PushSubscriptionBody,
   PushSubscriptionDeleteBody,
   ReminderSettingsBody,
   ReminderSettingsResponse,
-  SaltResponse,
-  SessionResponse,
-  SuccessResponse,
   VaultItem,
-  VaultKey,
   WebPushSubscription,
-} from '../shared/apiTypes'
-import { getAccountId, flockRequestChunked, flockRequest } from './util'
+} from './client'
+import { getAccountId } from './util'
 import type { CryptoResult } from './Vault'
 
 export class VaultBatchError extends Error {
@@ -46,26 +41,26 @@ function assertDefined<T>(value: T | undefined | null, operation: string, field:
   }
 }
 
-// URL helpers to reduce repeated getAccountId() calls
-function accountUrl(path = '') {
-  return `/${getAccountId()}${path}`
+function getErrorMessage(error: unknown) {
+  if (error && typeof error === 'object' && 'error' in error && typeof error.error === 'string') {
+    return error.error
+  }
+  return undefined
 }
 
-function itemsUrl(itemId?: string) {
-  return accountUrl(itemId ? `/items/${itemId}` : '/items')
+function assertApiResult<T>(
+  result: { data?: T; error?: unknown; response: Response },
+  operation: string,
+): T {
+  if (result.response.ok && result.data !== undefined) {
+    return result.data
+  }
+
+  const message = getErrorMessage(result.error)
+  throw new Error(message ? `VaultAPI ${operation}: ${message}` : `VaultAPI ${operation} request failed`)
 }
 
-function pushSubscriptionsUrl() {
-  return accountUrl('/push-subscriptions')
-}
-
-function reminderSettingsUrl() {
-  return accountUrl('/reminder-settings')
-}
-
-function prayerCompletionUrl() {
-  return accountUrl('/prayer-completion')
-}
+type VaultKey = { item: string }
 
 // Overloads for vaultFetchMany - cacheTime returns partial items, ids returns full items
 export async function vaultFetchMany(params: { cacheTime: number | null; ids?: never }): Promise<CachedVaultItem[]>
@@ -80,48 +75,68 @@ export async function vaultFetchMany({
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
-  const url = itemsUrl()
+  const account = getAccountId()
   if (cacheTime !== undefined) {
-    let urlWithQuery = url
-    if (cacheTime) {
-      urlWithQuery = `${url}?since=${cacheTime}`
-    }
-    const result = await flockRequest<ItemsResponse>(a => a.get(urlWithQuery))
-    return result.items
-  } else if (ids) {
-    const result = await flockRequestChunked<string[], ItemsResponse>(
-      {
-        data: [ids],
-        requestFactory: (
-          a => batch => a.get(
-            `${url}?ids=${batch.join(',')}`
-          )
-        ),
+    const result = await apiClient.GET('/{account}/items', {
+      params: {
+        path: { account },
+        query: cacheTime ? { since: cacheTime } : {},
       },
-    )
-    return result.flatMap(r => r.items)
+    })
+    const data = assertApiResult(result, 'fetchMany')
+    assertSuccess(data, 'fetchMany')
+    return data.items
+  } else if (ids) {
+    const result: CachedVaultItem[] = []
+    const workingIds = ids.slice()
+
+    while (workingIds.length > 0) {
+      const batch = workingIds.splice(0, 10)
+      const response = await apiClient.GET('/{account}/items', {
+        params: {
+          path: { account },
+          query: { ids: batch.join(',') },
+        },
+      })
+      const data = assertApiResult(response, 'fetchMany')
+      assertSuccess(data, 'fetchMany')
+      result.push(...data.items)
+    }
+
+    return result as VaultItem[]
   } else {
     throw new Error('Must provide cacheTime or ids')
   }
 }
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {
-  const url = itemsUrl(item)
-  const result = await flockRequest<SuccessResponse>(
-    a => a.put(url, { cipher, ...metadata }),
-  )
-  assertSuccess(result, 'put')
+  const response = await apiClient.PUT('/{account}/items/{item}', {
+    params: {
+      path: {
+        account: getAccountId(),
+        item,
+      },
+    },
+    body: { cipher, ...metadata },
+  })
+  const data = assertApiResult(response, 'put')
+  assertSuccess(data, 'put')
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
-  const url = itemsUrl()
+  const account = getAccountId()
   const data = items.map(({ cipher, item, metadata }) => ({ cipher, id: item, ...metadata }))
-  const results = await flockRequestChunked<typeof data[number], BatchResultResponse>(
-    {
-      data,
-      requestFactory: a => batch => a.put(url, batch),
-    },
-  )
+  const results: BatchResultResponse[] = []
+
+  for (let i = 0; i < data.length; i += 10) {
+    const batch = data.slice(i, i + 10)
+    const response = await apiClient.PUT('/{account}/items', {
+      params: { path: { account } },
+      body: batch,
+    })
+    results.push(assertApiResult(response, 'putMany'))
+  }
+
   const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
   if (failedItems.length > 0) {
     throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
@@ -129,19 +144,31 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
 }
 
 export async function vaultDelete({ item }: VaultKey) {
-  const url = itemsUrl(item)
-  const result = await flockRequest<SuccessResponse>(a => a.delete(url))
-  assertSuccess(result, 'delete')
+  const response = await apiClient.DELETE('/{account}/items/{item}', {
+    params: {
+      path: {
+        account: getAccountId(),
+        item,
+      },
+    },
+  })
+  const data = assertApiResult(response, 'delete')
+  assertSuccess(data, 'delete')
 }
 
 export async function vaultDeleteMany({ items }: { items: string[] }) {
-  const url = itemsUrl()
-  const results = await flockRequestChunked<string, BatchResultResponse>(
-    {
-      data: items,
-      requestFactory: a => batch => a.delete(url, { data: batch }),
-    },
-  )
+  const account = getAccountId()
+  const results: BatchResultResponse[] = []
+
+  for (let i = 0; i < items.length; i += 10) {
+    const batch = items.slice(i, i + 10)
+    const response = await apiClient.DELETE('/{account}/items', {
+      params: { path: { account } },
+      body: batch,
+    })
+    results.push(assertApiResult(response, 'deleteMany'))
+  }
+
   const failedItems = results.flatMap(r => r.details.filter(d => !d.success))
   if (failedItems.length > 0) {
     throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: f.error })))
@@ -151,81 +178,98 @@ export async function vaultDeleteMany({ items }: { items: string[] }) {
 export async function vaultCreateAccount(
   { salt, authToken }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
-  const url = '/account'
-  const result = await flockRequest<AccountCreationResponse>({
-    factory: a => a.post(url, { salt, authToken }),
-    options: { allowNoInit: true },
+  const response = await apiClient.POST('/account', {
+    body: { salt, authToken },
   })
-  return { account: result.account }
+  const data = assertApiResult(response, 'createAccount')
+  return { account: data.account }
 }
 
 export async function vaultGetSalt(): Promise<string> {
-  const url = accountUrl('/salt')
-  const result = await flockRequest<SaltResponse>({
-    factory: a => a.get(url),
-    options: { allowNoInit: true },
+  const response = await apiClient.GET('/{account}/salt', {
+    params: { path: { account: getAccountId() } },
   })
-  assertSuccess(result, 'getSalt')
-  assertDefined(result.salt, 'getSalt', 'salt')
-  return result.salt
+  const data = assertApiResult(response, 'getSalt')
+  assertSuccess(data, 'getSalt')
+  assertDefined(data.salt, 'getSalt', 'salt')
+  return data.salt
 }
 
 export async function vaultGetSession(authToken: string): Promise<string> {
-  const url = accountUrl('/login')
   const body: LoginBody = { authToken }
-  const result = await flockRequest<SessionResponse>({
-    factory: a => a.post(url, body),
-    options: { allowNoInit: true },
+  const response = await apiClient.POST('/{account}/login', {
+    params: { path: { account: getAccountId() } },
+    body,
   })
-  assertSuccess(result, 'getSession')
-  assertDefined(result.session, 'getSession', 'session')
-  return result.session
+  const data = assertApiResult(response, 'getSession')
+  assertSuccess(data, 'getSession')
+  assertDefined(data.session, 'getSession', 'session')
+  return data.session
 }
 
 export async function vaultGetMetadata(): Promise<AccountMetadata | CryptoResult> {
-  const url = accountUrl()
-  const result = await flockRequest<MetadataResponse>(a => a.get(url))
-  assertSuccess(result, 'getMetadata')
+  const response = await apiClient.GET('/{account}', {
+    params: { path: { account: getAccountId() } },
+  })
+  const data = assertApiResult(response, 'getMetadata')
+  assertSuccess(data, 'getMetadata')
   // Data is encrypted, but `AccountMetadata` is for backwards compatibility
-  return (result.metadata as AccountMetadata | CryptoResult) || {}
+  return (data.metadata as AccountMetadata | CryptoResult) || {}
 }
 
 export async function vaultSetMetadata(metadata: CryptoResult & { version?: number }): Promise<void> {
-  const url = accountUrl()
-  const result = await flockRequest<SuccessResponse>(a => a.patch(url, { metadata }))
-  assertSuccess(result, 'setMetadata')
+  const response = await apiClient.PATCH('/{account}', {
+    params: { path: { account: getAccountId() } },
+    body: { metadata: metadata as unknown as Record<string, unknown> },
+  })
+  const data = assertApiResult(response, 'setMetadata')
+  assertSuccess(data, 'setMetadata')
 }
 
 export async function vaultAddPushSubscription(subscription: WebPushSubscription): Promise<void> {
-  const url = pushSubscriptionsUrl()
   const body: PushSubscriptionBody = { ...subscription }
-  const result = await flockRequest<SuccessResponse>(a => a.post(url, body))
-  assertSuccess(result, 'addPushSubscription')
+  const response = await apiClient.POST('/{account}/push-subscriptions', {
+    params: { path: { account: getAccountId() } },
+    body,
+  })
+  const data = assertApiResult(response, 'addPushSubscription')
+  assertSuccess(data, 'addPushSubscription')
 }
 
 export async function vaultDeletePushSubscription(endpoint: string): Promise<void> {
-  const url = pushSubscriptionsUrl()
   const body: PushSubscriptionDeleteBody = { endpoint }
-  const result = await flockRequest<SuccessResponse>(a => a.delete(url, { data: body }))
-  assertSuccess(result, 'deletePushSubscription')
+  const response = await apiClient.DELETE('/{account}/push-subscriptions', {
+    params: { path: { account: getAccountId() } },
+    body,
+  })
+  const data = assertApiResult(response, 'deletePushSubscription')
+  assertSuccess(data, 'deletePushSubscription')
 }
 
 export async function vaultGetReminderSettings(): Promise<ReminderSettingsResponse> {
-  const url = reminderSettingsUrl()
-  const result = await flockRequest<ReminderSettingsResponse>(a => a.get(url))
-  assertSuccess(result, 'getReminderSettings')
-  return result
+  const response = await apiClient.GET('/{account}/reminder-settings', {
+    params: { path: { account: getAccountId() } },
+  })
+  const data = assertApiResult(response, 'getReminderSettings')
+  assertSuccess(data, 'getReminderSettings')
+  return data
 }
 
 export async function vaultUpdateReminderSettings(settings: ReminderSettingsBody): Promise<void> {
-  const url = reminderSettingsUrl()
-  const result = await flockRequest<SuccessResponse>(a => a.post(url, settings))
-  assertSuccess(result, 'updateReminderSettings')
+  const response = await apiClient.POST('/{account}/reminder-settings', {
+    params: { path: { account: getAccountId() } },
+    body: settings,
+  })
+  const data = assertApiResult(response, 'updateReminderSettings')
+  assertSuccess(data, 'updateReminderSettings')
 }
 
 export async function vaultRecordPrayerCompletion(completedAt: number): Promise<void> {
-  const url = prayerCompletionUrl()
   const body: PrayerCompletionBody = { completedAt }
-  const result = await flockRequest<SuccessResponse>(a => a.post(url, body))
-  assertSuccess(result, 'recordPrayerCompletion')
+  const response = await apiClient.POST('/{account}/prayer-completion', {
+    params: { path: { account: getAccountId() } },
+    body,
+  })
+  const data = assertApiResult(response, 'recordPrayerCompletion')
+  assertSuccess(data, 'recordPrayerCompletion')
 }

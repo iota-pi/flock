@@ -8,7 +8,7 @@ import {
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/account'
-import { VaultItem } from '../shared/apiTypes'
+import type { VaultItem } from './client'
 import { checkAxios } from './axios'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import {

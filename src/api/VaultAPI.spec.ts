@@ -1,11 +1,42 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './VaultAPI'
 import * as util from './util'
+
+const apiClientMock = vi.hoisted(() => ({
+  DELETE: vi.fn(),
+  GET: vi.fn(),
+  PATCH: vi.fn(),
+  POST: vi.fn(),
+  PUT: vi.fn(),
+}))
+
+vi.mock('./client', async importOriginal => {
+  const actual = await importOriginal<typeof import('./client')>()
+  return {
+    ...actual,
+    apiClient: apiClientMock,
+  }
+})
+
+function ok<T>(data: T) {
+  return {
+    data,
+    response: new Response(null, { status: 200 }),
+  }
+}
+
+function notOk(error?: unknown, status = 500) {
+  return {
+    error,
+    response: new Response(null, { status }),
+  }
+}
 
 describe('VaultAPI', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(util, 'getAccountId').mockReturnValue('acct1')
+    Object.values(apiClientMock).forEach(mockFn => mockFn.mockReset())
   })
 
   afterEach(() => {
@@ -14,138 +45,147 @@ describe('VaultAPI', () => {
 
   it('vaultFetchMany with cacheTime returns items', async () => {
     const expected = [{ item: 'a', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }]
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, items: expected } as any)
+    apiClientMock.GET.mockResolvedValue(ok({ success: true, items: expected }))
 
     const result = await api.vaultFetchMany({ cacheTime: 123 })
     expect(result).toEqual(expected)
   })
 
-  it('vaultFetchMany with ids uses flockRequestChunked and flattens results', async () => {
-    const r1 = { success: true, items: [{ item: 'a' }] }
-    const r2 = { success: true, items: [{ item: 'b' }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([r1, r2] as any)
+  it('vaultFetchMany with ids fetches chunks and flattens results', async () => {
+    apiClientMock.GET
+      .mockResolvedValueOnce(ok({ success: true, items: [{ item: 'a' }] }))
+      .mockResolvedValueOnce(ok({ success: true, items: [{ item: 'b' }] }))
 
-    const result = await api.vaultFetchMany({ ids: ['1', '2'] })
+    const result = await api.vaultFetchMany({ ids: Array.from({ length: 11 }, (_, index) => String(index + 1)) })
     expect(result).toEqual([{ item: 'a' }, { item: 'b' }])
   })
 
   it('vaultFetchMany throws when neither cacheTime nor ids provided', async () => {
-    await expect(api.vaultFetchMany({} as any)).rejects.toThrow('Must provide cacheTime or ids')
+    await expect(api.vaultFetchMany({} as never)).rejects.toThrow('Must provide cacheTime or ids')
   })
 
   it('vaultPut succeeds when api returns success', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
+    apiClientMock.PUT.mockResolvedValue(ok({ success: true }))
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).resolves.toBeUndefined()
   })
 
-  it('vaultPut throws when api returns failure', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+  it('vaultPut throws when api request fails', async () => {
+    apiClientMock.PUT.mockResolvedValue(notOk())
     await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).rejects.toThrow()
   })
 
-  it('vaultPutMany succeeds when all items in all chunks return success', async () => {
-    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: true }] }
-    const chunk2 = { success: true, details: [{ item: 'c', success: true }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
-    await expect(api.vaultPutMany({ items: [] as any })).resolves.toBeUndefined()
+  it('vaultPutMany succeeds when all batch items succeed', async () => {
+    apiClientMock.PUT.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'a', success: true }, { item: 'b', success: true }],
+    }))
+    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).resolves.toBeUndefined()
   })
 
   it('vaultPutMany throws when any item in details fails', async () => {
-    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: false }] }
-    const chunk2 = { success: true, details: [{ item: 'c', success: true }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
-    await expect(api.vaultPutMany({ items: [] as any })).rejects.toThrow('failed for items: b')
+    apiClientMock.PUT.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'a', success: true }, { item: 'b', success: false }],
+    }))
+    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).rejects.toThrow('failed for items: b')
   })
 
   it('vaultPutMany includes all failed item ids in error message', async () => {
-    const chunk1 = { success: true, details: [{ item: 'a', success: false }, { item: 'b', success: false }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1] as any)
-    await expect(api.vaultPutMany({ items: [] as any })).rejects.toThrow('failed for items: a, b')
+    apiClientMock.PUT.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'a', success: false }, { item: 'b', success: false }],
+    }))
+    await expect(api.vaultPutMany({ items: [{ item: 'a' }, { item: 'b' }] as any })).rejects.toThrow('failed for items: a, b')
   })
 
   it('vaultDelete succeeds when api returns success', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
+    apiClientMock.DELETE.mockResolvedValue(ok({ success: true }))
     await expect(api.vaultDelete({ item: 'x' })).resolves.toBeUndefined()
   })
 
-  it('vaultDelete throws when api returns failure', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+  it('vaultDelete throws when api request fails', async () => {
+    apiClientMock.DELETE.mockResolvedValue(notOk())
     await expect(api.vaultDelete({ item: 'x' })).rejects.toThrow()
   })
 
   it('vaultDeleteMany succeeds when all items in all chunks succeed', async () => {
-    const chunk1 = { success: true, details: [{ item: 'a', success: true }] }
-    const chunk2 = { success: true, details: [{ item: 'b', success: true }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
+    apiClientMock.DELETE.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'a', success: true }, { item: 'b', success: true }],
+    }))
     await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).resolves.toBeUndefined()
   })
 
   it('vaultDeleteMany throws when any item in details fails', async () => {
-    const chunk1 = { success: true, details: [{ item: 'a', success: true }, { item: 'b', success: false }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1] as any)
+    apiClientMock.DELETE.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'a', success: true }, { item: 'b', success: false }],
+    }))
     await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).rejects.toThrow('failed for items: b')
   })
 
   it('vaultDeleteMany includes all failed item ids in error message', async () => {
-    const chunk1 = { success: true, details: [{ item: 'x', success: false }] }
-    const chunk2 = { success: true, details: [{ item: 'y', success: false }, { item: 'z', success: true }] }
-    vi.spyOn(util, 'flockRequestChunked').mockResolvedValue([chunk1, chunk2] as any)
+    apiClientMock.DELETE.mockResolvedValue(ok({
+      success: true,
+      details: [{ item: 'x', success: false }, { item: 'y', success: false }, { item: 'z', success: true }],
+    }))
     await expect(api.vaultDeleteMany({ items: ['x', 'y', 'z'] })).rejects.toThrow('failed for items: x, y')
   })
 
   it('vaultCreateAccount returns account from response', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ account: 'acct1' } as any)
-    const res = await api.vaultCreateAccount({ salt: 's', authToken: 't' } as any)
+    apiClientMock.POST.mockResolvedValue(ok({ account: 'acct1' }))
+    const res = await api.vaultCreateAccount({ salt: 's', authToken: 't' })
     expect(res).toEqual({ account: 'acct1' })
   })
 
   it('vaultGetSalt validates response', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, salt: 'saltx' } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, salt: 'saltx' }))
     await expect(api.vaultGetSalt()).resolves.toBe('saltx')
 
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
     await expect(api.vaultGetSalt()).rejects.toThrow()
 
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, salt: undefined } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, salt: undefined }))
     await expect(api.vaultGetSalt()).rejects.toThrow()
   })
 
   it('vaultGetSession validates response', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, session: 'sess' } as any)
+    apiClientMock.POST.mockResolvedValueOnce(ok({ success: true, session: 'sess' }))
     await expect(api.vaultGetSession('t')).resolves.toBe('sess')
 
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+    apiClientMock.POST.mockResolvedValueOnce(ok({ success: false }))
     await expect(api.vaultGetSession('t')).rejects.toThrow()
 
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, session: undefined } as any)
+    apiClientMock.POST.mockResolvedValueOnce(ok({ success: true, session: undefined }))
     await expect(api.vaultGetSession('t')).rejects.toThrow()
   })
 
   it('vaultGetMetadata returns metadata when present', async () => {
     const meta = { prayerGoal: 1 }
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true, metadata: meta } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: true, metadata: meta }))
     const res = await api.vaultGetMetadata()
     expect(res).toEqual(meta)
   })
 
   it('vaultGetMetadata throws when success is false', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
     await expect(api.vaultGetMetadata()).rejects.toThrow()
   })
 
   it('vaultSetMetadata succeeds when api returns success', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
+    apiClientMock.PATCH.mockResolvedValue(ok({ success: true }))
     await api.vaultSetMetadata({ cipher: 'c', iv: 'i' } as any)
   })
 
   it('vaultAddPushSubscription and vaultDeletePushSubscription succeed when api returns success', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
-    await api.vaultAddPushSubscription({ endpoint: 'e', keys: { auth: 'a', p256dh: 'p' } } as any)
+    apiClientMock.POST.mockResolvedValue(ok({ success: true }))
+    apiClientMock.DELETE.mockResolvedValue(ok({ success: true }))
+    await api.vaultAddPushSubscription({ endpoint: 'e', keys: { auth: 'a', p256dh: 'p' } })
     await api.vaultDeletePushSubscription('e')
   })
 
   it('vaultGetReminderSettings throws on !success and returns response on success', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: false } as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok({ success: false }))
     await expect(api.vaultGetReminderSettings()).rejects.toThrow()
 
     const settings = {
@@ -154,13 +194,13 @@ describe('VaultAPI', () => {
       reminderTime: '08:00',
       reminderTimezone: 'UTC',
     }
-    vi.spyOn(util, 'flockRequest').mockResolvedValue(settings as any)
+    apiClientMock.GET.mockResolvedValueOnce(ok(settings))
     const res = await api.vaultGetReminderSettings()
     expect(res).toEqual(settings)
   })
 
   it('vaultUpdateReminderSettings and vaultRecordPrayerCompletion succeed', async () => {
-    vi.spyOn(util, 'flockRequest').mockResolvedValue({ success: true } as any)
+    apiClientMock.POST.mockResolvedValue(ok({ success: true }))
     await expect(api.vaultUpdateReminderSettings({
       reminderEnabled: true,
       reminderTime: '09:00',

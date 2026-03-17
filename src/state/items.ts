@@ -1,6 +1,7 @@
 import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
-import { ITEM_TYPES, ItemType } from '../shared/apiTypes'
+import { ITEM_TYPES } from '../shared/itemTypes'
+import type { ItemType } from '../shared/itemTypes'
 
 export { ITEM_TYPES }
 export type { ItemType }

@@ -4,6 +4,11 @@ import axios, {
   CreateAxiosDefaults,
 } from 'axios'
 import env from '../env'
+import {
+  hasApiAuthToken,
+  setApiAuthToken,
+  setApiSessionExpiredHandler,
+} from './client'
 
 let axiosWithAuth: AxiosInstance | null = null
 let onSessionExpired: (() => void) | null = null
@@ -18,9 +23,11 @@ const baseOptions: CreateAxiosDefaults = {
  */
 export function setSessionExpiredHandler(handler: () => void) {
   onSessionExpired = handler
+  setApiSessionExpiredHandler(handler)
 }
 
 export function initAxios(authToken: string) {
+  setApiAuthToken(authToken)
   axiosWithAuth = axios.create({
     ...baseOptions,
     ...getAuth(authToken),
@@ -49,7 +56,7 @@ export function getAxios(allowNoInit = false): AxiosInstance {
 }
 
 export function checkAxios() {
-  return !!axiosWithAuth
+  return !!axiosWithAuth || hasApiAuthToken()
 }
 
 function getAuth(authToken: string): AxiosRequestConfig {

@@ -1,5 +1,5 @@
 import { AccountMetadata } from '../state/account'
-import { VaultItem } from '../shared/apiTypes'
+import type { VaultItem } from './client'
 import {
   checkProperties,
   GroupItem,
