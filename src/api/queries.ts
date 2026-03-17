@@ -19,6 +19,8 @@ import {
 } from './mutations'
 import { handleVaultError, queryClient, queryKeys } from './client'
 import migrateItems from '../state/migrations'
+import store from '../store'
+import type { AccountState } from '../state/account'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
@@ -136,6 +138,16 @@ export function useMetadataQuery(enabled = true) {
     queryFn: fetchMetadata,
     enabled,
     refetchOnMount: 'always',
+  })
+}
+
+export function useAccountQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.account,
+    queryFn: async () => store.getState().account,
+    initialData: store.getState().account as AccountState,
+    enabled,
+    staleTime: Infinity,
   })
 }
 

@@ -8,11 +8,9 @@ import {
 import {
   Item,
 } from '../state/items'
-import { setAccount } from '../state/account'
-import store, { AppDispatch } from '../store'
+import store from '../store'
 import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
-import { setUi } from '../state/ui'
 import {
   fromBytes,
   toBytes,
@@ -34,13 +32,6 @@ export interface VaultImportExportData {
   key: string,
 }
 
-export interface VaultConstructorData {
-  account: string,
-  dispatch: AppDispatch,
-  key: CryptoKey,
-  keyHash: string,
-}
-
 let key: CryptoKey | null = null
 let keyHash: string = ''
 let session: string = ''
@@ -50,12 +41,12 @@ export function handleVaultError(error: Error, message: string) {
     return
   }
   console.error(error)
-  store.dispatch(setUi({
+  store.actions.setUi({
     message: {
       message,
       severity: 'error',
     },
-  }))
+  })
 }
 
 function getKey() {
@@ -126,12 +117,12 @@ function handleSessionExpired() {
   isHandlingSessionExpiry = true
 
   signOutVault()
-  store.dispatch(setUi({
+  store.actions.setUi({
     message: {
       message: 'Your session has expired. Please log in again.',
       severity: 'warning',
     },
-  }))
+  })
 
   // Reset flag after a short delay to allow re-triggering if needed
   setTimeout(() => {
@@ -142,7 +133,7 @@ function handleSessionExpired() {
 export async function loadVault() {
   const account = localStorage.getItem(ACCOUNT_STORAGE_KEY)
   if (account) {
-    store.dispatch(setAccount({ account }))
+    store.actions.setAccount({ account })
   }
 
   const storedKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
@@ -160,10 +151,10 @@ export async function loadVault() {
     initAxios(session)
     setSessionExpiredHandler(handleSessionExpired)
 
-    store.dispatch(setAccount({ loggedIn: true }))
+    store.actions.setAccount({ loggedIn: true })
   }
 
-  store.dispatch(setAccount({ initializing: false }))
+  store.actions.setAccount({ initializing: false })
 }
 
 export async function storeVault() {
@@ -184,7 +175,7 @@ export function signOutVault() {
   queryClient.clear()
 
   // Clear state
-  store.dispatch(setAccount({ account: '', loggedIn: false }))
+  store.actions.setAccount({ account: '', loggedIn: false })
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
 }

@@ -2,8 +2,8 @@ import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
-import { clearDrawers, DrawerData, removeActive, updateActive } from '../../state/ui'
-import { useAppDispatch, useAppSelector } from '../../store'
+import { DrawerData } from '../../state/ui'
+import { useAppActions, useAppSelector } from '../../store'
 import ItemDrawer from '../drawers/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
 import { useItem, useLoggedIn } from '../../state/selectors'
@@ -11,7 +11,7 @@ import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
 
 function useDrawerRouting(drawers: DrawerData[]) {
-  const dispatch = useAppDispatch()
+  const { clearDrawers, removeActive } = useAppActions()
   const routerLocation = useLocation()
   const navigate = useNavigate()
   const prevDrawers = usePrevious(drawers)
@@ -21,10 +21,10 @@ function useDrawerRouting(drawers: DrawerData[]) {
   useEffect(
     () => {
       if (prevPathname && prevPathname !== routerLocation.pathname && drawers.length > 0) {
-        dispatch(clearDrawers())
+        clearDrawers()
       }
     },
-    [dispatch, drawers.length, prevPathname, routerLocation.pathname],
+    [clearDrawers, drawers.length, prevPathname, routerLocation.pathname],
   )
 
   useEffect(
@@ -63,16 +63,16 @@ function useDrawerRouting(drawers: DrawerData[]) {
       const secondTopItem = drawers[drawers.length - 2]?.item
 
       if (prevLocationHash !== routerLocation.hash && secondTopItem === id) {
-        dispatch(removeActive())
+        removeActive()
       } else if (prevLocationHash && !id && drawers.length > 0) {
         // Only close if the hash that was removed matches the current top item
         const prevId = prevLocationHash.replace(/^#/, '')
         if (prevId === topItemId) {
-          dispatch(removeActive())
+          removeActive()
         }
       }
     },
-    [dispatch, drawers, prevLocationHash, routerLocation],
+    [drawers, prevLocationHash, removeActive, routerLocation],
   )
 }
 
@@ -134,7 +134,7 @@ function IndividualDrawer({
 const noop = () => {}
 
 function DrawerDisplay() {
-  const dispatch = useAppDispatch()
+  const { removeActive, updateActive } = useAppActions()
   const drawers = useAppSelector(state => state.ui.drawers)
   const loggedIn = useLoggedIn()
   const page = usePage()
@@ -142,12 +142,12 @@ function DrawerDisplay() {
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
 
   const handleClose = useCallback(
-    () => dispatch(updateActive({ open: false })),
-    [dispatch],
+    () => updateActive({ open: false }),
+    [updateActive],
   )
   const handleExited = useCallback(
-    () => dispatch(removeActive()),
-    [dispatch],
+    () => removeActive(),
+    [removeActive],
   )
   const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose
 

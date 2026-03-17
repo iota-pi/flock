@@ -1,8 +1,4 @@
 import type { AxiosInstance, AxiosResponse } from 'axios'
-import {
-  finishRequest as finishRequestAction,
-  startRequest as startRequestAction,
-} from '../state/ui'
 import store from '../store'
 import { getAxios } from './axios'
 
@@ -15,11 +11,11 @@ export function getAccountId() {
 }
 
 function startRequest() {
-  store.dispatch(startRequestAction())
+  store.actions.startRequest()
 }
 
 function finishRequest(error?: string) {
-  store.dispatch(finishRequestAction(error))
+  store.actions.finishRequest(error)
 }
 
 export type FlockRequestOptions = {

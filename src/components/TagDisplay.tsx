@@ -1,8 +1,7 @@
 import { MouseEvent, useCallback } from 'react'
 import { Box, Chip, Stack, styled, Typography } from '@mui/material'
-import { useAppDispatch } from '../store'
+import { useAppActions } from '../store'
 import { ItemId } from '../state/items'
-import { replaceActive } from '../state/ui'
 
 const StyledChip = styled(Chip)(({ theme }) => ({
   marginTop: theme.spacing(0.5),
@@ -30,14 +29,14 @@ function TagChip({
   tag,
   linkedId,
 }: TagChipProps) {
-  const dispatch = useAppDispatch()
+  const { replaceActive } = useAppActions()
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
-      dispatch(replaceActive({ item: linkedId }))
+      replaceActive({ item: linkedId })
       event.stopPropagation()
     },
-    [dispatch, linkedId],
+    [linkedId, replaceActive],
   )
 
   return (

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useAppDispatch, useAppSelector } from '../store'
-import { setMessage, setUi } from '../state/ui'
+import { useAppActions, useAppSelector } from '../store'
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   exportData,
@@ -22,7 +21,7 @@ export type SettingsDialogType = (
 
 export default function useSettings() {
   const account = useAppSelector(state => state.account.account)
-  const dispatch = useAppDispatch()
+  const { setMessage, setUi } = useAppActions()
   const items = useItems()
   const { mutateAsync: storeItems } = useStoreItemsMutation()
 
@@ -30,20 +29,20 @@ export default function useSettings() {
   const handleSignOut = useCallback(
     () => {
       signOutVault()
-      dispatch(setMessage({ message: 'Signed out' }))
+      setMessage({ message: 'Signed out' })
     },
-    [dispatch],
+    [setMessage],
   )
 
   const darkMode = useAppSelector(state => state.ui.darkMode)
   const handleToggleDarkMode = useCallback(
-    () => dispatch(setUi({
+    () => setUi({
       darkMode: (() => {
         const next = getNextDarkMode(darkMode)
         return next
       })()
-    })),
-    [darkMode, dispatch],
+    }),
+    [darkMode, setUi],
   )
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
@@ -51,9 +50,9 @@ export default function useSettings() {
     () => {
       clearQueryCache()
       setCacheClearCounter(c => c + 1)
-      dispatch(setMessage({ message: 'Item cache cleared' }))
+      setMessage({ message: 'Item cache cleared' })
     },
-    [dispatch],
+    [setMessage],
   )
 
   const handleExport = useCallback(
@@ -61,14 +60,14 @@ export default function useSettings() {
       try {
         const data = await exportData(items)
         const json = JSON.stringify(data)
-        dispatch(setMessage({ message: 'Backup created' }))
+        setMessage({ message: 'Backup created' })
         return json
       } catch (err) {
-        dispatch(setMessage({ message: 'Failed to create backup', severity: 'error' }))
+        setMessage({ message: 'Failed to create backup', severity: 'error' })
         throw err
       }
     },
-    [dispatch, items],
+    [items, setMessage],
   )
 
   // Dialog State
@@ -81,28 +80,28 @@ export default function useSettings() {
     async (restored: Item[]) => {
       try {
         await storeItems(restored)
-        dispatch(setMessage({ message: 'Restore successful' }))
+        setMessage({ message: 'Restore successful' })
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Restore failed', severity: 'error' }))
+        setMessage({ message: 'Restore failed', severity: 'error' })
         console.error('Restore failed', err)
       }
     },
-    [dispatch, closeDialog, storeItems],
+    [closeDialog, setMessage, storeItems],
   )
 
   const handleConfirmImport = useCallback(
     async (imported: Item[]) => {
       try {
         await storeItems(imported)
-        dispatch(setMessage({ message: 'Import successful' }))
+        setMessage({ message: 'Import successful' })
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Import failed', severity: 'error' }))
+        setMessage({ message: 'Import failed', severity: 'error' })
         console.error('Import failed', err)
       }
     },
-    [dispatch, closeDialog, storeItems],
+    [closeDialog, setMessage, storeItems],
   )
 
   const handleSubscribe = useCallback(
@@ -111,18 +110,18 @@ export default function useSettings() {
         const { subscribe, unsubscribe } = await import('../utils/pushNotifications')
         if (hours) {
           await subscribe(hours)
-          dispatch(setMessage({ message: 'Subscription saved' }))
+          setMessage({ message: 'Subscription saved' })
         } else {
           await unsubscribe()
-          dispatch(setMessage({ message: 'Subscription removed' }))
+          setMessage({ message: 'Subscription removed' })
         }
         closeDialog()
       } catch (err) {
-        dispatch(setMessage({ message: 'Failed to update subscription', severity: 'error' }))
+        setMessage({ message: 'Failed to update subscription', severity: 'error' })
         console.error('Subscription update failed', err)
       }
     },
-    [closeDialog, dispatch],
+    [closeDialog, setMessage],
   )
 
   const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
@@ -133,12 +132,12 @@ export default function useSettings() {
   const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group', Frequency>>) => {
     try {
       await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
-      dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
+      setMessage({ message: 'Default prayer frequencies saved' })
     } catch (err) {
-      dispatch(setMessage({ message: 'Failed to save defaults', severity: 'error' }))
+      setMessage({ message: 'Failed to save defaults', severity: 'error' })
       console.error('Failed to save default frequencies', err)
     }
-  }, [dispatch, setDefaultFrequencies])
+  }, [setDefaultFrequencies, setMessage])
 
   // Values
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])

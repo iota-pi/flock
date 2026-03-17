@@ -10,8 +10,7 @@ import {
   useSortCriteria,
 } from '../../state/selectors'
 import BasePage from './BasePage'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setUi, replaceActive, toggleSelected } from '../../state/ui'
+import { useAppActions, useAppSelector } from '../../store'
 import { useAsyncItems } from '../../hooks/useAsyncItems'
 
 export interface Props<T extends Item> {
@@ -21,7 +20,11 @@ export interface Props<T extends Item> {
 function ItemPage<T extends Item>({
   itemType,
 }: Props<T>) {
-  const dispatch = useAppDispatch()
+  const {
+    replaceActive,
+    setUi,
+    toggleSelected,
+  } = useAppActions()
   const isActive = useIsActive()
   const rawItems = useItems<T>(itemType)
   const selected = useAppSelector(state => state.ui.selected)
@@ -50,24 +53,24 @@ function ItemPage<T extends Item>({
 
   const handleClickItem = useCallback(
     (item: T) => {
-      dispatch(replaceActive({ item: item.id }))
+      replaceActive({ item: item.id })
     },
-    [dispatch],
+    [replaceActive],
   )
   const handleClickAdd = useCallback(
     () => {
-      dispatch(replaceActive({
+      replaceActive({
         newItem: {
           ...getBlankItem(itemType),
           prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
         },
-      }))
+      })
     },
-    [defaultFrequencies, dispatch, itemType],
+    [defaultFrequencies, itemType, replaceActive],
   )
   const handleCheck = useCallback(
-    (item: T) => dispatch(toggleSelected(item.id)),
-    [dispatch],
+    (item: T) => toggleSelected(item.id),
+    [toggleSelected],
   )
   const allSelected = useMemo(
     () => selected.length === items.length && selected.length > 0,
@@ -76,9 +79,9 @@ function ItemPage<T extends Item>({
   const handleSelectAll = useCallback(
     () => {
       const newSelected = allSelected ? [] : items.map(item => item.id)
-      dispatch(setUi({ selected: newSelected }))
+      setUi({ selected: newSelected })
     },
-    [allSelected, dispatch, items],
+    [allSelected, items, setUi],
   )
 
   const getChecked = useCallback((item: T) => selected.includes(item.id), [selected])

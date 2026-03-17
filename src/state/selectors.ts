@@ -4,11 +4,12 @@ import { DEFAULT_CRITERIA } from '../utils/customSort'
 import { AccountMetadata as Metadata, MetadataKey } from './account'
 import { Item, ItemId } from './items'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
+import { useAuth } from '../hooks/useAuth'
 
 const EMPTY_ARRAY: [] = []
 
-export const useLoggedIn = () => useAppSelector(state => state.account.loggedIn)
-export const useAuthInitializing = () => useAppSelector(state => state.account.initializing)
+export const useLoggedIn = () => useAuth().loggedIn
+export const useAuthInitializing = () => useAuth().initializing
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]

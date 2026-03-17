@@ -8,7 +8,7 @@ import {
   styled,
   Typography,
 } from '@mui/material'
-import { useAppDispatch, useAppSelector } from '../store'
+import { useAppActions, useAppSelector } from '../store'
 import {
   ArchiveIcon,
   DeleteIcon,
@@ -22,7 +22,6 @@ import { useItemsById } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import ConfirmationDialog from './dialogs/ConfirmationDialog'
-import { setUi } from '../state/ui'
 import GroupDialog from './dialogs/GroupDialog'
 import FrequencyDialog from './dialogs/FrequencyDialog'
 import { useDeleteItemsMutation, useStoreItemsMutation } from '../api/queries'
@@ -49,7 +48,7 @@ const PADDING_HEIGHT = 2
 const ACTION_HEIGHT = 36.02
 
 function SelectedActions() {
-  const dispatch = useAppDispatch()
+  const { setUi } = useAppActions()
   const getItemsById = useItemsById()
   const selected = useAppSelector(state => state.ui.selected)
   const { mutateAsync: deleteItems } = useDeleteItemsMutation()
@@ -87,8 +86,8 @@ function SelectedActions() {
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
-    () => dispatch(setUi({ selected: [] })),
-    [dispatch],
+    () => setUi({ selected: [] }),
+    [setUi],
   )
 
   const open = selectedItems.length > 0

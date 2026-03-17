@@ -13,8 +13,7 @@ import {
 } from '@mui/material'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { useAppDispatch } from '../../store'
-import { setUi } from '../../state/ui'
+import { useAppActions } from '../../store'
 import { useMetadataQuery } from '../../api/queries'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
@@ -168,7 +167,7 @@ function MainMenu({
   onMinimise,
   open,
 }: Props) {
-  const dispatch = useAppDispatch()
+  const { setUi } = useAppActions()
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useMetadataQuery(loggedIn)
@@ -179,7 +178,7 @@ function MainMenu({
       if (pageId && page?.id !== pageId) {
         const newPage = pages.find(p => p.id === pageId)!
         navigate(newPage.path)
-        dispatch(setUi({ selected: [] }))
+        setUi({ selected: [] })
       } else if (pageId === 'prayer' && page?.id === 'prayer') {
         navigate('/', {
           replace: true,
@@ -190,7 +189,7 @@ function MainMenu({
       }
       onClick()
     },
-    [page?.id, dispatch, navigate, onClick],
+    [page?.id, navigate, onClick, setUi],
   )
 
   const pagesToShow = useMemo(

@@ -3,8 +3,7 @@ import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, ItemId } from '../state/items'
 import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
-import { useAppDispatch } from '../store'
-import { pushActive } from '../state/ui'
+import { useAppActions } from '../store'
 import { useStoreItemsMutation } from '../api/queries'
 import Search from './Search'
 
@@ -19,7 +18,7 @@ function GroupDisplay({
   itemId,
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
-  const dispatch = useAppDispatch()
+  const { pushActive } = useAppActions()
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const currentGroups = useMemo(
@@ -49,9 +48,9 @@ function GroupDisplay({
   )
   const handleClickGroup = useCallback(
     (group: GroupItem) => {
-      dispatch(pushActive({ item: group.id }))
+      pushActive({ item: group.id })
     },
-    [dispatch],
+    [pushActive],
   )
 
   return (

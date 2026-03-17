@@ -6,8 +6,7 @@ import DeleteIcon from '@mui/icons-material/Close'
 import { GroupItem, Item, ItemId, PersonItem } from '../state/items'
 import { useItemsById, useSortCriteria } from '../state/selectors'
 import ItemList from './ItemList'
-import { useAppDispatch } from '../store'
-import { pushActive } from '../state/ui'
+import { useAppActions } from '../store'
 import { sortItems } from '../utils/customSort'
 import Search from './Search'
 
@@ -25,7 +24,7 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const dispatch = useAppDispatch()
+  const { pushActive } = useAppActions()
   const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
 
@@ -36,9 +35,9 @@ function MemberDisplay({
 
   const handleClickItem = useCallback(
     (item: PersonItem) => {
-      dispatch(pushActive({ item: item.id }))
+      pushActive({ item: item.id })
     },
-    [dispatch],
+    [pushActive],
   )
   const handleSelect = useCallback(
     (item: Item) => {

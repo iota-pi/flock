@@ -3,11 +3,11 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import createClient from 'openapi-fetch'
 import env from '../env'
 import type { paths } from '../shared/schema'
-import { setUi } from '../state/ui'
 import store from '../store'
 
 // Query Keys
 export const queryKeys = {
+  account: ['account'] as const,
   items: ['items'] as const,
   metadata: ['metadata'] as const,
 }
@@ -39,11 +39,11 @@ let authToken = ''
 let onSessionExpired: (() => void) | null = null
 
 function startRequest() {
-  store.dispatch({ type: 'ui/startRequest' })
+  store.actions.startRequest()
 }
 
 function finishRequest(error?: string) {
-  store.dispatch({ type: 'ui/finishRequest', payload: error })
+  store.actions.finishRequest(error)
 }
 
 async function trackedFetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -138,12 +138,12 @@ export function handleVaultError(error: Error, message: string) {
     return
   }
   console.error(error)
-  store.dispatch(setUi({
+  store.actions.setUi({
     message: {
       message,
       severity: 'error',
     },
-  }))
+  })
 }
 
 // Helper to clear the cache (e.g., on logout)

@@ -4,8 +4,7 @@ import {
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { Item } from '../../state/items'
-import { replaceActive } from '../../state/ui'
-import { useAppDispatch } from '../../store'
+import { useAppActions } from '../../store'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
 
@@ -20,7 +19,7 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const dispatch = useAppDispatch()
+  const { replaceActive } = useAppActions()
   const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {
@@ -34,20 +33,20 @@ function EverythingSearch({
 
   const handleCreate = useCallback(
     (newItem: Item) => {
-      dispatch(replaceActive({ newItem }))
+      replaceActive({ newItem })
     },
-    [dispatch],
+    [replaceActive],
   )
   const handleSelect = useCallback(
     (item: Item) => {
       if (item) {
-        dispatch(replaceActive({ item: item.id }))
+        replaceActive({ item: item.id })
       }
       if (onSelect) {
         onSelect(item)
       }
     },
-    [dispatch, onSelect],
+    [onSelect, replaceActive],
   )
 
   return (

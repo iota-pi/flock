@@ -1,17 +1,17 @@
 import { vi, describe, it, expect } from 'vitest'
-import uiReducer, {
-  setUi,
-  startRequest,
-  finishRequest,
-  setMessage,
-  toggleSelected,
-  pushActive,
-  replaceActive,
-  updateActive,
-  removeActive,
-  pruneItemDrawers,
-  UIState,
-} from './ui'
+import {
+  finishRequestState,
+  pruneItemDrawersState,
+  pushActiveState,
+  removeActiveState,
+  replaceActiveState,
+  setMessageState,
+  setUiState,
+  startRequestState,
+  toggleSelectedState,
+  updateActiveState,
+} from './storeActions/uiActions'
+import { UIState } from './ui'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 
 // Mock generateItemId
@@ -31,31 +31,31 @@ const initialState: UIState = {
   justCreatedAccount: false,
 }
 
-describe('ui reducer', () => {
-  it('should handle setUi', () => {
-    const newState = uiReducer(initialState, setUi({
+describe('ui state transforms', () => {
+  it('should handle setUiState', () => {
+    const newState = setUiState(initialState, {
       darkMode: true,
       requests: { active: 5 }
-    }))
+    })
     expect(newState.darkMode).toBe(true)
     expect(newState.requests.active).toBe(5)
   })
 
-  it('should handle startRequest', () => {
-    const newState = uiReducer(initialState, startRequest())
+  it('should handle startRequestState', () => {
+    const newState = startRequestState(initialState)
     expect(newState.requests.active).toBe(1)
   })
 
-  it('should handle finishRequest without error', () => {
+  it('should handle finishRequestState without error', () => {
     const activeState = { ...initialState, requests: { active: 1 } }
-    const newState = uiReducer(activeState, finishRequest())
+    const newState = finishRequestState(activeState)
     expect(newState.requests.active).toBe(0)
     expect(newState.message).toBeNull()
   })
 
-  it('should handle finishRequest with error', () => {
+  it('should handle finishRequestState with error', () => {
     const activeState = { ...initialState, requests: { active: 1 } }
-    const newState = uiReducer(activeState, finishRequest('Failed'))
+    const newState = finishRequestState(activeState, 'Failed')
     expect(newState.requests.active).toBe(0)
     expect(newState.message).toEqual({
       severity: 'error',
@@ -63,28 +63,28 @@ describe('ui reducer', () => {
     })
   })
 
-  it('should handle setMessage', () => {
-    const newState = uiReducer(initialState, setMessage({ message: 'Success' }))
+  it('should handle setMessageState', () => {
+    const newState = setMessageState(initialState, { message: 'Success' })
     expect(newState.message).toEqual({
       severity: 'success',
       message: 'Success',
     })
   })
 
-  it('should handle toggleSelected', () => {
-    let state = uiReducer(initialState, toggleSelected('1'))
+  it('should handle toggleSelectedState', () => {
+    let state = toggleSelectedState(initialState, '1')
     expect(state.selected).toContain('1')
 
-    state = uiReducer(state, toggleSelected('2'))
+    state = toggleSelectedState(state, '2')
     expect(state.selected).toEqual(['1', '2'])
 
-    state = uiReducer(state, toggleSelected('1'))
+    state = toggleSelectedState(state, '1')
     expect(state.selected).toEqual(['2'])
   })
 
   describe('drawer actions', () => {
-    it('should handle pushActive', () => {
-      const newState = uiReducer(initialState, pushActive({ item: '1' }))
+    it('should handle pushActiveState', () => {
+      const newState = pushActiveState(initialState, { item: '1' })
       expect(newState.drawers).toHaveLength(1)
       expect(newState.drawers[0]).toEqual({
         id: 'mock-id',
@@ -93,12 +93,12 @@ describe('ui reducer', () => {
       })
     })
 
-    it('should handle replaceActive', () => {
+    it('should handle replaceActiveState', () => {
       const stateWithDrawer: UIState = {
         ...initialState,
         drawers: [{ id: 'old-id', open: true, item: '1' }]
       }
-      const newState = uiReducer(stateWithDrawer, replaceActive({ item: '2' }))
+      const newState = replaceActiveState(stateWithDrawer, { item: '2' })
       expect(newState.drawers).toHaveLength(1)
       expect(newState.drawers[0]).toEqual({
         id: 'old-id',
@@ -107,12 +107,12 @@ describe('ui reducer', () => {
       })
     })
 
-    it('should handle updateActive', () => {
+    it('should handle updateActiveState', () => {
       const stateWithDrawer: UIState = {
         ...initialState,
         drawers: [{ id: 'old-id', open: true, item: '1', praying: false }]
       }
-      const newState = uiReducer(stateWithDrawer, updateActive({ praying: true }))
+      const newState = updateActiveState(stateWithDrawer, { praying: true })
       expect(newState.drawers).toHaveLength(1)
       expect(newState.drawers[0]).toEqual({
         id: 'old-id', // ID should be preserved
@@ -122,17 +122,17 @@ describe('ui reducer', () => {
       })
     })
 
-    it('should handle removeActive', () => {
+    it('should handle removeActiveState', () => {
       const stateWithDrawer: UIState = {
         ...initialState,
         drawers: [{ id: '1', open: true, item: '1' }]
       }
-      const newState = uiReducer(stateWithDrawer, removeActive())
+      const newState = removeActiveState(stateWithDrawer)
       expect(newState.drawers).toHaveLength(0)
     })
   })
 
-  describe('pruneItemDrawers', () => {
+  describe('pruneItemDrawersState', () => {
     it('should remove pruned items from drawers', () => {
       const state: UIState = {
         ...initialState,
@@ -143,7 +143,7 @@ describe('ui reducer', () => {
         selected: ['keep', 'delete']
       }
 
-      const newState = uiReducer(state, pruneItemDrawers(['delete']))
+      const newState = pruneItemDrawersState(state, ['delete'])
       expect(newState.drawers).toHaveLength(1)
       expect(newState.drawers[0].item).toBe('keep')
       expect(newState.selected).toEqual(['keep'])
@@ -156,7 +156,7 @@ describe('ui reducer', () => {
           { id: '1', open: true, item: '1', next: ['2', '3', '4'] },
         ]
       }
-      const newState = uiReducer(state, pruneItemDrawers(['3']))
+      const newState = pruneItemDrawersState(state, ['3'])
       expect(newState.drawers[0].next).toEqual(['2', '4'])
     })
   })

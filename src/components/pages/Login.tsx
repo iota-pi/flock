@@ -14,11 +14,9 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { ROUTES } from './routes'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setAccount } from '../../state/account'
+import { useAppActions, useAppSelector } from '../../store'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
 import { fetchSalt, loginVault } from '../../api/VaultLazy'
-import { setUi } from '../../state/ui'
 
 
 const Root = styled('div')({
@@ -54,7 +52,7 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 
 function LoginPage() {
-  const dispatch = useAppDispatch()
+  const { setAccount, setUi } = useAppActions()
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
@@ -69,10 +67,10 @@ function LoginPage() {
     () => {
       if (justCreatedAccount) {
         setAccountInput(createdAccountId)
-        dispatch(setUi({ justCreatedAccount: false }))
+        setUi({ justCreatedAccount: false })
       }
     },
-    [createdAccountId, dispatch, justCreatedAccount],
+    [createdAccountId, justCreatedAccount, setUi],
   )
 
   const handleClickHome = useCallback(
@@ -85,27 +83,27 @@ function LoginPage() {
     async () => {
       setLoading(true)
       setError('')
-      dispatch(setAccount({ account: accountInput }))
+      setAccount({ account: accountInput })
       const salt = await fetchSalt().catch(() => '')
       if (salt.length) {
         try {
           await loginVault({ password, salt })
-          dispatch(setAccount({ loggedIn: true }))
+          setAccount({ loggedIn: true })
           navigate(ROUTES.prayer.path)
         } catch (error) {
           console.error('Error during vault initialization:', error)
-          dispatch(setAccount({ account: '' }))
+          setAccount({ account: '' })
           setError('Login failed.')
         } finally {
           setLoading(false)
         }
       } else {
-        dispatch(setAccount({ account: '' }))
+        setAccount({ account: '' })
         setError('Could not find matching account ID and password.')
         setLoading(false)
       }
     },
-    [accountInput, dispatch, navigate, password],
+    [accountInput, navigate, password, setAccount],
   )
   const handleClickCreate = useCallback(
     () => {

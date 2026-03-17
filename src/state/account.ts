@@ -1,4 +1,3 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 import type { ItemType } from './items'
 import type { SortCriterion } from '../utils/customSort'
 import type { Frequency } from '../utils/frequencies'
@@ -27,19 +26,23 @@ export const initialState: AccountState = {
   initializing: true,
 }
 
-const accountSlice = createSlice({
-  name: 'account',
-  initialState,
-  reducers: {
-    setAccount(state, action: PayloadAction<Partial<AccountState>>) {
-      return {
-        ...state,
-        ...action.payload,
-      }
-    },
-  },
-})
+export const ACCOUNT_SET = 'account/setAccount'
 
-export const { setAccount } = accountSlice.actions
+export function setAccount(payload: Partial<AccountState>) {
+  return {
+    type: ACCOUNT_SET,
+    payload,
+  }
+}
 
-export default accountSlice.reducer
+export type AccountAction = ReturnType<typeof setAccount>
+
+export function reduceAccount(state: AccountState, action: AccountAction): AccountState {
+  if (action.type === ACCOUNT_SET) {
+    return {
+      ...state,
+      ...action.payload,
+    }
+  }
+  return state
+}
