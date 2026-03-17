@@ -15,6 +15,7 @@ import {
   mutateDeleteItems,
   mutateSetMetadata,
   mutateStoreItems,
+  optimisticStoreItemsUpdate,
 } from './mutations'
 import { handleVaultError, queryClient, queryKeys } from './client'
 import migrateItems from '../state/migrations'
@@ -147,8 +148,27 @@ export function useSetMetadataMutation() {
 
 // Hook: Store items mutation
 export function useStoreItemsMutation() {
-  return useMutation({
-    mutationFn: mutateStoreItems,
+  return useMutation<Item[], Error, Item | Item[], { previousItems: Item[] | undefined }>({
+    mutationFn: items => mutateStoreItems(items, { externalCacheLifecycle: true }),
+    onMutate: async items => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.items })
+
+      const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
+      const nextItems = Array.isArray(items) ? items : [items]
+
+      queryClient.setQueryData<Item[]>(
+        queryKeys.items,
+        old => optimisticStoreItemsUpdate(old, nextItems),
+      )
+
+      return { previousItems }
+    },
+    onError: (_error, _items, context) => {
+      queryClient.setQueryData(queryKeys.items, context?.previousItems)
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    },
   })
 }
 

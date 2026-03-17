@@ -22,7 +22,6 @@ import {
   PrayerIcon,
   UnarchiveIcon,
 } from '../../Icons'
-import BasePage from '../BasePage'
 import PrayerStepper from './PrayerStepper'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
@@ -132,7 +131,7 @@ function PrayerActiveView({
   })
 
   return (
-    <BasePage noScrollContainer>
+    <>
       <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
         <ItemViewTopBar
           editButtonDataCy="active-item-edit-button"
@@ -157,20 +156,24 @@ function PrayerActiveView({
           >
             {items.map((item, itemIndex) => (
               <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
-                <Container maxWidth={false} sx={{ py: 2 }}>
-                  <ItemFormContent
-                    autoFocusName={false}
-                    fromPrayerPage
-                    handleChange={
-                      itemIndex === activeIndex
-                        ? onItemChange
-                        : (() => undefined)
-                    }
-                    hideHeaderFields
-                    hideRelationships
-                    item={item}
-                  />
-                </Container>
+                {Math.abs(itemIndex - activeIndex) <= 1
+                  ? (
+                      <Container maxWidth={false} sx={{ py: 2 }}>
+                        <ItemFormContent
+                          autoFocusName={false}
+                          fromPrayerPage
+                          handleChange={
+                            itemIndex === activeIndex
+                              ? onItemChange
+                              : (() => undefined)
+                          }
+                          hideHeaderFields
+                          hideRelationships
+                          item={item}
+                        />
+                      </Container>
+                    )
+                  : <Box sx={{ height: '100%', width: '100%' }} />}
               </Box>
             ))}
           </Box>
@@ -204,7 +207,7 @@ function PrayerActiveView({
         open={isEditDrawerOpen}
         stacked={false}
       />
-    </BasePage>
+    </>
   )
 }
 

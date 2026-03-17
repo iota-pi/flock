@@ -55,7 +55,10 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
   )
 }
 
-export async function mutateStoreItems(items: Item | Item[]) {
+export async function mutateStoreItems(
+  items: Item | Item[],
+  options: { externalCacheLifecycle?: boolean } = {},
+) {
   return mutateWithRetry<Item[], Map<string, Item>>(
     {
       queryKey: queryKeys.items,
@@ -76,8 +79,25 @@ export async function mutateStoreItems(items: Item | Item[]) {
         if (checkResult.error) throw new Error(checkResult.message)
         updateCacheOptimistically(current)
       },
+      externalCacheLifecycle: options.externalCacheLifecycle,
     },
   )
+}
+
+export function optimisticStoreItemsUpdate(old: Item[] | undefined, items: Item[]) {
+  if (!old) return items
+
+  const nextItems = [...old]
+  for (const item of items) {
+    const index = nextItems.findIndex(existing => existing.id === item.id)
+    if (index >= 0) {
+      nextItems[index] = item
+    } else {
+      nextItems.push(item)
+    }
+  }
+
+  return nextItems
 }
 
 export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
@@ -156,19 +176,7 @@ function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): I
 
 async function updateCacheOptimistically(items: Item[]) {
   await queryClient.cancelQueries({ queryKey: queryKeys.items })
-  queryClient.setQueryData<Item[]>(queryKeys.items, old => {
-    if (!old) return items
-    const newItems = [...old]
-    for (const item of items) {
-      const index = newItems.findIndex(i => i.id === item.id)
-      if (index >= 0) {
-        newItems[index] = item
-      } else {
-        newItems.push(item)
-      }
-    }
-    return newItems
-  })
+  queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticStoreItemsUpdate(old, items))
 }
 
 async function saveItemsToVault(items: Item[]) {
@@ -304,6 +312,7 @@ async function mutateWithRetry<TData, TBase>(
     performSave,
     handleConflict,
     optimisticUpdate,
+    externalCacheLifecycle = false,
   }: {
     queryKey: readonly string[]
     getBaseState: (previous: TData | undefined) => TBase
@@ -311,6 +320,7 @@ async function mutateWithRetry<TData, TBase>(
     performSave: (data: TData) => Promise<TData>
     handleConflict: (err: Error, current: TData, base: TBase) => Promise<{ next: TData; base: TBase }>
     optimisticUpdate?: (data: TData) => void
+    externalCacheLifecycle?: boolean
   },
 ): Promise<TData> {
   const previousState = queryClient.getQueryData<TData>(queryKey)
@@ -332,11 +342,13 @@ async function mutateWithRetry<TData, TBase>(
       if (!current) throw new Error('State calculation failed')
 
       // 2. Optimistic Update
-      await queryClient.cancelQueries({ queryKey })
-      if (optimisticUpdate) {
-        optimisticUpdate(current)
-      } else {
-        queryClient.setQueryData(queryKey, current)
+      if (!externalCacheLifecycle) {
+        await queryClient.cancelQueries({ queryKey })
+        if (optimisticUpdate) {
+          optimisticUpdate(current)
+        } else {
+          queryClient.setQueryData(queryKey, current)
+        }
       }
 
       try {
@@ -356,13 +368,15 @@ async function mutateWithRetry<TData, TBase>(
 
   } catch (err) {
     // 5. Rollback
-    if (previousState !== undefined) {
+    if (!externalCacheLifecycle && previousState !== undefined) {
       queryClient.setQueryData(queryKey, previousState)
     }
     handleVaultError(err as Error, 'Operation failed')
     throw err
   } finally {
     // 6. Invalidate
-    await queryClient.invalidateQueries({ queryKey })
+    if (!externalCacheLifecycle) {
+      await queryClient.invalidateQueries({ queryKey })
+    }
   }
 }
