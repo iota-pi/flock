@@ -57,10 +57,6 @@ export default $config({
       },
     })
 
-    const vapidSubject = new sst.Secret('VAPID_SUBJECT')
-    const vapidPublicKey = new sst.Secret('VAPID_PUBLIC_KEY')
-    const vapidPrivateKey = new sst.Secret('VAPID_PRIVATE_KEY')
-
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
@@ -79,9 +75,6 @@ export default $config({
       link: [
         accountsTable,
         itemsTable,
-        vapidSubject,
-        vapidPublicKey,
-        vapidPrivateKey,
       ],
     })
 
@@ -100,27 +93,56 @@ export default $config({
       link: [accountsTable, itemsTable],
     })
 
+    // -----------------------------------------------------------------
+    // Push Notifications (Queue + Worker)
+    // -----------------------------------------------------------------
+    const vapidSubject = new sst.Secret('VAPID_SUBJECT')
+    const vapidPublicKey = new sst.Secret('VAPID_PUBLIC_KEY')
+    const vapidPrivateKey = new sst.Secret('VAPID_PRIVATE_KEY')
+
+    const pushNotificationsDLQ = new sst.aws.Queue('PushNotificationsDLQ')
+
+    const pushNotificationsQueue = new sst.aws.Queue('PushNotificationsQueue', {
+      dlq: {
+        queue: pushNotificationsDLQ.arn,
+        retry: 3,
+      },
+    })
+
+    pushNotificationsQueue.subscribe({
+      handler: 'src/vault/notifier/worker.handler',
+      runtime: 'nodejs22.x',
+      memory: '512 MB',
+      timeout: '60 seconds',
+      environment: {
+        ACCOUNTS_TABLE: accountsTable.name,
+      },
+      link: [
+        accountsTable,
+        vapidSubject,
+        vapidPublicKey,
+        vapidPrivateKey,
+      ],
+    })
+
 
     // -----------------------------------------------------------------
-    // Reminder Lambda (scheduled every 15 minutes)
+    // Reminder Enqueuer
     // -----------------------------------------------------------------
-    new sst.aws.Cron('ReminderCron', {
+    new sst.aws.Cron('NotifierSchedule', {
       schedule: 'rate(15 minutes)',
-      job: {
-        handler: 'src/vault/notifier/reminders.handler',
+      function: {
+        handler: 'src/vault/notifier/enqueuer.handler',
         runtime: 'nodejs22.x',
         memory: '512 MB',
         timeout: '60 seconds',
         environment: {
           ACCOUNTS_TABLE: accountsTable.name,
-          ITEMS_TABLE: itemsTable.name,
+          PUSH_NOTIFICATIONS_QUEUE_URL: pushNotificationsQueue.url,
         },
         link: [
           accountsTable,
-          itemsTable,
-          vapidSubject,
-          vapidPublicKey,
-          vapidPrivateKey,
+          pushNotificationsQueue,
         ],
       },
     })

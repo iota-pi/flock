@@ -1,4 +1,7 @@
-import { setVapidDetails, sendNotification } from 'web-push'
+import {
+  sendNotification,
+  setVapidDetails,
+} from 'web-push'
 import type { WebPushSubscription } from '../../shared/apiTypes'
 
 let vapidConfigured = false
@@ -20,26 +23,10 @@ function ensureVapidConfigured() {
   vapidConfigured = true
 }
 
-export async function sendPushNotifications(
-  subscriptions: WebPushSubscription[],
+export async function sendPushNotification(
+  subscription: WebPushSubscription,
   payload: { title: string, body: string },
 ) {
   ensureVapidConfigured()
-
-  const failedEndpoints: string[] = []
-
-  for (const subscription of subscriptions) {
-    try {
-      await sendNotification(subscription, JSON.stringify(payload))
-    } catch (error) {
-      const statusCode = (error as { statusCode?: number }).statusCode
-      if (statusCode === 404 || statusCode === 410) {
-        failedEndpoints.push(subscription.endpoint)
-      } else {
-        throw error
-      }
-    }
-  }
-
-  return { failedEndpoints }
+  await sendNotification(subscription, JSON.stringify(payload))
 }
