@@ -214,6 +214,7 @@ export default $config({
       domain,
       environment: {
         VITE_VAULT_ENDPOINT: vaultApi.url,
+        VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
         VITE_PUBLIC_URL: publicUrl,
       },
     })
