@@ -40,7 +40,6 @@ export default defineConfig({
     visualizer() as any,
   ],
   server: {
-    open: true,
     port: 3000,
   },
   build: {
