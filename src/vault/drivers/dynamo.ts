@@ -165,7 +165,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     { account, isLogin, session }: AuthData & { isLogin?: boolean },
   ): Promise<VaultAccountWithAuth> {
     if (!session) {
-      throw new Error('Auth token is required to get account')
+      throw new Error('Session is required to get account')
     }
     const response = await this.client.send(new GetCommand(
       {

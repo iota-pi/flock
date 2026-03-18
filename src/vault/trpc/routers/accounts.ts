@@ -21,7 +21,7 @@ export const accountsRouter = router({
 
       const success = await ctx.vault.createAccount({
         account,
-        authToken: input.authToken,
+        authToken: hashString(input.authToken),
         metadata: {},
         salt: input.salt,
         session: randomBytes(16).toString('base64'),
