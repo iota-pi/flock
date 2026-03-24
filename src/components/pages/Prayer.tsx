@@ -40,7 +40,7 @@ type FlowState =
 function PrayerPage() {
   const location = useLocation()
   const itemMap = useItemMap()
-  const { mutate: storeItems } = useStoreItemsMutation()
+  const { mutate: storeItems } = useStoreItemsMutation({ invalidateOnSettled: false })
 
   const today = useToday()
   const prevTodayRef = useRef(today)
@@ -51,6 +51,19 @@ function PrayerPage() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
   const [isActiveViewPrepared, setIsActiveViewPrepared] = useState(false)
+  const prayedSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const prayedSyncItemsRef = useRef<Map<string, Item>>(new Map())
+
+  useEffect(
+    () => () => {
+      for (const timeoutId of prayedSyncTimersRef.current.values()) {
+        globalThis.clearTimeout(timeoutId)
+      }
+      prayedSyncTimersRef.current.clear()
+      prayedSyncItemsRef.current.clear()
+    },
+    [],
+  )
 
   useEffect(
     () => {
@@ -221,6 +234,34 @@ function PrayerPage() {
     [storeItems],
   )
 
+  const queuePrayedForSync = useCallback(
+    (currentItem: DirtyItem<Item>) => {
+      const clean = cleanItem(currentItem)
+      if (!isItem(clean) || !isValid(clean)) {
+        return
+      }
+
+      prayedSyncItemsRef.current.set(clean.id, clean)
+
+      const existingTimeout = prayedSyncTimersRef.current.get(clean.id)
+      if (existingTimeout !== undefined) {
+        globalThis.clearTimeout(existingTimeout)
+      }
+
+      const timeoutId = globalThis.setTimeout(() => {
+        const latest = prayedSyncItemsRef.current.get(clean.id)
+        if (latest) {
+          storeItems(latest)
+        }
+        prayedSyncTimersRef.current.delete(clean.id)
+        prayedSyncItemsRef.current.delete(clean.id)
+      }, 500)
+
+      prayedSyncTimersRef.current.set(clean.id, timeoutId)
+    },
+    [storeItems],
+  )
+
   const recordPrayedForLocalItem = useCallback(
     (currentItem: DirtyItem<Item>): DirtyItem<Item> => {
       const lastPrayer = getLastPrayedFor(currentItem)
@@ -257,7 +298,7 @@ function PrayerPage() {
         nextItems[flow.index] = withPrayer
         return nextItems
       })
-      saveLocalItem(withPrayer)
+      queuePrayedForSync(withPrayer)
 
       const nextIndex = flow.index + 1
       if (nextIndex >= localItems.length) {
@@ -271,7 +312,7 @@ function PrayerPage() {
         setFlow({ type: 'active', index: nextIndex })
       }
     },
-    [completed, flow, localItems, recordPrayedForLocalItem, saveLocalItem],
+    [completed, flow, localItems, queuePrayedForSync, recordPrayedForLocalItem],
   )
 
   const handleBack = useCallback(
@@ -339,12 +380,19 @@ function PrayerPage() {
       if (flow.type === 'active') {
         const currentItem = localItems[flow.index]
         if (currentItem) {
-          saveLocalItem(currentItem)
+          const existing = itemMap[currentItem.id]
+          const prayedForChanged = !!existing && JSON.stringify(existing.prayedFor) !== JSON.stringify(currentItem.prayedFor)
+
+          if (prayedForChanged) {
+            queuePrayedForSync(currentItem)
+          } else {
+            saveLocalItem(currentItem)
+          }
         }
       }
       setIsEditDrawerOpen(false)
     },
-    [flow, localItems, saveLocalItem],
+    [flow, itemMap, localItems, queuePrayedForSync, saveLocalItem],
   )
   const handleGoToOverview = useCallback(() => setFlow({ type: 'overview' }), [])
   const firstUnprayedIndex = useMemo(

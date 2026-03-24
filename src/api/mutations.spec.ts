@@ -152,6 +152,59 @@ describe('mutations', () => {
       expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
       expect(VaultAPI.vaultFetchMany).toHaveBeenCalledWith({ ids: [item.id] })
     })
+
+    it('does not retry or throw when conflicted server item matches local item ignoring metadata', async () => {
+      const item = getBlankPerson()
+      item.version = 1
+      item.name = 'Updated Name'
+
+      queryClient.setQueryData(queryKeys.items, [{ ...item }])
+
+      const local = { ...item }
+      const theirs = { ...item, version: 2 }
+
+      vi.mocked(VaultAPI.vaultPut)
+        .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
+
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+        {
+          item: item.id,
+          cipher: 'cipher-same',
+          metadata: { iv: 'iv-same', type: 'person', modified: 2, version: 2 },
+        },
+      ])
+
+      vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
+        if (cipher === 'cipher-same') return theirs
+        return {}
+      })
+
+      const result = await mutateStoreItems(local)
+
+      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(1)
+      expect(result[0].name).toBe(local.name)
+      expect(result[0].version).toBe(theirs.version)
+    })
+
+    it('ignores stale version conflict when a newer version was already put', async () => {
+      const item = getBlankPerson()
+      item.version = 1
+
+      // First update succeeds and records latest successful version (2).
+      queryClient.setQueryData(queryKeys.items, [{ ...item }])
+      vi.mocked(VaultAPI.vaultPut).mockResolvedValueOnce(undefined)
+      await mutateStoreItems({ ...item, name: 'newer-write' })
+
+      // Simulate stale cache producing an older write attempt.
+      queryClient.setQueryData(queryKeys.items, [{ ...item }])
+      vi.mocked(VaultAPI.vaultPut).mockRejectedValueOnce(
+        new Error('Version conflict: The item has been modified by another client.'),
+      )
+
+      await expect(mutateStoreItems({ ...item, description: 'stale-write' })).resolves.toBeDefined()
+      expect(VaultAPI.vaultFetchMany).not.toHaveBeenCalled()
+      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('mutateDeleteItems', () => {

@@ -30,6 +30,46 @@ function getVaultModule() {
 export type ConflictResolution<TData, TBase = TData> = {
   next: TData
   base: TBase
+  skipSave?: boolean
+}
+
+const latestPutVersionByItemId = new Map<string, number>()
+
+function isVersionConflictErrorMessage(message: string): boolean {
+  return message.includes('Version conflict')
+}
+
+function isStaleConflict(itemId: string, localVersion?: number): boolean {
+  const latestVersion = latestPutVersionByItemId.get(itemId)
+  if (latestVersion === undefined || localVersion === undefined) {
+    return false
+  }
+  return localVersion <= latestVersion
+}
+
+function stripComparisonMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripComparisonMetadata)
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  const metadataKeys = new Set(['version', 'modified', 'dirty', 'isNew'])
+  const input = value as Record<string, unknown>
+  const result: Record<string, unknown> = {}
+  for (const [key, nestedValue] of Object.entries(input)) {
+    if (metadataKeys.has(key)) {
+      continue
+    }
+    result[key] = stripComparisonMetadata(nestedValue)
+  }
+  return result
+}
+
+function areItemsEquivalentIgnoringMetadata(left: Item, right: Item): boolean {
+  return JSON.stringify(stripComparisonMetadata(left)) === JSON.stringify(stripComparisonMetadata(right))
 }
 
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {
@@ -212,6 +252,12 @@ async function saveItemsToVault(items: Item[]) {
       })),
     })
   }
+
+  for (const item of items) {
+    if (typeof item.version === 'number') {
+      latestPutVersionByItemId.set(item.id, item.version)
+    }
+  }
 }
 
 async function deleteItemsFromVault(ids: string[]) {
@@ -228,26 +274,65 @@ async function handleItemsConflict(
   baseItems: Map<string, Item>,
 ): Promise<ConflictResolution<Item[], Map<string, Item>>> {
   const nextBase = new Map(baseItems)
+  const nextItems = [...currentItems]
   let conflictIds: string[] = []
 
   const errorMessage = err.message || ''
-  if (currentItems.length === 1 && errorMessage.includes('Version conflict')) {
-    conflictIds = [currentItems[0].id]
+  if (currentItems.length === 1 && isVersionConflictErrorMessage(errorMessage)) {
+    const current = currentItems[0]
+    if (isStaleConflict(current.id, current.version)) {
+      const latestVersion = latestPutVersionByItemId.get(current.id)
+      if (latestVersion !== undefined) {
+        nextItems[0] = { ...current, version: latestVersion }
+      }
+      return {
+        next: nextItems,
+        base: nextBase,
+        skipSave: true,
+      }
+    }
+
+    conflictIds = [current.id]
   }
   else if (err instanceof VaultBatchError) {
-    conflictIds = err.failures
-      .filter(f => f.error && f.error.includes('Version conflict'))
-      .map(f => f.item)
+    const staleConflictIds = new Set<string>()
 
-    if (conflictIds.length === 0) throw err
+    for (const failure of err.failures) {
+      const failureError = failure.error || ''
+      if (!isVersionConflictErrorMessage(failureError)) {
+        throw err
+      }
+
+      const local = currentItems.find(item => item.id === failure.item)
+      if (local && isStaleConflict(local.id, local.version)) {
+        staleConflictIds.add(local.id)
+        const latestVersion = latestPutVersionByItemId.get(local.id)
+        if (latestVersion !== undefined) {
+          const index = nextItems.findIndex(item => item.id === local.id)
+          if (index >= 0) {
+            nextItems[index] = { ...nextItems[index], version: latestVersion }
+          }
+        }
+        continue
+      }
+
+      conflictIds.push(failure.item)
+    }
+
+    if (conflictIds.length === 0) {
+      return {
+        next: nextItems,
+        base: nextBase,
+        skipSave: true,
+      }
+    }
   } else {
     throw err
   }
 
   const serverEncrypted = await vaultFetchMany({ ids: conflictIds })
   const serverDecrypted = await decryptVaultItems(serverEncrypted as VaultItem[])
-
-  const nextItems = [...currentItems]
+  let hasMeaningfulDifference = false
 
   for (const theirs of serverDecrypted) {
     const id = theirs.id
@@ -256,6 +341,20 @@ async function handleItemsConflict(
 
     if (!yours) continue
 
+    const equivalent = areItemsEquivalentIgnoringMetadata(theirs, yours)
+
+    if (equivalent) {
+      const idx = nextItems.findIndex(i => i.id === id)
+      if (idx >= 0) {
+        // Keep server version so future writes can continue from latest state.
+        nextItems[idx] = { ...yours, version: theirs.version }
+      }
+      nextBase.set(id, theirs)
+      continue
+    }
+
+    hasMeaningfulDifference = true
+
     const merged = threeWayMerge(base, theirs, yours)
     merged.version = (theirs.version || 0) + 1
 
@@ -263,6 +362,14 @@ async function handleItemsConflict(
     if (idx >= 0) nextItems[idx] = merged
 
     nextBase.set(id, theirs)
+  }
+
+  if (!hasMeaningfulDifference) {
+    return {
+      next: nextItems,
+      base: nextBase,
+      skipSave: true,
+    }
   }
 
   return {
@@ -318,7 +425,7 @@ async function mutateWithRetry<TData, TBase>(
     getBaseState: (previous: TData | undefined) => TBase
     calculateNextState: (base: TBase) => TData | Promise<TData>
     performSave: (data: TData) => Promise<TData>
-    handleConflict: (err: Error, current: TData, base: TBase) => Promise<{ next: TData; base: TBase }>
+    handleConflict: (err: Error, current: TData, base: TBase) => Promise<{ next: TData; base: TBase; skipSave?: boolean }>
     optimisticUpdate?: (data: TData) => void
     externalCacheLifecycle?: boolean
   },
@@ -360,6 +467,9 @@ async function mutateWithRetry<TData, TBase>(
 
         // 4. Handle Conflict
         const resolved = await handleConflict(err, current, base)
+        if (resolved.skipSave) {
+          return resolved.next
+        }
         current = resolved.next
         base = resolved.base
       }

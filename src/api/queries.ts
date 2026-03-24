@@ -172,7 +172,9 @@ export function useSetMetadataMutation() {
 }
 
 // Hook: Store items mutation
-export function useStoreItemsMutation() {
+export function useStoreItemsMutation(options?: { invalidateOnSettled?: boolean }) {
+  const shouldInvalidate = options?.invalidateOnSettled ?? true
+
   return useMutation<Item[], Error, Item | Item[], { previousItems: Item[] | undefined }>({
     mutationFn: items => mutateStoreItems(items, { externalCacheLifecycle: true }),
     onMutate: async items => {
@@ -192,7 +194,9 @@ export function useStoreItemsMutation() {
       queryClient.setQueryData(queryKeys.items, context?.previousItems)
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      if (shouldInvalidate) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      }
     },
   })
 }

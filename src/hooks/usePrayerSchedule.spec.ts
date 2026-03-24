@@ -32,6 +32,7 @@ describe('usePrayerSchedule', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useRealTimers()
 
     vi.mocked(useItems).mockReturnValue([])
     vi.mocked(useItemMap).mockReturnValue({})
@@ -100,6 +101,7 @@ describe('usePrayerSchedule', () => {
   it('recordPrayerFor calls storeItems', () => {
     const item = { id: '1', name: 'Alice', prayedFor: [] }
     vi.mocked(getLastPrayedFor).mockReturnValue(0)
+    vi.useFakeTimers()
 
     const { result } = renderHook(() => usePrayerSchedule())
 
@@ -107,8 +109,16 @@ describe('usePrayerSchedule', () => {
       result.current.recordPrayerFor(item as any)
     })
 
-    expect(mockStoreItems).toHaveBeenCalled()
+    expect(mockStoreItems).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(mockStoreItems).toHaveBeenCalledTimes(1)
     expect(mockStoreItems.mock.calls[0][0].prayedFor).toHaveLength(1)
+
+    vi.useRealTimers()
   })
 
   it('isPrayedForToday returns correct status', () => {
@@ -145,7 +155,13 @@ describe('usePrayerSchedule', () => {
       result.current.recordPrayerFor(item as any, true)
     })
 
-    expect(mockStoreItems).toHaveBeenCalled()
+    expect(mockStoreItems).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(mockStoreItems).toHaveBeenCalledTimes(1)
     const savedItem = mockStoreItems.mock.calls[0][0]
     // Should filter out today's prayer.
     expect(savedItem.prayedFor.length).toBe(0)
