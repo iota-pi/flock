@@ -43,6 +43,7 @@ export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
 export const MAX_TRANSACTION_ITEMS = 100
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
+export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
 export class TransactionConflictsError extends Error {
   conflictedIds: string[]
@@ -69,18 +70,29 @@ function validateItem(item: VaultItem) {
 function getItemPutParams(item: VaultItem): PutCommandInput {
   validateItem(item)
 
+  const isTombstone = item.metadata.deleted === true
+  const persistedItem: VaultItem = isTombstone
+    ? {
+      ...item,
+      ttl: Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS,
+    }
+    : {
+      ...item,
+      ttl: undefined,
+    }
+
   const params: PutCommandInput = {
     TableName: ITEM_TABLE_NAME,
-    Item: item,
+    Item: persistedItem,
   }
 
-  if (typeof item.metadata.version === 'number') {
+  if (typeof persistedItem.metadata.version === 'number') {
     params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
     params.ExpressionAttributeNames = {
       '#item': 'item',
     }
     params.ExpressionAttributeValues = {
-      ':newVersion': item.metadata.version,
+      ':newVersion': persistedItem.metadata.version,
     }
   }
 

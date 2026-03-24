@@ -7,8 +7,6 @@ const trpcMock = vi.hoisted(() => ({
     fetchMany: { query: vi.fn() },
     put: { mutate: vi.fn() },
     putMany: { mutate: vi.fn() },
-    delete: { mutate: vi.fn() },
-    deleteMany: { mutate: vi.fn() },
   },
   accounts: {
     createAccount: { mutate: vi.fn() },
@@ -115,40 +113,6 @@ describe('VaultAPI', () => {
       details: [{ item: 'a', success: true }, { item: 'b', success: false }],
     }).data)
     await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('failed for items: b')
-  })
-
-  it('vaultDelete succeeds when api returns success', async () => {
-    trpcMock.items.delete.mutate.mockResolvedValue(ok({ success: true }).data)
-    await expect(api.vaultDelete({ item: 'x' })).resolves.toBeUndefined()
-  })
-
-  it('vaultDelete throws when api request fails', async () => {
-    trpcMock.items.delete.mutate.mockResolvedValue(ok({ success: false }).data)
-    await expect(api.vaultDelete({ item: 'x' })).rejects.toThrow()
-  })
-
-  it('vaultDeleteMany succeeds when all items in all chunks succeed', async () => {
-    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
-      success: true,
-      details: [{ item: 'a', success: true }, { item: 'b', success: true }],
-    }).data)
-    await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).resolves.toBeUndefined()
-  })
-
-  it('vaultDeleteMany throws when any item in details fails', async () => {
-    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
-      success: true,
-      details: [{ item: 'a', success: true }, { item: 'b', success: false }],
-    }).data)
-    await expect(api.vaultDeleteMany({ items: ['a', 'b'] })).rejects.toThrow('failed for items: b')
-  })
-
-  it('vaultDeleteMany includes all failed item ids in error message', async () => {
-    trpcMock.items.deleteMany.mutate.mockResolvedValue(ok({
-      success: true,
-      details: [{ item: 'x', success: false }, { item: 'y', success: false }, { item: 'z', success: true }],
-    }).data)
-    await expect(api.vaultDeleteMany({ items: ['x', 'y', 'z'] })).rejects.toThrow('failed for items: x, y')
   })
 
   it('vaultCreateAccount returns account from response', async () => {

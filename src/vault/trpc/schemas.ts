@@ -39,6 +39,7 @@ export const PutItemBodySchema = z.object({
   modified: z.number(),
   type: z.string(),
   version: z.number().optional(),
+  deleted: z.boolean().optional(),
 })
 
 export const PutItemsBatchEntrySchema = z.object({
@@ -48,21 +49,12 @@ export const PutItemsBatchEntrySchema = z.object({
   modified: z.number(),
   type: z.string(),
   version: z.number().optional(),
+  deleted: z.boolean().optional(),
 })
 
 export const PutItemsBatchBodySchema = z.object({
   account: z.string().min(1),
   items: z.array(PutItemsBatchEntrySchema),
-})
-
-export const DeleteItemsBatchBodySchema = z.object({
-  account: z.string().min(1),
-  items: z.array(z.string()),
-})
-
-export const DeleteItemBodySchema = z.object({
-  account: z.string().min(1),
-  item: z.string().min(1),
 })
 
 export const FetchItemsInputSchema = z.object({

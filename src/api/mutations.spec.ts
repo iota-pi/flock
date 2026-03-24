@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { mutateDeleteItems, mutateStoreItems, mutateSetMetadata } from './mutations'
 import { queryClient, queryKeys } from './queryClient'
-import { getBlankPerson, Item, GroupItem } from '../state/items'
+import { getBlankGroup, getBlankPerson, Item, GroupItem } from '../state/items'
 import * as VaultAPI from './VaultAPI'
 import * as Vault from './Vault'
 
@@ -12,8 +12,6 @@ vi.mock('./VaultAPI', async importOriginal => {
     ...actual,
     vaultPut: vi.fn(),
     vaultPutMany: vi.fn(),
-    vaultDelete: vi.fn(),
-    vaultDeleteMany: vi.fn(),
     vaultSetMetadata: vi.fn(),
     vaultGetMetadata: vi.fn(),
     vaultFetchMany: vi.fn(),
@@ -245,7 +243,11 @@ describe('mutations', () => {
 
   describe('mutateDeleteItems', () => {
     it('updates group version when deleting a member', async () => {
-      const gItem = { ...getBlankPerson(), id: 'g1', type: 'group', members: ['p1'], version: 1 } as unknown as GroupItem
+      const gItem = {
+        ...getBlankGroup('g1', false),
+        members: ['p1'],
+        version: 1,
+      } as GroupItem
       const pItem = { ...getBlankPerson(), id: 'p1' }
 
       // Cache has items
@@ -257,12 +259,18 @@ describe('mutations', () => {
           item: gItem.id,
           cipher: 'cipher-group',
           metadata: { iv: 'iv-group', type: 'group', modified: 1, version: 1 }
+        },
+        {
+          item: pItem.id,
+          cipher: 'cipher-person',
+          metadata: { iv: 'iv-person', type: 'person', modified: 1, version: 1 }
         }
       ])
 
       // Mock Decrypt
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher-group') return gItem
+        if (cipher === 'cipher-person') return pItem
         return {}
       })
 
@@ -279,8 +287,105 @@ describe('mutations', () => {
         })
       }))
 
-      // Verify Item Delete
-      expect(VaultAPI.vaultDelete).toHaveBeenCalledWith({ item: 'p1' })
+      // Verify Item Tombstone save through regular put flow
+      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+        item: 'p1',
+        metadata: expect.objectContaining({
+          deleted: true,
+          version: 2,
+        }),
+      }))
+    })
+
+    it('creates tombstones for multiple items without hard delete endpoints', async () => {
+      const item1 = { ...getBlankPerson(), id: 'p1', version: 1 }
+      const item2 = { ...getBlankPerson(), id: 'p2', version: 1 }
+
+      queryClient.setQueryData(queryKeys.items, [item1, item2])
+
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+        {
+          item: item1.id,
+          cipher: 'cipher1',
+          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 1 }
+        },
+        {
+          item: item2.id,
+          cipher: 'cipher2',
+          metadata: { iv: 'iv2', type: 'person', modified: 1, version: 1 }
+        }
+      ])
+
+      vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
+        if (cipher === 'cipher1') return item1
+        if (cipher === 'cipher2') return item2
+        return {}
+      })
+
+      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+
+      await mutateDeleteItems(['p1', 'p2'])
+
+      // Verify tombstones are created via putMany (batch deletion)
+      expect(VaultAPI.vaultPutMany).toHaveBeenCalled()
+      const putManyCall = vi.mocked(VaultAPI.vaultPutMany).mock.calls[0][0]
+      const tombstones = putManyCall.items.filter((item: any) => item.metadata?.deleted === true)
+      expect(tombstones).toHaveLength(2)
+    })
+
+    it('soft-deletes without using deprecated delete/deleteMany endpoints', async () => {
+      const item = { ...getBlankPerson(), id: 'p1', version: 1 }
+
+      queryClient.setQueryData(queryKeys.items, [item])
+
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+        {
+          item: item.id,
+          cipher: 'cipher1',
+          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 1 }
+        }
+      ])
+
+      vi.mocked(Vault.decryptObject).mockResolvedValue(item)
+      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+
+      await mutateDeleteItems('p1')
+
+      // Verify deletion created a tombstone via put (not using deprecated delete endpoint)
+      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+        item: 'p1',
+        metadata: expect.objectContaining({
+          deleted: true,
+        }),
+      }))
+    })
+
+    it('increments version when creating tombstones', async () => {
+      const item = { ...getBlankPerson(), id: 'p1', version: 5 }
+
+      queryClient.setQueryData(queryKeys.items, [item])
+
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+        {
+          item: item.id,
+          cipher: 'cipher1',
+          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 5 }
+        }
+      ])
+
+      vi.mocked(Vault.decryptObject).mockResolvedValue(item)
+      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+
+      await mutateDeleteItems('p1')
+
+      // Verify version incremented to 6
+      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+        item: 'p1',
+        metadata: expect.objectContaining({
+          deleted: true,
+          version: 6,
+        }),
+      }))
     })
   })
 

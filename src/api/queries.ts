@@ -37,6 +37,11 @@ const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
   const vault = await getVaultModule()
   const decryptPromises = items.map(async (item, index) => {
+    if (item.metadata?.deleted) {
+      decryptionCache.delete(item.item)
+      return null
+    }
+
     const cipher = item.cipher
     const iv = item.metadata?.iv
     const id = item.item
@@ -67,7 +72,10 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(decryptPromises)
   return decryptedResults.flatMap(result => {
     if (result.status === 'fulfilled') {
-      return [result.value]
+      if (result.value) {
+        return [result.value]
+      }
+      return [] as Item[]
     }
 
     handleVaultError(result.reason as Error, 'Failed to decrypt item from server')

@@ -124,6 +124,30 @@ describe('DynamoDriver', function () {
     expect(unchangedSecond.cipher).toBe('cipher-2')
   })
 
+  it('set injects ttl for tombstones', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const modified = new Date().getTime()
+
+    await driver.set({
+      account,
+      item,
+      cipher: 'tombstone-cipher',
+      metadata: {
+        type,
+        iv: 'tombstone-iv',
+        modified,
+        version: 1,
+        deleted: true,
+      },
+    })
+
+    const [result] = await driver.fetchMany({ account, ids: [item] })
+    expect(result.metadata.deleted).toBe(true)
+    expect(typeof result.ttl).toBe('number')
+  })
+
   it('fetchAll works', async () => {
     const account = generateAccountId()
     const individuals = []

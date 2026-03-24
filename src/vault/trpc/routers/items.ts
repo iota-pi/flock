@@ -1,10 +1,7 @@
-import pMap from 'p-map'
 import { asItemType } from '../../drivers/base'
 import { TransactionConflictsError } from '../../drivers/dynamo'
 import { router, protectedProcedure } from '../trpc'
 import {
-  DeleteItemBodySchema,
-  DeleteItemsBatchBodySchema,
   FetchItemsInputSchema,
   PutItemBodySchema,
   PutItemsBatchBodySchema,
@@ -34,7 +31,7 @@ export const itemsRouter = router({
     .input(PutItemsBatchBodySchema)
     .mutation(async ({ ctx, input }) => {
       const mappedItems = input.items.map(item => {
-        const { cipher, id, iv, modified, type, version } = item
+        const { cipher, deleted, id, iv, modified, type, version } = item
         const _type = asItemType(type)
 
         return {
@@ -46,6 +43,7 @@ export const itemsRouter = router({
             iv,
             modified,
             version,
+            deleted,
           },
         }
       })
@@ -78,38 +76,9 @@ export const itemsRouter = router({
           iv: input.iv,
           modified: input.modified,
           version: input.version,
+          deleted: input.deleted,
         },
       })
-      return { success: true }
-    }),
-
-  deleteMany: protectedProcedure
-    .input(DeleteItemsBatchBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      const results = await pMap(
-        input.items,
-        async item => {
-          try {
-            await ctx.vault.delete({ account: input.account, item })
-            return { item, success: true }
-          } catch (error) {
-            return {
-              item,
-              success: false,
-              error: error instanceof Error ? error.message : String(error),
-            }
-          }
-        },
-        { concurrency: 10 },
-      )
-
-      return { success: true, details: results }
-    }),
-
-  delete: protectedProcedure
-    .input(DeleteItemBodySchema)
-    .mutation(async ({ ctx, input }) => {
-      await ctx.vault.delete({ account: input.account, item: input.item })
       return { success: true }
     }),
 })

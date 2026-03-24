@@ -19,6 +19,7 @@ export interface Note {
 export interface BaseItem {
   archived: boolean,
   created: number,
+  deleted?: boolean,
   description: string,
   id: ItemId,
   isNew?: true,

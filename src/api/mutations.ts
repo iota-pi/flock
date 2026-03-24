@@ -7,8 +7,6 @@ import {
 } from '../state/items'
 import { threeWayMerge } from '../utils/merge'
 import {
-  vaultDelete,
-  vaultDeleteMany,
   vaultFetchMany,
   vaultPut,
   vaultPutMany,
@@ -33,6 +31,8 @@ export type ConflictResolution<TData, TBase = TData> = {
   base: TBase
   skipSave?: boolean
 }
+
+type TombstoneItem = Pick<Item, 'id' | 'type' | 'version' | 'deleted'> & { deleted: true }
 
 const latestPutVersionByItemId = new Map<string, number>()
 
@@ -135,7 +135,8 @@ export async function mutateStoreItems(
       },
       handleConflict: handleItemsConflict,
       optimisticUpdate: current => {
-        const checkResult = checkProperties(current)
+        const fullItems = current.filter(item => (item as Item & { deleted?: boolean }).deleted !== true)
+        const checkResult = checkProperties(fullItems)
         if (checkResult.error) throw new Error(checkResult.message)
         updateCacheOptimistically(current)
       },
@@ -145,10 +146,21 @@ export async function mutateStoreItems(
 }
 
 export function optimisticStoreItemsUpdate(old: Item[] | undefined, items: Item[]) {
-  if (!old) return items
+  const oldItems = old || []
+  const deletedIds = new Set(
+    items
+      .filter(item => (item as Item & { deleted?: boolean }).deleted === true)
+      .map(item => item.id),
+  )
 
-  const nextItems = [...old]
-  for (const item of items) {
+  const incoming = items.filter(item => (item as Item & { deleted?: boolean }).deleted !== true)
+
+  const nextItems = oldItems.filter(item => !deletedIds.has(item.id))
+  if (nextItems.length === 0 && incoming.length === 0) {
+    return []
+  }
+
+  for (const item of incoming) {
     const index = nextItems.findIndex(existing => existing.id === item.id)
     if (index >= 0) {
       nextItems[index] = item
@@ -171,14 +183,28 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     // Optimistic Update
     queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticDeleteUpdate(old, idsSet))
 
-    // Remove deleted members from groups
-    const allItems = await fetchItems()
+    // Prefer local cache to build tombstones and related group updates.
+    const allItems = previousItems || await fetchItems()
     const groupsToUpdate = updateGroupsForDeletedMembers(allItems, idsSet)
     if (groupsToUpdate.length > 0) {
       await mutateStoreItems(groupsToUpdate)
     }
 
-    await deleteItemsFromVault(ids)
+    const itemsById = new Map(allItems.map(item => [item.id, item]))
+    const tombstones: TombstoneItem[] = ids.flatMap(id => {
+      const item = itemsById.get(id)
+      if (!item) return []
+      return [{
+        id: item.id,
+        type: item.type,
+        deleted: true,
+        version: item.version,
+      }]
+    })
+
+    if (tombstones.length > 0) {
+      await mutateStoreItems(tombstones as Item[])
+    }
 
     useUiStore.getState().pruneItemDrawers(ids)
 
@@ -197,9 +223,11 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
 function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[] {
   return items.map(item => {
     const existing = baseItems.get(item.id)
+    const baseVersion = existing?.version
+      ?? ((item as Item & { deleted?: boolean }).deleted ? (item.version ?? 0) : 0)
     return {
       ...item,
-      version: (existing?.version ?? 0) + 1,
+      version: baseVersion + 1,
     }
   })
 }
@@ -222,7 +250,7 @@ function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<string>): G
 function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): Item[] {
   if (!old) return []
   return old
-    .filter(item => !idsSet.has(item.id))
+    .filter(item => !idsSet.has(item.id) && !(item as Item & { deleted?: boolean }).deleted)
     .map(item => {
       if (
         item.type === 'group'
@@ -255,6 +283,7 @@ async function saveItemsToVault(items: Item[]) {
         type: items[0].type,
         modified: modifiedTime,
         version: items[0].version,
+        deleted: items[0].deleted,
       },
     })
   } else {
@@ -268,6 +297,7 @@ async function saveItemsToVault(items: Item[]) {
           type: items[i].type,
           modified: modifiedTime,
           version: items[i].version,
+          deleted: items[i].deleted,
         },
       })),
     })
@@ -277,14 +307,6 @@ async function saveItemsToVault(items: Item[]) {
     if (typeof item.version === 'number') {
       latestPutVersionByItemId.set(item.id, item.version)
     }
-  }
-}
-
-async function deleteItemsFromVault(ids: string[]) {
-  if (ids.length === 1) {
-    await vaultDelete({ item: ids[0] })
-  } else {
-    await vaultDeleteMany({ items: ids })
   }
 }
 

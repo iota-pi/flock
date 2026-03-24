@@ -25,7 +25,9 @@ export type CachedVaultItem = {
     iv: string,
     modified: number,
     version?: number,
+    deleted?: boolean,
   },
+  ttl?: number,
 }
 
 export type VaultItem = {
@@ -37,7 +39,9 @@ export type VaultItem = {
     iv: string,
     modified: number,
     version?: number,
+    deleted?: boolean,
   },
+  ttl?: number,
 }
 
 export type BatchResultResponse = {
@@ -124,6 +128,7 @@ export async function vaultPut({ cipher, item, metadata }: VaultItem) {
     modified: metadata.modified,
     type: metadata.type,
     version: metadata.version,
+    deleted: metadata.deleted,
   })
   assertSuccess(response, 'put')
 }
@@ -138,6 +143,7 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
       modified: metadata.modified,
       type: metadata.type,
       version: metadata.version,
+      deleted: metadata.deleted,
     })),
   }) as PutManyResponse | BatchResultResponse
 
@@ -166,25 +172,6 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   throw new Error('VaultAPI putMany operation failed')
 }
 
-export async function vaultDelete({ item }: { item: string }) {
-  const response = await trpcClient.items.delete.mutate({
-    account: getAccountId(),
-    item,
-  })
-  assertSuccess(response, 'delete')
-}
-
-export async function vaultDeleteMany({ items }: { items: string[] }) {
-  const response = await trpcClient.items.deleteMany.mutate({
-    account: getAccountId(),
-    items,
-  })
-
-  const failedItems = response.details.filter(d => !d.success)
-  if (failedItems.length > 0) {
-    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
-  }
-}
 
 export async function vaultCreateAccount(
   { salt, authToken }: CreateAccountBody,

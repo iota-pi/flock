@@ -16,6 +16,7 @@ export interface VaultMetaData {
   iv: string,
   modified: number,
   version?: number,
+  deleted?: boolean,
 }
 
 export interface VaultData {
@@ -44,7 +45,9 @@ export interface VaultAccount extends BaseData {
 
 export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
 
-export interface VaultItem extends VaultKey, VaultData {}
+export interface VaultItem extends VaultKey, VaultData {
+  ttl?: number,
+}
 
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
 
