@@ -48,10 +48,9 @@ export const accountsRouter = router({
       }
 
       const session = randomBytes(16).toString('base64')
-      const sessionHash = hashString(session)
       await ctx.vault.updateAccountData({
         account: input.account,
-        session: sessionHash,
+        session,
       })
 
       return {
@@ -75,7 +74,7 @@ export const accountsRouter = router({
     .query(async ({ ctx, input }) => {
       const { metadata } = await ctx.vault.getAccount({
         account: input.account,
-        session: ctx.authTokenHash,
+        session: ctx.authToken,
       })
 
       return {
@@ -100,7 +99,7 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existingAccount = await ctx.vault.getAccount({
         account: input.account,
-        session: ctx.authTokenHash,
+        session: ctx.authToken,
       })
 
       const existing = existingAccount.pushSubscriptions ?? []
@@ -125,7 +124,7 @@ export const accountsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existingAccount = await ctx.vault.getAccount({
         account: input.account,
-        session: ctx.authTokenHash,
+        session: ctx.authToken,
       })
 
       const existing = existingAccount.pushSubscriptions ?? []
@@ -144,7 +143,7 @@ export const accountsRouter = router({
     .query(async ({ ctx, input }) => {
       const existingAccount = await ctx.vault.getAccount({
         account: input.account,
-        session: ctx.authTokenHash,
+        session: ctx.authToken,
       })
 
       return {
