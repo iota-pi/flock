@@ -1,4 +1,5 @@
 import createServer from '.'
+import type { Socket } from 'net'
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -10,8 +11,8 @@ async function runServer(port = 4000) {
     const server = await createServer()
 
     // 1. Track all raw TCP connections so we can sever them instantly
-    const sockets = new Set<any>()
-    server.server.on('connection', (socket) => {
+    const sockets = new Set<Socket>()
+    server.server.on('connection', socket => {
       sockets.add(socket)
       socket.once('close', () => sockets.delete(socket))
     })
@@ -26,7 +27,9 @@ async function runServer(port = 4000) {
       // Cleanly close the server so the Master Process releases the port
       try {
         await server.close()
-      } catch (e) {}
+      } catch (error) {
+        console.warn('Error during server shutdown:', error)
+      }
 
       process.exit(0)
     }
@@ -44,10 +47,10 @@ async function runServer(port = 4000) {
       await server.listen({ port, host: '0.0.0.0' })
       server.log.info(`Vault API server running on port ${port}`)
       return // Success!
-    } catch (err: any) {
-      if (err.code === 'EADDRINUSE') {
+    } catch (err) {
+      if ((err as { code: string }).code === 'EADDRINUSE') {
         server.log.warn(`Port ${port} in use, waiting for OS to release it... (${retries} attempts left)`)
-        retries--
+        retries -= 1
         await wait(500)
       } else {
         server.log.error(err)
