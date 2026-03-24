@@ -91,6 +91,7 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
+  abstract setMany(items: VaultItem[]): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchMany(opts: { account: string, ids: string[] }): Promise<VaultItem[]>
   abstract fetchAll(

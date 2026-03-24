@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToday } from './useToday'
 import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
@@ -6,6 +6,7 @@ import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../ut
 import { Item } from '../state/items'
 import { useStoreItemsMutation } from '../api/queries'
 import { queryClient, queryKeys } from '../api/queryClient'
+import { createDebouncedByKey } from '../utils/debounceByKey'
 
 export function usePrayerSchedule() {
   const items = useItems()
@@ -16,19 +17,17 @@ export function usePrayerSchedule() {
   const [goal] = useMetadata('prayerGoal', naturalGoal)
   const [todaysGoal, setTodaysGoal] = useState(goal)
 
-  const { mutate: storeItems } = useStoreItemsMutation({ invalidateOnSettled: false })
-  const prayerSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const prayerSyncItemsRef = useRef<Map<string, Item>>(new Map())
+  const { mutate: storeItems } = useStoreItemsMutation()
+  const prayerSyncQueue = useMemo(
+    () => createDebouncedByKey<string, Item>(500, latestItem => {
+      storeItems(latestItem)
+    }),
+    [storeItems],
+  )
 
   useEffect(
-    () => () => {
-      for (const timeoutId of prayerSyncTimersRef.current.values()) {
-        globalThis.clearTimeout(timeoutId)
-      }
-      prayerSyncTimersRef.current.clear()
-      prayerSyncItemsRef.current.clear()
-    },
-    [],
+    () => () => prayerSyncQueue.clear(),
+    [prayerSyncQueue],
   )
 
   useEffect(() => {
@@ -92,24 +91,9 @@ export function usePrayerSchedule() {
         },
       )
 
-      prayerSyncItemsRef.current.set(newItem.id, newItem)
-      const existingTimeout = prayerSyncTimersRef.current.get(newItem.id)
-      if (existingTimeout !== undefined) {
-        globalThis.clearTimeout(existingTimeout)
-      }
-
-      const timeoutId = globalThis.setTimeout(() => {
-        const latestItem = prayerSyncItemsRef.current.get(newItem.id)
-        if (latestItem) {
-          storeItems(latestItem)
-        }
-        prayerSyncTimersRef.current.delete(newItem.id)
-        prayerSyncItemsRef.current.delete(newItem.id)
-      }, 500)
-
-      prayerSyncTimersRef.current.set(newItem.id, timeoutId)
+      prayerSyncQueue.schedule(newItem.id, newItem)
     },
-    [isPrayedForToday, storeItems],
+    [isPrayedForToday, prayerSyncQueue],
   )
 
   const showMore = useCallback(() => {

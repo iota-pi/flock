@@ -86,25 +86,35 @@ describe('VaultAPI', () => {
   it('vaultPutMany succeeds when all batch items succeed', async () => {
     trpcMock.items.putMany.mutate.mockResolvedValue(ok({
       success: true,
-      details: [{ item: 'a', success: true }, { item: 'b', success: true }],
+      conflicts: [],
     }).data)
     await expect(api.vaultPutMany({ items: putManyItems })).resolves.toBeUndefined()
   })
 
-  it('vaultPutMany throws when any item in details fails', async () => {
+  it('vaultPutMany throws with version conflict ids from transactional response', async () => {
+    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
+      success: false,
+      error: 'Version conflict',
+      conflicts: ['b'],
+    }).data)
+    await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('Version conflict for items: b')
+  })
+
+  it('vaultPutMany includes all conflicted item ids in error message', async () => {
+    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
+      success: false,
+      error: 'Version conflict',
+      conflicts: ['a', 'b'],
+    }).data)
+    await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('Version conflict for items: a, b')
+  })
+
+  it('vaultPutMany supports legacy details response shape', async () => {
     trpcMock.items.putMany.mutate.mockResolvedValue(ok({
       success: true,
       details: [{ item: 'a', success: true }, { item: 'b', success: false }],
     }).data)
     await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('failed for items: b')
-  })
-
-  it('vaultPutMany includes all failed item ids in error message', async () => {
-    trpcMock.items.putMany.mutate.mockResolvedValue(ok({
-      success: true,
-      details: [{ item: 'a', success: false }, { item: 'b', success: false }],
-    }).data)
-    await expect(api.vaultPutMany({ items: putManyItems })).rejects.toThrow('failed for items: a, b')
   })
 
   it('vaultDelete succeeds when api returns success', async () => {

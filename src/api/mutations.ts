@@ -14,6 +14,7 @@ import {
   vaultPutMany,
   vaultSetMetadata,
   VaultBatchError,
+  VaultVersionConflictError,
   type VaultItem,
 } from './VaultAPI'
 import { getAccountId } from './util'
@@ -70,6 +71,25 @@ function stripComparisonMetadata(value: unknown): unknown {
 
 function areItemsEquivalentIgnoringMetadata(left: Item, right: Item): boolean {
   return JSON.stringify(stripComparisonMetadata(left)) === JSON.stringify(stripComparisonMetadata(right))
+}
+
+function extractConflictIdsFromError(err: Error): string[] {
+  if (err instanceof VaultVersionConflictError) {
+    return err.conflictIds
+  }
+
+  if (err instanceof VaultBatchError) {
+    return err.failures
+      .filter(failure => isVersionConflictErrorMessage(failure.error || ''))
+      .map(failure => failure.item)
+  }
+
+  const withConflicts = err as Error & { conflicts?: unknown }
+  if (Array.isArray(withConflicts.conflicts)) {
+    return withConflicts.conflicts.filter((value): value is string => typeof value === 'string')
+  }
+
+  return []
 }
 
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {
@@ -294,18 +314,15 @@ async function handleItemsConflict(
 
     conflictIds = [current.id]
   }
-  else if (err instanceof VaultBatchError) {
-    const staleConflictIds = new Set<string>()
+  else {
+    const extractedConflictIds = extractConflictIdsFromError(err)
+    if (extractedConflictIds.length === 0) {
+      throw err
+    }
 
-    for (const failure of err.failures) {
-      const failureError = failure.error || ''
-      if (!isVersionConflictErrorMessage(failureError)) {
-        throw err
-      }
-
-      const local = currentItems.find(item => item.id === failure.item)
+    for (const conflictId of extractedConflictIds) {
+      const local = currentItems.find(item => item.id === conflictId)
       if (local && isStaleConflict(local.id, local.version)) {
-        staleConflictIds.add(local.id)
         const latestVersion = latestPutVersionByItemId.get(local.id)
         if (latestVersion !== undefined) {
           const index = nextItems.findIndex(item => item.id === local.id)
@@ -316,7 +333,7 @@ async function handleItemsConflict(
         continue
       }
 
-      conflictIds.push(failure.item)
+      conflictIds.push(conflictId)
     }
 
     if (conflictIds.length === 0) {
@@ -326,7 +343,9 @@ async function handleItemsConflict(
         skipSave: true,
       }
     }
-  } else {
+  }
+
+  if (conflictIds.length === 0) {
     throw err
   }
 
@@ -483,10 +502,5 @@ async function mutateWithRetry<TData, TBase>(
     }
     handleVaultError(err as Error, 'Operation failed')
     throw err
-  } finally {
-    // 6. Invalidate
-    if (!externalCacheLifecycle) {
-      await queryClient.invalidateQueries({ queryKey })
-    }
   }
 }

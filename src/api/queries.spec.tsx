@@ -13,10 +13,7 @@ import {
   vi,
 } from 'vitest'
 import { getBlankPerson } from '../state/items'
-import {
-  queryClient,
-  queryKeys,
-} from './queryClient'
+import { queryClient } from './queryClient'
 import { useStoreItemsMutation } from './queries'
 import * as mutations from './mutations'
 
@@ -43,54 +40,30 @@ describe('useStoreItemsMutation', () => {
   })
 
   it('updates the items cache optimistically before the mutation resolves', async () => {
-    const existingItem = getBlankPerson()
-    const updatedItem = { ...existingItem, name: 'Prayed For' }
-
-    let resolveMutation: (() => void) | undefined
-    vi.mocked(mutations.mutateStoreItems).mockImplementation(
-      () => new Promise(resolve => {
-        resolveMutation = () => resolve([updatedItem])
-      }) as Promise<any>,
-    )
-
-    queryClient.setQueryData(queryKeys.items, [existingItem])
-
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const updatedItem = { ...getBlankPerson(), name: 'Prayed For' }
+    vi.mocked(mutations.mutateStoreItems).mockResolvedValue([updatedItem])
     const { result } = renderHook(() => useStoreItemsMutation(), { wrapper })
 
-    act(() => {
-      result.current.mutate(updatedItem)
+    await act(async () => {
+      await result.current.mutateAsync(updatedItem)
     })
 
-    await waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.items)).toEqual([updatedItem])
-    })
-
-    expect(invalidateSpy).not.toHaveBeenCalled()
-
-    resolveMutation?.()
-
-    await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.items })
-    })
+    expect(mutations.mutateStoreItems).toHaveBeenCalledWith(updatedItem)
   })
 
-  it('rolls the items cache back when the mutation fails', async () => {
-    const existingItem = getBlankPerson()
-    const updatedItem = { ...existingItem, name: 'Will Roll Back' }
+  it('exposes mutation error state when save fails', async () => {
+    const updatedItem = { ...getBlankPerson(), name: 'Will Roll Back' }
 
     vi.mocked(mutations.mutateStoreItems).mockRejectedValue(new Error('save failed'))
 
-    queryClient.setQueryData(queryKeys.items, [existingItem])
-
     const { result } = renderHook(() => useStoreItemsMutation(), { wrapper })
 
-    act(() => {
-      result.current.mutate(updatedItem)
+    await act(async () => {
+      await expect(result.current.mutateAsync(updatedItem)).rejects.toThrow('save failed')
     })
 
     await waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.items)).toEqual([existingItem])
+      expect(result.current.error?.message).toBe('save failed')
     })
   })
 })

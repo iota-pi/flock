@@ -29,6 +29,7 @@ import PrayerFinishedView from './prayer/PrayerFinishedView'
 import PrayerOverviewPanel from './prayer/PrayerOverviewPanel'
 import PrayerStepper from './prayer/PrayerStepper'
 import { BackIcon, NextIcon } from '../Icons'
+import { createDebouncedByKey } from '../../utils/debounceByKey'
 
 
 type FlowState =
@@ -40,7 +41,7 @@ type FlowState =
 function PrayerPage() {
   const location = useLocation()
   const itemMap = useItemMap()
-  const { mutate: storeItems } = useStoreItemsMutation({ invalidateOnSettled: false })
+  const { mutate: storeItems } = useStoreItemsMutation()
 
   const today = useToday()
   const prevTodayRef = useRef(today)
@@ -51,18 +52,16 @@ function PrayerPage() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
   const [isActiveViewPrepared, setIsActiveViewPrepared] = useState(false)
-  const prayedSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const prayedSyncItemsRef = useRef<Map<string, Item>>(new Map())
+  const prayedSyncQueue = useMemo(
+    () => createDebouncedByKey<string, Item>(500, latestItem => {
+      storeItems(latestItem)
+    }),
+    [storeItems],
+  )
 
   useEffect(
-    () => () => {
-      for (const timeoutId of prayedSyncTimersRef.current.values()) {
-        globalThis.clearTimeout(timeoutId)
-      }
-      prayedSyncTimersRef.current.clear()
-      prayedSyncItemsRef.current.clear()
-    },
-    [],
+    () => () => prayedSyncQueue.clear(),
+    [prayedSyncQueue],
   )
 
   useEffect(
@@ -241,25 +240,9 @@ function PrayerPage() {
         return
       }
 
-      prayedSyncItemsRef.current.set(clean.id, clean)
-
-      const existingTimeout = prayedSyncTimersRef.current.get(clean.id)
-      if (existingTimeout !== undefined) {
-        globalThis.clearTimeout(existingTimeout)
-      }
-
-      const timeoutId = globalThis.setTimeout(() => {
-        const latest = prayedSyncItemsRef.current.get(clean.id)
-        if (latest) {
-          storeItems(latest)
-        }
-        prayedSyncTimersRef.current.delete(clean.id)
-        prayedSyncItemsRef.current.delete(clean.id)
-      }, 500)
-
-      prayedSyncTimersRef.current.set(clean.id, timeoutId)
+      prayedSyncQueue.schedule(clean.id, clean)
     },
-    [storeItems],
+    [prayedSyncQueue],
   )
 
   const recordPrayedForLocalItem = useCallback(

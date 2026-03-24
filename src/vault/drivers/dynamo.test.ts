@@ -1,4 +1,4 @@
-import DynamoDriver, { getConnectionParams } from './dynamo'
+import DynamoDriver, { getConnectionParams, TransactionConflictsError } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -69,6 +69,59 @@ describe('DynamoDriver', function () {
     const result = await driver.get({ account, item })
     expect(result.metadata.version).toBe(2)
     expect(result.cipher).toBe('new')
+  })
+
+  it('setMany writes multiple items atomically and enforces version checks', async () => {
+    const account = generateAccountId()
+    const firstItem = generateItemId()
+    const secondItem = generateItemId()
+    const type: ItemType = 'person'
+    const iv = 'there'
+    const modified = new Date().getTime()
+
+    await driver.setMany([
+      {
+        account,
+        item: firstItem,
+        cipher: 'cipher-1',
+        metadata: { type, iv, modified, version: 1 },
+      },
+      {
+        account,
+        item: secondItem,
+        cipher: 'cipher-2',
+        metadata: { type, iv, modified, version: 1 },
+      },
+    ])
+
+    const first = await driver.get({ account, item: firstItem })
+    const second = await driver.get({ account, item: secondItem })
+    expect(first.metadata.version).toBe(1)
+    expect(second.metadata.version).toBe(1)
+
+    await expect(
+      driver.setMany([
+        {
+          account,
+          item: firstItem,
+          cipher: 'new-cipher-1',
+          metadata: { type, iv, modified, version: 2 },
+        },
+        {
+          account,
+          item: secondItem,
+          cipher: 'new-cipher-2',
+          metadata: { type, iv, modified, version: 1 },
+        },
+      ]),
+    ).rejects.toBeInstanceOf(TransactionConflictsError)
+
+    const unchangedFirst = await driver.get({ account, item: firstItem })
+    const unchangedSecond = await driver.get({ account, item: secondItem })
+    expect(unchangedFirst.metadata.version).toBe(1)
+    expect(unchangedFirst.cipher).toBe('cipher-1')
+    expect(unchangedSecond.metadata.version).toBe(1)
+    expect(unchangedSecond.cipher).toBe('cipher-2')
   })
 
   it('fetchAll works', async () => {

@@ -45,6 +45,17 @@ export type BatchResultResponse = {
   details: Array<{ item: string, success: boolean, error?: string }>,
 }
 
+type PutManyResponse =
+  | {
+    success: true,
+    conflicts: string[],
+  }
+  | {
+    success: false,
+    error: 'Version conflict',
+    conflicts: string[],
+  }
+
 export type ReminderSettingsResponse = {
   success: boolean,
   reminderEnabled: boolean,
@@ -59,6 +70,16 @@ export class VaultBatchError extends Error {
     super(`VaultAPI batch operation failed for items: ${failures.map(f => f.item).join(', ')}`)
     this.name = 'VaultBatchError'
     this.failures = failures
+  }
+}
+
+export class VaultVersionConflictError extends Error {
+  conflictIds: string[]
+
+  constructor(conflictIds: string[]) {
+    super(`Version conflict for items: ${conflictIds.join(', ')}`)
+    this.name = 'VaultVersionConflictError'
+    this.conflictIds = conflictIds
   }
 }
 
@@ -118,12 +139,31 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
       type: metadata.type,
       version: metadata.version,
     })),
-  })
+  }) as PutManyResponse | BatchResultResponse
 
-  const failedItems = response.details.filter(d => !d.success)
-  if (failedItems.length > 0) {
-    throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
+  if ('success' in response && response.success && 'conflicts' in response) {
+    return
   }
+
+  if (
+    'success' in response
+    && !response.success
+    && 'error' in response
+    && response.error === 'Version conflict'
+    && 'conflicts' in response
+  ) {
+    throw new VaultVersionConflictError(response.conflicts)
+  }
+
+  if ('details' in response) {
+    const failedItems = response.details.filter(d => !d.success)
+    if (failedItems.length > 0) {
+      throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
+    }
+    return
+  }
+
+  throw new Error('VaultAPI putMany operation failed')
 }
 
 export async function vaultDelete({ item }: { item: string }) {

@@ -16,7 +16,6 @@ import {
   mutateDeleteItems,
   mutateSetMetadata,
   mutateStoreItems,
-  optimisticStoreItemsUpdate,
 } from './mutations'
 import {
   queryClient,
@@ -165,39 +164,13 @@ export function useSetMetadataMutation() {
     onError: (_error, _variables, context) => {
       queryClient.setQueryData(queryKeys.metadata, context?.previousMetadata)
     },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-    },
   })
 }
 
 // Hook: Store items mutation
-export function useStoreItemsMutation(options?: { invalidateOnSettled?: boolean }) {
-  const shouldInvalidate = options?.invalidateOnSettled ?? true
-
-  return useMutation<Item[], Error, Item | Item[], { previousItems: Item[] | undefined }>({
-    mutationFn: items => mutateStoreItems(items, { externalCacheLifecycle: true }),
-    onMutate: async items => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.items })
-
-      const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
-      const nextItems = Array.isArray(items) ? items : [items]
-
-      queryClient.setQueryData<Item[]>(
-        queryKeys.items,
-        old => optimisticStoreItemsUpdate(old, nextItems),
-      )
-
-      return { previousItems }
-    },
-    onError: (_error, _items, context) => {
-      queryClient.setQueryData(queryKeys.items, context?.previousItems)
-    },
-    onSettled: async () => {
-      if (shouldInvalidate) {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-      }
-    },
+export function useStoreItemsMutation() {
+  return useMutation<Item[], Error, Item | Item[]>({
+    mutationFn: items => mutateStoreItems(items),
   })
 }
 

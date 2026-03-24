@@ -4,6 +4,7 @@ import {
   DynamoDBClient,
   DynamoDBClientConfig,
   ResourceInUseException,
+  TransactionCanceledException,
 } from '@aws-sdk/client-dynamodb'
 import {
   BatchGetCommand,
@@ -14,6 +15,7 @@ import {
   PutCommandInput,
   QueryCommand,
   QueryCommandOutput,
+  TransactWriteCommand,
   UpdateCommand,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
@@ -39,7 +41,59 @@ const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
+export const MAX_TRANSACTION_ITEMS = 100
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
+
+export class TransactionConflictsError extends Error {
+  conflictedIds: string[]
+
+  constructor(conflictedIds: string[]) {
+    super('Transaction conflicts')
+    this.name = 'TransactionConflictsError'
+    this.conflictedIds = conflictedIds
+  }
+}
+
+function validateItem(item: VaultItem) {
+  if (!item.cipher || !item.metadata.iv || !item.metadata.type) {
+    throw new Error(
+      `Missing some required properties on item ${JSON.stringify(item)}`,
+    )
+  }
+  const itemLength = JSON.stringify(item).length
+  if (itemLength > MAX_ITEM_SIZE) {
+    throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
+  }
+}
+
+function getItemPutParams(item: VaultItem): PutCommandInput {
+  validateItem(item)
+
+  const params: PutCommandInput = {
+    TableName: ITEM_TABLE_NAME,
+    Item: item,
+  }
+
+  if (typeof item.metadata.version === 'number') {
+    params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+    params.ExpressionAttributeNames = {
+      '#item': 'item',
+    }
+    params.ExpressionAttributeValues = {
+      ':newVersion': item.metadata.version,
+    }
+  }
+
+  return params
+}
+
+function chunkItems<TValue>(values: TValue[], size: number): TValue[][] {
+  const chunks: TValue[][] = []
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size))
+  }
+  return chunks
+}
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
@@ -401,30 +455,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem) {
-    if (!item.cipher || !item.metadata.iv || !item.metadata.type) {
-      throw new Error(
-        `Missing some required properties on item ${JSON.stringify(item)}`,
-      )
-    }
-    const itemLength = JSON.stringify(item).length
-    if (itemLength > MAX_ITEM_SIZE) {
-      throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
-    }
-
-    const params: PutCommandInput = {
-      TableName: ITEM_TABLE_NAME,
-      Item: item,
-    }
-
-    if (typeof item.metadata.version === 'number') {
-      params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
-      params.ExpressionAttributeNames = {
-        '#item': 'item',
-      }
-      params.ExpressionAttributeValues = {
-        ':newVersion': item.metadata.version,
-      }
-    }
+    const params = getItemPutParams(item)
 
     try {
       await this.client.send(new PutCommand(params))
@@ -433,6 +464,46 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         throw new Error('Version conflict: The item has been modified by another client.')
       }
       throw err
+    }
+  }
+
+  async setMany(items: VaultItem[]): Promise<void> {
+    if (items.length === 0) {
+      return
+    }
+
+    const chunks = chunkItems(items, MAX_TRANSACTION_ITEMS)
+    for (const chunk of chunks) {
+      const transactItems = chunk.map(item => ({
+        Put: getItemPutParams(item),
+      }))
+
+      try {
+        await this.client.send(new TransactWriteCommand({
+          TransactItems: transactItems,
+        }))
+      } catch (error) {
+        if (error instanceof TransactionCanceledException) {
+          const reasons = ((error as unknown as {
+            CancellationReasons?: Array<{ Code?: string }>
+            cancellationReasons?: Array<{ Code?: string }>
+          }).CancellationReasons
+            || (error as unknown as {
+              CancellationReasons?: Array<{ Code?: string }>
+              cancellationReasons?: Array<{ Code?: string }>
+            }).cancellationReasons
+            || [])
+
+          const conflictedIds = reasons
+            .map((reason, index) => (reason?.Code === 'ConditionalCheckFailed' ? chunk[index]?.item : undefined))
+            .filter((id): id is string => typeof id === 'string')
+
+          if (conflictedIds.length > 0) {
+            throw new TransactionConflictsError(conflictedIds)
+          }
+        }
+        throw error
+      }
     }
   }
 

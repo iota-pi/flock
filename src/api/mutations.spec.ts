@@ -205,6 +205,42 @@ describe('mutations', () => {
       expect(VaultAPI.vaultFetchMany).not.toHaveBeenCalled()
       expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
     })
+
+    it('uses transaction conflict ids returned by vaultPutMany', async () => {
+      const first = getBlankPerson()
+      first.id = 'first'
+      first.version = 1
+
+      const second = getBlankPerson()
+      second.id = 'second'
+      second.version = 1
+      second.name = 'Updated'
+
+      queryClient.setQueryData(queryKeys.items, [{ ...first }, { ...second }])
+
+      vi.mocked(VaultAPI.vaultPutMany)
+        .mockRejectedValueOnce(new VaultAPI.VaultVersionConflictError([second.id]))
+
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+        {
+          item: second.id,
+          cipher: 'cipher-second',
+          metadata: { iv: 'iv-second', type: 'person', modified: 2, version: 2 },
+        },
+      ])
+
+      vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
+        if (cipher === 'cipher-second') {
+          return { ...second, version: 2 }
+        }
+        return {}
+      })
+
+      const result = await mutateStoreItems([first, second])
+
+      expect(VaultAPI.vaultFetchMany).toHaveBeenCalledWith({ ids: [second.id] })
+      expect(result.find(item => item.id === second.id)?.version).toBe(2)
+    })
   })
 
   describe('mutateDeleteItems', () => {

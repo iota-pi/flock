@@ -1,5 +1,6 @@
 import pMap from 'p-map'
 import { asItemType } from '../../drivers/base'
+import { TransactionConflictsError } from '../../drivers/dynamo'
 import { router, protectedProcedure } from '../trpc'
 import {
   DeleteItemBodySchema,
@@ -32,37 +33,36 @@ export const itemsRouter = router({
   putMany: protectedProcedure
     .input(PutItemsBatchBodySchema)
     .mutation(async ({ ctx, input }) => {
-      const results = await pMap(
-        input.items,
-        async item => {
-          const { cipher, id, iv, modified, type, version } = item
-          const _type = asItemType(type)
+      const mappedItems = input.items.map(item => {
+        const { cipher, id, iv, modified, type, version } = item
+        const _type = asItemType(type)
 
-          try {
-            await ctx.vault.set({
-              account: input.account,
-              item: id,
-              cipher,
-              metadata: {
-                type: _type,
-                iv,
-                modified,
-                version,
-              },
-            })
-            return { item: id, success: true }
-          } catch (error) {
-            return {
-              item: id,
-              success: false,
-              error: error instanceof Error ? error.message : String(error),
-            }
+        return {
+          account: input.account,
+          item: id,
+          cipher,
+          metadata: {
+            type: _type,
+            iv,
+            modified,
+            version,
+          },
+        }
+      })
+
+      try {
+        await ctx.vault.setMany(mappedItems)
+        return { success: true, conflicts: [] as string[] }
+      } catch (error) {
+        if (error instanceof TransactionConflictsError) {
+          return {
+            success: false,
+            error: 'Version conflict' as const,
+            conflicts: error.conflictedIds,
           }
-        },
-        { concurrency: 10 },
-      )
-
-      return { success: true, details: results }
+        }
+        throw error
+      }
     }),
 
   put: protectedProcedure
