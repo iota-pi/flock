@@ -6,9 +6,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { Box, Button, Slide } from '@mui/material'
+import { Box, Button } from '@mui/material'
 import { useLocation } from 'react-router'
-import { useSwipeable } from 'react-swipeable'
 import {
   cleanItem,
   DirtyItem,
@@ -21,16 +20,15 @@ import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useToday } from '../../hooks/useToday'
 import { useStoreItemsMutation } from '../../api/queries'
 import { recordPrayerCompletion } from '../../api/VaultLazy'
-import ItemList, { ItemListExtraElement } from '../ItemList'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
 import { isSameDay } from '../../utils'
 import { getLastPrayedFor } from '../../utils/prayer'
 import PrayerActiveView from './prayer/PrayerActiveView'
 import PrayerFinishedView from './prayer/PrayerFinishedView'
-import PrayerOverviewHeader from './prayer/PrayerOverviewHeader'
+import PrayerOverviewPanel from './prayer/PrayerOverviewPanel'
 import PrayerStepper from './prayer/PrayerStepper'
-import { NextIcon } from '../Icons'
+import { BackIcon, NextIcon } from '../Icons'
 
 
 type FlowState =
@@ -52,6 +50,7 @@ function PrayerPage() {
   const [showGoalDialog, setShowGoalDialog] = useState(false)
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
+  const [isActiveViewPrepared, setIsActiveViewPrepared] = useState(false)
 
   useEffect(
     () => {
@@ -117,12 +116,45 @@ function PrayerPage() {
     [itemMap, scheduleIds],
   )
 
-  // Pre-build local items after the overview renders so the active view
-  // is ready immediately when the user swipes or presses Start.
+  // Warm active-view data asynchronously after overview render so the
+  // overview appears immediately while active views are prepared in the background.
   useEffect(
     () => {
-      if (flow.type === 'overview') {
+      if (flow.type !== 'overview') {
+        return undefined
+      }
+
+      setIsActiveViewPrepared(false)
+      let cancelled = false
+
+      const prepare = () => {
+        if (cancelled) {
+          return
+        }
+
         setLocalItems(buildLocalItems(visibleSchedule.length))
+        setIsActiveViewPrepared(true)
+      }
+
+      const globalWindow = typeof window !== 'undefined' ? window : undefined
+      if (globalWindow && 'requestIdleCallback' in globalWindow) {
+        const idleId = globalWindow.requestIdleCallback(() => {
+          prepare()
+        }, { timeout: 250 })
+
+        return () => {
+          cancelled = true
+          globalWindow.cancelIdleCallback?.(idleId)
+        }
+      }
+
+      const timeoutId = globalThis.setTimeout(() => {
+        prepare()
+      }, 0)
+
+      return () => {
+        cancelled = true
+        globalThis.clearTimeout(timeoutId)
       }
     },
     [flow.type, buildLocalItems, visibleSchedule.length],
@@ -245,10 +277,6 @@ function PrayerPage() {
   const handleBack = useCallback(
     () => {
       if (flow.type !== 'active') return
-      const currentItem = localItems[flow.index]
-      if (!currentItem) return
-
-      saveLocalItem(currentItem)
 
       if (flow.index === 0) {
         setFlow({ type: 'overview' })
@@ -256,18 +284,14 @@ function PrayerPage() {
         setFlow({ type: 'active', index: flow.index - 1 })
       }
     },
-    [flow, localItems, saveLocalItem],
+    [flow],
   )
 
   const handleStepClick = useCallback(
     (index: number) => {
-      if (flow.type !== 'active') return
-      const currentItem = localItems[flow.index]
-      if (!currentItem) return
-      saveLocalItem(currentItem)
       setFlow({ type: 'active', index })
     },
-    [flow, localItems, saveLocalItem],
+    [],
   )
 
   const handleItemClick = useCallback(
@@ -310,7 +334,19 @@ function PrayerPage() {
   const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
   const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
   const handleOpenEditDrawer = useCallback(() => setIsEditDrawerOpen(true), [])
-  const handleCloseEditDrawer = useCallback(() => setIsEditDrawerOpen(false), [])
+  const handleCloseEditDrawer = useCallback(
+    () => {
+      if (flow.type === 'active') {
+        const currentItem = localItems[flow.index]
+        if (currentItem) {
+          saveLocalItem(currentItem)
+        }
+      }
+      setIsEditDrawerOpen(false)
+    },
+    [flow, localItems, saveLocalItem],
+  )
+  const handleGoToOverview = useCallback(() => setFlow({ type: 'overview' }), [])
   const firstUnprayedIndex = useMemo(
     () => {
       const index = visibleSchedule.findIndex(item => !isPrayedForToday(item))
@@ -342,115 +378,113 @@ function PrayerPage() {
     [handleOverviewPrimaryAction],
   )
 
-  const overviewSwipeHandlers = useSwipeable({
-    delta: 60,
-    onSwiped: ({ deltaX, deltaY }) => {
-      if (visibleSchedule.length === 0) return
-      if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
-      if (deltaX < 0) {
-        handleStartFirst()
-      }
-    },
-    preventScrollOnSwipe: false,
-    trackMouse: false,
-    trackTouch: true,
-  })
-
-  const extraElements: ItemListExtraElement[] = useMemo(
-    () => [
-      {
-        content: (
-          <PrayerOverviewHeader
-            completed={completed}
-            goal={goal}
-            naturalGoal={naturalGoal}
-            onEditGoal={handleEditGoal}
-            onStart={handleStartFirst}
-            startDisabled={allVisiblePrayed && !canKeepPraying}
-            startLabel={startButtonLabel}
-            visibleScheduleLength={visibleSchedule.length}
-          />
-        ),
-        index: 0,
-      },
-    ],
-    [
-      allVisiblePrayed,
-      canKeepPraying,
-      completed,
-      goal,
-      handleEditGoal,
-      handleStartFirst,
-      naturalGoal,
-      startButtonLabel,
-      visibleSchedule.length,
-    ],
-  )
-
   const overlayActiveItem = overlayFlow?.type === 'active' ? localItems[overlayFlow.index] : undefined
   const showOverlay = flow.type !== 'overview'
+  const viewTrackTransform = showOverlay ? 'translateX(-50%)' : 'translateX(0%)'
+  const transitionDurationMs = isActiveViewPrepared ? 320 : 360
+  const shouldPreRenderActive = !overlayFlow && flow.type === 'overview' && isActiveViewPrepared
+  const activeViewIndex = overlayFlow?.type === 'active' ? overlayFlow.index : firstUnprayedIndex
+  const activeViewItem = localItems[activeViewIndex]
+  const shouldRenderActiveView = !!overlayActiveItem || (shouldPreRenderActive && !!activeViewItem)
+  const hideActiveView = !overlayActiveItem
+  const isActiveFlow = flow.type === 'active'
+  const isFinishedFlow = flow.type === 'finished'
+  const stepperSteps = isActiveFlow || isFinishedFlow ? localItems.length : visibleSchedule.length
+  const stepperActiveStep = isActiveFlow ? flow.index : undefined
+  const showActiveNavButtons = isActiveFlow
+  const isLastActiveStep = isActiveFlow && flow.index >= localItems.length - 1
 
   return (
     <BasePage noScrollContainer>
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
-        {/* Overview — always rendered as the base layer */}
-        <Box {...overviewSwipeHandlers} sx={{ flexGrow: 1, minHeight: 0 }}>
-          <ItemList
-            checkboxes
-            checkboxSide="right"
-            extraElements={extraElements}
-            getChecked={isPrayedForToday}
-            getForceFade={isPrayedForToday}
-            items={visibleSchedule}
-            noItemsText="No items in prayer schedule"
-            onCheck={handleCheck}
-            onClick={handleItemClick}
-            showIcons
-            showTags={false}
-          />
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              height: '100%',
+              transform: viewTrackTransform,
+              transition: `transform ${transitionDurationMs}ms cubic-bezier(0.25, 0.8, 0.25, 1)`,
+              width: '200%',
+              willChange: 'transform',
+            }}
+          >
+            <PrayerOverviewPanel
+              completed={completed}
+              goal={goal}
+              naturalGoal={naturalGoal}
+              visibleSchedule={visibleSchedule}
+              isPrayedForToday={isPrayedForToday}
+              onCheck={handleCheck}
+              onEditGoal={handleEditGoal}
+              onItemClick={handleItemClick}
+              onStart={handleStartFirst}
+              startDisabled={allVisiblePrayed && !canKeepPraying}
+              startLabel={startButtonLabel}
+            />
+
+            <Box sx={{ bgcolor: 'background.default', position: 'relative', width: '50%' }}>
+              {shouldRenderActiveView && (
+                <Box
+                  aria-hidden={hideActiveView}
+                  sx={{
+                    inset: 0,
+                    pointerEvents: hideActiveView ? 'none' : 'auto',
+                    position: 'absolute',
+                    visibility: hideActiveView ? 'hidden' : 'visible',
+                  }}
+                >
+                  <PrayerActiveView
+                    activeIndex={activeViewIndex}
+                    items={localItems}
+                    isEditDrawerOpen={isEditDrawerOpen && flow.type === 'active'}
+                    onBack={handleBack}
+                    onCloseEditDrawer={handleCloseEditDrawer}
+                    onEditDrawerChange={handleEditDrawerChange}
+                    onItemChange={handleChange}
+                    onNext={handleNext}
+                    onOpenEditDrawer={handleOpenEditDrawer}
+                  />
+                </Box>
+              )}
+              {overlayFlow?.type === 'finished' && (
+                <PrayerFinishedView
+                  canKeepPraying={canKeepPraying}
+                  onBackToOverview={() => setFlow({ type: 'overview' })}
+                  onKeepPraying={handleKeepPraying}
+                  prayedCount={overlayFlow.prayedCount}
+                />
+              )}
+            </Box>
+          </Box>
         </Box>
 
         <PrayerStepper
-          steps={visibleSchedule.length}
-          nextButton={(
-            <Button
-              disabled={allVisiblePrayed && !canKeepPraying}
-              endIcon={<NextIcon />}
-              onClick={handleStartFirst}
-            >
-              {startButtonLabel}
+          activeStep={stepperActiveStep}
+          isHomeActive={flow.type !== 'overview'}
+          onHomeClick={handleGoToOverview}
+          onStepClick={stepperSteps > 0 ? handleStepClick : undefined}
+          steps={stepperSteps}
+          backButton={showActiveNavButtons ? (
+            <Button onClick={handleBack} startIcon={<BackIcon />}>
+              Back
             </Button>
-          )}
+          ) : undefined}
+          nextButton={showActiveNavButtons
+            ? (
+              <Button endIcon={<NextIcon />} onClick={handleNext}>
+                {isLastActiveStep ? 'Finish' : 'Next'}
+              </Button>
+            )
+            : (
+              <Button
+                disabled={allVisiblePrayed && !canKeepPraying}
+                endIcon={<NextIcon />}
+                onClick={handleStartFirst}
+              >
+                {startButtonLabel}
+              </Button>
+            )}
         />
-
-        {/* Active / Finished overlay — slides in from the right over the overview */}
-        <Slide direction="left" in={showOverlay} mountOnEnter unmountOnExit>
-          <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'background.default', zIndex: 1 }}>
-            {overlayFlow?.type === 'active' && overlayActiveItem && (
-              <PrayerActiveView
-                activeIndex={overlayFlow.index}
-                items={localItems}
-                isEditDrawerOpen={isEditDrawerOpen && flow.type === 'active'}
-                onBack={handleBack}
-                onCloseEditDrawer={handleCloseEditDrawer}
-                onEditDrawerChange={handleEditDrawerChange}
-                onItemChange={handleChange}
-                onNext={handleNext}
-                onOpenEditDrawer={handleOpenEditDrawer}
-                onStepClick={handleStepClick}
-                totalSteps={localItems.length}
-              />
-            )}
-            {overlayFlow?.type === 'finished' && (
-              <PrayerFinishedView
-                canKeepPraying={canKeepPraying}
-                onBackToOverview={() => setFlow({ type: 'overview' })}
-                onKeepPraying={handleKeepPraying}
-                prayedCount={overlayFlow.prayedCount}
-              />
-            )}
-          </Box>
-        </Slide>
       </Box>
 
       <GoalDialog

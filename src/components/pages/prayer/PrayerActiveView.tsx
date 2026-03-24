@@ -1,7 +1,6 @@
-import { useCallback, useMemo } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import {
   Box,
-  Button,
   Container,
   ListItemIcon,
   ListItemText,
@@ -17,19 +16,15 @@ import ItemFormContent from '../../drawers/ItemFormContent'
 import ItemViewTopBar from '../../drawers/ItemViewTopBar'
 import {
   ArchiveIcon,
-  BackIcon,
-  NextIcon,
   PrayerIcon,
   UnarchiveIcon,
 } from '../../Icons'
-import PrayerStepper from './PrayerStepper'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
 
 interface Props {
   activeIndex: number,
   items: DirtyItem<Item>[],
-  totalSteps: number,
   isEditDrawerOpen: boolean,
   onBack: () => void,
   onNext: () => void,
@@ -39,13 +34,11 @@ interface Props {
     data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
   ) => void,
   onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
-  onStepClick?: (index: number) => void,
 }
 
 function PrayerActiveView({
   activeIndex,
   items,
-  totalSteps,
   isEditDrawerOpen,
   onBack,
   onNext,
@@ -53,10 +46,8 @@ function PrayerActiveView({
   onCloseEditDrawer,
   onEditDrawerChange,
   onItemChange,
-  onStepClick,
 }: Props) {
   const activeItem = items[activeIndex]
-  const isLast = activeIndex >= totalSteps - 1
   const activeItemArchived = activeItem.archived
   const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
 
@@ -130,6 +121,32 @@ function PrayerActiveView({
     trackTouch: true,
   })
 
+  const formSlides = useMemo(
+    () => items.map((item, itemIndex) => (
+      <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
+        {Math.abs(itemIndex - activeIndex) <= 1
+          ? (
+            <Container maxWidth={false} sx={{ py: 2 }}>
+              <ItemFormContent
+                autoFocusName={false}
+                fromPrayerPage
+                handleChange={
+                  itemIndex === activeIndex
+                    ? onItemChange
+                    : (() => undefined)
+                }
+                hideHeaderFields
+                hideRelationships
+                item={item}
+              />
+            </Container>
+          )
+          : <Box sx={{ height: '100%', width: '100%' }} />}
+      </Box>
+    )),
+    [activeIndex, items, onItemChange],
+  )
+
   return (
     <>
       <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
@@ -154,46 +171,10 @@ function PrayerActiveView({
               width: '100%',
             }}
           >
-            {items.map((item, itemIndex) => (
-              <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
-                {Math.abs(itemIndex - activeIndex) <= 1
-                  ? (
-                    <Container maxWidth={false} sx={{ py: 2 }}>
-                      <ItemFormContent
-                        autoFocusName={false}
-                        fromPrayerPage
-                        handleChange={
-                          itemIndex === activeIndex
-                            ? onItemChange
-                            : (() => undefined)
-                        }
-                        hideHeaderFields
-                        hideRelationships
-                        item={item}
-                      />
-                    </Container>
-                  )
-                  : <Box sx={{ height: '100%', width: '100%' }} />}
-              </Box>
-            ))}
+            {formSlides}
           </Box>
         </Box>
 
-        <PrayerStepper
-          activeStep={activeIndex}
-          onStepClick={onStepClick}
-          backButton={(
-            <Button onClick={onBack} startIcon={<BackIcon />}>
-              Back
-            </Button>
-          )}
-          nextButton={(
-            <Button endIcon={<NextIcon />} onClick={onNext}>
-              {isLast ? 'Finish' : 'Next'}
-            </Button>
-          )}
-          steps={totalSteps}
-        />
       </Box>
 
       <ItemDrawer
@@ -211,4 +192,4 @@ function PrayerActiveView({
   )
 }
 
-export default PrayerActiveView
+export default memo(PrayerActiveView)

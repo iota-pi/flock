@@ -133,7 +133,6 @@ export function useItemsQuery<TData = Item[]>(
     ...options,
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    refetchOnMount: 'always',
     enabled: options?.enabled ?? true,
   })
 }
@@ -144,7 +143,6 @@ export function useMetadataQuery(enabled = true) {
     queryKey: queryKeys.metadata,
     queryFn: fetchMetadata,
     enabled,
-    refetchOnMount: 'always',
   })
 }
 
