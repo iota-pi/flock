@@ -1,3 +1,7 @@
+import { diff_match_patch } from 'diff-match-patch'
+
+const dmp = new diff_match_patch()
+
 interface ObjectWithId {
   id: string | number
 }
@@ -182,8 +186,14 @@ export function threeWayMerge<T extends object>(base: T | null | undefined, thei
     } else if (!yoursChanged && theirsChanged) {
       result[key] = t
     } else if (yoursChanged && theirsChanged) {
-      // On conflict, local wins
-      result[key] = y
+      if (typeof b === 'string' && typeof t === 'string' && typeof y === 'string') {
+        const patches = dmp.patch_make(b, t)
+        const [mergedText] = dmp.patch_apply(patches, y)
+        result[key] = mergedText
+      } else {
+        // On non-string conflicts, local wins
+        result[key] = y
+      }
     } else {
       // No changes
       result[key] = b

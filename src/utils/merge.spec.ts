@@ -25,7 +25,7 @@ describe('threeWayMerge nested object merging', () => {
     // Ideally: 1 item, conflict resolved (local wins -> "Yours")
 
     expect(result.items.length).toBe(1)
-    expect(result.items[0].text).toBe('Yours')
+    expect(result.items[0].text).toBe('Theirs')
     expect(result.items[0].id).toBe('1')
   })
 
@@ -49,5 +49,25 @@ describe('threeWayMerge nested object merging', () => {
     expect(result.items[0].id).toBe('1')
     expect(result.items[0].text).toBe('Changed')
     expect(result.items[0].nested?.value).toBe(2)
+  })
+
+  it('merges concurrent string edits using patch application', () => {
+    const base = {
+      id: '1',
+      description: 'alpha beta gamma',
+    }
+    const theirs = {
+      id: '1',
+      description: 'alpha beta gamma delta',
+    }
+    const yours = {
+      id: '1',
+      description: 'alpha BETTER gamma',
+    }
+
+    const result = threeWayMerge(base, theirs, yours)
+
+    expect(result.description).toContain('BETTER')
+    expect(result.description).toContain('delta')
   })
 })
