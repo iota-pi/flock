@@ -2,6 +2,7 @@
 import { precacheAndRoute } from 'workbox-precaching'
 import {
   OFFLINE_QUEUE_SYNC_TAG,
+  getActiveSessionToken,
   readQueue,
   writeQueue,
   type QueuedMutation,
@@ -113,7 +114,10 @@ function getProcedurePath(mutationType: QueuedMutation['mutationType']) {
   }
 }
 
-async function executeMutation(mutation: QueuedMutation): Promise<{ success: boolean, conflict: boolean, status: number }> {
+async function executeMutation(
+  mutation: QueuedMutation,
+  token: string,
+): Promise<{ success: boolean, conflict: boolean, status: number }> {
   const procedurePath = getProcedurePath(mutation.mutationType)
   if (!procedurePath) {
     throw new Error(`Unknown offline mutation type: ${mutation.mutationType}`)
@@ -122,7 +126,7 @@ async function executeMutation(mutation: QueuedMutation): Promise<{ success: boo
   const response = await fetch(`${mutation.endpoint}/trpc/${procedurePath}`, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${mutation.session}`,
+      Authorization: `Basic ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ json: mutation.payload }),
@@ -149,6 +153,12 @@ async function processOfflineQueue() {
     return
   }
 
+  const token = await getActiveSessionToken()
+  if (!token) {
+    await writeQueue(queue)
+    return
+  }
+
   const nextQueue: QueuedMutation[] = []
 
   for (let index = 0; index < queue.length; index += 1) {
@@ -161,7 +171,7 @@ async function processOfflineQueue() {
     }
 
     try {
-      const result = await executeMutation(normalizedMutation)
+      const result = await executeMutation(normalizedMutation, token)
       if (result.success) {
         continue
       }

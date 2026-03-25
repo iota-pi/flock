@@ -29,8 +29,8 @@ export default function useSettings() {
 
   // Actions
   const handleSignOut = useCallback(
-    () => {
-      signOutVault()
+    async () => {
+      await signOutVault()
       setMessage({ message: 'Signed out' })
     },
     [setMessage],

@@ -17,6 +17,7 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
 
   for (const item of items) {
     if (item.metadata?.deleted === true) {
+      decryptedItems.push(item as unknown as HydratedItem)
       continue
     }
 

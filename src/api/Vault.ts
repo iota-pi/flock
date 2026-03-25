@@ -18,6 +18,7 @@ import {
 import { queryClient } from './queryClient'
 import type { WebPushSubscription } from '../vault/types'
 import { useAuthStore } from '../state/authStore'
+import { clearActiveSessionToken, setActiveSessionToken } from './offlineQueueStore'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -82,6 +83,7 @@ export async function loginVault({
   await initialiseVault({ password, salt })
   session = await vaultGetSession(keyHash)
   initAxios(session)
+  await setActiveSessionToken(session)
   await storeVault()
 }
 
@@ -120,12 +122,12 @@ export async function initialiseVault({
 
 let isHandlingSessionExpiry = false
 
-function handleSessionExpired() {
+async function handleSessionExpired() {
   // Prevent multiple simultaneous session expiry handlers
   if (isHandlingSessionExpiry) return
   isHandlingSessionExpiry = true
 
-  signOutVault()
+  await signOutVault()
   useUiStore.getState().setUi({
     message: {
       message: 'Your session has expired. Please log in again.',
@@ -159,6 +161,7 @@ export async function loadVault() {
     await updateKeyHash()
     session = await vaultGetSession(keyHash)
     initAxios(session)
+    await setActiveSessionToken(session)
     setSessionExpiredHandler(handleSessionExpired)
 
     setAccount({ loggedIn: true })
@@ -175,10 +178,11 @@ export async function storeVault() {
   localStorage.setItem(ACCOUNT_STORAGE_KEY, getAccountId())
 }
 
-export function signOutVault() {
+export async function signOutVault() {
   const { setAccount } = useAuthStore.getState()
   key = null
   keyHash = ''
+  session = ''
   initAxios('')
 
   // Stop current queries and clear cache
@@ -189,6 +193,7 @@ export function signOutVault() {
   setAccount({ account: '', loggedIn: false })
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
+  await clearActiveSessionToken()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {

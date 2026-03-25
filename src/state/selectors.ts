@@ -17,11 +17,14 @@ export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
   const loggedIn = useLoggedIn()
   const selectItems = useCallback(
-    (items: Item[]) => (
-      itemType
-        ? items.filter(i => i.type === itemType)
-        : items
-    ) as T[],
+    (items: Item[]) => {
+      const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      return (
+        itemType
+          ? visibleItems.filter(i => i.type === itemType)
+          : visibleItems
+      ) as T[]
+    },
     [itemType],
   )
   const { data: items = EMPTY_ARRAY as T[] } = useItemsQuery<T[]>({ enabled: loggedIn, select: selectItems })
@@ -31,7 +34,10 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
 export const useItemMap = () => {
   const loggedIn = useLoggedIn()
   const selectItemMap = useCallback(
-    (items: Item[]) => Object.fromEntries(items.map(item => [item.id, item])) as Record<string, Item>,
+    (items: Item[]) => {
+      const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<string, Item>
+    },
     [],
   )
   const { data: itemMap = EMPTY_ITEM_MAP } = useItemsQuery<Record<string, Item>>({
@@ -44,7 +50,9 @@ export const useItemMap = () => {
 export const useItem = (id: ItemId) => {
   const loggedIn = useLoggedIn()
   const selectItem = useCallback(
-    (items: Item[]) => items.find(item => item.id === id),
+    (items: Item[]) => items
+      .filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      .find(item => item.id === id),
     [id],
   )
   const { data: item } = useItemsQuery<Item | undefined>({ enabled: loggedIn, select: selectItem })
@@ -56,7 +64,7 @@ export function useItemsById() {
   return useCallback(
     <T extends Item>(ids: ItemId[]) => (
       ids.map(id => itemMap[id] as T).filter(item => item !== undefined)
-    ),
+    ) as T[],
     [itemMap],
   )
 }

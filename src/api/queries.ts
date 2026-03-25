@@ -24,6 +24,7 @@ import {
 } from './queryClient'
 import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
+import { getAccountId } from './util'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
@@ -34,12 +35,16 @@ async function getVaultModule() {
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
 let inMemoryLastSyncServerTime: number | null = null
 
-function getLastSyncServerTime(): number | null {
+function getLastSyncServerTimeKey(accountId: string): string {
+  return `lastSyncServerTime_${accountId}`
+}
+
+function getLastSyncServerTime(accountId: string): number | null {
   if (typeof window === 'undefined' || !window.localStorage) {
     return inMemoryLastSyncServerTime
   }
 
-  const rawValue = window.localStorage.getItem('lastSyncServerTime')
+  const rawValue = window.localStorage.getItem(getLastSyncServerTimeKey(accountId))
   if (!rawValue) {
     return null
   }
@@ -52,13 +57,13 @@ function getLastSyncServerTime(): number | null {
   return parsed
 }
 
-function setLastSyncServerTime(serverTime: number): void {
+function setLastSyncServerTime(accountId: string, serverTime: number): void {
   inMemoryLastSyncServerTime = serverTime
   if (typeof window === 'undefined' || !window.localStorage) {
     return
   }
 
-  window.localStorage.setItem('lastSyncServerTime', serverTime.toString())
+  window.localStorage.setItem(getLastSyncServerTimeKey(accountId), serverTime.toString())
 }
 
 // Fetch and decrypt all items - TanStack Query handles caching
@@ -198,7 +203,8 @@ export async function fetchItems(): Promise<Item[]> {
 
   const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
   const hasCachedItems = cachedItems.length > 0
-  const lastSyncServerTime = getLastSyncServerTime()
+  const accountId = getAccountId()
+  const lastSyncServerTime = getLastSyncServerTime(accountId)
   const cacheTime = hasCachedItems && typeof lastSyncServerTime === 'number'
     ? lastSyncServerTime
     : null
@@ -210,7 +216,7 @@ export async function fetchItems(): Promise<Item[]> {
 
   const items = response.items as VaultItem[]
   if (typeof response.serverTime === 'number' && response.serverTime > 0) {
-    setLastSyncServerTime(response.serverTime)
+    setLastSyncServerTime(accountId, response.serverTime)
   }
 
   const decrypted = await decryptVaultItems(items)

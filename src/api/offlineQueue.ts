@@ -1,7 +1,5 @@
 import env from '../env'
 import { trpcClient } from './trpcClient'
-import { getVaultSession } from './Vault'
-import { getApiAuthToken } from './runtime'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -38,9 +36,8 @@ function isVersionConflictError(error: unknown): boolean {
 }
 
 export async function enqueueMutation(mutationType: string, payload: unknown) {
-  const session = getVaultSession() || getApiAuthToken()
-  if (!session || !env.VAULT_ENDPOINT) {
-    throw new Error('Cannot queue offline mutation without active session')
+  if (!env.VAULT_ENDPOINT) {
+    throw new Error('Cannot queue offline mutation without API endpoint')
   }
 
   const queue = await readQueue()
@@ -48,7 +45,6 @@ export async function enqueueMutation(mutationType: string, payload: unknown) {
     id: getMutationId(),
     mutationType,
     payload,
-    session,
     endpoint: env.VAULT_ENDPOINT,
     conflict: false,
   })
