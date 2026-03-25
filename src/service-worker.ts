@@ -177,10 +177,8 @@ async function processOfflineQueue() {
       }
 
       if (result.status === 401) {
-        nextQueue.push({
-          ...normalizedMutation,
-          lastErrorStatus: 401,
-        }, ...queue.slice(index + 1))
+        console.warn('Background sync paused: Session expired. Waiting for user to reopen app.')
+        nextQueue.push(...queue.slice(index))
         break
       }
 

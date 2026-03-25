@@ -32,7 +32,34 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
-let lastSyncServerTime: number | null = null
+let inMemoryLastSyncServerTime: number | null = null
+
+function getLastSyncServerTime(): number | null {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return inMemoryLastSyncServerTime
+  }
+
+  const rawValue = window.localStorage.getItem('lastSyncServerTime')
+  if (!rawValue) {
+    return null
+  }
+
+  const parsed = Number(rawValue)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null
+  }
+
+  return parsed
+}
+
+function setLastSyncServerTime(serverTime: number): void {
+  inMemoryLastSyncServerTime = serverTime
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return
+  }
+
+  window.localStorage.setItem('lastSyncServerTime', serverTime.toString())
+}
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
@@ -171,6 +198,7 @@ export async function fetchItems(): Promise<Item[]> {
 
   const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
   const hasCachedItems = cachedItems.length > 0
+  const lastSyncServerTime = getLastSyncServerTime()
   const cacheTime = hasCachedItems && typeof lastSyncServerTime === 'number'
     ? lastSyncServerTime
     : null
@@ -182,7 +210,7 @@ export async function fetchItems(): Promise<Item[]> {
 
   const items = response.items as VaultItem[]
   if (typeof response.serverTime === 'number' && response.serverTime > 0) {
-    lastSyncServerTime = response.serverTime
+    setLastSyncServerTime(response.serverTime)
   }
 
   const decrypted = await decryptVaultItems(items)

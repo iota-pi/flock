@@ -114,27 +114,29 @@ function estimateTransactWriteBytes(item: VaultItem): number {
     }
     : item
 
-  return JSON.stringify({ Put: { Item: persistedItem } }).length
+  return Buffer.byteLength(JSON.stringify({ Put: { Item: persistedItem } }), 'utf8')
 }
 
 function chunkItemsForTransactions(items: VaultItem[]): VaultItem[][] {
   const chunks: VaultItem[][] = []
   let currentChunk: VaultItem[] = []
-  let currentBytes = 0
+  let currentChunkByteSize = 0
 
   for (const item of items) {
     const itemBytes = estimateTransactWriteBytes(item)
-    const wouldExceedCount = currentChunk.length >= MAX_TRANSACTION_ITEMS
-    const wouldExceedBytes = currentChunk.length > 0 && (currentBytes + itemBytes > MAX_TRANSACTION_BYTES)
+    const shouldSplitChunk = currentChunk.length > 0 && (
+      currentChunk.length === MAX_TRANSACTION_ITEMS
+      || currentChunkByteSize + itemBytes >= MAX_TRANSACTION_BYTES
+    )
 
-    if (wouldExceedCount || wouldExceedBytes) {
+    if (shouldSplitChunk) {
       chunks.push(currentChunk)
       currentChunk = []
-      currentBytes = 0
+      currentChunkByteSize = 0
     }
 
     currentChunk.push(item)
-    currentBytes += itemBytes
+    currentChunkByteSize += itemBytes
   }
 
   if (currentChunk.length > 0) {

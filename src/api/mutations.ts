@@ -199,7 +199,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
         id: item.id,
         type: item.type,
         deleted: true,
-        version: item.version,
+        version: item.version + 1,
       }]
     })
 
@@ -226,9 +226,15 @@ function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[
     const existing = baseItems.get(item.id)
     const baseVersion = existing?.version
       ?? ((item as Item & { deleted?: boolean }).deleted ? (item.version ?? 0) : 0)
+    const providedVersion = typeof item.version === 'number' ? item.version : 0
+    const isDeleted = (item as Item & { deleted?: boolean }).deleted === true
+    const nextVersion = isDeleted && providedVersion >= baseVersion
+      ? providedVersion
+      : baseVersion + 1
+
     return {
       ...item,
-      version: baseVersion + 1,
+      version: nextVersion,
     }
   })
 }
