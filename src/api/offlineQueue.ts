@@ -1,23 +1,16 @@
-import localforage from 'localforage'
+import env from '../env'
 import { trpcClient } from './trpcClient'
-
-const syncQueue = localforage.createInstance({ name: 'FlockOfflineQueue' })
-const QUEUE_KEY = 'mutations'
-
-type QueuedMutation = {
-  id: string
-  mutationType: string
-  payload: unknown
-}
+import { getVaultSession } from './Vault'
+import { getApiAuthToken } from './runtime'
+import {
+  getMutationId,
+  OFFLINE_QUEUE_SYNC_TAG,
+  type QueuedMutation,
+  readQueue,
+  writeQueue,
+} from './offlineQueueStore'
 
 let processing = false
-
-function getMutationId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 export function isLikelyNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -44,22 +37,40 @@ function isVersionConflictError(error: unknown): boolean {
   return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
-async function readQueue(): Promise<QueuedMutation[]> {
-  return (await syncQueue.getItem<QueuedMutation[]>(QUEUE_KEY)) || []
-}
-
-async function writeQueue(queue: QueuedMutation[]) {
-  await syncQueue.setItem(QUEUE_KEY, queue)
-}
-
 export async function enqueueMutation(mutationType: string, payload: unknown) {
+  const session = getVaultSession() || getApiAuthToken()
+  if (!session || !env.VAULT_ENDPOINT) {
+    throw new Error('Cannot queue offline mutation without active session')
+  }
+
   const queue = await readQueue()
   queue.push({
     id: getMutationId(),
     mutationType,
     payload,
+    session,
+    endpoint: env.VAULT_ENDPOINT,
+    conflict: false,
   })
   await writeQueue(queue)
+
+  await registerBackgroundSync()
+}
+
+async function registerBackgroundSync() {
+  if (
+    typeof navigator === 'undefined'
+    || typeof window === 'undefined'
+    || !('serviceWorker' in navigator)
+    || !('SyncManager' in window)
+  ) {
+    return
+  }
+
+  const swRegistration = await navigator.serviceWorker.ready
+  await (swRegistration as ServiceWorkerRegistration & {
+    sync: { register: (tag: string) => Promise<void> }
+  }).sync.register(OFFLINE_QUEUE_SYNC_TAG)
 }
 
 async function executeMutation(mutation: QueuedMutation) {
@@ -90,32 +101,39 @@ export async function processOfflineQueue() {
       return
     }
 
-    const remaining = [...queue]
+    const nextQueue: QueuedMutation[] = []
 
-    while (remaining.length > 0) {
-      const mutation = remaining[0]
+    for (let index = 0; index < queue.length; index += 1) {
+      const mutation = queue[index]
+      const normalizedMutation = {
+        ...mutation,
+        conflict: false,
+        lastConflictAt: undefined,
+        lastErrorStatus: undefined,
+      }
 
       try {
-        await executeMutation(mutation)
-        remaining.shift()
-        await writeQueue(remaining)
+        await executeMutation(normalizedMutation)
       } catch (error) {
         if (isLikelyNetworkError(error)) {
+          nextQueue.push(normalizedMutation, ...queue.slice(index + 1))
           break
         }
 
         if (isVersionConflictError(error)) {
-          // Conflict is handled by normal merge/retry flow on next foreground mutation.
-          remaining.shift()
-          await writeQueue(remaining)
+          nextQueue.push({
+            ...normalizedMutation,
+            conflict: true,
+            lastConflictAt: Date.now(),
+          })
           continue
         }
 
-        // Unknown failure: drop item to avoid infinite loop but continue processing.
-        remaining.shift()
-        await writeQueue(remaining)
+        // Unknown errors are dropped to avoid permanent queue deadlock.
       }
     }
+
+    await writeQueue(nextQueue)
   } finally {
     processing = false
   }

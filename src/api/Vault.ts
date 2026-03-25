@@ -57,6 +57,14 @@ function getKey() {
   return key
 }
 
+export function getVaultKey() {
+  return getKey()
+}
+
+export function getVaultSession() {
+  return session
+}
+
 async function updateKeyHash() {
   const keyBuffer = await crypto.subtle.exportKey('raw', getKey())
   const keyHashBytes = await crypto.subtle.digest('SHA-512', keyBuffer)

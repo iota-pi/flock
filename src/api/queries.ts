@@ -36,49 +36,125 @@ let lastSyncModifiedAt: number | null = null
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
-  const vault = await getVaultModule()
-  const decryptPromises = items.map(async (item, index) => {
+  const fromCache: Item[] = []
+  const toDecrypt: VaultItem[] = []
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
     if (item.metadata?.deleted) {
       decryptionCache.delete(item.item)
-      return null
+      continue
     }
 
     const cipher = item.cipher
     const iv = item.metadata?.iv
-    const id = item.item
-
     if (!cipher || !iv) {
-      return Promise.reject(new Error(`Missing cipher or iv for item ${item.item ?? index}`))
+      handleVaultError(new Error(`Missing cipher or iv for item ${item.item ?? index}`), 'Failed to decrypt item from server')
+      continue
     }
 
-    // Check cache
-    const cached = decryptionCache.get(id)
+    const cached = decryptionCache.get(item.item)
     if (cached && cached.cipher === cipher && cached.iv === iv) {
-      return cached.item
+      fromCache.push(cached.item)
+      continue
     }
 
-    // Decrypt and cache
-    const decrypted = await vault.decryptObject({ cipher, iv }) as Item
+    toDecrypt.push(item)
+  }
+
+  if (toDecrypt.length === 0) {
+    return fromCache
+  }
+
+  const workerDecrypted = await decryptWithWorker(toDecrypt)
+  return [...fromCache, ...workerDecrypted]
+}
+
+async function decryptWithWorker(items: VaultItem[]): Promise<Item[]> {
+  const vault = await getVaultModule()
+
+  if (typeof Worker === 'undefined' || typeof window === 'undefined') {
+    return decryptOnMainThread(items)
+  }
+
+  const key = vault.getVaultKey()
+
+  const decrypted = await new Promise<object[]>((resolve, reject) => {
+    const worker = new Worker(
+      new URL('../workers/decryption.worker.ts', import.meta.url),
+      { type: 'module' },
+    )
+
+    worker.onmessage = event => {
+      resolve(event.data as object[])
+      worker.terminate()
+    }
+
+    worker.onerror = event => {
+      reject(new Error(event.message || 'Worker decryption failed'))
+      worker.terminate()
+    }
+
+    worker.postMessage({ key, items })
+  }).catch(error => {
+    handleVaultError(error as Error, 'Failed to decrypt item from server')
+    return []
+  })
+
+  const sourcesById = new Map(items.map(item => [item.item, item]))
+
+  return decrypted
+    .map(item => {
+      const id = (item as { id?: unknown }).id
+      if (typeof id !== 'string') {
+        return null
+      }
+
+      const source = sourcesById.get(id)
+      if (!source) {
+        return null
+      }
+
+      const filled = supplyMissingAttributes(item as Item)
+      if (typeof source.metadata?.version === 'number') {
+        filled.version = source.metadata.version
+      }
+
+      decryptionCache.set(source.item, {
+        cipher: source.cipher,
+        iv: source.metadata.iv,
+        item: filled,
+      })
+
+      return filled
+    })
+    .filter((item): item is Item => !!item)
+}
+
+async function decryptOnMainThread(items: VaultItem[]): Promise<Item[]> {
+  const vault = await getVaultModule()
+  const decryptPromises = items.map(async item => {
+    const decrypted = await vault.decryptObject({ cipher: item.cipher, iv: item.metadata.iv }) as Item
     const filled = supplyMissingAttributes(decrypted)
 
-    // Use server version if available as the source of truth
     if (typeof item.metadata?.version === 'number') {
       filled.version = item.metadata.version
     }
 
-    decryptionCache.set(id, { cipher, iv, item: filled })
+    decryptionCache.set(item.item, {
+      cipher: item.cipher,
+      iv: item.metadata.iv,
+      item: filled,
+    })
+
     return filled
   })
 
-  const decryptedResults = await Promise.allSettled(decryptPromises)
-  return decryptedResults.flatMap(result => {
+  const settled = await Promise.allSettled(decryptPromises)
+  return settled.flatMap(result => {
     if (result.status === 'fulfilled') {
-      if (result.value) {
-        return [result.value]
-      }
-      return [] as Item[]
+      return [result.value]
     }
-
     handleVaultError(result.reason as Error, 'Failed to decrypt item from server')
     return [] as Item[]
   })

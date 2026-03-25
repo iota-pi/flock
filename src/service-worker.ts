@@ -1,5 +1,11 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching'
+import {
+  OFFLINE_QUEUE_SYNC_TAG,
+  readQueue,
+  writeQueue,
+  type QueuedMutation,
+} from './api/offlineQueueStore'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -67,4 +73,142 @@ self.addEventListener('notificationclick', event => {
       return self.clients.openWindow(targetUrl)
     }),
   )
+})
+
+function isLikelyNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return (
+    message.includes('failed to fetch')
+    || message.includes('networkerror')
+    || message.includes('fetch failed')
+    || message.includes('network request failed')
+    || message.includes('timeout')
+    || message.includes('offline')
+  )
+}
+
+function isVersionConflictError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return message.includes('version conflict') || message.includes('conditionalcheckfailed')
+}
+
+function getProcedurePath(mutationType: QueuedMutation['mutationType']) {
+  switch (mutationType) {
+    case 'items.put':
+      return 'items.put'
+    case 'items.putMany':
+      return 'items.putMany'
+    case 'accounts.updateMetadata':
+      return 'accounts.updateMetadata'
+    default:
+      return null
+  }
+}
+
+async function executeMutation(mutation: QueuedMutation): Promise<{ success: boolean, conflict: boolean, status: number }> {
+  const procedurePath = getProcedurePath(mutation.mutationType)
+  if (!procedurePath) {
+    throw new Error(`Unknown offline mutation type: ${mutation.mutationType}`)
+  }
+
+  const response = await fetch(`${mutation.endpoint}/trpc/${procedurePath}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${mutation.session}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ json: mutation.payload }),
+  })
+
+  const responseText = await response.text()
+  const conflictByStatus = response.status === 400 || response.status === 409
+  const conflictByBody = /version conflict|conditionalcheckfailed/i.test(responseText)
+
+  if (response.ok && !conflictByBody) {
+    return { success: true, conflict: false, status: response.status }
+  }
+
+  return {
+    success: false,
+    conflict: conflictByStatus || conflictByBody,
+    status: response.status,
+  }
+}
+
+async function processOfflineQueue() {
+  const queue = await readQueue()
+  if (queue.length === 0) {
+    return
+  }
+
+  const nextQueue: QueuedMutation[] = []
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const mutation = queue[index]
+    const normalizedMutation: QueuedMutation = {
+      ...mutation,
+      conflict: false,
+      lastConflictAt: undefined,
+      lastErrorStatus: undefined,
+    }
+
+    try {
+      const result = await executeMutation(normalizedMutation)
+      if (result.success) {
+        continue
+      }
+
+      if (result.conflict) {
+        nextQueue.push({
+          ...normalizedMutation,
+          conflict: true,
+          lastConflictAt: Date.now(),
+          lastErrorStatus: result.status,
+        })
+        continue
+      }
+
+      if (result.status === 0) {
+        nextQueue.push(normalizedMutation, ...queue.slice(index + 1))
+        break
+      }
+    } catch (error) {
+      if (isLikelyNetworkError(error)) {
+        nextQueue.push(normalizedMutation, ...queue.slice(index + 1))
+        break
+      }
+
+      if (isVersionConflictError(error)) {
+        nextQueue.push({
+          ...normalizedMutation,
+          conflict: true,
+          lastConflictAt: Date.now(),
+        })
+        continue
+      }
+
+      // Drop unknown failures to avoid deadlocking the queue.
+    }
+  }
+
+  await writeQueue(nextQueue)
+}
+
+self.addEventListener('sync', event => {
+  const syncEvent = event as Event & {
+    tag?: string
+    waitUntil: (promise: Promise<unknown>) => void
+  }
+
+  if (syncEvent.tag === OFFLINE_QUEUE_SYNC_TAG) {
+    syncEvent.waitUntil(processOfflineQueue())
+  }
 })
