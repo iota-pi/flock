@@ -24,7 +24,7 @@ export const itemsRouter = router({
       )
 
       const items = await resultPromise
-      return { success: true, items }
+      return { success: true, items, serverTime: Date.now() }
     }),
 
   putMany: protectedProcedure

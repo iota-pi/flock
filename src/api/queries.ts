@@ -32,7 +32,7 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
-let lastSyncModifiedAt: number | null = null
+let lastSyncServerTime: number | null = null
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
@@ -74,7 +74,7 @@ async function decryptWithWorker(items: VaultItem[]): Promise<Item[]> {
   const vault = await getVaultModule()
 
   if (typeof Worker === 'undefined' || typeof window === 'undefined') {
-    return decryptOnMainThread(items)
+    return decryptWithoutWorker(vault, items)
   }
 
   const key = vault.getVaultKey()
@@ -131,30 +131,31 @@ async function decryptWithWorker(items: VaultItem[]): Promise<Item[]> {
     .filter((item): item is Item => !!item)
 }
 
-async function decryptOnMainThread(items: VaultItem[]): Promise<Item[]> {
-  const vault = await getVaultModule()
-  const decryptPromises = items.map(async item => {
-    const decrypted = await vault.decryptObject({ cipher: item.cipher, iv: item.metadata.iv }) as Item
-    const filled = supplyMissingAttributes(decrypted)
+async function decryptWithoutWorker(vault: Awaited<ReturnType<typeof getVaultModule>>, items: VaultItem[]): Promise<Item[]> {
+  const decryptedResults = await Promise.allSettled(
+    items.map(async source => {
+      const decrypted = await vault.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
+      const filled = supplyMissingAttributes(decrypted)
 
-    if (typeof item.metadata?.version === 'number') {
-      filled.version = item.metadata.version
-    }
+      if (typeof source.metadata?.version === 'number') {
+        filled.version = source.metadata.version
+      }
 
-    decryptionCache.set(item.item, {
-      cipher: item.cipher,
-      iv: item.metadata.iv,
-      item: filled,
-    })
+      decryptionCache.set(source.item, {
+        cipher: source.cipher,
+        iv: source.metadata.iv,
+        item: filled,
+      })
 
-    return filled
-  })
+      return filled
+    }),
+  )
 
-  const settled = await Promise.allSettled(decryptPromises)
-  return settled.flatMap(result => {
+  return decryptedResults.flatMap(result => {
     if (result.status === 'fulfilled') {
       return [result.value]
     }
+
     handleVaultError(result.reason as Error, 'Failed to decrypt item from server')
     return [] as Item[]
   })
@@ -170,22 +171,18 @@ export async function fetchItems(): Promise<Item[]> {
 
   const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
   const hasCachedItems = cachedItems.length > 0
-  const cacheTime = hasCachedItems && typeof lastSyncModifiedAt === 'number'
-    ? lastSyncModifiedAt
+  const cacheTime = hasCachedItems && typeof lastSyncServerTime === 'number'
+    ? lastSyncServerTime
     : null
 
-  const items = await vaultFetchMany({ cacheTime }).catch(error => {
+  const response = await vaultFetchMany({ cacheTime }).catch(error => {
     handleVaultError(error, 'Failed to fetch items from server')
-    return [] as VaultItem[]
-  }) as VaultItem[]
+    return { items: [] as VaultItem[], serverTime: lastSyncServerTime || 0 }
+  })
 
-  const maxModified = items.reduce((max, item) => {
-    const modified = item.metadata?.modified
-    return typeof modified === 'number' && modified > max ? modified : max
-  }, lastSyncModifiedAt || 0)
-
-  if (maxModified > 0) {
-    lastSyncModifiedAt = maxModified
+  const items = response.items as VaultItem[]
+  if (typeof response.serverTime === 'number' && response.serverTime > 0) {
+    lastSyncServerTime = response.serverTime
   }
 
   const decrypted = await decryptVaultItems(items)

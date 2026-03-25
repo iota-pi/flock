@@ -54,17 +54,17 @@ describe('VaultAPI', () => {
 
   it('vaultFetchMany with cacheTime returns items', async () => {
     const expected = [{ item: 'a', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } }]
-    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: expected }).data)
+    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: expected, serverTime: 123 }).data)
 
     const result = await api.vaultFetchMany({ cacheTime: 123 })
-    expect(result).toEqual(expected)
+    expect(result).toEqual({ items: expected, serverTime: 123 })
   })
 
   it('vaultFetchMany with ids fetches chunks and flattens results', async () => {
-    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: [{ item: 'a' }, { item: 'b' }] }).data)
+    trpcMock.items.fetchMany.query.mockResolvedValue(ok({ success: true, items: [{ item: 'a' }, { item: 'b' }], serverTime: 456 }).data)
 
     const result = await api.vaultFetchMany({ ids: Array.from({ length: 11 }, (_, index) => String(index + 1)) })
-    expect(result).toEqual([{ item: 'a' }, { item: 'b' }])
+    expect(result).toEqual({ items: [{ item: 'a' }, { item: 'b' }], serverTime: 456 })
   })
 
   it('vaultFetchMany throws when neither cacheTime nor ids provided', async () => {

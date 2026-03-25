@@ -270,17 +270,25 @@ async function updateCacheOptimistically(items: Item[]) {
 
 async function saveItemsToVault(items: Item[]) {
   const vault = await getVaultModule()
-  const encrypted = await Promise.all(
-    items.map(item => vault.encryptObject(item)),
-  )
   const modifiedTime = new Date().getTime()
+
+  const payloadItems = await Promise.all(items.map(async item => {
+    if (item.deleted) {
+      return {
+        cipher: '',
+        iv: '',
+      }
+    }
+
+    return vault.encryptObject(item)
+  }))
 
   if (items.length === 1) {
     await vaultPut({
-      cipher: encrypted[0].cipher,
+      cipher: payloadItems[0].cipher,
       item: items[0].id,
       metadata: {
-        iv: encrypted[0].iv,
+        iv: payloadItems[0].iv,
         type: items[0].type,
         modified: modifiedTime,
         version: items[0].version,
@@ -289,7 +297,7 @@ async function saveItemsToVault(items: Item[]) {
     })
   } else {
     await vaultPutMany({
-      items: encrypted.map(({ cipher, iv }, i) => ({
+      items: payloadItems.map(({ cipher, iv }, i) => ({
         account: getAccountId(),
         cipher,
         item: items[i].id,
@@ -372,7 +380,7 @@ async function handleItemsConflict(
     throw err
   }
 
-  const serverEncrypted = await vaultFetchMany({ ids: conflictIds })
+  const serverEncrypted = (await vaultFetchMany({ ids: conflictIds })).items
   const serverDecrypted = await decryptVaultItems(serverEncrypted as VaultItem[])
   let hasMeaningfulDifference = false
 

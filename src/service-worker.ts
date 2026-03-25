@@ -176,6 +176,14 @@ async function processOfflineQueue() {
         continue
       }
 
+      if (result.status === 401) {
+        nextQueue.push({
+          ...normalizedMutation,
+          lastErrorStatus: 401,
+        }, ...queue.slice(index + 1))
+        break
+      }
+
       if (result.status === 0) {
         nextQueue.push(normalizedMutation, ...queue.slice(index + 1))
         break

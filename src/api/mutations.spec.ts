@@ -125,13 +125,13 @@ describe('mutations', () => {
         .mockResolvedValue(undefined)
 
       // Mock Fetch Many to return "Theirs" (encrypted)
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher-theirs',
           metadata: { iv: 'iv-theirs', type: 'person', modified: 2, version: 2 }
         }
-      ])
+      ], serverTime: Date.now() })
 
       // Mock Decrypt to return "Theirs" when asked
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
@@ -164,13 +164,13 @@ describe('mutations', () => {
       vi.mocked(VaultAPI.vaultPut)
         .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher-same',
           metadata: { iv: 'iv-same', type: 'person', modified: 2, version: 2 },
         },
-      ])
+      ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher-same') return theirs
@@ -219,13 +219,13 @@ describe('mutations', () => {
       vi.mocked(VaultAPI.vaultPutMany)
         .mockRejectedValueOnce(new VaultAPI.VaultVersionConflictError([second.id]))
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: second.id,
           cipher: 'cipher-second',
           metadata: { iv: 'iv-second', type: 'person', modified: 2, version: 2 },
         },
-      ])
+      ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher-second') {
@@ -254,7 +254,7 @@ describe('mutations', () => {
       queryClient.setQueryData(queryKeys.items, [gItem, pItem])
 
       // Mock Fetch Many (called by fetchItems to get fresh group state)
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: gItem.id,
           cipher: 'cipher-group',
@@ -265,7 +265,7 @@ describe('mutations', () => {
           cipher: 'cipher-person',
           metadata: { iv: 'iv-person', type: 'person', modified: 1, version: 1 }
         }
-      ])
+      ], serverTime: Date.now() })
 
       // Mock Decrypt
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
@@ -290,7 +290,9 @@ describe('mutations', () => {
       // Verify Item Tombstone save through regular put flow
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
+        cipher: '',
         metadata: expect.objectContaining({
+          iv: '',
           deleted: true,
           version: 2,
         }),
@@ -303,7 +305,7 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item1, item2])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: item1.id,
           cipher: 'cipher1',
@@ -314,7 +316,7 @@ describe('mutations', () => {
           cipher: 'cipher2',
           metadata: { iv: 'iv2', type: 'person', modified: 1, version: 1 }
         }
-      ])
+      ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockImplementation(async ({ cipher }) => {
         if (cipher === 'cipher1') return item1
@@ -331,6 +333,7 @@ describe('mutations', () => {
       const putManyCall = vi.mocked(VaultAPI.vaultPutMany).mock.calls[0][0]
       const tombstones = putManyCall.items.filter((item: any) => item.metadata?.deleted === true)
       expect(tombstones).toHaveLength(2)
+      expect(tombstones.every((item: any) => item.cipher === '' && item.metadata?.iv === '')).toBe(true)
     })
 
     it('soft-deletes without using deprecated delete/deleteMany endpoints', async () => {
@@ -338,13 +341,13 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher1',
           metadata: { iv: 'iv1', type: 'person', modified: 1, version: 1 }
         }
-      ])
+      ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockResolvedValue(item)
       vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
@@ -354,7 +357,9 @@ describe('mutations', () => {
       // Verify deletion created a tombstone via put (not using deprecated delete endpoint)
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
+        cipher: '',
         metadata: expect.objectContaining({
+          iv: '',
           deleted: true,
         }),
       }))
@@ -365,13 +370,13 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue([
+      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher1',
           metadata: { iv: 'iv1', type: 'person', modified: 1, version: 5 }
         }
-      ])
+      ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockResolvedValue(item)
       vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
@@ -381,7 +386,9 @@ describe('mutations', () => {
       // Verify version incremented to 6
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
+        cipher: '',
         metadata: expect.objectContaining({
+          iv: '',
           deleted: true,
           version: 6,
         }),

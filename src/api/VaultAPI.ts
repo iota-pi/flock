@@ -49,6 +49,12 @@ export type BatchResultResponse = {
   details: Array<{ item: string, success: boolean, error?: string }>,
 }
 
+export type FetchManyResponse<TItem> = {
+  success: boolean,
+  items: TItem[],
+  serverTime: number,
+}
+
 type PutManyResponse =
   | {
     success: true,
@@ -93,15 +99,15 @@ function assertSuccess(response: { success: boolean }, operation: string) {
   }
 }
 
-export async function vaultFetchMany(params: { cacheTime: number | null; ids?: never }): Promise<CachedVaultItem[]>
-export async function vaultFetchMany(params: { cacheTime?: never; ids: string[] }): Promise<VaultItem[]>
+export async function vaultFetchMany(params: { cacheTime: number | null; ids?: never }): Promise<{ items: CachedVaultItem[], serverTime: number }>
+export async function vaultFetchMany(params: { cacheTime?: never; ids: string[] }): Promise<{ items: VaultItem[], serverTime: number }>
 export async function vaultFetchMany({
   cacheTime,
   ids,
 }: {
   cacheTime?: number | null,
   ids?: string[],
-}): Promise<CachedVaultItem[] | VaultItem[]> {
+}): Promise<{ items: CachedVaultItem[] | VaultItem[], serverTime: number }> {
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')
   }
@@ -116,7 +122,11 @@ export async function vaultFetchMany({
     ids,
   })
   assertSuccess(data, 'fetchMany')
-  return data.items as CachedVaultItem[] | VaultItem[]
+
+  return {
+    items: data.items as CachedVaultItem[] | VaultItem[],
+    serverTime: typeof data.serverTime === 'number' ? data.serverTime : Date.now(),
+  }
 }
 
 export async function vaultPut({ cipher, item, metadata }: VaultItem) {

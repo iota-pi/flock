@@ -43,6 +43,7 @@ const DATA_ATTRIBUTES = ['metadata', 'cipher']
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
 export const MAX_TRANSACTION_ITEMS = 100
+export const MAX_TRANSACTION_BYTES = 3_500_000
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
@@ -57,7 +58,12 @@ export class TransactionConflictsError extends Error {
 }
 
 function validateItem(item: VaultItem) {
-  if (!item.cipher || !item.metadata.iv || !item.metadata.type) {
+  const isTombstone = item.metadata.deleted === true
+  const hasRequiredPayload = isTombstone
+    ? !!item.metadata.type
+    : !!item.cipher && !!item.metadata.iv && !!item.metadata.type
+
+  if (!hasRequiredPayload) {
     throw new Error(
       `Missing some required properties on item ${JSON.stringify(item)}`,
     )
@@ -100,11 +106,41 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   return params
 }
 
-function chunkItems<TValue>(values: TValue[], size: number): TValue[][] {
-  const chunks: TValue[][] = []
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size))
+function estimateTransactWriteBytes(item: VaultItem): number {
+  const persistedItem = item.metadata.deleted
+    ? {
+      ...item,
+      ttl: Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS,
+    }
+    : item
+
+  return JSON.stringify({ Put: { Item: persistedItem } }).length
+}
+
+function chunkItemsForTransactions(items: VaultItem[]): VaultItem[][] {
+  const chunks: VaultItem[][] = []
+  let currentChunk: VaultItem[] = []
+  let currentBytes = 0
+
+  for (const item of items) {
+    const itemBytes = estimateTransactWriteBytes(item)
+    const wouldExceedCount = currentChunk.length >= MAX_TRANSACTION_ITEMS
+    const wouldExceedBytes = currentChunk.length > 0 && (currentBytes + itemBytes > MAX_TRANSACTION_BYTES)
+
+    if (wouldExceedCount || wouldExceedBytes) {
+      chunks.push(currentChunk)
+      currentChunk = []
+      currentBytes = 0
+    }
+
+    currentChunk.push(item)
+    currentBytes += itemBytes
   }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk)
+  }
+
   return chunks
 }
 
@@ -485,7 +521,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       return
     }
 
-    const chunks = chunkItems(items, MAX_TRANSACTION_ITEMS)
+    const chunks = chunkItemsForTransactions(items)
     for (const chunk of chunks) {
       const transactItems = chunk.map(item => ({
         Put: getItemPutParams(item),
