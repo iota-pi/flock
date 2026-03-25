@@ -164,6 +164,36 @@ describe('DynamoDriver', function () {
     expect(result.length).toEqual(10)
   })
 
+  it('fetchAll with cacheTime returns only modified delta items', async () => {
+    const account = generateAccountId()
+    const oldItem = generateItemId()
+    const newItem = generateItemId()
+    const type: ItemType = 'person'
+    const iv = 'iv'
+    const cipher = 'cipher'
+
+    const oldModified = Date.now() - 10_000
+    const newModified = Date.now()
+
+    await driver.set({
+      account,
+      item: oldItem,
+      cipher,
+      metadata: { type, iv, modified: oldModified },
+    })
+    await driver.set({
+      account,
+      item: newItem,
+      cipher,
+      metadata: { type, iv, modified: newModified },
+    })
+
+    const result = await driver.fetchAll({ account, cacheTime: oldModified + 1 })
+
+    expect(result.find(i => i.item === newItem)).toBeTruthy()
+    expect(result.find(i => i.item === oldItem)).toBeFalsy()
+  })
+
   const authToken = 'an_example_auth_token_for_testing'
   const metadata = {}
   const salt = 'an_example_salt_for_testing'

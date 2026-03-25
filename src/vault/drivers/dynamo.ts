@@ -14,6 +14,7 @@ import {
   PutCommand,
   PutCommandInput,
   QueryCommand,
+  QueryCommandInput,
   QueryCommandOutput,
   TransactWriteCommand,
   UpdateCommand,
@@ -569,9 +570,33 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   ): Promise<CachedVaultItem[]> {
     const items: VaultItem[] = []
     let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+
+    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
+
+    const isDeltaSync = typeof cacheTime === 'number'
+    let useDeltaIndex = isDeltaSync
+
     while (items.length < MAX_ITEMS_FETCH) {
-      const response = await this.client.send(new QueryCommand(
-        {
+      let queryInput: QueryCommandInput
+      if (useDeltaIndex) {
+        queryInput = {
+          TableName: ITEM_TABLE_NAME,
+          IndexName: 'AccountModifiedIndex',
+          KeyConditionExpression: 'account = :accountid AND #metadata.#modified > :cacheTime',
+          ExpressionAttributeNames: {
+            '#itemKey': 'item',
+            '#metadata': 'metadata',
+            '#modified': 'modified',
+          },
+          ExpressionAttributeValues: {
+            ':accountid': account,
+            ':cacheTime': cacheTime,
+          },
+          ProjectionExpression: projectionExpression,
+          ExclusiveStartKey: lastEvaluatedKey,
+        }
+      } else {
+        queryInput = {
           TableName: ITEM_TABLE_NAME,
           KeyConditionExpression: 'account = :accountid',
           ExpressionAttributeNames: {
@@ -580,9 +605,28 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           ExpressionAttributeValues: {
             ':accountid': account,
           },
-          ProjectionExpression: ['#itemKey', ...DATA_ATTRIBUTES].join(','),
-        },
-      ))
+          ProjectionExpression: projectionExpression,
+          ExclusiveStartKey: lastEvaluatedKey,
+        }
+      }
+
+      let response: QueryCommandOutput
+      try {
+        response = await this.client.send(new QueryCommand(queryInput))
+      } catch (error) {
+        if (
+          useDeltaIndex
+          && error instanceof Error
+          && error.message.includes('does not have the specified index')
+        ) {
+          useDeltaIndex = false
+          lastEvaluatedKey = undefined
+          items.length = 0
+          continue
+        }
+        throw error
+      }
+
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[])
       }
@@ -591,14 +635,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         break
       }
     }
-    const updatedItems = items.map(item => {
-      if (!cacheTime || !item.metadata.modified || item.metadata.modified > cacheTime) {
-        return item
-      } else {
-        return { item: item.item } as CachedVaultItem
-      }
-    })
-    return updatedItems
+
+    if (isDeltaSync && !useDeltaIndex) {
+      return items
+        .filter(item => (item.metadata?.modified || 0) > (cacheTime || 0)) as CachedVaultItem[]
+    }
+
+    return items as CachedVaultItem[]
   }
 
   async delete({ account, item }: VaultKey) {

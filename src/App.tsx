@@ -16,6 +16,7 @@ import env from './env'
 import { trpc } from './api/trpc'
 import { queryClient } from './api/queryClient'
 import { getApiAuthToken, trackedFetch } from './api/runtime'
+import { processOfflineQueue } from './api/offlineQueue'
 
 const Root = styled('div')({
   display: 'flex',
@@ -62,7 +63,20 @@ function RootLayout() {
 
   useEffect(
     () => {
-      loadVault()
+      const handleOnline = () => {
+        void processOfflineQueue()
+      }
+
+      void (async () => {
+        await loadVault()
+        await processOfflineQueue()
+      })()
+
+      window.addEventListener('online', handleOnline)
+
+      return () => {
+        window.removeEventListener('online', handleOnline)
+      }
     },
     [],
   )

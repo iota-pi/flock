@@ -32,6 +32,7 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
+let lastSyncModifiedAt: number | null = null
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
@@ -91,12 +92,36 @@ export async function fetchItems(): Promise<Item[]> {
     return []
   }
 
-  const items = await vaultFetchMany({ cacheTime: null }).catch(error => {
+  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+  const hasCachedItems = cachedItems.length > 0
+  const cacheTime = hasCachedItems && typeof lastSyncModifiedAt === 'number'
+    ? lastSyncModifiedAt
+    : null
+
+  const items = await vaultFetchMany({ cacheTime }).catch(error => {
     handleVaultError(error, 'Failed to fetch items from server')
     return [] as VaultItem[]
   }) as VaultItem[]
 
+  const maxModified = items.reduce((max, item) => {
+    const modified = item.metadata?.modified
+    return typeof modified === 'number' && modified > max ? modified : max
+  }, lastSyncModifiedAt || 0)
+
+  if (maxModified > 0) {
+    lastSyncModifiedAt = maxModified
+  }
+
   const decrypted = await decryptVaultItems(items)
+  const deletedIds = new Set(
+    items
+      .filter(item => item.metadata?.deleted === true)
+      .map(item => item.item),
+  )
+
+  const mergedItems = cacheTime === null
+    ? decrypted
+    : mergeDeltaItems(cachedItems, decrypted, deletedIds)
 
   // Run migrations
   try {
@@ -105,12 +130,26 @@ export async function fetchItems(): Promise<Item[]> {
       queryFn: fetchMetadata,
       staleTime: 5 * 60 * 1000,
     })
-    await migrateItems(decrypted, metadata)
+    await migrateItems(mergedItems, metadata)
   } catch (err) {
     console.error('Migration check failed during fetchItems', err)
   }
 
-  return sortItems(decrypted, DEFAULT_CRITERIA)
+  return sortItems(mergedItems, DEFAULT_CRITERIA)
+}
+
+function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string>): Item[] {
+  const mergedMap = new Map(
+    existing
+      .filter(item => !deletedIds.has(item.id))
+      .map(item => [item.id, item]),
+  )
+
+  for (const item of delta) {
+    mergedMap.set(item.id, item)
+  }
+
+  return Array.from(mergedMap.values())
 }
 
 // Fetch and decrypt metadata

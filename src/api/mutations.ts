@@ -20,6 +20,7 @@ import { fetchItems, decryptVaultItems, fetchMetadata } from './queries'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
+import { enqueueMutation, isLikelyNetworkError } from './offlineQueue'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
 function getVaultModule() {
@@ -472,10 +473,10 @@ async function mutateWithRetry<TData, TBase>(
   },
 ): Promise<TData> {
   const previousState = queryClient.getQueryData<TData>(queryKey)
+  let current: TData | null = null
 
   try {
     let base = getBaseState(previousState)
-    let current: TData | null = null
     const MAX_RETRIES = 3
     let attempt = 0
 
@@ -518,6 +519,20 @@ async function mutateWithRetry<TData, TBase>(
     throw new Error('Max retries exceeded')
 
   } catch (err) {
+    if (current && isLikelyNetworkError(err)) {
+      const queuedMutation = await buildOfflineMutation(queryKey, current)
+      if (queuedMutation) {
+        await enqueueMutation(queuedMutation.mutationType, queuedMutation.payload)
+      }
+
+      useUiStore.getState().setMessage({
+        severity: 'warning',
+        message: 'Saved offline. Changes will sync when you reconnect.',
+      })
+
+      return current
+    }
+
     // 5. Rollback
     if (!externalCacheLifecycle && previousState !== undefined) {
       queryClient.setQueryData(queryKey, previousState)
@@ -525,4 +540,72 @@ async function mutateWithRetry<TData, TBase>(
     handleVaultError(err as Error, 'Operation failed')
     throw err
   }
+}
+
+function sameQueryKey(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((part, index) => part === b[index])
+}
+
+async function buildOfflineMutation<TData>(
+  queryKey: readonly string[],
+  current: TData,
+): Promise<{ mutationType: string, payload: unknown } | null> {
+  if (sameQueryKey(queryKey, queryKeys.items)) {
+    const items = current as unknown as Item[]
+    const vault = await getVaultModule()
+    const encrypted = await Promise.all(items.map(item => vault.encryptObject(item)))
+    const modifiedTime = new Date().getTime()
+
+    if (items.length === 1) {
+      return {
+        mutationType: 'items.put',
+        payload: {
+          account: getAccountId(),
+          item: items[0].id,
+          cipher: encrypted[0].cipher,
+          iv: encrypted[0].iv,
+          modified: modifiedTime,
+          type: items[0].type,
+          version: items[0].version,
+          deleted: items[0].deleted,
+        },
+      }
+    }
+
+    return {
+      mutationType: 'items.putMany',
+      payload: {
+        account: getAccountId(),
+        items: encrypted.map(({ cipher, iv }, i) => ({
+          id: items[i].id,
+          cipher,
+          iv,
+          modified: modifiedTime,
+          type: items[i].type,
+          version: items[i].version,
+          deleted: items[i].deleted,
+        })),
+      },
+    }
+  }
+
+  if (sameQueryKey(queryKey, queryKeys.metadata)) {
+    const metadata = current as unknown as AccountMetadata
+    const vault = await getVaultModule()
+    const encrypted = await vault.encryptObject(metadata)
+
+    return {
+      mutationType: 'accounts.updateMetadata',
+      payload: {
+        account: getAccountId(),
+        metadata: {
+          cipher: encrypted.cipher,
+          iv: encrypted.iv,
+          version: metadata.version,
+        },
+      },
+    }
+  }
+
+  return null
 }

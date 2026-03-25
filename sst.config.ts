@@ -57,6 +57,24 @@ export default $config({
             attributeName: 'ttl',
             enabled: true,
           }
+          args.globalSecondaryIndexes = [
+            {
+              indexName: 'AccountModifiedIndex',
+              keySchema: [
+                { attributeName: 'account', keyType: 'HASH' },
+                { attributeName: 'metadata.modified', keyType: 'RANGE' },
+              ],
+              projection: {
+                projectionType: 'INCLUDE',
+                nonKeyAttributes: ['cipher', 'metadata'],
+              },
+            },
+          ]
+          args.attributeDefinitions = [
+            { attributeName: 'account', attributeType: 'S' },
+            { attributeName: 'item', attributeType: 'S' },
+            { attributeName: 'metadata.modified', attributeType: 'N' },
+          ]
         },
       },
     })
