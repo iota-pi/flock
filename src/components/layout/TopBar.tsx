@@ -1,8 +1,6 @@
 import { useCallback, useState } from 'react'
 import {
-  Button,
   Box,
-  CircularProgress,
   Checkbox,
   IconButton,
   ListItemIcon,
@@ -11,21 +9,14 @@ import {
   Paper,
   styled,
   Theme,
-  Tooltip,
   Typography,
   useMediaQuery,
 } from '@mui/material'
-import CloudDoneIcon from '@mui/icons-material/CloudDone'
-import CloudOffIcon from '@mui/icons-material/CloudOff'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
 import { usePracticalFilterCount } from '../../state/selectors'
 import SortDialog from '../dialogs/SortDialog'
 import FilterDialog from '../dialogs/FilterDialog'
-import { useUiStore } from '../../state/uiStore'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { processOfflineQueue } from '../../api/offlineQueue'
-import { queryClient, queryKeys } from '../../api/queryClient'
+import SyncNowButton from './SyncNowButton'
 
 const MENU_POPUP_ID = 'top-bar-menu'
 
@@ -76,9 +67,6 @@ function TopBar({
   const [showSort, setShowSort] = useState(false)
 
   const filterCount = usePracticalFilterCount()
-  const isSyncing = useUiStore(state => state.isSyncing)
-  const offlineQueueLength = useUiStore(state => state.offlineQueueLength)
-  const isOnline = useOnlineStatus()
 
   const [optionsAnchor, setOptionsAnchor] = useState<HTMLButtonElement | null>(null)
 
@@ -98,11 +86,6 @@ function TopBar({
     [handleCloseOptions],
   )
   const handleCloseSort = useCallback(() => setShowSort(false), [])
-  const handleForceSync = useCallback(async () => {
-    await processOfflineQueue()
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-  }, [])
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
@@ -113,18 +96,6 @@ function TopBar({
     },
     [handleCloseOptions],
   )
-
-  const isQueueActive = isSyncing || offlineQueueLength > 0
-  const syncStatusIcon = !isOnline
-    ? <CloudOffIcon color="error" />
-    : isQueueActive
-      ? <CloudUploadIcon color="warning" />
-      : <CloudDoneIcon color="success" />
-  const syncTooltip = !isOnline
-    ? 'Offline'
-    : isQueueActive
-      ? `Syncing (${offlineQueueLength} queued)`
-      : 'Synced'
 
   return (
     <StyledPaper>
@@ -167,33 +138,7 @@ function TopBar({
         </IconButton>
       )}
 
-      <Tooltip title={syncTooltip}>
-        <span>
-          <Button
-            onClick={() => {
-              void handleForceSync()
-            }}
-            disabled={!isOnline || isSyncing}
-            size="small"
-            color={!isOnline ? 'error' : isQueueActive ? 'warning' : 'success'}
-            startIcon={(
-              <Box position="relative" display="inline-flex" alignItems="center" justifyContent="center">
-                {syncStatusIcon}
-                {isSyncing && (
-                  <CircularProgress
-                    size={22}
-                    thickness={5}
-                    sx={{ position: 'absolute' }}
-                  />
-                )}
-              </Box>
-            )}
-            sx={{ mr: 1 }}
-          >
-            Sync Now
-          </Button>
-        </span>
-      </Tooltip>
+      <SyncNowButton />
 
       {menuItems.length > 0 && (
         <IconButton
