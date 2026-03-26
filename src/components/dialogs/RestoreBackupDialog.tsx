@@ -123,7 +123,6 @@ function RestoreBackupDialog({
         const metadataPresent = !Array.isArray(imported)
           && Object.prototype.hasOwnProperty.call(imported, 'metadata')
         setHasSettingsMetadata(metadataPresent)
-        setRestoreSettings(metadataPresent)
 
         const normalized = normalizeDecryptedBackup(imported)
         let items = normalized.items
@@ -256,7 +255,7 @@ function RestoreBackupDialog({
                 <FormControlLabel
                   control={(
                     <Checkbox
-                      checked={restoreSettings}
+                      checked={restoreSettings && hasSettingsMetadata}
                       onChange={(_event, checked) => setRestoreSettings(checked)}
                       disabled={!hasSettingsMetadata || loading}
                     />
