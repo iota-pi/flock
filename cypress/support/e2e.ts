@@ -12,6 +12,12 @@ declare global {
        */
       dataCy(...value: string[]): Chainable<JQuery<HTMLElement>>
 
+      goOffline(): Chainable
+      goOnline(): Chainable
+      forceServerError(): Chainable
+      getOfflineQueue(): Chainable<unknown[]>
+      getDeadLetterQueue(): Chainable<unknown[]>
+
       ensureAccount(password: string): Chainable<string>
 
       createAccount(password: string): Chainable
