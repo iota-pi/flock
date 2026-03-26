@@ -18,6 +18,7 @@ import {
 } from './offlineQueueStore'
 
 let processing = false
+const CHUNK_SIZE = 50
 
 function extractTargetIds(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') {
@@ -83,7 +84,11 @@ function isVersionConflictError(error: unknown): boolean {
   return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
-export async function enqueueMutation(mutationType: string, payload: unknown) {
+export async function enqueueMutation(
+  mutationType: string,
+  payload: unknown,
+  metadata?: Pick<QueuedMutation, 'baseState'>,
+) {
   if (!env.VAULT_ENDPOINT) {
     throw new Error('Cannot queue offline mutation without API endpoint')
   }
@@ -97,6 +102,9 @@ export async function enqueueMutation(mutationType: string, payload: unknown) {
       id: getMutationId(),
       payload,
       endpoint: env.VAULT_ENDPOINT,
+      baseState: metadata?.baseState || queue[existingIndex].baseState,
+      attemptCount: undefined,
+      nextAttemptAt: undefined,
     }
   } else {
     queue.push({
@@ -104,6 +112,9 @@ export async function enqueueMutation(mutationType: string, payload: unknown) {
       mutationType,
       payload,
       endpoint: env.VAULT_ENDPOINT,
+      baseState: metadata?.baseState,
+      attemptCount: 0,
+      nextAttemptAt: undefined,
       conflict: false,
     })
   }
@@ -121,7 +132,7 @@ export async function initialiseDeadLetterQueueCount() {
   useUiStore.getState().setOfflineQueueLength(queue.length)
 }
 
-async function registerBackgroundSync() {
+export async function registerBackgroundSync() {
   if (
     typeof navigator === 'undefined'
     || typeof window === 'undefined'
@@ -149,10 +160,24 @@ async function executeMutation(mutation: QueuedMutation) {
     }
     case 'items.putMany': {
       const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
-      await trpcClient.items.putMany.mutate({
-        ...payload,
-        idempotencyKey: mutation.id,
-      })
+      const payloadItems = payload.items || []
+
+      if (payloadItems.length <= CHUNK_SIZE) {
+        await trpcClient.items.putMany.mutate({
+          ...payload,
+          idempotencyKey: mutation.id,
+        })
+        return
+      }
+
+      for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
+        const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
+        await trpcClient.items.putMany.mutate({
+          ...payload,
+          items: chunk,
+          idempotencyKey: mutation.id,
+        })
+      }
       return
     }
     case 'accounts.updateMetadata':
@@ -360,8 +385,15 @@ export async function processOfflineQueue() {
 
     for (let index = 0; index < queue.length; index += 1) {
       const mutation = queue[index]
+      if (mutation.nextAttemptAt && mutation.nextAttemptAt > Date.now()) {
+        nextQueue.push(mutation)
+        continue
+      }
+
       const normalizedMutation = {
         ...mutation,
+        attemptCount: mutation.attemptCount,
+        nextAttemptAt: undefined,
         conflict: false,
         lastConflictAt: undefined,
         lastErrorStatus: undefined,
@@ -371,7 +403,14 @@ export async function processOfflineQueue() {
         await executeMutation(normalizedMutation)
       } catch (error) {
         if (isLikelyNetworkError(error)) {
-          nextQueue.push(normalizedMutation, ...queue.slice(index + 1))
+          const attemptCount = (mutation.attemptCount || 0) + 1
+          const backoffDelay = 2000 * Math.pow(2, attemptCount)
+
+          nextQueue.push({
+            ...normalizedMutation,
+            attemptCount,
+            nextAttemptAt: Date.now() + backoffDelay,
+          }, ...queue.slice(index + 1))
           break
         }
 
@@ -397,6 +436,27 @@ export async function processOfflineQueue() {
         })
         await writeDeadLetterQueue(deadLetterQueue)
         useUiStore.getState().setDlqCount(deadLetterQueue.length)
+
+        if (normalizedMutation.baseState) {
+          const targetIds = extractTargetIds(normalizedMutation.payload)
+          const targetId = targetIds[0] || normalizedMutation.baseState.id
+
+          queryClient.setQueryData<Item[]>(queryKeys.items, previous => {
+            if (!previous) {
+              return [normalizedMutation.baseState as Item]
+            }
+
+            const index = previous.findIndex(item => item.id === targetId)
+            if (index === -1) {
+              return [...previous, normalizedMutation.baseState as Item]
+            }
+
+            const next = [...previous]
+            next[index] = normalizedMutation.baseState as Item
+            return next
+          })
+        }
+
         useUiStore.getState().setMessage({
           severity: 'error',
           message: 'An offline save failed and was moved to recovery queue. Please review recovery options.',

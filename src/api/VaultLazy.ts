@@ -1,4 +1,3 @@
-import type { Item } from '../state/items'
 import type { WebPushSubscription } from '../vault/types'
 import type { CryptoResult } from './Vault'
 
@@ -34,14 +33,14 @@ export const signOutVault = async () => {
   return signOutVault()
 }
 
-export const exportData = async (items: Item[]) => {
+export const exportData = async <T>(payload: T) => {
   const { exportData } = await import('./Vault')
-  return exportData(items)
+  return exportData(payload)
 }
 
-export const importData = async (data: CryptoResult) => {
+export const importData = async <T = unknown>(data: CryptoResult) => {
   const { importData } = await import('./Vault')
-  return importData(data)
+  return importData<T>(data)
 }
 
 export const addPushSubscription = async (subscription: WebPushSubscription) => {

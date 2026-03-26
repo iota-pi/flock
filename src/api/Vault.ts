@@ -5,9 +5,6 @@ import {
   vaultUpdateReminderSettings,
   vaultDeletePushSubscription,
 } from './VaultAPI'
-import {
-  Item,
-} from '../state/items'
 import { useUiStore } from '../state/uiStore'
 import { initAxios, setSessionExpiredHandler } from './axios'
 import { getAccountId } from './util'
@@ -244,14 +241,14 @@ export async function decryptObject({ iv, cipher }: CryptoResult): Promise<objec
   return JSON.parse(await decrypt({ iv, cipher }))
 }
 
-export function exportData(items: Item[]): Promise<CryptoResult> {
-  const data = JSON.stringify(items)
+export function exportData<T>(payload: T): Promise<CryptoResult> {
+  const data = JSON.stringify(payload)
   return encrypt(data)
 }
 
-export async function importData(data: CryptoResult): Promise<Item[]> {
+export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
   const plainData = await decrypt(data)
-  return JSON.parse(plainData)
+  return JSON.parse(plainData) as T
 }
 
 export async function addPushSubscription(subscription: WebPushSubscription): Promise<void> {

@@ -1,4 +1,5 @@
 import { syncDB } from './db'
+import { Item } from '../state/items'
 
 export const OFFLINE_QUEUE_SYNC_TAG = 'sync-vault'
 export const OFFLINE_QUEUE_KEY = 'mutations'
@@ -10,6 +11,9 @@ export type QueuedMutation = {
   mutationType: string
   payload: unknown
   endpoint: string
+  baseState?: Item
+  attemptCount?: number
+  nextAttemptAt?: number
   conflict?: boolean
   lastConflictAt?: number
   lastErrorStatus?: number

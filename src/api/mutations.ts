@@ -120,6 +120,13 @@ export async function mutateStoreItems(
   items: Item | Item[],
   options: { externalCacheLifecycle?: boolean } = {},
 ) {
+  const queuedItems = Array.isArray(items) ? items : [items]
+  const targetItemId = queuedItems.length === 1 ? queuedItems[0].id : undefined
+  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+  const baseState = targetItemId
+    ? cachedItems.find(item => item.id === targetItemId)
+    : undefined
+
   return mutateWithRetry<Item[], Map<string, Item>>(
     {
       queryKey: queryKeys.items,
@@ -141,6 +148,7 @@ export async function mutateStoreItems(
         if (checkResult.error) throw new Error(checkResult.message)
         updateCacheOptimistically(current)
       },
+      offlineMutationMeta: baseState ? { baseState } : undefined,
       externalCacheLifecycle: options.externalCacheLifecycle,
     },
   )
@@ -475,6 +483,7 @@ async function mutateWithRetry<TData, TBase>(
     performSave,
     handleConflict,
     optimisticUpdate,
+    offlineMutationMeta,
     externalCacheLifecycle = false,
   }: {
     queryKey: readonly string[]
@@ -483,6 +492,7 @@ async function mutateWithRetry<TData, TBase>(
     performSave: (data: TData) => Promise<TData>
     handleConflict: (err: Error, current: TData, base: TBase) => Promise<{ next: TData; base: TBase; skipSave?: boolean }>
     optimisticUpdate?: (data: TData) => void
+    offlineMutationMeta?: { baseState?: Item }
     externalCacheLifecycle?: boolean
   },
 ): Promise<TData> {
@@ -536,7 +546,7 @@ async function mutateWithRetry<TData, TBase>(
     if (current && isLikelyNetworkError(err)) {
       const queuedMutation = await buildOfflineMutation(queryKey, current)
       if (queuedMutation) {
-        await enqueueMutation(queuedMutation.mutationType, queuedMutation.payload)
+        await enqueueMutation(queuedMutation.mutationType, queuedMutation.payload, offlineMutationMeta)
       }
 
       useUiStore.getState().setMessage({

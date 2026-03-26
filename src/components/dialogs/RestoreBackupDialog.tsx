@@ -11,17 +11,34 @@ import {
 import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
+import { AccountMetadata } from '../../state/metadata'
 import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
 import { threeWayMerge } from '../../utils/merge'
 import { diffItems } from 'src/utils/diff'
+import { QueuedMutation } from '../../api/offlineQueueStore'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
+
+type BackupPayload = {
+  version?: number
+  metadata?: AccountMetadata
+  items?: Item[]
+  offlineQueue?: QueuedMutation[]
+  deadLetterQueue?: QueuedMutation[]
+}
+
+export type RestorePayload = {
+  metadata?: AccountMetadata
+  items: Item[]
+  offlineQueue?: QueuedMutation[]
+  deadLetterQueue?: QueuedMutation[]
+}
 
 export interface Props {
   onClose: () => void,
-  onConfirm: (items: Item[]) => Promise<void> | void,
+  onConfirm: (payload: RestorePayload) => Promise<void> | void,
   open: boolean,
 }
 
@@ -45,6 +62,9 @@ function RestoreBackupDialog({
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectionOpen, setIsSelectionOpen] = useState(false)
+  const [restoredMetadata, setRestoredMetadata] = useState<AccountMetadata | undefined>(undefined)
+  const [restoredOfflineQueue, setRestoredOfflineQueue] = useState<QueuedMutation[] | undefined>(undefined)
+  const [restoredDeadLetterQueue, setRestoredDeadLetterQueue] = useState<QueuedMutation[] | undefined>(undefined)
 
   const changedItems = useMemo(
     () => getChangedItems(importedItems, existingItems),
@@ -82,10 +102,19 @@ function RestoreBackupDialog({
         const text = await file.text()
         const data = JSON.parse(text)
         setErrorMessage('')
-        let items = await importData(data).catch(() => {
+        const imported = await importData<Item[] | BackupPayload>(data).catch(() => {
           setErrorMessage('Could not decrypt file successfully')
-          return [] as Item[]
+          return [] as Item[] | BackupPayload
         })
+
+        const backupPayload: BackupPayload = Array.isArray(imported)
+          ? { items: imported }
+          : imported
+
+        let items = backupPayload.items || []
+        setRestoredMetadata(backupPayload.metadata)
+        setRestoredOfflineQueue(backupPayload.offlineQueue)
+        setRestoredDeadLetterQueue(backupPayload.deadLetterQueue)
 
         // Run migrations on restored items to ensure they match current schema
         if (items.length > 0) {
@@ -99,6 +128,9 @@ function RestoreBackupDialog({
       } else {
         setImportedItems([])
         setSelectedIds(new Set())
+        setRestoredMetadata(undefined)
+        setRestoredOfflineQueue(undefined)
+        setRestoredDeadLetterQueue(undefined)
       }
     },
     [existingItems],
@@ -118,10 +150,15 @@ function RestoreBackupDialog({
           return merged
         })
 
-      await onConfirm(itemsToImport)
+      await onConfirm({
+        metadata: restoredMetadata,
+        items: itemsToImport,
+        offlineQueue: restoredOfflineQueue,
+        deadLetterQueue: restoredDeadLetterQueue,
+      })
       setLoading(false)
     },
-    [existingItems, importedItems, onConfirm, selectedIds],
+    [existingItems, importedItems, onConfirm, restoredDeadLetterQueue, restoredMetadata, restoredOfflineQueue, selectedIds],
   )
 
   return (

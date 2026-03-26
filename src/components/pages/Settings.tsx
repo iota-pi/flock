@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, lazy, useCallback, useMemo } from 'react'
+import { ReactNode, Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import {
   Checkbox,
   Divider,
@@ -24,6 +24,7 @@ import {
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
 import { useUiStore } from '../../state/uiStore'
+import { processOfflineQueue } from '../../api/offlineQueue'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
@@ -31,6 +32,7 @@ const OfflineRecoveryDialog = lazy(() => import('../dialogs/OfflineRecoveryDialo
 const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
+const ConfirmationDialog = lazy(() => import('../dialogs/ConfirmationDialog'))
 import PageContainer from '../PageContainer'
 
 const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
@@ -57,17 +59,37 @@ type SettingsItemConfig = {
 function SettingsPage() {
   const { actions, dialogs, values } = useSettings()
   const dlqCount = useUiStore(state => state.dlqCount)
+  const [showExportWarning, setShowExportWarning] = useState(false)
 
-  const onExport = useCallback(
+  const executeExport = useCallback(
     async () => {
       try {
         const json = await actions.handleExport()
-        return download(json, 'flock.backup.json')
+        download(json, 'flock.backup.json')
       } catch (err) {
         console.error('Export failed', err)
+      } finally {
+        setShowExportWarning(false)
       }
     },
     [actions],
+  )
+
+  const onExportClick = useCallback(
+    async () => {
+      await processOfflineQueue()
+
+      const offlineQueueLength = useUiStore.getState().offlineQueueLength
+      const queuedRecoveryCount = useUiStore.getState().dlqCount
+
+      if (offlineQueueLength > 0 || queuedRecoveryCount > 0) {
+        setShowExportWarning(true)
+        return
+      }
+
+      await executeExport()
+    },
+    [executeExport],
   )
 
   const darkOrLightLabel = values.darkMode ? 'Always dark mode' : 'Always light mode'
@@ -148,7 +170,7 @@ function SettingsPage() {
       id: 'export',
       title: 'Create a backup of your data',
       icon: DownloadIcon,
-      onClick: onExport,
+      onClick: onExportClick,
     },
     {
       type: 'item',
@@ -180,7 +202,7 @@ function SettingsPage() {
       onClick: () => dialogs.open('import'),
     },
     { type: 'divider', key: 'd6' },
-  ], [actions, dialogs, darkModeLabel, dlqCount, onExport, values])
+  ], [actions, dialogs, darkModeLabel, dlqCount, onExportClick, values])
 
   return (
     <BasePage>
@@ -246,6 +268,15 @@ function SettingsPage() {
           onClose={dialogs.close}
           onSave={actions.saveDefaultFrequencies}
         />
+        <ConfirmationDialog
+          open={showExportWarning}
+          title="Unsynced Offline Changes"
+          confirm="Export Anyway"
+          onConfirm={executeExport}
+          onCancel={() => setShowExportWarning(false)}
+        >
+          You have offline edits or recovery items that have not been saved to the cloud. Creating a backup now will include these local changes. Are you sure you want to proceed?
+        </ConfirmationDialog>
       </Suspense>
     </BasePage>
   )

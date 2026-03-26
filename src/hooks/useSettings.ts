@@ -11,6 +11,25 @@ import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
 import { useUiStore } from '../state/uiStore'
 import { useAuth } from './useAuth'
+import { AccountMetadata } from '../state/metadata'
+import { queryClient, queryKeys } from '../api/queryClient'
+import {
+  readDeadLetterQueue,
+  readQueue,
+  writeDeadLetterQueue,
+  writeQueue,
+  type QueuedMutation,
+} from '../api/offlineQueueStore'
+import { initialiseDeadLetterQueueCount, registerBackgroundSync } from '../api/offlineQueue'
+import { mutateSetMetadata } from '../api/mutations'
+
+type BackupPayload = {
+  version: number
+  metadata: AccountMetadata
+  items: Item[]
+  offlineQueue: QueuedMutation[]
+  deadLetterQueue: QueuedMutation[]
+}
 
 export type SettingsDialogType = (
   | 'goal'
@@ -61,7 +80,16 @@ export default function useSettings() {
   const handleExport = useCallback(
     async () => {
       try {
-        const data = await exportData(items)
+        const currentMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) || {}
+        const backupPayload: BackupPayload = {
+          version: 1,
+          metadata: currentMetadata,
+          items,
+          offlineQueue: await readQueue(),
+          deadLetterQueue: await readDeadLetterQueue(),
+        }
+
+        const data = await exportData(backupPayload)
         const json = JSON.stringify(data)
         setMessage({ message: 'Backup created' })
         return json
@@ -80,9 +108,37 @@ export default function useSettings() {
 
   // Dialog Actions
   const handleConfirmRestore = useCallback(
-    async (restored: Item[]) => {
+    async ({
+      deadLetterQueue,
+      items: restoredItems,
+      metadata,
+      offlineQueue,
+    }: {
+      metadata?: AccountMetadata
+      items: Item[]
+      offlineQueue?: QueuedMutation[]
+      deadLetterQueue?: QueuedMutation[]
+    }) => {
       try {
-        await storeItems(restored)
+        if (metadata) {
+          await mutateSetMetadata(metadata)
+        }
+
+        await storeItems(restoredItems)
+
+        if (offlineQueue) {
+          await writeQueue(offlineQueue)
+        }
+
+        if (deadLetterQueue) {
+          await writeDeadLetterQueue(deadLetterQueue)
+        }
+
+        if (offlineQueue || deadLetterQueue) {
+          await initialiseDeadLetterQueueCount()
+          await registerBackgroundSync()
+        }
+
         setMessage({ message: 'Restore successful' })
         closeDialog()
       } catch (err) {
