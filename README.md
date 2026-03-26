@@ -78,7 +78,7 @@ Requirements:
 # Install dependencies
 yarn install
 
-# Start local DynamoDB and API
+# Start local DynamoDB
 docker compose up -d
 
 # Initialize the local database
@@ -88,13 +88,14 @@ yarn initdb
 ## Run development server
 
 ```shell
-# Start Docker services and Vite dev server
+# Start database, API, and Vite dev server
 yarn start
 ```
 
 This command:
-1. Starts the local DynamoDB and API containers via Docker Compose
-2. Runs the Vite development server with SST dev mode
+1. Starts the local DynamoDB container via Docker Compose
+2. Runs the backend API
+3. Runs the Vite development server with SST dev mode
 
 Alternatively, run individual services:
 
@@ -125,7 +126,7 @@ Infrastructure is managed via [SST](https://sst.dev/) (v3):
 
 ```shell
 # Deploy to a development stage
-yarn deploy --stage dev
+yarn deploy
 
 # Deploy to production
 yarn deploy --stage production
