@@ -23,6 +23,7 @@ import PasswordIcon from '@mui/icons-material/Password'
 import PersonIcon from '@mui/icons-material/Person'
 import RemoveIcon from '@mui/icons-material/Close'
 import ResetIcon from '@mui/icons-material/Replay'
+import RestoreIcon from '@mui/icons-material/Restore'
 import SaveIcon from '@mui/icons-material/Check'
 import SearchIcon from '@mui/icons-material/Search'
 import SignOutIcon from '@mui/icons-material/ExitToApp'
@@ -69,6 +70,7 @@ export {
   PrayerIcon,
   RemoveIcon,
   ResetIcon,
+  RestoreIcon,
   SaveIcon,
   SearchIcon,
   SignOutIcon,

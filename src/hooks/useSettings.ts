@@ -16,6 +16,7 @@ export type SettingsDialogType = (
   | 'goal'
   | 'subscription'
   | 'restore'
+  | 'offlineRecovery'
   | 'import'
   | 'defaultFrequency'
 )

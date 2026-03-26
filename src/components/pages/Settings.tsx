@@ -17,15 +17,17 @@ import {
   MuiIconType,
   NotificationIcon,
   PersonIcon,
+  RestoreIcon,
   SignOutIcon,
   UploadIcon,
 } from '../Icons'
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
-import OfflineRecoveryPanel from './settings/OfflineRecoveryPanel'
+import { useUiStore } from '../../state/uiStore'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
+const OfflineRecoveryDialog = lazy(() => import('../dialogs/OfflineRecoveryDialog'))
 const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
@@ -54,6 +56,7 @@ type SettingsItemConfig = {
 
 function SettingsPage() {
   const { actions, dialogs, values } = useSettings()
+  const dlqCount = useUiStore(state => state.dlqCount)
 
   const onExport = useCallback(
     async () => {
@@ -156,13 +159,28 @@ function SettingsPage() {
     },
     {
       type: 'item',
+      id: 'offline-recovery',
+      title: 'Offline data recovery',
+      icon: RestoreIcon,
+      onClick: () => dialogs.open('offlineRecovery'),
+      disabled: dlqCount === 0,
+      value: dlqCount > 0
+        ? (
+          <Typography color="warning.main" fontWeight={500} sx={{ mr: 2 }}>
+            {dlqCount}
+          </Typography>
+        )
+        : undefined,
+    },
+    {
+      type: 'item',
       id: 'import-people',
       title: 'Import from CSV',
       icon: PersonIcon,
       onClick: () => dialogs.open('import'),
     },
     { type: 'divider', key: 'd6' },
-  ], [actions, dialogs, darkModeLabel, onExport, values])
+  ], [actions, dialogs, darkModeLabel, dlqCount, onExport, values])
 
   return (
     <BasePage>
@@ -197,8 +215,6 @@ function SettingsPage() {
         })}
       </List>
 
-      <OfflineRecoveryPanel />
-
       <Suspense fallback={null}>
         <GoalDialog
           naturalGoal={values.naturalGoal}
@@ -209,6 +225,10 @@ function SettingsPage() {
           onClose={dialogs.close}
           onConfirm={actions.handleConfirmRestore}
           open={dialogs.active === 'restore'}
+        />
+        <OfflineRecoveryDialog
+          onClose={dialogs.close}
+          open={dialogs.active === 'offlineRecovery'}
         />
         <ImportPeopleDialog
           onClose={dialogs.close}
