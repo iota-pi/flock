@@ -73,13 +73,13 @@ function GoalDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Typography>
-          To get through all your prayer items in the target time,
-          set to
+        <Typography sx={{ mb: 2 }}>
+          To be able to pray for all your prayer items in their target time frames,
+          set your prayer goal to
           {' '}
-          <Typography component="span" fontWeight={500}>{naturalGoal}</Typography>
+          <strong>{naturalGoal}</strong>
           {' '}
-          or higher.
+          or more.
         </Typography>
 
         <div>
