@@ -149,6 +149,16 @@ function chunkItemsForTransactions(items: VaultItem[]): VaultItem[][] {
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
 
+  private getDocumentClient(ddb: DynamoDBClient) {
+    return DynamoDBDocumentClient.from(ddb, {
+      marshallOptions: {
+        // Some item fields are optional and can be undefined (for example metadata.deleted).
+        // Strip them before marshalling to avoid runtime 500s from util-dynamodb.
+        removeUndefinedValues: true,
+      },
+    })
+  }
+
   get client() {
     if (!this.internalClient) {
       throw new Error('Cannot use client before initialisation')
@@ -159,7 +169,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async init(_options?: T) {
     const options = getConnectionParams(_options)
     const ddb = new DynamoDBClient(options)
-    const client = DynamoDBDocumentClient.from(ddb)
+    const client = this.getDocumentClient(ddb)
 
     try {
       await client.send(new CreateTableCommand(
@@ -225,7 +235,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   connect(_options?: T): DynamoDriver {
     const options = getConnectionParams(_options)
     const ddb = new DynamoDBClient(options)
-    this.internalClient = DynamoDBDocumentClient.from(ddb)
+    this.internalClient = this.getDocumentClient(ddb)
     return this
   }
 
