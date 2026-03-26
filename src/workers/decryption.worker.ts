@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import type { VaultItem } from '../api/VaultAPI'
-import { toBytes } from '../api/crypto-utils'
+import { toBytes } from '../api/pure-crypto'
 
 type DecryptionWorkerInput = {
   key: CryptoKey

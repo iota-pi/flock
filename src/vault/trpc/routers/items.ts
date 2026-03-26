@@ -24,9 +24,13 @@ export const itemsRouter = router({
       )
 
       const items = await resultPromise
+      const finalItems = typeof cacheTime === 'number'
+        ? items
+        : items.filter(item => item.metadata?.deleted !== true)
+
       return {
         success: true,
-        items,
+        items: finalItems,
         nextCursor: null,
         serverTime: Date.now(),
       }

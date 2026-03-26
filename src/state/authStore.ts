@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { syncDB } from '../api/db'
+import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../api/offlineQueueStore'
 
 export type AccountId = string
 
@@ -30,4 +32,9 @@ export const useAuthStore = create<AuthStore>(set => ({
 
 export function getInitialAuthState(): AccountState {
   return initialAuthState
+}
+
+export async function clearPersistedAuthSyncState(): Promise<void> {
+  await syncDB.removeItem(ACTIVE_SESSION_TOKEN_KEY)
+  await syncDB.removeItem(OFFLINE_QUEUE_KEY)
 }

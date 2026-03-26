@@ -17,8 +17,8 @@ import {
 } from './crypto-utils'
 import { queryClient } from './queryClient'
 import type { WebPushSubscription } from '../vault/types'
-import { useAuthStore } from '../state/authStore'
-import { clearActiveSessionToken, setActiveSessionToken } from './offlineQueueStore'
+import { clearPersistedAuthSyncState, useAuthStore } from '../state/authStore'
+import { clearActiveSessionToken, clearOfflineQueue, setActiveSessionToken } from './offlineQueueStore'
 
 export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
 export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
@@ -191,9 +191,19 @@ export async function signOutVault() {
 
   // Clear state
   setAccount({ account: '', loggedIn: false })
+
+  const localStorageKeys = Object.keys(localStorage)
+  for (const localStorageKey of localStorageKeys) {
+    if (localStorageKey.startsWith('lastSyncServerTime_')) {
+      localStorage.removeItem(localStorageKey)
+    }
+  }
+
   localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
   localStorage.removeItem(ACCOUNT_STORAGE_KEY)
   await clearActiveSessionToken()
+  await clearOfflineQueue()
+  await clearPersistedAuthSyncState()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
