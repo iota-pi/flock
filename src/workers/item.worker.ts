@@ -3,7 +3,8 @@ import { SortCriterion, sortItems } from '../utils/customSort'
 import { Item } from '../state/items'
 
 self.onmessage = (e: MessageEvent) => {
-  const { items, filters, sortCriteria, showArchived } = e.data as {
+  const { jobId, items, filters, sortCriteria, showArchived } = e.data as {
+    jobId: number,
     items: Item[],
     filters: FilterCriterion[],
     sortCriteria: SortCriterion[],
@@ -21,5 +22,5 @@ self.onmessage = (e: MessageEvent) => {
   const filtered = filterItems(preFiltered, filters)
   const sorted = sortItems(filtered, sortCriteria)
 
-  self.postMessage({ results: sorted, totalApplicable, archivedCount })
+  self.postMessage({ jobId, results: sorted, totalApplicable, archivedCount })
 }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Item } from '../state/items'
 import { FilterCriterion } from '../utils/customFilter'
 import { SortCriterion } from '../utils/customSort'
+import { processItemsWithWorker } from '../workers/itemWorkerManager'
 
 interface UseAsyncItemsProps<T extends Item> {
   items: T[],
@@ -25,28 +26,39 @@ export function useAsyncItems<T extends Item>({
   const [archivedCount, setArchivedCount] = useState(() => (
     items.filter(i => i.archived).length
   ))
-  const workerRef = useRef<Worker | null>(null)
+  const filtersKey = useMemo(() => JSON.stringify(filters), [filters])
+  const sortCriteriaKey = useMemo(() => JSON.stringify(sortCriteria), [sortCriteria])
+  const stableFilters = useMemo(() => JSON.parse(filtersKey) as FilterCriterion[], [filtersKey])
+  const stableSortCriteria = useMemo(() => JSON.parse(sortCriteriaKey) as SortCriterion[], [sortCriteriaKey])
 
   useEffect(() => {
-    workerRef.current = new Worker(new URL('../workers/item.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    let cancelled = false
 
-    workerRef.current.onmessage = e => {
-      const { results, totalApplicable, archivedCount } = e.data
-      setProcessedItems(results)
-      setTotalApplicable(totalApplicable)
-      setArchivedCount(archivedCount)
-    }
+    void processItemsWithWorker({ items, filters: stableFilters, sortCriteria: stableSortCriteria, showArchived })
+      .then(result => {
+        if (cancelled) {
+          return
+        }
+
+        setProcessedItems(result.results as T[])
+        setTotalApplicable(result.totalApplicable)
+        setArchivedCount(result.archivedCount)
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+
+        const fallbackItems = showArchived ? items : items.filter(i => !i.archived)
+        setProcessedItems(fallbackItems as T[])
+        setTotalApplicable(fallbackItems.length)
+        setArchivedCount(items.filter(i => i.archived).length)
+      })
 
     return () => {
-      workerRef.current?.terminate()
+      cancelled = true
     }
-  }, [])
-
-  useEffect(() => {
-    workerRef.current?.postMessage({ items, filters, sortCriteria, showArchived })
-  }, [items, filters, sortCriteria, showArchived])
+  }, [items, showArchived, stableFilters, stableSortCriteria])
 
   return { items: processedItems, totalApplicable, archivedCount }
 }

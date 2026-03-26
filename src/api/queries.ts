@@ -25,6 +25,7 @@ import {
 import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
+import { syncDB } from './db'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
@@ -33,7 +34,83 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
+const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
 let inMemoryLastSyncServerTime: number | null = null
+let loadedDecryptionCacheAccountId: string | null = null
+let decryptionCacheWriteTimer: ReturnType<typeof setTimeout> | null = null
+
+let sharedDecryptionWorker: Worker | null = null
+let decryptionJobCounter = 0
+const pendingDecryptionJobs = new Map<number, {
+  resolve: (value: object[]) => void
+  reject: (reason?: unknown) => void
+}>()
+
+function getDecryptionCacheKey(accountId: string): string {
+  return `${DECRYPTION_CACHE_KEY_PREFIX}_${accountId}`
+}
+
+async function loadDecryptionCache(accountId: string): Promise<void> {
+  if (loadedDecryptionCacheAccountId === accountId) {
+    return
+  }
+
+  const persisted = await syncDB.getItem<Record<string, { cipher: string, iv: string, item: Item }>>(getDecryptionCacheKey(accountId))
+  decryptionCache.clear()
+
+  if (persisted) {
+    for (const [key, value] of Object.entries(persisted)) {
+      decryptionCache.set(key, value)
+    }
+  }
+
+  loadedDecryptionCacheAccountId = accountId
+}
+
+function schedulePersistDecryptionCache(accountId: string): void {
+  if (decryptionCacheWriteTimer) {
+    clearTimeout(decryptionCacheWriteTimer)
+  }
+
+  decryptionCacheWriteTimer = setTimeout(() => {
+    const snapshot = Object.fromEntries(decryptionCache.entries())
+    void syncDB.setItem(getDecryptionCacheKey(accountId), snapshot)
+  }, 200)
+}
+
+function ensureSharedDecryptionWorker(): Worker {
+  if (sharedDecryptionWorker) {
+    return sharedDecryptionWorker
+  }
+
+  const worker = new Worker(
+    new URL('../workers/decryption.worker.ts', import.meta.url),
+    { type: 'module' },
+  )
+
+  worker.onmessage = event => {
+    const payload = event.data as { jobId?: unknown, items?: object[] }
+    const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
+    const pending = pendingDecryptionJobs.get(jobId)
+    if (!pending) {
+      return
+    }
+
+    pendingDecryptionJobs.delete(jobId)
+    pending.resolve(payload.items || [])
+  }
+
+  worker.onerror = event => {
+    const error = new Error(event.message || 'Worker decryption failed')
+    for (const pending of pendingDecryptionJobs.values()) {
+      pending.reject(error)
+    }
+    pendingDecryptionJobs.clear()
+  }
+
+  sharedDecryptionWorker = worker
+  return worker
+}
 
 function getLastSyncServerTimeKey(accountId: string): string {
   return `lastSyncServerTime_${accountId}`
@@ -68,6 +145,9 @@ function setLastSyncServerTime(accountId: string, serverTime: number): void {
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
+  const accountId = getAccountId()
+  await loadDecryptionCache(accountId)
+
   const fromCache: Item[] = []
   const toDecrypt: VaultItem[] = []
 
@@ -75,6 +155,7 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
     const item = items[index]
     if (item.metadata?.deleted) {
       decryptionCache.delete(item.item)
+      schedulePersistDecryptionCache(accountId)
       continue
     }
 
@@ -98,38 +179,28 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
     return fromCache
   }
 
-  const workerDecrypted = await decryptWithWorker(toDecrypt)
+  const workerDecrypted = await decryptWithWorker(accountId, toDecrypt)
   return [...fromCache, ...workerDecrypted]
 }
 
-async function decryptWithWorker(items: VaultItem[]): Promise<Item[]> {
+async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise<Item[]> {
   const vault = await getVaultModule()
 
   if (typeof Worker === 'undefined' || typeof window === 'undefined') {
-    return decryptWithoutWorker(vault, items)
+    return decryptWithoutWorker(accountId, vault, items)
   }
 
   const key = vault.getVaultKey()
+  const worker = ensureSharedDecryptionWorker()
+  decryptionJobCounter += 1
+  const jobId = decryptionJobCounter
 
   const decrypted = await new Promise<object[]>((resolve, reject) => {
-    const worker = new Worker(
-      new URL('../workers/decryption.worker.ts', import.meta.url),
-      { type: 'module' },
-    )
-
-    worker.onmessage = event => {
-      resolve(event.data as object[])
-      worker.terminate()
-    }
-
-    worker.onerror = event => {
-      reject(new Error(event.message || 'Worker decryption failed'))
-      worker.terminate()
-    }
-
-    worker.postMessage({ key, items })
+    pendingDecryptionJobs.set(jobId, { resolve, reject })
+    worker.postMessage({ jobId, key, items })
   }).catch(error => {
     handleVaultError(error as Error, 'Failed to decrypt item from server')
+    pendingDecryptionJobs.delete(jobId)
     return []
   })
 
@@ -157,13 +228,18 @@ async function decryptWithWorker(items: VaultItem[]): Promise<Item[]> {
         iv: source.metadata.iv,
         item: filled,
       })
+      schedulePersistDecryptionCache(accountId)
 
       return filled
     })
     .filter((item): item is Item => !!item)
 }
 
-async function decryptWithoutWorker(vault: Awaited<ReturnType<typeof getVaultModule>>, items: VaultItem[]): Promise<Item[]> {
+async function decryptWithoutWorker(
+  accountId: string,
+  vault: Awaited<ReturnType<typeof getVaultModule>>,
+  items: VaultItem[],
+): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(
     items.map(async source => {
       const decrypted = await vault.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
@@ -178,6 +254,7 @@ async function decryptWithoutWorker(vault: Awaited<ReturnType<typeof getVaultMod
         iv: source.metadata.iv,
         item: filled,
       })
+      schedulePersistDecryptionCache(accountId)
 
       return filled
     }),

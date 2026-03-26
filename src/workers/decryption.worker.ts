@@ -3,6 +3,7 @@ import type { VaultItem } from '../api/VaultAPI'
 import { toBytes } from '../api/pure-crypto'
 
 type DecryptionWorkerInput = {
+  jobId?: number
   key: CryptoKey
   items: VaultItem[]
 }
@@ -12,7 +13,7 @@ type HydratedItem = Record<string, unknown> & { version?: number }
 declare const self: DedicatedWorkerGlobalScope
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
-  const { key, items } = event.data
+  const { jobId, key, items } = event.data
   const decryptedItems: HydratedItem[] = []
 
   for (const item of items) {
@@ -47,5 +48,5 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
     }
   }
 
-  self.postMessage(decryptedItems)
+  self.postMessage({ jobId, items: decryptedItems })
 }

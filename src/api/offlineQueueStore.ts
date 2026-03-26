@@ -3,6 +3,7 @@ import { syncDB } from './db'
 export const OFFLINE_QUEUE_SYNC_TAG = 'sync-vault'
 export const OFFLINE_QUEUE_KEY = 'mutations'
 export const ACTIVE_SESSION_TOKEN_KEY = 'active_session_token'
+export const DEAD_LETTER_QUEUE_KEY = 'dead-letter-mutations'
 
 export type QueuedMutation = {
   id: string
@@ -20,6 +21,14 @@ export async function readQueue(): Promise<QueuedMutation[]> {
 
 export async function writeQueue(queue: QueuedMutation[]) {
   await syncDB.setItem(OFFLINE_QUEUE_KEY, queue)
+}
+
+export async function readDeadLetterQueue(): Promise<QueuedMutation[]> {
+  return (await syncDB.getItem<QueuedMutation[]>(DEAD_LETTER_QUEUE_KEY)) || []
+}
+
+export async function writeDeadLetterQueue(queue: QueuedMutation[]) {
+  await syncDB.setItem(DEAD_LETTER_QUEUE_KEY, queue)
 }
 
 export async function getActiveSessionToken(): Promise<string | null> {
