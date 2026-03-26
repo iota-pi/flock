@@ -42,6 +42,25 @@ function PrayerStepper({
     [activeStep],
   )
 
+  const getStepState = useCallback(
+    (index: number): 'complete' | 'active' | 'pending' => {
+      if (activeStep === undefined) {
+        return 'pending'
+      }
+
+      if (index < activeStep) {
+        return 'complete'
+      }
+
+      if (index === activeStep) {
+        return 'active'
+      }
+
+      return 'pending'
+    },
+    [activeStep],
+  )
+
   if (steps <= 0) {
     return null
   }
@@ -87,6 +106,8 @@ function PrayerStepper({
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}
+            data-cy={`prayer-step-${index}`}
+            data-state={getStepState(index)}
             onClick={onStepClick ? () => onStepClick(index) : undefined}
             sx={{
               backgroundColor: getBackgroundColor(index),

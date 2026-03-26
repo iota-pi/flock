@@ -121,6 +121,7 @@ function TopBar({
 
       {filterable && (
         <IconButton
+          data-cy="open-filter"
           color={filterCount > 0 ? 'warning' : undefined}
           onClick={handleClickFilter}
           size="large"
@@ -131,6 +132,7 @@ function TopBar({
 
       {sortable && (
         <IconButton
+          data-cy="open-sort"
           onClick={handleClickSort}
           size="large"
         >
