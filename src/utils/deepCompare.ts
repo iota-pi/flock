@@ -10,6 +10,38 @@ export function deepEqual(left: unknown, right: unknown): boolean {
     return true
   }
 
+  if (left instanceof Date && right instanceof Date) {
+    return left.getTime() === right.getTime()
+  }
+
+  if (left instanceof Map && right instanceof Map) {
+    if (left.size !== right.size) {
+      return false
+    }
+
+    for (const [key, value] of left.entries()) {
+      if (!right.has(key) || !deepEqual(value, right.get(key))) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  if (left instanceof Set && right instanceof Set) {
+    if (left.size !== right.size) {
+      return false
+    }
+
+    for (const value of left.values()) {
+      if (!right.has(value)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
   if (!isObject(left) || !isObject(right)) {
     return false
   }
