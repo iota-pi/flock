@@ -14,12 +14,26 @@ const TRPC_MUTATION_PATTERNS = [
   '**/trpc/accounts.updateMetadata*',
 ]
 
+const REST_MUTATION_PATTERNS = [
+  '**/items',
+  '**/items/**',
+  '**/metadata',
+]
+
 function getMutationAliasFromUrl(url: string, mode: NetworkMode): string {
   if (url.includes('/trpc/items.putMany')) {
     return mode === 'offline' ? 'offlinePutMany' : mode === 'server-error' ? 'errorPutMany' : 'onlinePutMany'
   }
 
+  if (url.includes('/items') && !url.includes('/trpc/')) {
+    return mode === 'offline' ? 'offlinePut' : mode === 'server-error' ? 'errorPut' : 'onlinePut'
+  }
+
   if (url.includes('/trpc/accounts.updateMetadata')) {
+    return mode === 'offline' ? 'offlineUpdateMetadata' : mode === 'server-error' ? 'errorUpdateMetadata' : 'onlineUpdateMetadata'
+  }
+
+  if (url.includes('/metadata') && !url.includes('/trpc/')) {
     return mode === 'offline' ? 'offlineUpdateMetadata' : mode === 'server-error' ? 'errorUpdateMetadata' : 'onlineUpdateMetadata'
   }
 
@@ -33,6 +47,28 @@ function ensureNetworkInterceptors() {
 
   TRPC_MUTATION_PATTERNS.forEach(pattern => {
     cy.intercept('POST', pattern, req => {
+      const mode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
+      req.alias = getMutationAliasFromUrl(req.url, mode)
+
+      if (mode === 'offline') {
+        req.reply({ forceNetworkError: true })
+        return
+      }
+
+      if (mode === 'server-error') {
+        req.reply({
+          statusCode: 500,
+          body: { error: 'Internal Server Error' },
+        })
+        return
+      }
+
+      req.continue()
+    })
+  })
+
+  REST_MUTATION_PATTERNS.forEach(pattern => {
+    cy.intercept({ method: /PUT|POST/, url: pattern }, req => {
       const mode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       req.alias = getMutationAliasFromUrl(req.url, mode)
 
