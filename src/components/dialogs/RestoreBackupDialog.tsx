@@ -2,38 +2,47 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
-import { AccountMetadata } from '../../state/metadata'
 import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
 import { threeWayMerge } from '../../utils/merge'
 import { diffItems } from 'src/utils/diff'
-import { QueuedMutation } from '../../api/offlineQueueStore'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
+import {
+  type BackupPayloadV1,
+  type DecryptedBackupPayload,
+  type RestorePayload,
+} from '../../types/backup'
 
-type BackupPayload = {
-  version?: number
-  metadata?: AccountMetadata
-  items?: Item[]
-  offlineQueue?: QueuedMutation[]
-  deadLetterQueue?: QueuedMutation[]
-}
+function normalizeDecryptedBackup(payload: DecryptedBackupPayload): RestorePayload {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      offlineQueue: [],
+      deadLetterQueue: [],
+    }
+  }
 
-export type RestorePayload = {
-  metadata?: AccountMetadata
-  items: Item[]
-  offlineQueue?: QueuedMutation[]
-  deadLetterQueue?: QueuedMutation[]
+  const data = payload as BackupPayloadV1
+  return {
+    metadata: data.metadata,
+    items: data.items || [],
+    offlineQueue: data.offlineQueue || [],
+    deadLetterQueue: data.deadLetterQueue || [],
+  }
 }
 
 export interface Props {
@@ -62,9 +71,13 @@ function RestoreBackupDialog({
   const [loading, setLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectionOpen, setIsSelectionOpen] = useState(false)
-  const [restoredMetadata, setRestoredMetadata] = useState<AccountMetadata | undefined>(undefined)
-  const [restoredOfflineQueue, setRestoredOfflineQueue] = useState<QueuedMutation[] | undefined>(undefined)
-  const [restoredDeadLetterQueue, setRestoredDeadLetterQueue] = useState<QueuedMutation[] | undefined>(undefined)
+  const [hasSettingsMetadata, setHasSettingsMetadata] = useState(false)
+  const [restoreSettings, setRestoreSettings] = useState(false)
+  const [restoredPayload, setRestoredPayload] = useState<RestorePayload>({
+    items: [],
+    offlineQueue: [],
+    deadLetterQueue: [],
+  })
 
   const changedItems = useMemo(
     () => getChangedItems(importedItems, existingItems),
@@ -102,19 +115,19 @@ function RestoreBackupDialog({
         const text = await file.text()
         const data = JSON.parse(text)
         setErrorMessage('')
-        const imported = await importData<Item[] | BackupPayload>(data).catch(() => {
+        const imported = await importData<DecryptedBackupPayload>(data).catch(() => {
           setErrorMessage('Could not decrypt file successfully')
-          return [] as Item[] | BackupPayload
+          return [] as DecryptedBackupPayload
         })
 
-        const backupPayload: BackupPayload = Array.isArray(imported)
-          ? { items: imported }
-          : imported
+        const metadataPresent = !Array.isArray(imported)
+          && Object.prototype.hasOwnProperty.call(imported, 'metadata')
+        setHasSettingsMetadata(metadataPresent)
+        setRestoreSettings(metadataPresent)
 
-        let items = backupPayload.items || []
-        setRestoredMetadata(backupPayload.metadata)
-        setRestoredOfflineQueue(backupPayload.offlineQueue)
-        setRestoredDeadLetterQueue(backupPayload.deadLetterQueue)
+        const normalized = normalizeDecryptedBackup(imported)
+        let items = normalized.items
+        setRestoredPayload(normalized)
 
         // Run migrations on restored items to ensure they match current schema
         if (items.length > 0) {
@@ -128,9 +141,13 @@ function RestoreBackupDialog({
       } else {
         setImportedItems([])
         setSelectedIds(new Set())
-        setRestoredMetadata(undefined)
-        setRestoredOfflineQueue(undefined)
-        setRestoredDeadLetterQueue(undefined)
+        setHasSettingsMetadata(false)
+        setRestoreSettings(false)
+        setRestoredPayload({
+          items: [],
+          offlineQueue: [],
+          deadLetterQueue: [],
+        })
       }
     },
     [existingItems],
@@ -151,14 +168,14 @@ function RestoreBackupDialog({
         })
 
       await onConfirm({
-        metadata: restoredMetadata,
+        metadata: restoreSettings ? restoredPayload.metadata : undefined,
         items: itemsToImport,
-        offlineQueue: restoredOfflineQueue,
-        deadLetterQueue: restoredDeadLetterQueue,
+        offlineQueue: restoredPayload.offlineQueue,
+        deadLetterQueue: restoredPayload.deadLetterQueue,
       })
       setLoading(false)
     },
-    [existingItems, importedItems, onConfirm, restoredDeadLetterQueue, restoredMetadata, restoredOfflineQueue, selectedIds],
+    [existingItems, importedItems, onConfirm, restoreSettings, restoredPayload.deadLetterQueue, restoredPayload.metadata, restoredPayload.offlineQueue, selectedIds],
   )
 
   return (
@@ -229,6 +246,26 @@ function RestoreBackupDialog({
               </Alert>
             </Box>
           )}
+
+          <Box mt={2}>
+            <Tooltip
+              title={hasSettingsMetadata ? '' : 'This backup file does not contain settings.'}
+              disableHoverListener={hasSettingsMetadata}
+            >
+              <span>
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      checked={restoreSettings}
+                      onChange={(_event, checked) => setRestoreSettings(checked)}
+                      disabled={!hasSettingsMetadata || loading}
+                    />
+                  )}
+                  label="Restore settings"
+                />
+              </span>
+            </Tooltip>
+          </Box>
 
           <Typography>
             <InlineText fontWeight={500}>Important!</InlineText>

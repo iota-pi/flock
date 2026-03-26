@@ -18,18 +18,10 @@ import {
   readQueue,
   writeDeadLetterQueue,
   writeQueue,
-  type QueuedMutation,
 } from '../api/offlineQueueStore'
-import { initialiseDeadLetterQueueCount, registerBackgroundSync } from '../api/offlineQueue'
+import { registerBackgroundSync } from '../api/offlineQueue'
 import { mutateSetMetadata } from '../api/mutations'
-
-type BackupPayload = {
-  version: number
-  metadata: AccountMetadata
-  items: Item[]
-  offlineQueue: QueuedMutation[]
-  deadLetterQueue: QueuedMutation[]
-}
+import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 
 export type SettingsDialogType = (
   | 'goal'
@@ -81,7 +73,7 @@ export default function useSettings() {
     async () => {
       try {
         const currentMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) || {}
-        const backupPayload: BackupPayload = {
+        const backupPayload: BackupPayloadV1 = {
           version: 1,
           metadata: currentMetadata,
           items,
@@ -113,31 +105,22 @@ export default function useSettings() {
       items: restoredItems,
       metadata,
       offlineQueue,
-    }: {
-      metadata?: AccountMetadata
-      items: Item[]
-      offlineQueue?: QueuedMutation[]
-      deadLetterQueue?: QueuedMutation[]
-    }) => {
+    }: RestorePayload) => {
       try {
+        const parsedQueue = offlineQueue
+        const parsedDlq = deadLetterQueue
+
         if (metadata) {
           await mutateSetMetadata(metadata)
         }
 
         await storeItems(restoredItems)
 
-        if (offlineQueue) {
-          await writeQueue(offlineQueue)
-        }
-
-        if (deadLetterQueue) {
-          await writeDeadLetterQueue(deadLetterQueue)
-        }
-
-        if (offlineQueue || deadLetterQueue) {
-          await initialiseDeadLetterQueueCount()
-          await registerBackgroundSync()
-        }
+        await writeQueue(parsedQueue)
+        await writeDeadLetterQueue(parsedDlq)
+        useUiStore.getState().setOfflineQueueLength(parsedQueue.length)
+        useUiStore.getState().setDlqCount(parsedDlq.length)
+        await registerBackgroundSync()
 
         setMessage({ message: 'Restore successful' })
         closeDialog()
