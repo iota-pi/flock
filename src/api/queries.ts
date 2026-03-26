@@ -35,6 +35,7 @@ async function getVaultModule() {
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
 const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
+const MAX_DECRYPTION_CACHE_ITEMS = 2000
 let inMemoryLastSyncServerTime: number | null = null
 let loadedDecryptionCacheAccountId: string | null = null
 let decryptionCacheWriteTimer: ReturnType<typeof setTimeout> | null = null
@@ -73,6 +74,15 @@ function schedulePersistDecryptionCache(accountId: string): void {
   }
 
   decryptionCacheWriteTimer = setTimeout(() => {
+    if (decryptionCache.size > MAX_DECRYPTION_CACHE_ITEMS) {
+      const entries = Array.from(decryptionCache.entries())
+      const newestEntries = entries.slice(entries.length - MAX_DECRYPTION_CACHE_ITEMS)
+      decryptionCache.clear()
+      for (const [key, value] of newestEntries) {
+        decryptionCache.set(key, value)
+      }
+    }
+
     const snapshot = Object.fromEntries(decryptionCache.entries())
     void syncDB.setItem(getDecryptionCacheKey(accountId), snapshot)
   }, 200)
@@ -106,6 +116,7 @@ function ensureSharedDecryptionWorker(): Worker {
       pending.reject(error)
     }
     pendingDecryptionJobs.clear()
+    sharedDecryptionWorker = null
   }
 
   sharedDecryptionWorker = worker

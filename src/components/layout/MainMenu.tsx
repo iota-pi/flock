@@ -1,6 +1,7 @@
 import { memo, ReactNode, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import {
+  Badge,
   Box,
   Divider,
   Drawer,
@@ -23,6 +24,7 @@ export const DRAWER_SPACING_NARROW = 10
 
 interface MinimisedProp {
   minimised: boolean,
+  hasWarning?: boolean,
 }
 const StyledDrawer = styled(
   Drawer,
@@ -58,13 +60,25 @@ const FlexList = styled(List)({
 const StyledListItemButton = styled(
   ListItemButton,
   {
-    shouldForwardProp: p => p !== 'minimised',
+    shouldForwardProp: p => p !== 'minimised' && p !== 'hasWarning',
   },
-)<MinimisedProp>(({ minimised, theme }) => ({
+)<MinimisedProp>(({ minimised, hasWarning, theme }) => ({
   flexGrow: 0,
   height: theme.spacing(minimised ? 8 : 6),
   justifyContent: 'center',
   transition: theme.transitions.create(['color', 'height']),
+  ...(hasWarning
+    ? {
+      backgroundColor: theme.palette.warning.light,
+      color: theme.palette.warning.contrastText,
+      '&:hover': {
+        backgroundColor: theme.palette.warning.main,
+      },
+      '&.Mui-selected': {
+        backgroundColor: theme.palette.warning.main,
+      },
+    }
+    : {}),
 }))
 const MenuItemIcon = styled(
   ListItemIcon,
@@ -118,6 +132,7 @@ export interface MainMenuItemProps {
   name: string,
   onClick: (pageId?: PageId) => void,
   selected: boolean,
+  warningCount?: number,
 }
 
 
@@ -129,6 +144,7 @@ function MainMenuItem({
   name,
   onClick,
   selected,
+  warningCount = 0,
 }: MainMenuItemProps) {
   const handleClick = useCallback(
     () => (id !== 'minimise' ? onClick(id) : onClick()),
@@ -143,12 +159,19 @@ function MainMenuItem({
 
       <StyledListItemButton
         data-cy={`page-${id}`}
+        hasWarning={warningCount > 0}
         minimised={minimisedMenu}
         onClick={handleClick}
         selected={selected}
       >
         <MenuItemIcon minimised={minimisedMenu}>
-          <Icon />
+          {warningCount > 0
+            ? (
+              <Badge badgeContent={warningCount} color="error" max={99}>
+                <Icon />
+              </Badge>
+            )
+            : <Icon />}
         </MenuItemIcon>
 
         <MenuItemText
@@ -168,6 +191,7 @@ function MainMenu({
   open,
 }: Props) {
   const setUi = useUiStore(state => state.setUi)
+  const dlqCount = useUiStore(state => state.dlqCount)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useMetadataQuery(loggedIn)
@@ -217,6 +241,7 @@ function MainMenu({
               name={name}
               onClick={handleClick}
               selected={id === page?.id}
+              warningCount={id === 'settings' ? dlqCount : 0}
             />
           ))}
 

@@ -62,6 +62,11 @@ export async function enqueueMutation(mutationType: string, payload: unknown) {
   await registerBackgroundSync()
 }
 
+export async function initialiseDeadLetterQueueCount() {
+  const deadLetterQueue = await readDeadLetterQueue()
+  useUiStore.getState().setDlqCount(deadLetterQueue.length)
+}
+
 async function registerBackgroundSync() {
   if (
     typeof navigator === 'undefined'
@@ -325,6 +330,7 @@ export async function processOfflineQueue() {
           lastErrorStatus: 500,
         })
         await writeDeadLetterQueue(deadLetterQueue)
+        useUiStore.getState().setDlqCount(deadLetterQueue.length)
         useUiStore.getState().setMessage({
           severity: 'error',
           message: 'An offline save failed and was moved to recovery queue. Please review recovery options.',

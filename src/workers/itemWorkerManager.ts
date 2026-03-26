@@ -55,6 +55,7 @@ function getWorker() {
       pending.reject(error)
     }
     pendingJobs.clear()
+    worker = null
   }
 
   return worker

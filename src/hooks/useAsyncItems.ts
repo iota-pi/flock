@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Item } from '../state/items'
 import { FilterCriterion } from '../utils/customFilter'
 import { SortCriterion } from '../utils/customSort'
 import { processItemsWithWorker } from '../workers/itemWorkerManager'
+import { useDeepCompareMemo } from '../utils/deepCompare'
 
 interface UseAsyncItemsProps<T extends Item> {
   items: T[],
@@ -26,10 +27,8 @@ export function useAsyncItems<T extends Item>({
   const [archivedCount, setArchivedCount] = useState(() => (
     items.filter(i => i.archived).length
   ))
-  const filtersKey = useMemo(() => JSON.stringify(filters), [filters])
-  const sortCriteriaKey = useMemo(() => JSON.stringify(sortCriteria), [sortCriteria])
-  const stableFilters = useMemo(() => JSON.parse(filtersKey) as FilterCriterion[], [filtersKey])
-  const stableSortCriteria = useMemo(() => JSON.parse(sortCriteriaKey) as SortCriterion[], [sortCriteriaKey])
+  const stableFilters = useDeepCompareMemo<FilterCriterion[]>(filters)
+  const stableSortCriteria = useDeepCompareMemo<SortCriterion[]>(sortCriteria)
 
   useEffect(() => {
     let cancelled = false

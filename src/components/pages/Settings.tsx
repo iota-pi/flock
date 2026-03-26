@@ -1,9 +1,13 @@
 import { ReactNode, Suspense, lazy, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
+  Button,
   Checkbox,
   Divider,
   FormControlLabel,
   List,
+  Paper,
+  Stack,
   styled,
   Typography,
 } from '@mui/material'
@@ -22,6 +26,15 @@ import {
 } from '../Icons'
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
+import {
+  type QueuedMutation,
+  readDeadLetterQueue,
+  readQueue,
+  writeDeadLetterQueue,
+  writeQueue,
+} from '../../api/offlineQueueStore'
+import { processOfflineQueue } from '../../api/offlineQueue'
+import { useUiStore } from '../../state/uiStore'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
@@ -53,6 +66,49 @@ type SettingsItemConfig = {
 
 function SettingsPage() {
   const { actions, dialogs, values } = useSettings()
+  const setDlqCount = useUiStore(state => state.setDlqCount)
+
+  const fetchDeadLetterItems = useCallback(async (): Promise<QueuedMutation[]> => {
+    const items = await readDeadLetterQueue()
+    setDlqCount(items.length)
+    return items
+  }, [setDlqCount])
+
+  const {
+    data: deadLetterItems = [],
+    refetch: refetchDeadLetterItems,
+  } = useQuery({
+    queryKey: ['deadLetterQueue'],
+    queryFn: fetchDeadLetterItems,
+  })
+
+  const handleRetryDeadLetterMutation = useCallback(async (id: string) => {
+    const dlqItems = await readDeadLetterQueue()
+    const mutation = dlqItems.find(item => item.id === id)
+    if (!mutation) {
+      await refetchDeadLetterItems()
+      return
+    }
+
+    const nextDlqItems = dlqItems.filter(item => item.id !== id)
+    const queueItems = await readQueue()
+    queueItems.push(mutation)
+
+    await writeQueue(queueItems)
+    await writeDeadLetterQueue(nextDlqItems)
+    setDlqCount(nextDlqItems.length)
+
+    await processOfflineQueue()
+    await refetchDeadLetterItems()
+  }, [refetchDeadLetterItems, setDlqCount])
+
+  const handleDiscardDeadLetterMutation = useCallback(async (id: string) => {
+    const dlqItems = await readDeadLetterQueue()
+    const nextDlqItems = dlqItems.filter(item => item.id !== id)
+    await writeDeadLetterQueue(nextDlqItems)
+    setDlqCount(nextDlqItems.length)
+    await refetchDeadLetterItems()
+  }, [refetchDeadLetterItems, setDlqCount])
 
   const onExport = useCallback(
     async () => {
@@ -195,6 +251,56 @@ function SettingsPage() {
           )
         })}
       </List>
+
+      {deadLetterItems.length > 0 && (
+        <PageContainer maxWidth="xl">
+          <Stack spacing={2} py={2}>
+            <Typography variant="h5" fontWeight={400}>
+              Offline Data Recovery
+            </Typography>
+
+            {deadLetterItems.map(item => (
+              <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                  <Stack flexGrow={1} spacing={0.5}>
+                    <Typography variant="subtitle1" fontWeight={500}>
+                      {item.mutationType}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Last error status: {item.lastErrorStatus ?? 'Unknown'}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      Last conflict at: {item.lastConflictAt ? new Date(item.lastConflictAt).toLocaleString() : 'N/A'}
+                    </Typography>
+                  </Stack>
+
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={() => {
+                        void handleRetryDeadLetterMutation(item.id)
+                      }}
+                    >
+                      Retry
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      size="small"
+                      onClick={() => {
+                        void handleDiscardDeadLetterMutation(item.id)
+                      }}
+                    >
+                      Discard
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        </PageContainer>
+      )}
 
       <Suspense fallback={null}>
         <GoalDialog

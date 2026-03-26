@@ -16,7 +16,7 @@ import env from './env'
 import { trpc } from './api/trpc'
 import { queryClient } from './api/queryClient'
 import { getApiAuthToken, trackedFetch } from './api/runtime'
-import { processOfflineQueue } from './api/offlineQueue'
+import { initialiseDeadLetterQueueCount, processOfflineQueue } from './api/offlineQueue'
 
 const Root = styled('div')({
   display: 'flex',
@@ -69,6 +69,7 @@ function RootLayout() {
 
       void (async () => {
         await loadVault()
+        await initialiseDeadLetterQueueCount()
         await processOfflineQueue()
       })()
 

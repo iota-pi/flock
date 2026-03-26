@@ -28,6 +28,7 @@ export type UIMessage = Required<BaseUIMessage>
 
 export interface UIState {
   darkMode: boolean | null,
+  dlqCount: number,
   drawers: DrawerData[],
   filters: FilterCriterion[],
   message: UIMessage | null,
@@ -50,6 +51,7 @@ export type PushActiveData = (
 
 export interface UiStore extends UIState {
   setUi: (payload: SetUiPayload) => void,
+  setDlqCount: (count: number) => void,
   startRequest: () => void,
   finishRequest: (error?: string) => void,
   setMessage: (payload: BaseUIMessage) => void,
@@ -64,6 +66,7 @@ export interface UiStore extends UIState {
 
 const initialUiState: UIState = {
   darkMode: null,
+  dlqCount: 0,
   drawers: [],
   filters: DEFAULT_FILTER_CRITERIA,
   message: null,
@@ -81,11 +84,15 @@ export const useUiStore = create<UiStore>()(
       setUi: payload => {
         set(state => ({
           ...payload,
+          dlqCount: payload.dlqCount ?? state.dlqCount,
           requests: {
             ...state.requests,
             ...payload.requests,
           },
         }))
+      },
+      setDlqCount: count => {
+        set(() => ({ dlqCount: Math.max(0, count) }))
       },
       startRequest: () => {
         set(state => ({
