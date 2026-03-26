@@ -40,6 +40,7 @@ export const PutItemBodySchema = z.object({
   type: z.string(),
   version: z.number().optional(),
   deleted: z.boolean().optional(),
+  idempotencyKey: z.string().min(1).optional(),
 })
 
 export const PutItemsBatchEntrySchema = z.object({
@@ -55,6 +56,7 @@ export const PutItemsBatchEntrySchema = z.object({
 export const PutItemsBatchBodySchema = z.object({
   account: z.string().min(1),
   items: z.array(PutItemsBatchEntrySchema),
+  idempotencyKey: z.string().min(1).optional(),
 })
 
 export const FetchItemsInputSchema = z.object({

@@ -19,6 +19,45 @@ import {
 
 let processing = false
 
+function extractTargetIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') {
+    return []
+  }
+
+  const singleItem = payload as { item?: unknown }
+  if (typeof singleItem.item === 'string') {
+    return [singleItem.item]
+  }
+
+  const batch = payload as { items?: Array<{ id?: unknown }> }
+  if (Array.isArray(batch.items)) {
+    return batch.items
+      .map(item => item?.id)
+      .filter((id): id is string => typeof id === 'string')
+      .sort()
+  }
+
+  return []
+}
+
+function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
+  if (existing.mutationType !== mutationType) {
+    return false
+  }
+
+  const existingTargets = extractTargetIds(existing.payload)
+  const incomingTargets = extractTargetIds(payload)
+  if (existingTargets.length === 0 || incomingTargets.length === 0) {
+    return false
+  }
+
+  if (existingTargets.length !== incomingTargets.length) {
+    return false
+  }
+
+  return existingTargets.every((target, index) => target === incomingTargets[index])
+}
+
 export function isLikelyNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false
@@ -50,21 +89,36 @@ export async function enqueueMutation(mutationType: string, payload: unknown) {
   }
 
   const queue = await readQueue()
-  queue.push({
-    id: getMutationId(),
-    mutationType,
-    payload,
-    endpoint: env.VAULT_ENDPOINT,
-    conflict: false,
-  })
+  const existingIndex = queue.findIndex(mutation => hasMatchingMutationTarget(mutation, mutationType, payload))
+
+  if (existingIndex >= 0) {
+    queue[existingIndex] = {
+      ...queue[existingIndex],
+      id: getMutationId(),
+      payload,
+      endpoint: env.VAULT_ENDPOINT,
+    }
+  } else {
+    queue.push({
+      id: getMutationId(),
+      mutationType,
+      payload,
+      endpoint: env.VAULT_ENDPOINT,
+      conflict: false,
+    })
+  }
+
   await writeQueue(queue)
+  useUiStore.getState().setOfflineQueueLength(queue.length)
 
   await registerBackgroundSync()
 }
 
 export async function initialiseDeadLetterQueueCount() {
   const deadLetterQueue = await readDeadLetterQueue()
+  const queue = await readQueue()
   useUiStore.getState().setDlqCount(deadLetterQueue.length)
+  useUiStore.getState().setOfflineQueueLength(queue.length)
 }
 
 async function registerBackgroundSync() {
@@ -85,12 +139,22 @@ async function registerBackgroundSync() {
 
 async function executeMutation(mutation: QueuedMutation) {
   switch (mutation.mutationType) {
-    case 'items.put':
-      await trpcClient.items.put.mutate(mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0])
+    case 'items.put': {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
+      await trpcClient.items.put.mutate({
+        ...payload,
+        idempotencyKey: mutation.id,
+      })
       return
-    case 'items.putMany':
-      await trpcClient.items.putMany.mutate(mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0])
+    }
+    case 'items.putMany': {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
+      await trpcClient.items.putMany.mutate({
+        ...payload,
+        idempotencyKey: mutation.id,
+      })
       return
+    }
     case 'accounts.updateMetadata':
       await trpcClient.accounts.updateMetadata.mutate(mutation.payload as Parameters<typeof trpcClient.accounts.updateMetadata.mutate>[0])
       return
@@ -285,7 +349,9 @@ export async function processOfflineQueue() {
 
   processing = true
   try {
+    useUiStore.getState().setIsSyncing(true)
     const queue = await readQueue()
+    useUiStore.getState().setOfflineQueueLength(queue.length)
     if (queue.length === 0) {
       return
     }
@@ -339,7 +405,9 @@ export async function processOfflineQueue() {
     }
 
     await writeQueue(nextQueue)
+    useUiStore.getState().setOfflineQueueLength(nextQueue.length)
   } finally {
+    useUiStore.getState().setIsSyncing(false)
     processing = false
   }
 }

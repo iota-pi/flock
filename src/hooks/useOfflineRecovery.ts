@@ -12,6 +12,7 @@ import { useUiStore } from '../state/uiStore'
 
 export function useOfflineRecovery() {
   const setDlqCount = useUiStore(state => state.setDlqCount)
+  const setOfflineQueueLength = useUiStore(state => state.setOfflineQueueLength)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
 
   const fetchDeadLetterItems = useCallback(async (): Promise<QueuedMutation[]> => {
@@ -43,6 +44,7 @@ export function useOfflineRecovery() {
       queueItems.push(mutation)
 
       await writeQueue(queueItems)
+      setOfflineQueueLength(queueItems.length)
       await writeDeadLetterQueue(nextDlqItems)
       setDlqCount(nextDlqItems.length)
 
@@ -51,7 +53,7 @@ export function useOfflineRecovery() {
     } finally {
       setIsRetrying(current => (current === id ? null : current))
     }
-  }, [refetchDeadLetterItems, setDlqCount])
+  }, [refetchDeadLetterItems, setDlqCount, setOfflineQueueLength])
 
   const handleDiscardDeadLetterMutation = useCallback(async (id: string) => {
     const dlqItems = await readDeadLetterQueue()

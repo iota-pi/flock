@@ -29,6 +29,8 @@ export type UIMessage = Required<BaseUIMessage>
 export interface UIState {
   darkMode: boolean | null,
   dlqCount: number,
+  isSyncing: boolean,
+  offlineQueueLength: number,
   drawers: DrawerData[],
   filters: FilterCriterion[],
   message: UIMessage | null,
@@ -52,6 +54,8 @@ export type PushActiveData = (
 export interface UiStore extends UIState {
   setUi: (payload: SetUiPayload) => void,
   setDlqCount: (count: number) => void,
+  setIsSyncing: (status: boolean) => void,
+  setOfflineQueueLength: (length: number) => void,
   startRequest: () => void,
   finishRequest: (error?: string) => void,
   setMessage: (payload: BaseUIMessage) => void,
@@ -67,6 +71,8 @@ export interface UiStore extends UIState {
 const initialUiState: UIState = {
   darkMode: null,
   dlqCount: 0,
+  isSyncing: false,
+  offlineQueueLength: 0,
   drawers: [],
   filters: DEFAULT_FILTER_CRITERIA,
   message: null,
@@ -85,6 +91,8 @@ export const useUiStore = create<UiStore>()(
         set(state => ({
           ...payload,
           dlqCount: payload.dlqCount ?? state.dlqCount,
+          isSyncing: payload.isSyncing ?? state.isSyncing,
+          offlineQueueLength: payload.offlineQueueLength ?? state.offlineQueueLength,
           requests: {
             ...state.requests,
             ...payload.requests,
@@ -93,6 +101,12 @@ export const useUiStore = create<UiStore>()(
       },
       setDlqCount: count => {
         set(() => ({ dlqCount: Math.max(0, count) }))
+      },
+      setIsSyncing: status => {
+        set(() => ({ isSyncing: status }))
+      },
+      setOfflineQueueLength: length => {
+        set(() => ({ offlineQueueLength: Math.max(0, length) }))
       },
       startRequest: () => {
         set(state => ({

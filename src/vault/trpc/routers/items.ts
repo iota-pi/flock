@@ -7,6 +7,36 @@ import {
   PutItemsBatchBodySchema,
 } from '../schemas'
 
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000
+const processedIdempotencyKeys = new Map<string, number>()
+
+function pruneExpiredIdempotencyKeys() {
+  const now = Date.now()
+  for (const [key, timestamp] of processedIdempotencyKeys.entries()) {
+    if (now - timestamp > IDEMPOTENCY_TTL_MS) {
+      processedIdempotencyKeys.delete(key)
+    }
+  }
+}
+
+function hasProcessedIdempotencyKey(idempotencyKey?: string): boolean {
+  if (!idempotencyKey) {
+    return false
+  }
+
+  pruneExpiredIdempotencyKeys()
+  return processedIdempotencyKeys.has(idempotencyKey)
+}
+
+function markIdempotencyKeyProcessed(idempotencyKey?: string): void {
+  if (!idempotencyKey) {
+    return
+  }
+
+  pruneExpiredIdempotencyKeys()
+  processedIdempotencyKeys.set(idempotencyKey, Date.now())
+}
+
 export const itemsRouter = router({
   fetchMany: protectedProcedure
     .input(FetchItemsInputSchema)
@@ -39,6 +69,10 @@ export const itemsRouter = router({
   putMany: protectedProcedure
     .input(PutItemsBatchBodySchema)
     .mutation(async ({ ctx, input }) => {
+      if (hasProcessedIdempotencyKey(input.idempotencyKey)) {
+        return { success: true, conflicts: [] as string[] }
+      }
+
       const mappedItems = input.items.map(item => {
         const { cipher, deleted, id, iv, modified, type, version } = item
         const _type = asItemType(type)
@@ -59,6 +93,7 @@ export const itemsRouter = router({
 
       try {
         await ctx.vault.setMany(mappedItems)
+        markIdempotencyKeyProcessed(input.idempotencyKey)
         return { success: true, conflicts: [] as string[] }
       } catch (error) {
         if (error instanceof TransactionConflictsError) {
@@ -75,6 +110,10 @@ export const itemsRouter = router({
   put: protectedProcedure
     .input(PutItemBodySchema)
     .mutation(async ({ ctx, input }) => {
+      if (hasProcessedIdempotencyKey(input.idempotencyKey)) {
+        return { success: true }
+      }
+
       const _type = asItemType(input.type)
       await ctx.vault.set({
         account: input.account,
@@ -88,6 +127,7 @@ export const itemsRouter = router({
           deleted: input.deleted,
         },
       })
+      markIdempotencyKeyProcessed(input.idempotencyKey)
       return { success: true }
     }),
 })
