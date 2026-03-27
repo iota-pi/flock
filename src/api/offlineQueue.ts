@@ -1,5 +1,6 @@
 import env from '../env'
 import * as Sentry from '@sentry/react'
+import { isAxiosError } from 'axios'
 import { trpcClient } from './trpcClient'
 import { threeWayMerge } from '../utils/merge'
 import { Item } from '../state/items'
@@ -12,6 +13,7 @@ import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
   type QueuedMutation,
+  moveToDeadLetterQueue,
   readDeadLetterQueue,
   readQueue,
   writeDeadLetterQueue,
@@ -20,6 +22,11 @@ import {
 
 let processing = false
 const CHUNK_SIZE = 50
+const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
+
+let queueHealthTimer: ReturnType<typeof setInterval> | null = null
+let lastHighVolumeSignalAt = 0
+let lastStaleSignalAt = 0
 
 function extractTargetIds(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') {
@@ -106,6 +113,34 @@ function isVersionConflictError(error: unknown): boolean {
   return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
+function getClientErrorStatus(error: unknown): number | undefined {
+  if (isAxiosError(error) && typeof error.response?.status === 'number') {
+    return error.response.status
+  }
+
+  const maybeTrpcError = error as { data?: { httpStatus?: unknown } }
+  if (typeof maybeTrpcError?.data?.httpStatus === 'number') {
+    return maybeTrpcError.data.httpStatus
+  }
+
+  return undefined
+}
+
+function getClientErrorReason(error: unknown): string {
+  if (isAxiosError(error)) {
+    const data = error.response?.data as { message?: unknown } | undefined
+    if (typeof data?.message === 'string' && data.message.trim()) {
+      return data.message
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+
+  return 'Client error'
+}
+
 export async function enqueueMutation(
   mutationType: string,
   payload: unknown,
@@ -124,6 +159,7 @@ export async function enqueueMutation(
       id: getMutationId(),
       payload,
       endpoint: env.VAULT_ENDPOINT,
+      queuedAt: Date.now(),
       baseState: metadata?.baseState || queue[existingIndex].baseState,
       attemptCount: undefined,
       nextAttemptAt: undefined,
@@ -134,6 +170,7 @@ export async function enqueueMutation(
       mutationType,
       payload,
       endpoint: env.VAULT_ENDPOINT,
+      queuedAt: Date.now(),
       baseState: metadata?.baseState,
       attemptCount: 0,
       nextAttemptAt: undefined,
@@ -424,6 +461,18 @@ export async function processOfflineQueue() {
       try {
         await executeMutation(normalizedMutation)
       } catch (error) {
+        const status = getClientErrorStatus(error)
+        if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+          await moveToDeadLetterQueue(normalizedMutation.id, getClientErrorReason(error), status)
+          const deadLetterQueue = await readDeadLetterQueue()
+          useUiStore.getState().setDlqCount(deadLetterQueue.length)
+          useUiStore.getState().setMessage({
+            severity: 'warning',
+            message: 'An invalid offline change was isolated for recovery and sync continued.',
+          })
+          continue
+        }
+
         if (isLikelyNetworkError(error)) {
           const attemptCount = (mutation.attemptCount || 0) + 1
           const backoffDelay = 2000 * Math.pow(2, attemptCount)
@@ -454,7 +503,9 @@ export async function processOfflineQueue() {
         const deadLetterQueue = await readDeadLetterQueue()
         deadLetterQueue.push({
           ...normalizedMutation,
-          lastErrorStatus: 500,
+          lastErrorStatus: status || 500,
+          failedAt: Date.now(),
+          errorReason: error instanceof Error ? error.message : 'Unhandled sync error',
         })
         await writeDeadLetterQueue(deadLetterQueue)
         Sentry.captureException(error, {
@@ -502,4 +553,63 @@ export async function processOfflineQueue() {
     useUiStore.getState().setIsSyncing(false)
     processing = false
   }
+}
+
+export async function checkQueueHealth() {
+  const queueItems = await readQueue()
+  if (queueItems.length === 0) {
+    return
+  }
+
+  const oldestQueuedAt = queueItems.reduce((oldest, item) => {
+    const queuedAt = item.queuedAt || 0
+    if (queuedAt <= 0) {
+      return oldest
+    }
+    if (oldest <= 0) {
+      return queuedAt
+    }
+    return Math.min(oldest, queuedAt)
+  }, 0)
+
+  const ageInMinutes = oldestQueuedAt > 0
+    ? (Date.now() - oldestQueuedAt) / 1000 / 60
+    : 0
+
+  if (queueItems.length > 50 && Date.now() - lastHighVolumeSignalAt > 60 * 60 * 1000) {
+    lastHighVolumeSignalAt = Date.now()
+    Sentry.captureMessage('High Offline Queue Volume', {
+      level: 'warning',
+      extra: {
+        queueLength: queueItems.length,
+        oldestItemAgeMinutes: Math.round(ageInMinutes),
+      },
+    })
+  }
+
+  if (ageInMinutes > 1440 && Date.now() - lastStaleSignalAt > 60 * 60 * 1000) {
+    lastStaleSignalAt = Date.now()
+    Sentry.captureMessage('Stale Offline Queue Detected', {
+      level: 'error',
+      extra: {
+        queueLength: queueItems.length,
+        oldestItemAgeMinutes: Math.round(ageInMinutes),
+      },
+    })
+  }
+}
+
+export function startOfflineQueueHealthMonitor() {
+  if (queueHealthTimer || typeof window === 'undefined') {
+    return
+  }
+
+  queueHealthTimer = setInterval(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return
+    }
+    void checkQueueHealth()
+  }, QUEUE_HEALTH_CHECK_INTERVAL_MS)
+
+  void checkQueueHealth()
 }

@@ -17,7 +17,11 @@ import env from './env'
 import { trpc } from './api/trpc'
 import { queryClient, queryKeys } from './api/queryClient'
 import { getApiAuthToken, trackedFetch } from './api/runtime'
-import { initialiseDeadLetterQueueCount, processOfflineQueue } from './api/offlineQueue'
+import {
+  initialiseDeadLetterQueueCount,
+  processOfflineQueue,
+  startOfflineQueueHealthMonitor,
+} from './api/offlineQueue'
 import {
   startRealtimeCoordinator,
   stopRealtimeCoordinator,
@@ -77,6 +81,7 @@ function RootLayout() {
       void (async () => {
         await loadVault()
         await initialiseDeadLetterQueueCount()
+        startOfflineQueueHealthMonitor()
         await processOfflineQueue()
       })()
 

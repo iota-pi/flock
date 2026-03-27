@@ -11,12 +11,15 @@ export type QueuedMutation = {
   mutationType: string
   payload: unknown
   endpoint: string
+  queuedAt?: number
   baseState?: Item
   attemptCount?: number
   nextAttemptAt?: number
   conflict?: boolean
   lastConflictAt?: number
   lastErrorStatus?: number
+  failedAt?: number
+  errorReason?: string
 }
 
 export async function readQueue(): Promise<QueuedMutation[]> {
@@ -33,6 +36,28 @@ export async function readDeadLetterQueue(): Promise<QueuedMutation[]> {
 
 export async function writeDeadLetterQueue(queue: QueuedMutation[]) {
   await syncDB.setItem(DEAD_LETTER_QUEUE_KEY, queue)
+}
+
+export async function moveToDeadLetterQueue(id: string, errorReason: string, status?: number): Promise<void> {
+  const queue = await readQueue()
+  const target = queue.find(item => item.id === id)
+  if (!target) {
+    return
+  }
+
+  const nextQueue = queue.filter(item => item.id !== id)
+  const deadLetterQueue = await readDeadLetterQueue()
+  deadLetterQueue.push({
+    ...target,
+    failedAt: Date.now(),
+    errorReason,
+    lastErrorStatus: status,
+  })
+
+  await Promise.all([
+    writeQueue(nextQueue),
+    writeDeadLetterQueue(deadLetterQueue),
+  ])
 }
 
 export async function getActiveSessionToken(): Promise<string | null> {
