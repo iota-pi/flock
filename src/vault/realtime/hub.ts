@@ -14,7 +14,7 @@ import {
 } from '@aws-sdk/client-apigatewaymanagementapi'
 
 const REPLAY_TTL_SECONDS = Number(process.env.REALTIME_REPLAY_TTL_SECONDS || 3600)
-const CONNECTION_TTL_SECONDS = Number(process.env.REALTIME_CONNECTION_TTL_SECONDS || 24 * 60 * 60)
+const CONNECTION_TTL_SECONDS = Number(process.env.REALTIME_CONNECTION_TTL_SECONDS || 2 * 60 * 60)
 const MAX_REPLAY_EVENTS = Number(process.env.REALTIME_MAX_REPLAY_EVENTS || 500)
 
 const REALTIME_EVENTS_TABLE = process.env.REALTIME_REPLAY_LOG_TABLE || process.env.REALTIME_EVENTS_TABLE || 'FlockReplayLog'
@@ -22,6 +22,7 @@ const REALTIME_CONNECTIONS_TABLE = process.env.REALTIME_CONNECTIONS_TABLE || 'Fl
 const CONNECTIONS_ACCOUNT_INDEX = process.env.REALTIME_CONNECTIONS_ACCOUNT_GSI || 'AccountIndex'
 const API_GATEWAY_MANAGEMENT_ENDPOINT = process.env.API_GATEWAY_MANAGEMENT_ENDPOINT || ''
 const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ap-southeast-2'
+const DISABLE_WS_PUSH = process.env.REALTIME_DISABLE_WS_PUSH === '1'
 
 const ddbClient = new DynamoDBClient({ region: AWS_REGION })
 const docClient = DynamoDBDocumentClient.from(ddbClient, {
@@ -105,6 +106,10 @@ async function removeConnection(account: string, connectionId: string): Promise<
 }
 
 async function broadcastToApiGatewayConnections(event: RealtimeEventEnvelope): Promise<void> {
+  if (DISABLE_WS_PUSH) {
+    return
+  }
+
   const connections = await docClient.send(new QueryCommand({
     TableName: REALTIME_CONNECTIONS_TABLE,
     IndexName: CONNECTIONS_ACCOUNT_INDEX,

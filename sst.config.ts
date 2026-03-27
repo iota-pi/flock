@@ -222,6 +222,34 @@ export default $config({
 
     const websocketInvokeArn = $interpolate`${websocketApi.executionArn}/*/*`
 
+    new aws.iam.RolePolicy('FlockRealtimeVaultManageConnectionsPolicy', {
+      role: vaultApi.nodes.role.name,
+      policy: $jsonStringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['execute-api:ManageConnections'],
+            Resource: websocketInvokeArn,
+          },
+        ],
+      }),
+    })
+
+    new aws.iam.RolePolicy('FlockRealtimeWsConnectManageConnectionsPolicy', {
+      role: wsConnect.nodes.role.name,
+      policy: $jsonStringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['execute-api:ManageConnections'],
+            Resource: websocketInvokeArn,
+          },
+        ],
+      }),
+    })
+
     new aws.lambda.Permission('FlockRealtimeWsConnectPermission', {
       action: 'lambda:InvokeFunction',
       function: wsConnect.arn,
