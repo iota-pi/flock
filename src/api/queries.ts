@@ -88,6 +88,19 @@ function schedulePersistDecryptionCache(accountId: string): void {
   }, 200)
 }
 
+function resetDecryptionCacheForTests(): void {
+  if (decryptionCacheWriteTimer) {
+    clearTimeout(decryptionCacheWriteTimer)
+  }
+  decryptionCacheWriteTimer = null
+  decryptionCache.clear()
+  loadedDecryptionCacheAccountId = null
+}
+
+function getDecryptionCacheSnapshotForTests() {
+  return new Map(decryptionCache)
+}
+
 function ensureSharedDecryptionWorker(): Worker {
   if (sharedDecryptionWorker) {
     return sharedDecryptionWorker
@@ -431,4 +444,11 @@ export function clearQueryCache() {
 // Helper to check if we have cached data (for UI purposes)
 export function hasItemsInCache(): boolean {
   return queryClient.getQueryData(queryKeys.items) !== undefined
+}
+
+export const __decryptionCacheTestUtils = {
+  getSnapshot: getDecryptionCacheSnapshotForTests,
+  load: loadDecryptionCache,
+  reset: resetDecryptionCacheForTests,
+  schedulePersist: schedulePersistDecryptionCache,
 }

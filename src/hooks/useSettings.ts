@@ -105,10 +105,10 @@ export default function useSettings() {
       items: restoredItems,
       metadata,
       offlineQueue,
-    }: RestorePayload) => {
+    }: Partial<RestorePayload> & Pick<RestorePayload, 'items'>) => {
       try {
-        const parsedQueue = offlineQueue
-        const parsedDlq = deadLetterQueue
+        const parsedQueue = Array.isArray(offlineQueue) ? offlineQueue : []
+        const parsedDlq = Array.isArray(deadLetterQueue) ? deadLetterQueue : []
 
         if (metadata) {
           await mutateSetMetadata(metadata)
