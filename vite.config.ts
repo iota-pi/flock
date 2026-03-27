@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
 import browserslistToEsbuild from 'browserslist-to-esbuild';
 import { VitePWA } from 'vite-plugin-pwa';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { visualizer } from 'rollup-plugin-visualizer';
+
+const isProductionBuild = process.env.NODE_ENV === 'production';
+const sentryOrg = process.env.SENTRY_ORG;
+const sentryProject = process.env.SENTRY_PROJECT;
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 
 export default defineConfig({
   base: '',
@@ -37,8 +43,15 @@ export default defineConfig({
         background_color: '#202020',
       },
     }),
+    isProductionBuild && sentryOrg && sentryProject && sentryAuthToken
+      ? sentryVitePlugin({
+        org: sentryOrg,
+        project: sentryProject,
+        authToken: sentryAuthToken,
+      })
+      : null,
     visualizer() as any,
-  ],
+  ].filter(Boolean),
   server: {
     port: 3000,
   },

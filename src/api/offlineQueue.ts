@@ -1,4 +1,5 @@
 import env from '../env'
+import * as Sentry from '@sentry/react'
 import { trpcClient } from './trpcClient'
 import { threeWayMerge } from '../utils/merge'
 import { Item } from '../state/items'
@@ -57,6 +58,27 @@ function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: strin
   }
 
   return existingTargets.every((target, index) => target === incomingTargets[index])
+}
+
+function getPayloadTelemetry(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') {
+    return {}
+  }
+
+  const typed = payload as {
+    account?: unknown
+    item?: unknown
+    items?: Array<{ id?: unknown }>
+  }
+
+  const targetIds = extractTargetIds(payload)
+
+  return {
+    account: typeof typed.account === 'string' ? typed.account : undefined,
+    item: typeof typed.item === 'string' ? typed.item : undefined,
+    itemIds: targetIds,
+    itemCount: Array.isArray(typed.items) ? typed.items.length : undefined,
+  }
 }
 
 export function isLikelyNetworkError(error: unknown): boolean {
@@ -435,6 +457,16 @@ export async function processOfflineQueue() {
           lastErrorStatus: 500,
         })
         await writeDeadLetterQueue(deadLetterQueue)
+        Sentry.captureException(error, {
+          tags: {
+            queueAction: 'dlq_routing',
+            mutationType: normalizedMutation.mutationType,
+          },
+          extra: {
+            mutationId: normalizedMutation.id,
+            payload: getPayloadTelemetry(normalizedMutation.payload),
+          },
+        })
         useUiStore.getState().setDlqCount(deadLetterQueue.length)
 
         if (normalizedMutation.baseState) {
