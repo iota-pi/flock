@@ -9,14 +9,20 @@ import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
+import { useAuthStore } from './state/authStore'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/VaultLazy'
 import ErrorPage from './components/pages/ErrorPage'
 import env from './env'
 import { trpc } from './api/trpc'
-import { queryClient } from './api/queryClient'
+import { queryClient, queryKeys } from './api/queryClient'
 import { getApiAuthToken, trackedFetch } from './api/runtime'
 import { initialiseDeadLetterQueueCount, processOfflineQueue } from './api/offlineQueue'
+import {
+  startRealtimeCoordinator,
+  stopRealtimeCoordinator,
+} from './api/realtimeCoordinator'
+import type { RealtimeEventEnvelope } from './shared/realtime'
 
 const Root = styled('div')({
   display: 'flex',
@@ -30,6 +36,7 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
+  const account = useAuthStore(state => state.account)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -81,6 +88,52 @@ function RootLayout() {
     },
     [],
   )
+
+  const handleRealtimeEvent = useCallback((event: RealtimeEventEnvelope) => {
+    if (event.eventType === 'items.updated') {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      return
+    }
+
+    if (event.eventType === 'metadata.updated') {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!loggedIn || !account) {
+      stopRealtimeCoordinator()
+      return
+    }
+
+    let started = false
+
+    const tryStartRealtime = () => {
+      if (started) {
+        return
+      }
+
+      const token = getApiAuthToken()
+      if (!token) {
+        return
+      }
+
+      startRealtimeCoordinator({
+        account,
+        token,
+        onServerEvent: handleRealtimeEvent,
+      })
+      started = true
+    }
+
+    tryStartRealtime()
+    const intervalId = window.setInterval(tryStartRealtime, 500)
+
+    return () => {
+      window.clearInterval(intervalId)
+      stopRealtimeCoordinator()
+    }
+  }, [account, handleRealtimeEvent, loggedIn])
 
   return (
     <Root>

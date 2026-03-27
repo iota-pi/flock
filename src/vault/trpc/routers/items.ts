@@ -1,5 +1,6 @@
 import { asItemType } from '../../drivers/base'
 import { TransactionConflictsError } from '../../drivers/dynamo'
+import { publishRealtimeEvent } from '../../realtime/hub'
 import { router, protectedProcedure } from '../trpc'
 import {
   FetchItemsInputSchema,
@@ -93,6 +94,10 @@ export const itemsRouter = router({
 
       try {
         await ctx.vault.setMany(mappedItems)
+        publishRealtimeEvent(input.account, 'items.updated', {
+          itemIds: input.items.map(item => item.id),
+          count: input.items.length,
+        })
         markIdempotencyKeyProcessed(input.idempotencyKey)
         return { success: true, conflicts: [] as string[] }
       } catch (error) {
@@ -126,6 +131,10 @@ export const itemsRouter = router({
           version: input.version,
           deleted: input.deleted,
         },
+      })
+      publishRealtimeEvent(input.account, 'items.updated', {
+        itemIds: [input.item],
+        count: 1,
       })
       markIdempotencyKeyProcessed(input.idempotencyKey)
       return { success: true }

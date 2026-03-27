@@ -12,6 +12,7 @@ import {
   UpdateMetadataBodySchema,
 } from '../schemas'
 import { hashString } from '../../api/util'
+import { publishRealtimeEvent } from '../../realtime/hub'
 
 export const accountsRouter = router({
   createAccount: publicProcedure
@@ -91,6 +92,10 @@ export const accountsRouter = router({
         metadata: input.metadata || {},
       })
 
+      publishRealtimeEvent(input.account, 'metadata.updated', {
+        source: 'updateMetadata',
+      })
+
       return { success: true }
     }),
 
@@ -116,6 +121,10 @@ export const accountsRouter = router({
         pushSubscriptions: next,
       })
 
+      publishRealtimeEvent(input.account, 'metadata.updated', {
+        source: 'addPushSubscription',
+      })
+
       return { success: true }
     }),
 
@@ -133,6 +142,10 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         pushSubscriptions: next,
+      })
+
+      publishRealtimeEvent(input.account, 'metadata.updated', {
+        source: 'deletePushSubscription',
       })
 
       return { success: true }
@@ -164,6 +177,10 @@ export const accountsRouter = router({
         reminderTimezone: input.reminderTimezone,
       })
 
+      publishRealtimeEvent(input.account, 'metadata.updated', {
+        source: 'updateReminderSettings',
+      })
+
       return { success: true }
     }),
 
@@ -173,6 +190,9 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         lastPrayerCompletedAt: input.completedAt,
+      })
+      publishRealtimeEvent(input.account, 'metadata.updated', {
+        source: 'recordPrayerCompletion',
       })
       return { success: true }
     }),
