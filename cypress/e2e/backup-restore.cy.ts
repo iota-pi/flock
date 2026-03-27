@@ -11,6 +11,7 @@ describe('Backup and restore', () => {
     cy.createPerson({ name: merryName })
 
     cy.page('settings')
+    cy.checkA11y()
     cy.dataCy('export').click()
     cy.contains('Backup created').should('be.visible')
 
@@ -26,6 +27,8 @@ describe('Backup and restore', () => {
 
     cy.page('settings')
     cy.dataCy('restore').click()
+    cy.get('[role="dialog"]').should('exist')
+    cy.checkA11y('[role="dialog"]')
     cy.get('input[type=file]')
       .selectFile('./cypress/downloads/flock.backup.json', { force: true })
     cy.contains('can be restored').should('be.visible')

@@ -316,6 +316,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
         {actionIcon && (
           <Box ml={2}>
             <IconButton
+              aria-label="List item action"
               data-cy="list-item-action"
               disableRipple={!onClickAction}
               onClick={handleClickAction}

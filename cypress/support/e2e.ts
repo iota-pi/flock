@@ -1,4 +1,5 @@
 /// <reference types="cypress" />
+import 'cypress-axe'
 import type { GroupItem, PersonItem } from '../../src/state/items'
 import type { PageId } from '../../src/components/pages/types'
 
@@ -38,6 +39,20 @@ declare global {
 
 import './commands'
 
+Cypress.Commands.overwrite(
+  'checkA11y',
+  (originalFn, context?, options?) => originalFn(context, {
+    includedImpacts: ['critical'],
+    ...(options || {}),
+  }, violations => {
+    const details = violations
+      .map(violation => `${violation.id}(${violation.impact}):${violation.nodes.length}`)
+      .join(', ')
+
+    expect(violations, details).to.have.length(0)
+  }),
+)
+
 const TEST_PASSWORD = 'TestPass123!'
 
 const establishSession = () => {
@@ -54,6 +69,7 @@ const establishSession = () => {
 beforeEach(() => {
   cy.session('TEST_SESSION', establishSession, { cacheAcrossSpecs: true })
   cy.visit('/')
+  cy.injectAxe()
 })
 
 Cypress.Keyboard.defaults({ keystrokeDelay: 5 })

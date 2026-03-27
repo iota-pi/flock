@@ -6210,6 +6210,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"axe-core@npm:^4.11.1":
+  version: 4.11.1
+  resolution: "axe-core@npm:4.11.1"
+  checksum: 10c0/1e6997454b61c7c9a4d740f395952835dcf87f2c04fd81577217d68634d197d602c224f9e8f17b22815db4c117a2519980cfc8911fc0027c54a6d8ebca47c6a7
+  languageName: node
+  linkType: hard
+
 "axios@npm:^1.13.2":
   version: 1.13.2
   resolution: "axios@npm:1.13.2"
@@ -6922,6 +6929,16 @@ __metadata:
   version: 6.1.0
   resolution: "csv-parse@npm:6.1.0"
   checksum: 10c0/098c69e5b3b50d4bf65401dc3b2f1bd66f272fe985be99d7cb9f14ad33a7218f0f5695a03a82720cf47141d242bf44b4836ff32900751bef087057bc6e6715a2
+  languageName: node
+  linkType: hard
+
+"cypress-axe@npm:^1.7.0":
+  version: 1.7.0
+  resolution: "cypress-axe@npm:1.7.0"
+  peerDependencies:
+    axe-core: ^3 || ^4
+    cypress: ^10 || ^11 || ^12 || ^13 || ^14 || ^15
+  checksum: 10c0/93d53eaaf0abb2eed61b0ecbf890bbb2b063db0941be70fa945697f09f5d33d0747fe518778eb25b32326bdea08cd8f4a00b8e4633aea4fe8a8d00b55fb02b15
   languageName: node
   linkType: hard
 
@@ -8436,6 +8453,7 @@ __metadata:
     "@zxcvbn-ts/core": "npm:^3.0.4"
     "@zxcvbn-ts/language-common": "npm:^3.0.4"
     "@zxcvbn-ts/language-en": "npm:^3.0.2"
+    axe-core: "npm:^4.11.1"
     axios: "npm:^1.13.2"
     bestzip: "npm:^2.2.1"
     browserslist: "npm:^4.28.1"
@@ -8443,6 +8461,7 @@ __metadata:
     concurrently: "npm:^9.2.1"
     csv-parse: "npm:^6.1.0"
     cypress: "npm:^15.8.1"
+    cypress-axe: "npm:^1.7.0"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
     diff-match-patch: "npm:^1.0.5"

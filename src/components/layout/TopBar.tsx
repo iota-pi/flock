@@ -24,13 +24,11 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   padding: theme.spacing(2),
+  gap: theme.spacing(0.5),
 
   [theme.breakpoints.down('md')]: {
     padding: theme.spacing(1),
   },
-}))
-const CheckboxHolder = styled('div')(({ theme }) => ({
-  paddingRight: theme.spacing(0.5),
 }))
 const TitleHolder = styled('div')(({ theme }) => ({
   paddingLeft: theme.spacing(1),
@@ -100,13 +98,13 @@ function TopBar({
   return (
     <StyledPaper>
       {showCheckbox && (
-        <CheckboxHolder>
+        <div>
           <Checkbox
             checked={allSelected}
             onClick={onSelectAll}
             data-cy='select-all'
           />
-        </CheckboxHolder>
+        </div>
       )}
 
       {title && (
@@ -121,6 +119,7 @@ function TopBar({
 
       {filterable && (
         <IconButton
+          aria-label="Open filters"
           data-cy="open-filter"
           color={filterCount > 0 ? 'warning' : undefined}
           onClick={handleClickFilter}
@@ -132,6 +131,7 @@ function TopBar({
 
       {sortable && (
         <IconButton
+          aria-label="Open sort options"
           data-cy="open-sort"
           onClick={handleClickSort}
           size="large"
@@ -145,6 +145,7 @@ function TopBar({
       {menuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
+          aria-label="Open actions menu"
           aria-haspopup="true"
           onClick={handleClickOptions}
           ref={setOptionsAnchor}

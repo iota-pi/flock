@@ -100,7 +100,7 @@ function NoteItem({
       {
         (note.text.trim() || note.archived) && (
           <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
-            <IconButton onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
+            <IconButton aria-label={note.archived ? 'Unarchive note' : 'Archive note'} onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
               {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
@@ -109,7 +109,7 @@ function NoteItem({
       {
         (note.archived || !note.text.trim()) && (
           <Tooltip title="Delete Note">
-            <IconButton onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
+            <IconButton aria-label="Delete note" onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>

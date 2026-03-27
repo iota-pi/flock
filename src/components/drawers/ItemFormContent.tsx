@@ -124,6 +124,7 @@ function ItemFormContent({
           <InputAdornment position="end">
             <Tooltip title="Add description">
               <IconButton
+                aria-label="Add description"
                 data-cy="add-description"
                 onClick={handleAddDescription}
                 size="small"
@@ -174,6 +175,7 @@ function ItemFormContent({
                   <InputAdornment position="end">
                     <Tooltip title="Remove description">
                       <IconButton
+                        aria-label="Remove description"
                         data-cy="remove-description"
                         onClick={handleRemoveDescription}
                         size="small"

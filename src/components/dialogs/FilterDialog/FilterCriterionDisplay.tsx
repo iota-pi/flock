@@ -203,7 +203,7 @@ export function FilterCriterionDisplay({
         />
       )}
 
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove filter criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Stack>

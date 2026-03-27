@@ -61,6 +61,7 @@ describe('Offline recovery', () => {
     cy.page('settings')
     cy.contains('Offline data recovery').should('be.visible').click()
     cy.contains('Offline Data Recovery').should('be.visible')
+    cy.checkA11y('[role="dialog"]')
     cy.contains('button', 'Retry').should('have.length', 1)
 
     cy.contains('button', 'Discard').click()

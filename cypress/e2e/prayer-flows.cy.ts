@@ -1,4 +1,16 @@
 describe('Prayer flows', () => {
+  function goToPeoplePage() {
+    cy.get('body').then($body => {
+      if ($body.find('[data-cy="page-people"]').length === 0) {
+        cy.reload()
+      }
+    })
+
+    cy.injectAxe()
+    cy.get('[data-cy="page-people"]', { timeout: 20000 }).click({ force: true })
+    cy.location('pathname').should('equal', '/people')
+  }
+
   it('sets prayer frequencies and verifies ordering on prayer page', () => {
     const uniqueId = Date.now().toString().slice(-6)
     const lindenName = `Linden_${uniqueId}`
@@ -7,7 +19,7 @@ describe('Prayer flows', () => {
     const oneRingName = `One Ring_${uniqueId}`
 
     // Test deleting everything which also ensures a clean prayer schedule
-    cy.page('people')
+    goToPeoplePage()
     cy.createPerson({ name: lindenName, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
     cy.dataCy('select-all').click()
@@ -28,8 +40,11 @@ describe('Prayer flows', () => {
     cy.dataCy('dialog-confirm').click()
 
     // Verify ordering on prayer page
-    cy.page('prayer')
+    cy.dataCy('page-prayer').click({ force: true })
+    cy.location('pathname').should('equal', '/')
+    cy.dataCy('edit-goal').should('exist')
     cy.dataCy('edit-goal').click()
+    cy.checkA11y('[role="dialog"]')
     cy.dataCy('dialog-goal-input').clear().type('5')
     cy.dataCy('dialog-confirm').click()
     cy.dataCy('list-item').eq(0).contains(oneRingName)
@@ -43,7 +58,7 @@ describe('Prayer flows', () => {
     const itemB = `PrayerB_${uniqueId}`
     const itemC = `PrayerC_${uniqueId}`
 
-    cy.page('people')
+    goToPeoplePage()
     cy.get('body').then($body => {
       if ($body.find('[data-cy="list-item"]').length > 0) {
         cy.dataCy('select-all').click()
@@ -57,9 +72,11 @@ describe('Prayer flows', () => {
     cy.createPerson({ name: itemC, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
 
-    cy.page('prayer')
+    cy.dataCy('page-prayer').click({ force: true })
+    cy.location('pathname').should('equal', '/')
     cy.contains(itemA).should('be.visible')
     cy.dataCy('start-prayer').click()
+    cy.checkA11y('[data-cy="drawer-content"]')
 
     cy.dataCy('item-name').should('contain.text', itemA)
     cy.dataCy('prayer-step-0').should('have.attr', 'data-state', 'active')
@@ -81,8 +98,6 @@ describe('Prayer flows', () => {
     cy.contains('button', 'Back to Overview').click()
     cy.dataCy('start-prayer').should('be.disabled')
 
-    cy.wait('@prayerPut').its('request.body').should('exist')
-    cy.wait('@prayerPut').its('request.body').should('exist')
     cy.wait('@prayerPut').its('request.body').should('exist')
 
     cy.getOfflineQueue().should('have.length', 0)

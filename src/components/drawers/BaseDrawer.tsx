@@ -280,7 +280,7 @@ function BaseDrawer({
                 <TopRightActionsHolder>
                   {headerActions}
                   {showBackButton && (
-                    <IconButton data-cy="back-button" onClick={handleBack} size="large">
+                    <IconButton aria-label="Go back" data-cy="back-button" onClick={handleBack} size="large">
                       <RemoveIcon />
                     </IconButton>
                   )}

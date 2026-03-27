@@ -12,6 +12,7 @@ describe('Drawer behavior', () => {
     cy.invalidateQuery('items')
 
     cy.contains(frodoName).click()
+    cy.checkA11y('[data-cy="drawer-content"]')
     cy.dataCy('section-groups').click()
     cy.addToGroup(fellowshipName)
 
@@ -28,5 +29,6 @@ describe('Drawer behavior', () => {
     cy.page('prayer')
     cy.dataCy('page-content-prayer').contains(bilboName).click()
     cy.dataCy('item-name').should('contain.text', bilboName)
+    cy.checkA11y('[data-cy="drawer-content"]')
   })
 })

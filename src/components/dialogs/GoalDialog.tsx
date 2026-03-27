@@ -97,6 +97,7 @@ function GoalDialog({
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
+                      aria-label="Reset goal to natural value"
                       disabled={parseInt(newGoal) === naturalGoal}
                       onClick={handleReset}
                       size="large"

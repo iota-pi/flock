@@ -10,6 +10,7 @@ describe('Offline sync', () => {
     cy.goOffline()
 
     cy.createPerson({ name: offlineName }, true).saveDrawer()
+    cy.checkA11y('[data-cy="drawer-content"]')
 
     cy.contains(offlineName).should('exist')
 

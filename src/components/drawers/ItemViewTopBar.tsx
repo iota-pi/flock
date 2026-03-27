@@ -38,6 +38,7 @@ function ItemViewTopBar({
     <>
       {showEditButton && onEdit && (
         <IconButton
+          aria-label="Edit item"
           data-cy={editButtonDataCy}
           onClick={onEdit}
           size="large"
@@ -46,6 +47,7 @@ function ItemViewTopBar({
         </IconButton>
       )}
       <IconButton
+        aria-label="Open item menu"
         data-cy={menuButtonDataCy}
         onClick={event => setMenuAnchorEl(event.currentTarget)}
         size="large"

@@ -101,7 +101,7 @@ function SubscriptionTime({
         ))}
       </TextField>
 
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove notification time" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Box>

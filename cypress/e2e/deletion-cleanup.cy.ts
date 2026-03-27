@@ -15,6 +15,7 @@ describe('Deletion Cleanup', () => {
     // 3. Verify Group has 1 member
     cy.page('groups')
     cy.contains(groupName).click()
+    cy.checkA11y('[data-cy="drawer-content"]')
     cy.contains('1 member').should('exist')
     cy.contains(personName).should('exist')
     cy.get('[data-cy=back-button]').click()
@@ -22,6 +23,7 @@ describe('Deletion Cleanup', () => {
     // 4. Delete Person
     cy.page('people')
     cy.contains(personName).click()
+    cy.checkA11y('[data-cy="drawer-content"]')
     cy.get('[data-cy=drawer-cancel]').click() // Open delete dialog
     cy.get('[data-cy=confirm-confirm]').click() // Confirm delete
 
@@ -31,6 +33,7 @@ describe('Deletion Cleanup', () => {
     // 6. Verify Group has 0 members
     cy.page('groups')
     cy.contains(groupName).click()
+    cy.checkA11y('[data-cy="drawer-content"]')
     cy.contains('0 members').should('exist')
     cy.contains(personName).should('not.exist')
   })

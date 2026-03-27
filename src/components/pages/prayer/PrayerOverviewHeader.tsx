@@ -52,6 +52,7 @@ function PrayerOverviewHeader({
             </Typography>
 
             <IconButton
+              aria-label="Edit prayer goal"
               size="medium"
               onClick={onEditGoal}
               sx={{ ml: 1 }}

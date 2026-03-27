@@ -101,7 +101,7 @@ function SortCriterionField({
         </MenuItem>
       </TextField>
 
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove sort criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Stack>
