@@ -57,24 +57,45 @@ export default $config({
             attributeName: 'ttl',
             enabled: true,
           }
-          args.globalSecondaryIndexes = [
-            {
-              indexName: 'AccountModifiedIndex',
-              keySchema: [
-                { attributeName: 'account', keyType: 'HASH' },
-                { attributeName: 'metadata.modified', keyType: 'RANGE' },
-              ],
-              projection: {
-                projectionType: 'INCLUDE',
-                nonKeyAttributes: ['cipher', 'metadata'],
-              },
-            },
-          ]
-          args.attributeDefinitions = [
-            { attributeName: 'account', attributeType: 'S' },
-            { attributeName: 'item', attributeType: 'S' },
-            { attributeName: 'metadata.modified', attributeType: 'N' },
-          ]
+        },
+      },
+    })
+
+    const replayLogTable = new sst.aws.Dynamo('FlockReplayLog', {
+      fields: {
+        account: 'string',
+        eventId: 'number',
+      },
+      primaryIndex: { hashKey: 'account', rangeKey: 'eventId' },
+      transform: {
+        table: args => {
+          args.name = `FlockReplayLog_${stage}`
+          args.ttl = {
+            attributeName: 'expiresAt',
+            enabled: true,
+          }
+        },
+      },
+    })
+
+    const realtimeConnectionsTable = new sst.aws.Dynamo('FlockConnections', {
+      fields: {
+        connectionId: 'string',
+        account: 'string',
+      },
+      primaryIndex: { hashKey: 'connectionId' },
+      globalIndexes: {
+        AccountIndex: {
+          hashKey: 'account',
+        },
+      },
+      transform: {
+        table: args => {
+          args.name = `FlockConnections_${stage}`
+          args.ttl = {
+            attributeName: 'expiresAt',
+            enabled: true,
+          }
         },
       },
     })
@@ -93,11 +114,133 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
+        REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
+        REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
+        REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
       },
       link: [
         accountsTable,
         itemsTable,
+        replayLogTable,
+        realtimeConnectionsTable,
       ],
+    })
+
+    const wsConnect = new sst.aws.Function('RealtimeWsConnect', {
+      handler: 'src/vault/index.websocketConnectHandler',
+      runtime: 'nodejs22.x',
+      memory: '512 MB',
+      timeout: '5 seconds',
+      environment: {
+        ACCOUNTS_TABLE: accountsTable.name,
+        REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
+        REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
+        REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+      },
+      link: [accountsTable, replayLogTable, realtimeConnectionsTable],
+    })
+
+    const wsDisconnect = new sst.aws.Function('RealtimeWsDisconnect', {
+      handler: 'src/vault/index.websocketDisconnectHandler',
+      runtime: 'nodejs22.x',
+      memory: '512 MB',
+      timeout: '5 seconds',
+      environment: {
+        REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
+        REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+      },
+      link: [realtimeConnectionsTable],
+    })
+
+    const wsDefault = new sst.aws.Function('RealtimeWsDefault', {
+      handler: 'src/vault/index.websocketDefaultHandler',
+      runtime: 'nodejs22.x',
+      memory: '512 MB',
+      timeout: '5 seconds',
+      environment: {
+        REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
+        REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+      },
+      link: [realtimeConnectionsTable],
+    })
+
+    const websocketApi = new aws.apigatewayv2.Api('FlockRealtimeWsApi', {
+      name: `flock-realtime-ws-${stage}`,
+      protocolType: 'WEBSOCKET',
+      routeSelectionExpression: '$request.body.action',
+    })
+
+    const wsConnectIntegration = new aws.apigatewayv2.Integration('FlockRealtimeWsConnectIntegration', {
+      apiId: websocketApi.id,
+      integrationType: 'AWS_PROXY',
+      integrationUri: wsConnect.arn,
+      integrationMethod: 'POST',
+      payloadFormatVersion: '2.0',
+    })
+
+    const wsDisconnectIntegration = new aws.apigatewayv2.Integration('FlockRealtimeWsDisconnectIntegration', {
+      apiId: websocketApi.id,
+      integrationType: 'AWS_PROXY',
+      integrationUri: wsDisconnect.arn,
+      integrationMethod: 'POST',
+      payloadFormatVersion: '2.0',
+    })
+
+    const wsDefaultIntegration = new aws.apigatewayv2.Integration('FlockRealtimeWsDefaultIntegration', {
+      apiId: websocketApi.id,
+      integrationType: 'AWS_PROXY',
+      integrationUri: wsDefault.arn,
+      integrationMethod: 'POST',
+      payloadFormatVersion: '2.0',
+    })
+
+    new aws.apigatewayv2.Route('FlockRealtimeWsConnectRoute', {
+      apiId: websocketApi.id,
+      routeKey: '$connect',
+      target: $interpolate`integrations/${wsConnectIntegration.id}`,
+    })
+
+    new aws.apigatewayv2.Route('FlockRealtimeWsDisconnectRoute', {
+      apiId: websocketApi.id,
+      routeKey: '$disconnect',
+      target: $interpolate`integrations/${wsDisconnectIntegration.id}`,
+    })
+
+    new aws.apigatewayv2.Route('FlockRealtimeWsDefaultRoute', {
+      apiId: websocketApi.id,
+      routeKey: '$default',
+      target: $interpolate`integrations/${wsDefaultIntegration.id}`,
+    })
+
+    const wsStage = new aws.apigatewayv2.Stage('FlockRealtimeWsStage', {
+      apiId: websocketApi.id,
+      name: '$default',
+      autoDeploy: true,
+    })
+
+    const websocketUrl = $interpolate`${websocketApi.apiEndpoint}/${wsStage.name}`
+
+    const websocketInvokeArn = $interpolate`${websocketApi.executionArn}/*/*`
+
+    new aws.lambda.Permission('FlockRealtimeWsConnectPermission', {
+      action: 'lambda:InvokeFunction',
+      function: wsConnect.arn,
+      principal: 'apigateway.amazonaws.com',
+      sourceArn: websocketInvokeArn,
+    })
+
+    new aws.lambda.Permission('FlockRealtimeWsDisconnectPermission', {
+      action: 'lambda:InvokeFunction',
+      function: wsDisconnect.arn,
+      principal: 'apigateway.amazonaws.com',
+      sourceArn: websocketInvokeArn,
+    })
+
+    new aws.lambda.Permission('FlockRealtimeWsDefaultPermission', {
+      action: 'lambda:InvokeFunction',
+      function: wsDefault.arn,
+      principal: 'apigateway.amazonaws.com',
+      sourceArn: websocketInvokeArn,
     })
 
     // -----------------------------------------------------------------
@@ -258,6 +401,7 @@ export default $config({
       domain,
       environment: {
         VITE_VAULT_ENDPOINT: vaultApi.url,
+        VITE_VAULT_WS_ENDPOINT: websocketUrl,
         VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
         VITE_PUBLIC_URL: publicUrl,
       },
@@ -266,6 +410,7 @@ export default $config({
     return {
       appUrl: app.url,
       vaultEndpoint: vaultApi.url,
+      vaultWsEndpoint: websocketUrl,
       migrationsLambda: migrationsLambda.name,
     }
   },

@@ -92,7 +92,7 @@ export const accountsRouter = router({
         metadata: input.metadata || {},
       })
 
-      publishRealtimeEvent(input.account, 'metadata.updated', {
+      await publishRealtimeEvent(input.account, 'metadata.updated', {
         source: 'updateMetadata',
       })
 
@@ -121,7 +121,7 @@ export const accountsRouter = router({
         pushSubscriptions: next,
       })
 
-      publishRealtimeEvent(input.account, 'metadata.updated', {
+      await publishRealtimeEvent(input.account, 'metadata.updated', {
         source: 'addPushSubscription',
       })
 
@@ -144,7 +144,7 @@ export const accountsRouter = router({
         pushSubscriptions: next,
       })
 
-      publishRealtimeEvent(input.account, 'metadata.updated', {
+      await publishRealtimeEvent(input.account, 'metadata.updated', {
         source: 'deletePushSubscription',
       })
 
@@ -177,7 +177,7 @@ export const accountsRouter = router({
         reminderTimezone: input.reminderTimezone,
       })
 
-      publishRealtimeEvent(input.account, 'metadata.updated', {
+      await publishRealtimeEvent(input.account, 'metadata.updated', {
         source: 'updateReminderSettings',
       })
 
@@ -191,7 +191,7 @@ export const accountsRouter = router({
         account: input.account,
         lastPrayerCompletedAt: input.completedAt,
       })
-      publishRealtimeEvent(input.account, 'metadata.updated', {
+      await publishRealtimeEvent(input.account, 'metadata.updated', {
         source: 'recordPrayerCompletion',
       })
       return { success: true }

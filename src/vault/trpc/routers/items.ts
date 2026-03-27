@@ -94,7 +94,7 @@ export const itemsRouter = router({
 
       try {
         await ctx.vault.setMany(mappedItems)
-        publishRealtimeEvent(input.account, 'items.updated', {
+        await publishRealtimeEvent(input.account, 'items.updated', {
           itemIds: input.items.map(item => item.id),
           count: input.items.length,
         })
@@ -132,7 +132,7 @@ export const itemsRouter = router({
           deleted: input.deleted,
         },
       })
-      publishRealtimeEvent(input.account, 'items.updated', {
+      await publishRealtimeEvent(input.account, 'items.updated', {
         itemIds: [input.item],
         count: 1,
       })

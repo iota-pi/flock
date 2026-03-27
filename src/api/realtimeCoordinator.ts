@@ -3,10 +3,10 @@ import type {
   RealtimeChannelMessage,
   RealtimeEventEnvelope,
 } from '../shared/realtime'
+import { getApiAuthToken } from './runtime'
 
 type RealtimeCoordinatorOptions = {
   account: string
-  token: string
   onServerEvent: (event: RealtimeEventEnvelope) => void
 }
 
@@ -55,7 +55,7 @@ function createTabId(): string {
 }
 
 export function startRealtimeCoordinator(options: RealtimeCoordinatorOptions): void {
-  const key = `${options.account}:${options.token}`
+  const key = `${options.account}:${getApiAuthToken()}`
   if (activeHandle && activeKey === key) {
     return
   }
@@ -80,7 +80,7 @@ export function stopRealtimeCoordinator(): void {
   activeKey = ''
 }
 
-function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
+function createCoordinator({ account, onServerEvent }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
   const tabId = createTabId()
   const supportsBroadcastChannel = typeof BroadcastChannel !== 'undefined'
   const channelName = `flock:realtime:${account}`
@@ -96,7 +96,7 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
   let staleLeaderTimer: ReturnType<typeof setInterval> | null = null
   let electionTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let eventSource: EventSource | null = null
+  let socket: WebSocket | null = null
 
   const emit = (message: RealtimeChannelMessage) => {
     if (!channel) {
@@ -131,12 +131,12 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
     }
   }
 
-  const closeEventSource = () => {
-    if (!eventSource) {
+  const closeWebSocket = () => {
+    if (!socket) {
       return
     }
-    eventSource.close()
-    eventSource = null
+    socket.close()
+    socket = null
   }
 
   const clearReconnectTimer = () => {
@@ -147,49 +147,46 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
     reconnectTimer = null
   }
 
-  function connectEventSource() {
+  function connectWebSocket() {
     if (stopped || !isLeader) {
       return
     }
 
-    closeEventSource()
+    closeWebSocket()
 
-    const params = new URLSearchParams({
-      account,
-      token,
-    })
+    const token = getApiAuthToken()
+    if (!token || !env.VAULT_WS_ENDPOINT) {
+      scheduleReconnect()
+      return
+    }
+
+    const params = new URLSearchParams({ account, token })
 
     const lastEventId = readLastEventId(account)
     if (lastEventId > 0) {
       params.set('lastEventId', String(lastEventId))
     }
 
-    const source = new EventSource(`${env.VAULT_ENDPOINT}/events?${params.toString()}`)
-    eventSource = source
+    const wsEndpoint = env.VAULT_WS_ENDPOINT.replace(/^http/i, 'ws')
+    const ws = new WebSocket(`${wsEndpoint}?${params.toString()}`)
+    socket = ws
 
-    source.addEventListener('items.updated', event => {
-      parseAndHandleEvent((event as MessageEvent).data)
-    })
-
-    source.addEventListener('metadata.updated', event => {
-      parseAndHandleEvent((event as MessageEvent).data)
-    })
-
-    source.addEventListener('system.heartbeat', event => {
-      parseAndHandleEvent((event as MessageEvent).data)
-    })
-
-    source.addEventListener('heartbeat', () => {
-      // Keepalive from server; no action needed.
-    })
-
-    source.onopen = () => {
+    ws.onopen = () => {
       reconnectAttempts = 0
       emit({ type: 'reconnecting', tabId, reconnecting: false })
     }
 
-    source.onerror = () => {
-      closeEventSource()
+    ws.onmessage = event => {
+      parseAndHandleEvent(typeof event.data === 'string' ? event.data : null)
+    }
+
+    ws.onerror = () => {
+      closeWebSocket()
+      scheduleReconnect()
+    }
+
+    ws.onclose = () => {
+      closeWebSocket()
       scheduleReconnect()
     }
   }
@@ -209,7 +206,7 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
       if (stopped || !isLeader) {
         return
       }
-      connectEventSource()
+      connectWebSocket()
     }, delay)
   }
 
@@ -230,7 +227,7 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
       }, LEADER_HEARTBEAT_INTERVAL_MS)
     }
 
-    connectEventSource()
+    connectWebSocket()
   }
 
   const stepDownAsLeader = () => {
@@ -246,8 +243,17 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
       heartbeatTimer = null
     }
 
-    closeEventSource()
+    closeWebSocket()
     clearReconnectTimer()
+  }
+
+  function relinquishLeadership() {
+    if (!isLeader) {
+      return
+    }
+
+    emit({ type: 'leader-dying', tabId })
+    stepDownAsLeader()
   }
 
   const requestLeader = () => {
@@ -320,6 +326,25 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
     }
   }
 
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      relinquishLeadership()
+      return
+    }
+
+    if (!isLeader) {
+      requestLeader()
+    }
+  }
+
+  const handlePageHide = () => {
+    relinquishLeadership()
+  }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('beforeunload', handlePageHide)
+
   if (!supportsBroadcastChannel) {
     becomeLeader()
   } else {
@@ -361,6 +386,10 @@ function createCoordinator({ account, token, onServerEvent }: RealtimeCoordinato
       }
 
       clearReconnectTimer()
+
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handlePageHide)
 
       if (channel) {
         channel.close()

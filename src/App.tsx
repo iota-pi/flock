@@ -120,7 +120,6 @@ function RootLayout() {
 
       startRealtimeCoordinator({
         account,
-        token,
         onServerEvent: handleRealtimeEvent,
       })
       started = true
