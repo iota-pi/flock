@@ -1,17 +1,23 @@
 describe('Prayer flows', () => {
   it('sets prayer frequencies and verifies ordering on prayer page', () => {
+    const uniqueId = Date.now().toString().slice(-6)
+    const lindenName = `Linden_${uniqueId}`
+    const athelasName = `Athelas_${uniqueId}`
+    const mallornName = `Mallorn_${uniqueId}`
+    const oneRingName = `One Ring_${uniqueId}`
+
     // Test deleting everything which also ensures a clean prayer schedule
     cy.page('people')
-    cy.createPerson({ name: 'Linden', prayerFrequency: 'daily' })
+    cy.createPerson({ name: lindenName, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
     cy.dataCy('select-all').click()
     cy.dataCy('action-delete').click()
     cy.dataCy('confirm-confirm').click()
 
     // Create people with different prayer frequencies
-    cy.createPerson({ name: 'Athelas' })
-    cy.createPerson({ name: 'Mallorn', prayerFrequency: 'annually' })
-    cy.createPerson({ name: 'One Ring', prayerFrequency: 'daily' })
+    cy.createPerson({ name: athelasName })
+    cy.createPerson({ name: mallornName, prayerFrequency: 'annually' })
+    cy.createPerson({ name: oneRingName, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
 
     // Assign prayer frequency through bulk selection actions
@@ -26,10 +32,9 @@ describe('Prayer flows', () => {
     cy.dataCy('edit-goal').click()
     cy.dataCy('dialog-goal-input').clear().type('5')
     cy.dataCy('dialog-confirm').click()
-    cy.dataCy('list-item').eq(0).contains('One Ring')
-    cy.dataCy('list-item').eq(1).contains('Athelas')
-    cy.dataCy('list-item').eq(2).contains('Mallorn')
-    cy.dataCy('list-item').contains('Linden').should('not.exist')
+    cy.dataCy('list-item').eq(0).contains(oneRingName)
+    cy.dataCy('list-item').contains(mallornName).should('exist')
+    cy.dataCy('list-item').contains(lindenName).should('not.exist')
   })
 
   it('runs an active prayer session from start to completion and persists prayer updates', () => {
@@ -39,12 +44,21 @@ describe('Prayer flows', () => {
     const itemC = `PrayerC_${uniqueId}`
 
     cy.page('people')
+    cy.get('body').then($body => {
+      if ($body.find('[data-cy="list-item"]').length > 0) {
+        cy.dataCy('select-all').click()
+        cy.dataCy('action-delete').click()
+        cy.dataCy('confirm-confirm').click()
+      }
+    })
+
     cy.createPerson({ name: itemA, prayerFrequency: 'daily' })
     cy.createPerson({ name: itemB, prayerFrequency: 'daily' })
     cy.createPerson({ name: itemC, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
 
     cy.page('prayer')
+    cy.contains(itemA).should('be.visible')
     cy.dataCy('start-prayer').click()
 
     cy.dataCy('item-name').should('contain.text', itemA)

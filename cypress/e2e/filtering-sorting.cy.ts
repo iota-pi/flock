@@ -30,16 +30,21 @@ describe('Filtering and sorting worker integration', () => {
     })
 
     cy.dataCy('open-sort').click()
+    cy.get('body').then($body => {
+      if ($body.find('[data-cy="sort-criterion-name"]').length === 0) {
+        cy.dataCy('add-sort-criterion').click()
+      }
+    })
     cy.dataCy('sort-criterion-name').first().click()
     cy.get('li[role="option"]').contains('Name').click()
     cy.dataCy('sort-criterion-order').first().click()
     cy.get('li[role="option"]').contains('Descending').click()
     cy.dataCy('sort-done').click()
 
-    cy.dataCy('list-item').eq(0).invoke('text').then(firstText => {
-      cy.dataCy('list-item').eq(1).invoke('text').then(secondText => {
-        expect(firstText.trim().localeCompare(secondText.trim())).to.be.greaterThan(0)
-      })
-    })
+    cy.dataCy('list-item').eq(0).should('contain.text', `GroupWorker_E_${uniqueId}`)
+    cy.dataCy('list-item').eq(1).should('contain.text', `GroupWorker_D_${uniqueId}`)
+
+    cy.dataCy('open-filter').click()
+    cy.dataCy('filter-cancel').click()
   })
 })

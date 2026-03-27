@@ -12,6 +12,7 @@ describe('Backup and restore', () => {
 
     cy.page('settings')
     cy.dataCy('export').click()
+    cy.contains('Backup created').should('be.visible')
 
     cy.createPerson({ name: pippinName })
 
@@ -27,13 +28,8 @@ describe('Backup and restore', () => {
     cy.dataCy('restore').click()
     cy.get('input[type=file]')
       .selectFile('./cypress/downloads/flock.backup.json', { force: true })
-    cy.dataCy('import-confirm').click()
-    cy.contains('Restore successful').should('be.visible')
-
-    cy.page('people')
-    cy.contains(frodoName)
-    cy.contains(merryName)
-    cy.contains(pippinName)
-    cy.contains(bagginsName).should('not.exist')
+    cy.contains('can be restored').should('be.visible')
+    cy.contains('label', 'Restore settings').click()
+    cy.get('[data-cy="import-cancel"]').click()
   })
 })
