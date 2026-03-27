@@ -198,7 +198,9 @@ function createCoordinator({ account, onServerEvent }: RealtimeCoordinatorOption
     }
 
     reconnectAttempts += 1
-    const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (reconnectAttempts - 1)))
+    const backoff = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (reconnectAttempts - 1)))
+    const jitter = Math.random() * 0.2 * backoff
+    const delay = Math.floor(backoff + jitter)
     emit({ type: 'reconnecting', tabId, reconnecting: true })
 
     reconnectTimer = setTimeout(() => {
