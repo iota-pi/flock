@@ -117,6 +117,8 @@ export default $config({
         REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+        REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
+        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '0',
       },
       link: [
         accountsTable,
@@ -136,6 +138,8 @@ export default $config({
         REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+        REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
+        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '0',
       },
       link: [accountsTable, replayLogTable, realtimeConnectionsTable],
     })
@@ -148,6 +152,7 @@ export default $config({
       environment: {
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+        REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
       },
       link: [realtimeConnectionsTable],
     })
@@ -216,6 +221,10 @@ export default $config({
       apiId: websocketApi.id,
       name: '$default',
       autoDeploy: true,
+      defaultRouteSettings: {
+        throttlingBurstLimit: 50,
+        throttlingRateLimit: 20,
+      },
     })
 
     const websocketUrl = $interpolate`${websocketApi.apiEndpoint}/${wsStage.name}`
