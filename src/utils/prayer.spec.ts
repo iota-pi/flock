@@ -16,7 +16,6 @@ function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayed
     prayedFor,
     prayerFrequency,
     notes: [],
-    summary: '',
     type: 'person',
     version: 1,
   }
@@ -37,7 +36,6 @@ function makeGroup(
     prayedFor: [],
     prayerFrequency: 'none',
     notes: [],
-    summary: '',
     type: 'group',
     members,
     memberPrayerFrequency,

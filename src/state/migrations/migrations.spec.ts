@@ -11,7 +11,7 @@ describe('migrations', () => {
     })
 
     it('should migrate summary to notes', async () => {
-      const item: Item = {
+      const item: Item & { summary: string } = {
         ...getBlankPerson(),
         summary: 'Legacy summary',
         notes: [],
@@ -21,13 +21,15 @@ describe('migrations', () => {
 
       expect(result.length).toBe(1)
       const migratedItem = result[0]
-      expect(migratedItem.summary).toBe('')
+      expect(
+        (migratedItem as { summary?: string }).summary
+      ).toBeFalsy()
       expect(migratedItem.notes.length).toBe(1)
       expect(migratedItem.notes[0].text).toBe('Legacy summary')
     })
 
     it('should not migrate if notes already exist', async () => {
-      const item: Item = {
+      const item: Item & { summary: string } = {
         ...getBlankPerson(),
         summary: 'Legacy summary',
         notes: [{ id: '1', text: 'Existing note', archived: false, time: 0 }],

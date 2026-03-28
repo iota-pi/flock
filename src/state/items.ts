@@ -27,7 +27,6 @@ export interface BaseItem {
   notes: Note[],
   prayedFor: number[],
   prayerFrequency: Frequency,
-  summary: string,
   type: ItemType,
   version: number,
 }
@@ -65,7 +64,6 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     notes: [],
     prayedFor: [],
     prayerFrequency: 'none',
-    summary: '',
     type: 'person',
     version: 1,
   }

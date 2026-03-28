@@ -4,7 +4,7 @@ import { Item, getBlankPerson } from '../items'
 
 describe('runAllMigrationsInMemory', () => {
   it('should migrate items correctly', async () => {
-    const legacyItem: Item = {
+    const legacyItem: Item & { summary: string } = {
       ...getBlankPerson(),
       name: 'Legacy item',
       summary: 'Legacy summary',
@@ -15,7 +15,9 @@ describe('runAllMigrationsInMemory', () => {
 
     expect(migrated.length).toBe(1)
     const item = migrated[0]
-    expect(item.summary).toBe('')
+    expect(
+      (item as { summary?: string }).summary
+    ).toBeFalsy()
     expect(item.notes.length).toBe(1)
     expect(item.notes[0].text).toBe('Legacy summary')
   })

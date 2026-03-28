@@ -9,11 +9,25 @@ export interface ItemMigration {
 
 export const migrations: ItemMigration[] = [
   {
+    description: 'Delete empty summaries',
+    id: 'delete-empty-summaries',
+    migrate: async ({ items }) => {
+      const updatedItems: Item[] = []
+      for (const item of items as (Item & { summary?: string })[]) {
+        if (item.summary === '') {
+          delete item.summary
+          updatedItems.push(item)
+        }
+      }
+      return updatedItems
+    },
+  },
+  {
     description: 'Migrate summary to notes',
     id: 'migrate-summary-to-notes',
     migrate: async ({ items }) => {
       const updatedItems: Item[] = []
-      for (const item of items) {
+      for (const item of items as (Item & { summary?: string })[]) {
         if (item.summary && item.notes.length === 0) {
           item.notes = [
             {
@@ -23,7 +37,7 @@ export const migrations: ItemMigration[] = [
               time: item.created,
             }
           ]
-          item.summary = ''
+          delete item.summary
           updatedItems.push(item)
         }
       }
@@ -35,11 +49,9 @@ export const migrations: ItemMigration[] = [
     id: 'remove-legacy-tags',
     migrate: async ({ items }) => {
       const updatedItems: Item[] = []
-      for (const item of items) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((item as any).tags) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          delete (item as any).tags
+      for (const item of items as (Item & { tags?: string[] })[]) {
+        if (item.tags) {
+          delete item.tags
           updatedItems.push(item)
         }
       }
