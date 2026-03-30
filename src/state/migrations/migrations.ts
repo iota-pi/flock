@@ -135,4 +135,13 @@ export const migrations: ItemMigration[] = [
       return [...items]
     },
   },
+  {
+    description: 'Rewrite all items as branch envelopes',
+    id: 'rewrite-items-as-branches-2026-03',
+    migrate: async ({ items }) => {
+      // One-time sweep: mutateStoreItems will serialize each item to branch format.
+      // This migrates cold legacy cipher-only rows without requiring manual edits.
+      return [...items]
+    },
+  },
 ]
