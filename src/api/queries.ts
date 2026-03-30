@@ -5,6 +5,7 @@ import {
   vaultGetMetadata,
   type VaultItem,
 } from './VaultAPI'
+import { trpcClient } from './trpcClient'
 import {
   Item,
   supplyMissingAttributes,
@@ -33,7 +34,7 @@ async function getVaultModule() {
 }
 
 // Cache for decrypted items
-const decryptionCache = new Map<string, { cipher: string, iv: string, item: Item }>()
+const decryptionCache = new Map<string, { cacheKey: string, item: Item }>()
 const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
 const MAX_DECRYPTION_CACHE_ITEMS = 2000
 let inMemoryLastSyncServerTime: number | null = null
@@ -56,12 +57,21 @@ async function loadDecryptionCache(accountId: string): Promise<void> {
     return
   }
 
-  const persisted = await syncDB.getItem<Record<string, { cipher: string, iv: string, item: Item }>>(getDecryptionCacheKey(accountId))
+  const persisted = await syncDB.getItem<Record<string, any>>(getDecryptionCacheKey(accountId))
   decryptionCache.clear()
 
   if (persisted) {
     for (const [key, value] of Object.entries(persisted)) {
-      decryptionCache.set(key, value)
+      // Support both old format (with cipher/iv) and new format (with cacheKey)
+      if ('cacheKey' in value && 'item' in value) {
+        decryptionCache.set(key, value)
+      } else if ('cipher' in value && 'iv' in value && 'item' in value) {
+        // Migrate old format to new format
+        decryptionCache.set(key, {
+          cacheKey: value.cipher,
+          item: value.item,
+        })
+      }
     }
   }
 
@@ -101,6 +111,57 @@ function getDecryptionCacheSnapshotForTests() {
   return new Map(decryptionCache)
 }
 
+/**
+ * Queue conflict resolutions for background sync
+ * When multiple branches are detected and merged, push the resolution back to server
+ *
+ * This runs in the background and doesn't block the UI:
+ * 1. Client receives multi-branch item from server (via WebSocket)
+ * 2. Worker merges them deterministically
+ * 3. Sends resolution back to server
+ * 4. Server replaces multiple branches with single branch
+ * 5. Broadcasts updated item to all clients
+ */
+async function queueConflictResolutions(
+  resolutionItems: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>,
+): Promise<void> {
+  if (resolutionItems.length === 0) {
+    return
+  }
+
+  try {
+    // Only send resolutions if we're online
+    if (!checkAxios()) {
+      console.log(`[Automerge] Deferring conflict resolution - offline`)
+      return
+    }
+
+    const account = getAccountId()
+    const resolutions = resolutionItems.map(({ itemId, branch }) => ({
+      item: itemId,
+      resolvedBranch: branch,
+    }))
+
+    console.log(`[Automerge] Pushing conflict resolutions for ${resolutions.length} items`)
+
+    // Send to server - this will replace multiple branches with single merged branch
+    const response = await trpcClient.items.resolveBranchConflict.mutate({
+      account,
+      resolutions,
+      idempotencyKey: `conflict-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    }) as any
+
+    if (response?.success) {
+      console.log(`[Automerge] ✓ Resolved ${response.resolvedCount} conflict(s)`)
+    } else if (response?.failed && response.failed.length > 0) {
+      console.warn(`[Automerge] Partially resolved - ${response.failed.length} failed:`, response.failed)
+    }
+  } catch (err) {
+    // Silently fail - conflicts will be re-detected on next fetch
+    console.error('[Automerge] Failed to push conflict resolution', err)
+  }
+}
+
 function ensureSharedDecryptionWorker(): Worker {
   if (sharedDecryptionWorker) {
     return sharedDecryptionWorker
@@ -112,7 +173,11 @@ function ensureSharedDecryptionWorker(): Worker {
   )
 
   worker.onmessage = event => {
-    const payload = event.data as { jobId?: unknown, items?: object[] }
+    const payload = event.data as {
+      jobId?: unknown
+      items?: object[]
+      resolutionItems?: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>
+    }
     const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
     const pending = pendingDecryptionJobs.get(jobId)
     if (!pending) {
@@ -120,6 +185,16 @@ function ensureSharedDecryptionWorker(): Worker {
     }
 
     pendingDecryptionJobs.delete(jobId)
+
+    // Store resolution items for background sync if present
+    if (payload.resolutionItems && payload.resolutionItems.length > 0) {
+      // Queue these for background resolution push to server
+      // This prevents multiple branches from persisting on the server
+      queueConflictResolutions(payload.resolutionItems).catch(err => {
+        console.error('Failed to queue conflict resolutions', err)
+      })
+    }
+
     pending.resolve(payload.items || [])
   }
 
@@ -183,17 +258,25 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
       continue
     }
 
+    // Support both legacy cipher and branches format
     const cipher = item.cipher
+    const branches = item.branches
     const iv = item.metadata?.iv
-    if (!cipher || !iv) {
-      handleVaultError(new Error(`Missing cipher or iv for item ${item.item ?? index}`), 'Failed to decrypt item from server')
+
+    // Check if item has valid payload (either cipher or branches)
+    if (!cipher && !branches) {
+      handleVaultError(new Error(`Missing payload for item ${item.item ?? index}`), 'Failed to decrypt item from server')
       continue
     }
 
-    const cached = decryptionCache.get(item.item)
-    if (cached && cached.cipher === cipher && cached.iv === iv) {
-      fromCache.push(cached.item)
-      continue
+    // Try cache lookup (using cipher for legacy items)
+    const cacheKey = cipher || (branches ? `branches-${branches[0]?.versionId}` : undefined)
+    if (cacheKey) {
+      const cached = decryptionCache.get(item.item)
+      if (cached && cached.cacheKey === cacheKey) {
+        fromCache.push(cached.item)
+        continue
+      }
     }
 
     toDecrypt.push(item)
@@ -247,9 +330,10 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
         filled.version = source.metadata.version
       }
 
+      // Generate cache key based on format
+      const cacheKey = source.cipher || (source.branches ? `branches-${source.branches[0]?.versionId}` : '')
       decryptionCache.set(source.item, {
-        cipher: source.cipher,
-        iv: source.metadata.iv,
+        cacheKey,
         item: filled,
       })
       schedulePersistDecryptionCache(accountId)
@@ -266,6 +350,11 @@ async function decryptWithoutWorker(
 ): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(
     items.map(async source => {
+      // Only support legacy cipher format in fallback (no worker)
+      if (!source.cipher) {
+        throw new Error(`Cannot decrypt branching format without worker`)
+      }
+
       const decrypted = await vault.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
       const filled = supplyMissingAttributes(decrypted)
 
@@ -274,8 +363,7 @@ async function decryptWithoutWorker(
       }
 
       decryptionCache.set(source.item, {
-        cipher: source.cipher,
-        iv: source.metadata.iv,
+        cacheKey: source.cipher,
         item: filled,
       })
       schedulePersistDecryptionCache(accountId)

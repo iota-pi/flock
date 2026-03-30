@@ -57,15 +57,24 @@ export class TransactionConflictsError extends Error {
   }
 }
 
+/**
+ * Validates a VaultItem supports both legacy cipher and new branches format
+ * - Legacy: must have cipher and iv
+ * - Branching: must have branches array
+ * - Tombstone: needs only metadata.type
+ */
 function validateItem(item: VaultItem) {
   const isTombstone = item.metadata.deleted === true
-  const hasRequiredPayload = isTombstone
-    ? !!item.metadata.type
-    : !!item.cipher && !!item.metadata.iv && !!item.metadata.type
+  const isLegacy = !!item.cipher
+  const isBranching = !!item.branches && item.branches.length > 0
 
-  if (!hasRequiredPayload) {
+  const hasValidPayload = isTombstone
+    ? !!item.metadata.type
+    : (isLegacy || isBranching) && !!item.metadata.type && (isLegacy ? !!item.metadata.iv : true)
+
+  if (!hasValidPayload) {
     throw new Error(
-      `Missing some required properties on item ${JSON.stringify(item)}`,
+      `Invalid item format: must be either legacy (cipher+iv) or branching (branches array). Item: ${JSON.stringify(item)}`,
     )
   }
   const itemLength = JSON.stringify(item).length
@@ -528,20 +537,52 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
+  /**
+   * setMany: Batch set items with support for both legacy cipher and branching formats
+   *
+   * Phase 2: Lineage-aware branch appending
+   *
+   * Logic:
+   * 1. For each incoming item, check if it has branches
+   * 2. If branches exist AND parentIds don't match current head → append branches
+   * 3. If no branches OR fast-forward lineage → full overwrite (PutItem)
+   * 4. Uses TransactWrite for atomicity across batch
+   */
   async setMany(items: VaultItem[]): Promise<void> {
     if (items.length === 0) {
       return
     }
 
-    const chunks = chunkItemsForTransactions(items)
-    for (const chunk of chunks) {
-      const transactItems = chunk.map(item => ({
-        Put: getItemPutParams(item),
-      }))
+    // Fetch current versions to check lineage
+    const currentItems = await this.fetchMany({
+      account: items[0].account,
+      ids: items.map(i => i.item),
+    }).catch(() => [] as VaultItem[])
 
+    const currentByItemId = new Map(currentItems.map(i => [i.item, i]))
+
+    // Determine which items need branch append vs full overwrite
+    const transactItems: Array<any> = []
+
+    for (const item of items) {
+      const current = currentByItemId.get(item.item)
+      const shouldAppendBranches = this._shouldAppendBranches(item, current)
+
+      if (shouldAppendBranches) {
+        const updateParams = this._getItemAppendBranchesParams(item)
+        transactItems.push({ Update: updateParams })
+      } else {
+        const putParams = getItemPutParams(item)
+        transactItems.push({ Put: putParams })
+      }
+    }
+
+    // Execute in chunks
+    const chunks = this._chunkTransactItems(transactItems)
+    for (const chunk of chunks) {
       try {
         await this.client.send(new TransactWriteCommand({
-          TransactItems: transactItems,
+          TransactItems: chunk,
         }))
       } catch (error) {
         if (error instanceof TransactionCanceledException) {
@@ -556,7 +597,17 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
             || [])
 
           const conflictedIds = reasons
-            .map((reason, index) => (reason?.Code === 'ConditionalCheckFailed' ? chunk[index]?.item : undefined))
+            .map((reason, index) => {
+              const item = transactItems[index]
+              if (reason?.Code === 'ConditionalCheckFailed') {
+                if (item?.Put) return (item.Put.Item as VaultItem)?.item
+                if (item?.Update) {
+                  const key = item.Update.Key as Record<string, any>
+                  return key?.item
+                }
+              }
+              return undefined
+            })
             .filter((id): id is string => typeof id === 'string')
 
           if (conflictedIds.length > 0) {
@@ -565,6 +616,134 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         }
         throw error
       }
+    }
+  }
+
+  /**
+   * Check if incoming item represents a conflict that should append branches
+   * Returns true if:
+   * - Item has branches
+   * - AND parentIds don't match current item's versionId
+   */
+  private _shouldAppendBranches(incoming: VaultItem, current: VaultItem | undefined): boolean {
+    if (!incoming.branches || incoming.branches.length === 0) {
+      return false
+    }
+
+    // First write ever, no append needed
+    if (!current) {
+      return false
+    }
+
+    // Check if parentIds includes current versionId
+    const currentVersionId = current.metadata?.version?.toString()
+    if (!currentVersionId) {
+      return false
+    }
+
+    return !incoming.branches.some(b => b.parentIds.includes(currentVersionId))
+  }
+
+  /**
+   * Build UpdateItem parameters for appending branches to existing item
+   */
+  private _getItemAppendBranchesParams(item: VaultItem): UpdateCommandInput {
+    validateItem(item)
+
+    if (!item.branches) {
+      throw new Error(`Cannot append branches to item without branches array`)
+    }
+
+    const params: UpdateCommandInput = {
+      TableName: ITEM_TABLE_NAME,
+      Key: {
+        account: item.account,
+        item: item.item,
+      },
+      UpdateExpression: 'SET #branches = list_append(#branches, :newBranches), metadata.modified = :modified',
+      ExpressionAttributeNames: {
+        '#branches': 'branches',
+      },
+      ExpressionAttributeValues: {
+        ':newBranches': item.branches,
+        ':modified': new Date().getTime(),
+      },
+      ConditionExpression: 'attribute_exists(#item)',
+    }
+
+    params.ExpressionAttributeNames = {
+      ...params.ExpressionAttributeNames,
+      '#item': 'item',
+    }
+
+    return params
+  }
+
+  /**
+   * Chunk mixed Put/Update operations for transaction write
+   */
+  private _chunkTransactItems(
+    items: Array<any>,
+  ): Array<Array<any>> {
+    const chunks: Array<Array<any>> = []
+    let currentChunk: Array<any> = []
+    let currentChunkByteSize = 0
+
+    for (const item of items) {
+      const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8')
+      const shouldSplitChunk = currentChunk.length > 0 && (
+        currentChunk.length === MAX_TRANSACTION_ITEMS
+        || currentChunkByteSize + itemBytes >= MAX_TRANSACTION_BYTES
+      )
+
+      if (shouldSplitChunk) {
+        chunks.push(currentChunk)
+        currentChunk = []
+        currentChunkByteSize = 0
+      }
+
+      currentChunk.push(item)
+      currentChunkByteSize += itemBytes
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk)
+    }
+
+    return chunks
+  }
+
+  /**
+   * Resolve multiple branches for an item by replacing them with a single merged branch
+   * Used when a client detects and merges multiple branches
+   */
+  async resolveBranchConflict(
+    account: string,
+    itemId: string,
+    resolvedBranch: {
+      encryptedAutomergeDoc: string
+      versionId: string
+      parentIds: string[]
+    },
+  ): Promise<void> {
+    const params: UpdateCommandInput = {
+      TableName: ITEM_TABLE_NAME,
+      Key: { account, item: itemId },
+      UpdateExpression: 'SET branches = :newBranch, metadata.modified = :modified',
+      ExpressionAttributeValues: {
+        ':newBranch': [resolvedBranch],
+        ':modified': new Date().getTime(),
+      },
+      ConditionExpression: 'attribute_exists(item)',
+    }
+
+    try {
+      await this.client.send(new UpdateCommand(params))
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        throw new Error(`Item not found: ${itemId}`)
+      }
+      throw error
     }
   }
 

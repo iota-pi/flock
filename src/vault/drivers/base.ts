@@ -1,8 +1,6 @@
 import { FastifyRequest } from 'fastify'
-import type {
-  ItemType,
-  WebPushSubscription,
-} from '../types'
+import type { ItemType, WebPushSubscription } from '../types'
+import type { VaultBranch } from '../../shared/itemTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 
@@ -19,9 +17,15 @@ export interface VaultMetaData {
   deleted?: boolean,
 }
 
+/**
+ * VaultData: Supports both legacy cipher format and new branches format
+ * - Legacy: has cipher, no branches
+ * - Branching: has branches array, may or may not have cipher (depending on migration state)
+ */
 export interface VaultData {
   metadata: VaultMetaData,
-  cipher: string,
+  cipher?: string, // Optional for branching format
+  branches?: VaultBranch[], // New branching format
 }
 
 export interface BaseData {
@@ -102,6 +106,17 @@ export default abstract class BaseDriver<T = unknown> {
   ): Promise<CachedVaultItem[]>
 
   abstract delete(key: VaultKey): Promise<void>
+
+  // Conflict resolution - replace multiple branches with single merged branch
+  abstract resolveBranchConflict(
+    account: string,
+    itemId: string,
+    resolvedBranch: {
+      encryptedAutomergeDoc: string
+      versionId: string
+      parentIds: string[]
+    },
+  ): Promise<void>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account

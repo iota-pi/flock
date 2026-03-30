@@ -282,47 +282,104 @@ async function updateCacheOptimistically(items: Item[]) {
   queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticStoreItemsUpdate(old, items))
 }
 
+/**
+ * Serializes Item to either legacy cipher or Automerge branches format
+ *
+ * Strategy:
+ * - Deleted items: use empty cipher (backwards compatible tombstone)
+ * - New items: use Automerge with single branch
+ * - Existing legacy items: continue with cipher until explicitly migrated
+ */
+async function serializeItem(item: Item, vault: typeof import('./Vault')): Promise<{ cipher?: string; iv?: string; branches?: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] }[] }> {
+  if (item.deleted) {
+    return {
+      cipher: '',
+      iv: '',
+    }
+  }
+
+  // Phase 1: Use Automerge for all items
+  // (Future: add logic to detect legacy items and preserve cipher format)
+  const { encryptedAutomergeDoc, versionId } = await vault.encryptObjectAsAutomerge(item)
+  return {
+    branches: [{
+      encryptedAutomergeDoc,
+      versionId,
+      parentIds: [], // First write, no parents
+    }],
+  }
+}
+
 async function saveItemsToVault(items: Item[]) {
   const vault = await getVaultModule()
   const modifiedTime = new Date().getTime()
 
-  const payloadItems = await Promise.all(items.map(async item => {
-    if (item.deleted) {
-      return {
-        cipher: '',
-        iv: '',
-      }
-    }
-
-    return vault.encryptObject(item)
-  }))
+  const payloadItems = await Promise.all(items.map(item => serializeItem(item, vault)))
 
   if (items.length === 1) {
-    await vaultPut({
-      cipher: payloadItems[0].cipher,
-      item: items[0].id,
-      metadata: {
-        iv: payloadItems[0].iv,
-        type: items[0].type,
-        modified: modifiedTime,
-        version: items[0].version,
-        deleted: items[0].deleted,
-      },
-    })
+    const payload = payloadItems[0]
+    const item = items[0]
+
+    if (payload.cipher !== undefined) {
+      // Legacy format
+      await vaultPut({
+        cipher: payload.cipher,
+        item: item.id,
+        metadata: {
+          iv: payload.iv || '',
+          type: item.type,
+          modified: modifiedTime,
+          version: item.version,
+          deleted: item.deleted,
+        },
+      } as any)
+    } else if (payload.branches) {
+      // Branching format
+      await vaultPut({
+        item: item.id,
+        branches: payload.branches,
+        metadata: {
+          iv: '', // Not used in branching format
+          type: item.type,
+          modified: modifiedTime,
+          version: item.version,
+          deleted: item.deleted,
+        },
+      } as any)
+    }
   } else {
     await vaultPutMany({
-      items: payloadItems.map(({ cipher, iv }, i) => ({
-        account: getAccountId(),
-        cipher,
-        item: items[i].id,
-        metadata: {
-          iv,
-          type: items[i].type,
-          modified: modifiedTime,
-          version: items[i].version,
-          deleted: items[i].deleted,
-        },
-      })),
+      items: payloadItems.map((payload, i) => {
+        const item = items[i]
+
+        if (payload.cipher !== undefined) {
+          return {
+            account: getAccountId(),
+            cipher: payload.cipher,
+            item: item.id,
+            metadata: {
+              iv: payload.iv || '',
+              type: item.type,
+              modified: modifiedTime,
+              version: item.version,
+              deleted: item.deleted,
+            },
+          }
+        } else {
+          return {
+            account: getAccountId(),
+            item: item.id,
+            branches: payload.branches || [],
+            metadata: {
+              iv: '',
+              type: item.type,
+              modified: modifiedTime,
+              version: item.version,
+              deleted: item.deleted,
+            },
+          }
+        }
+      }) as any,
     })
   }
 

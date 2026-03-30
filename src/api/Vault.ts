@@ -241,6 +241,38 @@ export async function decryptObject({ iv, cipher }: CryptoResult): Promise<objec
   return JSON.parse(await decrypt({ iv, cipher }))
 }
 
+/**
+ * Automerge-based serialization for CRDT conflict resolution
+ * Returns encrypted Automerge binary document
+ */
+export async function encryptObjectAsAutomerge(obj: object): Promise<{ encryptedAutomergeDoc: string; versionId: string }> {
+  const Automerge = await import('@automerge/automerge')
+
+  // Create new Automerge document from object
+  const doc = Automerge.from(obj as Record<string, unknown>)
+
+  // Serialize to binary
+  const binary = Automerge.save(doc)
+
+  // Encrypt the binary
+  const iv = crypto.getRandomValues(new Uint8Array(16))
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    getKey(),
+    binary as BufferSource,
+  )
+
+  // Combine IV + ciphertext as hex string
+  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')
+  const ctHex = Array.from(new Uint8Array(cipher)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const encryptedAutomergeDoc = ivHex + ctHex
+
+  // Generate versionId
+  const versionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+  return { encryptedAutomergeDoc, versionId }
+}
+
 export function exportData<T>(payload: T): Promise<CryptoResult> {
   const data = JSON.stringify(payload)
   return encrypt(data)

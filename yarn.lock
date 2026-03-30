@@ -18,6 +18,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@automerge/automerge@npm:^3.2.5":
+  version: 3.2.5
+  resolution: "@automerge/automerge@npm:3.2.5"
+  checksum: 10c0/e00878f5e576e051aff0955f2b1577f34e572f24a16c82eabf693b1954a9a52e5b552a7d01d08c7169b8c208c83472671711b6e51f509c36de8ecd12139d90cd
+  languageName: node
+  linkType: hard
+
 "@aws-crypto/sha256-browser@npm:5.2.0":
   version: 5.2.0
   resolution: "@aws-crypto/sha256-browser@npm:5.2.0"
@@ -9128,6 +9135,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "flock@workspace:."
   dependencies:
+    "@automerge/automerge": "npm:^3.2.5"
     "@aws-sdk/client-apigatewaymanagementapi": "npm:^3.1010.0"
     "@aws-sdk/client-dynamodb": "npm:^3.958.0"
     "@aws-sdk/client-sqs": "npm:^3.1010.0"

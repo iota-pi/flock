@@ -21,6 +21,7 @@
     "e2e": "cypress run"
   },
   "dependencies": {
+    "@automerge/automerge": "^3.2.5",
     "@aws-sdk/client-apigatewaymanagementapi": "^3.1010.0",
     "@aws-sdk/client-dynamodb": "^3.958.0",
     "@aws-sdk/client-sqs": "^3.1010.0",

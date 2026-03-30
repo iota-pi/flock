@@ -1,4 +1,5 @@
 import type { AccountMetadata } from '../state/metadata'
+import type { ItemEnvelope } from '../shared/itemTypes'
 import { getAccountId } from './util'
 import { trpcClient } from './trpcClient'
 import type { CryptoResult } from './Vault'
@@ -17,30 +18,16 @@ export type LoginBody = {
   authToken: string,
 }
 
-export type CachedVaultItem = {
-  item: string,
-  cipher?: string,
-  metadata?: {
-    type: ItemType,
-    iv: string,
-    modified: number,
-    version?: number,
-    deleted?: boolean,
-  },
+export type CachedVaultItem = ItemEnvelope & {
   ttl?: number,
 }
 
-export type VaultItem = {
+/**
+ * VaultItem: Legacy format for backwards compatibility
+ * Extends ItemEnvelope to support both legacy cipher and new branches
+ */
+export type VaultItem = ItemEnvelope & {
   account?: string,
-  item: string,
-  cipher: string,
-  metadata: {
-    type: ItemType,
-    iv: string,
-    modified: number,
-    version?: number,
-    deleted?: boolean,
-  },
   ttl?: number,
 }
 
@@ -129,33 +116,35 @@ export async function vaultFetchMany({
   }
 }
 
-export async function vaultPut({ cipher, item, metadata }: VaultItem) {
+export async function vaultPut(item: VaultItem) {
   const response = await trpcClient.items.put.mutate({
     account: getAccountId(),
-    item,
-    cipher,
-    iv: metadata.iv,
-    modified: metadata.modified,
-    type: metadata.type,
-    version: metadata.version,
-    deleted: metadata.deleted,
-  })
+    item: item.item,
+    ...(item.cipher && { cipher: item.cipher }),
+    ...(item.branches && { branches: item.branches }),
+    iv: item.metadata.iv,
+    modified: item.metadata.modified,
+    type: item.metadata.type,
+    version: item.metadata.version,
+    deleted: item.metadata.deleted,
+  } as any)
   assertSuccess(response, 'put')
 }
 
 export async function vaultPutMany({ items }: { items: VaultItem[] }) {
   const response = await trpcClient.items.putMany.mutate({
     account: getAccountId(),
-    items: items.map(({ cipher, item, metadata }) => ({
-      id: item,
-      cipher,
-      iv: metadata.iv,
-      modified: metadata.modified,
-      type: metadata.type,
-      version: metadata.version,
-      deleted: metadata.deleted,
+    items: items.map(item => ({
+      id: item.item,
+      ...(item.cipher && { cipher: item.cipher }),
+      ...(item.branches && { branches: item.branches }),
+      iv: item.metadata.iv,
+      modified: item.metadata.modified,
+      type: item.metadata.type,
+      version: item.metadata.version,
+      deleted: item.metadata.deleted,
     })),
-  }) as PutManyResponse | BatchResultResponse
+  } as any) as PutManyResponse | BatchResultResponse
 
   if ('success' in response && response.success && 'conflicts' in response) {
     return
