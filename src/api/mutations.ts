@@ -5,7 +5,7 @@ import {
   Item,
   ItemId,
 } from '../state/items'
-import { threeWayMerge } from '../utils/merge'
+import { mergeFromBaseWithAutomerge } from '../utils/automergeMerge'
 import {
   vaultFetchMany,
   vaultPut,
@@ -473,7 +473,7 @@ async function handleItemsConflict(
 
     hasMeaningfulDifference = true
 
-    const merged = threeWayMerge(base, theirs, yours)
+    const merged = await mergeFromBaseWithAutomerge(base, theirs, yours) as Item
     merged.version = (theirs.version || 0) + 1
 
     const idx = nextItems.findIndex(i => i.id === id)
@@ -508,8 +508,7 @@ async function handleMetadataConflict(
     // Fetch latest metadata
     const theirs = await fetchMetadata()
 
-    // Merge
-    const merged = threeWayMerge(base, theirs, current)
+    const merged = await mergeFromBaseWithAutomerge(base, theirs, current) as AccountMetadata
     merged.version = (theirs.version || 0) + 1
 
     // Return new state to retry with

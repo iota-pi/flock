@@ -3,8 +3,12 @@ import * as Sentry from '@sentry/react'
 import { isAxiosError } from 'axios'
 import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
+import { mergeFromBaseWithAutomerge } from '../utils/automergeMerge'
 import { queryClient, queryKeys } from './queryClient'
 import { useUiStore } from '../state/uiStore'
+import { decryptObject, encryptObject } from './Vault'
+import { vaultFetchMany } from './VaultAPI'
+import { decryptVaultItems } from './queries'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -126,6 +130,75 @@ function getClientErrorReason(error: unknown): string {
   }
 
   return 'Client error'
+}
+
+function isVersionConflictError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return message.includes('version conflict') || message.includes('conditionalcheckfailed')
+}
+
+async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
+  if (mutation.mutationType !== 'items.put') {
+    return null
+  }
+
+  const payload = mutation.payload as {
+    account?: string
+    item?: string
+    cipher?: string
+    iv?: string
+    modified?: number
+    type?: Item['type']
+    version?: number
+    deleted?: boolean
+  }
+
+  if (!payload.item || !payload.cipher || !payload.iv || !payload.type) {
+    return null
+  }
+
+  const decryptedLocal = await decryptObject({
+    cipher: payload.cipher,
+    iv: payload.iv,
+  }) as Item
+
+  const currentItems = (queryClient.getQueryData<Item[]>(queryKeys.items) || [])
+  const fallbackBase = currentItems.find(item => item.id === payload.item)
+  const base = mutation.baseState || fallbackBase || decryptedLocal
+
+  const serverResult = await vaultFetchMany({ ids: [payload.item] })
+  const serverItems = await decryptVaultItems(serverResult.items)
+  const theirs = serverItems.find(item => item.id === payload.item)
+  if (!theirs) {
+    return null
+  }
+
+  const merged = await mergeFromBaseWithAutomerge(base, theirs, decryptedLocal)
+  merged.version = (theirs.version || 0) + 1
+
+  const encrypted = await encryptObject(merged)
+
+  return {
+    ...mutation,
+    payload: {
+      account: payload.account,
+      item: payload.item,
+      cipher: encrypted.cipher,
+      iv: encrypted.iv,
+      modified: Date.now(),
+      type: payload.type,
+      version: merged.version,
+      deleted: payload.deleted,
+    },
+    conflict: true,
+    lastConflictAt: Date.now(),
+    attemptCount: (mutation.attemptCount || 0) + 1,
+    nextAttemptAt: Date.now() + 500,
+  }
 }
 
 export async function enqueueMutation(
@@ -279,6 +352,14 @@ export async function processOfflineQueue() {
             message: 'An invalid offline change was isolated for recovery and sync continued.',
           })
           continue
+        }
+
+        if (isVersionConflictError(error)) {
+          const resolved = await resolveQueuedPutConflict(normalizedMutation)
+          if (resolved) {
+            nextQueue.push(resolved, ...queue.slice(index + 1))
+            break
+          }
         }
 
         if (isLikelyNetworkError(error)) {

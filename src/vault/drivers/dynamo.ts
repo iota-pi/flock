@@ -192,7 +192,14 @@ function isTransactionCanceled(error: unknown): boolean {
     return true
   }
 
-  return error instanceof Error && error.name === 'TransactionCanceledException'
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.name === 'TransactionCanceledException'
+    || error.message.includes('TransactionCanceledException')
+  )
 }
 
 function getTransactionCancellationReasons(error: unknown): Array<{ Code?: string }> {
@@ -213,13 +220,7 @@ function isMissingDeltaIndexError(error: unknown): boolean {
     return false
   }
 
-  return (
-    error.name === 'ValidationException'
-    && (
-      error.message.includes('specified index')
-      || error.message.includes('does not have the specified index')
-    )
-  )
+  return error.name === 'ValidationException' || error.message.includes('ValidationException')
 }
 
 function isHistoryTableMissing(error: unknown): boolean {
@@ -714,6 +715,23 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           if (conflictedIds.length > 0) {
             throw new TransactionConflictsError(conflictedIds)
           }
+
+          // Some local Dynamo variants omit cancellation reasons.
+          // Treat transaction cancellation as a conflict for these writes.
+          const chunkIds = chunk
+            .map(transaction => {
+              if (transaction?.Put) {
+                return (transaction.Put.Item as VaultItem)?.item
+              }
+              if (transaction?.Update) {
+                const key = transaction.Update.Key as Record<string, unknown>
+                return typeof key?.item === 'string' ? key.item : undefined
+              }
+              return undefined
+            })
+            .filter((id): id is string => typeof id === 'string')
+
+          throw new TransactionConflictsError(chunkIds)
         }
         throw error
       }

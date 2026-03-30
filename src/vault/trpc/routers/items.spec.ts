@@ -3,15 +3,15 @@ import { itemsRouter } from './items'
 
 function createMockContext() {
   const vault = {
-    checkSession: vi.fn(async () => ({ success: true })),
-    extendSession: vi.fn(async () => undefined),
-    setMany: vi.fn(async () => undefined),
-    set: vi.fn(async () => undefined),
-    fetchAll: vi.fn(async () => []),
-    fetchMany: vi.fn(async () => []),
-    resolveBranchConflict: vi.fn(async () => undefined),
-    putHistory: vi.fn(async () => undefined),
-    fetchHistory: vi.fn(async () => []),
+    checkSession: vi.fn(async (..._args: any[]) => ({ success: true })),
+    extendSession: vi.fn(async (..._args: any[]) => undefined),
+    setMany: vi.fn(async (..._args: any[]) => undefined),
+    set: vi.fn(async (..._args: any[]) => undefined),
+    fetchAll: vi.fn(async (..._args: any[]) => []),
+    fetchMany: vi.fn(async (..._args: any[]) => []),
+    resolveBranchConflict: vi.fn(async (..._args: any[]) => undefined),
+    putHistory: vi.fn(async (..._args: any[]) => undefined),
+    fetchHistory: vi.fn(async (..._args: any[]) => []),
   }
 
   return {
@@ -43,7 +43,8 @@ describe('itemsRouter contracts', () => {
     })
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
-    const mappedItem = ctx.vault.setMany.mock.calls[0][0][0]
+    const mappedItem = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
+    expect(mappedItem).toBeDefined()
     expect(mappedItem).not.toHaveProperty('ttl')
     expect(mappedItem.metadata.deleted).toBe(false)
   })
@@ -146,7 +147,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     const ctx = createMockContext()
 
     // Mock the database to return an existing item with version 'v1'
-    ctx.vault.fetchMany.mockResolvedValue([
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([
       {
         item: 'item-1',
         branches: [
@@ -187,7 +188,8 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     })
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
-    const item = ctx.vault.setMany.mock.calls[0][0][0]
+    const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
+    expect(item).toBeDefined()
     // _fastForward should be true, so DynamoDB will do a PUT (overwrite)
     expect(item._fastForward).toBe(true)
   })
@@ -196,7 +198,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     const ctx = createMockContext()
 
     // Mock database with version v2
-    ctx.vault.fetchMany.mockResolvedValue([
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([
       {
         item: 'item-1',
         branches: [
@@ -237,7 +239,8 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     })
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
-    const item = ctx.vault.setMany.mock.calls[0][0][0]
+    const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
+    expect(item).toBeDefined()
     // _fastForward should be false, so DynamoDB will append branch
     expect(item._fastForward).toBe(false)
   })
@@ -245,7 +248,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
   it('always fast-forwards legacy cipher format', async () => {
     const ctx = createMockContext()
 
-    ctx.vault.fetchMany.mockResolvedValue([
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([
       {
         item: 'item-1',
         cipher: 'old-cipher',
@@ -273,14 +276,15 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     })
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
-    const item = ctx.vault.setMany.mock.calls[0][0][0]
+    const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
+    expect(item).toBeDefined()
     expect(item).not.toHaveProperty('_fastForward')
   })
 
   it('idempotency key prevents duplicate branch appends', async () => {
     const ctx = createMockContext()
 
-    ctx.vault.fetchMany.mockResolvedValue([
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([
       {
         item: 'item-1',
         branches: [

@@ -6,7 +6,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import getTheme from '../../../theme'
 import FilterDialog from './FilterDialog'
-import type { FilterCriterion } from '../../../../utils/customFilter'
+import type { FilterCriterion } from '../../../utils/customFilter'
 
 const setUi = vi.fn()
 const initialFilters: FilterCriterion[] = [

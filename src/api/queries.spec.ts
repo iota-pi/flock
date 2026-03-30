@@ -44,7 +44,10 @@ describe('decryption cache persistence', () => {
     await mod.__decryptionCacheTestUtils.load(accountId)
 
     const cacheSnapshot = mod.__decryptionCacheTestUtils.getSnapshot()
-    expect(cacheSnapshot.get('item-1')).toEqual(persisted['item-1'])
+    expect(cacheSnapshot.get('item-1')).toEqual({
+      cacheKey: 'cipher-1',
+      item: persisted['item-1'].item,
+    })
   })
 
   it('persists cache with debounce to avoid write thrashing', async () => {
@@ -75,7 +78,12 @@ describe('decryption cache persistence', () => {
     expect(mocks.setItem).toHaveBeenCalledTimes(1)
     expect(mocks.setItem).toHaveBeenCalledWith(
       'decryption-cache_acct-a',
-      expect.objectContaining(persisted),
+      expect.objectContaining({
+        'item-1': {
+          cacheKey: 'cipher-1',
+          item: persisted['item-1'].item,
+        },
+      }),
     )
   })
 

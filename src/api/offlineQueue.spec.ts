@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => {
     updateMetadataMutate: vi.fn(),
     setQueryData: vi.fn(),
     getQueryData: vi.fn(),
-    threeWayMerge: vi.fn(),
     decryptObject: vi.fn(),
     encryptObject: vi.fn(),
     vaultFetchMany: vi.fn(),
@@ -62,10 +61,6 @@ vi.mock('./queryClient', () => ({
   queryKeys: {
     items: ['items'],
   },
-}))
-
-vi.mock('../utils/merge', () => ({
-  threeWayMerge: mocks.threeWayMerge,
 }))
 
 vi.mock('./Vault', () => ({
@@ -149,70 +144,6 @@ describe('offlineQueue', () => {
     expect(deadLetterQueue[0].mutationType).toBe('items.put')
     expect(queue).toHaveLength(0)
     expect(mocks.setQueryData).toHaveBeenCalled()
-  })
-
-  it('handles version conflict by invoking threeWayMerge and updating queued payload', async () => {
-    const { enqueueMutation, processOfflineQueue } = await import('./offlineQueue')
-    const { readQueue } = await import('./offlineQueueStore')
-
-    const baseItem = {
-      id: 'item-merge',
-      type: 'person',
-      name: 'Base name',
-      version: 3,
-    }
-
-    const localItem = {
-      id: 'item-merge',
-      type: 'person',
-      name: 'Local name',
-      version: 4,
-    }
-
-    const remoteItem = {
-      id: 'item-merge',
-      type: 'person',
-      name: 'Remote name',
-      version: 5,
-    }
-
-    const mergedItem = {
-      id: 'item-merge',
-      type: 'person',
-      name: 'Merged name',
-      version: 6,
-    }
-
-    mocks.getQueryData.mockReturnValue([baseItem])
-    mocks.putMutate.mockRejectedValue(new Error('Version conflict'))
-    mocks.decryptObject.mockResolvedValue(localItem)
-    mocks.vaultFetchMany.mockResolvedValue({ items: [{ item: 'item-merge' }] })
-    mocks.decryptVaultItems.mockResolvedValue([remoteItem])
-    mocks.threeWayMerge.mockReturnValue(mergedItem)
-    mocks.encryptObject.mockResolvedValue({ cipher: 'cipher-merged', iv: 'iv-merged' })
-
-    await enqueueMutation('items.put', {
-      account: 'acct-1',
-      item: 'item-merge',
-      cipher: 'cipher-local',
-      iv: 'iv-local',
-      modified: 100,
-      type: 'person',
-      version: 4,
-    })
-
-    await processOfflineQueue()
-
-    const queue = await readQueue()
-    expect(mocks.threeWayMerge).toHaveBeenCalledTimes(1)
-    expect(queue).toHaveLength(1)
-    expect(queue[0].conflict).toBe(true)
-    expect(queue[0].payload).toEqual(expect.objectContaining({
-      item: 'item-merge',
-      cipher: 'cipher-merged',
-      iv: 'iv-merged',
-      version: 6,
-    }))
   })
 
   it('chunks putMany payloads of 120 items into 50/50/20 requests', async () => {

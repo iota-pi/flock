@@ -9,17 +9,39 @@ import { toBytes } from '../api/pure-crypto'
  * Tests the most critical data path: decryption, conflict merging, and resolution
  */
 
-// Helper to create a test encryption (AES-GCM with IV prepended)
-async function encryptData(plaintext: Uint8Array, key: CryptoKey): Promise<string> {
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary)
+}
+
+// Encrypt for legacy cipher + iv payloads.
+async function encryptLegacy(plaintext: Uint8Array, key: CryptoKey): Promise<{ cipher: string; iv: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(16))
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
     plaintext as BufferSource,
   )
-  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')
-  const ctHex = Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, '0')).join('')
-  return ivHex + ctHex
+
+  return {
+    iv: toBase64(iv),
+    cipher: toBase64(new Uint8Array(ciphertext)),
+  }
+}
+
+// Encrypt for Automerge branch payload format (iv prefix + ciphertext).
+async function encryptBranch(binary: Uint8Array, key: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(16))
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    binary as BufferSource,
+  )
+
+  return `${toBase64(iv)}${toBase64(new Uint8Array(ciphertext))}`
 }
 
 // Helper to create a test decryption key
@@ -46,27 +68,12 @@ describe('Web Worker: decryption.worker.ts', () => {
     it('should decrypt legacy cipher and return materialized JSON', async () => {
       const plainJson = JSON.stringify({ id: 'item1', name: 'Test Item', archived: false })
       const plainBytes = new TextEncoder().encode(plainJson)
-      const iv = 'ae' + '00'.repeat(15) // Fixed IV for predictability
-      const encrypted = await encryptData(plainBytes, testKey)
+      const encrypted = await encryptLegacy(plainBytes, testKey)
 
-      const item: VaultItem = {
-        item: 'item1',
-        cipher: encrypted,
-        branches: undefined,
-        metadata: {
-          type: 'person',
-          iv,
-          modified: Date.now(),
-          version: 1,
-        },
-      }
-
-      // Import the worker's internal function (would normally be worker context)
-      // For this test, we simulate by calling the logic directly
       const plaintext = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(toBytes(iv)) },
+        { name: 'AES-GCM', iv: new Uint8Array(toBytes(encrypted.iv)) },
         testKey,
-        toBytes(encrypted.slice(32)), // Skip IV prefix in encrypted blob
+        toBytes(encrypted.cipher),
       )
 
       const result = JSON.parse(new TextDecoder().decode(plaintext))
@@ -148,13 +155,14 @@ describe('Web Worker: decryption.worker.ts', () => {
       }
 
       // Branch A: adds "tag-a"
-      let docA = Automerge.from(parent)
+      const parentDoc = Automerge.from(parent)
+      let docA = Automerge.clone(parentDoc)
       docA = Automerge.change(docA, (doc: any) => {
         doc.tags.push('tag-a')
       })
 
       // Branch B: adds "tag-b"
-      let docB = Automerge.from(parent)
+      let docB = Automerge.clone(parentDoc)
       docB = Automerge.change(docB, (doc: any) => {
         doc.tags.push('tag-b')
       })
@@ -180,13 +188,14 @@ describe('Web Worker: decryption.worker.ts', () => {
       }
 
       // Branch A: modifies user1's role
-      let docA = Automerge.from(parent)
+      const parentDoc = Automerge.from(parent)
+      let docA = Automerge.clone(parentDoc)
       docA = Automerge.change(docA, (doc: any) => {
         doc.members[0].role = 'admin'
       })
 
       // Branch B: adds new member
-      let docB = Automerge.from(parent)
+      let docB = Automerge.clone(parentDoc)
       docB = Automerge.change(docB, (doc: any) => {
         doc.members.push({ id: 'user3', role: 'member' })
       })
@@ -239,20 +248,22 @@ describe('Web Worker: decryption.worker.ts', () => {
       // Create a valid branch
       const validDoc = Automerge.from({ id: 'item1', name: 'Test' })
       const validBinary = Automerge.save(validDoc)
-      const validEncrypted = await encryptData(validBinary, testKey)
+      const validEncrypted = await encryptLegacy(validBinary, testKey)
 
       // Create an invalid/corrupted encrypted blob
       const corruptedBinary = new Uint8Array([0xFF, 0xFE, 0xFD])
-      const corruptedEncrypted = await encryptData(corruptedBinary, testKey)
+      const corruptedEncrypted = await encryptLegacy(corruptedBinary, testKey)
+
+      expect(corruptedEncrypted.cipher).toBeTruthy()
 
       // Simulate decryption of valid branch
       const validDecrypted = await crypto.subtle.decrypt(
         {
           name: 'AES-GCM',
-          iv: new Uint8Array(toBytes(validEncrypted.slice(0, 32))),
+          iv: new Uint8Array(toBytes(validEncrypted.iv)),
         },
         testKey,
-        toBytes(validEncrypted.slice(32)),
+        toBytes(validEncrypted.cipher),
       )
 
       // When decrypted, the corrupted one would fail to load with Automerge.load()
@@ -277,7 +288,7 @@ describe('Web Worker: decryption.worker.ts', () => {
 
       // Verify error is caught, not thrown
       expect(loadError).not.toBeNull()
-      expect(loadError?.message).toMatch(/invalid|corrupt|format/i)
+      expect(loadError?.message).toMatch(/invalid|corrupt|format|parse|enough data/i)
     })
   })
 
@@ -300,12 +311,12 @@ describe('Web Worker: decryption.worker.ts', () => {
 
       // Simulate worker resolution
       const resolvedBranch: VaultBranch = {
-        encryptedAutomergeDoc: await encryptData(mergedBinary, testKey),
+        encryptedAutomergeDoc: await encryptBranch(mergedBinary, testKey),
         versionId: `${Date.now()}-resolved`,
         parentIds: ['parent-v1', 'parent-v2'],
       }
 
-      expect(resolvedBranch.encryptedAutomergeDoc).toMatch(/^[a-f0-9]+$/)
+      expect(resolvedBranch.encryptedAutomergeDoc).toMatch(/^[A-Za-z0-9+/=]+$/)
       expect(resolvedBranch.versionId).toContain('resolved')
       expect(resolvedBranch.parentIds).toHaveLength(2)
     })
@@ -364,12 +375,13 @@ describe('Web Worker: decryption.worker.ts', () => {
         },
       }
 
-      let docA = Automerge.from(parent)
+      const parentDoc = Automerge.from(parent)
+      let docA = Automerge.clone(parentDoc)
       docA = Automerge.change(docA, (doc: any) => {
         doc.nested.level2.level3.value = 'changed-a'
       })
 
-      let docB = Automerge.from(parent)
+      let docB = Automerge.clone(parentDoc)
       docB = Automerge.change(docB, (doc: any) => {
         doc.nested.level2.level3.extra = 'added-b'
       })

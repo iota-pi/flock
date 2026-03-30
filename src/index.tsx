@@ -21,11 +21,21 @@ const BACKGROUND_SYNC_OR_TIMEOUT_MATCHERS: RegExp[] = [
   /sync-vault/i,
 ]
 
-function toErrorText(event: any): string {
+type SentryEventLike = {
+  message?: string
+  exception?: {
+    values?: Array<{
+      type?: string
+      value?: string
+    }>
+  }
+}
+
+function toErrorText(event: SentryEventLike): string {
   const message = event.message || ''
   const exceptionValues = event.exception?.values || []
   const exceptionText = exceptionValues
-    .map(value => `${value.type || ''} ${value.value || ''}`.trim())
+    .map((value: { type?: string; value?: string }) => `${value.type || ''} ${value.value || ''}`.trim())
     .join(' ')
 
   return `${message} ${exceptionText}`.trim()

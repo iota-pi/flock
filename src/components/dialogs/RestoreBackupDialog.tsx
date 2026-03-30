@@ -18,7 +18,7 @@ import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
-import { threeWayMerge } from '../../utils/merge'
+import { mergeWithAutomerge } from '../../utils/automergeMerge'
 import { diffItems } from 'src/utils/diff'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
 import {
@@ -156,15 +156,14 @@ function RestoreBackupDialog({
     async () => {
       setLoading(true)
       const existingMap = new Map(existingItems.map(item => [item.id, item]))
-      const itemsToImport = importedItems
-        .filter(item => selectedIds.has(item.id))
-        .map(item => {
-          const existing = existingMap.get(item.id)
-          if (!existing) return item
-          const merged = threeWayMerge(null, existing, item)
-          merged.version = Math.max(existing.version, item.version) + 1
-          return merged
-        })
+      const selectedItems = importedItems.filter(item => selectedIds.has(item.id))
+      const itemsToImport = await Promise.all(selectedItems.map(async item => {
+        const existing = existingMap.get(item.id)
+        if (!existing) return item
+        const merged = await mergeWithAutomerge(existing, item)
+        merged.version = Math.max(existing.version, item.version) + 1
+        return merged
+      }))
 
       await onConfirm({
         metadata: restoreSettings ? restoredPayload.metadata : undefined,
