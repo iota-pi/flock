@@ -7,7 +7,6 @@ import {
   TransactionCanceledException,
 } from '@aws-sdk/client-dynamodb'
 import {
-  BatchGetCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -748,16 +747,19 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (ids.length === 0) {
       return []
     }
-    const response = await this.client.send(new BatchGetCommand(
-      {
-        RequestItems: {
-          [ITEM_TABLE_NAME]: {
-            Keys: ids.map(item => ({ account, item })) ?? [],
-          },
-        },
-      },
-    ))
-    return response.Responses?.[ITEM_TABLE_NAME] as VaultItem[] ?? []
+    // Use individual GetCommand calls instead of BatchGetCommand
+    // BatchGetCommand doesn't work properly with DynamoDBDocumentClient
+    const items = await Promise.all(
+      ids.map(id =>
+        this.client.send(
+          new GetCommand({
+            TableName: ITEM_TABLE_NAME,
+            Key: { account, item: id },
+          }),
+        ),
+      ),
+    )
+    return items.filter(item => item.Item).map(item => item.Item as VaultItem)
   }
 
   async fetchAll(

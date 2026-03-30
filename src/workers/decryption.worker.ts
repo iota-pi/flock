@@ -127,18 +127,58 @@ export async function processIncomingItem(
   // Scenario 3: Conflict with multiple branches
   if (envelope.branches && envelope.branches.length > 1) {
     try {
-      const docs = await Promise.all(envelope.branches.map(async branch => {
-        const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
-        return Automerge.load(binary)
-      }))
+      // Phase 1: Decrypt and validate each branch independently
+      const decryptedBranches: Array<{
+        versionId: string
+        doc: Automerge.Doc<unknown>
+        valid: true
+      } | {
+        versionId: string
+        valid: false
+        error: string
+      }> = []
 
-      let mergedDoc = docs[0]
-      for (let index = 1; index < docs.length; index += 1) {
-        mergedDoc = Automerge.merge(mergedDoc, docs[index])
+      for (const branch of envelope.branches) {
+        try {
+          const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
+          const doc = Automerge.load(binary)
+          decryptedBranches.push({
+            versionId: branch.versionId,
+            doc,
+            valid: true,
+          })
+        } catch (decryptError) {
+          console.warn(`Failed to load branch ${branch.versionId}: ${decryptError instanceof Error ? decryptError.message : 'Unknown error'}`)
+          decryptedBranches.push({
+            versionId: branch.versionId,
+            valid: false,
+            error: decryptError instanceof Error ? decryptError.message : 'Decryption failed',
+          })
+        }
       }
 
+      // Phase 2: Extract only valid branches
+      const validBranches = decryptedBranches.filter(
+        (branch): branch is Extract<typeof branch, { valid: true }> => branch.valid === true,
+      )
+
+      // If no valid branches, return null (item is unrecoverable)
+      if (validBranches.length === 0) {
+        console.error(`All ${envelope.branches.length} branches failed to load for item ${envelope.item}`)
+        return { item: null }
+      }
+
+      // Phase 3: Merge all valid branches
+      let mergedDoc = validBranches[0].doc
+      for (let index = 1; index < validBranches.length; index += 1) {
+        mergedDoc = Automerge.merge(mergedDoc, validBranches[index].doc)
+      }
+
+      // Phase 4: Encrypt and create resolution
       const mergedBinary = Automerge.save(mergedDoc)
       const encryptedAutomergeDoc = await encryptAutomergeBinary(mergedBinary, key)
+
+      // Include versionIds of all branches (valid and invalid) for lineage tracking
       const resolvedBranch: VaultBranch = {
         encryptedAutomergeDoc,
         versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -147,6 +187,14 @@ export async function processIncomingItem(
 
       const item = materializeDoc(mergedDoc)
       item.id = envelope.item
+
+      // Flag if any branches were corrupted (for client UI warning)
+      if (decryptedBranches.some(b => !b.valid)) {
+        (item as HydratedItem & { _corruptedBranches?: string[] })._corruptedBranches = decryptedBranches
+          .filter(b => !b.valid)
+          .map(b => b.versionId)
+      }
+
       if (typeof envelope.metadata.version === 'number') {
         item.version = envelope.metadata.version
       }
