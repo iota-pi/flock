@@ -9,10 +9,22 @@ import {
 } from '../api/offlineQueueStore'
 import { processOfflineQueue } from '../api/offlineQueue'
 import { useUiStore } from '../state/uiStore'
+import { queryClient, queryKeys } from '../api/queryClient'
+import { Item } from '../state/items'
+import { getAccountId } from '../api/util'
+import { vaultFetchMany } from '../api/VaultAPI'
+import { trpcClient } from '../api/trpcClient'
+
+const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
+
+async function getVaultModule() {
+  return import('../api/Vault')
+}
 
 export function useOfflineRecovery() {
   const setDlqCount = useUiStore(state => state.setDlqCount)
   const setOfflineQueueLength = useUiStore(state => state.setOfflineQueueLength)
+  const setMessage = useUiStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
 
   const fetchDeadLetterItems = useCallback(async (): Promise<QueuedMutation[]> => {
@@ -63,10 +75,101 @@ export function useOfflineRecovery() {
     await refetchDeadLetterItems()
   }, [refetchDeadLetterItems, setDlqCount])
 
+  const removeManualRecoveryEntry = useCallback(async (itemId: string) => {
+    const dlqItems = await readDeadLetterQueue()
+    const nextDlqItems = dlqItems.filter(item => !(
+      item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
+      && (item.payload as { itemId?: unknown })?.itemId === itemId
+    ))
+    await writeDeadLetterQueue(nextDlqItems)
+    setDlqCount(nextDlqItems.length)
+    await refetchDeadLetterItems()
+  }, [refetchDeadLetterItems, setDlqCount])
+
+  const handleForceOverwriteCorruptedItem = useCallback(async (itemId: string) => {
+    setIsRetrying(itemId)
+    try {
+      const localItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+      const localItem = localItems.find(item => item.id === itemId)
+      if (!localItem) {
+        setMessage({
+          severity: 'error',
+          message: `No local cache found for ${itemId}. Force delete is available instead.`,
+        })
+        return
+      }
+
+      const serverItems = await vaultFetchMany({ ids: [itemId] }).then(response => response.items)
+      const serverItem = serverItems.find(item => item.item === itemId)
+
+      const vault = await getVaultModule()
+      const encrypted = await vault.encryptObjectAsAutomerge(localItem)
+      const resolvedBranch = {
+        encryptedAutomergeDoc: encrypted.encryptedAutomergeDoc,
+        versionId: encrypted.versionId,
+        parentIds: serverItem?.branches?.map(branch => branch.versionId) || [],
+      }
+
+      const account = getAccountId()
+      if (resolvedBranch.parentIds.length > 0) {
+        await trpcClient.items.resolveBranchConflict.mutate({
+          account,
+          resolutions: [{ item: itemId, resolvedBranch }],
+          idempotencyKey: `manual-recovery-overwrite-${itemId}-${Date.now()}`,
+        })
+      } else {
+        await trpcClient.items.put.mutate({
+          account,
+          item: itemId,
+          branches: [resolvedBranch],
+          iv: '',
+          modified: Date.now(),
+          type: localItem.type,
+          deleted: localItem.deleted,
+          idempotencyKey: `manual-recovery-put-${itemId}-${Date.now()}`,
+        })
+      }
+
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      await removeManualRecoveryEntry(itemId)
+      setMessage({ message: `Recovered ${itemId} using local cache.` })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [removeManualRecoveryEntry, setMessage])
+
+  const handleForceDeleteCorruptedItem = useCallback(async (itemId: string) => {
+    setIsRetrying(itemId)
+    try {
+      const serverItems = await vaultFetchMany({ ids: [itemId] }).then(response => response.items)
+      const serverItem = serverItems.find(item => item.item === itemId)
+      const fallbackType = serverItem?.metadata?.type || 'person'
+
+      await trpcClient.items.put.mutate({
+        account: getAccountId(),
+        item: itemId,
+        branches: [],
+        iv: '',
+        modified: Date.now(),
+        type: fallbackType,
+        deleted: true,
+        idempotencyKey: `manual-recovery-delete-${itemId}-${Date.now()}`,
+      })
+
+      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      await removeManualRecoveryEntry(itemId)
+      setMessage({ message: `Deleted corrupted server item ${itemId}.` })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [removeManualRecoveryEntry, setMessage])
+
   return {
     deadLetterItems,
     isRetrying,
     handleRetryDeadLetterMutation,
     handleDiscardDeadLetterMutation,
+    handleForceOverwriteCorruptedItem,
+    handleForceDeleteCorruptedItem,
   }
 }

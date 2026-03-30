@@ -34,6 +34,11 @@ export type ConflictResolution<TData, TBase = TData> = {
 }
 
 type TombstoneItem = Pick<Item, 'id' | 'type' | 'version' | 'deleted'> & { deleted: true }
+type BranchPayload = {
+  encryptedAutomergeDoc: string
+  versionId: string
+  parentIds: string[]
+}
 
 const latestPutVersionByItemId = new Map<string, number>()
 
@@ -230,7 +235,12 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
 }
 
 function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[] {
-  return items.map(item => {
+  const dedupedById = new Map<string, Item>()
+  for (const item of items) {
+    dedupedById.set(item.id, item)
+  }
+
+  return Array.from(dedupedById.values()).map(item => {
     const existing = baseItems.get(item.id)
     const baseVersion = existing?.version
       ?? ((item as Item & { deleted?: boolean }).deleted ? (item.version ?? 0) : 0)
@@ -282,99 +292,79 @@ async function updateCacheOptimistically(items: Item[]) {
   queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticStoreItemsUpdate(old, items))
 }
 
-/**
- * Serializes Item payload for persistence.
- *
- * Strategy:
- * - Deleted items: use empty cipher (backwards compatible tombstone)
- * - Normal writes: keep legacy cipher overwrite semantics
- * - Branch payloads remain supported for conflict-resolution flows
- */
-async function serializeItem(item: Item, vault: typeof import('./Vault')): Promise<{ cipher?: string; iv?: string; branches?: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] }[] }> {
+function getHeadVersionId(item?: VaultItem): string | undefined {
+  return item?.branches?.[0]?.versionId
+}
+
+async function serializeItemAsBranch(
+  item: Item,
+  vault: typeof import('./Vault'),
+  currentServerItem?: VaultItem,
+): Promise<{ branches: BranchPayload[] }> {
   if (item.deleted) {
     return {
-      cipher: '',
-      iv: '',
+      // Tombstones do not require encrypted payload bytes.
+      branches: [],
     }
   }
 
-  // Regular mutation path keeps deterministic legacy overwrite semantics.
-  // Branching is still handled for server-delivered conflict items.
-  const encrypted = await vault.encryptObject(item)
+  const encrypted = await vault.encryptObjectAsAutomerge(item)
+  const headVersionId = getHeadVersionId(currentServerItem)
   return {
-    cipher: encrypted.cipher,
-    iv: encrypted.iv,
+    branches: [{
+      encryptedAutomergeDoc: encrypted.encryptedAutomergeDoc,
+      versionId: encrypted.versionId,
+      parentIds: headVersionId ? [headVersionId] : [],
+    }],
   }
 }
 
 async function saveItemsToVault(items: Item[]) {
   const vault = await getVaultModule()
   const modifiedTime = new Date().getTime()
+  let serverItems: VaultItem[] = []
+  try {
+    const response = await vaultFetchMany({ ids: items.map(item => item.id) })
+    serverItems = response?.items || []
+  } catch {
+    serverItems = []
+  }
+  const serverById = new Map(serverItems.map(item => [item.item, item]))
 
-  const payloadItems = await Promise.all(items.map(item => serializeItem(item, vault)))
+  const payloadItems = await Promise.all(items.map(item => (
+    serializeItemAsBranch(item, vault, serverById.get(item.id))
+  )))
 
   if (items.length === 1) {
     const payload = payloadItems[0]
     const item = items[0]
-
-    if (payload.cipher !== undefined) {
-      // Legacy format
-      await vaultPut({
-        cipher: payload.cipher,
-        item: item.id,
-        metadata: {
-          iv: payload.iv || '',
-          type: item.type,
-          modified: modifiedTime,
-          version: item.version,
-          deleted: item.deleted,
-        },
-      } as any)
-    } else if (payload.branches) {
-      // Branching format
-      await vaultPut({
-        item: item.id,
-        branches: payload.branches,
-        metadata: {
-          iv: '', // Not used in branching format
-          type: item.type,
-          modified: modifiedTime,
-          version: item.version,
-          deleted: item.deleted,
-        },
-      } as any)
-    }
+    await vaultPut({
+      item: item.id,
+      branches: payload.branches,
+      metadata: {
+        iv: '',
+        type: item.type,
+        modified: modifiedTime,
+        version: item.version,
+        deleted: item.deleted,
+      },
+    } as any)
   } else {
     await vaultPutMany({
       items: payloadItems.map((payload, i) => {
         const item = items[i]
 
-        if (payload.cipher !== undefined) {
-          return {
-            account: getAccountId(),
-            cipher: payload.cipher,
-            item: item.id,
-            metadata: {
-              iv: payload.iv || '',
-              type: item.type,
-              modified: modifiedTime,
-              version: item.version,
-              deleted: item.deleted,
-            },
-          }
-        } else {
-          return {
-            account: getAccountId(),
-            item: item.id,
-            branches: payload.branches || [],
-            metadata: {
-              iv: '',
-              type: item.type,
-              modified: modifiedTime,
-              version: item.version,
-              deleted: item.deleted,
-            },
-          }
+        return {
+          account: getAccountId(),
+          item: item.id,
+          branches: payload.branches,
+          metadata: {
+            iv: '',
+            type: item.type,
+            modified: modifiedTime,
+            version: item.version,
+            deleted: item.deleted,
+          },
         }
       }) as any,
     })
@@ -630,7 +620,9 @@ async function buildOfflineMutation<TData>(
   if (sameQueryKey(queryKey, queryKeys.items)) {
     const items = current as unknown as Item[]
     const vault = await getVaultModule()
-    const payloadItems = await Promise.all(items.map(item => serializeItem(item, vault)))
+    const payloadItems = await Promise.all(items.map(item => (
+      serializeItemAsBranch(item, vault)
+    )))
     const modifiedTime = new Date().getTime()
 
     if (items.length === 1) {
@@ -640,9 +632,8 @@ async function buildOfflineMutation<TData>(
         payload: {
           account: getAccountId(),
           item: items[0].id,
-          ...(payload.cipher !== undefined
-            ? { cipher: payload.cipher, iv: payload.iv || '' }
-            : { branches: payload.branches || [] }),
+          branches: payload.branches,
+          iv: '',
           modified: modifiedTime,
           type: items[0].type,
           version: items[0].version,
@@ -657,9 +648,8 @@ async function buildOfflineMutation<TData>(
         account: getAccountId(),
         items: payloadItems.map((payload, i) => ({
           id: items[i].id,
-          ...(payload.cipher !== undefined
-            ? { cipher: payload.cipher, iv: payload.iv || '' }
-            : { branches: payload.branches || [] }),
+          branches: payload.branches,
+          iv: '',
           modified: modifiedTime,
           type: items[i].type,
           version: items[i].version,

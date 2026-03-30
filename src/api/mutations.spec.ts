@@ -21,6 +21,10 @@ vi.mock('./VaultAPI', async importOriginal => {
 // Mock Vault (for encryption/getVaultModule dynamic import resolution)
 vi.mock('./Vault', () => ({
   encryptObject: vi.fn().mockResolvedValue({ cipher: 'cipher', iv: 'iv' }),
+  encryptObjectAsAutomerge: vi.fn().mockResolvedValue({
+    encryptedAutomergeDoc: 'automerge-doc',
+    versionId: 'version-new',
+  }),
   decryptObject: vi.fn(),
 }))
 
@@ -51,6 +55,7 @@ describe('mutations', () => {
         metadata: expect.objectContaining({
           version: 1,
         }),
+        branches: expect.any(Array),
       }))
     })
 
@@ -78,6 +83,7 @@ describe('mutations', () => {
         metadata: expect.objectContaining({
           version: 2,
         }),
+        branches: expect.any(Array),
       }))
     })
 
@@ -101,6 +107,7 @@ describe('mutations', () => {
         metadata: expect.objectContaining({
           version: 1,
         }),
+        branches: expect.any(Array),
       }))
     })
 
@@ -200,7 +207,7 @@ describe('mutations', () => {
       )
 
       await expect(mutateStoreItems({ ...item, description: 'stale-write' })).resolves.toBeDefined()
-      expect(VaultAPI.vaultFetchMany).not.toHaveBeenCalled()
+      expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
       expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
     })
 
@@ -290,11 +297,11 @@ describe('mutations', () => {
       // Verify Item Tombstone save through regular put flow
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        cipher: '',
+        branches: [],
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
-          version: 2,
+          version: 1,
         }),
       }))
     })
@@ -333,7 +340,7 @@ describe('mutations', () => {
       const putManyCall = vi.mocked(VaultAPI.vaultPutMany).mock.calls[0][0]
       const tombstones = putManyCall.items.filter((item: any) => item.metadata?.deleted === true)
       expect(tombstones).toHaveLength(2)
-      expect(tombstones.every((item: any) => item.cipher === '' && item.metadata?.iv === '')).toBe(true)
+      expect(tombstones.every((item: any) => Array.isArray(item.branches) && item.metadata?.iv === '')).toBe(true)
     })
 
     it('soft-deletes without using deprecated delete/deleteMany endpoints', async () => {
@@ -357,7 +364,7 @@ describe('mutations', () => {
       // Verify deletion created a tombstone via put (not using deprecated delete endpoint)
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        cipher: '',
+        branches: [],
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
@@ -386,7 +393,7 @@ describe('mutations', () => {
       // Verify version incremented to 6
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        cipher: '',
+        branches: [],
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,

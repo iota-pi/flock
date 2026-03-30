@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   processOfflineQueue: vi.fn(),
   setDlqCount: vi.fn(),
   setOfflineQueueLength: vi.fn(),
+  setMessage: vi.fn(),
 }))
 
 vi.mock('../api/offlineQueueStore', () => ({
@@ -26,10 +27,11 @@ vi.mock('../api/offlineQueue', () => ({
 }))
 
 vi.mock('../state/uiStore', () => ({
-  useUiStore: (selector: (state: { setDlqCount: typeof mocks.setDlqCount, setOfflineQueueLength: typeof mocks.setOfflineQueueLength }) => unknown) => (
+  useUiStore: (selector: (state: { setDlqCount: typeof mocks.setDlqCount, setOfflineQueueLength: typeof mocks.setOfflineQueueLength, setMessage: typeof mocks.setMessage }) => unknown) => (
     selector({
       setDlqCount: mocks.setDlqCount,
       setOfflineQueueLength: mocks.setOfflineQueueLength,
+      setMessage: mocks.setMessage,
     })
   ),
 }))

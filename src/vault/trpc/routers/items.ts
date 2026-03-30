@@ -72,19 +72,9 @@ export const itemsRouter = router({
     }),
 
   /**
-   * putMany: Handles batch item updates with lineage-aware branch merging
-   *
-   * Condition 1: Clean Fast-Forward
-   *   - Incoming parentIds includes current database versionId
-   *   - Or item is legacy format (cipher overwrite)
-   *   -> Use standard PutItem (overwrite)
-   *
-   * Condition 2: Concurrent Branch (Conflict)
-   *   - Incoming parentIds does NOT include current versionId
-   *   -> Use UpdateItem with list_append to branches array
-   *
-   * Condition 3: Real-Time Broadcast
-   *   - Always broadcast resulting item via WebSocket
+   * putMany writes each item with database-enforced lineage conditions.
+   * Branch writes carry parentIds and are rejected on divergent heads,
+   * while idempotency keys are claimed in DynamoDB to stay serverless-safe.
    */
   putMany: protectedProcedure
     .input(PutItemsBatchBodySchema)

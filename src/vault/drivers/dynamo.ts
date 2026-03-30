@@ -124,8 +124,9 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
         ':expectedParentVersionId': expectedParentVersionId,
       }
     } else {
-      // Root branch writes must not overwrite existing records.
-      params.ConditionExpression = 'attribute_not_exists(#item)'
+      // Genesis writes are allowed for brand-new records and lazy upgrades
+      // from legacy rows that do not yet have branches.
+      params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(#branches)'
     }
   }
 

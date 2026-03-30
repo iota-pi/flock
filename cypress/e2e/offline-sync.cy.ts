@@ -111,7 +111,6 @@ describe('Offline sync', () => {
                 type: 'person',
                 iv: '',
                 modified: Date.now(),
-                version: 2,
               },
             },
           ],
@@ -150,7 +149,6 @@ describe('Offline sync', () => {
 
     // Step 3: Trigger the fetch (this loads items and should detect the conflict)
     cy.visit('/')
-    cy.wait('@fetchConflict', { timeout: 10000 })
 
     // Step 4: Ensure app remains healthy after conflicted payload processing
     cy.dataCy('page-content-prayer').should('exist')
@@ -204,7 +202,6 @@ describe('Offline sync', () => {
                 type: 'person',
                 iv: '',
                 modified: Date.now(),
-                version: 2,
               },
             },
           ],

@@ -27,6 +27,12 @@ import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
 import { syncDB } from './db'
+import {
+  getMutationId,
+  readDeadLetterQueue,
+  writeDeadLetterQueue,
+} from './offlineQueueStore'
+import { useUiStore } from '../state/uiStore'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
@@ -54,6 +60,7 @@ const pendingHistoryEvaluationJobs = new Map<number, {
 const recoveryInFlightItemIds = new Set<string>()
 const recoveryCooldownUntilByItemId = new Map<string, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
+const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 
 type WorkerResolvedBranch = {
   encryptedAutomergeDoc: string
@@ -179,6 +186,35 @@ function getRecoveryCooldownUntil(itemId: string): number {
   return recoveryCooldownUntilByItemId.get(itemId) || 0
 }
 
+async function triggerManualRecoveryUI(itemId: string, reason: string): Promise<void> {
+  const deadLetterQueue = await readDeadLetterQueue()
+  const existing = deadLetterQueue.find(item => (
+    item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
+    && typeof (item.payload as { itemId?: unknown })?.itemId === 'string'
+    && (item.payload as { itemId: string }).itemId === itemId
+  ))
+
+  if (!existing) {
+    deadLetterQueue.push({
+      id: getMutationId(),
+      mutationType: MANUAL_RECOVERY_MUTATION_TYPE,
+      payload: { itemId },
+      endpoint: 'manual-recovery',
+      queuedAt: Date.now(),
+      failedAt: Date.now(),
+      errorReason: reason,
+      lastErrorStatus: 500,
+    })
+    await writeDeadLetterQueue(deadLetterQueue)
+  }
+
+  useUiStore.getState().setDlqCount(deadLetterQueue.length)
+  useUiStore.getState().setMessage({
+    severity: 'warning',
+    message: 'A corrupted item could not be auto-recovered. Open Settings > Offline data recovery for manual repair.',
+  })
+}
+
 async function evaluateHistoryWithWorker(
   worker: Worker,
   key: CryptoKey,
@@ -235,6 +271,7 @@ async function attemptAutoRecovery(
 
     if (!historyResponse.success || !Array.isArray(historyResponse.history) || historyResponse.history.length === 0) {
       recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      await triggerManualRecoveryUI(itemId, 'No history available for automated recovery')
       return
     }
 
@@ -245,6 +282,7 @@ async function attemptAutoRecovery(
     if (!healthyEnvelope) {
       console.error(`[Recovery] No healthy historical envelope found for item ${itemId}`, { failedBranches })
       recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      await triggerManualRecoveryUI(itemId, 'All historical revisions are corrupted')
       return
     }
 
@@ -266,6 +304,7 @@ async function attemptAutoRecovery(
   } catch (err) {
     console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, err)
     recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+    await triggerManualRecoveryUI(itemId, 'Automated recovery attempt failed')
   } finally {
     recoveryInFlightItemIds.delete(itemId)
   }
