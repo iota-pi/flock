@@ -30,7 +30,10 @@ type ResolveQueueConflictWorkerInput = {
 
 type DecryptionWorkerInput = DecryptItemsWorkerInput | EvaluateHistoryWorkerInput | ResolveQueueConflictWorkerInput
 
-type HydratedItem = Record<string, unknown> & { id?: string }
+type HydratedItem = Record<string, unknown> & {
+  id?: string
+  automergeBinary?: Uint8Array
+}
 
 type ConflictResolvedMessage = {
   type: 'CONFLICT_RESOLVED'
@@ -175,22 +178,13 @@ export async function processIncomingItem(
       return { item: parsed }
     }
 
-    // Scenario 2: Upgraded item with one branch
-    if (envelope.branches && envelope.branches.length === 1) {
-      const branch = envelope.branches[0]
-      const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
-      const doc = Automerge.load(binary)
-      const item = materializeDoc(doc)
-      item.id = envelope.item
-      return { item }
-    }
-
-    // Scenario 3: Conflict with multiple branches
-    if (envelope.branches && envelope.branches.length > 1) {
+    // Scenario 2+: Branching format (single or multiple branches)
+    if (envelope.branches && envelope.branches.length > 0) {
       // Phase 1: Decrypt and validate each branch independently
       const decryptedBranches: Array<{
         versionId: string
         doc: Automerge.Doc<unknown>
+        binary: Uint8Array
         valid: true
       } | {
         versionId: string
@@ -204,6 +198,7 @@ export async function processIncomingItem(
           decryptedBranches.push({
             versionId: branch.versionId,
             doc,
+            binary,
             valid: true,
           })
         } catch (decryptError) {
@@ -233,23 +228,30 @@ export async function processIncomingItem(
 
       // Phase 3: Merge all valid branches
       let mergedDoc = validBranches[0].doc
+      let mergedBinary = validBranches[0].binary
       for (let index = 1; index < validBranches.length; index += 1) {
         mergedDoc = Automerge.merge(mergedDoc, validBranches[index].doc)
+        mergedBinary = Automerge.save(mergedDoc)
       }
 
-      // Phase 4: Encrypt and create resolution
-      const mergedBinary = Automerge.save(mergedDoc)
-      const encryptedAutomergeDoc = await encryptAutomergeBinary(mergedBinary, key)
+      // Phase 4: Encrypt and create resolution for multi-branch conflicts.
+      const shouldEmitResolution = envelope.branches.length > 1
+      const encryptedAutomergeDoc = shouldEmitResolution
+        ? await encryptAutomergeBinary(mergedBinary, key)
+        : ''
 
       // Include versionIds of all branches (valid and invalid) for lineage tracking
-      const resolvedBranch: VaultBranch = {
-        encryptedAutomergeDoc,
-        versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        parentIds: envelope.branches.map(branch => branch.versionId),
-      }
+      const resolvedBranch: VaultBranch | undefined = shouldEmitResolution
+        ? {
+          encryptedAutomergeDoc,
+          versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          parentIds: envelope.branches.map(branch => branch.versionId),
+        }
+        : undefined
 
       const item = materializeDoc(mergedDoc)
       item.id = envelope.item
+      item.automergeBinary = mergedBinary
 
       // Flag if any branches were corrupted (for client UI warning)
       if (decryptedBranches.some(b => !b.valid)) {

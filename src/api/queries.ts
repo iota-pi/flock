@@ -41,6 +41,7 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cacheKey: string, item: Item }>()
+const automergeBinaryCache = new Map<string, Uint8Array>()
 const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
 const MAX_DECRYPTION_CACHE_ITEMS = 2000
 let inMemoryLastSyncServerTime: number | null = null
@@ -124,11 +125,16 @@ function resetDecryptionCacheForTests(): void {
   }
   decryptionCacheWriteTimer = null
   decryptionCache.clear()
+  automergeBinaryCache.clear()
   loadedDecryptionCacheAccountId = null
 }
 
 function getDecryptionCacheSnapshotForTests() {
   return new Map(decryptionCache)
+}
+
+export function getCachedAutomergeBinary(itemId: string): Uint8Array | undefined {
+  return automergeBinaryCache.get(itemId)
 }
 
 /**
@@ -320,7 +326,7 @@ function ensureSharedDecryptionWorker(): Worker {
     { type: 'module' },
   )
 
-  worker.onmessage = event => {
+  worker.addEventListener('message', event => {
     const payload = event.data as {
       type?: unknown
       jobId?: unknown
@@ -386,7 +392,7 @@ function ensureSharedDecryptionWorker(): Worker {
     }
 
     pending.resolve(payload.items || [])
-  }
+  })
 
   worker.onerror = event => {
     const error = new Error(event.message || 'Worker decryption failed')
@@ -516,12 +522,20 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
         return null
       }
 
+      const workerItem = item as { automergeBinary?: unknown } & Record<string, unknown>
+      const automergeBinary = workerItem.automergeBinary
+      if (automergeBinary instanceof Uint8Array) {
+        automergeBinaryCache.set(id, automergeBinary)
+      }
+
+      const { automergeBinary: _automergeBinary, ...materialized } = workerItem
+
       const source = sourcesById.get(id)
       if (!source) {
         return null
       }
 
-      const filled = supplyMissingAttributes(item as Item)
+      const filled = supplyMissingAttributes(materialized as unknown as Item)
 
       // Generate cache key based on format
       const cacheKey = source.cipher || (source.branches ? `branches-${source.branches[0]?.versionId}` : '')

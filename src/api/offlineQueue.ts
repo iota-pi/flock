@@ -194,46 +194,124 @@ async function mergeConflictBranchesInWorker(
 }
 
 async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType !== 'items.put') {
+  if (mutation.mutationType !== 'items.put' && mutation.mutationType !== 'items.putMany') {
     return null
   }
 
-  const payload = mutation.payload as {
+  if (mutation.mutationType === 'items.put') {
+    const payload = mutation.payload as {
+      account?: string
+      item?: string
+      branches?: Array<ResolvedBranch>
+      modified?: number
+      type?: Item['type']
+      deleted?: boolean
+    }
+
+    if (!payload.item || !Array.isArray(payload.branches) || payload.branches.length === 0) {
+      return null
+    }
+
+    const serverResult = await vaultFetchMany({ ids: [payload.item] })
+    const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
+    if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
+      return null
+    }
+
+    const resolvedBranch = await mergeConflictBranchesInWorker(
+      payload.item,
+      payload.branches,
+      serverEnvelope.branches,
+    )
+
+    return {
+      ...mutation,
+      mutationType: 'items.resolveBranchConflict',
+      payload: {
+        account: payload.account,
+        resolutions: [
+          {
+            item: payload.item,
+            resolvedBranch,
+          },
+        ],
+      },
+      conflict: true,
+      lastConflictAt: Date.now(),
+      attemptCount: (mutation.attemptCount || 0) + 1,
+      nextAttemptAt: Date.now() + 500,
+    }
+  }
+
+  const batchPayload = mutation.payload as {
     account?: string
-    item?: string
-    branches?: Array<ResolvedBranch>
-    modified?: number
-    type?: Item['type']
-    deleted?: boolean
+    items?: Array<{
+      id?: string
+      branches?: Array<ResolvedBranch>
+      type?: Item['type']
+      deleted?: boolean
+    }>
   }
 
-  if (!payload.item || !Array.isArray(payload.branches) || payload.branches.length === 0) {
+  if (!batchPayload.account || !Array.isArray(batchPayload.items) || batchPayload.items.length === 0) {
     return null
   }
 
-  const serverResult = await vaultFetchMany({ ids: [payload.item] })
-  const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
-  if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
+  const itemIds = batchPayload.items
+    .map(item => item.id)
+    .filter((id): id is string => typeof id === 'string')
+  if (itemIds.length === 0) {
     return null
   }
 
-  const resolvedBranch = await mergeConflictBranchesInWorker(
-    payload.item,
-    payload.branches,
-    serverEnvelope.branches,
-  )
+  const serverResult = await vaultFetchMany({ ids: itemIds })
+  const serverById = new Map(serverResult.items.map(item => [item.item, item]))
+
+  const divergent = batchPayload.items.filter(item => {
+    if (!item.id || !Array.isArray(item.branches) || item.branches.length === 0) {
+      return false
+    }
+    const serverEnvelope = serverById.get(item.id)
+    const serverHead = serverEnvelope?.branches?.[0]?.versionId
+    if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
+      return false
+    }
+
+    if (!serverHead) {
+      return true
+    }
+
+    if (serverEnvelope.branches.length > 1) {
+      return true
+    }
+
+    return !item.branches[0].parentIds.includes(serverHead)
+  })
+
+  if (divergent.length === 0) {
+    return null
+  }
+
+  const resolutions = await Promise.all(divergent.map(async item => {
+    const serverBranches = serverById.get(item.id as string)?.branches || []
+    const resolvedBranch = await mergeConflictBranchesInWorker(
+      item.id as string,
+      item.branches as ResolvedBranch[],
+      serverBranches as ResolvedBranch[],
+    )
+
+    return {
+      item: item.id as string,
+      resolvedBranch,
+    }
+  }))
 
   return {
     ...mutation,
     mutationType: 'items.resolveBranchConflict',
     payload: {
-      account: payload.account,
-      resolutions: [
-        {
-          item: payload.item,
-          resolvedBranch,
-        },
-      ],
+      account: batchPayload.account,
+      resolutions,
     },
     conflict: true,
     lastConflictAt: Date.now(),

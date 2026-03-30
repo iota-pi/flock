@@ -15,8 +15,9 @@ import {
   VaultVersionConflictError,
   type VaultItem,
 } from './VaultAPI'
+import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
-import { fetchItems, decryptVaultItems, fetchMetadata } from './queries'
+import { fetchItems, fetchMetadata, getCachedAutomergeBinary } from './queries'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
@@ -40,43 +41,8 @@ type BranchPayload = {
   parentIds: string[]
 }
 
-const latestPutVersionByItemId = new Map<string, number>()
-
 function isVersionConflictErrorMessage(message: string): boolean {
   return message.includes('Version conflict')
-}
-
-function isStaleConflict(itemId: string, localVersion?: number): boolean {
-  const latestVersion = latestPutVersionByItemId.get(itemId)
-  if (latestVersion === undefined || localVersion === undefined) {
-    return false
-  }
-  return localVersion <= latestVersion
-}
-
-function stripComparisonMetadata(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stripComparisonMetadata)
-  }
-
-  if (!value || typeof value !== 'object') {
-    return value
-  }
-
-  const metadataKeys = new Set(['version', 'modified', 'dirty', 'isNew'])
-  const input = value as Record<string, unknown>
-  const result: Record<string, unknown> = {}
-  for (const [key, nestedValue] of Object.entries(input)) {
-    if (metadataKeys.has(key)) {
-      continue
-    }
-    result[key] = stripComparisonMetadata(nestedValue)
-  }
-  return result
-}
-
-function areItemsEquivalentIgnoringMetadata(left: Item, right: Item): boolean {
-  return JSON.stringify(stripComparisonMetadata(left)) === JSON.stringify(stripComparisonMetadata(right))
 }
 
 function extractConflictIdsFromError(err: Error): string[] {
@@ -308,15 +274,107 @@ async function serializeItemAsBranch(
     }
   }
 
-  const encrypted = await vault.encryptObjectAsAutomerge(item)
+  const cachedBinary = getCachedAutomergeBinary(item.id)
+  let encryptedAutomergeDoc: string
+  let versionId: string
+
+  if (cachedBinary) {
+    const Automerge = await import('@automerge/automerge')
+    let doc = Automerge.load(cachedBinary)
+    doc = Automerge.change(doc, draft => {
+      for (const key of Object.keys(draft as Record<string, unknown>)) {
+        delete (draft as Record<string, unknown>)[key]
+      }
+      Object.assign(draft as Record<string, unknown>, item as unknown as Record<string, unknown>)
+    })
+
+    const binary = Automerge.save(doc)
+    const iv = crypto.getRandomValues(new Uint8Array(16))
+    const cipher = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      vault.getVaultKey(),
+      binary as BufferSource,
+    )
+
+    const ivHex = Array.from(iv).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    const ctHex = Array.from(new Uint8Array(cipher)).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    encryptedAutomergeDoc = ivHex + ctHex
+    versionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  } else {
+    const encrypted = await vault.encryptObjectAsAutomerge(item)
+    encryptedAutomergeDoc = encrypted.encryptedAutomergeDoc
+    versionId = encrypted.versionId
+  }
+
   const headVersionId = getHeadVersionId(currentServerItem)
   return {
     branches: [{
-      encryptedAutomergeDoc: encrypted.encryptedAutomergeDoc,
-      versionId: encrypted.versionId,
+      encryptedAutomergeDoc,
+      versionId,
       parentIds: headVersionId ? [headVersionId] : [],
     }],
   }
+}
+
+async function mergeConflictBranchesInWorker(
+  itemId: string,
+  localBranches: BranchPayload[],
+  serverBranches: BranchPayload[],
+): Promise<BranchPayload> {
+  if (typeof Worker === 'undefined') {
+    const parentIds = Array.from(new Set([
+      ...localBranches.map(branch => branch.versionId),
+      ...serverBranches.map(branch => branch.versionId),
+    ]))
+
+    return {
+      ...localBranches[0],
+      versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      parentIds,
+    }
+  }
+
+  const key = (await getVaultModule()).getVaultKey()
+  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+
+  const jobId = Date.now() + Math.floor(Math.random() * 1000)
+
+  return new Promise<BranchPayload>((resolve, reject) => {
+    worker.onmessage = event => {
+      const payload = event.data as {
+        type?: string
+        jobId?: number
+        itemId?: string
+        resolvedBranch?: BranchPayload
+      }
+
+      if (
+        payload.type === 'QUEUE_CONFLICT_RESOLVED'
+        && payload.jobId === jobId
+        && payload.itemId === itemId
+        && payload.resolvedBranch
+      ) {
+        worker.terminate()
+        resolve(payload.resolvedBranch)
+      }
+    }
+
+    worker.onerror = error => {
+      worker.terminate()
+      reject(error)
+    }
+
+    worker.postMessage({
+      type: 'RESOLVE_QUEUE_CONFLICT',
+      jobId,
+      key,
+      itemId,
+      localBranches,
+      serverBranches,
+    })
+  })
 }
 
 async function saveItemsToVault(items: Item[]) {
@@ -370,11 +428,6 @@ async function saveItemsToVault(items: Item[]) {
     })
   }
 
-  for (const item of items) {
-    if (typeof item.version === 'number') {
-      latestPutVersionByItemId.set(item.id, item.version)
-    }
-  }
 }
 
 async function handleItemsConflict(
@@ -382,107 +435,66 @@ async function handleItemsConflict(
   currentItems: Item[],
   baseItems: Map<string, Item>,
 ): Promise<ConflictResolution<Item[], Map<string, Item>>> {
-  const nextBase = new Map(baseItems)
-  const nextItems = [...currentItems]
-  let conflictIds: string[] = []
-
-  const errorMessage = err.message || ''
-  if (currentItems.length === 1 && isVersionConflictErrorMessage(errorMessage)) {
-    const current = currentItems[0]
-    if (isStaleConflict(current.id, current.version)) {
-      const latestVersion = latestPutVersionByItemId.get(current.id)
-      if (latestVersion !== undefined) {
-        nextItems[0] = { ...current, version: latestVersion }
-      }
-      return {
-        next: nextItems,
-        base: nextBase,
-        skipSave: true,
-      }
-    }
-
-    conflictIds = [current.id]
-  }
-  else {
-    const extractedConflictIds = extractConflictIdsFromError(err)
-    if (extractedConflictIds.length === 0) {
-      throw err
-    }
-
-    for (const conflictId of extractedConflictIds) {
-      const local = currentItems.find(item => item.id === conflictId)
-      if (local && isStaleConflict(local.id, local.version)) {
-        const latestVersion = latestPutVersionByItemId.get(local.id)
-        if (latestVersion !== undefined) {
-          const index = nextItems.findIndex(item => item.id === local.id)
-          if (index >= 0) {
-            nextItems[index] = { ...nextItems[index], version: latestVersion }
-          }
-        }
-        continue
-      }
-
-      conflictIds.push(conflictId)
-    }
-
-    if (conflictIds.length === 0) {
-      return {
-        next: nextItems,
-        base: nextBase,
-        skipSave: true,
-      }
-    }
-  }
+  const extractedConflictIds = extractConflictIdsFromError(err)
+  const conflictIds = extractedConflictIds.length > 0
+    ? extractedConflictIds
+    : (currentItems.length === 1 && isVersionConflictErrorMessage(err.message || '')
+      ? [currentItems[0].id]
+      : [])
 
   if (conflictIds.length === 0) {
     throw err
   }
 
-  const serverEncrypted = (await vaultFetchMany({ ids: conflictIds })).items
-  const serverDecrypted = await decryptVaultItems(serverEncrypted as VaultItem[])
-  let hasMeaningfulDifference = false
+  const account = getAccountId()
+  const vaultModule = await getVaultModule()
+  const serverItems = await vaultFetchMany({ ids: conflictIds }).then(result => result.items)
+  const serverById = new Map(serverItems.map(item => [item.item, item]))
 
-  for (const theirs of serverDecrypted) {
-    const id = theirs.id
-    const base = nextBase.get(id) || theirs
-    const yours = nextItems.find(i => i.id === id)
-
-    if (!yours) continue
-
-    const equivalent = areItemsEquivalentIgnoringMetadata(theirs, yours)
-
-    if (equivalent) {
-      const idx = nextItems.findIndex(i => i.id === id)
-      if (idx >= 0) {
-        // Keep server version so future writes can continue from latest state.
-        nextItems[idx] = { ...yours, version: theirs.version }
-      }
-      nextBase.set(id, theirs)
-      continue
+  const resolutions = await Promise.all(conflictIds.map(async conflictId => {
+    const localItem = currentItems.find(item => item.id === conflictId)
+    const serverEnvelope = serverById.get(conflictId)
+    if (!localItem || !serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
+      return null
     }
 
-    hasMeaningfulDifference = true
+    const localPayload = await serializeItemAsBranch(localItem, vaultModule, serverEnvelope)
+    if (!localPayload.branches || localPayload.branches.length === 0) {
+      return null
+    }
 
-    const merged = await mergeFromBaseWithAutomerge(base, theirs, yours) as Item
-    merged.version = (theirs.version || 0) + 1
+    const resolvedBranch = await mergeConflictBranchesInWorker(
+      conflictId,
+      localPayload.branches,
+      serverEnvelope.branches,
+    )
 
-    const idx = nextItems.findIndex(i => i.id === id)
-    if (idx >= 0) nextItems[idx] = merged
-
-    nextBase.set(id, theirs)
-  }
-
-  if (!hasMeaningfulDifference) {
     return {
-      next: nextItems,
-      base: nextBase,
-      skipSave: true,
+      item: conflictId,
+      resolvedBranch,
     }
+  }))
+
+  const filteredResolutions = resolutions.filter(
+    (resolution): resolution is { item: string; resolvedBranch: BranchPayload } => !!resolution,
+  )
+
+  if (filteredResolutions.length === 0) {
+    throw err
   }
+
+  await trpcClient.items.resolveBranchConflict.mutate({
+    account,
+    idempotencyKey: typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    resolutions: filteredResolutions,
+  })
 
   return {
-    next: nextItems,
-    base: nextBase,
+    next: currentItems,
+    base: new Map(baseItems),
+    skipSave: true,
   }
 }
 
