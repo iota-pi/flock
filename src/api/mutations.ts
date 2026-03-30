@@ -634,17 +634,19 @@ async function buildOfflineMutation<TData>(
   if (sameQueryKey(queryKey, queryKeys.items)) {
     const items = current as unknown as Item[]
     const vault = await getVaultModule()
-    const encrypted = await Promise.all(items.map(item => vault.encryptObject(item)))
+    const payloadItems = await Promise.all(items.map(item => serializeItem(item, vault)))
     const modifiedTime = new Date().getTime()
 
     if (items.length === 1) {
+      const payload = payloadItems[0]
       return {
         mutationType: 'items.put',
         payload: {
           account: getAccountId(),
           item: items[0].id,
-          cipher: encrypted[0].cipher,
-          iv: encrypted[0].iv,
+          ...(payload.cipher !== undefined
+            ? { cipher: payload.cipher, iv: payload.iv || '' }
+            : { branches: payload.branches || [] }),
           modified: modifiedTime,
           type: items[0].type,
           version: items[0].version,
@@ -657,10 +659,11 @@ async function buildOfflineMutation<TData>(
       mutationType: 'items.putMany',
       payload: {
         account: getAccountId(),
-        items: encrypted.map(({ cipher, iv }, i) => ({
+        items: payloadItems.map((payload, i) => ({
           id: items[i].id,
-          cipher,
-          iv,
+          ...(payload.cipher !== undefined
+            ? { cipher: payload.cipher, iv: payload.iv || '' }
+            : { branches: payload.branches || [] }),
           modified: modifiedTime,
           type: items[i].type,
           version: items[i].version,

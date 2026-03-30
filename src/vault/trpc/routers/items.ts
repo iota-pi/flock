@@ -46,24 +46,27 @@ function markIdempotencyKeyProcessed(idempotencyKey?: string): void {
  */
 function isCleanFastForward(
   incomingItem: { branches?: VaultBranch[]; cipher?: string },
-  currentVersion?: number,
+  currentItem?: { branches?: VaultBranch[]; cipher?: string },
 ): boolean {
   // Legacy items always fast-forward (cipher overwrite)
   if (incomingItem.cipher && !incomingItem.branches) {
     return true
   }
 
-  // For branching format, check if parentIds matches current versionId
-  // If incoming is the first version ever or matches current lineage, it's a fast-forward
+  // For branching format, ensure the incoming branch descends from the
+  // current server branch head.
   if (incomingItem.branches && incomingItem.branches.length === 1) {
     const branch = incomingItem.branches[0]
-    // First write (no current version) or parent is current head
-    if (currentVersion === undefined || currentVersion === 0) {
+    if (!currentItem) {
       return true
     }
-    // In a real implementation, would check if parentIds includes current versionId
-    // For now, treat single-branch as fast-forward
-    return true
+
+    const currentHeadVersionId = currentItem.branches?.[0]?.versionId
+    if (!currentHeadVersionId) {
+      return true
+    }
+
+    return branch.parentIds.includes(currentHeadVersionId)
   }
 
   return false
@@ -136,7 +139,7 @@ export const itemsRouter = router({
         const currentItem = currentVersionsById.get(id)
 
         // Determine if this is a fast-forward or a concurrent branch
-        const fastForward = isCleanFastForward(incomingItem, currentItem?.metadata?.version)
+        const fastForward = isCleanFastForward(incomingItem, currentItem)
 
         if (incomingItem.cipher) {
           // Legacy format: always overwrite

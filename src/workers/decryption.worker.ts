@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import * as Automerge from '@automerge/automerge'
 import type { VaultItem } from '../api/VaultAPI'
+import type { VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/pure-crypto'
 
 type DecryptionWorkerInput = {
@@ -9,167 +10,61 @@ type DecryptionWorkerInput = {
   items: VaultItem[]
 }
 
-type HydratedItem = Record<string, unknown> & { version?: number }
+type HydratedItem = Record<string, unknown> & { id?: string; version?: number }
+
+type ConflictResolvedMessage = {
+  type: 'CONFLICT_RESOLVED'
+  jobId?: number
+  itemId: string
+  resolvedBranch: VaultBranch
+}
+
+type DecryptionResultMessage = {
+  type: 'DECRYPTION_RESULT'
+  jobId?: number
+  items: HydratedItem[]
+}
 
 declare const self: DedicatedWorkerGlobalScope
 
-/**
- * Scenario A: Legacy Item
- * Decrypt cipher and return plain JSON
- */
-async function decryptLegacyItem(
-  item: VaultItem,
+async function decryptLegacyCipher(
+  cipher: string,
+  iv: string,
   key: CryptoKey,
-): Promise<HydratedItem | null> {
-  const cipher = item.cipher
-  const iv = item.metadata?.iv
-  if (!cipher || !iv) {
-    return null
-  }
+): Promise<string> {
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: new Uint8Array(toBytes(iv)),
+    },
+    key,
+    toBytes(cipher),
+  )
 
-  try {
-    const plaintext = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: new Uint8Array(toBytes(iv)),
-      },
-      key,
-      toBytes(cipher),
-    )
-
-    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as HydratedItem
-    if (typeof item.metadata?.version === 'number') {
-      parsed.version = item.metadata.version
-    }
-    return parsed
-  } catch (e) {
-    console.error('Failed to decrypt legacy item', e)
-    return null
-  }
+  return new TextDecoder().decode(plaintext)
 }
 
-/**
- * Decrypt an Automerge document from encrypted binary
- */
-async function decryptAutomergeDoc(
-  encryptedDoc: string, // Base64-encoded
+async function decryptAutomergeBinary(
+  encryptedDoc: string,
   key: CryptoKey,
-): Promise<Uint8Array | null> {
-  try {
-    const plaintext = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: new Uint8Array(toBytes(encryptedDoc.slice(0, 32))), // IV is first 16 bytes (32 hex chars)
-      },
-      key,
-      toBytes(encryptedDoc.slice(32)), // Ciphertext is remainder
-    )
-    return new Uint8Array(plaintext)
-  } catch (e) {
-    console.error('Failed to decrypt Automerge doc', e)
-    return null
-  }
+): Promise<Uint8Array> {
+  const iv = new Uint8Array(toBytes(encryptedDoc.slice(0, 32)))
+  const ciphertext = toBytes(encryptedDoc.slice(32))
+
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv,
+    },
+    key,
+    ciphertext,
+  )
+
+  return new Uint8Array(plaintext)
 }
 
-/**
- * Scenario B: Upgraded Item with 1 Branch
- * Decrypt and load Automerge document
- */
-async function decryptSingleBranch(
-  item: VaultItem,
-  key: CryptoKey,
-): Promise<HydratedItem | null> {
-  if (!item.branches || item.branches.length !== 1) {
-    return null
-  }
-
-  const branch = item.branches[0]
-  const decryptedBinary = await decryptAutomergeDoc(branch.encryptedAutomergeDoc, key)
-  if (!decryptedBinary) {
-    return null
-  }
-
-  try {
-    const doc = Automerge.load(decryptedBinary)
-    const materialized = Automerge.toJS(doc) as HydratedItem
-    if (typeof item.metadata?.version === 'number') {
-      materialized.version = item.metadata.version
-    }
-    return materialized
-  } catch (e) {
-    console.error('Failed to load Automerge doc', e)
-    return null
-  }
-}
-
-/**
- * Scenario C: Conflict! (branches.length > 1)
- * Decrypt, merge, and return merged result
- * Also triggers background resolution push
- */
-async function decryptAndMergeMultipleBranches(
-  item: VaultItem,
-  key: CryptoKey,
-): Promise<{ merged: HydratedItem; resolutionBranch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } } | null> {
-  if (!item.branches || item.branches.length <= 1) {
-    return null
-  }
-
-  const decryptedDocs: Uint8Array[] = []
-  const versionIds: string[] = []
-
-  for (const branch of item.branches) {
-    const decrypted = await decryptAutomergeDoc(branch.encryptedAutomergeDoc, key)
-    if (!decrypted) {
-      console.error('Failed to decrypt a branch, aborting merge')
-      return null
-    }
-    decryptedDocs.push(decrypted)
-    versionIds.push(branch.versionId)
-  }
-
-  try {
-    // Load all documents
-    const docs = decryptedDocs.map(binary => Automerge.load(binary))
-
-    // Merge deterministically: merge all into first
-    let merged = docs[0]
-    for (let i = 1; i < docs.length; i++) {
-      merged = Automerge.merge(merged, docs[i])
-    }
-
-    // Materialize to JSON
-    const materialized = Automerge.toJS(merged) as HydratedItem
-    if (typeof item.metadata?.version === 'number') {
-      materialized.version = item.metadata.version
-    }
-
-    // Save and encrypt the merged document for background resolution
-    const mergedBinary = Automerge.save(merged)
-    const encryptedResolution = await encryptAutomergeDoc(mergedBinary, key)
-
-    // Generate new versionId (use timestamp + random suffix)
-    const newVersionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-    return {
-      merged: materialized,
-      resolutionBranch: {
-        encryptedAutomergeDoc: encryptedResolution,
-        versionId: newVersionId,
-        parentIds: versionIds,
-      },
-    }
-  } catch (e) {
-    console.error('Failed to merge Automerge docs', e)
-    return null
-  }
-}
-
-/**
- * Encrypt Automerge binary document
- */
-async function encryptAutomergeDoc(
-  doc: Uint8Array,
+async function encryptAutomergeBinary(
+  binary: Uint8Array,
   key: CryptoKey,
 ): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(16))
@@ -179,57 +74,128 @@ async function encryptAutomergeDoc(
       iv,
     },
     key,
-    doc as BufferSource,
+    binary as BufferSource,
   )
-  // Concatenate IV + ciphertext as hex string
-  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')
-  const ctHex = Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, '0')).join('')
+
+  const ivHex = Array.from(iv).map(byte => byte.toString(16).padStart(2, '0')).join('')
+  const ctHex = Array.from(new Uint8Array(ciphertext)).map(byte => byte.toString(16).padStart(2, '0')).join('')
   return ivHex + ctHex
+}
+
+function materializeDoc(doc: Automerge.Doc<unknown>): HydratedItem {
+  return Automerge.toJS(doc) as HydratedItem
+}
+
+export async function processIncomingItem(
+  envelope: VaultItem,
+  key: CryptoKey,
+): Promise<{ item: HydratedItem | null; resolvedBranch?: VaultBranch }> {
+  // Scenario 1: Legacy item
+  if (envelope.cipher && !envelope.branches) {
+    try {
+      const plainJson = await decryptLegacyCipher(envelope.cipher, envelope.metadata.iv, key)
+      const parsed = JSON.parse(plainJson) as HydratedItem
+      parsed.id = envelope.item
+      if (typeof envelope.metadata.version === 'number') {
+        parsed.version = envelope.metadata.version
+      }
+      return { item: parsed }
+    } catch (error) {
+      console.error('Failed to decrypt legacy item', error)
+      return { item: null }
+    }
+  }
+
+  // Scenario 2: Upgraded item with one branch
+  if (envelope.branches && envelope.branches.length === 1) {
+    try {
+      const branch = envelope.branches[0]
+      const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
+      const doc = Automerge.load(binary)
+      const item = materializeDoc(doc)
+      item.id = envelope.item
+      if (typeof envelope.metadata.version === 'number') {
+        item.version = envelope.metadata.version
+      }
+      return { item }
+    } catch (error) {
+      console.error('Failed to decrypt single Automerge branch', error)
+      return { item: null }
+    }
+  }
+
+  // Scenario 3: Conflict with multiple branches
+  if (envelope.branches && envelope.branches.length > 1) {
+    try {
+      const docs = await Promise.all(envelope.branches.map(async branch => {
+        const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
+        return Automerge.load(binary)
+      }))
+
+      let mergedDoc = docs[0]
+      for (let index = 1; index < docs.length; index += 1) {
+        mergedDoc = Automerge.merge(mergedDoc, docs[index])
+      }
+
+      const mergedBinary = Automerge.save(mergedDoc)
+      const encryptedAutomergeDoc = await encryptAutomergeBinary(mergedBinary, key)
+      const resolvedBranch: VaultBranch = {
+        encryptedAutomergeDoc,
+        versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        parentIds: envelope.branches.map(branch => branch.versionId),
+      }
+
+      const item = materializeDoc(mergedDoc)
+      item.id = envelope.item
+      if (typeof envelope.metadata.version === 'number') {
+        item.version = envelope.metadata.version
+      }
+
+      return { item, resolvedBranch }
+    } catch (error) {
+      console.error('Failed to merge conflicted Automerge branches', error)
+      return { item: null }
+    }
+  }
+
+  return { item: null }
 }
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
   const { jobId, key, items } = event.data
   const decryptedItems: HydratedItem[] = []
-  const resolutionItems: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }> = []
 
-  for (const item of items) {
-    if (item.metadata?.deleted === true) {
-      decryptedItems.push(item as unknown as HydratedItem)
+  for (const envelope of items) {
+    if (envelope.metadata?.deleted === true) {
+      decryptedItems.push({
+        id: envelope.item,
+        version: envelope.metadata?.version,
+      })
       continue
     }
 
-    // Scenario A: Legacy Item
-    if (item.cipher && !item.branches) {
-      const decrypted = await decryptLegacyItem(item, key)
-      if (decrypted) {
-        decryptedItems.push(decrypted)
-      }
+    const result = await processIncomingItem(envelope, key)
+    if (!result.item) {
       continue
     }
 
-    // Scenario B: Single Branch (Upgraded Item)
-    if (item.branches && item.branches.length === 1) {
-      const decrypted = await decryptSingleBranch(item, key)
-      if (decrypted) {
-        decryptedItems.push(decrypted)
-      }
-      continue
-    }
+    decryptedItems.push(result.item)
 
-    // Scenario C: Multiple Branches (Conflict)
-    if (item.branches && item.branches.length > 1) {
-      const result = await decryptAndMergeMultipleBranches(item, key)
-      if (result) {
-        decryptedItems.push(result.merged)
-        // Queue for background resolution
-        resolutionItems.push({
-          itemId: item.item,
-          branch: result.resolutionBranch,
-        })
+    if (result.resolvedBranch) {
+      const conflictMessage: ConflictResolvedMessage = {
+        type: 'CONFLICT_RESOLVED',
+        jobId,
+        itemId: envelope.item,
+        resolvedBranch: result.resolvedBranch,
       }
-      continue
+      self.postMessage(conflictMessage)
     }
   }
 
-  self.postMessage({ jobId, items: decryptedItems, resolutionItems })
+  const resultMessage: DecryptionResultMessage = {
+    type: 'DECRYPTION_RESULT',
+    jobId,
+    items: decryptedItems,
+  }
+  self.postMessage(resultMessage)
 }

@@ -174,10 +174,27 @@ function ensureSharedDecryptionWorker(): Worker {
 
   worker.onmessage = event => {
     const payload = event.data as {
+      type?: unknown
       jobId?: unknown
       items?: object[]
+      itemId?: unknown
+      resolvedBranch?: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] }
       resolutionItems?: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>
     }
+
+    if (payload.type === 'CONFLICT_RESOLVED') {
+      if (typeof payload.itemId === 'string' && payload.resolvedBranch) {
+        queueConflictResolutions([{ itemId: payload.itemId, branch: payload.resolvedBranch }]).catch(err => {
+          console.error('Failed to queue conflict resolution', err)
+        })
+      }
+      return
+    }
+
+    if (payload.type !== 'DECRYPTION_RESULT' && payload.type !== undefined) {
+      return
+    }
+
     const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
     const pending = pendingDecryptionJobs.get(jobId)
     if (!pending) {
@@ -186,10 +203,8 @@ function ensureSharedDecryptionWorker(): Worker {
 
     pendingDecryptionJobs.delete(jobId)
 
-    // Store resolution items for background sync if present
+    // Backward compatibility for older worker payloads.
     if (payload.resolutionItems && payload.resolutionItems.length > 0) {
-      // Queue these for background resolution push to server
-      // This prevents multiple branches from persisting on the server
       queueConflictResolutions(payload.resolutionItems).catch(err => {
         console.error('Failed to queue conflict resolutions', err)
       })

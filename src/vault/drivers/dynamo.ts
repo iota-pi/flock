@@ -47,6 +47,10 @@ export const MAX_TRANSACTION_BYTES = 3_500_000
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
+type WritableVaultItem = VaultItem & {
+  _fastForward?: boolean
+}
+
 export class TransactionConflictsError extends Error {
   conflictedIds: string[]
 
@@ -538,41 +542,28 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   /**
-   * setMany: Batch set items with support for both legacy cipher and branching formats
+   * setMany: batch set with branch appending support
    *
-   * Phase 2: Lineage-aware branch appending
-   *
-   * Logic:
-   * 1. For each incoming item, check if it has branches
-   * 2. If branches exist AND parentIds don't match current head → append branches
-   * 3. If no branches OR fast-forward lineage → full overwrite (PutItem)
-   * 4. Uses TransactWrite for atomicity across batch
+   * If _fastForward is explicitly false and branches are present, append incoming
+   * branches to current branches using list_append. Otherwise perform a put/overwrite.
    */
   async setMany(items: VaultItem[]): Promise<void> {
     if (items.length === 0) {
       return
     }
 
-    // Fetch current versions to check lineage
-    const currentItems = await this.fetchMany({
-      account: items[0].account,
-      ids: items.map(i => i.item),
-    }).catch(() => [] as VaultItem[])
-
-    const currentByItemId = new Map(currentItems.map(i => [i.item, i]))
-
-    // Determine which items need branch append vs full overwrite
     const transactItems: Array<any> = []
 
-    for (const item of items) {
-      const current = currentByItemId.get(item.item)
-      const shouldAppendBranches = this._shouldAppendBranches(item, current)
+    for (const rawItem of items) {
+      const item = rawItem as WritableVaultItem
+      const shouldAppendBranches = item._fastForward === false && !!item.branches && item.branches.length > 0
+      const itemToPersist = this._stripTransientFields(item)
 
       if (shouldAppendBranches) {
-        const updateParams = this._getItemAppendBranchesParams(item)
+        const updateParams = this._getItemAppendBranchesParams(itemToPersist)
         transactItems.push({ Update: updateParams })
       } else {
-        const putParams = getItemPutParams(item)
+        const putParams = getItemPutParams(itemToPersist)
         transactItems.push({ Put: putParams })
       }
     }
@@ -619,29 +610,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  /**
-   * Check if incoming item represents a conflict that should append branches
-   * Returns true if:
-   * - Item has branches
-   * - AND parentIds don't match current item's versionId
-   */
-  private _shouldAppendBranches(incoming: VaultItem, current: VaultItem | undefined): boolean {
-    if (!incoming.branches || incoming.branches.length === 0) {
-      return false
-    }
-
-    // First write ever, no append needed
-    if (!current) {
-      return false
-    }
-
-    // Check if parentIds includes current versionId
-    const currentVersionId = current.metadata?.version?.toString()
-    if (!currentVersionId) {
-      return false
-    }
-
-    return !incoming.branches.some(b => b.parentIds.includes(currentVersionId))
+  private _stripTransientFields(item: WritableVaultItem): VaultItem {
+    const persisted = { ...item }
+    delete persisted._fastForward
+    return persisted
   }
 
   /**
@@ -660,13 +632,15 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         account: item.account,
         item: item.item,
       },
-      UpdateExpression: 'SET #branches = list_append(#branches, :newBranches), metadata.modified = :modified',
+      UpdateExpression: 'SET #branches = list_append(if_not_exists(#branches, :emptyBranches), :newBranches), #metadata = :metadata',
       ExpressionAttributeNames: {
         '#branches': 'branches',
+        '#metadata': 'metadata',
       },
       ExpressionAttributeValues: {
+        ':emptyBranches': [],
         ':newBranches': item.branches,
-        ':modified': new Date().getTime(),
+        ':metadata': item.metadata,
       },
       ConditionExpression: 'attribute_exists(#item)',
     }

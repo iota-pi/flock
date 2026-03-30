@@ -2,13 +2,9 @@ import env from '../env'
 import * as Sentry from '@sentry/react'
 import { isAxiosError } from 'axios'
 import { trpcClient } from './trpcClient'
-import { threeWayMerge } from '../utils/merge'
 import { Item } from '../state/items'
 import { queryClient, queryKeys } from './queryClient'
-import { decryptVaultItems } from './queries'
-import { vaultFetchMany, type VaultItem } from './VaultAPI'
 import { useUiStore } from '../state/uiStore'
-import { getAccountId } from './util'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -102,15 +98,6 @@ export function isLikelyNetworkError(error: unknown): boolean {
     || message.includes('timeout')
     || message.includes('offline')
   )
-}
-
-function isVersionConflictError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const message = error.message.toLowerCase()
-  return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
 function getClientErrorStatus(error: unknown): number | undefined {
@@ -247,185 +234,6 @@ async function executeMutation(mutation: QueuedMutation) {
   }
 }
 
-async function getVaultModule() {
-  return import('./Vault')
-}
-
-function updateCachedItem(mergedItem: Item) {
-  queryClient.setQueryData<Item[]>(queryKeys.items, previous => {
-    const current = previous || []
-    const index = current.findIndex(item => item.id === mergedItem.id)
-    if (index === -1) {
-      return [...current, mergedItem]
-    }
-
-    const next = [...current]
-    next[index] = mergedItem
-    return next
-  })
-}
-
-function getBaseItemFromCache(itemId: string): Item | undefined {
-  const cached = queryClient.getQueryData<Item[]>(queryKeys.items) || []
-  return cached.find(item => item.id === itemId)
-}
-
-async function resolveQueuedItemPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType !== 'items.put') {
-    return null
-  }
-
-  const payload = mutation.payload as {
-    account: string
-    item: string
-    cipher: string
-    iv: string
-    modified: number
-    type: Item['type']
-    version?: number
-    deleted?: boolean
-  }
-
-  const localAccountId = getAccountId()
-  if (payload.account !== localAccountId) {
-    return mutation
-  }
-
-  const vault = await getVaultModule()
-  const localDecrypted = await vault.decryptObject({
-    cipher: payload.cipher,
-    iv: payload.iv,
-  }) as Item
-
-  if (typeof payload.version === 'number') {
-    localDecrypted.version = payload.version
-  }
-  if (payload.deleted) {
-    localDecrypted.deleted = payload.deleted
-  }
-
-  const response = await vaultFetchMany({ ids: [payload.item] })
-  const remoteItems = await decryptVaultItems(response.items as VaultItem[])
-  const remoteItem = remoteItems[0] || localDecrypted
-  const baseItem = getBaseItemFromCache(payload.item) || localDecrypted
-
-  const mergedItem = threeWayMerge(baseItem, remoteItem, localDecrypted)
-  const baseVersion = Math.max(
-    baseItem.version || 0,
-    remoteItem.version || 0,
-    localDecrypted.version || 0,
-  )
-  mergedItem.version = baseVersion + 1
-
-  updateCachedItem(mergedItem)
-
-  const encrypted = await vault.encryptObject(mergedItem)
-  return {
-    ...mutation,
-    conflict: true,
-    lastConflictAt: Date.now(),
-    payload: {
-      account: payload.account,
-      item: mergedItem.id,
-      cipher: encrypted.cipher,
-      iv: encrypted.iv,
-      modified: Date.now(),
-      type: mergedItem.type,
-      version: mergedItem.version,
-      deleted: mergedItem.deleted,
-    },
-  }
-}
-
-async function resolveQueuedPutManyConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType !== 'items.putMany') {
-    return null
-  }
-
-  const payload = mutation.payload as {
-    account: string
-    items: Array<{
-      id: string
-      cipher: string
-      iv: string
-      modified: number
-      type: Item['type']
-      version?: number
-      deleted?: boolean
-    }>
-  }
-
-  const localAccountId = getAccountId()
-  if (payload.account !== localAccountId) {
-    return mutation
-  }
-
-  const vault = await getVaultModule()
-  const localItems = await Promise.all(payload.items.map(async queuedItem => {
-    const decrypted = await vault.decryptObject({
-      cipher: queuedItem.cipher,
-      iv: queuedItem.iv,
-    }) as Item
-    if (typeof queuedItem.version === 'number') {
-      decrypted.version = queuedItem.version
-    }
-    if (queuedItem.deleted) {
-      decrypted.deleted = queuedItem.deleted
-    }
-    return decrypted
-  }))
-
-  const ids = payload.items.map(item => item.id)
-  const response = await vaultFetchMany({ ids })
-  const remoteItems = await decryptVaultItems(response.items as VaultItem[])
-  const remoteById = new Map(remoteItems.map(item => [item.id, item]))
-
-  const mergedItems: Item[] = localItems.map(localItem => {
-    const remoteItem = remoteById.get(localItem.id) || localItem
-    const baseItem = getBaseItemFromCache(localItem.id) || localItem
-    const mergedItem = threeWayMerge(baseItem, remoteItem, localItem)
-    const baseVersion = Math.max(
-      baseItem.version || 0,
-      remoteItem.version || 0,
-      localItem.version || 0,
-    )
-    mergedItem.version = baseVersion + 1
-    updateCachedItem(mergedItem)
-    return mergedItem
-  })
-
-  const encrypted = await Promise.all(mergedItems.map(item => vault.encryptObject(item)))
-  return {
-    ...mutation,
-    conflict: true,
-    lastConflictAt: Date.now(),
-    payload: {
-      account: payload.account,
-      items: mergedItems.map((item, index) => ({
-        id: item.id,
-        cipher: encrypted[index].cipher,
-        iv: encrypted[index].iv,
-        modified: Date.now(),
-        type: item.type,
-        version: item.version,
-        deleted: item.deleted,
-      })),
-    },
-  }
-}
-
-async function resolveQueuedConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType === 'items.put') {
-    return resolveQueuedItemPutConflict(mutation)
-  }
-
-  if (mutation.mutationType === 'items.putMany') {
-    return resolveQueuedPutManyConflict(mutation)
-  }
-
-  return null
-}
-
 export async function processOfflineQueue() {
   if (processing) {
     return
@@ -481,21 +289,6 @@ export async function processOfflineQueue() {
             ...normalizedMutation,
             attemptCount,
             nextAttemptAt: Date.now() + backoffDelay,
-          }, ...queue.slice(index + 1))
-          break
-        }
-
-        if (isVersionConflictError(error)) {
-          const mergedMutation = await resolveQueuedConflict(normalizedMutation)
-          if (mergedMutation) {
-            nextQueue.push(mergedMutation, ...queue.slice(index + 1))
-            break
-          }
-
-          nextQueue.push({
-            ...normalizedMutation,
-            conflict: true,
-            lastConflictAt: Date.now(),
           }, ...queue.slice(index + 1))
           break
         }
