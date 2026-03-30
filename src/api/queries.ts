@@ -483,9 +483,6 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       }
 
       const filled = supplyMissingAttributes(item as Item)
-      if (typeof source.metadata?.version === 'number') {
-        filled.version = source.metadata.version
-      }
 
       // Generate cache key based on format
       const cacheKey = source.cipher || (source.branches ? `branches-${source.branches[0]?.versionId}` : '')
@@ -514,10 +511,6 @@ async function decryptWithoutWorker(
 
       const decrypted = await vault.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
       const filled = supplyMissingAttributes(decrypted)
-
-      if (typeof source.metadata?.version === 'number') {
-        filled.version = source.metadata.version
-      }
 
       decryptionCache.set(source.item, {
         cacheKey: source.cipher,

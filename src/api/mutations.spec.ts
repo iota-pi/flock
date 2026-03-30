@@ -129,7 +129,7 @@ describe('mutations', () => {
         {
           item: item.id,
           cipher: 'cipher-theirs',
-          metadata: { iv: 'iv-theirs', type: 'person', modified: 2, version: 2 }
+          metadata: { iv: 'iv-theirs', type: 'person', modified: 2 }
         }
       ], serverTime: Date.now() })
 
@@ -168,7 +168,7 @@ describe('mutations', () => {
         {
           item: item.id,
           cipher: 'cipher-same',
-          metadata: { iv: 'iv-same', type: 'person', modified: 2, version: 2 },
+          metadata: { iv: 'iv-same', type: 'person', modified: 2 },
         },
       ], serverTime: Date.now() })
 
@@ -223,7 +223,7 @@ describe('mutations', () => {
         {
           item: second.id,
           cipher: 'cipher-second',
-          metadata: { iv: 'iv-second', type: 'person', modified: 2, version: 2 },
+          metadata: { iv: 'iv-second', type: 'person', modified: 2 },
         },
       ], serverTime: Date.now() })
 
@@ -258,12 +258,12 @@ describe('mutations', () => {
         {
           item: gItem.id,
           cipher: 'cipher-group',
-          metadata: { iv: 'iv-group', type: 'group', modified: 1, version: 1 }
+          metadata: { iv: 'iv-group', type: 'group', modified: 1 }
         },
         {
           item: pItem.id,
           cipher: 'cipher-person',
-          metadata: { iv: 'iv-person', type: 'person', modified: 1, version: 1 }
+          metadata: { iv: 'iv-person', type: 'person', modified: 1 }
         }
       ], serverTime: Date.now() })
 
@@ -309,12 +309,12 @@ describe('mutations', () => {
         {
           item: item1.id,
           cipher: 'cipher1',
-          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 1 }
+          metadata: { iv: 'iv1', type: 'person', modified: 1 }
         },
         {
           item: item2.id,
           cipher: 'cipher2',
-          metadata: { iv: 'iv2', type: 'person', modified: 1, version: 1 }
+          metadata: { iv: 'iv2', type: 'person', modified: 1 }
         }
       ], serverTime: Date.now() })
 
@@ -345,7 +345,7 @@ describe('mutations', () => {
         {
           item: item.id,
           cipher: 'cipher1',
-          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 1 }
+          metadata: { iv: 'iv1', type: 'person', modified: 1 }
         }
       ], serverTime: Date.now() })
 
@@ -374,7 +374,7 @@ describe('mutations', () => {
         {
           item: item.id,
           cipher: 'cipher1',
-          metadata: { iv: 'iv1', type: 'person', modified: 1, version: 5 }
+          metadata: { iv: 'iv1', type: 'person', modified: 1 }
         }
       ], serverTime: Date.now() })
 

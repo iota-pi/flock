@@ -11,71 +11,25 @@ import {
 } from '../schemas'
 import type { VaultBranch } from '../../../shared/itemTypes'
 
-const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000
+const IDEMPOTENCY_TTL_SECONDS = 5 * 60
 const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
-const processedIdempotencyKeys = new Map<string, number>()
 
 function buildHistoryKey(itemId: string): string {
   return `${itemId}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`
 }
 
-function pruneExpiredIdempotencyKeys() {
-  const now = Date.now()
-  for (const [key, timestamp] of processedIdempotencyKeys.entries()) {
-    if (now - timestamp > IDEMPOTENCY_TTL_MS) {
-      processedIdempotencyKeys.delete(key)
-    }
-  }
-}
-
-function hasProcessedIdempotencyKey(idempotencyKey?: string): boolean {
+async function claimIdempotencyOrCheckDuplicate(
+  ctx: { vault: { claimIdempotencyKey: (account: string, idempotencyKey: string, expiresAt: number) => Promise<boolean> } },
+  account: string,
+  idempotencyKey?: string,
+): Promise<boolean> {
   if (!idempotencyKey) {
     return false
   }
 
-  pruneExpiredIdempotencyKeys()
-  return processedIdempotencyKeys.has(idempotencyKey)
-}
-
-function markIdempotencyKeyProcessed(idempotencyKey?: string): void {
-  if (!idempotencyKey) {
-    return
-  }
-
-  pruneExpiredIdempotencyKeys()
-  processedIdempotencyKeys.set(idempotencyKey, Date.now())
-}
-
-/**
- * Determines if an incoming item represents a clean fast-forward
- * (no concurrent edits detected)
- */
-function isCleanFastForward(
-  incomingItem: { branches?: VaultBranch[]; cipher?: string },
-  currentItem?: { branches?: VaultBranch[]; cipher?: string },
-): boolean {
-  // Legacy items always fast-forward (cipher overwrite)
-  if (incomingItem.cipher && !incomingItem.branches) {
-    return true
-  }
-
-  // For branching format, ensure the incoming branch descends from the
-  // current server branch head.
-  if (incomingItem.branches && incomingItem.branches.length === 1) {
-    const branch = incomingItem.branches[0]
-    if (!currentItem) {
-      return true
-    }
-
-    const currentHeadVersionId = currentItem.branches?.[0]?.versionId
-    if (!currentHeadVersionId) {
-      return true
-    }
-
-    return branch.parentIds.includes(currentHeadVersionId)
-  }
-
-  return false
+  const expiresAt = Math.floor(Date.now() / 1000) + IDEMPOTENCY_TTL_SECONDS
+  const claimed = await ctx.vault.claimIdempotencyKey(account, idempotencyKey, expiresAt)
+  return !claimed
 }
 
 export const itemsRouter = router({
@@ -135,11 +89,11 @@ export const itemsRouter = router({
   putMany: protectedProcedure
     .input(PutItemsBatchBodySchema)
     .mutation(async ({ ctx, input }) => {
-      if (hasProcessedIdempotencyKey(input.idempotencyKey)) {
+      if (await claimIdempotencyOrCheckDuplicate(ctx, input.account, input.idempotencyKey)) {
         return { success: true, conflicts: [] as string[] }
       }
 
-      // First, fetch current versions from database to check lineage
+      // Fetch current versions only for history snapshots.
       const currentItems = await ctx.vault.fetchMany({
         account: input.account,
         ids: input.items.map(item => item.id),
@@ -171,15 +125,10 @@ export const itemsRouter = router({
       }
 
       const mappedItems = input.items.map(incomingItem => {
-        const { deleted, id, modified, type, version } = incomingItem
+        const { deleted, id, modified, type } = incomingItem
         const _type = asItemType(type)
-        const currentItem = currentVersionsById.get(id)
-
-        // Determine if this is a fast-forward or a concurrent branch
-        const fastForward = isCleanFastForward(incomingItem, currentItem)
 
         if (incomingItem.cipher) {
-          // Legacy format: always overwrite
           return {
             account: input.account,
             item: id,
@@ -188,14 +137,16 @@ export const itemsRouter = router({
               type: _type,
               iv: incomingItem.iv,
               modified,
-              version,
               deleted,
             },
           }
         }
 
         if (incomingItem.branches) {
-          // Branching format
+          const expectedParentVersionId = incomingItem.branches.length === 1
+            ? incomingItem.branches[0].parentIds.at(-1)
+            : undefined
+
           return {
             account: input.account,
             item: id,
@@ -204,10 +155,9 @@ export const itemsRouter = router({
               type: _type,
               iv: incomingItem.iv,
               modified,
-              version,
               deleted,
             },
-            _fastForward: fastForward, // Metadata for driver to decide overwrite vs append
+            _expectedParentVersionId: expectedParentVersionId,
           }
         }
 
@@ -221,7 +171,6 @@ export const itemsRouter = router({
           itemIds: input.items.map(item => item.id),
           count: input.items.length,
         })
-        markIdempotencyKeyProcessed(input.idempotencyKey)
         return { success: true, conflicts: [] as string[] }
       } catch (error) {
         if (error instanceof TransactionConflictsError) {
@@ -238,7 +187,7 @@ export const itemsRouter = router({
   put: protectedProcedure
     .input(PutItemBodySchema)
     .mutation(async ({ ctx, input }) => {
-      if (hasProcessedIdempotencyKey(input.idempotencyKey)) {
+      if (await claimIdempotencyOrCheckDuplicate(ctx, input.account, input.idempotencyKey)) {
         return { success: true }
       }
 
@@ -265,7 +214,6 @@ export const itemsRouter = router({
         metadata: {
           type: _type,
           modified: input.modified,
-          version: input.version,
           deleted: input.deleted,
         },
       }
@@ -275,6 +223,9 @@ export const itemsRouter = router({
         itemToSet.metadata.iv = input.iv
       } else if ('branches' in input && input.branches) {
         itemToSet.branches = input.branches
+        itemToSet._expectedParentVersionId = input.branches.length === 1
+          ? input.branches[0].parentIds.at(-1)
+          : undefined
       }
 
       try {
@@ -283,7 +234,6 @@ export const itemsRouter = router({
           itemIds: [input.item],
           count: 1,
         })
-        markIdempotencyKeyProcessed(input.idempotencyKey)
         return { success: true }
       } catch (error) {
         const message = error instanceof Error ? error.message : ''
@@ -313,7 +263,7 @@ export const itemsRouter = router({
   resolveBranchConflict: protectedProcedure
     .input(ResolveBatchConflictsSchema)
     .mutation(async ({ ctx, input }) => {
-      if (hasProcessedIdempotencyKey(input.idempotencyKey)) {
+      if (await claimIdempotencyOrCheckDuplicate(ctx, input.account, input.idempotencyKey)) {
         return { success: true, resolvedCount: input.resolutions.length }
       }
 
@@ -327,33 +277,36 @@ export const itemsRouter = router({
       const currentById = new Map(currentItems.map(item => [item.item, item]))
       const expiresAt = Math.floor(Date.now() / 1000) + HISTORY_RETENTION_SECONDS
 
-      // Process each resolution
-      for (const resolution of input.resolutions) {
+      const resolutionResults = await Promise.all(input.resolutions.map(async resolution => {
         try {
           const currentItem = currentById.get(resolution.item)
-          if (currentItem) {
-            await ctx.vault.putHistory({
-              account: input.account,
-              historyKey: buildHistoryKey(resolution.item),
-              itemData: currentItem,
-              expiresAt,
-            })
-          }
+          await Promise.all([
+            currentItem
+              ? ctx.vault.putHistory({
+                account: input.account,
+                historyKey: buildHistoryKey(resolution.item),
+                itemData: currentItem,
+                expiresAt,
+              })
+              : Promise.resolve(),
+            ctx.vault.resolveBranchConflict(
+              input.account,
+              resolution.item,
+              resolution.resolvedBranch,
+            ),
+          ])
 
-          await ctx.vault.resolveBranchConflict(
-            input.account,
-            resolution.item,
-            resolution.resolvedBranch,
-          )
-          results.push({ item: resolution.item, success: true })
+          return { item: resolution.item, success: true } as const
         } catch (error) {
-          results.push({
+          return {
             item: resolution.item,
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',
-          })
+          } as const
         }
-      }
+      }))
+
+      results.push(...resolutionResults)
 
       // Broadcast resolved items
       const resolvedItemIds = results.filter(r => r.success).map(r => r.item)
@@ -363,8 +316,6 @@ export const itemsRouter = router({
           count: resolvedItemIds.length,
         })
       }
-
-      markIdempotencyKeyProcessed(input.idempotencyKey)
 
       // Return results
       const failedResolutions = results.filter(r => !r.success)

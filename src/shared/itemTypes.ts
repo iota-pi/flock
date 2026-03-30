@@ -28,7 +28,6 @@ export type ItemEnvelope = {
     type: ItemType,
     iv: string, // For legacy cipher decryption
     modified: number,
-    version?: number, // Tracks overall item lineage
     deleted?: boolean,
   },
 }

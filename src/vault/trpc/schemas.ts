@@ -52,7 +52,6 @@ export const PutItemBodySchema = z.object({
   iv: z.string().optional(),
   modified: z.number(),
   type: z.string(),
-  version: z.number().optional(),
   deleted: z.boolean().optional(),
   idempotencyKey: z.string().min(1).optional(),
 }).and(
@@ -70,7 +69,6 @@ export const PutItemsBatchEntrySchema = z.object({
   iv: z.string().optional(),
   modified: z.number(),
   type: z.string(),
-  version: z.number().optional(),
   deleted: z.boolean().optional(),
 }).and(
   z.union([

@@ -207,7 +207,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
         id: item.id,
         type: item.type,
         deleted: true,
-        version: item.version + 1,
+        version: (item.version || 0) + 1,
       }]
     })
 
@@ -283,12 +283,12 @@ async function updateCacheOptimistically(items: Item[]) {
 }
 
 /**
- * Serializes Item to either legacy cipher or Automerge branches format
+ * Serializes Item payload for persistence.
  *
  * Strategy:
  * - Deleted items: use empty cipher (backwards compatible tombstone)
- * - New items: use Automerge with single branch
- * - Existing legacy items: continue with cipher until explicitly migrated
+ * - Normal writes: keep legacy cipher overwrite semantics
+ * - Branch payloads remain supported for conflict-resolution flows
  */
 async function serializeItem(item: Item, vault: typeof import('./Vault')): Promise<{ cipher?: string; iv?: string; branches?: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] }[] }> {
   if (item.deleted) {

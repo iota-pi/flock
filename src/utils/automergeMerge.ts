@@ -29,6 +29,10 @@ function stripUndefinedDeep(value: unknown): unknown {
   return cleaned
 }
 
+function isShallowJsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export async function mergeWithAutomerge<T extends object>(
   left: T,
   right: T,
@@ -42,20 +46,21 @@ export async function mergeWithAutomerge<T extends object>(
   return Automerge.toJS(merged) as T
 }
 
-function applySnapshot(target: any, snapshot: any): void {
+function applySnapshot(target: Record<string, unknown> | unknown[], snapshot: unknown): void {
   if (Array.isArray(snapshot)) {
-    target.splice(0, target.length)
+    const targetArray = target as unknown[]
+    targetArray.splice(0, targetArray.length)
     for (const value of snapshot) {
       if (Array.isArray(value)) {
         const nested: unknown[] = []
         applySnapshot(nested, value)
-        target.push(nested)
+        targetArray.push(nested)
       } else if (value && typeof value === 'object') {
         const nested: Record<string, unknown> = {}
         applySnapshot(nested, value)
-        target.push(nested)
+        targetArray.push(nested)
       } else {
-        target.push(value)
+        targetArray.push(value)
       }
     }
     return
@@ -65,42 +70,43 @@ function applySnapshot(target: any, snapshot: any): void {
     return
   }
 
-  for (const key of Object.keys(target)) {
+  const targetObject = target as Record<string, unknown>
+  for (const key of Object.keys(targetObject)) {
     if (!Object.prototype.hasOwnProperty.call(snapshot, key)) {
-      delete target[key]
+      delete targetObject[key]
     }
   }
 
   for (const [key, value] of Object.entries(snapshot)) {
     if (Array.isArray(value)) {
-      if (Array.isArray(target[key]) && JSON.stringify(target[key]) === JSON.stringify(value)) {
+      if (Array.isArray(targetObject[key]) && isShallowJsonEqual(targetObject[key], value)) {
         continue
       }
-      if (!Array.isArray(target[key])) {
-        target[key] = []
+      if (!Array.isArray(targetObject[key])) {
+        targetObject[key] = []
       }
-      applySnapshot(target[key], value)
+      applySnapshot(targetObject[key] as unknown[], value)
       continue
     }
 
     if (value && typeof value === 'object') {
       if (
-        target[key]
-        && typeof target[key] === 'object'
-        && !Array.isArray(target[key])
-        && JSON.stringify(target[key]) === JSON.stringify(value)
+        targetObject[key]
+        && typeof targetObject[key] === 'object'
+        && !Array.isArray(targetObject[key])
+        && isShallowJsonEqual(targetObject[key], value)
       ) {
         continue
       }
-      if (!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) {
-        target[key] = {}
+      if (!targetObject[key] || typeof targetObject[key] !== 'object' || Array.isArray(targetObject[key])) {
+        targetObject[key] = {}
       }
-      applySnapshot(target[key], value)
+      applySnapshot(targetObject[key] as Record<string, unknown>, value)
       continue
     }
 
-    if (target[key] !== value) {
-      target[key] = value
+    if (targetObject[key] !== value) {
+      targetObject[key] = value
     }
   }
 }

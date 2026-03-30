@@ -155,23 +155,26 @@ function RestoreBackupDialog({
   const handleConfirmImport = useCallback(
     async () => {
       setLoading(true)
-      const existingMap = new Map(existingItems.map(item => [item.id, item]))
-      const selectedItems = importedItems.filter(item => selectedIds.has(item.id))
-      const itemsToImport = await Promise.all(selectedItems.map(async item => {
-        const existing = existingMap.get(item.id)
-        if (!existing) return item
-        const merged = await mergeWithAutomerge(existing, item)
-        merged.version = Math.max(existing.version, item.version) + 1
-        return merged
-      }))
+      try {
+        const existingMap = new Map(existingItems.map(item => [item.id, item]))
+        const selectedItems = importedItems.filter(item => selectedIds.has(item.id))
+        const itemsToImport = await Promise.all(selectedItems.map(async item => {
+          const existing = existingMap.get(item.id)
+          if (!existing) return item
+          const merged = await mergeWithAutomerge(existing, item)
+          merged.version = Math.max(existing.version || 0, item.version || 0) + 1
+          return merged
+        }))
 
-      await onConfirm({
-        metadata: restoreSettings ? restoredPayload.metadata : undefined,
-        items: itemsToImport,
-        offlineQueue: restoredPayload.offlineQueue,
-        deadLetterQueue: restoredPayload.deadLetterQueue,
-      })
-      setLoading(false)
+        await onConfirm({
+          metadata: restoreSettings ? restoredPayload.metadata : undefined,
+          items: itemsToImport,
+          offlineQueue: restoredPayload.offlineQueue,
+          deadLetterQueue: restoredPayload.deadLetterQueue,
+        })
+      } finally {
+        setLoading(false)
+      }
     },
     [existingItems, importedItems, onConfirm, restoreSettings, restoredPayload.deadLetterQueue, restoredPayload.metadata, restoredPayload.offlineQueue, selectedIds],
   )

@@ -128,6 +128,12 @@ export default abstract class BaseDriver<T = unknown> {
     },
   ): Promise<void>
 
+  abstract claimIdempotencyKey(
+    account: string,
+    idempotencyKey: string,
+    expiresAt: number,
+  ): Promise<boolean>
+
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account
     const authToken = getAuthToken(request)

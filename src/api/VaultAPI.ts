@@ -135,7 +135,6 @@ export async function vaultPut(item: VaultItem) {
     iv: item.metadata.iv,
     modified: item.metadata.modified,
     type: item.metadata.type,
-    version: item.metadata.version,
     deleted: item.metadata.deleted,
   } as any) as PutResponse
 
@@ -161,7 +160,6 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
       iv: item.metadata.iv,
       modified: item.metadata.modified,
       type: item.metadata.type,
-      version: item.metadata.version,
       deleted: item.metadata.deleted,
     })),
   } as any) as PutManyResponse | BatchResultResponse

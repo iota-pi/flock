@@ -12,6 +12,7 @@ function createMockContext() {
     resolveBranchConflict: vi.fn(async (..._args: any[]) => undefined),
     putHistory: vi.fn(async (..._args: any[]) => undefined),
     fetchHistory: vi.fn(async (..._args: any[]) => []),
+    claimIdempotencyKey: vi.fn(async (..._args: any[]) => true),
   }
 
   return {
@@ -52,6 +53,9 @@ describe('itemsRouter contracts', () => {
   it('deduplicates repeated putMany calls with the same idempotency key', async () => {
     const ctx = createMockContext()
     const caller = itemsRouter.createCaller(ctx as any)
+    ctx.vault.claimIdempotencyKey
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
 
     const payload = {
       account: 'acct-1',
@@ -143,7 +147,7 @@ describe('itemsRouter contracts', () => {
 })
 
 describe('itemsRouter: Lineage-Aware Branching', () => {
-  it('detects fast-forward when parentIds match current versionId', async () => {
+  it('passes expected parent for branch writes', async () => {
     const ctx = createMockContext()
 
     // Mock the database to return an existing item with version 'v1'
@@ -190,11 +194,10 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
     const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
     expect(item).toBeDefined()
-    // _fastForward should be true, so DynamoDB will do a PUT (overwrite)
-    expect(item._fastForward).toBe(true)
+    expect(item._expectedParentVersionId).toBe('v1')
   })
 
-  it('detects concurrent edit when parentIds do not match current versionId', async () => {
+  it('uses incoming branch lineage for conditional write inputs', async () => {
     const ctx = createMockContext()
 
     // Mock database with version v2
@@ -241,8 +244,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
     const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
     expect(item).toBeDefined()
-    // _fastForward should be false, so DynamoDB will append branch
-    expect(item._fastForward).toBe(false)
+    expect(item._expectedParentVersionId).toBe('v1')
   })
 
   it('always fast-forwards legacy cipher format', async () => {
@@ -278,11 +280,14 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
     const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
     expect(item).toBeDefined()
-    expect(item).not.toHaveProperty('_fastForward')
+    expect(item).not.toHaveProperty('_expectedParentVersionId')
   })
 
   it('idempotency key prevents duplicate branch appends', async () => {
     const ctx = createMockContext()
+    ctx.vault.claimIdempotencyKey
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
 
     ;(ctx.vault.fetchMany as any).mockResolvedValue([
       {
@@ -427,6 +432,9 @@ describe('itemsRouter: Resolution Pruning', () => {
   it('resolution idempotency prevents duplicate pushes', async () => {
     const ctx = createMockContext()
     ctx.vault.resolveBranchConflict = vi.fn(async () => undefined)
+    ctx.vault.claimIdempotencyKey
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
 
     const caller = itemsRouter.createCaller(ctx as any)
 

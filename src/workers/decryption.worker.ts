@@ -19,9 +19,18 @@ type EvaluateHistoryWorkerInput = {
   history: VaultItem[]
 }
 
-type DecryptionWorkerInput = DecryptItemsWorkerInput | EvaluateHistoryWorkerInput
+type ResolveQueueConflictWorkerInput = {
+  type: 'RESOLVE_QUEUE_CONFLICT'
+  jobId?: number
+  key: CryptoKey
+  itemId: string
+  localBranches: VaultBranch[]
+  serverBranches: VaultBranch[]
+}
 
-type HydratedItem = Record<string, unknown> & { id?: string; version?: number }
+type DecryptionWorkerInput = DecryptItemsWorkerInput | EvaluateHistoryWorkerInput | ResolveQueueConflictWorkerInput
+
+type HydratedItem = Record<string, unknown> & { id?: string }
 
 type ConflictResolvedMessage = {
   type: 'CONFLICT_RESOLVED'
@@ -48,6 +57,13 @@ type HistoryEvaluatedMessage = {
   jobId?: number
   itemId: string
   healthyEnvelope: VaultItem | null
+}
+
+type QueueConflictResolvedMessage = {
+  type: 'QUEUE_CONFLICT_RESOLVED'
+  jobId?: number
+  itemId: string
+  resolvedBranch: VaultBranch
 }
 
 declare const self: DedicatedWorkerGlobalScope
@@ -111,6 +127,34 @@ function materializeDoc(doc: Automerge.Doc<unknown>): HydratedItem {
   return Automerge.toJS(doc) as HydratedItem
 }
 
+async function mergeBranchesToResolvedBranch(
+  branches: VaultBranch[],
+  key: CryptoKey,
+): Promise<VaultBranch> {
+  if (branches.length === 0) {
+    throw new Error('Cannot merge conflict with zero branches')
+  }
+
+  const docs = await Promise.all(branches.map(async branch => {
+    const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
+    return Automerge.load(binary)
+  }))
+
+  let mergedDoc = docs[0]
+  for (let index = 1; index < docs.length; index += 1) {
+    mergedDoc = Automerge.merge(mergedDoc, docs[index])
+  }
+
+  const mergedBinary = Automerge.save(mergedDoc)
+  const encryptedAutomergeDoc = await encryptAutomergeBinary(mergedBinary, key)
+
+  return {
+    encryptedAutomergeDoc,
+    versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    parentIds: branches.map(branch => branch.versionId),
+  }
+}
+
 export async function processIncomingItem(
   envelope: VaultItem,
   key: CryptoKey,
@@ -128,9 +172,6 @@ export async function processIncomingItem(
       const plainJson = await decryptLegacyCipher(envelope.cipher, envelope.metadata.iv, key)
       const parsed = JSON.parse(plainJson) as HydratedItem
       parsed.id = envelope.item
-      if (typeof envelope.metadata.version === 'number') {
-        parsed.version = envelope.metadata.version
-      }
       return { item: parsed }
     }
 
@@ -141,9 +182,6 @@ export async function processIncomingItem(
       const doc = Automerge.load(binary)
       const item = materializeDoc(doc)
       item.id = envelope.item
-      if (typeof envelope.metadata.version === 'number') {
-        item.version = envelope.metadata.version
-      }
       return { item }
     }
 
@@ -220,10 +258,6 @@ export async function processIncomingItem(
           .map(b => b.versionId)
       }
 
-      if (typeof envelope.metadata.version === 'number') {
-        item.version = envelope.metadata.version
-      }
-
       return { item, resolvedBranch }
     }
 
@@ -254,6 +288,23 @@ export async function evaluateHistory(
 }
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
+  if (event.data.type === 'RESOLVE_QUEUE_CONFLICT') {
+    const { jobId, key, itemId, localBranches, serverBranches } = event.data
+    const resolvedBranch = await mergeBranchesToResolvedBranch(
+      [...localBranches, ...serverBranches],
+      key,
+    )
+
+    const message: QueueConflictResolvedMessage = {
+      type: 'QUEUE_CONFLICT_RESOLVED',
+      jobId,
+      itemId,
+      resolvedBranch,
+    }
+    self.postMessage(message)
+    return
+  }
+
   if (event.data.type === 'EVALUATE_HISTORY') {
     const { jobId, key, itemId, history } = event.data
     const healthyEnvelope = await evaluateHistory(history, key)
@@ -275,7 +326,6 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
     if (envelope.metadata?.deleted === true) {
       decryptedItems.push({
         id: envelope.item,
-        version: envelope.metadata?.version,
       })
       continue
     }

@@ -28,7 +28,7 @@ export interface BaseItem {
   prayedFor: number[],
   prayerFrequency: Frequency,
   type: ItemType,
-  version: number,
+  version?: number,
 }
 export interface PersonItem extends BaseItem {
   memberPrayerFrequency?: undefined,
@@ -46,7 +46,9 @@ export interface TopicItem extends BaseItem {
   members?: undefined,
   type: 'topic',
 }
-export type Item = PersonItem | GroupItem | TopicItem
+export type Item = (PersonItem | GroupItem | TopicItem) & {
+  version?: number
+}
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -65,7 +67,6 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     prayedFor: [],
     prayerFrequency: 'none',
     type: 'person',
-    version: 1,
   }
 }
 

@@ -3,10 +3,9 @@ import * as Sentry from '@sentry/react'
 import { isAxiosError } from 'axios'
 import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
-import { mergeFromBaseWithAutomerge } from '../utils/automergeMerge'
 import { queryClient, queryKeys } from './queryClient'
 import { useUiStore } from '../state/uiStore'
-import { decryptObject, encryptObject } from './Vault'
+import { getVaultKey } from './Vault'
 import { vaultFetchMany } from './VaultAPI'
 import { decryptVaultItems } from './queries'
 import {
@@ -141,6 +140,59 @@ function isVersionConflictError(error: unknown): boolean {
   return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
+type ResolvedBranch = {
+  encryptedAutomergeDoc: string
+  versionId: string
+  parentIds: string[]
+}
+
+async function mergeConflictBranchesInWorker(
+  itemId: string,
+  localBranches: ResolvedBranch[],
+  serverBranches: ResolvedBranch[],
+): Promise<ResolvedBranch> {
+  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+
+  const jobId = Date.now()
+
+  return new Promise<ResolvedBranch>((resolve, reject) => {
+    worker.onmessage = event => {
+      const payload = event.data as {
+        type?: string
+        jobId?: number
+        itemId?: string
+        resolvedBranch?: ResolvedBranch
+      }
+
+      if (
+        payload.type === 'QUEUE_CONFLICT_RESOLVED'
+        && payload.jobId === jobId
+        && payload.itemId === itemId
+        && payload.resolvedBranch
+      ) {
+        worker.terminate()
+        resolve(payload.resolvedBranch)
+      }
+    }
+
+    worker.onerror = error => {
+      worker.terminate()
+      reject(error)
+    }
+
+    worker.postMessage({
+      type: 'RESOLVE_QUEUE_CONFLICT',
+      jobId,
+      key: getVaultKey(),
+      itemId,
+      localBranches,
+      serverBranches,
+    })
+  })
+}
+
 async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
   if (mutation.mutationType !== 'items.put') {
     return null
@@ -149,50 +201,39 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
   const payload = mutation.payload as {
     account?: string
     item?: string
-    cipher?: string
-    iv?: string
+    branches?: Array<ResolvedBranch>
     modified?: number
     type?: Item['type']
-    version?: number
     deleted?: boolean
   }
 
-  if (!payload.item || !payload.cipher || !payload.iv || !payload.type) {
+  if (!payload.item || !Array.isArray(payload.branches) || payload.branches.length === 0) {
     return null
   }
-
-  const decryptedLocal = await decryptObject({
-    cipher: payload.cipher,
-    iv: payload.iv,
-  }) as Item
-
-  const currentItems = (queryClient.getQueryData<Item[]>(queryKeys.items) || [])
-  const fallbackBase = currentItems.find(item => item.id === payload.item)
-  const base = mutation.baseState || fallbackBase || decryptedLocal
 
   const serverResult = await vaultFetchMany({ ids: [payload.item] })
-  const serverItems = await decryptVaultItems(serverResult.items)
-  const theirs = serverItems.find(item => item.id === payload.item)
-  if (!theirs) {
+  const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
+  if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
     return null
   }
 
-  const merged = await mergeFromBaseWithAutomerge(base, theirs, decryptedLocal)
-  merged.version = (theirs.version || 0) + 1
-
-  const encrypted = await encryptObject(merged)
+  const resolvedBranch = await mergeConflictBranchesInWorker(
+    payload.item,
+    payload.branches,
+    serverEnvelope.branches,
+  )
 
   return {
     ...mutation,
+    mutationType: 'items.resolveBranchConflict',
     payload: {
       account: payload.account,
-      item: payload.item,
-      cipher: encrypted.cipher,
-      iv: encrypted.iv,
-      modified: Date.now(),
-      type: payload.type,
-      version: merged.version,
-      deleted: payload.deleted,
+      resolutions: [
+        {
+          item: payload.item,
+          resolvedBranch,
+        },
+      ],
     },
     conflict: true,
     lastConflictAt: Date.now(),
@@ -277,6 +318,14 @@ async function executeMutation(mutation: QueuedMutation) {
       })
       return
     }
+    case 'items.resolveBranchConflict': {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.resolveBranchConflict.mutate>[0]
+      await trpcClient.items.resolveBranchConflict.mutate({
+        ...payload,
+        idempotencyKey: mutation.id,
+      })
+      return
+    }
     case 'items.putMany': {
       const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
       const payloadItems = payload.items || []
@@ -342,6 +391,14 @@ export async function processOfflineQueue() {
       try {
         await executeMutation(normalizedMutation)
       } catch (error) {
+        if (isVersionConflictError(error)) {
+          const resolved = await resolveQueuedPutConflict(normalizedMutation)
+          if (resolved) {
+            nextQueue.push(resolved, ...queue.slice(index + 1))
+            break
+          }
+        }
+
         const status = getClientErrorStatus(error)
         if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
           await moveToDeadLetterQueue(normalizedMutation.id, getClientErrorReason(error), status)
@@ -352,14 +409,6 @@ export async function processOfflineQueue() {
             message: 'An invalid offline change was isolated for recovery and sync continued.',
           })
           continue
-        }
-
-        if (isVersionConflictError(error)) {
-          const resolved = await resolveQueuedPutConflict(normalizedMutation)
-          if (resolved) {
-            nextQueue.push(resolved, ...queue.slice(index + 1))
-            break
-          }
         }
 
         if (isLikelyNetworkError(error)) {

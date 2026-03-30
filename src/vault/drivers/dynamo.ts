@@ -40,6 +40,7 @@ import { ExpiredSessionError } from '../api/errors'
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 export const ITEM_HISTORY_TABLE = process.env.ITEM_HISTORY_TABLE || 'FlockItemHistory'
+export const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE || 'FlockIdempotency'
 const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
 export const MAX_ITEM_SIZE = 50000
@@ -52,7 +53,7 @@ export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type WritableVaultItem = VaultItem & {
-  _fastForward?: boolean
+  _expectedParentVersionId?: string
 }
 
 export class TransactionConflictsError extends Error {
@@ -91,7 +92,7 @@ function validateItem(item: VaultItem) {
   }
 }
 
-function getItemPutParams(item: VaultItem): PutCommandInput {
+function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): PutCommandInput {
   validateItem(item)
 
   const isTombstone = item.metadata.deleted === true
@@ -110,13 +111,21 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
     Item: persistedItem,
   }
 
-  if (typeof persistedItem.metadata.version === 'number') {
-    params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
+  if (persistedItem.branches && persistedItem.branches.length > 0) {
     params.ExpressionAttributeNames = {
       '#item': 'item',
+      '#branches': 'branches',
+      '#versionId': 'versionId',
     }
-    params.ExpressionAttributeValues = {
-      ':newVersion': persistedItem.metadata.version,
+
+    if (expectedParentVersionId) {
+      params.ConditionExpression = 'attribute_not_exists(#item) OR #branches[0].#versionId = :expectedParentVersionId'
+      params.ExpressionAttributeValues = {
+        ':expectedParentVersionId': expectedParentVersionId,
+      }
+    } else {
+      // Root branch writes must not overwrite existing records.
+      params.ConditionExpression = 'attribute_not_exists(#item)'
     }
   }
 
@@ -291,6 +300,31 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
             },
             {
               AttributeName: 'item',
+              AttributeType: 'S',
+            },
+          ],
+          BillingMode: 'PAY_PER_REQUEST',
+        },
+      ))
+    } catch (err: unknown) {
+      if (!(err instanceof ResourceInUseException)) {
+        throw err
+      }
+    }
+
+    try {
+      await client.send(new CreateTableCommand(
+        {
+          TableName: IDEMPOTENCY_TABLE_NAME,
+          KeySchema: [
+            {
+              AttributeName: 'idempotencyKey',
+              KeyType: 'HASH',
+            },
+          ],
+          AttributeDefinitions: [
+            {
+              AttributeName: 'idempotencyKey',
               AttributeType: 'S',
             },
           ],
@@ -648,7 +682,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem) {
-    const params = getItemPutParams(item)
+    const writable = item as WritableVaultItem
+    const params = getItemPutParams(item, writable._expectedParentVersionId)
 
     try {
       await this.client.send(new PutCommand(params))
@@ -661,10 +696,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   /**
-   * setMany: batch set with branch appending support
-   *
-   * If _fastForward is explicitly false and branches are present, append incoming
-   * branches to current branches using list_append. Otherwise perform a put/overwrite.
+  * setMany: batch set with conditional branch parent enforcement.
    */
   async setMany(items: VaultItem[]): Promise<void> {
     if (items.length === 0) {
@@ -675,16 +707,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     for (const rawItem of items) {
       const item = rawItem as WritableVaultItem
-      const shouldAppendBranches = item._fastForward === false && !!item.branches && item.branches.length > 0
       const itemToPersist = this._stripTransientFields(item)
-
-      if (shouldAppendBranches) {
-        const updateParams = this._getItemAppendBranchesParams(itemToPersist)
-        transactItems.push({ Update: updateParams })
-      } else {
-        const putParams = getItemPutParams(itemToPersist)
-        transactItems.push({ Put: putParams })
-      }
+      const putParams = getItemPutParams(itemToPersist, item._expectedParentVersionId)
+      transactItems.push({ Put: putParams })
     }
 
     // Execute in chunks
@@ -700,13 +725,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
           const conflictedIds = reasons
             .map((reason, index) => {
-              const item = transactItems[index]
+              const item = chunk[index]
               if (reason?.Code === 'ConditionalCheckFailed') {
                 if (item?.Put) return (item.Put.Item as VaultItem)?.item
-                if (item?.Update) {
-                  const key = item.Update.Key as Record<string, any>
-                  return key?.item
-                }
               }
               return undefined
             })
@@ -723,10 +744,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
               if (transaction?.Put) {
                 return (transaction.Put.Item as VaultItem)?.item
               }
-              if (transaction?.Update) {
-                const key = transaction.Update.Key as Record<string, unknown>
-                return typeof key?.item === 'string' ? key.item : undefined
-              }
               return undefined
             })
             .filter((id): id is string => typeof id === 'string')
@@ -740,45 +757,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   private _stripTransientFields(item: WritableVaultItem): VaultItem {
     const persisted = { ...item }
-    delete persisted._fastForward
+    delete persisted._expectedParentVersionId
     return persisted
-  }
-
-  /**
-   * Build UpdateItem parameters for appending branches to existing item
-   */
-  private _getItemAppendBranchesParams(item: VaultItem): UpdateCommandInput {
-    validateItem(item)
-
-    if (!item.branches) {
-      throw new Error(`Cannot append branches to item without branches array`)
-    }
-
-    const params: UpdateCommandInput = {
-      TableName: ITEM_TABLE_NAME,
-      Key: {
-        account: item.account,
-        item: item.item,
-      },
-      UpdateExpression: 'SET #branches = list_append(if_not_exists(#branches, :emptyBranches), :newBranches), #metadata = :metadata',
-      ExpressionAttributeNames: {
-        '#branches': 'branches',
-        '#metadata': 'metadata',
-      },
-      ExpressionAttributeValues: {
-        ':emptyBranches': [],
-        ':newBranches': item.branches,
-        ':metadata': item.metadata,
-      },
-      ConditionExpression: 'attribute_exists(#item)',
-    }
-
-    params.ExpressionAttributeNames = {
-      ...params.ExpressionAttributeNames,
-      '#item': 'item',
-    }
-
-    return params
   }
 
   /**
@@ -1057,6 +1037,27 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       TableName: ITEM_TABLE_NAME,
       Key: { account, item },
     }))
+  }
+
+  async claimIdempotencyKey(account: string, idempotencyKey: string, expiresAt: number): Promise<boolean> {
+    try {
+      await this.client.send(new PutCommand({
+        TableName: IDEMPOTENCY_TABLE_NAME,
+        Item: {
+          idempotencyKey,
+          account,
+          expiresAt,
+          createdAt: Date.now(),
+        },
+        ConditionExpression: 'attribute_not_exists(idempotencyKey)',
+      }))
+      return true
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        return false
+      }
+      throw error
+    }
   }
 }
 
