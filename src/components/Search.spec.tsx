@@ -37,10 +37,10 @@ describe('Search Component', () => {
   const mockOnCreate = vi.fn()
 
   const items: Item[] = [
-    { id: '1', version: 0, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
-    { id: '2', version: 0, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
-    { id: '3', version: 0, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
-    { id: '4', version: 0, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [] },
+    { id: '1', name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '2', name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '3', name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
+    { id: '4', name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [] },
   ]
 
   beforeEach(() => {

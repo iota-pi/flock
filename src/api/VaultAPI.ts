@@ -1,5 +1,6 @@
 import type { AccountMetadata } from '../state/metadata'
 import type { ItemEnvelope } from '../shared/itemTypes'
+import type { VaultBranch } from '../shared/itemTypes'
 import { getAccountId } from './util'
 import { trpcClient } from './trpcClient'
 import type { CryptoResult } from './Vault'
@@ -69,6 +70,16 @@ export type ReminderSettingsResponse = {
   reminderTime: string,
   reminderTimezone: string,
 }
+
+export type VaultMetadataEnvelope =
+  | AccountMetadata
+  | {
+    cipher: string
+    iv: string
+  }
+  | {
+    branches: VaultBranch[]
+  }
 
 export class VaultBatchError extends Error {
   failures: Array<{ item: string, error?: string }>
@@ -217,16 +228,16 @@ export async function vaultGetSession(authToken: string): Promise<string> {
   return response.session
 }
 
-export async function vaultGetMetadata(): Promise<AccountMetadata | CryptoResult> {
+export async function vaultGetMetadata(): Promise<VaultMetadataEnvelope> {
   const response = await trpcClient.accounts.getMetadata.query({ account: getAccountId() })
   assertSuccess(response, 'getMetadata')
-  return (response.metadata as AccountMetadata | CryptoResult) || {}
+  return (response.metadata as VaultMetadataEnvelope) || {}
 }
 
-export async function vaultSetMetadata(metadata: CryptoResult & { version?: number }): Promise<void> {
+export async function vaultSetMetadata(metadata: Record<string, unknown>): Promise<void> {
   const response = await trpcClient.accounts.updateMetadata.mutate({
     account: getAccountId(),
-    metadata: metadata as unknown as Record<string, unknown>,
+    metadata,
   })
   assertSuccess(response, 'setMetadata')
 }

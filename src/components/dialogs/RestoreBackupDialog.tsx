@@ -161,9 +161,7 @@ function RestoreBackupDialog({
         const itemsToImport = await Promise.all(selectedItems.map(async item => {
           const existing = existingMap.get(item.id)
           if (!existing) return item
-          const merged = await mergeWithAutomerge(existing, item)
-          merged.version = Math.max(existing.version || 0, item.version || 0) + 1
-          return merged
+          return mergeWithAutomerge(existing, item)
         }))
 
         await onConfirm({

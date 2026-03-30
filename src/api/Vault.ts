@@ -24,7 +24,6 @@ export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
 export interface CryptoResult {
   iv: string,
   cipher: string,
-  version?: number,
 }
 
 export interface VaultImportExportData {

@@ -532,6 +532,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       session,
       reminderTimezone,
       lastPrayerCompletedAt,
+      expectedMetadataParentVersionId,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -540,6 +541,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       session?: string,
       reminderTimezone?: string,
       lastPrayerCompletedAt?: number,
+      expectedMetadataParentVersionId?: string,
     },
   ): Promise<void> {
     const promises: Promise<unknown>[] = []
@@ -573,9 +575,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
       }
 
-      if (typeof metadata.version === 'number') {
-        params.ConditionExpression = 'attribute_not_exists(metadata.version) OR metadata.version < :newVersion'
-        params.ExpressionAttributeValues![':newVersion'] = metadata.version
+      if (typeof expectedMetadataParentVersionId === 'string' && expectedMetadataParentVersionId.length > 0) {
+        params.ConditionExpression = 'metadata.branches[0].versionId = :expectedParentVersionId'
+        params.ExpressionAttributeValues![':expectedParentVersionId'] = expectedMetadataParentVersionId
+      } else {
+        const incomingBranches = (metadata as { branches?: unknown }).branches
+        if (Array.isArray(incomingBranches) && incomingBranches.length > 0) {
+          params.ConditionExpression = 'attribute_not_exists(metadata.branches)'
+        }
       }
 
       promises.push(

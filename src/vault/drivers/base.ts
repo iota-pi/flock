@@ -13,7 +13,6 @@ export interface VaultMetaData {
   type: ItemType,
   iv: string,
   modified: number,
-  version?: number,
   deleted?: boolean,
 }
 
@@ -92,6 +91,7 @@ export default abstract class BaseDriver<T = unknown> {
   // either `metadata` or `session` independently.
   abstract updateAccountData(data: Partial<AuthData> & {
     metadata?: Record<string, unknown>,
+    expectedMetadataParentVersionId?: string,
     session?: string,
     pushSubscriptions?: WebPushSubscription[],
     reminderEnabled?: boolean,

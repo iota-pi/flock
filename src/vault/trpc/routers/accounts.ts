@@ -87,9 +87,16 @@ export const accountsRouter = router({
   updateMetadata: protectedProcedure
     .input(UpdateMetadataBodySchema)
     .mutation(async ({ ctx, input }) => {
+      const metadata = { ...(input.metadata || {}) }
+      const expectedParentVersionId = typeof metadata._expectedParentVersionId === 'string'
+        ? metadata._expectedParentVersionId
+        : undefined
+      delete metadata._expectedParentVersionId
+
       await ctx.vault.updateAccountData({
         account: input.account,
-        metadata: input.metadata || {},
+        metadata,
+        expectedMetadataParentVersionId: expectedParentVersionId,
       })
 
       await publishRealtimeEvent(input.account, 'metadata.updated', {

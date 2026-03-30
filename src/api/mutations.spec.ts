@@ -53,77 +53,59 @@ describe('mutations', () => {
   })
 
   describe('mutateStoreItems', () => {
-    it('initializes version to 1 for new items', async () => {
+    it('stores new items using branch payloads', async () => {
       const item = getBlankPerson()
-      // item has version: 1 by default, but assume it's new (not in cache)
 
       const result = await mutateStoreItems(item)
 
-      expect(result[0].version).toBe(1)
+      expect(result[0].id).toBe(item.id)
 
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
-        metadata: expect.objectContaining({
-          version: 1,
-        }),
         branches: expect.any(Array),
       }))
     })
 
-    it('increments version for existing items', async () => {
+    it('updates existing items without linear version increments', async () => {
       const item = getBlankPerson()
-      item.version = 1
-      const itemV1 = { ...item, id: item.id }
+      const itemV1 = { ...item, id: item.id, name: 'Original' }
 
       // Populate cache with V1
       queryClient.setQueryData(queryKeys.items, [itemV1])
 
-      // Store same item (maybe modified)
       const itemUpdate = { ...item, name: 'Updated' }
       const result = await mutateStoreItems(itemUpdate)
 
-      expect(result[0].version).toBe(2)
+      expect(result[0].name).toBe('Updated')
 
       // Verify Cache
       const cached = queryClient.getQueryData<Item[]>(queryKeys.items)
       expect(cached).toBeDefined()
-      expect(cached![0].version).toBe(2)
+      expect(cached![0].name).toBe('Updated')
 
       // Verify API
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
-        metadata: expect.objectContaining({
-          version: 2,
-        }),
         branches: expect.any(Array),
       }))
     })
 
-    it('handles legacy items (no version) in cache', async () => {
+    it('handles legacy items in cache', async () => {
       const item = getBlankPerson()
-      // Simulate legacy item in cache (no version)
-      // We need to cast to force no version if typing prevents it,
-      // but simpler to just use an object that matches runtime shape.
       const legacyItem = { ...item } as any
-      delete legacyItem.version
 
       queryClient.setQueryData(queryKeys.items, [legacyItem])
 
       const itemUpdate = { ...item }
       const result = await mutateStoreItems(itemUpdate)
 
-      // undefined version -> treated as 0 -> +1 = 1
-      expect(result[0].version).toBe(1)
+      expect(result[0].id).toBe(item.id)
 
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
-        metadata: expect.objectContaining({
-          version: 1,
-        }),
         branches: expect.any(Array),
       }))
     })
 
     it('resolves bubbled conflicts through branch resolution flow', async () => {
       const item = getBlankPerson()
-      item.version = 1
       item.name = 'Base'
 
       const baseItem = { ...item }
@@ -162,7 +144,6 @@ describe('mutations', () => {
 
     it('does not throw when server emits a branch conflict on equivalent payload', async () => {
       const item = getBlankPerson()
-      item.version = 1
       item.name = 'Updated Name'
 
       queryClient.setQueryData(queryKeys.items, [{ ...item }])
@@ -194,7 +175,6 @@ describe('mutations', () => {
 
     it('handles repeated conflicts by routing to branch conflict resolver', async () => {
       const item = getBlankPerson()
-      item.version = 1
 
       // First update succeeds and records latest successful version (2).
       queryClient.setQueryData(queryKeys.items, [{ ...item }])
@@ -231,11 +211,9 @@ describe('mutations', () => {
     it('uses transaction conflict ids returned by vaultPutMany', async () => {
       const first = getBlankPerson()
       first.id = 'first'
-      first.version = 1
 
       const second = getBlankPerson()
       second.id = 'second'
-      second.version = 1
       second.name = 'Updated'
 
       queryClient.setQueryData(queryKeys.items, [{ ...first }, { ...second }])
@@ -260,16 +238,15 @@ describe('mutations', () => {
       const result = await mutateStoreItems([first, second])
 
       expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
-      expect(result.find(item => item.id === second.id)?.version).toBeDefined()
+      expect(result.find(item => item.id === second.id)?.name).toBe('Updated')
     })
   })
 
   describe('mutateDeleteItems', () => {
-    it('updates group version when deleting a member', async () => {
+    it('updates group and creates tombstone when deleting a member', async () => {
       const gItem = {
         ...getBlankGroup('g1', false),
         members: ['p1'],
-        version: 1,
       } as GroupItem
       const pItem = { ...getBlankPerson(), id: 'p1' }
 
@@ -306,7 +283,7 @@ describe('mutations', () => {
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'g1',
         metadata: expect.objectContaining({
-          version: 2
+          deleted: undefined,
         })
       }))
 
@@ -317,14 +294,13 @@ describe('mutations', () => {
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
-          version: 1,
         }),
       }))
     })
 
     it('creates tombstones for multiple items without hard delete endpoints', async () => {
-      const item1 = { ...getBlankPerson(), id: 'p1', version: 1 }
-      const item2 = { ...getBlankPerson(), id: 'p2', version: 1 }
+      const item1 = { ...getBlankPerson(), id: 'p1' }
+      const item2 = { ...getBlankPerson(), id: 'p2' }
 
       queryClient.setQueryData(queryKeys.items, [item1, item2])
 
@@ -360,7 +336,7 @@ describe('mutations', () => {
     })
 
     it('soft-deletes without using deprecated delete/deleteMany endpoints', async () => {
-      const item = { ...getBlankPerson(), id: 'p1', version: 1 }
+      const item = { ...getBlankPerson(), id: 'p1' }
 
       queryClient.setQueryData(queryKeys.items, [item])
 
@@ -388,8 +364,8 @@ describe('mutations', () => {
       }))
     })
 
-    it('increments version when creating tombstones', async () => {
-      const item = { ...getBlankPerson(), id: 'p1', version: 5 }
+    it('creates tombstones without linear version metadata', async () => {
+      const item = { ...getBlankPerson(), id: 'p1' }
 
       queryClient.setQueryData(queryKeys.items, [item])
 
@@ -406,51 +382,35 @@ describe('mutations', () => {
 
       await mutateDeleteItems('p1')
 
-      // Verify version incremented to 6
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
         branches: [],
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
-          version: 6,
         }),
       }))
     })
   })
 
   describe('mutateSetMetadata', () => {
-    it('resolves version conflict by merging', async () => {
-      const initialMetadata = { prayerGoal: 10, version: 1 }
+    it('stores metadata as branch payloads', async () => {
+      const initialMetadata = { prayerGoal: 10 }
       queryClient.setQueryData(queryKeys.metadata, initialMetadata)
 
-      // Mock Set Metadata Conflict sequence
-      // Mock Set Metadata Conflict sequence
-      const setMetadataSpy = vi.spyOn(VaultAPI, 'vaultSetMetadata')
-        .mockRejectedValueOnce(new Error('ConditionalCheckFailed'))
-        .mockResolvedValue(undefined)
-
-      // Mock Get Metadata (Server state)
-      const serverMetadata = { prayerGoal: 10, version: 2, completedMigrations: ['mig1'] }
-      vi.spyOn(VaultAPI, 'vaultGetMetadata').mockResolvedValue(serverMetadata)
+      const setMetadataSpy = vi.spyOn(VaultAPI, 'vaultSetMetadata').mockResolvedValue(undefined)
+      vi.spyOn(VaultAPI, 'vaultGetMetadata').mockResolvedValue({})
 
       await mutateSetMetadata(prev => ({ ...prev, prayerGoal: 20 }))
 
-      // Verify Retry call
-      expect(setMetadataSpy).toHaveBeenCalledTimes(2)
+      expect(setMetadataSpy).toHaveBeenCalledTimes(1)
+      expect(setMetadataSpy).toHaveBeenCalledWith(expect.objectContaining({
+        branches: expect.any(Array),
+      }))
 
-      // First call: version 2
-      expect(setMetadataSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ version: 2 }))
-
-      // Second call: version 3 (merged)
-      expect(setMetadataSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ version: 3 }))
-
-      // Verify Cache
       const cached = queryClient.getQueryData(queryKeys.metadata)
       expect(cached).toEqual({
         prayerGoal: 20,
-        version: 3,
-        completedMigrations: ['mig1']
       })
     })
   })

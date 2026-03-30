@@ -42,33 +42,55 @@ describe('DynamoDriver', function () {
     expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
   })
 
-  it('set enforces versioning', async () => {
+  it('set enforces branch parent lineage when expected parent is provided', async () => {
     const account = generateAccountId()
     const item = generateItemId()
     const type: ItemType = 'person'
-    const cipher = 'hello'
     const iv = 'there'
     const modified = new Date().getTime()
+    const baseBranch = {
+      encryptedAutomergeDoc: 'branch-base',
+      versionId: 'v1',
+      parentIds: [],
+    }
 
-    // 1. Initial set v1
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 1 } })
+    await driver.set({
+      account,
+      item,
+      branches: [baseBranch],
+      metadata: { type, iv, modified },
+    } as any)
 
-    // 2. Update with same version (should fail)
+    // Wrong expected parent should fail.
     await expect(
-      driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 1 } })
+      driver.set({
+        account,
+        item,
+        branches: [{
+          encryptedAutomergeDoc: 'branch-next',
+          versionId: 'v2',
+          parentIds: ['wrong-parent'],
+        }],
+        metadata: { type, iv, modified },
+        _expectedParentVersionId: 'wrong-parent',
+      } as any)
     ).rejects.toThrow('Version conflict')
 
-    // 3. Update with lower version (should fail)
-    await expect(
-      driver.set({ account, item, cipher, metadata: { type, iv, modified, version: 0 } })
-    ).rejects.toThrow('Version conflict')
-
-    // 4. Update with higher version (should succeed)
-    await driver.set({ account, item, cipher: 'new', metadata: { type, iv, modified, version: 2 } })
+    // Correct expected parent should succeed.
+    await driver.set({
+      account,
+      item,
+      branches: [{
+        encryptedAutomergeDoc: 'branch-next',
+        versionId: 'v2',
+        parentIds: ['v1'],
+      }],
+      metadata: { type, iv, modified },
+      _expectedParentVersionId: 'v1',
+    } as any)
 
     const result = await driver.get({ account, item })
-    expect(result.metadata.version).toBe(2)
-    expect(result.cipher).toBe('new')
+    expect(result.branches?.[0]?.versionId).toBe('v2')
   })
 
   it('setMany writes multiple items atomically and enforces version checks', async () => {
@@ -84,20 +106,20 @@ describe('DynamoDriver', function () {
         account,
         item: firstItem,
         cipher: 'cipher-1',
-        metadata: { type, iv, modified, version: 1 },
+        metadata: { type, iv, modified },
       },
       {
         account,
         item: secondItem,
         cipher: 'cipher-2',
-        metadata: { type, iv, modified, version: 1 },
+        metadata: { type, iv, modified },
       },
     ])
 
     const first = await driver.get({ account, item: firstItem })
     const second = await driver.get({ account, item: secondItem })
-    expect(first.metadata.version).toBe(1)
-    expect(second.metadata.version).toBe(1)
+    expect(first.cipher).toBe('cipher-1')
+    expect(second.cipher).toBe('cipher-2')
 
     await expect(
       driver.setMany([
@@ -105,22 +127,22 @@ describe('DynamoDriver', function () {
           account,
           item: firstItem,
           cipher: 'new-cipher-1',
-          metadata: { type, iv, modified, version: 2 },
+          metadata: { type, iv, modified },
+          _expectedParentVersionId: 'branch-missing',
         },
         {
           account,
           item: secondItem,
           cipher: 'new-cipher-2',
-          metadata: { type, iv, modified, version: 1 },
+          metadata: { type, iv, modified },
+          _expectedParentVersionId: 'branch-missing',
         },
-      ]),
+      ] as any),
     ).rejects.toBeInstanceOf(TransactionConflictsError)
 
     const unchangedFirst = await driver.get({ account, item: firstItem })
     const unchangedSecond = await driver.get({ account, item: secondItem })
-    expect(unchangedFirst.metadata.version).toBe(1)
     expect(unchangedFirst.cipher).toBe('cipher-1')
-    expect(unchangedSecond.metadata.version).toBe(1)
     expect(unchangedSecond.cipher).toBe('cipher-2')
   })
 
@@ -138,7 +160,6 @@ describe('DynamoDriver', function () {
         type,
         iv: 'tombstone-iv',
         modified,
-        version: 1,
         deleted: true,
       },
     })

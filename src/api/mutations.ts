@@ -5,8 +5,8 @@ import {
   Item,
   ItemId,
 } from '../state/items'
-import { mergeFromBaseWithAutomerge } from '../utils/automergeMerge'
 import {
+  vaultGetMetadata,
   vaultFetchMany,
   vaultPut,
   vaultPutMany,
@@ -17,15 +17,27 @@ import {
 } from './VaultAPI'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
-import { fetchItems, fetchMetadata, getCachedAutomergeBinary } from './queries'
+import { fetchItems } from './queries'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
 import { enqueueMutation, isLikelyNetworkError } from './offlineQueue'
+import {
+  getCachedAutomergeBinary,
+  getCachedMetadataAutomergeBinary,
+  setCachedMetadataAutomergeBinary,
+} from './automergeBinaryCache'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
 function getVaultModule() {
   return import('./Vault')
+}
+
+function hasVaultKeyAccessor(
+  vault: typeof import('./Vault'),
+): vault is typeof import('./Vault') & { getVaultKey: () => CryptoKey } {
+  return Object.prototype.hasOwnProperty.call(vault, 'getVaultKey')
+    && typeof (vault as { getVaultKey?: unknown }).getVaultKey === 'function'
 }
 
 export type ConflictResolution<TData, TBase = TData> = {
@@ -34,11 +46,14 @@ export type ConflictResolution<TData, TBase = TData> = {
   skipSave?: boolean
 }
 
-type TombstoneItem = Pick<Item, 'id' | 'type' | 'version' | 'deleted'> & { deleted: true }
+type TombstoneItem = Pick<Item, 'id' | 'type' | 'deleted'> & { deleted: true }
 type BranchPayload = {
   encryptedAutomergeDoc: string
   versionId: string
   parentIds: string[]
+}
+type MetadataEnvelope = {
+  branches?: BranchPayload[]
 }
 
 function isVersionConflictErrorMessage(message: string): boolean {
@@ -73,13 +88,15 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
         const current = typeof metadataOrUpdater === 'function'
           ? metadataOrUpdater(base)
           : metadataOrUpdater
-        current.version = (base.version || 0) + 1
         return current
       },
       performSave: async current => {
-        const vault = await getVaultModule()
-        const { cipher, iv } = await vault.encryptObject(current)
-        await vaultSetMetadata({ cipher, iv, version: current.version })
+        const serverMetadata = await vaultGetMetadata()
+        const payload = await serializeMetadataAsBranch(current, serverMetadata as MetadataEnvelope)
+        await vaultSetMetadata({
+          branches: payload.branches,
+          _expectedParentVersionId: payload.branches[0]?.parentIds.at(-1),
+        })
         return current
       },
       handleConflict: handleMetadataConflict,
@@ -104,9 +121,13 @@ export async function mutateStoreItems(
       getBaseState: previous => (
         new Map((previous || []).map(i => [i.id, i]))
       ),
-      calculateNextState: async base => {
+      calculateNextState: async () => {
+        const dedupedById = new Map<string, Item>()
         const currentItems = Array.isArray(items) ? [...items] : [items]
-        return prepareItemsForSave(currentItems, base)
+        for (const item of currentItems) {
+          dedupedById.set(item.id, item)
+        }
+        return Array.from(dedupedById.values())
       },
       performSave: async current => {
         await saveItemsToVault(current)
@@ -178,7 +199,6 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
         id: item.id,
         type: item.type,
         deleted: true,
-        version: (item.version || 0) + 1,
       }]
     })
 
@@ -198,29 +218,6 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
   } finally {
     await queryClient.invalidateQueries({ queryKey: queryKeys.items })
   }
-}
-
-function prepareItemsForSave(items: Item[], baseItems: Map<string, Item>): Item[] {
-  const dedupedById = new Map<string, Item>()
-  for (const item of items) {
-    dedupedById.set(item.id, item)
-  }
-
-  return Array.from(dedupedById.values()).map(item => {
-    const existing = baseItems.get(item.id)
-    const baseVersion = existing?.version
-      ?? ((item as Item & { deleted?: boolean }).deleted ? (item.version ?? 0) : 0)
-    const providedVersion = typeof item.version === 'number' ? item.version : 0
-    const isDeleted = (item as Item & { deleted?: boolean }).deleted === true
-    const nextVersion = isDeleted && providedVersion >= baseVersion
-      ? providedVersion
-      : baseVersion + 1
-
-    return {
-      ...item,
-      version: nextVersion,
-    }
-  })
 }
 
 function removeMembersFromGroup(group: GroupItem, idsSet: Set<string>): GroupItem {
@@ -278,7 +275,7 @@ async function serializeItemAsBranch(
   let encryptedAutomergeDoc: string
   let versionId: string
 
-  if (cachedBinary) {
+  if (cachedBinary && hasVaultKeyAccessor(vault)) {
     const Automerge = await import('@automerge/automerge')
     let doc = Automerge.load(cachedBinary)
     doc = Automerge.change(doc, draft => {
@@ -403,7 +400,6 @@ async function saveItemsToVault(items: Item[]) {
         iv: '',
         type: item.type,
         modified: modifiedTime,
-        version: item.version,
         deleted: item.deleted,
       },
     } as any)
@@ -420,7 +416,6 @@ async function saveItemsToVault(items: Item[]) {
             iv: '',
             type: item.type,
             modified: modifiedTime,
-            version: item.version,
             deleted: item.deleted,
           },
         }
@@ -501,25 +496,111 @@ async function handleItemsConflict(
 async function handleMetadataConflict(
   err: Error,
   current: AccountMetadata,
-  base: AccountMetadata,
+  _base: AccountMetadata,
 ): Promise<ConflictResolution<AccountMetadata>> {
   const errorMessage = err.message || ''
   const isConflict = errorMessage.includes('ConditionalCheckFailed') || errorMessage.includes('Version conflict') || errorMessage.includes('conditional request failed')
 
   if (isConflict) {
-    // Fetch latest metadata
-    const theirs = await fetchMetadata()
+    const serverEnvelope = await vaultGetMetadata() as MetadataEnvelope
+    const localPayload = await serializeMetadataAsBranch(current, serverEnvelope)
+    const serverBranches = Array.isArray(serverEnvelope?.branches) ? serverEnvelope.branches : []
 
-    const merged = await mergeFromBaseWithAutomerge(base, theirs, current) as AccountMetadata
-    merged.version = (theirs.version || 0) + 1
+    if (serverBranches.length === 0 || localPayload.branches.length === 0) {
+      throw err
+    }
 
-    // Return new state to retry with
+    const resolvedBranch = await mergeConflictBranchesInWorker(
+      '__account_metadata__',
+      localPayload.branches,
+      serverBranches,
+    )
+
+    const metadata = await decodeMetadataFromBranch(resolvedBranch)
+    setCachedMetadataAutomergeBinary(metadata.binary)
+
     return {
-      next: merged,
-      base: theirs
+      next: metadata.value,
+      base: metadata.value,
     }
   }
   throw err
+}
+
+async function decodeMetadataFromBranch(branch: BranchPayload): Promise<{ value: AccountMetadata, binary: Uint8Array }> {
+  const key = (await getVaultModule()).getVaultKey()
+  const encryptedDoc = branch.encryptedAutomergeDoc
+  const ivHex = encryptedDoc.slice(0, 32)
+  const cipherHex = encryptedDoc.slice(32)
+  const { toBytes } = await import('./pure-crypto')
+
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(toBytes(ivHex)) },
+    key,
+    toBytes(cipherHex),
+  )
+
+  const Automerge = await import('@automerge/automerge')
+  const binary = new Uint8Array(decrypted)
+  const doc = Automerge.load(binary)
+  return {
+    value: Automerge.toJS(doc) as AccountMetadata,
+    binary,
+  }
+}
+
+async function serializeMetadataAsBranch(
+  metadata: AccountMetadata,
+  currentServerMetadata?: MetadataEnvelope,
+): Promise<{ branches: BranchPayload[] }> {
+  const vault = await getVaultModule()
+  const headVersionId = currentServerMetadata?.branches?.[0]?.versionId
+
+  const cachedBinary = getCachedMetadataAutomergeBinary()
+  let binary: Uint8Array
+  if (cachedBinary) {
+    const Automerge = await import('@automerge/automerge')
+    let doc = Automerge.load(cachedBinary)
+    doc = Automerge.change(doc, draft => {
+      for (const key of Object.keys(draft as Record<string, unknown>)) {
+        delete (draft as Record<string, unknown>)[key]
+      }
+      Object.assign(draft as Record<string, unknown>, metadata as unknown as Record<string, unknown>)
+    })
+    binary = Automerge.save(doc)
+  } else {
+    const Automerge = await import('@automerge/automerge')
+    const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
+    binary = Automerge.save(doc)
+  }
+
+  setCachedMetadataAutomergeBinary(binary)
+
+  let encryptedAutomergeDoc: string
+  if (hasVaultKeyAccessor(vault)) {
+    const iv = crypto.getRandomValues(new Uint8Array(16))
+    const cipher = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      vault.getVaultKey(),
+      binary as BufferSource,
+    )
+    const ivHex = Array.from(iv).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    const ctHex = Array.from(new Uint8Array(cipher)).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    encryptedAutomergeDoc = ivHex + ctHex
+  } else {
+    const encrypted = await (vault as unknown as {
+      encryptObjectAsAutomerge: (obj: Record<string, unknown>) => Promise<{ encryptedAutomergeDoc: string }>
+    }).encryptObjectAsAutomerge(metadata as unknown as Record<string, unknown>)
+    encryptedAutomergeDoc = encrypted.encryptedAutomergeDoc
+  }
+
+  return {
+    branches: [{
+      encryptedAutomergeDoc,
+      versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      parentIds: headVersionId ? [headVersionId] : [],
+    }],
+  }
 }
 
 /**
@@ -648,7 +729,6 @@ async function buildOfflineMutation<TData>(
           iv: '',
           modified: modifiedTime,
           type: items[0].type,
-          version: items[0].version,
           deleted: items[0].deleted,
         },
       }
@@ -664,7 +744,6 @@ async function buildOfflineMutation<TData>(
           iv: '',
           modified: modifiedTime,
           type: items[i].type,
-          version: items[i].version,
           deleted: items[i].deleted,
         })),
       },
@@ -673,17 +752,16 @@ async function buildOfflineMutation<TData>(
 
   if (sameQueryKey(queryKey, queryKeys.metadata)) {
     const metadata = current as unknown as AccountMetadata
-    const vault = await getVaultModule()
-    const encrypted = await vault.encryptObject(metadata)
+    const serverMetadata = await vaultGetMetadata()
+    const payload = await serializeMetadataAsBranch(metadata, serverMetadata as MetadataEnvelope)
 
     return {
       mutationType: 'accounts.updateMetadata',
       payload: {
         account: getAccountId(),
         metadata: {
-          cipher: encrypted.cipher,
-          iv: encrypted.iv,
-          version: metadata.version,
+          branches: payload.branches,
+          _expectedParentVersionId: payload.branches[0]?.parentIds.at(-1),
         },
       },
     }

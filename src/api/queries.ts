@@ -33,6 +33,13 @@ import {
   writeDeadLetterQueue,
 } from './offlineQueueStore'
 import { useUiStore } from '../state/uiStore'
+import * as Automerge from '@automerge/automerge'
+import {
+  setCachedAutomergeBinary,
+  getCachedMetadataAutomergeBinary,
+  setCachedMetadataAutomergeBinary,
+} from './automergeBinaryCache'
+import { toBytes } from './pure-crypto'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
@@ -41,7 +48,6 @@ async function getVaultModule() {
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cacheKey: string, item: Item }>()
-const automergeBinaryCache = new Map<string, Uint8Array>()
 const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
 const MAX_DECRYPTION_CACHE_ITEMS = 2000
 let inMemoryLastSyncServerTime: number | null = null
@@ -125,16 +131,11 @@ function resetDecryptionCacheForTests(): void {
   }
   decryptionCacheWriteTimer = null
   decryptionCache.clear()
-  automergeBinaryCache.clear()
   loadedDecryptionCacheAccountId = null
 }
 
 function getDecryptionCacheSnapshotForTests() {
   return new Map(decryptionCache)
-}
-
-export function getCachedAutomergeBinary(itemId: string): Uint8Array | undefined {
-  return automergeBinaryCache.get(itemId)
 }
 
 /**
@@ -525,7 +526,7 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       const workerItem = item as { automergeBinary?: unknown } & Record<string, unknown>
       const automergeBinary = workerItem.automergeBinary
       if (automergeBinary instanceof Uint8Array) {
-        automergeBinaryCache.set(id, automergeBinary)
+        setCachedAutomergeBinary(id, automergeBinary)
       }
 
       const { automergeBinary: _automergeBinary, ...materialized } = workerItem
@@ -653,20 +654,48 @@ function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string
 
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
-  const vault = await getVaultModule()
   const result = await vaultGetMetadata()
-  let metadata: AccountMetadata
+  const vault = await getVaultModule()
 
-  if (result && 'cipher' in result && 'iv' in result) {
-    metadata = await vault.decryptObject(result as { cipher: string; iv: string }) as AccountMetadata
-    // Add version if it was passed alongside
-    if ('version' in result && typeof result.version === 'number') {
-      metadata.version = result.version
+  if (result && typeof result === 'object' && 'branches' in result && Array.isArray(result.branches)) {
+    const branches = result.branches
+    if (branches.length === 0) {
+      setCachedMetadataAutomergeBinary(Automerge.save(Automerge.from({})))
+      return {}
     }
-  } else {
-    // Backwards compatibility (10/07/21)
-    metadata = result as AccountMetadata
+
+    const decryptedDocs = await Promise.all(branches.map(async branch => {
+      const encryptedDoc = branch.encryptedAutomergeDoc
+      const iv = encryptedDoc.slice(0, 32)
+      const cipher = encryptedDoc.slice(32)
+      const binary = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(toBytes(iv)) },
+        vault.getVaultKey(),
+        toBytes(cipher),
+      )
+      return Automerge.load(new Uint8Array(binary))
+    }))
+
+    let mergedDoc = decryptedDocs[0]
+    for (let index = 1; index < decryptedDocs.length; index += 1) {
+      mergedDoc = Automerge.merge(mergedDoc, decryptedDocs[index])
+    }
+
+    const mergedBinary = Automerge.save(mergedDoc)
+    setCachedMetadataAutomergeBinary(mergedBinary)
+    return Automerge.toJS(mergedDoc) as AccountMetadata
   }
+
+  if (result && typeof result === 'object' && 'cipher' in result && 'iv' in result) {
+    const metadata = await vault.decryptObject(result as { cipher: string; iv: string }) as AccountMetadata
+    const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
+    setCachedMetadataAutomergeBinary(Automerge.save(doc))
+    return metadata
+  }
+
+  const metadata = (result || {}) as AccountMetadata
+  const fallbackBinary = getCachedMetadataAutomergeBinary() || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
+  setCachedMetadataAutomergeBinary(fallbackBinary)
   return metadata
 }
 

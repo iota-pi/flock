@@ -11,9 +11,42 @@ import {
 import { useAuthStore } from './authStore'
 
 const itemsFixture: Item[] = [
-  { id: 'person-1', type: 'person', name: 'Alice', version: 1 } as Item,
-  { id: 'group-1', type: 'group', name: 'Core Group', members: ['person-1'], version: 1 } as Item,
-  { id: 'topic-1', type: 'topic', name: 'Hope', version: 1 } as Item,
+  {
+    id: 'person-1',
+    type: 'person',
+    name: 'Alice',
+    archived: false,
+    created: 0,
+    description: '',
+    notes: [],
+    prayedFor: [],
+    prayerFrequency: 'none',
+  },
+  {
+    id: 'group-1',
+    type: 'group',
+    name: 'Core Group',
+    members: ['person-1'],
+    memberPrayerFrequency: 'none',
+    memberPrayerTarget: 'one',
+    archived: false,
+    created: 0,
+    description: '',
+    notes: [],
+    prayedFor: [],
+    prayerFrequency: 'none',
+  },
+  {
+    id: 'topic-1',
+    type: 'topic',
+    name: 'Hope',
+    archived: false,
+    created: 0,
+    description: '',
+    notes: [],
+    prayedFor: [],
+    prayerFrequency: 'none',
+  },
 ]
 
 vi.mock('../api/queries', () => ({

@@ -60,7 +60,6 @@ describe('FrequencyControls', () => {
   it('shows inherited frequency message when group frequency is higher', () => {
     const group: GroupItem = {
       id: 'g1',
-      version: 0,
       name: 'My Group',
       type: 'group',
       description: '',

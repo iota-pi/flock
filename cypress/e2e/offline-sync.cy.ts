@@ -51,42 +51,57 @@ describe('Offline sync', () => {
     cy.get('[aria-label="Sync now"]').click({ force: true })
   })
 
-  it('handles forced conflict resolution by merging branches and pushing resolution', () => {
-    // This test simulates a scenario where two concurrent edits created conflicting branches
-    // The client receives the item with multiple branches, merges them, and pushes the resolution
-
+  it('silently merges concurrent offline edits and preserves both fields', () => {
     cy.page('people')
 
     const conflictItemId = `conflict-test-item-${Date.now()}`
-    const versionA = `v1-${Date.now()}`
-    const versionB = `v2-${Date.now()}`
+    const baseVersion = `base-${Date.now()}`
+    const branchNameVersion = `name-${Date.now()}`
+    const branchNotesVersion = `notes-${Date.now()}`
 
-    let validBranchA = ''
-    let validBranchB = ''
+    const mergedName = `Merged Name ${Date.now().toString().slice(-4)}`
+    const mergedNote = `Merged note ${Date.now().toString().slice(-4)}`
+
+    let nameBranch = ''
+    let notesBranch = ''
 
     cy.window().then(async (win) => {
       const vault = await win.vault
-      const [encryptedA, encryptedB] = await Promise.all([
+
+      const [namePayload, notesPayload] = await Promise.all([
         vault.encryptObjectAsAutomerge({
           id: conflictItemId,
-          name: 'Conflict Person A',
+          name: mergedName,
+          description: '',
+          notes: [],
           archived: false,
+          prayedFor: [],
+          prayerFrequency: 'none',
+          created: Date.now(),
           type: 'person',
         }),
         vault.encryptObjectAsAutomerge({
           id: conflictItemId,
-          name: 'Conflict Person B',
-          archived: true,
+          name: 'Before Merge',
+          description: '',
+          notes: [{
+            id: `note-${Date.now()}`,
+            text: mergedNote,
+            archived: false,
+            time: Date.now(),
+          }],
+          archived: false,
+          prayedFor: [],
+          prayerFrequency: 'none',
+          created: Date.now(),
           type: 'person',
         }),
       ])
 
-      validBranchA = encryptedA.encryptedAutomergeDoc
-      validBranchB = encryptedB.encryptedAutomergeDoc
+      nameBranch = namePayload.encryptedAutomergeDoc
+      notesBranch = notesPayload.encryptedAutomergeDoc
     })
 
-    // Step 1: Intercept the item fetch to return an artificially conflicted item
-    // (simulating what the server would return if two clients edited concurrently)
     cy.intercept('GET', '**/trpc/items.fetchMany*', (req) => {
       req.reply({
         statusCode: 200,
@@ -97,14 +112,14 @@ describe('Offline sync', () => {
               item: conflictItemId,
               branches: [
                 {
-                  encryptedAutomergeDoc: validBranchA,
-                  versionId: versionA,
-                  parentIds: [],
+                  encryptedAutomergeDoc: nameBranch,
+                  versionId: branchNameVersion,
+                  parentIds: [baseVersion],
                 },
                 {
-                  encryptedAutomergeDoc: validBranchB,
-                  versionId: versionB,
-                  parentIds: [versionA],
+                  encryptedAutomergeDoc: notesBranch,
+                  versionId: branchNotesVersion,
+                  parentIds: [baseVersion],
                 },
               ],
               metadata: {
@@ -120,11 +135,12 @@ describe('Offline sync', () => {
       })
     }).as('fetchConflict')
 
-    // Step 2: Spy on the resolveBranchConflict endpoint
+    let resolveCallCount = 0
+
     cy.intercept('POST', '**/trpc/items.resolveBranchConflict*', (req) => {
+      resolveCallCount += 1
       const input = extractTrpcInput(req.body)
 
-      // Verify the request has a single merged branch
       expect(input).to.have.property('resolutions')
       expect(input.resolutions).to.be.an('array')
       expect(input.resolutions.length).to.be.greaterThan(0)
@@ -135,8 +151,7 @@ describe('Offline sync', () => {
       expect(resolution.resolvedBranch).to.have.property('versionId')
       expect(resolution.resolvedBranch).to.have.property('parentIds')
 
-      // parentIds should reference both branches that were merged
-      expect(resolution.resolvedBranch.parentIds).to.include.members([versionA, versionB])
+      expect(resolution.resolvedBranch.parentIds).to.include.members([branchNameVersion, branchNotesVersion])
 
       req.reply({
         statusCode: 200,
@@ -147,10 +162,17 @@ describe('Offline sync', () => {
       })
     }).as('resolveConflict')
 
-    // Step 3: Trigger the fetch (this loads items and should detect the conflict)
     cy.visit('/')
+    cy.wait('@fetchConflict', { timeout: 10000 })
+    cy.wait('@resolveConflict', { timeout: 10000 })
 
-    // Step 4: Ensure app remains healthy after conflicted payload processing
+    cy.contains(mergedName).should('exist').click()
+    cy.contains(mergedNote).should('exist')
+    cy.contains(/version conflict/i).should('not.exist')
+    cy.wrap(null).then(() => {
+      expect(resolveCallCount).to.equal(1)
+    })
+
     cy.dataCy('page-content-prayer').should('exist')
   })
 
