@@ -298,15 +298,12 @@ async function serializeItem(item: Item, vault: typeof import('./Vault')): Promi
     }
   }
 
-  // Phase 1: Use Automerge for all items
-  // (Future: add logic to detect legacy items and preserve cipher format)
-  const { encryptedAutomergeDoc, versionId } = await vault.encryptObjectAsAutomerge(item)
+  // Regular mutation path keeps deterministic legacy overwrite semantics.
+  // Branching is still handled for server-delivered conflict items.
+  const encrypted = await vault.encryptObject(item)
   return {
-    branches: [{
-      encryptedAutomergeDoc,
-      versionId,
-      parentIds: [], // First write, no parents
-    }],
+    cipher: encrypted.cipher,
+    iv: encrypted.iv,
   }
 }
 

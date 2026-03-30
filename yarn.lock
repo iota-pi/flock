@@ -9216,6 +9216,7 @@ __metadata:
     typescript-eslint: "npm:^8.46.4"
     vite: "npm:^7.3.0"
     vite-plugin-pwa: "npm:^1.2.0"
+    vite-plugin-wasm: "npm:^3.6.0"
     vite-tsconfig-paths: "npm:^6.0.3"
     vitest: "npm:^4.0.16"
     web-push: "npm:^3.6.7"
@@ -13955,6 +13956,15 @@ __metadata:
     "@vite-pwa/assets-generator":
       optional: true
   checksum: 10c0/d037591fc6a44b9a97f45b2452f691fce34c1c8ece4721d4f1a068f6dd7c30991b63c090a2af87d5b78d351bf5f5eee9d9dbbfc4bb39a77d3bc2ab7d2ca5df6b
+  languageName: node
+  linkType: hard
+
+"vite-plugin-wasm@npm:^3.6.0":
+  version: 3.6.0
+  resolution: "vite-plugin-wasm@npm:3.6.0"
+  peerDependencies:
+    vite: ^2 || ^3 || ^4 || ^5 || ^6 || ^7 || ^8
+  checksum: 10c0/7b18a7effc0341fb307feaeaaddea43c3886065227c416abc19ef3711c4c4dfef6f0a660241cbe9f84b9c69e3460e04b495c2740241cba0d15c4633a583920a2
   languageName: node
   linkType: hard
 

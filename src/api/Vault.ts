@@ -241,6 +241,38 @@ export async function decryptObject({ iv, cipher }: CryptoResult): Promise<objec
   return JSON.parse(await decrypt({ iv, cipher }))
 }
 
+function stripUndefinedDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => stripUndefinedDeep(item))
+      .filter(item => item !== undefined)
+  }
+
+  if (value && typeof value === 'object') {
+    // Preserve non-plain objects as-is.
+    if (
+      value instanceof Date
+      || value instanceof Uint8Array
+      || value instanceof ArrayBuffer
+    ) {
+      return value
+    }
+
+    const cleanedEntries = Object.entries(value as Record<string, unknown>)
+      .flatMap(([key, nestedValue]) => {
+        if (nestedValue === undefined) {
+          return []
+        }
+
+        return [[key, stripUndefinedDeep(nestedValue)] as const]
+      })
+
+    return Object.fromEntries(cleanedEntries)
+  }
+
+  return value
+}
+
 /**
  * Automerge-based serialization for CRDT conflict resolution
  * Returns encrypted Automerge binary document
@@ -248,8 +280,11 @@ export async function decryptObject({ iv, cipher }: CryptoResult): Promise<objec
 export async function encryptObjectAsAutomerge(obj: object): Promise<{ encryptedAutomergeDoc: string; versionId: string }> {
   const Automerge = await import('@automerge/automerge')
 
+  // Automerge rejects undefined field values; strip them recursively first.
+  const cleanedObject = stripUndefinedDeep(obj) as Record<string, unknown>
+
   // Create new Automerge document from object
-  const doc = Automerge.from(obj as Record<string, unknown>)
+  const doc = Automerge.from(cleanedObject)
 
   // Serialize to binary
   const binary = Automerge.save(doc)

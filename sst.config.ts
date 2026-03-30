@@ -61,6 +61,23 @@ export default $config({
       },
     })
 
+    const itemHistoryTable = new sst.aws.Dynamo('FlockItemHistory', {
+      fields: {
+        account: 'string',
+        historyKey: 'string',
+      },
+      primaryIndex: { hashKey: 'account', rangeKey: 'historyKey' },
+      transform: {
+        table: args => {
+          args.name = `FlockItemHistory_${stage}`
+          args.ttl = {
+            attributeName: 'expiresAt',
+            enabled: true,
+          }
+        },
+      },
+    })
+
     const replayLogTable = new sst.aws.Dynamo('FlockReplayLog', {
       fields: {
         account: 'string',
@@ -114,6 +131,7 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
+        ITEM_HISTORY_TABLE: itemHistoryTable.name,
         REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
@@ -123,6 +141,7 @@ export default $config({
       link: [
         accountsTable,
         itemsTable,
+        itemHistoryTable,
         replayLogTable,
         realtimeConnectionsTable,
       ],
@@ -291,8 +310,9 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
+        ITEM_HISTORY_TABLE: itemHistoryTable.name,
       },
-      link: [accountsTable, itemsTable],
+      link: [accountsTable, itemsTable, itemHistoryTable],
     })
 
     // -----------------------------------------------------------------
@@ -421,7 +441,7 @@ export default $config({
           iamRoleArn: backupRole.arn,
           name: `flock_dynamo_backup_selection_${stage}`,
           planId: backupPlan.id,
-          resources: [accountsTable.arn, itemsTable.arn],
+          resources: [accountsTable.arn, itemsTable.arn, itemHistoryTable.arn],
         },
       )
     }

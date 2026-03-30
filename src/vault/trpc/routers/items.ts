@@ -3,6 +3,7 @@ import { TransactionConflictsError } from '../../drivers/dynamo'
 import { publishRealtimeEvent } from '../../realtime/hub'
 import { router, protectedProcedure } from '../trpc'
 import {
+  FetchItemHistoryInputSchema,
   FetchItemsInputSchema,
   PutItemBodySchema,
   PutItemsBatchBodySchema,
@@ -11,7 +12,12 @@ import {
 import type { VaultBranch } from '../../../shared/itemTypes'
 
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000
+const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
 const processedIdempotencyKeys = new Map<string, number>()
+
+function buildHistoryKey(itemId: string): string {
+  return `${itemId}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`
+}
 
 function pruneExpiredIdempotencyKeys() {
   const now = Date.now()
@@ -101,6 +107,16 @@ export const itemsRouter = router({
       }
     }),
 
+  fetchItemHistory: protectedProcedure
+    .input(FetchItemHistoryInputSchema)
+    .query(async ({ ctx, input }) => {
+      const history = await ctx.vault.fetchHistory(input.account, input.itemId, input.limit)
+      return {
+        success: true,
+        history,
+      }
+    }),
+
   /**
    * putMany: Handles batch item updates with lineage-aware branch merging
    *
@@ -132,6 +148,27 @@ export const itemsRouter = router({
       const currentVersionsById = new Map(
         currentItems.map(item => [item.item, item])
       )
+
+      const expiresAt = Math.floor(Date.now() / 1000) + HISTORY_RETENTION_SECONDS
+      const historyWrites = input.items
+        .map(item => {
+          const currentItem = currentVersionsById.get(item.id)
+          if (!currentItem) {
+            return null
+          }
+
+          return ctx.vault.putHistory({
+            account: input.account,
+            historyKey: buildHistoryKey(item.id),
+            itemData: currentItem,
+            expiresAt,
+          })
+        })
+        .filter((promise): promise is Promise<void> => !!promise)
+
+      if (historyWrites.length > 0) {
+        await Promise.all(historyWrites)
+      }
 
       const mappedItems = input.items.map(incomingItem => {
         const { deleted, id, modified, type, version } = incomingItem
@@ -207,6 +244,20 @@ export const itemsRouter = router({
 
       const _type = asItemType(input.type)
 
+      const currentItem = await ctx.vault.fetchMany({
+        account: input.account,
+        ids: [input.item],
+      }).then(items => items[0]).catch(() => undefined)
+
+      if (currentItem) {
+        await ctx.vault.putHistory({
+          account: input.account,
+          historyKey: buildHistoryKey(input.item),
+          itemData: currentItem,
+          expiresAt: Math.floor(Date.now() / 1000) + HISTORY_RETENTION_SECONDS,
+        })
+      }
+
       // Build item based on format (legacy cipher vs branches)
       const itemToSet: any = {
         account: input.account,
@@ -226,13 +277,25 @@ export const itemsRouter = router({
         itemToSet.branches = input.branches
       }
 
-      await ctx.vault.set(itemToSet)
-      await publishRealtimeEvent(input.account, 'items.updated', {
-        itemIds: [input.item],
-        count: 1,
-      })
-      markIdempotencyKeyProcessed(input.idempotencyKey)
-      return { success: true }
+      try {
+        await ctx.vault.set(itemToSet)
+        await publishRealtimeEvent(input.account, 'items.updated', {
+          itemIds: [input.item],
+          count: 1,
+        })
+        markIdempotencyKeyProcessed(input.idempotencyKey)
+        return { success: true }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        if (message.includes('Version conflict')) {
+          return {
+            success: false,
+            error: 'Version conflict' as const,
+            conflicts: [input.item],
+          }
+        }
+        throw error
+      }
     }),
 
   /**
@@ -256,9 +319,27 @@ export const itemsRouter = router({
 
       const results: Array<{ item: string; success: boolean; error?: string }> = []
 
+      const currentItems = await ctx.vault.fetchMany({
+        account: input.account,
+        ids: input.resolutions.map(resolution => resolution.item),
+      }).catch(() => [])
+
+      const currentById = new Map(currentItems.map(item => [item.item, item]))
+      const expiresAt = Math.floor(Date.now() / 1000) + HISTORY_RETENTION_SECONDS
+
       // Process each resolution
       for (const resolution of input.resolutions) {
         try {
+          const currentItem = currentById.get(resolution.item)
+          if (currentItem) {
+            await ctx.vault.putHistory({
+              account: input.account,
+              historyKey: buildHistoryKey(resolution.item),
+              itemData: currentItem,
+              expiresAt,
+            })
+          }
+
           await ctx.vault.resolveBranchConflict(
             input.account,
             resolution.item,

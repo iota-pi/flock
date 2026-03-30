@@ -10,6 +10,8 @@ function createMockContext() {
     fetchAll: vi.fn(async () => []),
     fetchMany: vi.fn(async () => []),
     resolveBranchConflict: vi.fn(async () => undefined),
+    putHistory: vi.fn(async () => undefined),
+    fetchHistory: vi.fn(async () => []),
   }
 
   return {
@@ -71,6 +73,72 @@ describe('itemsRouter contracts', () => {
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
   })
+
+  it('archives current item before putMany overwrite', async () => {
+    const ctx = createMockContext()
+    const existing = {
+      account: 'acct-1',
+      item: 'item-3',
+      cipher: 'old-cipher',
+      metadata: {
+        type: 'person',
+        iv: 'iv-old',
+        modified: 111,
+      },
+    }
+
+    ctx.vault.fetchMany.mockResolvedValue([existing] as any)
+
+    const caller = itemsRouter.createCaller(ctx as any)
+    await caller.putMany({
+      account: 'acct-1',
+      idempotencyKey: 'history-archive-putmany',
+      items: [
+        {
+          id: 'item-3',
+          cipher: 'new-cipher',
+          iv: 'iv-new',
+          modified: 222,
+          type: 'person',
+        },
+      ],
+    })
+
+    expect(ctx.vault.putHistory).toHaveBeenCalledTimes(1)
+    expect(ctx.vault.putHistory).toHaveBeenCalledWith(expect.objectContaining({
+      account: 'acct-1',
+      itemData: existing,
+      expiresAt: expect.any(Number),
+      historyKey: expect.stringMatching(/^item-3#/),
+    }))
+  })
+
+  it('fetches item history through the emergency endpoint', async () => {
+    const ctx = createMockContext()
+    const history = [
+      {
+        account: 'acct-1',
+        item: 'item-4',
+        cipher: 'cipher-h1',
+        metadata: {
+          type: 'group',
+          iv: 'iv-h1',
+          modified: 123,
+        },
+      },
+    ]
+    ctx.vault.fetchHistory.mockResolvedValue(history as any)
+
+    const caller = itemsRouter.createCaller(ctx as any)
+    const response = await caller.fetchItemHistory({
+      account: 'acct-1',
+      itemId: 'item-4',
+    })
+
+    expect(response.success).toBe(true)
+    expect(response.history).toEqual(history)
+    expect(ctx.vault.fetchHistory).toHaveBeenCalledWith('acct-1', 'item-4', undefined)
+  })
 })
 
 describe('itemsRouter: Lineage-Aware Branching', () => {
@@ -78,7 +146,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     const ctx = createMockContext()
 
     // Mock the database to return an existing item with version 'v1'
-    (ctx.vault.fetchMany as any).mockResolvedValue([
+    ctx.vault.fetchMany.mockResolvedValue([
       {
         item: 'item-1',
         branches: [
@@ -128,7 +196,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     const ctx = createMockContext()
 
     // Mock database with version v2
-    (ctx.vault.fetchMany as any).mockResolvedValue([
+    ctx.vault.fetchMany.mockResolvedValue([
       {
         item: 'item-1',
         branches: [
@@ -177,7 +245,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
   it('always fast-forwards legacy cipher format', async () => {
     const ctx = createMockContext()
 
-    (ctx.vault.fetchMany as any).mockResolvedValue([
+    ctx.vault.fetchMany.mockResolvedValue([
       {
         item: 'item-1',
         cipher: 'old-cipher',
@@ -206,13 +274,13 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
 
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
     const item = ctx.vault.setMany.mock.calls[0][0][0]
-    expect(item._fastForward).toBe(true)
+    expect(item).not.toHaveProperty('_fastForward')
   })
 
   it('idempotency key prevents duplicate branch appends', async () => {
     const ctx = createMockContext()
 
-    (ctx.vault.fetchMany as any).mockResolvedValue([
+    ctx.vault.fetchMany.mockResolvedValue([
       {
         item: 'item-1',
         branches: [
@@ -260,7 +328,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
 describe('itemsRouter: Resolution Pruning', () => {
   it('resolveBranchConflict replaces multiple branches with single merged branch', async () => {
     const ctx = createMockContext()
-    (ctx.vault.resolveBranchConflict as any) = vi.fn(async () => undefined)
+    ctx.vault.resolveBranchConflict = vi.fn(async () => undefined)
 
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -290,7 +358,7 @@ describe('itemsRouter: Resolution Pruning', () => {
 
   it('resolveBranchConflict broadcasts resolved items via WebSocket', async () => {
     const ctx = createMockContext()
-    (ctx.vault.resolveBranchConflict as any) = vi.fn(async () => undefined)
+    ctx.vault.resolveBranchConflict = vi.fn(async () => undefined)
 
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -317,7 +385,7 @@ describe('itemsRouter: Resolution Pruning', () => {
     const ctx = createMockContext()
 
     // First call succeeds, second throws
-    (ctx.vault.resolveBranchConflict as any) = vi.fn()
+    ctx.vault.resolveBranchConflict = vi.fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('Item not found'))
 
@@ -354,7 +422,7 @@ describe('itemsRouter: Resolution Pruning', () => {
 
   it('resolution idempotency prevents duplicate pushes', async () => {
     const ctx = createMockContext()
-    (ctx.vault.resolveBranchConflict as any) = vi.fn(async () => undefined)
+    ctx.vault.resolveBranchConflict = vi.fn(async () => undefined)
 
     const caller = itemsRouter.createCaller(ctx as any)
 

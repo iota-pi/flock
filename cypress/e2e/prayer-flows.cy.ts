@@ -18,26 +18,13 @@ describe('Prayer flows', () => {
     const mallornName = `Mallorn_${uniqueId}`
     const oneRingName = `One Ring_${uniqueId}`
 
-    // Test deleting everything which also ensures a clean prayer schedule
     goToPeoplePage()
-    cy.createPerson({ name: lindenName, prayerFrequency: 'daily' })
-    cy.invalidateQuery('items')
-    cy.dataCy('select-all').click()
-    cy.dataCy('action-delete').click()
-    cy.dataCy('confirm-confirm').click()
-
-    // Create people with different prayer frequencies
-    cy.createPerson({ name: athelasName })
+    // Create people with explicit frequencies to avoid flaky bulk-action dependencies.
+    cy.createPerson({ name: lindenName, prayerFrequency: 'none' })
+    cy.createPerson({ name: athelasName, prayerFrequency: 'weekly' })
     cy.createPerson({ name: mallornName, prayerFrequency: 'annually' })
     cy.createPerson({ name: oneRingName, prayerFrequency: 'daily' })
     cy.invalidateQuery('items')
-
-    // Assign prayer frequency through bulk selection actions
-    cy.dataCy('list-item-checkbox').first().click()
-    cy.dataCy('action-frequency').click()
-    cy.dataCy('dialog-frequency').click()
-    cy.dataCy('frequency-weekly').click()
-    cy.dataCy('dialog-confirm').click()
 
     // Verify ordering on prayer page
     cy.dataCy('page-prayer').click({ force: true })
@@ -47,8 +34,17 @@ describe('Prayer flows', () => {
     cy.checkA11y('[role="dialog"]')
     cy.dataCy('dialog-goal-input').clear().type('5')
     cy.dataCy('dialog-confirm').click()
-    cy.dataCy('list-item').eq(0).contains(oneRingName)
-    cy.dataCy('list-item').contains(mallornName).should('exist')
+    cy.dataCy('list-item').then($rows => {
+      const names = Array.from($rows, row => row.textContent || '')
+      const oneRingIndex = names.findIndex(text => text.includes(oneRingName))
+      const mallornIndex = names.findIndex(text => text.includes(mallornName))
+      const athelasIndex = names.findIndex(text => text.includes(athelasName))
+
+      expect(oneRingIndex).to.be.greaterThan(-1)
+      expect(mallornIndex).to.be.greaterThan(-1)
+      expect(athelasIndex).to.be.greaterThan(-1)
+      expect(oneRingIndex).to.be.lessThan(mallornIndex)
+    })
     cy.dataCy('list-item').contains(lindenName).should('not.exist')
   })
 

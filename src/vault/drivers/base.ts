@@ -53,6 +53,13 @@ export interface VaultItem extends VaultKey, VaultData {
   ttl?: number,
 }
 
+export interface VaultItemHistory {
+  account: string,
+  historyKey: string,
+  itemData: VaultItem,
+  expiresAt: number,
+}
+
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
 
 export function asItemType(type: string): ItemType {
@@ -104,6 +111,9 @@ export default abstract class BaseDriver<T = unknown> {
   abstract fetchAll(
     { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
   ): Promise<CachedVaultItem[]>
+
+  abstract putHistory(data: VaultItemHistory): Promise<void>
+  abstract fetchHistory(account: string, itemId: string, limit?: number): Promise<VaultItem[]>
 
   abstract delete(key: VaultKey): Promise<void>
 

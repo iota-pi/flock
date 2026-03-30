@@ -53,6 +53,16 @@ type PutManyResponse =
     conflicts: string[],
   }
 
+type PutResponse =
+  | {
+    success: true,
+  }
+  | {
+    success: false,
+    error: 'Version conflict',
+    conflicts: string[],
+  }
+
 export type ReminderSettingsResponse = {
   success: boolean,
   reminderEnabled: boolean,
@@ -127,7 +137,17 @@ export async function vaultPut(item: VaultItem) {
     type: item.metadata.type,
     version: item.metadata.version,
     deleted: item.metadata.deleted,
-  } as any)
+  } as any) as PutResponse
+
+  if (
+    !response.success
+    && 'error' in response
+    && response.error === 'Version conflict'
+    && 'conflicts' in response
+  ) {
+    throw new VaultVersionConflictError(response.conflicts)
+  }
+
   assertSuccess(response, 'put')
 }
 

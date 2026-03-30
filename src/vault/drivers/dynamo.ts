@@ -7,6 +7,7 @@ import {
   TransactionCanceledException,
 } from '@aws-sdk/client-dynamodb'
 import {
+  BatchGetCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -29,6 +30,7 @@ import BaseDriver, {
   BaseData,
   CachedVaultItem,
   VaultAccountWithAuth,
+  VaultItemHistory,
   VaultItem,
   VaultKey,
 } from './base'
@@ -37,12 +39,15 @@ import { ExpiredSessionError } from '../api/errors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
+export const ITEM_HISTORY_TABLE = process.env.ITEM_HISTORY_TABLE || 'FlockItemHistory'
 const DATA_ATTRIBUTES = ['metadata', 'cipher']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
 export const MAX_TRANSACTION_ITEMS = 100
+export const MAX_BATCH_GET_ITEMS = 100
 export const MAX_TRANSACTION_BYTES = 3_500_000
+export const MAX_BATCH_GET_RETRIES = 5
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
@@ -158,6 +163,87 @@ function chunkItemsForTransactions(items: VaultItem[]): VaultItem[][] {
   return chunks
 }
 
+function chunkKeys<T>(items: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
+function isConditionalCheckFailure(error: unknown): boolean {
+  if (error instanceof ConditionalCheckFailedException) {
+    return true
+  }
+
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.name === 'ConditionalCheckFailedException'
+    || error.message.includes('ConditionalCheckFailed')
+    || error.message.includes('conditional request failed')
+  )
+}
+
+function isTransactionCanceled(error: unknown): boolean {
+  if (error instanceof TransactionCanceledException) {
+    return true
+  }
+
+  return error instanceof Error && error.name === 'TransactionCanceledException'
+}
+
+function getTransactionCancellationReasons(error: unknown): Array<{ Code?: string }> {
+  if (!error || typeof error !== 'object') {
+    return []
+  }
+
+  const typed = error as {
+    CancellationReasons?: Array<{ Code?: string }>
+    cancellationReasons?: Array<{ Code?: string }>
+  }
+
+  return typed.CancellationReasons || typed.cancellationReasons || []
+}
+
+function isMissingDeltaIndexError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.name === 'ValidationException'
+    && (
+      error.message.includes('specified index')
+      || error.message.includes('does not have the specified index')
+    )
+  )
+}
+
+function isHistoryTableMissing(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.name === 'ResourceNotFoundException'
+    || error.message.includes('Requested resource not found')
+    || error.message.includes('Cannot do operations on a non-existent table')
+  )
+}
+
+function shouldIgnoreHistoryError(error: unknown): boolean {
+  if (isHistoryTableMissing(error)) {
+    return true
+  }
+
+  // History is additive safety data; non-production environments should
+  // not block primary item writes due table drift.
+  return process.env.NODE_ENV !== 'production'
+}
+
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
 
@@ -241,6 +327,39 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
+    try {
+      await client.send(new CreateTableCommand(
+        {
+          TableName: ITEM_HISTORY_TABLE,
+          KeySchema: [
+            {
+              AttributeName: 'account',
+              KeyType: 'HASH',
+            },
+            {
+              AttributeName: 'historyKey',
+              KeyType: 'RANGE',
+            },
+          ],
+          AttributeDefinitions: [
+            {
+              AttributeName: 'account',
+              AttributeType: 'S',
+            },
+            {
+              AttributeName: 'historyKey',
+              AttributeType: 'S',
+            },
+          ],
+          BillingMode: 'PAY_PER_REQUEST',
+        },
+      ))
+    } catch (err: unknown) {
+      if (!(err instanceof ResourceInUseException)) {
+        throw err
+      }
+    }
+
     return this
   }
 
@@ -281,7 +400,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
       success = false
-      if (!(error instanceof ConditionalCheckFailedException)) {
+      if (!isConditionalCheckFailure(error)) {
         throw error
       }
     })
@@ -533,7 +652,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     try {
       await this.client.send(new PutCommand(params))
     } catch (err) {
-      if (err instanceof ConditionalCheckFailedException) {
+      if (isConditionalCheckFailure(err)) {
         throw new Error('Version conflict: The item has been modified by another client.')
       }
       throw err
@@ -575,16 +694,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           TransactItems: chunk,
         }))
       } catch (error) {
-        if (error instanceof TransactionCanceledException) {
-          const reasons = ((error as unknown as {
-            CancellationReasons?: Array<{ Code?: string }>
-            cancellationReasons?: Array<{ Code?: string }>
-          }).CancellationReasons
-            || (error as unknown as {
-              CancellationReasons?: Array<{ Code?: string }>
-              cancellationReasons?: Array<{ Code?: string }>
-            }).cancellationReasons
-            || [])
+        if (isTransactionCanceled(error)) {
+          const reasons = getTransactionCancellationReasons(error)
 
           const conflictedIds = reasons
             .map((reason, index) => {
@@ -747,19 +858,99 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (ids.length === 0) {
       return []
     }
-    // Use individual GetCommand calls instead of BatchGetCommand
-    // BatchGetCommand doesn't work properly with DynamoDBDocumentClient
-    const items = await Promise.all(
-      ids.map(id =>
-        this.client.send(
-          new GetCommand({
-            TableName: ITEM_TABLE_NAME,
-            Key: { account, item: id },
-          }),
-        ),
-      ),
-    )
-    return items.filter(item => item.Item).map(item => item.Item as VaultItem)
+
+    // DynamoDB BatchGet rejects duplicate keys in one request.
+    // Keep ordering stable via uniqueIds and rehydrate from a map.
+    const uniqueIds = Array.from(new Set(ids))
+    const keyChunks = chunkKeys(uniqueIds, MAX_BATCH_GET_ITEMS)
+    const itemsById = new Map<string, VaultItem>()
+
+    for (const keyChunk of keyChunks) {
+      let remainingKeys = keyChunk.map(item => ({ account, item }))
+      let retryCount = 0
+
+      while (remainingKeys.length > 0) {
+        const response = await this.client.send(new BatchGetCommand({
+          RequestItems: {
+            [ITEM_TABLE_NAME]: {
+              Keys: remainingKeys,
+            },
+          },
+        }))
+
+        const fetchedItems = response.Responses?.[ITEM_TABLE_NAME] as VaultItem[] | undefined
+        if (fetchedItems) {
+          for (const item of fetchedItems) {
+            if (item.item) {
+              itemsById.set(item.item, item)
+            }
+          }
+        }
+
+        const unprocessed = response.UnprocessedKeys?.[ITEM_TABLE_NAME]?.Keys as Array<{ account: string, item: string }> | undefined
+        if (!unprocessed || unprocessed.length === 0) {
+          break
+        }
+
+        retryCount += 1
+        if (retryCount > MAX_BATCH_GET_RETRIES) {
+          throw new Error(`BatchGet exceeded retry limit (${MAX_BATCH_GET_RETRIES}) with ${unprocessed.length} unprocessed keys`)
+        }
+
+        // Exponential backoff with jitter for provisioned throughput spikes.
+        const backoffMs = Math.min(1000, 50 * (2 ** (retryCount - 1))) + Math.floor(Math.random() * 25)
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
+        remainingKeys = unprocessed
+      }
+    }
+
+    return uniqueIds
+      .map(itemId => itemsById.get(itemId))
+      .filter((item): item is VaultItem => !!item)
+  }
+
+  async putHistory(data: VaultItemHistory): Promise<void> {
+    try {
+      await this.client.send(new PutCommand({
+        TableName: ITEM_HISTORY_TABLE,
+        Item: data,
+      }))
+    } catch (error) {
+      if (shouldIgnoreHistoryError(error)) {
+        return
+      }
+      throw error
+    }
+  }
+
+  async fetchHistory(account: string, itemId: string, limit = 20): Promise<VaultItem[]> {
+    let response
+    try {
+      response = await this.client.send(new QueryCommand({
+        TableName: ITEM_HISTORY_TABLE,
+        KeyConditionExpression: 'account = :accountid AND begins_with(historyKey, :historyPrefix)',
+        ExpressionAttributeValues: {
+          ':accountid': account,
+          ':historyPrefix': `${itemId}#`,
+        },
+        ScanIndexForward: false,
+        Limit: limit,
+      }))
+    } catch (error) {
+      if (shouldIgnoreHistoryError(error)) {
+        return []
+      }
+      throw error
+    }
+
+    const rows = response.Items as VaultItemHistory[] | undefined
+    if (!rows || rows.length === 0) {
+      return []
+    }
+
+    return rows
+      .map(row => row.itemData)
+      .filter((item): item is VaultItem => !!item)
   }
 
   async fetchAll(
@@ -817,11 +1008,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       try {
         response = await this.client.send(new QueryCommand(queryInput))
       } catch (error) {
-        if (
-          useDeltaIndex
-          && error instanceof Error
-          && error.message.includes('does not have the specified index')
-        ) {
+        if (useDeltaIndex && isMissingDeltaIndexError(error)) {
           useDeltaIndex = false
           lastEvaluatedKey = undefined
           items.length = 0

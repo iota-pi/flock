@@ -47,6 +47,19 @@ const pendingDecryptionJobs = new Map<number, {
   resolve: (value: object[]) => void
   reject: (reason?: unknown) => void
 }>()
+const pendingHistoryEvaluationJobs = new Map<number, {
+  resolve: (value: VaultItem | null) => void
+  reject: (reason?: unknown) => void
+}>()
+const recoveryInFlightItemIds = new Set<string>()
+const recoveryCooldownUntilByItemId = new Map<string, number>()
+const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
+
+type WorkerResolvedBranch = {
+  encryptedAutomergeDoc: string
+  versionId: string
+  parentIds: string[]
+}
 
 function getDecryptionCacheKey(accountId: string): string {
   return `${DECRYPTION_CACHE_KEY_PREFIX}_${accountId}`
@@ -162,6 +175,102 @@ async function queueConflictResolutions(
   }
 }
 
+function getRecoveryCooldownUntil(itemId: string): number {
+  return recoveryCooldownUntilByItemId.get(itemId) || 0
+}
+
+async function evaluateHistoryWithWorker(
+  worker: Worker,
+  key: CryptoKey,
+  itemId: string,
+  history: VaultItem[],
+): Promise<VaultItem | null> {
+  if (history.length === 0) {
+    return null
+  }
+
+  decryptionJobCounter += 1
+  const jobId = decryptionJobCounter
+
+  const result = await new Promise<VaultItem | null>((resolve, reject) => {
+    pendingHistoryEvaluationJobs.set(jobId, { resolve, reject })
+    worker.postMessage({
+      type: 'EVALUATE_HISTORY',
+      jobId,
+      key,
+      itemId,
+      history,
+    })
+  }).catch(error => {
+    handleVaultError(error as Error, `Failed to evaluate history for item ${itemId}`)
+    pendingHistoryEvaluationJobs.delete(jobId)
+    return null
+  })
+
+  return result
+}
+
+async function attemptAutoRecovery(
+  worker: Worker,
+  itemId: string,
+  failedBranches?: string[],
+): Promise<void> {
+  const now = Date.now()
+  if (recoveryInFlightItemIds.has(itemId) || getRecoveryCooldownUntil(itemId) > now) {
+    return
+  }
+
+  recoveryInFlightItemIds.add(itemId)
+
+  try {
+    if (!checkAxios()) {
+      return
+    }
+
+    const account = getAccountId()
+    const historyResponse = await trpcClient.items.fetchItemHistory.query({
+      account,
+      itemId,
+    }) as { success: boolean; history: VaultItem[] }
+
+    if (!historyResponse.success || !Array.isArray(historyResponse.history) || historyResponse.history.length === 0) {
+      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      return
+    }
+
+    const vault = await getVaultModule()
+    const key = vault.getVaultKey()
+    const healthyEnvelope = await evaluateHistoryWithWorker(worker, key, itemId, historyResponse.history)
+
+    if (!healthyEnvelope) {
+      console.error(`[Recovery] No healthy historical envelope found for item ${itemId}`, { failedBranches })
+      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      return
+    }
+
+    await trpcClient.items.put.mutate({
+      account,
+      item: healthyEnvelope.item,
+      ...(healthyEnvelope.cipher ? { cipher: healthyEnvelope.cipher } : {}),
+      ...(healthyEnvelope.branches ? { branches: healthyEnvelope.branches } : {}),
+      iv: healthyEnvelope.metadata.iv,
+      modified: Date.now(),
+      type: healthyEnvelope.metadata.type,
+      deleted: healthyEnvelope.metadata.deleted,
+      idempotencyKey: `recovery-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    } as any)
+
+    recoveryCooldownUntilByItemId.delete(itemId)
+    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    console.log(`[Recovery] Successfully rolled back item ${itemId}`)
+  } catch (err) {
+    console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, err)
+    recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+  } finally {
+    recoveryInFlightItemIds.delete(itemId)
+  }
+}
+
 function ensureSharedDecryptionWorker(): Worker {
   if (sharedDecryptionWorker) {
     return sharedDecryptionWorker
@@ -178,8 +287,35 @@ function ensureSharedDecryptionWorker(): Worker {
       jobId?: unknown
       items?: object[]
       itemId?: unknown
-      resolvedBranch?: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] }
-      resolutionItems?: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>
+      failedBranches?: unknown
+      resolvedBranch?: WorkerResolvedBranch
+      healthyEnvelope?: VaultItem | null
+      resolutionItems?: Array<{ itemId: string; branch: WorkerResolvedBranch }>
+    }
+
+    if (payload.type === 'CORRUPTED_ITEM_DETECTED') {
+      if (typeof payload.itemId === 'string') {
+        const failedBranches = Array.isArray(payload.failedBranches)
+          ? payload.failedBranches.filter((value): value is string => typeof value === 'string')
+          : undefined
+
+        attemptAutoRecovery(worker, payload.itemId, failedBranches).catch(err => {
+          console.error(`Failed to run auto-recovery for item ${payload.itemId}`, err)
+        })
+      }
+      return
+    }
+
+    if (payload.type === 'HISTORY_EVALUATED') {
+      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
+      const pending = pendingHistoryEvaluationJobs.get(jobId)
+      if (!pending) {
+        return
+      }
+
+      pendingHistoryEvaluationJobs.delete(jobId)
+      pending.resolve((payload.healthyEnvelope as VaultItem | null) || null)
+      return
     }
 
     if (payload.type === 'CONFLICT_RESOLVED') {
@@ -219,6 +355,12 @@ function ensureSharedDecryptionWorker(): Worker {
       pending.reject(error)
     }
     pendingDecryptionJobs.clear()
+
+    for (const pending of pendingHistoryEvaluationJobs.values()) {
+      pending.reject(error)
+    }
+    pendingHistoryEvaluationJobs.clear()
+
     sharedDecryptionWorker = null
   }
 
@@ -319,7 +461,7 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
 
   const decrypted = await new Promise<object[]>((resolve, reject) => {
     pendingDecryptionJobs.set(jobId, { resolve, reject })
-    worker.postMessage({ jobId, key, items })
+    worker.postMessage({ type: 'DECRYPT_ITEMS', jobId, key, items })
   }).catch(error => {
     handleVaultError(error as Error, 'Failed to decrypt item from server')
     pendingDecryptionJobs.delete(jobId)

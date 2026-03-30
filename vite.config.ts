@@ -4,6 +4,7 @@ import viteTsconfigPaths from 'vite-tsconfig-paths';
 import browserslistToEsbuild from 'browserslist-to-esbuild';
 import { VitePWA } from 'vite-plugin-pwa';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
+import wasm from 'vite-plugin-wasm';
 
 import { visualizer } from 'rollup-plugin-visualizer';
 
@@ -15,6 +16,7 @@ const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 export default defineConfig({
   base: '',
   plugins: [
+    wasm(),
     react(),
     viteTsconfigPaths(),
     VitePWA({

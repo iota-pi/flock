@@ -4,11 +4,22 @@ import type { VaultItem } from '../api/VaultAPI'
 import type { VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/pure-crypto'
 
-type DecryptionWorkerInput = {
+type DecryptItemsWorkerInput = {
+  type?: 'DECRYPT_ITEMS'
   jobId?: number
   key: CryptoKey
   items: VaultItem[]
 }
+
+type EvaluateHistoryWorkerInput = {
+  type: 'EVALUATE_HISTORY'
+  jobId?: number
+  key: CryptoKey
+  itemId: string
+  history: VaultItem[]
+}
+
+type DecryptionWorkerInput = DecryptItemsWorkerInput | EvaluateHistoryWorkerInput
 
 type HydratedItem = Record<string, unknown> & { id?: string; version?: number }
 
@@ -23,6 +34,20 @@ type DecryptionResultMessage = {
   type: 'DECRYPTION_RESULT'
   jobId?: number
   items: HydratedItem[]
+}
+
+type CorruptedItemDetectedMessage = {
+  type: 'CORRUPTED_ITEM_DETECTED'
+  jobId?: number
+  itemId: string
+  failedBranches?: string[]
+}
+
+type HistoryEvaluatedMessage = {
+  type: 'HISTORY_EVALUATED'
+  jobId?: number
+  itemId: string
+  healthyEnvelope: VaultItem | null
 }
 
 declare const self: DedicatedWorkerGlobalScope
@@ -89,10 +114,17 @@ function materializeDoc(doc: Automerge.Doc<unknown>): HydratedItem {
 export async function processIncomingItem(
   envelope: VaultItem,
   key: CryptoKey,
-): Promise<{ item: HydratedItem | null; resolvedBranch?: VaultBranch }> {
-  // Scenario 1: Legacy item
-  if (envelope.cipher && !envelope.branches) {
-    try {
+): Promise<{
+  item: HydratedItem | null
+  resolvedBranch?: VaultBranch
+  corrupted?: {
+    itemId: string
+    failedBranches?: string[]
+  }
+}> {
+  try {
+    // Scenario 1: Legacy item
+    if (envelope.cipher && !envelope.branches) {
       const plainJson = await decryptLegacyCipher(envelope.cipher, envelope.metadata.iv, key)
       const parsed = JSON.parse(plainJson) as HydratedItem
       parsed.id = envelope.item
@@ -100,15 +132,10 @@ export async function processIncomingItem(
         parsed.version = envelope.metadata.version
       }
       return { item: parsed }
-    } catch (error) {
-      console.error('Failed to decrypt legacy item', error)
-      return { item: null }
     }
-  }
 
-  // Scenario 2: Upgraded item with one branch
-  if (envelope.branches && envelope.branches.length === 1) {
-    try {
+    // Scenario 2: Upgraded item with one branch
+    if (envelope.branches && envelope.branches.length === 1) {
       const branch = envelope.branches[0]
       const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
       const doc = Automerge.load(binary)
@@ -118,15 +145,10 @@ export async function processIncomingItem(
         item.version = envelope.metadata.version
       }
       return { item }
-    } catch (error) {
-      console.error('Failed to decrypt single Automerge branch', error)
-      return { item: null }
     }
-  }
 
-  // Scenario 3: Conflict with multiple branches
-  if (envelope.branches && envelope.branches.length > 1) {
-    try {
+    // Scenario 3: Conflict with multiple branches
+    if (envelope.branches && envelope.branches.length > 1) {
       // Phase 1: Decrypt and validate each branch independently
       const decryptedBranches: Array<{
         versionId: string
@@ -135,7 +157,6 @@ export async function processIncomingItem(
       } | {
         versionId: string
         valid: false
-        error: string
       }> = []
 
       for (const branch of envelope.branches) {
@@ -152,7 +173,6 @@ export async function processIncomingItem(
           decryptedBranches.push({
             versionId: branch.versionId,
             valid: false,
-            error: decryptError instanceof Error ? decryptError.message : 'Decryption failed',
           })
         }
       }
@@ -162,10 +182,15 @@ export async function processIncomingItem(
         (branch): branch is Extract<typeof branch, { valid: true }> => branch.valid === true,
       )
 
-      // If no valid branches, return null (item is unrecoverable)
+      // If no valid branches, mark item as corrupted for recovery
       if (validBranches.length === 0) {
-        console.error(`All ${envelope.branches.length} branches failed to load for item ${envelope.item}`)
-        return { item: null }
+        return {
+          item: null,
+          corrupted: {
+            itemId: envelope.item,
+            failedBranches: envelope.branches.map(branch => branch.versionId),
+          },
+        }
       }
 
       // Phase 3: Merge all valid branches
@@ -200,16 +225,49 @@ export async function processIncomingItem(
       }
 
       return { item, resolvedBranch }
-    } catch (error) {
-      console.error('Failed to merge conflicted Automerge branches', error)
-      return { item: null }
+    }
+
+    return { item: null }
+  } catch (error) {
+    console.error(`[Worker] Corrupted binary for item ${envelope.item}:`, error)
+    return {
+      item: null,
+      corrupted: {
+        itemId: envelope.item,
+        failedBranches: envelope.branches?.map(branch => branch.versionId),
+      },
     }
   }
+}
 
-  return { item: null }
+export async function evaluateHistory(
+  historicalEnvelopes: VaultItem[],
+  key: CryptoKey,
+): Promise<VaultItem | null> {
+  for (const envelope of historicalEnvelopes) {
+    const testItem = await processIncomingItem(envelope, key)
+    if (!testItem.corrupted && testItem.item) {
+      return envelope
+    }
+  }
+  return null
 }
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
+  if (event.data.type === 'EVALUATE_HISTORY') {
+    const { jobId, key, itemId, history } = event.data
+    const healthyEnvelope = await evaluateHistory(history, key)
+
+    const historyMessage: HistoryEvaluatedMessage = {
+      type: 'HISTORY_EVALUATED',
+      jobId,
+      itemId,
+      healthyEnvelope,
+    }
+    self.postMessage(historyMessage)
+    return
+  }
+
   const { jobId, key, items } = event.data
   const decryptedItems: HydratedItem[] = []
 
@@ -223,6 +281,17 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
     }
 
     const result = await processIncomingItem(envelope, key)
+    if (result.corrupted) {
+      const corruptedMessage: CorruptedItemDetectedMessage = {
+        type: 'CORRUPTED_ITEM_DETECTED',
+        jobId,
+        itemId: result.corrupted.itemId,
+        failedBranches: result.corrupted.failedBranches,
+      }
+      self.postMessage(corruptedMessage)
+      continue
+    }
+
     if (!result.item) {
       continue
     }

@@ -17,13 +17,11 @@ import {
   DirtyItem,
   getItemName,
   getItemTypeLabel,
-  GroupItem,
   isItem,
   isValid,
   Item,
   ITEM_TYPES,
 } from '../../state/items'
-import { useItems } from '../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 import { isSameDay, usePrevious } from '../../utils'
 import {
@@ -64,22 +62,12 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const groups = useItems<GroupItem>('group')
   const { mutateAsync: deleteItem } = useDeleteItemsMutation()
   const { mutate: storeItems } = useStoreItemsMutation()
 
   const [disableAutoSave, setDisableAutoSave] = useState(false)
 
   const prevItem = usePrevious(item)
-
-  const memberGroups = useMemo(
-    () => (
-      item.type === 'person'
-        ? groups.filter(g => g.members.includes(item.id)).sort(compareNames)
-        : []
-    ),
-    [item.id, item.type, groups],
-  )
 
   const handleChange = useCallback(
     <T extends Item>(
@@ -92,21 +80,6 @@ function ItemDrawer({
       return onChange(dirtyItem(data))
     },
     [onChange],
-  )
-
-  const removeFromAllGroups = useCallback(
-    () => {
-      const updatedGroupItems: GroupItem[] = []
-      for (const group of memberGroups) {
-        const newGroup: GroupItem = {
-          ...group,
-          members: group.members.filter(m => m !== item.id),
-        }
-        updatedGroupItems.push(newGroup)
-      }
-      storeItems(updatedGroupItems)
-    },
-    [item.id, memberGroups, storeItems],
   )
 
   const handleSave = useCallback(
@@ -150,12 +123,11 @@ function ItemDrawer({
   )
   const handleDelete = useCallback(
     () => {
-      removeFromAllGroups()
       deleteItem(item.id)
         .catch(error => console.error(error))
       onClose()
     },
-    [deleteItem, item.id, onClose, removeFromAllGroups],
+    [deleteItem, item.id, onClose],
   )
 
   const handleUnmount = useCallback(
