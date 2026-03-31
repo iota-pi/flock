@@ -1,6 +1,5 @@
 import env from '../env'
 import * as Sentry from '@sentry/react'
-import { isAxiosError } from 'axios'
 import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
 import { queryClient, queryKeys } from './queryClient'
@@ -105,26 +104,21 @@ export function isLikelyNetworkError(error: unknown): boolean {
 }
 
 function getClientErrorStatus(error: unknown): number | undefined {
-  if (isAxiosError(error) && typeof error.response?.status === 'number') {
-    return error.response.status
-  }
-
   const maybeTrpcError = error as { data?: { httpStatus?: unknown } }
   if (typeof maybeTrpcError?.data?.httpStatus === 'number') {
     return maybeTrpcError.data.httpStatus
+  }
+
+  // Fallback for native errors that might have a status (if applicable)
+  const maybeStatusError = error as { status?: unknown };
+  if (typeof maybeStatusError?.status === 'number') {
+    return maybeStatusError.status;
   }
 
   return undefined
 }
 
 function getClientErrorReason(error: unknown): string {
-  if (isAxiosError(error)) {
-    const data = error.response?.data as { message?: unknown } | undefined
-    if (typeof data?.message === 'string' && data.message.trim()) {
-      return data.message
-    }
-  }
-
   if (error instanceof Error && error.message.trim()) {
     return error.message
   }

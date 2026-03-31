@@ -71,7 +71,7 @@ export default defineConfig({
             if (id.match(/@mui\/x-date-pickers|date-fns/)) {
               return 'vendor-date-utils'
             }
-            if (id.match(/@tanstack\/react-query|axios|redux|@reduxjs\/toolkit/)) {
+            if (id.match(/@tanstack\/react-query/)) {
               return 'vendor-utils'
             }
             if (id.match(/zxcvbn/)) {
