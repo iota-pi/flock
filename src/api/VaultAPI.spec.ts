@@ -36,9 +36,15 @@ function ok<T>(data: T) {
 }
 
 describe('VaultAPI', () => {
+  const branch = {
+    encryptedAutomergeDoc: 'doc',
+    versionId: 'v1',
+    parentIds: [],
+  }
+
   const putManyItems = [
-    { item: 'a', cipher: 'cipher-a', metadata: { iv: 'iv-a', type: 'person', modified: 1 } },
-    { item: 'b', cipher: 'cipher-b', metadata: { iv: 'iv-b', type: 'person', modified: 2 } },
+    { item: 'a', branches: [branch], metadata: { iv: 'iv-a', type: 'person', modified: 1 } },
+    { item: 'b', branches: [branch], metadata: { iv: 'iv-b', type: 'person', modified: 2 } },
   ] as any
 
   beforeEach(() => {
@@ -73,12 +79,12 @@ describe('VaultAPI', () => {
 
   it('vaultPut succeeds when api returns success', async () => {
     trpcMock.items.put.mutate.mockResolvedValue(ok({ success: true }).data)
-    await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).resolves.toBeUndefined()
+    await expect(api.vaultPut({ item: 'x', branches: [branch], metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).resolves.toBeUndefined()
   })
 
   it('vaultPut throws when api request fails', async () => {
     trpcMock.items.put.mutate.mockResolvedValue(ok({ success: false }).data)
-    await expect(api.vaultPut({ item: 'x', cipher: 'c', metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).rejects.toThrow()
+    await expect(api.vaultPut({ item: 'x', branches: [branch], metadata: { iv: 'i', type: 'person', modified: 1 } } as any)).rejects.toThrow()
   })
 
   it('vaultPutMany succeeds when all batch items succeed', async () => {

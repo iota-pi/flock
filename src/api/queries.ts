@@ -31,8 +31,9 @@ import {
   getMutationId,
   readDeadLetterQueue,
   writeDeadLetterQueue,
-} from './offlineQueueStore'
+} from './offlineSyncService'
 import { useUiStore } from '../state/uiStore'
+import { emitSyncRuntimeMessage, setSyncRuntimeState } from './syncRuntime'
 import * as Automerge from '@automerge/automerge'
 import {
   setCachedAutomergeBinary,
@@ -325,8 +326,8 @@ async function triggerManualRecoveryUI(itemId: string, reason: string): Promise<
     await writeDeadLetterQueue(deadLetterQueue)
   }
 
-  useUiStore.getState().setDlqCount(deadLetterQueue.length)
-  useUiStore.getState().setMessage({
+  setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
+  emitSyncRuntimeMessage({
     severity: 'warning',
     message: 'A corrupted item could not be auto-recovered. Open Settings > Offline data recovery for manual repair.',
   })

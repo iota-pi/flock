@@ -5,6 +5,7 @@ import type { VaultItem, VaultItemHistory } from '../drivers/base'
 import { TransactionConflictsError } from '../drivers/dynamo'
 import { publishRealtimeEvent } from '../realtime/hub'
 import type { VaultBranch } from '../../shared/itemTypes'
+import { isVersionConflictError } from '../../shared/syncErrors'
 
 type ItemServiceContext = {
   vault: BaseDriver
@@ -207,8 +208,7 @@ export async function putItem(
 
     return { success: true }
   } catch (error) {
-    const message = error instanceof Error ? error.message : ''
-    if (message.includes('Version conflict')) {
+    if (isVersionConflictError(error)) {
       return {
         success: false,
         error: 'Version conflict',
@@ -272,8 +272,7 @@ export async function compactItem(
       replacement,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : ''
-    if (message.includes('Version conflict')) {
+    if (isVersionConflictError(error)) {
       throw new TRPCError({
         code: 'CONFLICT',
         message: 'STALE_COMPACTED_BRANCH',

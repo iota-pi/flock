@@ -10,6 +10,7 @@ import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
 import { useAuthStore } from './state/authStore'
+import { useUiStore } from './state/uiStore'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/vault'
 import ErrorPage from './components/pages/ErrorPage'
@@ -21,12 +22,16 @@ import {
   initialiseDeadLetterQueueCount,
   processOfflineQueue,
   startOfflineQueueHealthMonitor,
-} from './api/offlineQueue'
+} from './api/offlineSyncService'
 import {
   startRealtimeCoordinator,
   stopRealtimeCoordinator,
 } from './api/realtimeCoordinator'
 import type { RealtimeEventEnvelope } from './shared/realtime'
+import {
+  subscribeSyncRuntime,
+  subscribeSyncRuntimeMessages,
+} from './api/syncRuntime'
 
 const Root = styled('div')({
   display: 'flex',
@@ -41,6 +46,8 @@ const Content = styled('div')({
 function RootLayout() {
   const loggedIn = useLoggedIn()
   const account = useAuthStore(state => state.account)
+  const setUi = useUiStore(state => state.setUi)
+  const setMessage = useUiStore(state => state.setMessage)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -74,6 +81,21 @@ function RootLayout() {
 
   useEffect(
     () => {
+      const unsubscribeSyncState = subscribeSyncRuntime(syncState => {
+        setUi({
+          isSyncing: syncState.isSyncing,
+          offlineQueueLength: syncState.offlineQueueLength,
+          dlqCount: syncState.dlqCount,
+        })
+      })
+
+      const unsubscribeSyncMessages = subscribeSyncRuntimeMessages(event => {
+        setMessage({
+          severity: event.severity,
+          message: event.message,
+        })
+      })
+
       const handleOnline = () => {
         void processOfflineQueue()
       }
@@ -89,9 +111,11 @@ function RootLayout() {
 
       return () => {
         window.removeEventListener('online', handleOnline)
+        unsubscribeSyncState()
+        unsubscribeSyncMessages()
       }
     },
-    [],
+    [setMessage, setUi],
   )
 
   const handleRealtimeEvent = useCallback((event: RealtimeEventEnvelope) => {

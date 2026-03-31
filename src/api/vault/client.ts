@@ -3,6 +3,12 @@ import type { ItemEnvelope, VaultBranch } from '../../shared/itemTypes'
 import type { WebPushSubscription } from '../../vault/types'
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
+import {
+  FetchItemsInputSchema,
+  PutItemBodySchema,
+  PutItemsBatchBodySchema,
+  UpdateMetadataBodySchema,
+} from '../../shared/syncSchemas'
 
 export type CreateAccountBody = {
   salt: string,
@@ -122,11 +128,12 @@ export async function fetchMany({
   }
 
   const account = getAccountId()
-  const data = await trpcClient.items.fetchMany.query({
+  const input = FetchItemsInputSchema.parse({
     account,
     cacheTime,
     ids,
   })
+  const data = await trpcClient.items.fetchMany.query(input)
   assertSuccess(data, 'fetchMany')
 
   return {
@@ -136,14 +143,16 @@ export async function fetchMany({
 }
 
 export async function put(item: VaultItem) {
-  const response = await trpcClient.items.put.mutate({
+  const input = PutItemBodySchema.parse({
     account: getAccountId(),
     item: item.item,
     branches: item.branches || [],
     modified: item.metadata.modified,
     type: item.metadata.type,
     deleted: item.metadata.deleted,
-  } as any) as PutResponse
+  })
+
+  const response = await trpcClient.items.put.mutate(input) as PutResponse
 
   if (
     !response.success
@@ -158,7 +167,7 @@ export async function put(item: VaultItem) {
 }
 
 export async function putMany({ items }: { items: VaultItem[] }) {
-  const response = await trpcClient.items.putMany.mutate({
+  const input = PutItemsBatchBodySchema.parse({
     account: getAccountId(),
     items: items.map(item => ({
       id: item.item,
@@ -167,7 +176,9 @@ export async function putMany({ items }: { items: VaultItem[] }) {
       type: item.metadata.type,
       deleted: item.metadata.deleted,
     })),
-  } as any) as PutManyResponse | BatchResultResponse
+  })
+
+  const response = await trpcClient.items.putMany.mutate(input) as PutManyResponse | BatchResultResponse
 
   if ('success' in response && response.success && 'conflicts' in response) {
     return
@@ -228,10 +239,11 @@ export async function getMetadata(): Promise<VaultMetadataEnvelope> {
 }
 
 export async function setMetadata(metadata: Record<string, unknown>): Promise<void> {
-  const response = await trpcClient.accounts.updateMetadata.mutate({
+  const input = UpdateMetadataBodySchema.parse({
     account: getAccountId(),
     metadata,
   })
+  const response = await trpcClient.accounts.updateMetadata.mutate(input)
   assertSuccess(response, 'setMetadata')
 }
 

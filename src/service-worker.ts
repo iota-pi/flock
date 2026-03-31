@@ -7,6 +7,10 @@ import {
   writeQueue,
   type QueuedMutation,
 } from './api/offlineQueueStore'
+import {
+  hasVersionConflictSignature,
+  isVersionConflictError,
+} from './shared/syncErrors'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -92,15 +96,6 @@ function isLikelyNetworkError(error: unknown): boolean {
   )
 }
 
-function isVersionConflictError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const message = error.message.toLowerCase()
-  return message.includes('version conflict') || message.includes('conditionalcheckfailed')
-}
-
 function getProcedurePath(mutationType: QueuedMutation['mutationType']) {
   switch (mutationType) {
     case 'items.put':
@@ -134,7 +129,7 @@ async function executeMutation(
 
   const responseText = await response.text()
   const conflictByStatus = response.status === 400 || response.status === 409
-  const conflictByBody = /version conflict|conditionalcheckfailed/i.test(responseText)
+  const conflictByBody = hasVersionConflictSignature(responseText)
 
   if (response.ok && !conflictByBody) {
     return { success: true, conflict: false, status: response.status }

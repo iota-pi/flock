@@ -1,6 +1,6 @@
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import type { QueuedMutation } from '../api/offlineQueueStore'
+import type { QueuedMutation } from '../api/offlineSyncService'
 
 export type BackupPayloadV1 = {
   version: 1

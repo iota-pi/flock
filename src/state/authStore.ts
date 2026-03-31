@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { syncDB } from '../api/db'
-import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../api/offlineQueueStore'
+import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../api/offlineSyncService'
 
 export type AccountId = string
 

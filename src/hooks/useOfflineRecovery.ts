@@ -6,8 +6,8 @@ import {
   readQueue,
   writeDeadLetterQueue,
   writeQueue,
-} from '../api/offlineQueueStore'
-import { processOfflineQueue } from '../api/offlineQueue'
+  processOfflineQueue,
+} from '../api/offlineSyncService'
 import { useUiStore } from '../state/uiStore'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { Item } from '../state/items'

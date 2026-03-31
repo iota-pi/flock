@@ -16,10 +16,10 @@ import { queryClient, queryKeys } from '../api/queryClient'
 import {
   readDeadLetterQueue,
   readQueue,
+  registerBackgroundSync,
   writeDeadLetterQueue,
   writeQueue,
-} from '../api/offlineQueueStore'
-import { registerBackgroundSync } from '../api/offlineQueue'
+} from '../api/offlineSyncService'
 import { mutateSetMetadata } from '../api/mutations'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 

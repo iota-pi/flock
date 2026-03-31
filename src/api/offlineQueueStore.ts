@@ -1,10 +1,14 @@
 import { syncDB } from './db'
 import { Item } from '../state/items'
+import type { z } from 'zod'
+import { DlqFailureSnapshotSchema } from '../shared/syncSchemas'
 
 export const OFFLINE_QUEUE_SYNC_TAG = 'sync-vault'
 export const OFFLINE_QUEUE_KEY = 'mutations'
 export const ACTIVE_SESSION_TOKEN_KEY = 'active_session_token'
 export const DEAD_LETTER_QUEUE_KEY = 'dead-letter-mutations'
+
+export type DlqFailureSnapshot = z.infer<typeof DlqFailureSnapshotSchema>
 
 export type QueuedMutation = {
   id: string
@@ -21,6 +25,7 @@ export type QueuedMutation = {
   lastErrorStatus?: number
   failedAt?: number
   errorReason?: string
+  failureSnapshot?: DlqFailureSnapshot
 }
 
 export async function readQueue(): Promise<QueuedMutation[]> {
@@ -39,7 +44,12 @@ export async function writeDeadLetterQueue(queue: QueuedMutation[]) {
   await syncDB.setItem(DEAD_LETTER_QUEUE_KEY, queue)
 }
 
-export async function moveToDeadLetterQueue(id: string, errorReason: string, status?: number): Promise<void> {
+export async function moveToDeadLetterQueue(
+  id: string,
+  errorReason: string,
+  status?: number,
+  snapshot?: DlqFailureSnapshot,
+): Promise<void> {
   const queue = await readQueue()
   const target = queue.find(item => item.id === id)
   if (!target) {
@@ -53,6 +63,7 @@ export async function moveToDeadLetterQueue(id: string, errorReason: string, sta
     failedAt: Date.now(),
     errorReason,
     lastErrorStatus: status,
+    failureSnapshot: snapshot,
   })
 
   await Promise.all([

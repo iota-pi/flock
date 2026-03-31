@@ -38,6 +38,7 @@ import BaseDriver, {
 } from './base'
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
+import { VersionConflictError } from '../../shared/syncErrors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -701,7 +702,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       await this.client.send(new PutCommand(params))
     } catch (err) {
       if (isConditionalCheckFailure(err)) {
-        throw new Error('Version conflict: The item has been modified by another client.')
+        throw new VersionConflictError('Version conflict: The item has been modified by another client.')
       }
       throw err
     }
@@ -986,7 +987,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }))
     } catch (error) {
       if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
-        throw new Error('Version conflict: The item has been modified by another client.')
+        throw new VersionConflictError('Version conflict: The item has been modified by another client.')
       }
       throw error
     }
@@ -1035,7 +1036,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
             throw new TransactionConflictsError(conflictIds)
           }
 
-          throw new Error('Version conflict: The item has been modified by another client.')
+          throw new VersionConflictError('Version conflict: The item has been modified by another client.')
         }
         throw error
       }
@@ -1131,11 +1132,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async claimIdempotencyKey(account: string, idempotencyKey: string, expiresAt: number): Promise<boolean> {
+    const scopedIdempotencyKey = `${account}:${idempotencyKey}`
     try {
       await this.client.send(new PutCommand({
         TableName: IDEMPOTENCY_TABLE_NAME,
         Item: {
-          idempotencyKey,
+          idempotencyKey: scopedIdempotencyKey,
           account,
           expiresAt,
           createdAt: Date.now(),

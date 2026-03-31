@@ -3,9 +3,18 @@ import * as Sentry from '@sentry/react'
 import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
 import { queryClient, queryKeys } from './queryClient'
-import { useUiStore } from '../state/uiStore'
 import { getVaultKey } from './vault'
 import { fetchMany } from './vault/client'
+import {
+  emitSyncRuntimeMessage,
+  setSyncRuntimeState,
+} from './syncRuntime'
+import {
+  getErrorReason,
+  getErrorStatusCode,
+  isStaleCompactedBranchError,
+  isVersionConflictError,
+} from '../shared/syncErrors'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -103,60 +112,6 @@ export function isLikelyNetworkError(error: unknown): boolean {
   )
 }
 
-function getClientErrorStatus(error: unknown): number | undefined {
-  const maybeTrpcError = error as { data?: { httpStatus?: unknown } }
-  if (typeof maybeTrpcError?.data?.httpStatus === 'number') {
-    return maybeTrpcError.data.httpStatus
-  }
-
-  // Fallback for native errors that might have a status (if applicable)
-  const maybeStatusError = error as { status?: unknown };
-  if (typeof maybeStatusError?.status === 'number') {
-    return maybeStatusError.status;
-  }
-
-  return undefined
-}
-
-function getClientErrorReason(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-
-  return 'Client error'
-}
-
-function isVersionConflictError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const message = error.message.toLowerCase()
-  return message.includes('version conflict') || message.includes('conditionalcheckfailed')
-}
-
-function isStaleCompactedBranchError(error: unknown): boolean {
-  const maybeAny = error as {
-    message?: unknown
-    data?: {
-      code?: unknown
-      cause?: { message?: unknown }
-      zodError?: unknown
-    }
-    shape?: {
-      message?: unknown
-    }
-  }
-
-  const values = [
-    typeof maybeAny.message === 'string' ? maybeAny.message : '',
-    typeof maybeAny.shape?.message === 'string' ? maybeAny.shape.message : '',
-    typeof maybeAny.data?.cause?.message === 'string' ? maybeAny.data.cause.message : '',
-  ]
-
-  return values.some(value => value.includes('STALE_COMPACTED_BRANCH'))
-}
-
 type ResolvedBranch = {
   encryptedAutomergeDoc: string
   versionId: string
@@ -166,6 +121,10 @@ type ResolvedBranch = {
 type QueueConflictHandler = {
   resolveVersionConflict?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
   resolveStaleCompactedBranch?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
+}
+
+type MutationExecutionStrategy = QueueConflictHandler & {
+  execute: (mutation: QueuedMutation) => Promise<void>
 }
 
 async function mergeConflictBranchesInWorker(
@@ -308,19 +267,11 @@ async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promi
   }
 }
 
-const queueConflictHandlers: Record<string, QueueConflictHandler> = {
+const conflictStrategiesByKey: Record<string, QueueConflictHandler> = {
   [CONFLICT_HANDLER_AUTOMERGE_ITEMS]: {
     resolveVersionConflict: resolveQueuedPutConflict,
     resolveStaleCompactedBranch: rescueQueuedStaleCompactedBranch,
   },
-}
-
-function getConflictHandler(mutation: QueuedMutation): QueueConflictHandler | null {
-  if (!mutation.conflictHandlerKey) {
-    return null
-  }
-
-  return queueConflictHandlers[mutation.conflictHandlerKey] || null
 }
 
 async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
@@ -450,6 +401,88 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
   }
 }
 
+const mutationStrategies: Record<string, MutationExecutionStrategy> = {
+  'items.put': {
+    execute: async mutation => {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
+      const result = await trpcClient.items.put.mutate({
+        ...payload,
+        idempotencyKey: mutation.id,
+      })
+      if (!result.success) {
+        const error = new Error((result as { error?: string }).error || 'items.put failed')
+        ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+        throw error
+      }
+    },
+  },
+  'items.putMany': {
+    execute: async mutation => {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
+      const payloadItems = payload.items || []
+
+      if (payloadItems.length <= CHUNK_SIZE) {
+        const result = await trpcClient.items.putMany.mutate({
+          ...payload,
+          idempotencyKey: mutation.id,
+        })
+        if (!result.success) {
+          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
+          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+          throw error
+        }
+        return
+      }
+
+      for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
+        const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
+        const result = await trpcClient.items.putMany.mutate({
+          ...payload,
+          items: chunk,
+          idempotencyKey: mutation.id,
+        })
+        if (!result.success) {
+          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
+          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+          throw error
+        }
+      }
+    },
+  },
+  'items.resolveBranchConflict': {
+    execute: async mutation => {
+      const payload = mutation.payload as Parameters<typeof trpcClient.items.resolveBranchConflict.mutate>[0]
+      await trpcClient.items.resolveBranchConflict.mutate({
+        ...payload,
+        idempotencyKey: mutation.id,
+      })
+    },
+  },
+  'accounts.updateMetadata': {
+    execute: async mutation => {
+      await trpcClient.accounts.updateMetadata.mutate(
+        mutation.payload as Parameters<typeof trpcClient.accounts.updateMetadata.mutate>[0],
+      )
+    },
+  },
+}
+
+function getMutationStrategy(mutation: QueuedMutation): MutationExecutionStrategy {
+  const base = mutationStrategies[mutation.mutationType]
+  if (!base) {
+    throw new Error(`Unknown offline mutation type: ${mutation.mutationType}`)
+  }
+
+  const conflictStrategy = mutation.conflictHandlerKey
+    ? conflictStrategiesByKey[mutation.conflictHandlerKey]
+    : undefined
+
+  return {
+    ...base,
+    ...conflictStrategy,
+  }
+}
+
 export async function enqueueMutation(
   mutationType: string,
   payload: unknown,
@@ -490,7 +523,7 @@ export async function enqueueMutation(
   }
 
   await writeQueue(queue)
-  useUiStore.getState().setOfflineQueueLength(queue.length)
+  setSyncRuntimeState({ offlineQueueLength: queue.length })
 
   await registerBackgroundSync()
 }
@@ -498,8 +531,10 @@ export async function enqueueMutation(
 export async function initialiseDeadLetterQueueCount() {
   const deadLetterQueue = await readDeadLetterQueue()
   const queue = await readQueue()
-  useUiStore.getState().setDlqCount(deadLetterQueue.length)
-  useUiStore.getState().setOfflineQueueLength(queue.length)
+  setSyncRuntimeState({
+    dlqCount: deadLetterQueue.length,
+    offlineQueueLength: queue.length,
+  })
 }
 
 export async function registerBackgroundSync() {
@@ -518,69 +553,6 @@ export async function registerBackgroundSync() {
   }).sync.register(OFFLINE_QUEUE_SYNC_TAG)
 }
 
-async function executeMutation(mutation: QueuedMutation) {
-  switch (mutation.mutationType) {
-    case 'items.put': {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
-      const result = await trpcClient.items.put.mutate({
-        ...payload,
-        idempotencyKey: mutation.id,
-      })
-      if (!result.success) {
-        const error = new Error((result as { error?: string }).error || 'items.put failed')
-        ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-        throw error
-      }
-      return
-    }
-    case 'items.resolveBranchConflict': {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.resolveBranchConflict.mutate>[0]
-      await trpcClient.items.resolveBranchConflict.mutate({
-        ...payload,
-        idempotencyKey: mutation.id,
-      })
-      return
-    }
-    case 'items.putMany': {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
-      const payloadItems = payload.items || []
-
-      if (payloadItems.length <= CHUNK_SIZE) {
-        const result = await trpcClient.items.putMany.mutate({
-          ...payload,
-          idempotencyKey: mutation.id,
-        })
-        if (!result.success) {
-          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
-          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-          throw error
-        }
-        return
-      }
-
-      for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
-        const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
-        const result = await trpcClient.items.putMany.mutate({
-          ...payload,
-          items: chunk,
-          idempotencyKey: mutation.id,
-        })
-        if (!result.success) {
-          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
-          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-          throw error
-        }
-      }
-      return
-    }
-    case 'accounts.updateMetadata':
-      await trpcClient.accounts.updateMetadata.mutate(mutation.payload as Parameters<typeof trpcClient.accounts.updateMetadata.mutate>[0])
-      return
-    default:
-      throw new Error(`Unknown offline mutation type: ${mutation.mutationType}`)
-  }
-}
-
 export async function processOfflineQueue() {
   if (processing) {
     return
@@ -588,9 +560,9 @@ export async function processOfflineQueue() {
 
   processing = true
   try {
-    useUiStore.getState().setIsSyncing(true)
+    setSyncRuntimeState({ isSyncing: true })
     const queue = await readQueue()
-    useUiStore.getState().setOfflineQueueLength(queue.length)
+    setSyncRuntimeState({ offlineQueueLength: queue.length })
     if (queue.length === 0) {
       return
     }
@@ -613,14 +585,14 @@ export async function processOfflineQueue() {
         lastErrorStatus: undefined,
       }
 
-      try {
-        await executeMutation(normalizedMutation)
-      } catch (error) {
-        const conflictHandler = getConflictHandler(normalizedMutation)
+      const strategy = getMutationStrategy(normalizedMutation)
 
+      try {
+        await strategy.execute(normalizedMutation)
+      } catch (error) {
         if (isStaleCompactedBranchError(error)) {
-          const rescued = conflictHandler?.resolveStaleCompactedBranch
-            ? await conflictHandler.resolveStaleCompactedBranch(normalizedMutation)
+          const rescued = strategy.resolveStaleCompactedBranch
+            ? await strategy.resolveStaleCompactedBranch(normalizedMutation)
             : null
           if (rescued) {
             nextQueue.push(rescued, ...queue.slice(index + 1))
@@ -629,8 +601,8 @@ export async function processOfflineQueue() {
         }
 
         if (isVersionConflictError(error)) {
-          const resolved = conflictHandler?.resolveVersionConflict
-            ? await conflictHandler.resolveVersionConflict(normalizedMutation)
+          const resolved = strategy.resolveVersionConflict
+            ? await strategy.resolveVersionConflict(normalizedMutation)
             : null
           if (resolved) {
             nextQueue.push(resolved, ...queue.slice(index + 1))
@@ -638,12 +610,23 @@ export async function processOfflineQueue() {
           }
         }
 
-        const status = getClientErrorStatus(error)
+        const status = getErrorStatusCode(error)
         if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
-          await moveToDeadLetterQueue(normalizedMutation.id, getClientErrorReason(error), status)
+          await moveToDeadLetterQueue(
+            normalizedMutation.id,
+            getErrorReason(error),
+            status,
+            {
+              timestamp: Date.now(),
+              queueLength: queue.length,
+              attemptCount: normalizedMutation.attemptCount,
+              queuedAt: normalizedMutation.queuedAt,
+              payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
+            },
+          )
           const deadLetterQueue = await readDeadLetterQueue()
-          useUiStore.getState().setDlqCount(deadLetterQueue.length)
-          useUiStore.getState().setMessage({
+          setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
+          emitSyncRuntimeMessage({
             severity: 'warning',
             message: 'An invalid offline change was isolated for recovery and sync continued.',
           })
@@ -668,6 +651,13 @@ export async function processOfflineQueue() {
           lastErrorStatus: status || 500,
           failedAt: Date.now(),
           errorReason: error instanceof Error ? error.message : 'Unhandled sync error',
+          failureSnapshot: {
+            timestamp: Date.now(),
+            queueLength: queue.length,
+            attemptCount: normalizedMutation.attemptCount,
+            queuedAt: normalizedMutation.queuedAt,
+            payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
+          },
         })
         await writeDeadLetterQueue(deadLetterQueue)
         Sentry.captureException(error, {
@@ -680,7 +670,7 @@ export async function processOfflineQueue() {
             payload: getPayloadTelemetry(normalizedMutation.payload),
           },
         })
-        useUiStore.getState().setDlqCount(deadLetterQueue.length)
+        setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
 
         if (normalizedMutation.baseState) {
           const targetIds = extractTargetIds(normalizedMutation.payload)
@@ -702,7 +692,7 @@ export async function processOfflineQueue() {
           })
         }
 
-        useUiStore.getState().setMessage({
+        emitSyncRuntimeMessage({
           severity: 'error',
           message: 'An offline save failed and was moved to recovery queue. Please review recovery options.',
         })
@@ -710,9 +700,9 @@ export async function processOfflineQueue() {
     }
 
     await writeQueue(nextQueue)
-    useUiStore.getState().setOfflineQueueLength(nextQueue.length)
+    setSyncRuntimeState({ offlineQueueLength: nextQueue.length })
   } finally {
-    useUiStore.getState().setIsSyncing(false)
+    setSyncRuntimeState({ isSyncing: false })
     processing = false
   }
 }
