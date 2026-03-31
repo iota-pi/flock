@@ -18,7 +18,6 @@ import { UploadIcon } from '../Icons'
 import InlineText from '../InlineText'
 import { importData } from '../../api/VaultLazy'
 import { useItems } from '../../state/selectors'
-import { mergeWithAutomerge } from '../../utils/automergeMerge'
 import { diffItems } from 'src/utils/diff'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
 import {
@@ -57,6 +56,44 @@ function getChangedItems(importedItems: Item[], existingItems: Item[]): Item[] {
     const existing = existingMap.get(item.id)
     if (!existing) return true
     return diffItems(existing, item).length > 0
+  })
+}
+
+async function mergeWithAutomergeInWorker<T extends object>(left: T, right: T): Promise<T> {
+  if (typeof Worker === 'undefined') {
+    return right
+  }
+
+  const worker = new Worker(new URL('../../workers/decryption.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+  const jobId = Date.now() + Math.floor(Math.random() * 1000)
+
+  return new Promise<T>((resolve, reject) => {
+    worker.onmessage = event => {
+      const payload = event.data as {
+        type?: string
+        jobId?: number
+        merged?: unknown
+      }
+
+      if (payload.type === 'MERGED_OBJECTS' && payload.jobId === jobId) {
+        worker.terminate()
+        resolve(payload.merged as T)
+      }
+    }
+
+    worker.onerror = error => {
+      worker.terminate()
+      reject(error)
+    }
+
+    worker.postMessage({
+      type: 'MERGE_OBJECTS',
+      jobId,
+      left: left as unknown as Record<string, unknown>,
+      right: right as unknown as Record<string, unknown>,
+    })
   })
 }
 
@@ -161,7 +198,7 @@ function RestoreBackupDialog({
         const itemsToImport = await Promise.all(selectedItems.map(async item => {
           const existing = existingMap.get(item.id)
           if (!existing) return item
-          return mergeWithAutomerge(existing, item)
+          return mergeWithAutomergeInWorker(existing, item)
         }))
 
         await onConfirm({

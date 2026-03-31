@@ -232,10 +232,6 @@ export async function decrypt(
   return dec.decode(plaintext)
 }
 
-export function encryptObject(obj: object) {
-  return encrypt(JSON.stringify(obj))
-}
-
 export async function decryptObject({ iv, cipher }: CryptoResult): Promise<object> {
   return JSON.parse(await decrypt({ iv, cipher }))
 }

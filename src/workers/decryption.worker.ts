@@ -46,12 +46,20 @@ type RescueStaleCompactedBranchWorkerInput = {
   serverBranch: VaultBranch
 }
 
+type MergeObjectsWorkerInput = {
+  type: 'MERGE_OBJECTS'
+  jobId?: number
+  left: Record<string, unknown>
+  right: Record<string, unknown>
+}
+
 type DecryptionWorkerInput =
   | DecryptItemsWorkerInput
   | EvaluateHistoryWorkerInput
   | ResolveQueueConflictWorkerInput
   | CompactItemWorkerInput
   | RescueStaleCompactedBranchWorkerInput
+  | MergeObjectsWorkerInput
 
 type HydratedItem = Record<string, unknown> & {
   id?: string
@@ -106,6 +114,12 @@ type StaleCompactedBranchRescuedMessage = {
   jobId?: number
   itemId: string
   rescuedBranch: VaultBranch
+}
+
+type MergedObjectsMessage = {
+  type: 'MERGED_OBJECTS'
+  jobId?: number
+  merged: Record<string, unknown>
 }
 
 declare const self: DedicatedWorkerGlobalScope
@@ -271,6 +285,47 @@ async function rescueStaleCompactedBranch(
   }
 }
 
+function stripUndefinedDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => stripUndefinedDeep(item))
+      .filter(item => item !== undefined)
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  if (
+    value instanceof Date
+    || value instanceof Uint8Array
+    || value instanceof ArrayBuffer
+  ) {
+    return value
+  }
+
+  const input = value as Record<string, unknown>
+  const cleaned: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(input)) {
+    if (nested === undefined) {
+      continue
+    }
+    cleaned[key] = stripUndefinedDeep(nested)
+  }
+
+  return cleaned
+}
+
+function mergePlainObjectsWithAutomerge(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): Record<string, unknown> {
+  const leftDoc = Automerge.from(stripUndefinedDeep(left) as Record<string, unknown>)
+  const rightDoc = Automerge.from(stripUndefinedDeep(right) as Record<string, unknown>)
+  const merged = Automerge.merge(leftDoc, rightDoc)
+  return Automerge.toJS(merged) as Record<string, unknown>
+}
+
 export async function processIncomingItem(
   envelope: VaultItem,
   key: CryptoKey,
@@ -403,6 +458,18 @@ export async function evaluateHistory(
 }
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
+  if (event.data.type === 'MERGE_OBJECTS') {
+    const { jobId, left, right } = event.data
+    const merged = mergePlainObjectsWithAutomerge(left, right)
+    const mergedMessage: MergedObjectsMessage = {
+      type: 'MERGED_OBJECTS',
+      jobId,
+      merged,
+    }
+    self.postMessage(mergedMessage)
+    return
+  }
+
   if (event.data.type === 'COMPACT_ITEM') {
     const { jobId, key, itemId, baseVersionId, automergeBinary } = event.data
     const { compactedBinary, compactedBranch } = await compactItemBranchFromBinary(automergeBinary, key)

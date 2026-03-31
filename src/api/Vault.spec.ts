@@ -35,9 +35,9 @@ describe('Vault', () => {
     expect(result).toEqual(text)
   })
 
-  it('encryptObject and decryptObject', async () => {
+  it('decryptObject', async () => {
     const obj = { id: 'onering' }
-    const cipher = await vault.encryptObject(obj)
+    const cipher = await vault.encrypt(JSON.stringify(obj))
     const result = await vault.decryptObject(cipher)
     expect(result).toEqual(obj)
   })
