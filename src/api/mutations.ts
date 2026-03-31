@@ -46,7 +46,6 @@ export type ConflictResolution<TData, TBase = TData> = {
   skipSave?: boolean
 }
 
-type TombstoneItem = Pick<Item, 'id' | 'type' | 'deleted'> & { deleted: true }
 type BranchPayload = {
   encryptedAutomergeDoc: string
   versionId: string
@@ -192,18 +191,17 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     }
 
     const itemsById = new Map(allItems.map(item => [item.id, item]))
-    const tombstones: TombstoneItem[] = ids.flatMap(id => {
+    const tombstones: Item[] = ids.flatMap(id => {
       const item = itemsById.get(id)
       if (!item) return []
       return [{
-        id: item.id,
-        type: item.type,
+        ...item,
         deleted: true,
       }]
     })
 
     if (tombstones.length > 0) {
-      await mutateStoreItems(tombstones as Item[])
+      await mutateStoreItems(tombstones)
     }
 
     useUiStore.getState().pruneItemDrawers(ids)
@@ -264,13 +262,6 @@ async function serializeItemAsBranch(
   vault: typeof import('./Vault'),
   currentServerItem?: VaultItem,
 ): Promise<{ branches: BranchPayload[] }> {
-  if (item.deleted) {
-    return {
-      // Tombstones do not require encrypted payload bytes.
-      branches: [],
-    }
-  }
-
   const cachedBinary = getCachedAutomergeBinary(item.id)
   let encryptedAutomergeDoc: string
   let versionId: string
@@ -726,7 +717,6 @@ async function buildOfflineMutation<TData>(
           account: getAccountId(),
           item: items[0].id,
           branches: payload.branches,
-          iv: '',
           modified: modifiedTime,
           type: items[0].type,
           deleted: items[0].deleted,
@@ -741,7 +731,6 @@ async function buildOfflineMutation<TData>(
         items: payloadItems.map((payload, i) => ({
           id: items[i].id,
           branches: payload.branches,
-          iv: '',
           modified: modifiedTime,
           type: items[i].type,
           deleted: items[i].deleted,

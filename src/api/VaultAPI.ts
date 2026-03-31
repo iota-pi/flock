@@ -141,9 +141,7 @@ export async function vaultPut(item: VaultItem) {
   const response = await trpcClient.items.put.mutate({
     account: getAccountId(),
     item: item.item,
-    ...(item.cipher && { cipher: item.cipher }),
-    ...(item.branches && { branches: item.branches }),
-    iv: item.metadata.iv,
+    branches: item.branches || [],
     modified: item.metadata.modified,
     type: item.metadata.type,
     deleted: item.metadata.deleted,
@@ -166,9 +164,7 @@ export async function vaultPutMany({ items }: { items: VaultItem[] }) {
     account: getAccountId(),
     items: items.map(item => ({
       id: item.item,
-      ...(item.cipher && { cipher: item.cipher }),
-      ...(item.branches && { branches: item.branches }),
-      iv: item.metadata.iv,
+      branches: item.branches || [],
       modified: item.metadata.modified,
       type: item.metadata.type,
       deleted: item.metadata.deleted,

@@ -1,10 +1,42 @@
 import type { PageId } from '../../src/components/pages/types'
-import {
-  getBlankGroup,
-  getBlankPerson,
-  type GroupItem,
-  type PersonItem,
-} from '../../src/state/items'
+import type { GroupItem, PersonItem } from '../../src/state/items'
+
+function generateLocalItemId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function makeBlankPerson(): PersonItem {
+  return {
+    id: generateLocalItemId(),
+    type: 'person',
+    name: '',
+    description: '',
+    created: Date.now(),
+    archived: false,
+    prayedFor: [],
+    prayerFrequency: 'none',
+    notes: [],
+    isNew: undefined,
+  }
+}
+
+function makeBlankGroup(): GroupItem {
+  return {
+    id: generateLocalItemId(),
+    type: 'group',
+    name: '',
+    description: '',
+    created: Date.now(),
+    archived: false,
+    prayedFor: [],
+    prayerFrequency: 'none',
+    notes: [],
+    members: [],
+    memberPrayerFrequency: 'none',
+    memberPrayerTarget: 'one',
+    isNew: undefined,
+  }
+}
 
 type NetworkMode = 'online' | 'offline' | 'server-error'
 
@@ -225,7 +257,7 @@ Cypress.Commands.add(
       return cy.window().then(win => {
         return win.mutations.then(mutations => {
           const person = {
-            ...getBlankPerson(undefined, false),
+            ...makeBlankPerson(),
             ...data,
           }
           return mutations.mutateStoreItems(person)
@@ -254,7 +286,7 @@ Cypress.Commands.add(
       return cy.window().then(win => {
         return win.mutations.then(mutations => {
           const group = {
-            ...getBlankGroup(undefined, false),
+            ...makeBlankGroup(),
             ...data,
           }
           return mutations.mutateStoreItems(group)
@@ -287,15 +319,17 @@ Cypress.Commands.add(
   (): Cypress.Chainable => {
     return cy.dataCy('drawer-done').last().then($button => {
       const shouldWait = $button.text().toLowerCase().includes('save')
+      const networkMode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
+      const shouldWaitForNetwork = shouldWait && networkMode !== 'offline'
 
-      if (shouldWait) {
+      if (shouldWaitForNetwork) {
         cy.intercept({ method: /PUT|POST/, url: '**/trpc/items.put*' }).as('saveItem')
         cy.intercept({ method: /PUT|POST/, url: '**/trpc/items.putMany*' }).as('saveItem')
       }
 
       cy.wrap($button).click()
 
-      if (shouldWait) {
+      if (shouldWaitForNetwork) {
         cy.wait('@saveItem')
       }
 

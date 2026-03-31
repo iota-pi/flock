@@ -122,7 +122,6 @@ export function useOfflineRecovery() {
           account,
           item: itemId,
           branches: [resolvedBranch],
-          iv: '',
           modified: Date.now(),
           type: localItem.type,
           deleted: localItem.deleted,
@@ -144,12 +143,21 @@ export function useOfflineRecovery() {
       const serverItems = await vaultFetchMany({ ids: [itemId] }).then(response => response.items)
       const serverItem = serverItems.find(item => item.item === itemId)
       const fallbackType = serverItem?.metadata?.type || 'person'
+      const vault = await getVaultModule()
+      const deletedPayload = await vault.encryptObjectAsAutomerge({
+        id: itemId,
+        type: fallbackType,
+        deleted: true,
+      })
 
       await trpcClient.items.put.mutate({
         account: getAccountId(),
         item: itemId,
-        branches: [],
-        iv: '',
+        branches: [{
+          encryptedAutomergeDoc: deletedPayload.encryptedAutomergeDoc,
+          versionId: deletedPayload.versionId,
+          parentIds: serverItem?.branches?.map(branch => branch.versionId) || [],
+        }],
         modified: Date.now(),
         type: fallbackType,
         deleted: true,

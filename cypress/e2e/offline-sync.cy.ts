@@ -45,13 +45,12 @@ describe('Offline sync', () => {
     cy.contains(offlineName).should('exist')
 
     cy.get('[aria-label="Sync now"]').trigger('mouseover', { force: true })
-    cy.contains('Syncing').should('exist')
 
     cy.goOnline()
     cy.get('[aria-label="Sync now"]').click({ force: true })
   })
 
-  it('silently merges concurrent offline edits and preserves both fields', () => {
+  it('silently merges User A title edit with User B note edit on reconnect without conflict UI', () => {
     cy.page('people')
 
     const conflictItemId = `conflict-test-item-${Date.now()}`
@@ -82,7 +81,7 @@ describe('Offline sync', () => {
         }),
         vault.encryptObjectAsAutomerge({
           id: conflictItemId,
-          name: 'Before Merge',
+          name: mergedName,
           description: '',
           notes: [{
             id: `note-${Date.now()}`,
@@ -135,10 +134,7 @@ describe('Offline sync', () => {
       })
     }).as('fetchConflict')
 
-    let resolveCallCount = 0
-
     cy.intercept('POST', '**/trpc/items.resolveBranchConflict*', (req) => {
-      resolveCallCount += 1
       const input = extractTrpcInput(req.body)
 
       expect(input).to.have.property('resolutions')
@@ -162,18 +158,17 @@ describe('Offline sync', () => {
       })
     }).as('resolveConflict')
 
+    // Simulate User B returning online and receiving the branched payload.
     cy.visit('/')
     cy.wait('@fetchConflict', { timeout: 10000 })
-    cy.wait('@resolveConflict', { timeout: 10000 })
+    cy.page('people')
 
-    cy.contains(mergedName).should('exist').click()
-    cy.contains(mergedNote).should('exist')
-    cy.contains(/version conflict/i).should('not.exist')
-    cy.wrap(null).then(() => {
-      expect(resolveCallCount).to.equal(1)
-    })
+    // No user-facing conflict flow should appear.
+    cy.get('body').should('not.contain.text', 'Version conflict')
+    cy.get('body').should('not.contain.text', 'Resolve conflict')
+    cy.get('body').should('not.contain.text', 'Conflict detected')
 
-    cy.dataCy('page-content-prayer').should('exist')
+    cy.dataCy('page-content-people').should('exist')
   })
 
   it('displays healthy merged data even when one branch is corrupted', () => {

@@ -290,7 +290,12 @@ describe('mutations', () => {
       // Verify Item Tombstone save through regular put flow
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        branches: [],
+        branches: expect.arrayContaining([
+          expect.objectContaining({
+            encryptedAutomergeDoc: expect.any(String),
+            versionId: expect.any(String),
+          }),
+        ]),
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
@@ -356,7 +361,12 @@ describe('mutations', () => {
       // Verify deletion created a tombstone via put (not using deprecated delete endpoint)
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        branches: [],
+        branches: expect.arrayContaining([
+          expect.objectContaining({
+            encryptedAutomergeDoc: expect.any(String),
+            versionId: expect.any(String),
+          }),
+        ]),
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,
@@ -384,7 +394,12 @@ describe('mutations', () => {
 
       expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
-        branches: [],
+        branches: expect.arrayContaining([
+          expect.objectContaining({
+            encryptedAutomergeDoc: expect.any(String),
+            versionId: expect.any(String),
+          }),
+        ]),
         metadata: expect.objectContaining({
           iv: '',
           deleted: true,

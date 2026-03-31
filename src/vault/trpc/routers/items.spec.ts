@@ -32,11 +32,13 @@ describe('itemsRouter contracts', () => {
       items: [
         {
           id: 'item-1',
-          cipher: 'cipher-1',
-          iv: 'iv-1',
+          branches: [{
+            encryptedAutomergeDoc: 'cipher-1',
+            versionId: 'v-1',
+            parentIds: [],
+          }],
           modified: 100,
           type: 'person',
-          version: 2,
           deleted: false,
           ttl: 999999,
         } as any,
@@ -63,11 +65,13 @@ describe('itemsRouter contracts', () => {
       items: [
         {
           id: 'item-2',
-          cipher: 'cipher-2',
-          iv: 'iv-2',
+          branches: [{
+            encryptedAutomergeDoc: 'cipher-2',
+            versionId: 'v-2',
+            parentIds: [],
+          }],
           modified: 200,
           type: 'group',
-          version: 1,
           deleted: false,
         },
       ],
@@ -101,8 +105,11 @@ describe('itemsRouter contracts', () => {
       items: [
         {
           id: 'item-3',
-          cipher: 'new-cipher',
-          iv: 'iv-new',
+          branches: [{
+            encryptedAutomergeDoc: 'new-cipher',
+            versionId: 'v-new',
+            parentIds: [],
+          }],
           modified: 222,
           type: 'person',
         },
@@ -184,7 +191,6 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
               parentIds: ['v1'], // Descends from current head
             },
           ],
-          iv: '',
           modified: 200,
           type: 'person',
         },
@@ -234,7 +240,6 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
               parentIds: ['v1'], // Based on v1, but v2 already exists
             },
           ],
-          iv: '',
           modified: 150,
           type: 'person',
         },
@@ -247,20 +252,10 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     expect(item._expectedParentVersionId).toBe('v1')
   })
 
-  it('always fast-forwards legacy cipher format', async () => {
+  it('sets no expected parent when writing a genesis branch', async () => {
     const ctx = createMockContext()
 
-    ;(ctx.vault.fetchMany as any).mockResolvedValue([
-      {
-        item: 'item-1',
-        cipher: 'old-cipher',
-        metadata: {
-          type: 'person',
-          iv: 'iv-1',
-          modified: 100,
-        },
-      },
-    ])
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([])
 
     const caller = itemsRouter.createCaller(ctx as any)
 
@@ -269,8 +264,11 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
       items: [
         {
           id: 'item-1',
-          cipher: 'new-cipher',
-          iv: 'iv-2',
+          branches: [{
+            encryptedAutomergeDoc: 'new-cipher',
+            versionId: 'v-new',
+            parentIds: [],
+          }],
           modified: 200,
           type: 'person',
         },
@@ -280,7 +278,7 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
     expect(ctx.vault.setMany).toHaveBeenCalledTimes(1)
     const item = (ctx.vault.setMany.mock.calls[0]?.[0] as any[] | undefined)?.[0]
     expect(item).toBeDefined()
-    expect(item).not.toHaveProperty('_expectedParentVersionId')
+    expect(item._expectedParentVersionId).toBeUndefined()
   })
 
   it('idempotency key prevents duplicate branch appends', async () => {
@@ -318,7 +316,6 @@ describe('itemsRouter: Lineage-Aware Branching', () => {
               parentIds: ['v1'],
             },
           ],
-          iv: '',
           modified: 150,
           type: 'person',
         },

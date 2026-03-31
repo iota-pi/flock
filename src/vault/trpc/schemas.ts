@@ -41,41 +41,28 @@ export const UpdateMetadataBodySchema = z.object({
 })
 
 /**
- * PutItemBodySchema: Supports both legacy cipher and new branches format
- * - Legacy: has cipher + iv
- * - Branching: has branches array
- * Exactly one MUST be present via discriminated union
+ * PutItemBodySchema: Branch-only payload
  */
 export const PutItemBodySchema = z.object({
   account: z.string().min(1),
   item: z.string().min(1),
-  iv: z.string().optional(),
   modified: z.number(),
   type: z.string(),
+  branches: z.array(VaultBranchSchema).min(1),
   deleted: z.boolean().optional(),
   idempotencyKey: z.string().min(1).optional(),
-}).and(
-  z.union([
-    z.object({ cipher: z.string(), branches: z.never().optional() }),
-    z.object({ branches: z.array(VaultBranchSchema), cipher: z.never().optional() }),
-  ])
-)
+})
 
 /**
- * PutItemsBatchEntrySchema: Supports both legacy cipher and branches
+ * PutItemsBatchEntrySchema: Branch-only payload
  */
 export const PutItemsBatchEntrySchema = z.object({
   id: z.string().min(1),
-  iv: z.string().optional(),
   modified: z.number(),
   type: z.string(),
+  branches: z.array(VaultBranchSchema).min(1),
   deleted: z.boolean().optional(),
-}).and(
-  z.union([
-    z.object({ cipher: z.string(), branches: z.never().optional() }),
-    z.object({ branches: z.array(VaultBranchSchema), cipher: z.never().optional() }),
-  ])
-)
+})
 
 export const PutItemsBatchBodySchema = z.object({
   account: z.string().min(1),

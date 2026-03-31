@@ -117,42 +117,22 @@ export const itemsRouter = router({
       const mappedItems = input.items.map(incomingItem => {
         const { deleted, id, modified, type } = incomingItem
         const _type = asItemType(type)
+        const expectedParentVersionId = incomingItem.branches.length === 1
+          ? incomingItem.branches[0].parentIds.at(-1)
+          : undefined
 
-        if (incomingItem.cipher) {
-          return {
-            account: input.account,
-            item: id,
-            cipher: incomingItem.cipher,
-            metadata: {
-              type: _type,
-              iv: incomingItem.iv,
-              modified,
-              deleted,
-            },
-          }
+        return {
+          account: input.account,
+          item: id,
+          branches: incomingItem.branches,
+          metadata: {
+            type: _type,
+            iv: '',
+            modified,
+            deleted,
+          },
+          _expectedParentVersionId: expectedParentVersionId,
         }
-
-        if (incomingItem.branches) {
-          const expectedParentVersionId = incomingItem.branches.length === 1
-            ? incomingItem.branches[0].parentIds.at(-1)
-            : undefined
-
-          return {
-            account: input.account,
-            item: id,
-            branches: incomingItem.branches,
-            metadata: {
-              type: _type,
-              iv: incomingItem.iv,
-              modified,
-              deleted,
-            },
-            _expectedParentVersionId: expectedParentVersionId,
-          }
-        }
-
-        // Fallback (should not happen with validated input)
-        throw new Error(`Invalid item format for ${id}`)
       })
 
       try {
@@ -197,25 +177,19 @@ export const itemsRouter = router({
         })
       }
 
-      // Build item based on format (legacy cipher vs branches)
       const itemToSet: any = {
         account: input.account,
         item: input.item,
+        branches: input.branches,
+        _expectedParentVersionId: input.branches.length === 1
+          ? input.branches[0].parentIds.at(-1)
+          : undefined,
         metadata: {
           type: _type,
+          iv: '',
           modified: input.modified,
           deleted: input.deleted,
         },
-      }
-
-      if (input.cipher) {
-        itemToSet.cipher = input.cipher
-        itemToSet.metadata.iv = input.iv
-      } else if ('branches' in input && input.branches) {
-        itemToSet.branches = input.branches
-        itemToSet._expectedParentVersionId = input.branches.length === 1
-          ? input.branches[0].parentIds.at(-1)
-          : undefined
       }
 
       try {
