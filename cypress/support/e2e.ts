@@ -59,9 +59,9 @@ const establishSession = () => {
   cy.ensureAccount(TEST_PASSWORD).then(() => {
     cy.page('prayer')
 
-    // Ensure axios has been initialised (initAxios called during login)
+    // Ensure auth token has been initialised during login
     cy.window().should(win => {
-      expect(win.checkAxios && win.checkAxios()).to.eq(true)
+      expect(win.hasApiAuthToken && win.hasApiAuthToken()).to.eq(true)
     })
   })
 }

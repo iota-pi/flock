@@ -60,6 +60,16 @@ export interface VaultItemHistory {
   expiresAt: number,
 }
 
+export interface ArchiveAndReplaceInput {
+  history: VaultItemHistory,
+  replacement: VaultItem,
+}
+
+export interface ArchiveAndSetManyInput {
+  historyEntries: VaultItemHistory[],
+  replacements: VaultItem[],
+}
+
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
 
 export function asItemType(type: string): ItemType {
@@ -115,6 +125,8 @@ export default abstract class BaseDriver<T = unknown> {
 
   abstract putHistory(data: VaultItemHistory): Promise<void>
   abstract fetchHistory(account: string, itemId: string, limit?: number): Promise<VaultItem[]>
+  abstract archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void>
+  abstract archiveAndSetManyTransaction(input: ArchiveAndSetManyInput): Promise<void>
 
   abstract delete(key: VaultKey): Promise<void>
 

@@ -1,6 +1,5 @@
-import type { AxiosInstance } from 'axios'
 import { getBlankPerson } from '../state/items'
-import * as axios from './axios'
+import * as runtime from './runtime'
 import * as vault from './Vault'
 import { queryClient, queryKeys } from './queryClient'
 import { getSalt } from './crypto-utils'
@@ -18,11 +17,6 @@ describe('Vault', () => {
     async () => {
       vi.spyOn(vault, 'storeVault').mockImplementation(() => Promise.resolve())
       vi.spyOn(vault, 'loadVault').mockImplementation(() => Promise.resolve())
-
-      vi.spyOn(axios, 'getAxios').mockImplementation(() => ({
-        put: vi.fn(() => ({ data: { success: true, details: [] } })),
-        delete: vi.fn(() => ({ data: { success: true, details: [] } })),
-      }) as unknown as AxiosInstance)
 
       useAuthStore.getState().setAccount({ account: '.' })
       await vault.initialiseVault(VAULT_TEST_PARAMS)
@@ -57,20 +51,20 @@ describe('Vault', () => {
     expect(a).not.toBe(b)
   })
 
-  it('signOutVault clears localStorage and resets axios/store', async () => {
+  it('signOutVault clears localStorage and resets auth token/store', async () => {
     localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
     useAuthStore.getState().setAccount({ account: 'acct' })
     queryClient.setQueryData(queryKeys.items, [getBlankPerson() as any])
 
-    const initSpy = vi.spyOn(axios as any, 'initAxios')
+    const setAuthTokenSpy = vi.spyOn(runtime, 'setApiAuthToken')
 
     try {
       vault.signOutVault()
 
       expect(localStorage.getItem(vault.VAULT_KEY_STORAGE_KEY)).toBeNull()
       expect(queryClient.getQueryData(queryKeys.items)).toBeUndefined()
-      expect(initSpy).toHaveBeenCalledWith('')
-      initSpy.mockRestore()
+      expect(setAuthTokenSpy).toHaveBeenCalledWith('')
+      setAuthTokenSpy.mockRestore()
     } finally {
       await vault.initialiseVault(VAULT_TEST_PARAMS)
     }

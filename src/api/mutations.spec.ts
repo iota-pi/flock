@@ -42,10 +42,6 @@ vi.mock('./trpcClient', () => ({
   },
 }))
 
-vi.mock('./axios', () => ({
-  checkAxios: vi.fn().mockReturnValue(true),
-}))
-
 describe('mutations', () => {
   beforeEach(() => {
     queryClient.clear()

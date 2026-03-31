@@ -6,7 +6,7 @@ import {
   vaultDeletePushSubscription,
 } from './VaultAPI'
 import { useUiStore } from '../state/uiStore'
-import { initAxios, setSessionExpiredHandler } from './axios'
+import { setApiAuthToken, setApiSessionExpiredHandler } from './runtime'
 import { getAccountId } from './util'
 import {
   fromBytes,
@@ -78,7 +78,7 @@ export async function loginVault({
 }) {
   await initialiseVault({ password, salt })
   session = await vaultGetSession(keyHash)
-  initAxios(session)
+  setApiAuthToken(session)
   await setActiveSessionToken(session)
   await storeVault()
 }
@@ -156,9 +156,9 @@ export async function loadVault() {
 
     await updateKeyHash()
     session = await vaultGetSession(keyHash)
-    initAxios(session)
+    setApiAuthToken(session)
     await setActiveSessionToken(session)
-    setSessionExpiredHandler(handleSessionExpired)
+    setApiSessionExpiredHandler(handleSessionExpired)
 
     setAccount({ loggedIn: true })
   }
@@ -179,7 +179,7 @@ export async function signOutVault() {
   key = null
   keyHash = ''
   session = ''
-  initAxios('')
+  setApiAuthToken('')
 
   // Stop current queries and clear cache
   queryClient.cancelQueries()

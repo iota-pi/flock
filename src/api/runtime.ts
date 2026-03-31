@@ -59,6 +59,10 @@ export function hasApiAuthToken() {
   return !!authToken
 }
 
+if (typeof window !== 'undefined' && (window as Window & { Cypress?: unknown }).Cypress) {
+  ;(window as Window & { hasApiAuthToken?: typeof hasApiAuthToken }).hasApiAuthToken = hasApiAuthToken
+}
+
 export function getApiAuthToken() {
   return authToken
 }

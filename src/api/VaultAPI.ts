@@ -3,8 +3,7 @@ import type { ItemEnvelope } from '../shared/itemTypes'
 import type { VaultBranch } from '../shared/itemTypes'
 import { getAccountId } from './util'
 import { trpcClient } from './trpcClient'
-import type { CryptoResult } from './Vault'
-import type { ItemType, WebPushSubscription } from '../vault/types'
+import type { WebPushSubscription } from '../vault/types'
 
 export type CreateAccountBody = {
   salt: string,

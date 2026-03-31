@@ -22,6 +22,7 @@ import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
 import { enqueueMutation, isLikelyNetworkError } from './offlineQueue'
+import { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './offlineQueue'
 import {
   getCachedAutomergeBinary,
   getCachedMetadataAutomergeBinary,
@@ -673,7 +674,14 @@ async function mutateWithRetry<TData, TBase>(
     if (current && isLikelyNetworkError(err)) {
       const queuedMutation = await buildOfflineMutation(queryKey, current)
       if (queuedMutation) {
-        await enqueueMutation(queuedMutation.mutationType, queuedMutation.payload, offlineMutationMeta)
+        const conflictHandlerKey = queuedMutation.mutationType.startsWith('items.')
+          ? CONFLICT_HANDLER_AUTOMERGE_ITEMS
+          : undefined
+
+        await enqueueMutation(queuedMutation.mutationType, queuedMutation.payload, {
+          ...offlineMutationMeta,
+          conflictHandlerKey,
+        })
       }
 
       useUiStore.getState().setMessage({

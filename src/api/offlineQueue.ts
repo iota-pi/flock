@@ -7,7 +7,6 @@ import { queryClient, queryKeys } from './queryClient'
 import { useUiStore } from '../state/uiStore'
 import { getVaultKey } from './Vault'
 import { vaultFetchMany } from './VaultAPI'
-import { decryptVaultItems } from './queries'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -26,6 +25,8 @@ const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
 let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
+
+export const CONFLICT_HANDLER_AUTOMERGE_ITEMS = 'automerge-items'
 
 function extractTargetIds(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') {
@@ -168,6 +169,11 @@ type ResolvedBranch = {
   parentIds: string[]
 }
 
+type QueueConflictHandler = {
+  resolveVersionConflict?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
+  resolveStaleCompactedBranch?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
+}
+
 async function mergeConflictBranchesInWorker(
   itemId: string,
   localBranches: ResolvedBranch[],
@@ -308,6 +314,21 @@ async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promi
   }
 }
 
+const queueConflictHandlers: Record<string, QueueConflictHandler> = {
+  [CONFLICT_HANDLER_AUTOMERGE_ITEMS]: {
+    resolveVersionConflict: resolveQueuedPutConflict,
+    resolveStaleCompactedBranch: rescueQueuedStaleCompactedBranch,
+  },
+}
+
+function getConflictHandler(mutation: QueuedMutation): QueueConflictHandler | null {
+  if (!mutation.conflictHandlerKey) {
+    return null
+  }
+
+  return queueConflictHandlers[mutation.conflictHandlerKey] || null
+}
+
 async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
   if (mutation.mutationType !== 'items.put' && mutation.mutationType !== 'items.putMany') {
     return null
@@ -438,7 +459,7 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
 export async function enqueueMutation(
   mutationType: string,
   payload: unknown,
-  metadata?: Pick<QueuedMutation, 'baseState'>,
+  metadata?: Pick<QueuedMutation, 'baseState' | 'conflictHandlerKey'>,
 ) {
   if (!env.VAULT_ENDPOINT) {
     throw new Error('Cannot queue offline mutation without API endpoint')
@@ -455,6 +476,7 @@ export async function enqueueMutation(
       endpoint: env.VAULT_ENDPOINT,
       queuedAt: Date.now(),
       baseState: metadata?.baseState || queue[existingIndex].baseState,
+      conflictHandlerKey: metadata?.conflictHandlerKey || queue[existingIndex].conflictHandlerKey,
       attemptCount: undefined,
       nextAttemptAt: undefined,
     }
@@ -466,6 +488,7 @@ export async function enqueueMutation(
       endpoint: env.VAULT_ENDPOINT,
       queuedAt: Date.now(),
       baseState: metadata?.baseState,
+      conflictHandlerKey: metadata?.conflictHandlerKey,
       attemptCount: 0,
       nextAttemptAt: undefined,
       conflict: false,
@@ -599,8 +622,12 @@ export async function processOfflineQueue() {
       try {
         await executeMutation(normalizedMutation)
       } catch (error) {
+        const conflictHandler = getConflictHandler(normalizedMutation)
+
         if (isStaleCompactedBranchError(error)) {
-          const rescued = await rescueQueuedStaleCompactedBranch(normalizedMutation)
+          const rescued = conflictHandler?.resolveStaleCompactedBranch
+            ? await conflictHandler.resolveStaleCompactedBranch(normalizedMutation)
+            : null
           if (rescued) {
             nextQueue.push(rescued, ...queue.slice(index + 1))
             break
@@ -608,7 +635,9 @@ export async function processOfflineQueue() {
         }
 
         if (isVersionConflictError(error)) {
-          const resolved = await resolveQueuedPutConflict(normalizedMutation)
+          const resolved = conflictHandler?.resolveVersionConflict
+            ? await conflictHandler.resolveVersionConflict(normalizedMutation)
+            : null
           if (resolved) {
             nextQueue.push(resolved, ...queue.slice(index + 1))
             break

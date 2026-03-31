@@ -11,7 +11,7 @@ import {
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/metadata'
-import { checkAxios } from './axios'
+import { hasApiAuthToken } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import {
   mutateDeleteItems,
@@ -151,7 +151,7 @@ async function triggerItemCompactionIfNeeded(
   compactionInFlightItemIds.add(itemId)
 
   try {
-    if (!checkAxios()) {
+    if (!hasApiAuthToken()) {
       return
     }
 
@@ -268,7 +268,7 @@ async function queueConflictResolutions(
 
   try {
     // Only send resolutions if we're online
-    if (!checkAxios()) {
+    if (!hasApiAuthToken()) {
       console.log(`[Automerge] Deferring conflict resolution - offline`)
       return
     }
@@ -376,7 +376,7 @@ async function attemptAutoRecovery(
   recoveryInFlightItemIds.add(itemId)
 
   try {
-    if (!checkAxios()) {
+    if (!hasApiAuthToken()) {
       return
     }
 
@@ -739,7 +739,7 @@ async function decryptWithoutWorker(
 }
 
 export async function fetchItems(): Promise<Item[]> {
-  if (!checkAxios()) {
+  if (!hasApiAuthToken()) {
     // If Axios isn't ready, we can't fetch.
     // Return empty array to satisfy the query temporarily.
     // The real fetch will happen once loadVault completes and triggers a refetch.

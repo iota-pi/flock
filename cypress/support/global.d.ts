@@ -1,4 +1,4 @@
-type QueryKeys = typeof import('../../src/api/client').queryKeys
+type QueryKeys = typeof import('../../src/api/queryClient').queryKeys
 
 declare global {
   // Cypress window augmentation for tests that call into vault helpers
@@ -6,12 +6,10 @@ declare global {
   interface Window {
     vault?: Promise<typeof import('../../src/api/Vault')>
     mutations?: Promise<typeof import('../../src/api/mutations')>
-    checkAxios?: typeof import('../../src/api/axios').checkAxios
-    invalidateQuery?: (key: AppQueryKey) => Promise<void>
+    hasApiAuthToken?: typeof import('../../src/api/runtime').hasApiAuthToken
+    invalidateQuery?: (key: keyof QueryKeys) => Promise<void>
     queryKeys?: QueryKeys
   }
-
-  type AppQueryKey = keyof QueryKeys
 }
 
 export {}

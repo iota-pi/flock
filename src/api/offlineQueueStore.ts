@@ -10,6 +10,7 @@ export type QueuedMutation = {
   id: string
   mutationType: string
   payload: unknown
+  conflictHandlerKey?: string
   endpoint: string
   queuedAt?: number
   baseState?: Item

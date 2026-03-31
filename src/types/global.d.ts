@@ -1,7 +1,7 @@
 
 import type * as vault from '../api/Vault'
 import type * as mutations from '../api/mutations'
-import type { checkAxios } from '../api/axios'
+import type { hasApiAuthToken } from '../api/runtime'
 import type { queryKeys } from '../api/queryClient'
 
 // Expose store for Cypress in a typed way
@@ -10,7 +10,7 @@ declare global {
     Cypress?: boolean | Record<string, unknown>
     vault?: Promise<typeof vault>
     mutations?: Promise<typeof mutations>
-    checkAxios?: typeof checkAxios
+    hasApiAuthToken?: typeof hasApiAuthToken
     invalidateQuery?: (key: keyof typeof queryKeys) => Promise<void>
     queryKeys?: typeof queryKeys
   }

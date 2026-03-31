@@ -26,6 +26,8 @@ import {
   generateAccountId,
 } from '../util'
 import BaseDriver, {
+  ArchiveAndReplaceInput,
+  ArchiveAndSetManyInput,
   AuthData,
   BaseData,
   CachedVaultItem,
@@ -957,6 +959,85 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return rows
       .map(row => row.itemData)
       .filter((item): item is VaultItem => !!item)
+  }
+
+  async archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void> {
+    const replacementWritable = input.replacement as WritableVaultItem
+    const replacementItem = this._stripTransientFields(replacementWritable)
+    const replacementPut = getItemPutParams(replacementItem, replacementWritable._expectedParentVersionId)
+
+    const transactItems = [
+      {
+        Put: {
+          TableName: ITEM_HISTORY_TABLE,
+          Item: input.history,
+        },
+      },
+      {
+        Put: replacementPut,
+      },
+    ]
+
+    try {
+      await this.client.send(new TransactWriteCommand({
+        TransactItems: transactItems,
+      }))
+    } catch (error) {
+      if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
+        throw new Error('Version conflict: The item has been modified by another client.')
+      }
+      throw error
+    }
+  }
+
+  async archiveAndSetManyTransaction(input: ArchiveAndSetManyInput): Promise<void> {
+    const historyWrites = input.historyEntries.map(entry => ({
+      Put: {
+        TableName: ITEM_HISTORY_TABLE,
+        Item: entry,
+      },
+    }))
+
+    const replacementWrites = input.replacements.map(rawItem => {
+      const item = rawItem as WritableVaultItem
+      const persisted = this._stripTransientFields(item)
+      const putParams = getItemPutParams(persisted, item._expectedParentVersionId)
+      return {
+        Put: putParams,
+      }
+    })
+
+    const transactItems = [...historyWrites, ...replacementWrites]
+    if (transactItems.length === 0) {
+      return
+    }
+
+    const chunks = this._chunkTransactItems(transactItems)
+    for (const chunk of chunks) {
+      try {
+        await this.client.send(new TransactWriteCommand({
+          TransactItems: chunk,
+        }))
+      } catch (error) {
+        if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
+          const conflictIds = chunk
+            .map(entry => {
+              if (entry?.Put?.TableName === ITEM_TABLE_NAME) {
+                return (entry.Put.Item as VaultItem | undefined)?.item
+              }
+              return undefined
+            })
+            .filter((id): id is string => typeof id === 'string')
+
+          if (conflictIds.length > 0) {
+            throw new TransactionConflictsError(conflictIds)
+          }
+
+          throw new Error('Version conflict: The item has been modified by another client.')
+        }
+        throw error
+      }
+    }
   }
 
   async fetchAll(

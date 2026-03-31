@@ -33,7 +33,7 @@ export const LoginBodySchema = z.object({
 
 export const AccountInputSchema = z.object({
   account: z.string().min(1),
-})
+}).passthrough()
 
 export const UpdateMetadataBodySchema = z.object({
   account: z.string().min(1),
