@@ -13,6 +13,7 @@ type ItemServiceContext = {
 
 const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
 const BRANCH_IV_PLACEHOLDER = 'branch'
+const VERSION_CONFLICT_MESSAGE_PREFIX = 'VERSION_CONFLICT'
 
 function buildHistoryKey(itemId: string): string {
   return `${itemId}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`
@@ -28,6 +29,54 @@ function makeHistoryEntry(account: string, itemId: string, itemData: VaultItem):
     historyKey: buildHistoryKey(itemId),
     itemData,
     expiresAt: Math.floor(Date.now() / 1000) + HISTORY_RETENTION_SECONDS,
+  }
+}
+
+function toVersionConflictMessage(conflicts: string[]): string {
+  return `${VERSION_CONFLICT_MESSAGE_PREFIX}:${conflicts.join(',')}`
+}
+
+function throwVersionConflict(conflicts: string[]): never {
+  throw new TRPCError({
+    code: 'CONFLICT',
+    message: toVersionConflictMessage(conflicts),
+    cause: { conflicts },
+  })
+}
+
+function prepareTransactionEntities(input: {
+  account: string
+  itemId: string
+  type: string
+  modified: number
+  branches: VaultBranch[]
+  deleted?: boolean
+  compactedAt?: number
+  currentItem?: VaultItem
+  expectedParentVersionId?: string
+}): {
+  replacement: VaultItem & { _expectedParentVersionId?: string }
+  historyEntry?: VaultItemHistory
+} {
+  const replacement: VaultItem & { _expectedParentVersionId?: string } = {
+    account: input.account,
+    item: input.itemId,
+    branches: input.branches,
+    _expectedParentVersionId: input.expectedParentVersionId,
+    metadata: {
+      type: asItemType(input.type),
+      iv: BRANCH_IV_PLACEHOLDER,
+      modified: input.modified,
+      deleted: input.deleted,
+      compactedAt: input.compactedAt,
+    },
+  }
+
+  return {
+    replacement,
+    historyEntry: input.currentItem
+      ? makeHistoryEntry(input.account, input.itemId, input.currentItem)
+      : undefined,
   }
 }
 
@@ -77,7 +126,7 @@ export async function putManyItems(
       deleted?: boolean
     }>
   },
-): Promise<{ success: true; conflicts: string[] } | { success: false; error: 'Version conflict'; conflicts: string[] }> {
+): Promise<void> {
   const currentItems = await ctx.vault.fetchMany({
     account: input.account,
     ids: input.items.map(item => item.id),
@@ -85,39 +134,34 @@ export async function putManyItems(
 
   const currentById = new Map(currentItems.map(item => [item.item, item]))
 
-  const mappedItems = input.items.map(incomingItem => {
+  const entities = input.items.map(incomingItem => {
     const expectedParentVersionId = incomingItem.branches.length === 1
       ? incomingItem.branches[0].parentIds.at(-1)
       : undefined
+    const currentItem = currentById.get(incomingItem.id)
 
-    return {
+    return prepareTransactionEntities({
       account: input.account,
-      item: incomingItem.id,
+      itemId: incomingItem.id,
       branches: incomingItem.branches,
-      _expectedParentVersionId: expectedParentVersionId,
-      metadata: {
-        type: asItemType(incomingItem.type),
-        iv: BRANCH_IV_PLACEHOLDER,
-        modified: incomingItem.modified,
-        deleted: incomingItem.deleted,
-      },
-    }
+      type: incomingItem.type,
+      modified: incomingItem.modified,
+      deleted: incomingItem.deleted,
+      currentItem,
+      expectedParentVersionId,
+    })
   })
 
-  const historyEntries = input.items
-    .map(item => {
-      const currentItem = currentById.get(item.id)
-      if (!currentItem) {
-        return null
-      }
-      return makeHistoryEntry(input.account, item.id, currentItem)
-    })
+  const historyEntries = entities
+    .map(entity => entity.historyEntry)
     .filter((entry): entry is VaultItemHistory => !!entry)
+
+  const replacements = entities.map(entity => entity.replacement)
 
   try {
     await ctx.vault.archiveAndSetManyTransaction({
       historyEntries,
-      replacements: mappedItems as VaultItem[],
+      replacements,
     })
 
     await publishRealtimeEvent(input.account, 'items.updated', {
@@ -125,14 +169,10 @@ export async function putManyItems(
       count: input.items.length,
     })
 
-    return { success: true, conflicts: [] }
+    return
   } catch (error) {
     if (error instanceof TransactionConflictsError) {
-      return {
-        success: false,
-        error: 'Version conflict',
-        conflicts: error.conflictedIds,
-      }
+      throwVersionConflict(error.conflictedIds)
     }
     throw error
   }
@@ -148,7 +188,7 @@ export async function putItem(
     branches: VaultBranch[]
     deleted?: boolean
   },
-): Promise<{ success: true } | { success: false; error: 'Version conflict'; conflicts: string[] }> {
+): Promise<void> {
   const currentItem = await ctx.vault.fetchMany({
     account: input.account,
     ids: [input.item],
@@ -178,23 +218,21 @@ export async function putItem(
     ? input.branches[0].parentIds.at(-1)
     : undefined
 
-  const replacement: VaultItem & { _expectedParentVersionId?: string } = {
+  const { replacement, historyEntry } = prepareTransactionEntities({
     account: input.account,
-    item: input.item,
+    itemId: input.item,
     branches: input.branches,
-    _expectedParentVersionId: expectedParentVersionId,
-    metadata: {
-      type: asItemType(input.type),
-      iv: BRANCH_IV_PLACEHOLDER,
-      modified: input.modified,
-      deleted: input.deleted,
-    },
-  }
+    type: input.type,
+    modified: input.modified,
+    deleted: input.deleted,
+    currentItem,
+    expectedParentVersionId,
+  })
 
   try {
     if (currentItem) {
       await ctx.vault.archiveAndReplaceTransaction({
-        history: makeHistoryEntry(input.account, input.item, currentItem),
+        history: historyEntry as VaultItemHistory,
         replacement,
       })
     } else {
@@ -206,14 +244,10 @@ export async function putItem(
       count: 1,
     })
 
-    return { success: true }
+    return
   } catch (error) {
     if (isVersionConflictError(error)) {
-      return {
-        success: false,
-        error: 'Version conflict',
-        conflicts: [input.item],
-      }
+      throwVersionConflict([input.item])
     }
     throw error
   }
@@ -227,7 +261,7 @@ export async function compactItem(
     baseVersionId: string
     compactedBranch: VaultBranch
   },
-): Promise<{ success: true }> {
+): Promise<void> {
   const currentItem = await ctx.vault.fetchMany({
     account: input.account,
     ids: [input.item],
@@ -252,23 +286,21 @@ export async function compactItem(
     })
   }
 
-  const replacement: VaultItem & { _expectedParentVersionId?: string } = {
+  const { replacement, historyEntry } = prepareTransactionEntities({
     account: input.account,
-    item: input.item,
+    itemId: input.item,
     branches: [input.compactedBranch],
-    _expectedParentVersionId: currentItem.branches?.[0]?.versionId,
-    metadata: {
-      type: currentItem.metadata.type,
-      iv: BRANCH_IV_PLACEHOLDER,
-      modified: Date.now(),
-      deleted: currentItem.metadata.deleted,
-      compactedAt: Date.now(),
-    },
-  }
+    type: currentItem.metadata.type,
+    modified: Date.now(),
+    deleted: currentItem.metadata.deleted,
+    compactedAt: Date.now(),
+    currentItem,
+    expectedParentVersionId: currentItem.branches?.[0]?.versionId,
+  })
 
   try {
     await ctx.vault.archiveAndReplaceTransaction({
-      history: makeHistoryEntry(input.account, input.item, currentItem),
+      history: historyEntry as VaultItemHistory,
       replacement,
     })
   } catch (error) {
@@ -290,7 +322,7 @@ export async function compactItem(
     count: 1,
   })
 
-  return { success: true }
+  return
 }
 
 export async function resolveBranchConflicts(

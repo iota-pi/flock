@@ -6,10 +6,10 @@ import {
   convertItem,
   isValid,
   checkProperties,
-  importPeople,
   Item,
   GroupItem,
 } from './items'
+import { importPeople } from '../utils/importUtils'
 
 describe('items helpers', () => {
   it('creates blank person with defaults', () => {

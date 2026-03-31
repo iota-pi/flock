@@ -25,6 +25,15 @@ import {
   writeDeadLetterQueue,
   writeQueue,
 } from './offlineQueueStore'
+import { z } from 'zod'
+import {
+  PutItemBodySchema,
+  PutItemsBatchBodySchema,
+} from '../shared/syncSchemas'
+import {
+  resolveQueueConflictInWorker as resolveQueueConflictWithManager,
+  rescueStaleCompactedBranchInWorker as rescueStaleCompactedBranchWithManager,
+} from '../workers/decryptionWorkerManager'
 
 let processing = false
 const CHUNK_SIZE = 50
@@ -36,21 +45,37 @@ let lastStaleSignalAt = 0
 
 export const CONFLICT_HANDLER_AUTOMERGE_ITEMS = 'automerge-items'
 
+const ResolveBatchPayloadSchema = z.object({
+  account: z.string().min(1).optional(),
+  resolutions: z.array(z.object({
+    item: z.string().min(1),
+  })),
+})
+
+const QueuePayloadSchema = z.union([
+  PutItemBodySchema,
+  PutItemsBatchBodySchema,
+  ResolveBatchPayloadSchema,
+])
+
 function extractTargetIds(payload: unknown): string[] {
-  if (!payload || typeof payload !== 'object') {
+  const parsed = QueuePayloadSchema.safeParse(payload)
+  if (!parsed.success) {
     return []
   }
 
-  const singleItem = payload as { item?: unknown }
-  if (typeof singleItem.item === 'string') {
-    return [singleItem.item]
+  const value = parsed.data
+  if ('item' in value) {
+    return [value.item]
   }
-
-  const batch = payload as { items?: Array<{ id?: unknown }> }
-  if (Array.isArray(batch.items)) {
-    return batch.items
-      .map(item => item?.id)
-      .filter((id): id is string => typeof id === 'string')
+  if ('items' in value) {
+    return value.items
+      .map(item => item.id)
+      .sort()
+  }
+  if ('resolutions' in value) {
+    return value.resolutions
+      .map(resolution => resolution.item)
       .sort()
   }
 
@@ -76,23 +101,22 @@ function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: strin
 }
 
 function getPayloadTelemetry(payload: unknown): Record<string, unknown> {
-  if (!payload || typeof payload !== 'object') {
+  const parsed = QueuePayloadSchema.safeParse(payload)
+  if (!parsed.success) {
     return {}
   }
 
-  const typed = payload as {
-    account?: unknown
-    item?: unknown
-    items?: Array<{ id?: unknown }>
-  }
+  const typed = parsed.data
 
   const targetIds = extractTargetIds(payload)
 
   return {
     account: typeof typed.account === 'string' ? typed.account : undefined,
-    item: typeof typed.item === 'string' ? typed.item : undefined,
+    item: 'item' in typed ? typed.item : undefined,
     itemIds: targetIds,
-    itemCount: Array.isArray(typed.items) ? typed.items.length : undefined,
+    itemCount: 'items' in typed
+      ? typed.items.length
+      : ('resolutions' in typed ? typed.resolutions.length : undefined),
   }
 }
 
@@ -132,45 +156,11 @@ async function mergeConflictBranchesInWorker(
   localBranches: ResolvedBranch[],
   serverBranches: ResolvedBranch[],
 ): Promise<ResolvedBranch> {
-  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
-    type: 'module',
-  })
-
-  const jobId = Date.now()
-
-  return new Promise<ResolvedBranch>((resolve, reject) => {
-    worker.onmessage = event => {
-      const payload = event.data as {
-        type?: string
-        jobId?: number
-        itemId?: string
-        resolvedBranch?: ResolvedBranch
-      }
-
-      if (
-        payload.type === 'QUEUE_CONFLICT_RESOLVED'
-        && payload.jobId === jobId
-        && payload.itemId === itemId
-        && payload.resolvedBranch
-      ) {
-        worker.terminate()
-        resolve(payload.resolvedBranch)
-      }
-    }
-
-    worker.onerror = error => {
-      worker.terminate()
-      reject(error)
-    }
-
-    worker.postMessage({
-      type: 'RESOLVE_QUEUE_CONFLICT',
-      jobId,
-      key: getVaultKey(),
-      itemId,
-      localBranches,
-      serverBranches,
-    })
+  return resolveQueueConflictWithManager({
+    key: getVaultKey(),
+    itemId,
+    localBranches,
+    serverBranches,
   })
 }
 
@@ -179,45 +169,11 @@ async function rescueStaleCompactedBranchInWorker(
   localBranch: ResolvedBranch,
   serverBranch: ResolvedBranch,
 ): Promise<ResolvedBranch> {
-  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
-    type: 'module',
-  })
-
-  const jobId = Date.now() + Math.floor(Math.random() * 1000)
-
-  return new Promise<ResolvedBranch>((resolve, reject) => {
-    worker.onmessage = event => {
-      const payload = event.data as {
-        type?: string
-        jobId?: number
-        itemId?: string
-        rescuedBranch?: ResolvedBranch
-      }
-
-      if (
-        payload.type === 'STALE_COMPACTED_BRANCH_RESCUED'
-        && payload.jobId === jobId
-        && payload.itemId === itemId
-        && payload.rescuedBranch
-      ) {
-        worker.terminate()
-        resolve(payload.rescuedBranch)
-      }
-    }
-
-    worker.onerror = error => {
-      worker.terminate()
-      reject(error)
-    }
-
-    worker.postMessage({
-      type: 'RESCUE_STALE_COMPACTED_BRANCH',
-      jobId,
-      key: getVaultKey(),
-      itemId,
-      localBranch,
-      serverBranch,
-    })
+  return rescueStaleCompactedBranchWithManager({
+    key: getVaultKey(),
+    itemId,
+    localBranch,
+    serverBranch,
   })
 }
 
@@ -405,15 +361,10 @@ const mutationStrategies: Record<string, MutationExecutionStrategy> = {
   'items.put': {
     execute: async mutation => {
       const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
-      const result = await trpcClient.items.put.mutate({
+      await trpcClient.items.put.mutate({
         ...payload,
         idempotencyKey: mutation.id,
       })
-      if (!result.success) {
-        const error = new Error((result as { error?: string }).error || 'items.put failed')
-        ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-        throw error
-      }
     },
   },
   'items.putMany': {
@@ -422,30 +373,20 @@ const mutationStrategies: Record<string, MutationExecutionStrategy> = {
       const payloadItems = payload.items || []
 
       if (payloadItems.length <= CHUNK_SIZE) {
-        const result = await trpcClient.items.putMany.mutate({
+        await trpcClient.items.putMany.mutate({
           ...payload,
           idempotencyKey: mutation.id,
         })
-        if (!result.success) {
-          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
-          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-          throw error
-        }
         return
       }
 
       for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
         const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
-        const result = await trpcClient.items.putMany.mutate({
+        await trpcClient.items.putMany.mutate({
           ...payload,
           items: chunk,
           idempotencyKey: mutation.id,
         })
-        if (!result.success) {
-          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
-          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
-          throw error
-        }
       }
     },
   },

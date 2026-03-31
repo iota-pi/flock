@@ -105,6 +105,50 @@ export class VaultVersionConflictError extends Error {
   }
 }
 
+function extractConflictIdsFromError(error: unknown): string[] {
+  const maybeAny = error as {
+    message?: unknown
+    cause?: { conflicts?: unknown }
+    data?: { code?: unknown; cause?: { conflicts?: unknown } }
+  }
+
+  const fromCause = maybeAny?.cause?.conflicts
+  if (Array.isArray(fromCause)) {
+    return fromCause.filter((item): item is string => typeof item === 'string')
+  }
+
+  const fromDataCause = maybeAny?.data?.cause?.conflicts
+  if (Array.isArray(fromDataCause)) {
+    return fromDataCause.filter((item): item is string => typeof item === 'string')
+  }
+
+  const message = typeof maybeAny?.message === 'string' ? maybeAny.message : ''
+  const prefix = 'VERSION_CONFLICT:'
+  if (message.startsWith(prefix)) {
+    const serializedIds = message.slice(prefix.length).trim()
+    if (!serializedIds) {
+      return []
+    }
+    return serializedIds.split(',').map(id => id.trim()).filter(Boolean)
+  }
+
+  return []
+}
+
+function isConflictTrpcError(error: unknown): boolean {
+  const maybeAny = error as {
+    data?: { code?: unknown }
+    message?: unknown
+  }
+
+  if (maybeAny?.data?.code === 'CONFLICT') {
+    return true
+  }
+
+  const message = typeof maybeAny?.message === 'string' ? maybeAny.message : ''
+  return message.startsWith('VERSION_CONFLICT:')
+}
+
 function assertSuccess(response: { success: boolean }, operation: string) {
   if (!response.success) {
     throw new Error(`Vault client ${operation} operation failed`)
@@ -152,18 +196,15 @@ export async function put(item: VaultItem) {
     deleted: item.metadata.deleted,
   })
 
-  const response = await trpcClient.items.put.mutate(input) as PutResponse
+  try {
+    await trpcClient.items.put.mutate(input)
+  } catch (error) {
+    if (isConflictTrpcError(error)) {
+      throw new VaultVersionConflictError(extractConflictIdsFromError(error))
+    }
 
-  if (
-    !response.success
-    && 'error' in response
-    && response.error === 'Version conflict'
-    && 'conflicts' in response
-  ) {
-    throw new VaultVersionConflictError(response.conflicts)
+    throw error
   }
-
-  assertSuccess(response, 'put')
 }
 
 export async function putMany({ items }: { items: VaultItem[] }) {
@@ -178,31 +219,15 @@ export async function putMany({ items }: { items: VaultItem[] }) {
     })),
   })
 
-  const response = await trpcClient.items.putMany.mutate(input) as PutManyResponse | BatchResultResponse
-
-  if ('success' in response && response.success && 'conflicts' in response) {
-    return
-  }
-
-  if (
-    'success' in response
-    && !response.success
-    && 'error' in response
-    && response.error === 'Version conflict'
-    && 'conflicts' in response
-  ) {
-    throw new VaultVersionConflictError(response.conflicts)
-  }
-
-  if ('details' in response) {
-    const failedItems = response.details.filter(d => !d.success)
-    if (failedItems.length > 0) {
-      throw new VaultBatchError(failedItems.map(f => ({ item: f.item, error: 'error' in f ? f.error : undefined })))
+  try {
+    await trpcClient.items.putMany.mutate(input)
+  } catch (error) {
+    if (isConflictTrpcError(error)) {
+      throw new VaultVersionConflictError(extractConflictIdsFromError(error))
     }
-    return
-  }
 
-  throw new Error('Vault client putMany operation failed')
+    throw error
+  }
 }
 
 export async function createAccount(

@@ -10,9 +10,10 @@ import {
 import { DropzoneArea } from 'mui-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useMemo, useState } from 'react'
-import { importPeople, Item } from '../../state/items'
+import { Item } from '../../state/items'
 import { useItems } from '../../state/selectors'
 import { UploadIcon } from '../Icons'
+import { importPeople } from '../../utils/importUtils'
 
 
 export interface Props {
