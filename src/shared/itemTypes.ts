@@ -29,5 +29,6 @@ export type ItemEnvelope = {
     iv: string, // For legacy cipher decryption
     modified: number,
     deleted?: boolean,
+    compactedAt?: number,
   },
 }

@@ -64,15 +64,125 @@ const pendingHistoryEvaluationJobs = new Map<number, {
   resolve: (value: VaultItem | null) => void
   reject: (reason?: unknown) => void
 }>()
+const pendingCompactionJobs = new Map<number, {
+  resolve: (value: {
+    itemId: string
+    baseVersionId: string
+    compactedBranch: WorkerResolvedBranch
+    compactedBinary: Uint8Array
+  }) => void
+  reject: (reason?: unknown) => void
+}>()
 const recoveryInFlightItemIds = new Set<string>()
 const recoveryCooldownUntilByItemId = new Map<string, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
+const COMPACTION_THRESHOLD_BYTES = 100_000
+const COMPACTION_COOLDOWN_MS = 15 * 60 * 1000
+const compactionInFlightItemIds = new Set<string>()
+const compactionCooldownUntilByItemId = new Map<string, number>()
 
 type WorkerResolvedBranch = {
   encryptedAutomergeDoc: string
   versionId: string
   parentIds: string[]
+}
+
+function getCompactionCooldownUntil(itemId: string): number {
+  return compactionCooldownUntilByItemId.get(itemId) || 0
+}
+
+async function requestCompactionWithWorker(
+  worker: Worker,
+  key: CryptoKey,
+  itemId: string,
+  baseVersionId: string,
+  automergeBinary: Uint8Array,
+): Promise<{
+  itemId: string
+  baseVersionId: string
+  compactedBranch: WorkerResolvedBranch
+  compactedBinary: Uint8Array
+}> {
+  decryptionJobCounter += 1
+  const jobId = decryptionJobCounter
+
+  return new Promise((resolve, reject) => {
+    pendingCompactionJobs.set(jobId, { resolve, reject })
+    worker.postMessage({
+      type: 'COMPACT_ITEM',
+      jobId,
+      key,
+      itemId,
+      baseVersionId,
+      automergeBinary,
+    })
+  })
+}
+
+async function triggerItemCompactionIfNeeded(
+  worker: Worker,
+  source: VaultItem,
+  automergeBinary: Uint8Array,
+): Promise<void> {
+  if (automergeBinary.byteLength <= COMPACTION_THRESHOLD_BYTES) {
+    return
+  }
+
+  if (source.metadata?.deleted === true || !Array.isArray(source.branches) || source.branches.length === 0) {
+    return
+  }
+
+  const itemId = source.item
+  const headVersionId = source.branches[0]?.versionId
+  if (!itemId || !headVersionId) {
+    return
+  }
+
+  const now = Date.now()
+  if (compactionInFlightItemIds.has(itemId) || getCompactionCooldownUntil(itemId) > now) {
+    return
+  }
+
+  if (typeof source.metadata?.compactedAt === 'number' && now - source.metadata.compactedAt < COMPACTION_COOLDOWN_MS) {
+    return
+  }
+
+  compactionInFlightItemIds.add(itemId)
+
+  try {
+    if (!checkAxios()) {
+      return
+    }
+
+    const key = (await getVaultModule()).getVaultKey()
+    const compacted = await requestCompactionWithWorker(worker, key, itemId, headVersionId, automergeBinary)
+
+    await trpcClient.items.compactItem.mutate({
+      account: getAccountId(),
+      item: compacted.itemId,
+      baseVersionId: compacted.baseVersionId,
+      compactedBranch: compacted.compactedBranch,
+      idempotencyKey: `compact-${compacted.itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    })
+
+    setCachedAutomergeBinary(compacted.itemId, compacted.compactedBinary)
+    const cached = decryptionCache.get(compacted.itemId)
+    if (cached) {
+      decryptionCache.set(compacted.itemId, {
+        ...cached,
+        cacheKey: `branches-${compacted.compactedBranch.versionId}`,
+      })
+      schedulePersistDecryptionCache(getAccountId())
+    }
+
+    compactionCooldownUntilByItemId.set(itemId, Date.now() + COMPACTION_COOLDOWN_MS)
+  } catch (error) {
+    compactionCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+    console.warn(`[Compaction] Failed to compact item ${itemId}`, error)
+  } finally {
+    compactionInFlightItemIds.delete(itemId)
+  }
 }
 
 function getDecryptionCacheKey(accountId: string): string {
@@ -293,17 +403,21 @@ async function attemptAutoRecovery(
       return
     }
 
+    if (!healthyEnvelope.branches || healthyEnvelope.branches.length === 0) {
+      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+      await triggerManualRecoveryUI(itemId, 'Historical recovery revision is not in branch format')
+      return
+    }
+
     await trpcClient.items.put.mutate({
       account,
       item: healthyEnvelope.item,
-      ...(healthyEnvelope.cipher ? { cipher: healthyEnvelope.cipher } : {}),
-      ...(healthyEnvelope.branches ? { branches: healthyEnvelope.branches } : {}),
-      iv: healthyEnvelope.metadata.iv,
+      branches: healthyEnvelope.branches,
       modified: Date.now(),
       type: healthyEnvelope.metadata.type,
       deleted: healthyEnvelope.metadata.deleted,
       idempotencyKey: `recovery-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    } as any)
+    })
 
     recoveryCooldownUntilByItemId.delete(itemId)
     await queryClient.invalidateQueries({ queryKey: queryKeys.items })
@@ -335,6 +449,9 @@ function ensureSharedDecryptionWorker(): Worker {
       itemId?: unknown
       failedBranches?: unknown
       resolvedBranch?: WorkerResolvedBranch
+      compactedBranch?: WorkerResolvedBranch
+      baseVersionId?: unknown
+      compactedBinary?: unknown
       healthyEnvelope?: VaultItem | null
       resolutionItems?: Array<{ itemId: string; branch: WorkerResolvedBranch }>
     }
@@ -373,6 +490,33 @@ function ensureSharedDecryptionWorker(): Worker {
       return
     }
 
+    if (payload.type === 'COMPACTED_ENVELOPE') {
+      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
+      const pending = pendingCompactionJobs.get(jobId)
+      if (!pending) {
+        return
+      }
+
+      pendingCompactionJobs.delete(jobId)
+      if (
+        typeof payload.itemId !== 'string'
+        || typeof payload.baseVersionId !== 'string'
+        || !payload.compactedBranch
+        || !(payload.compactedBinary instanceof Uint8Array)
+      ) {
+        pending.reject(new Error('Invalid COMPACTED_ENVELOPE payload from worker'))
+        return
+      }
+
+      pending.resolve({
+        itemId: payload.itemId,
+        baseVersionId: payload.baseVersionId,
+        compactedBranch: payload.compactedBranch,
+        compactedBinary: payload.compactedBinary,
+      })
+      return
+    }
+
     if (payload.type !== 'DECRYPTION_RESULT' && payload.type !== undefined) {
       return
     }
@@ -406,6 +550,11 @@ function ensureSharedDecryptionWorker(): Worker {
       pending.reject(error)
     }
     pendingHistoryEvaluationJobs.clear()
+
+    for (const pending of pendingCompactionJobs.values()) {
+      pending.reject(error)
+    }
+    pendingCompactionJobs.clear()
 
     sharedDecryptionWorker = null
   }
@@ -524,17 +673,20 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       }
 
       const workerItem = item as { automergeBinary?: unknown } & Record<string, unknown>
-      const automergeBinary = workerItem.automergeBinary
-      if (automergeBinary instanceof Uint8Array) {
-        setCachedAutomergeBinary(id, automergeBinary)
-      }
-
-      const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-
       const source = sourcesById.get(id)
       if (!source) {
         return null
       }
+
+      const automergeBinary = workerItem.automergeBinary
+      if (automergeBinary instanceof Uint8Array) {
+        setCachedAutomergeBinary(id, automergeBinary)
+        triggerItemCompactionIfNeeded(worker, source, automergeBinary).catch(error => {
+          console.warn(`[Compaction] watcher failed for item ${id}`, error)
+        })
+      }
+
+      const { automergeBinary: _automergeBinary, ...materialized } = workerItem
 
       const filled = supplyMissingAttributes(materialized as unknown as Item)
 

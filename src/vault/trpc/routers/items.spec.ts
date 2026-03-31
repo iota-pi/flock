@@ -151,6 +151,104 @@ describe('itemsRouter contracts', () => {
     expect(response.history).toEqual(history)
     expect(ctx.vault.fetchHistory).toHaveBeenCalledWith('acct-1', 'item-4', undefined)
   })
+
+  it('compacts item by archiving current branches and replacing with compacted genesis branch', async () => {
+    const ctx = createMockContext()
+    const existing = {
+      account: 'acct-1',
+      item: 'item-compact',
+      branches: [
+        {
+          encryptedAutomergeDoc: 'old-a',
+          versionId: 'v-old-a',
+          parentIds: [],
+        },
+        {
+          encryptedAutomergeDoc: 'old-b',
+          versionId: 'v-old-b',
+          parentIds: ['v-old-a'],
+        },
+      ],
+      metadata: {
+        type: 'person',
+        iv: '',
+        modified: 111,
+      },
+    }
+    ctx.vault.fetchMany.mockResolvedValue([existing] as any)
+
+    const caller = itemsRouter.createCaller(ctx as any)
+    await caller.compactItem({
+      account: 'acct-1',
+      item: 'item-compact',
+      baseVersionId: 'v-old-b',
+      compactedBranch: {
+        encryptedAutomergeDoc: 'new-compacted',
+        versionId: 'v-new-genesis',
+        parentIds: [],
+      },
+    })
+
+    expect(ctx.vault.putHistory).toHaveBeenCalledWith(expect.objectContaining({
+      account: 'acct-1',
+      itemData: existing,
+      historyKey: expect.stringMatching(/^item-compact#/),
+    }))
+    expect(ctx.vault.set).toHaveBeenCalledWith(expect.objectContaining({
+      account: 'acct-1',
+      item: 'item-compact',
+      branches: [
+        {
+          encryptedAutomergeDoc: 'new-compacted',
+          versionId: 'v-new-genesis',
+          parentIds: [],
+        },
+      ],
+      metadata: expect.objectContaining({
+        compactedAt: expect.any(Number),
+      }),
+    }))
+  })
+
+  it('rejects stale parent lineage on put when server item was compacted', async () => {
+    const ctx = createMockContext()
+    ;(ctx.vault.fetchMany as any).mockResolvedValue([
+      {
+        item: 'item-1',
+        branches: [
+          {
+            encryptedAutomergeDoc: 'doc-current',
+            versionId: 'v-new-genesis',
+            parentIds: [],
+          },
+        ],
+        metadata: {
+          type: 'person',
+          iv: '',
+          modified: 200,
+          compactedAt: Date.now(),
+        },
+      },
+    ])
+
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    await expect(caller.put({
+      account: 'acct-1',
+      item: 'item-1',
+      branches: [
+        {
+          encryptedAutomergeDoc: 'doc-offline',
+          versionId: 'v-offline',
+          parentIds: ['v-pre-compaction'],
+        },
+      ],
+      modified: 250,
+      type: 'person',
+    })).rejects.toMatchObject({
+      message: 'STALE_COMPACTED_BRANCH',
+    })
+  })
 })
 
 describe('itemsRouter: Lineage-Aware Branching', () => {

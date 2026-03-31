@@ -95,6 +95,8 @@ describe('offlineQueue', () => {
   beforeEach(() => {
     mocks.store.clear()
     vi.clearAllMocks()
+    mocks.putMutate.mockResolvedValue({ success: true })
+    mocks.putManyMutate.mockResolvedValue({ success: true })
 
     let cacheItems: unknown[] = []
     mocks.getQueryData.mockImplementation(() => cacheItems)
@@ -159,7 +161,7 @@ describe('offlineQueue', () => {
       version: 1,
     }))
 
-    mocks.putManyMutate.mockResolvedValue(undefined)
+    mocks.putManyMutate.mockResolvedValue({ success: true })
 
     await enqueueMutation('items.putMany', {
       account: 'acct-1',

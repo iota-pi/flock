@@ -53,6 +53,14 @@ export const PutItemBodySchema = z.object({
   idempotencyKey: z.string().min(1).optional(),
 })
 
+export const CompactItemBodySchema = z.object({
+  account: z.string().min(1),
+  item: z.string().min(1),
+  baseVersionId: z.string().min(1),
+  compactedBranch: VaultBranchSchema,
+  idempotencyKey: z.string().min(1).optional(),
+})
+
 /**
  * PutItemsBatchEntrySchema: Branch-only payload
  */

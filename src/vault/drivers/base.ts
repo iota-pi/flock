@@ -14,6 +14,7 @@ export interface VaultMetaData {
   iv: string,
   modified: number,
   deleted?: boolean,
+  compactedAt?: number,
 }
 
 /**

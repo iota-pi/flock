@@ -140,6 +140,28 @@ function isVersionConflictError(error: unknown): boolean {
   return message.includes('version conflict') || message.includes('conditionalcheckfailed')
 }
 
+function isStaleCompactedBranchError(error: unknown): boolean {
+  const maybeAny = error as {
+    message?: unknown
+    data?: {
+      code?: unknown
+      cause?: { message?: unknown }
+      zodError?: unknown
+    }
+    shape?: {
+      message?: unknown
+    }
+  }
+
+  const values = [
+    typeof maybeAny.message === 'string' ? maybeAny.message : '',
+    typeof maybeAny.shape?.message === 'string' ? maybeAny.shape.message : '',
+    typeof maybeAny.data?.cause?.message === 'string' ? maybeAny.data.cause.message : '',
+  ]
+
+  return values.some(value => value.includes('STALE_COMPACTED_BRANCH'))
+}
+
 type ResolvedBranch = {
   encryptedAutomergeDoc: string
   versionId: string
@@ -191,6 +213,99 @@ async function mergeConflictBranchesInWorker(
       serverBranches,
     })
   })
+}
+
+async function rescueStaleCompactedBranchInWorker(
+  itemId: string,
+  localBranch: ResolvedBranch,
+  serverBranch: ResolvedBranch,
+): Promise<ResolvedBranch> {
+  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
+    type: 'module',
+  })
+
+  const jobId = Date.now() + Math.floor(Math.random() * 1000)
+
+  return new Promise<ResolvedBranch>((resolve, reject) => {
+    worker.onmessage = event => {
+      const payload = event.data as {
+        type?: string
+        jobId?: number
+        itemId?: string
+        rescuedBranch?: ResolvedBranch
+      }
+
+      if (
+        payload.type === 'STALE_COMPACTED_BRANCH_RESCUED'
+        && payload.jobId === jobId
+        && payload.itemId === itemId
+        && payload.rescuedBranch
+      ) {
+        worker.terminate()
+        resolve(payload.rescuedBranch)
+      }
+    }
+
+    worker.onerror = error => {
+      worker.terminate()
+      reject(error)
+    }
+
+    worker.postMessage({
+      type: 'RESCUE_STALE_COMPACTED_BRANCH',
+      jobId,
+      key: getVaultKey(),
+      itemId,
+      localBranch,
+      serverBranch,
+    })
+  })
+}
+
+async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promise<QueuedMutation | null> {
+  if (mutation.mutationType !== 'items.put') {
+    return null
+  }
+
+  const payload = mutation.payload as {
+    account?: string
+    item?: string
+    branches?: Array<ResolvedBranch>
+    modified?: number
+    type?: Item['type']
+    deleted?: boolean
+  }
+
+  if (!payload.account || !payload.item || !Array.isArray(payload.branches) || payload.branches.length !== 1) {
+    return null
+  }
+
+  const serverResult = await vaultFetchMany({ ids: [payload.item] })
+  const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
+  const serverBranch = serverEnvelope?.branches?.[0]
+
+  if (!serverBranch) {
+    return null
+  }
+
+  const rescuedBranch = await rescueStaleCompactedBranchInWorker(
+    payload.item,
+    payload.branches[0],
+    serverBranch as ResolvedBranch,
+  )
+
+  return {
+    ...mutation,
+    payload: {
+      ...payload,
+      branches: [rescuedBranch],
+      modified: Date.now(),
+    },
+    conflict: true,
+    lastConflictAt: Date.now(),
+    attemptCount: (mutation.attemptCount || 0) + 1,
+    nextAttemptAt: Date.now() + 500,
+  }
 }
 
 async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
@@ -390,10 +505,15 @@ async function executeMutation(mutation: QueuedMutation) {
   switch (mutation.mutationType) {
     case 'items.put': {
       const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
-      await trpcClient.items.put.mutate({
+      const result = await trpcClient.items.put.mutate({
         ...payload,
         idempotencyKey: mutation.id,
       })
+      if (!result.success) {
+        const error = new Error((result as { error?: string }).error || 'items.put failed')
+        ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+        throw error
+      }
       return
     }
     case 'items.resolveBranchConflict': {
@@ -409,20 +529,30 @@ async function executeMutation(mutation: QueuedMutation) {
       const payloadItems = payload.items || []
 
       if (payloadItems.length <= CHUNK_SIZE) {
-        await trpcClient.items.putMany.mutate({
+        const result = await trpcClient.items.putMany.mutate({
           ...payload,
           idempotencyKey: mutation.id,
         })
+        if (!result.success) {
+          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
+          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+          throw error
+        }
         return
       }
 
       for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
         const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
-        await trpcClient.items.putMany.mutate({
+        const result = await trpcClient.items.putMany.mutate({
           ...payload,
           items: chunk,
           idempotencyKey: mutation.id,
         })
+        if (!result.success) {
+          const error = new Error((result as { error?: string }).error || 'items.putMany failed')
+          ;(error as Error & { conflicts?: string[] }).conflicts = (result as { conflicts?: string[] }).conflicts
+          throw error
+        }
       }
       return
     }
@@ -469,6 +599,14 @@ export async function processOfflineQueue() {
       try {
         await executeMutation(normalizedMutation)
       } catch (error) {
+        if (isStaleCompactedBranchError(error)) {
+          const rescued = await rescueQueuedStaleCompactedBranch(normalizedMutation)
+          if (rescued) {
+            nextQueue.push(rescued, ...queue.slice(index + 1))
+            break
+          }
+        }
+
         if (isVersionConflictError(error)) {
           const resolved = await resolveQueuedPutConflict(normalizedMutation)
           if (resolved) {

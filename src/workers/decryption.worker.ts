@@ -28,7 +28,30 @@ type ResolveQueueConflictWorkerInput = {
   serverBranches: VaultBranch[]
 }
 
-type DecryptionWorkerInput = DecryptItemsWorkerInput | EvaluateHistoryWorkerInput | ResolveQueueConflictWorkerInput
+type CompactItemWorkerInput = {
+  type: 'COMPACT_ITEM'
+  jobId?: number
+  key: CryptoKey
+  itemId: string
+  baseVersionId: string
+  automergeBinary: Uint8Array
+}
+
+type RescueStaleCompactedBranchWorkerInput = {
+  type: 'RESCUE_STALE_COMPACTED_BRANCH'
+  jobId?: number
+  key: CryptoKey
+  itemId: string
+  localBranch: VaultBranch
+  serverBranch: VaultBranch
+}
+
+type DecryptionWorkerInput =
+  | DecryptItemsWorkerInput
+  | EvaluateHistoryWorkerInput
+  | ResolveQueueConflictWorkerInput
+  | CompactItemWorkerInput
+  | RescueStaleCompactedBranchWorkerInput
 
 type HydratedItem = Record<string, unknown> & {
   id?: string
@@ -67,6 +90,22 @@ type QueueConflictResolvedMessage = {
   jobId?: number
   itemId: string
   resolvedBranch: VaultBranch
+}
+
+type CompactedEnvelopeMessage = {
+  type: 'COMPACTED_ENVELOPE'
+  jobId?: number
+  itemId: string
+  baseVersionId: string
+  compactedBranch: VaultBranch
+  compactedBinary: Uint8Array
+}
+
+type StaleCompactedBranchRescuedMessage = {
+  type: 'STALE_COMPACTED_BRANCH_RESCUED'
+  jobId?: number
+  itemId: string
+  rescuedBranch: VaultBranch
 }
 
 declare const self: DedicatedWorkerGlobalScope
@@ -130,6 +169,37 @@ function materializeDoc(doc: Automerge.Doc<unknown>): HydratedItem {
   return Automerge.toJS(doc) as HydratedItem
 }
 
+function createVersionId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function deepMergeServerAndLocal(serverValue: unknown, localValue: unknown): unknown {
+  if (Array.isArray(serverValue) && Array.isArray(localValue)) {
+    return localValue
+  }
+
+  if (
+    serverValue
+    && typeof serverValue === 'object'
+    && localValue
+    && typeof localValue === 'object'
+    && !Array.isArray(serverValue)
+    && !Array.isArray(localValue)
+  ) {
+    const merged: Record<string, unknown> = {
+      ...(serverValue as Record<string, unknown>),
+    }
+
+    for (const [key, localChild] of Object.entries(localValue as Record<string, unknown>)) {
+      merged[key] = deepMergeServerAndLocal(merged[key], localChild)
+    }
+
+    return merged
+  }
+
+  return localValue === undefined ? serverValue : localValue
+}
+
 async function mergeBranchesToResolvedBranch(
   branches: VaultBranch[],
   key: CryptoKey,
@@ -153,8 +223,51 @@ async function mergeBranchesToResolvedBranch(
 
   return {
     encryptedAutomergeDoc,
-    versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    versionId: createVersionId(),
     parentIds: branches.map(branch => branch.versionId),
+  }
+}
+
+async function compactItemBranchFromBinary(
+  automergeBinary: Uint8Array,
+  key: CryptoKey,
+): Promise<{ compactedBinary: Uint8Array; compactedBranch: VaultBranch }> {
+  const sourceDoc = Automerge.load(automergeBinary)
+  const materializedState = JSON.parse(JSON.stringify(Automerge.toJS(sourceDoc))) as Record<string, unknown>
+  const compactedDoc = Automerge.from(materializedState)
+  const compactedBinary = Automerge.save(compactedDoc)
+  const encryptedAutomergeDoc = await encryptAutomergeBinary(compactedBinary, key)
+
+  return {
+    compactedBinary,
+    compactedBranch: {
+      encryptedAutomergeDoc,
+      versionId: createVersionId(),
+      parentIds: [],
+    },
+  }
+}
+
+async function rescueStaleCompactedBranch(
+  localBranch: VaultBranch,
+  serverBranch: VaultBranch,
+  key: CryptoKey,
+): Promise<VaultBranch> {
+  const localBinary = await decryptAutomergeBinary(localBranch.encryptedAutomergeDoc, key)
+  const serverBinary = await decryptAutomergeBinary(serverBranch.encryptedAutomergeDoc, key)
+
+  const localState = JSON.parse(JSON.stringify(Automerge.toJS(Automerge.load(localBinary)))) as Record<string, unknown>
+  const serverState = JSON.parse(JSON.stringify(Automerge.toJS(Automerge.load(serverBinary)))) as Record<string, unknown>
+  const mergedState = deepMergeServerAndLocal(serverState, localState) as Record<string, unknown>
+
+  const rescuedDoc = Automerge.from(mergedState)
+  const rescuedBinary = Automerge.save(rescuedDoc)
+  const encryptedAutomergeDoc = await encryptAutomergeBinary(rescuedBinary, key)
+
+  return {
+    encryptedAutomergeDoc,
+    versionId: createVersionId(),
+    parentIds: [serverBranch.versionId],
   }
 }
 
@@ -244,7 +357,7 @@ export async function processIncomingItem(
       const resolvedBranch: VaultBranch | undefined = shouldEmitResolution
         ? {
           encryptedAutomergeDoc,
-          versionId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          versionId: createVersionId(),
           parentIds: envelope.branches.map(branch => branch.versionId),
         }
         : undefined
@@ -290,6 +403,38 @@ export async function evaluateHistory(
 }
 
 self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
+  if (event.data.type === 'COMPACT_ITEM') {
+    const { jobId, key, itemId, baseVersionId, automergeBinary } = event.data
+    const { compactedBinary, compactedBranch } = await compactItemBranchFromBinary(automergeBinary, key)
+
+    const compactedMessage: CompactedEnvelopeMessage = {
+      type: 'COMPACTED_ENVELOPE',
+      jobId,
+      itemId,
+      baseVersionId,
+      compactedBranch,
+      compactedBinary,
+    }
+
+    self.postMessage(compactedMessage)
+    return
+  }
+
+  if (event.data.type === 'RESCUE_STALE_COMPACTED_BRANCH') {
+    const { jobId, key, itemId, localBranch, serverBranch } = event.data
+    const rescuedBranch = await rescueStaleCompactedBranch(localBranch, serverBranch, key)
+
+    const rescuedMessage: StaleCompactedBranchRescuedMessage = {
+      type: 'STALE_COMPACTED_BRANCH_RESCUED',
+      jobId,
+      itemId,
+      rescuedBranch,
+    }
+
+    self.postMessage(rescuedMessage)
+    return
+  }
+
   if (event.data.type === 'RESOLVE_QUEUE_CONFLICT') {
     const { jobId, key, itemId, localBranches, serverBranches } = event.data
     const resolvedBranch = await mergeBranchesToResolvedBranch(
