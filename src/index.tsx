@@ -4,6 +4,8 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
 import { queryClient, queryKeys, queryPersister } from './api/queryClient'
+import { trpc } from './api/trpc'
+import { trpcReactClient } from './api/trpcClient'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
@@ -81,7 +83,9 @@ root.render(
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
     }}
   >
-    <ThemedApp />
+    <trpc.Provider client={trpcReactClient} queryClient={queryClient}>
+      <ThemedApp />
+    </trpc.Provider>
   </PersistQueryClientProvider>,
 )
 

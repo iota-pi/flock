@@ -1,7 +1,7 @@
 import env from '../env'
 import * as Sentry from '@sentry/react'
 import { trpcClient } from './trpcClient'
-import { Item } from '../state/items'
+import { Item, getItemName } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import { queryClient, queryKeys } from './queryClient'
 import { getVaultKey } from './vault'
@@ -119,6 +119,36 @@ function getPayloadTelemetry(payload: unknown): Record<string, unknown> {
       ? typed.items.length
       : ('resolutions' in typed ? typed.resolutions.length : undefined),
   }
+}
+
+function getMutationActionLabel(mutationType: string): string {
+  if (mutationType.includes('delete')) {
+    return 'Delete'
+  }
+  if (mutationType.includes('put') || mutationType.includes('update') || mutationType.includes('resolve')) {
+    return 'Update'
+  }
+  return 'Sync'
+}
+
+function getHumanReadableDlqTitle(mutation: QueuedMutation): string | undefined {
+  const targetIds = extractTargetIds(mutation.payload)
+  if (targetIds.length === 0) {
+    return undefined
+  }
+
+  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+  const itemById = new Map(cachedItems.map(item => [item.id, item]))
+
+  const firstItem = itemById.get(targetIds[0] as ItemId)
+  const firstName = firstItem ? getItemName(firstItem) || firstItem.id : targetIds[0]
+  const action = getMutationActionLabel(mutation.mutationType)
+
+  if (targetIds.length === 1) {
+    return `${action} to ${firstName}`
+  }
+
+  return `${action} to ${firstName} and ${targetIds.length - 1} more`
 }
 
 export function isLikelyNetworkError(error: unknown): boolean {
@@ -554,6 +584,7 @@ export async function processOfflineQueue() {
 
         const status = getErrorStatusCode(error)
         if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+          const humanTitle = getHumanReadableDlqTitle(normalizedMutation)
           await moveToDeadLetterQueue(
             normalizedMutation.id,
             getErrorReason(error),
@@ -565,6 +596,7 @@ export async function processOfflineQueue() {
               queuedAt: normalizedMutation.queuedAt,
               payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
             },
+            humanTitle,
           )
           const deadLetterQueue = await readDeadLetterQueue()
           setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
@@ -590,6 +622,7 @@ export async function processOfflineQueue() {
         const deadLetterQueue = await readDeadLetterQueue()
         deadLetterQueue.push({
           ...normalizedMutation,
+          humanTitle: getHumanReadableDlqTitle(normalizedMutation),
           lastErrorStatus: status || 500,
           failedAt: Date.now(),
           errorReason: error instanceof Error ? error.message : 'Unhandled sync error',

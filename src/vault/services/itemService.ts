@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { asItemType } from '../drivers/base'
 import type BaseDriver from '../drivers/base'
-import type { VaultItem, VaultItemHistory } from '../drivers/base'
+import type { IdempotencyWriteContext, VaultItem, VaultItemHistory, VaultItemHistoryPage } from '../drivers/base'
 import { TransactionConflictsError } from '../drivers/dynamo'
 import { publishRealtimeEvent } from '../realtime/hub'
 import type { ItemId, VaultBranch } from '../../shared/itemTypes'
@@ -12,6 +12,7 @@ type ItemServiceContext = {
 }
 
 const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
+const IDEMPOTENCY_RETENTION_SECONDS = 24 * 60 * 60
 const BRANCH_IV_PLACEHOLDER = 'branch'
 const VERSION_CONFLICT_MESSAGE_PREFIX = 'VERSION_CONFLICT'
 
@@ -109,15 +110,28 @@ export async function fetchItems(
 
 export async function fetchItemHistory(
   ctx: ItemServiceContext,
-  input: { account: string; itemId: string; limit?: number },
-): Promise<VaultItem[]> {
-  return ctx.vault.fetchHistory(input.account, input.itemId, input.limit)
+  input: { account: string; itemId: ItemId; limit?: number; cursor?: string },
+): Promise<VaultItemHistoryPage> {
+  return ctx.vault.fetchHistory(input.account, input.itemId, input.limit, input.cursor)
+}
+
+function toIdempotencyContext(account: string, idempotencyKey?: string): IdempotencyWriteContext | undefined {
+  if (!idempotencyKey) {
+    return undefined
+  }
+
+  return {
+    account,
+    idempotencyKey,
+    expiresAt: Math.floor(Date.now() / 1000) + IDEMPOTENCY_RETENTION_SECONDS,
+  }
 }
 
 export async function putManyItems(
   ctx: ItemServiceContext,
   input: {
     account: string
+    idempotencyKey?: string
     items: Array<{
       id: ItemId
       modified: number
@@ -162,6 +176,7 @@ export async function putManyItems(
     await ctx.vault.archiveAndSetManyTransaction({
       historyEntries,
       replacements,
+      idempotency: toIdempotencyContext(input.account, input.idempotencyKey),
     })
 
     await publishRealtimeEvent(input.account, 'items.updated', {
@@ -187,6 +202,7 @@ export async function putItem(
     type: string
     branches: VaultBranch[]
     deleted?: boolean
+    idempotencyKey?: string
   },
 ): Promise<void> {
   const currentItem = await ctx.vault.fetchMany({
@@ -234,9 +250,14 @@ export async function putItem(
       await ctx.vault.archiveAndReplaceTransaction({
         history: historyEntry as VaultItemHistory,
         replacement,
+        idempotency: toIdempotencyContext(input.account, input.idempotencyKey),
       })
     } else {
-      await ctx.vault.set(replacement)
+      await ctx.vault.archiveAndSetManyTransaction({
+        historyEntries: [],
+        replacements: [replacement],
+        idempotency: toIdempotencyContext(input.account, input.idempotencyKey),
+      })
     }
 
     await publishRealtimeEvent(input.account, 'items.updated', {

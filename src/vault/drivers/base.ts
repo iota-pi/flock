@@ -60,14 +60,27 @@ export interface VaultItemHistory {
   expiresAt: number,
 }
 
+export interface VaultItemHistoryPage {
+  history: VaultItem[]
+  nextCursor: string | null
+}
+
+export interface IdempotencyWriteContext {
+  account: string
+  idempotencyKey: string
+  expiresAt: number
+}
+
 export interface ArchiveAndReplaceInput {
   history: VaultItemHistory,
   replacement: VaultItem,
+  idempotency?: IdempotencyWriteContext,
 }
 
 export interface ArchiveAndSetManyInput {
   historyEntries: VaultItemHistory[],
   replacements: VaultItem[],
+  idempotency?: IdempotencyWriteContext,
 }
 
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>

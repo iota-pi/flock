@@ -13,6 +13,7 @@ export type DlqFailureSnapshot = z.infer<typeof DlqFailureSnapshotSchema>
 export type QueuedMutation = {
   id: string
   mutationType: string
+  humanTitle?: string
   payload: unknown
   conflictHandlerKey?: string
   endpoint: string
@@ -49,6 +50,7 @@ export async function moveToDeadLetterQueue(
   errorReason: string,
   status?: number,
   snapshot?: DlqFailureSnapshot,
+  humanTitle?: string,
 ): Promise<void> {
   const queue = await readQueue()
   const target = queue.find(item => item.id === id)
@@ -60,6 +62,7 @@ export async function moveToDeadLetterQueue(
   const deadLetterQueue = await readDeadLetterQueue()
   deadLetterQueue.push({
     ...target,
+    humanTitle,
     failedAt: Date.now(),
     errorReason,
     lastErrorStatus: status,

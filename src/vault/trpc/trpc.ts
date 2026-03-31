@@ -77,6 +77,17 @@ export const idempotentMutationMiddleware = t.middleware(async ({ ctx, input, ty
   const typedInput = input as {
     account?: unknown
     idempotencyKey?: unknown
+    item?: unknown
+    items?: unknown
+    branches?: unknown
+  }
+
+  const usesTransactionalItemIdempotency = (
+    (typeof typedInput.item === 'string' && Array.isArray(typedInput.branches))
+    || Array.isArray(typedInput.items)
+  )
+  if (usesTransactionalItemIdempotency) {
+    return next()
   }
 
   if (typeof typedInput.idempotencyKey !== 'string' || typedInput.idempotencyKey.length === 0) {

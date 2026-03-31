@@ -31,7 +31,9 @@ import BaseDriver, {
   AuthData,
   BaseData,
   CachedVaultItem,
+  IdempotencyWriteContext,
   VaultAccountWithAuth,
+  VaultItemHistoryPage,
   VaultItemHistory,
   VaultItem,
   VaultKey,
@@ -68,6 +70,34 @@ export class TransactionConflictsError extends Error {
     this.name = 'TransactionConflictsError'
     this.conflictedIds = conflictedIds
   }
+}
+
+function getScopedIdempotencyKey(account: string, idempotencyKey: string): string {
+  return `${account}:${idempotencyKey}`
+}
+
+function getIdempotencyTransactWrite(idempotency: IdempotencyWriteContext) {
+  return {
+    Put: {
+      TableName: IDEMPOTENCY_TABLE_NAME,
+      Item: {
+        idempotencyKey: getScopedIdempotencyKey(idempotency.account, idempotency.idempotencyKey),
+        account: idempotency.account,
+        expiresAt: idempotency.expiresAt,
+        createdAt: Date.now(),
+      },
+      ConditionExpression: 'attribute_not_exists(idempotencyKey)',
+    },
+  }
+}
+
+function isIdempotencyConditionFailure(error: unknown, idempotencyIndex: number): boolean {
+  const reasons = getTransactionCancellationReasons(error)
+  if (reasons.length === 0) {
+    return false
+  }
+
+  return reasons[idempotencyIndex]?.Code === 'ConditionalCheckFailed'
 }
 
 /**
@@ -935,6 +965,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
+  async fetchHistory(account: string, itemId: ItemId, limit = 20, cursor?: string): Promise<VaultItemHistoryPage> {
     const cursorHistoryKey = cursor || undefined
     let response
     try {
@@ -947,22 +978,43 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         },
         ScanIndexForward: false,
         Limit: limit,
+        ExclusiveStartKey: cursorHistoryKey
+          ? {
+            account,
+            historyKey: cursorHistoryKey,
+          }
+          : undefined,
       }))
     } catch (error) {
       if (shouldIgnoreHistoryError(error)) {
-        return []
+        return {
+          history: [],
+          nextCursor: null,
+        }
       }
       throw error
     }
 
     const rows = response.Items as VaultItemHistory[] | undefined
     if (!rows || rows.length === 0) {
-      return []
+      return {
+        history: [],
+        nextCursor: null,
+      }
     }
 
-    return rows
+    const history = rows
       .map(row => row.itemData)
       .filter((item): item is VaultItem => !!item)
+
+    const nextCursor = typeof response.LastEvaluatedKey?.historyKey === 'string'
+      ? response.LastEvaluatedKey.historyKey
+      : null
+
+    return {
+      history,
+      nextCursor,
+    }
   }
 
   async archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void> {
@@ -971,6 +1023,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const replacementPut = getItemPutParams(replacementItem, replacementWritable._expectedParentVersionId)
 
     const transactItems = [
+      ...(input.idempotency ? [getIdempotencyTransactWrite(input.idempotency)] : []),
       {
         Put: {
           TableName: ITEM_HISTORY_TABLE,
@@ -987,6 +1040,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         TransactItems: transactItems,
       }))
     } catch (error) {
+      if (input.idempotency && isIdempotencyConditionFailure(error, 0)) {
+        return
+      }
+
       if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
         throw new VersionConflictError('Version conflict: The item has been modified by another client.')
       }
@@ -1011,7 +1068,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     })
 
-    const transactItems = [...historyWrites, ...replacementWrites]
+    const baseItems = [...historyWrites, ...replacementWrites]
+    const transactItems = input.idempotency
+      ? [getIdempotencyTransactWrite(input.idempotency), ...baseItems]
+      : baseItems
     if (transactItems.length === 0) {
       return
     }
@@ -1023,6 +1083,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           TransactItems: chunk,
         }))
       } catch (error) {
+        if (input.idempotency && isIdempotencyConditionFailure(error, 0)) {
+          return
+        }
+
         if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
           const conflictIds = chunk
             .map(entry => {
@@ -1133,7 +1197,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async claimIdempotencyKey(account: string, idempotencyKey: string, expiresAt: number): Promise<boolean> {
-    const scopedIdempotencyKey = `${account}:${idempotencyKey}`
+    const scopedIdempotencyKey = getScopedIdempotencyKey(account, idempotencyKey)
     try {
       await this.client.send(new PutCommand({
         TableName: IDEMPOTENCY_TABLE_NAME,

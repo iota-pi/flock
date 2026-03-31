@@ -37,8 +37,6 @@ export interface VaultImportExportData {
 }
 
 export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
-export const VAULT_KEY_STORAGE_KEY = 'FlockVaultKey'
-export const ACCOUNT_STORAGE_KEY = 'FlockVaultAccount'
 
 type VaultStoredMetadata = {
   account: string,
@@ -86,17 +84,6 @@ function readStoredMetadata(): VaultStoredMetadata | null {
     }
   }
 
-  // Legacy fallback for migrated users.
-  const legacyAccount = localStorage.getItem(ACCOUNT_STORAGE_KEY)
-  const legacyKey = localStorage.getItem(VAULT_KEY_STORAGE_KEY)
-  if (legacyAccount && legacyKey) {
-    const migrated = { account: legacyAccount, key: legacyKey }
-    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(migrated))
-    localStorage.removeItem(ACCOUNT_STORAGE_KEY)
-    localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
-    return migrated
-  }
-
   return null
 }
 
@@ -105,14 +92,10 @@ async function writeStoredMetadata() {
     account: getAccountId(),
     key: await exportVaultKey(getKey()),
   } satisfies VaultStoredMetadata))
-  localStorage.removeItem(ACCOUNT_STORAGE_KEY)
-  localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
 }
 
 function clearStoredMetadata() {
   localStorage.removeItem(VAULT_STORAGE_KEY)
-  localStorage.removeItem(VAULT_KEY_STORAGE_KEY)
-  localStorage.removeItem(ACCOUNT_STORAGE_KEY)
 }
 
 async function establishSessionFromKeyHash(nextKeyHash: string) {

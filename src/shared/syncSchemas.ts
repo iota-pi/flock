@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   FetchItemsInputSchema,
+  ItemFormInputSchema,
   PutItemBodySchema,
   PutItemsBatchBodySchema,
   UpdateMetadataBodySchema,
@@ -8,6 +9,7 @@ import {
 
 export {
   FetchItemsInputSchema,
+  ItemFormInputSchema,
   PutItemBodySchema,
   PutItemsBatchBodySchema,
   UpdateMetadataBodySchema,

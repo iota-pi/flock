@@ -88,6 +88,12 @@ export const FetchItemHistoryInputSchema = z.object({
   account: z.string().min(1),
   itemId: z.string().min(1),
   limit: z.number().int().positive().max(100).optional(),
+  cursor: z.string().min(1).optional(),
+})
+
+export const ItemFormInputSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(120),
+  description: z.string().max(500).optional().default(''),
 })
 
 export const PushSubscriptionBodySchema = z.object({

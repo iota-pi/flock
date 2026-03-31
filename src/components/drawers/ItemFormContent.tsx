@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useMemo, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Collapse,
   Grid,
@@ -13,6 +13,9 @@ import {
   GroupItem,
   Item,
 } from '../../state/items'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Controller, useForm } from 'react-hook-form'
+import { z } from 'zod'
 import { useItems } from '../../state/selectors'
 import FrequencyControls from '../FrequencyControls'
 import GroupDisplay from '../GroupDisplay'
@@ -29,11 +32,15 @@ import {
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
 import NotesSection from '../NotesSection'
+import { ItemFormInputSchema } from '../../shared/syncSchemas'
 
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
   return event.target.value
 }
+
+type ItemFormFields = z.input<typeof ItemFormInputSchema>
+type ItemFormParsed = z.output<typeof ItemFormInputSchema>
 
 export interface ItemFormContentProps {
   item: DirtyItem<Item>,
@@ -55,6 +62,25 @@ function ItemFormContent({
   const allItems = useItems()
   const [showDescription, setShowDescription] = useState(!!item.description)
   const prevItemId = usePrevious(item.id)
+  const {
+    control,
+    reset,
+    formState: { errors },
+  } = useForm<ItemFormFields, unknown, ItemFormParsed>({
+    resolver: zodResolver(ItemFormInputSchema),
+    mode: 'onChange',
+    defaultValues: {
+      name: item.name,
+      description: item.description || '',
+    },
+  })
+
+  useEffect(() => {
+    reset({
+      name: item.name,
+      description: item.description || '',
+    })
+  }, [item.id, reset])
 
   // Reset showDescription when item changes
   if (prevItemId !== item.id && showDescription !== !!item.description) {
@@ -142,58 +168,80 @@ function ItemFormContent({
   const nameFields = useMemo(
     () => (
       <Grid size={{ xs: 12 }}>
-        <TextField
-          autoFocus={autoFocusName}
-          fullWidth
-          key={item.id}
-          label="Name"
-          onChange={event => handleChange({ name: getValue(event) })}
-          required
-          value={item.name}
-          variant="standard"
-          slotProps={{
-            htmlInput: { 'data-cy': 'name' },
-            input: nameInputProps,
-          }}
+        <Controller
+          control={control}
+          name="name"
+          render={({ field }) => (
+            <TextField
+              autoFocus={autoFocusName}
+              error={!!errors.name}
+              fullWidth
+              helperText={errors.name?.message || ' '}
+              key={item.id}
+              label="Name"
+              onChange={event => {
+                field.onChange(event)
+                handleChange({ name: getValue(event) })
+              }}
+              required
+              value={field.value}
+              variant="standard"
+              slotProps={{
+                htmlInput: { 'data-cy': 'name' },
+                input: nameInputProps,
+              }}
+            />
+          )}
         />
       </Grid>
     ),
-    [autoFocusName, item.name, handleChange, item.id, nameInputProps],
+    [autoFocusName, control, errors.name, handleChange, item.id, nameInputProps],
   )
 
   const descriptionField = useMemo(
     () =>
       showDescription && (
         <Grid size={{ xs: 12 }}>
-          <TextField
-            fullWidth
-            label="Short Description"
-            slotProps={{
-              htmlInput: { 'data-cy': 'description' },
-              input: {
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="Remove description">
-                      <IconButton
-                        aria-label="Remove description"
-                        data-cy="remove-description"
-                        onClick={handleRemoveDescription}
-                        size="small"
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              },
-            }}
-            onChange={event => handleChange({ description: getValue(event) })}
-            value={item.description}
-            variant="standard"
+          <Controller
+            control={control}
+            name="description"
+            render={({ field }) => (
+              <TextField
+                error={!!errors.description}
+                fullWidth
+                helperText={errors.description?.message || ' '}
+                label="Short Description"
+                slotProps={{
+                  htmlInput: { 'data-cy': 'description' },
+                  input: {
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title="Remove description">
+                          <IconButton
+                            aria-label="Remove description"
+                            data-cy="remove-description"
+                            onClick={handleRemoveDescription}
+                            size="small"
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+                onChange={event => {
+                  field.onChange(event)
+                  handleChange({ description: getValue(event) })
+                }}
+                value={field.value}
+                variant="standard"
+              />
+            )}
           />
         </Grid>
       ),
-    [handleChange, handleRemoveDescription, item.description, showDescription],
+    [control, errors.description, handleChange, handleRemoveDescription, showDescription],
   )
 
   const notesSection = useMemo(

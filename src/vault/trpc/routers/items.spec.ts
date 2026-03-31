@@ -28,7 +28,7 @@ describe('itemsRouter contracts', () => {
   it('fetches item history through endpoint', async () => {
     const ctx = createMockContext()
     const history = [{ item: 'item-4', metadata: { type: 'group', iv: '', modified: 123 } }]
-    ctx.vault.fetchHistory.mockResolvedValue(history as any)
+    ctx.vault.fetchHistory.mockResolvedValue({ history, nextCursor: null } as any)
 
     const caller = itemsRouter.createCaller(ctx as any)
     const response = await caller.fetchItemHistory({
@@ -38,6 +38,7 @@ describe('itemsRouter contracts', () => {
 
     expect(response.success).toBe(true)
     expect(response.history).toEqual(history)
+    expect(response.nextCursor).toBe(null)
   })
 
   it('putMany archives and writes replacements transactionally', async () => {
@@ -74,9 +75,8 @@ describe('itemsRouter contracts', () => {
     }))
   })
 
-  it('deduplicates repeated putMany calls with same idempotency key', async () => {
+  it('passes transactional idempotency context for putMany writes', async () => {
     const ctx = createMockContext()
-    ctx.vault.claimIdempotencyKey.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const caller = itemsRouter.createCaller(ctx as any)
 
     const payload = {
@@ -91,9 +91,14 @@ describe('itemsRouter contracts', () => {
     }
 
     await caller.putMany(payload)
-    await caller.putMany(payload)
 
     expect(ctx.vault.archiveAndSetManyTransaction).toHaveBeenCalledTimes(1)
+    expect(ctx.vault.archiveAndSetManyTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      idempotency: expect.objectContaining({
+        account: 'acct-1',
+        idempotencyKey: 'stable-key',
+      }),
+    }))
   })
 
   it('compacts item using archive-and-replace transaction', async () => {

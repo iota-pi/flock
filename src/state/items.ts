@@ -101,7 +101,7 @@ export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean, seedGenesis = true): Item {
+export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean, seedGenesis = false): Item {
   const maybeSeed = <T extends Item>(item: T): T => (seedGenesis ? seedAutomergeBinary(item) : item)
 
   if (itemType === 'person' || itemType === 'general') {

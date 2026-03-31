@@ -33,10 +33,11 @@ export const itemsRouter = router({
   fetchItemHistory: protectedProcedure
     .input(FetchItemHistoryInputSchema)
     .query(async ({ ctx, input }) => {
-      const history = await fetchItemHistory(ctx, input)
+      const { history, nextCursor } = await fetchItemHistory(ctx, input)
       return {
         success: true,
         history,
+        nextCursor,
       }
     }),
 

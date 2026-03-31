@@ -91,7 +91,7 @@ function OfflineRecoveryDialog({ onClose, open }: Props) {
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
                   <Stack flexGrow={1} spacing={0.5}>
                     <Typography variant="subtitle1" fontWeight={500}>
-                      {item.mutationType}
+                      {item.humanTitle || item.mutationType}
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
                       Last error status: {item.lastErrorStatus ?? 'Unknown'}

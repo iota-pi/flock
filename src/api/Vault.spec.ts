@@ -52,7 +52,7 @@ describe('Vault', () => {
   })
 
   it('signOutVault clears localStorage and resets auth token/store', async () => {
-    localStorage.setItem(vault.VAULT_KEY_STORAGE_KEY, 'somekey')
+    localStorage.setItem(vault.VAULT_STORAGE_KEY, JSON.stringify({ account: 'acct', key: 'somekey' }))
     useAuthStore.getState().setAccount({ account: 'acct' })
     queryClient.setQueryData(queryKeys.items, [getBlankPerson() as any])
 
@@ -61,7 +61,7 @@ describe('Vault', () => {
     try {
       vault.signOutVault()
 
-      expect(localStorage.getItem(vault.VAULT_KEY_STORAGE_KEY)).toBeNull()
+      expect(localStorage.getItem(vault.VAULT_STORAGE_KEY)).toBeNull()
       expect(queryClient.getQueryData(queryKeys.items)).toBeUndefined()
       expect(setAuthTokenSpy).toHaveBeenCalledWith('')
       setAuthTokenSpy.mockRestore()
