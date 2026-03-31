@@ -43,7 +43,7 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 export const ITEM_HISTORY_TABLE = process.env.ITEM_HISTORY_TABLE || 'FlockItemHistory'
 export const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE || 'FlockIdempotency'
-const DATA_ATTRIBUTES = ['metadata', 'cipher']
+const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
@@ -114,18 +114,20 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   }
 
   if (persistedItem.branches && persistedItem.branches.length > 0) {
-    params.ExpressionAttributeNames = {
-      '#item': 'item',
-      '#branches': 'branches',
-      '#versionId': 'versionId',
-    }
-
     if (expectedParentVersionId) {
-      params.ConditionExpression = 'attribute_not_exists(#item) OR #branches[0].#versionId = :expectedParentVersionId'
+      params.ExpressionAttributeNames = {
+        '#branches': 'branches',
+        '#versionId': 'versionId',
+      }
+      params.ConditionExpression = '#branches[0].#versionId = :expectedParentVersionId'
       params.ExpressionAttributeValues = {
         ':expectedParentVersionId': expectedParentVersionId,
       }
     } else {
+      params.ExpressionAttributeNames = {
+        '#item': 'item',
+        '#branches': 'branches',
+      }
       // Genesis writes are allowed for brand-new records and lazy upgrades
       // from legacy rows that do not yet have branches.
       params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(#branches)'

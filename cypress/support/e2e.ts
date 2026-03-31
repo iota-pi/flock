@@ -54,8 +54,11 @@ Cypress.Commands.overwrite(
 )
 
 const TEST_PASSWORD = 'TestPass123!'
+const SESSION_KEY = `TEST_SESSION_${Date.now()}`
 
 const establishSession = () => {
+  Cypress.env('TEST_ACCOUNT_ID', '')
+
   cy.ensureAccount(TEST_PASSWORD).then(() => {
     cy.page('prayer')
 
@@ -67,7 +70,7 @@ const establishSession = () => {
 }
 
 beforeEach(() => {
-  cy.session('TEST_SESSION', establishSession, { cacheAcrossSpecs: true })
+  cy.session(SESSION_KEY, establishSession, { cacheAcrossSpecs: true })
   cy.visit('/')
   cy.injectAxe()
 })

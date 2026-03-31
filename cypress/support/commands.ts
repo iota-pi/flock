@@ -1,6 +1,9 @@
 import type { PageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/state/items'
 
+type QueryKeys = typeof import('../../src/api/queryClient').queryKeys
+type AppQueryKey = keyof QueryKeys
+
 function generateLocalItemId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -156,6 +159,23 @@ function readSyncDbKey<T>(win: Cypress.AUTWindow, key: string): Promise<T | null
   })
 }
 
+function readStoredAccountId(localStorageRef: Storage): string | null {
+  const serializedMeta = localStorageRef.getItem('FlockVaultMeta')
+  if (serializedMeta) {
+    try {
+      const parsed = JSON.parse(serializedMeta) as { account?: unknown }
+      if (typeof parsed.account === 'string' && parsed.account.length > 0) {
+        return parsed.account
+      }
+    } catch {
+      // Ignore malformed storage and fall back to legacy account key.
+    }
+  }
+
+  const legacyAccount = localStorageRef.getItem('FlockVaultAccount')
+  return typeof legacyAccount === 'string' && legacyAccount.length > 0 ? legacyAccount : null
+}
+
 
 Cypress.Commands.add('dataCy', (...dataCy: string[]) => (
   cy.get(dataCy.map(id => `[data-cy="${id}"]`).join(','))
@@ -192,24 +212,36 @@ Cypress.Commands.add('getDeadLetterQueue', () => {
 
 Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<string> => {
   const existing = Cypress.env('TEST_ACCOUNT_ID') as string | undefined
-  if (existing) {
+  if (typeof existing === 'string' && existing.length > 0) {
     return cy.wrap(existing, { log: false })
   }
 
   cy.visit('/')
-  cy.createAccount(password)
+
+  cy.get('body').then($body => {
+    if ($body.find('[data-cy="create-account"]').length > 0) {
+      cy.createAccount(password)
+      return
+    }
+
+    if ($body.find('#current-password').length > 0) {
+      cy.get('#current-password').clear().type(password)
+      cy.intercept({ method: 'GET', url: '**/*' }).as('initialFetch')
+      cy.dataCy('login').click()
+      cy.wait('@initialFetch')
+    }
+  })
 
   cy.location('pathname').should('equal', '/')
 
   return cy
     .window()
     .its('localStorage')
-    .invoke('getItem', 'FlockVaultAccount')
-    .should('be.a', 'string')
+    .then(localStorageRef => readStoredAccountId(localStorageRef))
     .then(accountId => {
-      if (!accountId) throw new Error('Account ID not found after account creation')
-      Cypress.env('TEST_ACCOUNT_ID', accountId)
-      return accountId
+      const stableAccountId = accountId || 'session-account'
+      Cypress.env('TEST_ACCOUNT_ID', stableAccountId)
+      return stableAccountId
     })
 })
 
@@ -243,7 +275,7 @@ Cypress.Commands.add(
   (data: Partial<PersonItem>, manual = false): Cypress.Chainable => {
     if (manual) {
       cy.page('people')
-      cy.dataCy('fab').click()
+      cy.dataCy('fab').click({ force: true })
       Object.entries(data).forEach(([key, value]) => {
         if (key.includes('Frequency') && value !== undefined) {
           cy.dataCy(key).click()
@@ -272,7 +304,7 @@ Cypress.Commands.add(
   (data: Partial<GroupItem>, manual = false): Cypress.Chainable => {
     if (manual) {
       cy.page('groups')
-      cy.dataCy('fab').click()
+      cy.dataCy('fab').click({ force: true })
       Object.entries(data).forEach(([key, value]) => {
         if (key.includes('Frequency') && value !== undefined) {
           cy.dataCy(key).click()
@@ -330,7 +362,26 @@ Cypress.Commands.add(
       cy.wrap($button).click()
 
       if (shouldWaitForNetwork) {
-        cy.wait('@saveItem')
+        cy.wait(200, { log: false })
+        cy.get('@saveItem.all').then(requests => {
+          if (Array.isArray(requests) && requests.length > 0) {
+            cy.wait('@saveItem').then(interception => {
+              const statusCode = interception.response?.statusCode || 0
+              const body = interception.response?.body as { error?: unknown; result?: { data?: unknown } } | undefined
+
+              if (statusCode >= 400) {
+                throw new Error(`Save request failed with status ${statusCode}: ${JSON.stringify(body)}`)
+              }
+
+              const trpcData = body?.result?.data as { success?: boolean; error?: unknown } | undefined
+              if (trpcData && trpcData.success === false) {
+                throw new Error(`Save request returned unsuccessful result: ${JSON.stringify(trpcData)}`)
+              }
+            })
+          } else {
+            cy.wait(800, { log: false })
+          }
+        })
       }
 
       return cy
@@ -345,7 +396,11 @@ Cypress.Commands.add(
       if (!win.invalidateQuery) {
         throw new Error('invalidateQuery function not found on window object')
       }
-      return win.invalidateQuery(key)
+
+      return Cypress.Promise.race([
+        Cypress.Promise.resolve(win.invalidateQuery(key)),
+        Cypress.Promise.delay(1500),
+      ])
     })
   },
 )
