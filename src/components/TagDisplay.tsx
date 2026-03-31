@@ -1,6 +1,6 @@
 import { MouseEvent, useCallback } from 'react'
 import { Box, Chip, Stack, styled, Typography } from '@mui/material'
-import { ItemId } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { useUiStore } from '../state/uiStore'
 
 const StyledChip = styled(Chip)(({ theme }) => ({

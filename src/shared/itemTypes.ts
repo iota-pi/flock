@@ -1,6 +1,7 @@
 export const ITEM_TYPES = ['person', 'group', 'topic'] as const
 
 export type ItemType = typeof ITEM_TYPES[number]
+export type ItemId = string
 
 /**
  * Branching Format: New CRDT-based storage format
@@ -21,7 +22,7 @@ export type VaultBranch = {
  * - Multiple Branches (Conflict): Has `branches` array with 2+ items
  */
 export type ItemEnvelope = {
-  item: string, // item ID
+  item: ItemId, // item ID
   cipher?: string, // Legacy format only
   branches?: VaultBranch[], // New branching format
   metadata: {

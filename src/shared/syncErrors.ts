@@ -1,8 +1,10 @@
+import type { ItemId } from './itemTypes'
+
 export class VersionConflictError extends Error {
-  conflictIds: string[]
+  conflictIds: ItemId[]
   status?: number
 
-  constructor(message = 'Version conflict', conflictIds: string[] = [], status?: number) {
+  constructor(message = 'Version conflict', conflictIds: ItemId[] = [], status?: number) {
     super(message)
     this.name = 'VersionConflictError'
     this.conflictIds = conflictIds

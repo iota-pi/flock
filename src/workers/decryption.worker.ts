@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import * as Automerge from '@automerge/automerge'
 import type { VaultItem } from '../api/vault/client'
-import type { VaultBranch } from '../shared/itemTypes'
+import type { ItemId, VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/pure-crypto'
 
 type DecryptItemsWorkerInput = {
@@ -15,7 +15,7 @@ type EvaluateHistoryWorkerInput = {
   type: 'EVALUATE_HISTORY'
   jobId?: number
   key: CryptoKey
-  itemId: string
+  itemId: ItemId
   history: VaultItem[]
 }
 
@@ -23,7 +23,7 @@ type ResolveQueueConflictWorkerInput = {
   type: 'RESOLVE_QUEUE_CONFLICT'
   jobId?: number
   key: CryptoKey
-  itemId: string
+  itemId: ItemId
   localBranches: VaultBranch[]
   serverBranches: VaultBranch[]
 }
@@ -32,7 +32,7 @@ type CompactItemWorkerInput = {
   type: 'COMPACT_ITEM'
   jobId?: number
   key: CryptoKey
-  itemId: string
+  itemId: ItemId
   baseVersionId: string
   automergeBinary: Uint8Array
 }
@@ -41,7 +41,7 @@ type RescueStaleCompactedBranchWorkerInput = {
   type: 'RESCUE_STALE_COMPACTED_BRANCH'
   jobId?: number
   key: CryptoKey
-  itemId: string
+  itemId: ItemId
   localBranch: VaultBranch
   serverBranch: VaultBranch
 }
@@ -62,14 +62,14 @@ type DecryptionWorkerInput =
   | MergeObjectsWorkerInput
 
 type HydratedItem = Record<string, unknown> & {
-  id?: string
+  id?: ItemId
   automergeBinary?: Uint8Array
 }
 
 type ConflictResolvedMessage = {
   type: 'CONFLICT_RESOLVED'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   resolvedBranch: VaultBranch
 }
 
@@ -82,28 +82,28 @@ type DecryptionResultMessage = {
 type CorruptedItemDetectedMessage = {
   type: 'CORRUPTED_ITEM_DETECTED'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   failedBranches?: string[]
 }
 
 type HistoryEvaluatedMessage = {
   type: 'HISTORY_EVALUATED'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   healthyEnvelope: VaultItem | null
 }
 
 type QueueConflictResolvedMessage = {
   type: 'QUEUE_CONFLICT_RESOLVED'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   resolvedBranch: VaultBranch
 }
 
 type CompactedEnvelopeMessage = {
   type: 'COMPACTED_ENVELOPE'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   baseVersionId: string
   compactedBranch: VaultBranch
   compactedBinary: Uint8Array
@@ -112,7 +112,7 @@ type CompactedEnvelopeMessage = {
 type StaleCompactedBranchRescuedMessage = {
   type: 'STALE_COMPACTED_BRANCH_RESCUED'
   jobId?: number
-  itemId: string
+  itemId: ItemId
   rescuedBranch: VaultBranch
 }
 
@@ -333,7 +333,7 @@ export async function processIncomingItem(
   item: HydratedItem | null
   resolvedBranch?: VaultBranch
   corrupted?: {
-    itemId: string
+    itemId: ItemId
     failedBranches?: string[]
   }
 }> {

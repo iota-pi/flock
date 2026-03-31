@@ -1,5 +1,5 @@
 import type { AccountMetadata } from '../../state/metadata'
-import type { ItemEnvelope, VaultBranch } from '../../shared/itemTypes'
+import type { ItemEnvelope, ItemId, VaultBranch } from '../../shared/itemTypes'
 import type { WebPushSubscription } from '../../vault/types'
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
@@ -38,7 +38,7 @@ export type VaultItem = ItemEnvelope & {
 
 export type BatchResultResponse = {
   success: boolean,
-  details: Array<{ item: string, success: boolean, error?: string }>,
+  details: Array<{ item: ItemId, success: boolean, error?: string }>,
 }
 
 export type FetchManyResponse<TItem> = {
@@ -50,12 +50,12 @@ export type FetchManyResponse<TItem> = {
 type PutManyResponse =
   | {
     success: true,
-    conflicts: string[],
+    conflicts: ItemId[],
   }
   | {
     success: false,
     error: 'Version conflict',
-    conflicts: string[],
+    conflicts: ItemId[],
   }
 
 type PutResponse =
@@ -65,7 +65,7 @@ type PutResponse =
   | {
     success: false,
     error: 'Version conflict',
-    conflicts: string[],
+    conflicts: ItemId[],
   }
 
 export type ReminderSettingsResponse = {
@@ -86,9 +86,9 @@ export type VaultMetadataEnvelope =
   }
 
 export class VaultBatchError extends Error {
-  failures: Array<{ item: string, error?: string }>
+  failures: Array<{ item: ItemId, error?: string }>
 
-  constructor(failures: Array<{ item: string, error?: string }>) {
+  constructor(failures: Array<{ item: ItemId, error?: string }>) {
     super(`Vault client batch operation failed for items: ${failures.map(f => f.item).join(', ')}`)
     this.name = 'VaultBatchError'
     this.failures = failures
@@ -96,16 +96,16 @@ export class VaultBatchError extends Error {
 }
 
 export class VaultVersionConflictError extends Error {
-  conflictIds: string[]
+  conflictIds: ItemId[]
 
-  constructor(conflictIds: string[]) {
+  constructor(conflictIds: ItemId[]) {
     super(`Version conflict for items: ${conflictIds.join(', ')}`)
     this.name = 'VaultVersionConflictError'
     this.conflictIds = conflictIds
   }
 }
 
-function extractConflictIdsFromError(error: unknown): string[] {
+function extractConflictIdsFromError(error: unknown): ItemId[] {
   const maybeAny = error as {
     message?: unknown
     cause?: { conflicts?: unknown }
@@ -156,13 +156,13 @@ function assertSuccess(response: { success: boolean }, operation: string) {
 }
 
 export async function fetchMany(params: { cacheTime: number | null; ids?: never }): Promise<{ items: CachedVaultItem[], serverTime: number }>
-export async function fetchMany(params: { cacheTime?: never; ids: string[] }): Promise<{ items: VaultItem[], serverTime: number }>
+export async function fetchMany(params: { cacheTime?: never; ids: ItemId[] }): Promise<{ items: VaultItem[], serverTime: number }>
 export async function fetchMany({
   cacheTime,
   ids,
 }: {
   cacheTime?: number | null,
-  ids?: string[],
+  ids?: ItemId[],
 }): Promise<{ items: CachedVaultItem[] | VaultItem[], serverTime: number }> {
   if (cacheTime !== undefined && ids) {
     throw new Error('Cannot use cacheTime and ids together')

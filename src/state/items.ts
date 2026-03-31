@@ -1,14 +1,11 @@
 import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
 import { ITEM_TYPES } from '../shared/itemTypes'
-import type { ItemType } from '../shared/itemTypes'
+import type { ItemId, ItemType } from '../shared/itemTypes'
 import * as Automerge from '@automerge/automerge'
 import { setCachedAutomergeBinary } from '../api/automergeBinaryCache'
 
 export { ITEM_TYPES }
-export type { ItemType }
-
-export type ItemId = string
 export type OldItemType = 'general'
 
 export interface Note {

@@ -1,6 +1,6 @@
 import { FastifyRequest } from 'fastify'
 import type { ItemType, WebPushSubscription } from '../types'
-import type { VaultBranch } from '../../shared/itemTypes'
+import type { ItemId, VaultBranch } from '../../shared/itemTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 
@@ -118,13 +118,13 @@ export default abstract class BaseDriver<T = unknown> {
   abstract set(item: VaultItem): Promise<void>
   abstract setMany(items: VaultItem[]): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
-  abstract fetchMany(opts: { account: string, ids: string[] }): Promise<VaultItem[]>
+  abstract fetchMany(opts: { account: string, ids: ItemId[] }): Promise<VaultItem[]>
   abstract fetchAll(
     { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
   ): Promise<CachedVaultItem[]>
 
   abstract putHistory(data: VaultItemHistory): Promise<void>
-  abstract fetchHistory(account: string, itemId: string, limit?: number): Promise<VaultItem[]>
+  abstract fetchHistory(account: string, itemId: ItemId, limit?: number, cursor?: string): Promise<VaultItemHistoryPage>
   abstract archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void>
   abstract archiveAndSetManyTransaction(input: ArchiveAndSetManyInput): Promise<void>
 

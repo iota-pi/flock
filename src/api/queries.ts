@@ -10,6 +10,7 @@ import {
   Item,
   supplyMissingAttributes,
 } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { AccountMetadata } from '../state/metadata'
 import { hasApiAuthToken } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
@@ -67,21 +68,21 @@ const pendingHistoryEvaluationJobs = new Map<number, {
 }>()
 const pendingCompactionJobs = new Map<number, {
   resolve: (value: {
-    itemId: string
+    itemId: ItemId
     baseVersionId: string
     compactedBranch: WorkerResolvedBranch
     compactedBinary: Uint8Array
   }) => void
   reject: (reason?: unknown) => void
 }>()
-const recoveryInFlightItemIds = new Set<string>()
-const recoveryCooldownUntilByItemId = new Map<string, number>()
+const recoveryInFlightItemIds = new Set<ItemId>()
+const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 const COMPACTION_THRESHOLD_BYTES = 100_000
 const COMPACTION_COOLDOWN_MS = 15 * 60 * 1000
-const compactionInFlightItemIds = new Set<string>()
-const compactionCooldownUntilByItemId = new Map<string, number>()
+const compactionInFlightItemIds = new Set<ItemId>()
+const compactionCooldownUntilByItemId = new Map<ItemId, number>()
 
 type WorkerResolvedBranch = {
   encryptedAutomergeDoc: string
@@ -89,18 +90,18 @@ type WorkerResolvedBranch = {
   parentIds: string[]
 }
 
-function getCompactionCooldownUntil(itemId: string): number {
+function getCompactionCooldownUntil(itemId: ItemId): number {
   return compactionCooldownUntilByItemId.get(itemId) || 0
 }
 
 async function requestCompactionWithWorker(
   worker: Worker,
   key: CryptoKey,
-  itemId: string,
+  itemId: ItemId,
   baseVersionId: string,
   automergeBinary: Uint8Array,
 ): Promise<{
-  itemId: string
+  itemId: ItemId
   baseVersionId: string
   compactedBranch: WorkerResolvedBranch
   compactedBinary: Uint8Array
@@ -261,7 +262,7 @@ function getDecryptionCacheSnapshotForTests() {
  * 5. Broadcasts updated item to all clients
  */
 async function queueConflictResolutions(
-  resolutionItems: Array<{ itemId: string; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>,
+  resolutionItems: Array<{ itemId: ItemId; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>,
 ): Promise<void> {
   if (resolutionItems.length === 0) {
     return
@@ -300,16 +301,16 @@ async function queueConflictResolutions(
   }
 }
 
-function getRecoveryCooldownUntil(itemId: string): number {
+function getRecoveryCooldownUntil(itemId: ItemId): number {
   return recoveryCooldownUntilByItemId.get(itemId) || 0
 }
 
-async function triggerManualRecoveryUI(itemId: string, reason: string): Promise<void> {
+async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
   const deadLetterQueue = await readDeadLetterQueue()
   const existing = deadLetterQueue.find(item => (
     item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
     && typeof (item.payload as { itemId?: unknown })?.itemId === 'string'
-    && (item.payload as { itemId: string }).itemId === itemId
+    && (item.payload as { itemId: ItemId }).itemId === itemId
   ))
 
   if (!existing) {
@@ -336,7 +337,7 @@ async function triggerManualRecoveryUI(itemId: string, reason: string): Promise<
 async function evaluateHistoryWithWorker(
   worker: Worker,
   key: CryptoKey,
-  itemId: string,
+  itemId: ItemId,
   history: VaultItem[],
 ): Promise<VaultItem | null> {
   if (history.length === 0) {
@@ -366,7 +367,7 @@ async function evaluateHistoryWithWorker(
 
 async function attemptAutoRecovery(
   worker: Worker,
-  itemId: string,
+  itemId: ItemId,
   failedBranches?: string[],
 ): Promise<void> {
   const now = Date.now()
@@ -454,7 +455,7 @@ function ensureSharedDecryptionWorker(): Worker {
       baseVersionId?: unknown
       compactedBinary?: unknown
       healthyEnvelope?: VaultItem | null
-      resolutionItems?: Array<{ itemId: string; branch: WorkerResolvedBranch }>
+      resolutionItems?: Array<{ itemId: ItemId; branch: WorkerResolvedBranch }>
     }
 
     if (payload.type === 'CORRUPTED_ITEM_DETECTED') {

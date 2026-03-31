@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import { GroupItem, ItemId } from '../state/items'
+import type { GroupItem } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
 import { useStoreItemsMutation } from '../api/queries'

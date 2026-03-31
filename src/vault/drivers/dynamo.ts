@@ -39,6 +39,7 @@ import BaseDriver, {
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
+import type { ItemId } from '../../shared/itemTypes'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -60,9 +61,9 @@ type WritableVaultItem = VaultItem & {
 }
 
 export class TransactionConflictsError extends Error {
-  conflictedIds: string[]
+  conflictedIds: ItemId[]
 
-  constructor(conflictedIds: string[]) {
+  constructor(conflictedIds: ItemId[]) {
     super('Transaction conflicts')
     this.name = 'TransactionConflictsError'
     this.conflictedIds = conflictedIds
@@ -863,7 +864,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       ids,
     }: {
       account: string,
-      ids: string[],
+      ids: ItemId[],
     },
   ) {
     if (ids.length === 0) {
@@ -874,7 +875,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     // Keep ordering stable via uniqueIds and rehydrate from a map.
     const uniqueIds = Array.from(new Set(ids))
     const keyChunks = chunkKeys(uniqueIds, MAX_BATCH_GET_ITEMS)
-    const itemsById = new Map<string, VaultItem>()
+    const itemsById = new Map<ItemId, VaultItem>()
 
     for (const keyChunk of keyChunks) {
       let remainingKeys = keyChunk.map(item => ({ account, item }))
@@ -898,7 +899,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           }
         }
 
-        const unprocessed = response.UnprocessedKeys?.[ITEM_TABLE_NAME]?.Keys as Array<{ account: string, item: string }> | undefined
+        const unprocessed = response.UnprocessedKeys?.[ITEM_TABLE_NAME]?.Keys as Array<{ account: string, item: ItemId }> | undefined
         if (!unprocessed || unprocessed.length === 0) {
           break
         }
@@ -934,7 +935,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async fetchHistory(account: string, itemId: string, limit = 20): Promise<VaultItem[]> {
+    const cursorHistoryKey = cursor || undefined
     let response
     try {
       response = await this.client.send(new QueryCommand({

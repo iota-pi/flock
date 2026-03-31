@@ -2,6 +2,7 @@ import env from '../env'
 import * as Sentry from '@sentry/react'
 import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { queryClient, queryKeys } from './queryClient'
 import { getVaultKey } from './vault'
 import { fetchMany } from './vault/client'
@@ -152,7 +153,7 @@ type MutationExecutionStrategy = QueueConflictHandler & {
 }
 
 async function mergeConflictBranchesInWorker(
-  itemId: string,
+  itemId: ItemId,
   localBranches: ResolvedBranch[],
   serverBranches: ResolvedBranch[],
 ): Promise<ResolvedBranch> {
@@ -165,7 +166,7 @@ async function mergeConflictBranchesInWorker(
 }
 
 async function rescueStaleCompactedBranchInWorker(
-  itemId: string,
+  itemId: ItemId,
   localBranch: ResolvedBranch,
   serverBranch: ResolvedBranch,
 ): Promise<ResolvedBranch> {
@@ -184,7 +185,7 @@ async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promi
 
   const payload = mutation.payload as {
     account?: string
-    item?: string
+    item?: ItemId
     branches?: Array<ResolvedBranch>
     modified?: number
     type?: Item['type']
@@ -238,7 +239,7 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
   if (mutation.mutationType === 'items.put') {
     const payload = mutation.payload as {
       account?: string
-      item?: string
+      item?: ItemId
       branches?: Array<ResolvedBranch>
       modified?: number
       type?: Item['type']

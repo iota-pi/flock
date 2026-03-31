@@ -3,8 +3,8 @@ import {
   checkProperties,
   GroupItem,
   Item,
-  ItemId,
 } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import {
   getMetadata,
   fetchMany,
@@ -60,7 +60,7 @@ function isVersionConflictErrorMessage(message: string): boolean {
   return message.includes('Version conflict')
 }
 
-function extractConflictIdsFromError(err: Error): string[] {
+function extractConflictIdsFromError(err: Error): ItemId[] {
   if (err instanceof VaultVersionConflictError) {
     return err.conflictIds
   }
@@ -73,7 +73,7 @@ function extractConflictIdsFromError(err: Error): string[] {
 
   const withConflicts = err as Error & { conflicts?: unknown }
   if (Array.isArray(withConflicts.conflicts)) {
-    return withConflicts.conflicts.filter((value): value is string => typeof value === 'string')
+    return withConflicts.conflicts.filter((value): value is ItemId => typeof value === 'string')
   }
 
   return []
@@ -115,14 +115,14 @@ export async function mutateStoreItems(
     ? cachedItems.find(item => item.id === targetItemId)
     : undefined
 
-  return mutateWithRetry<Item[], Map<string, Item>>(
+  return mutateWithRetry<Item[], Map<ItemId, Item>>(
     {
       queryKey: queryKeys.items,
       getBaseState: previous => (
         new Map((previous || []).map(i => [i.id, i]))
       ),
       calculateNextState: async () => {
-        const dedupedById = new Map<string, Item>()
+        const dedupedById = new Map<ItemId, Item>()
         const currentItems = Array.isArray(items) ? [...items] : [items]
         for (const item of currentItems) {
           dedupedById.set(item.id, item)
@@ -219,14 +219,14 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
   }
 }
 
-function removeMembersFromGroup(group: GroupItem, idsSet: Set<string>): GroupItem {
+function removeMembersFromGroup(group: GroupItem, idsSet: Set<ItemId>): GroupItem {
   return {
     ...group,
     members: group.members.filter(m => !idsSet.has(m)),
   }
 }
 
-function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<string>): GroupItem[] {
+function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): GroupItem[] {
   return allItems
     .filter((item): item is GroupItem =>
       item.type === 'group' && item.members.some(mId => idsSet.has(mId))
@@ -234,7 +234,7 @@ function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<string>): G
     .map(g => removeMembersFromGroup(g, idsSet))
 }
 
-function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<string>): Item[] {
+function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<ItemId>): Item[] {
   if (!old) return []
   return old
     .filter(item => !idsSet.has(item.id) && !(item as Item & { deleted?: boolean }).deleted)
@@ -306,7 +306,7 @@ async function serializeItemAsBranch(
 }
 
 async function mergeConflictBranchesInWorker(
-  itemId: string,
+  itemId: ItemId,
   localBranches: BranchPayload[],
   serverBranches: BranchPayload[],
 ): Promise<BranchPayload> {
@@ -420,8 +420,8 @@ async function saveItemsToVault(items: Item[]) {
 async function handleItemsConflict(
   err: Error,
   currentItems: Item[],
-  baseItems: Map<string, Item>,
-): Promise<ConflictResolution<Item[], Map<string, Item>>> {
+  baseItems: Map<ItemId, Item>,
+): Promise<ConflictResolution<Item[], Map<ItemId, Item>>> {
   const extractedConflictIds = extractConflictIdsFromError(err)
   const conflictIds = extractedConflictIds.length > 0
     ? extractedConflictIds
@@ -463,7 +463,7 @@ async function handleItemsConflict(
   }))
 
   const filteredResolutions = resolutions.filter(
-    (resolution): resolution is { item: string; resolvedBranch: BranchPayload } => !!resolution,
+    (resolution): resolution is { item: ItemId; resolvedBranch: BranchPayload } => !!resolution,
   )
 
   if (filteredResolutions.length === 0) {

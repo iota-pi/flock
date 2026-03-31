@@ -13,16 +13,17 @@ import {
 import { matchSorter } from 'match-sorter'
 import { useMemo, useState } from 'react'
 import { Item, getItemName } from '../../state/items'
+import type { ItemId } from '../../shared/itemTypes'
 import ItemList from '../ItemList'
 import { diffItems } from 'src/utils/diff'
 
 export interface Props {
   open: boolean
   items: Item[]
-  existingItems: Map<string, Item>
-  initialSelectedIds: Set<string>
+  existingItems: Map<ItemId, Item>
+  initialSelectedIds: Set<ItemId>
   onClose: () => void
-  onConfirm: (selectedIds: Set<string>) => void
+  onConfirm: (selectedIds: Set<ItemId>) => void
 }
 
 export default function SelectImportItemsDialog({
@@ -34,7 +35,7 @@ export default function SelectImportItemsDialog({
   onConfirm,
 }: Props) {
   const [search, setSearch] = useState('')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(initialSelectedIds))
+  const [selectedIds, setSelectedIds] = useState<Set<ItemId>>(() => new Set(initialSelectedIds))
 
   const getDescription = (item: Item) => {
     const existing = existingItems.get(item.id)
@@ -52,7 +53,7 @@ export default function SelectImportItemsDialog({
     return matchSorter(items, search, { keys: [item => getItemName(item)] })
   }, [items, search])
 
-  const handleToggle = (id: string) => {
+  const handleToggle = (id: ItemId) => {
     const newSelected = new Set(selectedIds)
     if (newSelected.has(id)) {
       newSelected.delete(id)

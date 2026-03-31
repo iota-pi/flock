@@ -1,13 +1,14 @@
 import { useCallback } from 'react'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
-import { AccountMetadata as Metadata, MetadataKey } from './metadata'
-import { Item, ItemId } from './items'
+import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
+import type { Item } from './items'
+import type { ItemId } from '../shared/itemTypes'
 import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
 const EMPTY_ARRAY: [] = []
-const EMPTY_ITEM_MAP: Record<string, Item> = {}
+const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
 export const useAuthInitializing = () => useAuthStore(state => state.initializing)
@@ -36,11 +37,11 @@ export const useItemMap = () => {
   const selectItemMap = useCallback(
     (items: Item[]) => {
       const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
-      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<string, Item>
+      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
     },
     [],
   )
-  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsQuery<Record<string, Item>>({
+  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsQuery<Record<ItemId, Item>>({
     enabled: loggedIn,
     select: selectItemMap,
   })

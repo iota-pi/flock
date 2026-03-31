@@ -3,7 +3,8 @@ import {
   useMemo,
 } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import { GroupItem, Item, ItemId, PersonItem } from '../state/items'
+import type { GroupItem, Item, PersonItem } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { useItemsById, useSortCriteria } from '../state/selectors'
 import ItemList from './ItemList'
 import { sortItems } from '../utils/customSort'

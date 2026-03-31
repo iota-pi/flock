@@ -1,16 +1,20 @@
-const itemAutomergeBinaryCache = new Map<string, Uint8Array>()
+import type { ItemId } from '../shared/itemTypes'
+
+type CacheKey = ItemId | typeof METADATA_CACHE_KEY
+
+const itemAutomergeBinaryCache = new Map<CacheKey, Uint8Array>()
 
 const METADATA_CACHE_KEY = '__account_metadata__'
 
-export function getCachedAutomergeBinary(itemId: string): Uint8Array | undefined {
+export function getCachedAutomergeBinary(itemId: ItemId): Uint8Array | undefined {
   return itemAutomergeBinaryCache.get(itemId)
 }
 
-export function setCachedAutomergeBinary(itemId: string, binary: Uint8Array): void {
+export function setCachedAutomergeBinary(itemId: ItemId, binary: Uint8Array): void {
   itemAutomergeBinaryCache.set(itemId, binary)
 }
 
-export function clearCachedAutomergeBinary(itemId: string): void {
+export function clearCachedAutomergeBinary(itemId: ItemId): void {
   itemAutomergeBinaryCache.delete(itemId)
 }
 

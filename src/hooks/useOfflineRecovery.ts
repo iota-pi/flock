@@ -11,6 +11,7 @@ import {
 import { useUiStore } from '../state/uiStore'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { Item } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import { getAccountId } from '../api/util'
 import { fetchMany } from '../api/vault/client'
 import { trpcClient } from '../api/trpcClient'
@@ -75,7 +76,7 @@ export function useOfflineRecovery() {
     await refetchDeadLetterItems()
   }, [refetchDeadLetterItems, setDlqCount])
 
-  const removeManualRecoveryEntry = useCallback(async (itemId: string) => {
+  const removeManualRecoveryEntry = useCallback(async (itemId: ItemId) => {
     const dlqItems = await readDeadLetterQueue()
     const nextDlqItems = dlqItems.filter(item => !(
       item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
@@ -86,7 +87,7 @@ export function useOfflineRecovery() {
     await refetchDeadLetterItems()
   }, [refetchDeadLetterItems, setDlqCount])
 
-  const handleForceOverwriteCorruptedItem = useCallback(async (itemId: string) => {
+  const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
       const localItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
@@ -137,7 +138,7 @@ export function useOfflineRecovery() {
     }
   }, [removeManualRecoveryEntry, setMessage])
 
-  const handleForceDeleteCorruptedItem = useCallback(async (itemId: string) => {
+  const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
       const serverItems = await fetchMany({ ids: [itemId] }).then(response => response.items)

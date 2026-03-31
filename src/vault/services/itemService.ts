@@ -4,7 +4,7 @@ import type BaseDriver from '../drivers/base'
 import type { VaultItem, VaultItemHistory } from '../drivers/base'
 import { TransactionConflictsError } from '../drivers/dynamo'
 import { publishRealtimeEvent } from '../realtime/hub'
-import type { VaultBranch } from '../../shared/itemTypes'
+import type { ItemId, VaultBranch } from '../../shared/itemTypes'
 import { isVersionConflictError } from '../../shared/syncErrors'
 
 type ItemServiceContext = {
@@ -15,7 +15,7 @@ const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
 const BRANCH_IV_PLACEHOLDER = 'branch'
 const VERSION_CONFLICT_MESSAGE_PREFIX = 'VERSION_CONFLICT'
 
-function buildHistoryKey(itemId: string): string {
+function buildHistoryKey(itemId: ItemId): string {
   return `${itemId}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`
 }
 
@@ -23,7 +23,7 @@ function getMissingParentIds(incomingParentIds: string[], knownBranchIds: Set<st
   return incomingParentIds.filter(parentId => !knownBranchIds.has(parentId))
 }
 
-function makeHistoryEntry(account: string, itemId: string, itemData: VaultItem): VaultItemHistory {
+function makeHistoryEntry(account: string, itemId: ItemId, itemData: VaultItem): VaultItemHistory {
   return {
     account,
     historyKey: buildHistoryKey(itemId),
@@ -32,11 +32,11 @@ function makeHistoryEntry(account: string, itemId: string, itemData: VaultItem):
   }
 }
 
-function toVersionConflictMessage(conflicts: string[]): string {
+function toVersionConflictMessage(conflicts: ItemId[]): string {
   return `${VERSION_CONFLICT_MESSAGE_PREFIX}:${conflicts.join(',')}`
 }
 
-function throwVersionConflict(conflicts: string[]): never {
+function throwVersionConflict(conflicts: ItemId[]): never {
   throw new TRPCError({
     code: 'CONFLICT',
     message: toVersionConflictMessage(conflicts),
@@ -46,7 +46,7 @@ function throwVersionConflict(conflicts: string[]): never {
 
 function prepareTransactionEntities(input: {
   account: string
-  itemId: string
+  itemId: ItemId
   type: string
   modified: number
   branches: VaultBranch[]
@@ -82,7 +82,7 @@ function prepareTransactionEntities(input: {
 
 export async function fetchItems(
   ctx: ItemServiceContext,
-  input: { account: string; cacheTime?: number | null; ids?: string[] },
+  input: { account: string; cacheTime?: number | null; ids?: ItemId[] },
 ): Promise<{ items: VaultItem[]; serverTime: number }> {
   const { account, cacheTime, ids } = input
 
@@ -119,7 +119,7 @@ export async function putManyItems(
   input: {
     account: string
     items: Array<{
-      id: string
+      id: ItemId
       modified: number
       type: string
       branches: VaultBranch[]
@@ -182,7 +182,7 @@ export async function putItem(
   ctx: ItemServiceContext,
   input: {
     account: string
-    item: string
+    item: ItemId
     modified: number
     type: string
     branches: VaultBranch[]
@@ -257,8 +257,8 @@ export async function compactItem(
   ctx: ItemServiceContext,
   input: {
     account: string
-    item: string
-    baseVersionId: string
+    item: ItemId
+    baseVersionId: ItemId
     compactedBranch: VaultBranch
   },
 ): Promise<void> {
@@ -329,14 +329,14 @@ export async function resolveBranchConflicts(
   ctx: ItemServiceContext,
   input: {
     account: string
-    resolutions: Array<{ item: string; resolvedBranch: VaultBranch }>
+    resolutions: Array<{ item: ItemId; resolvedBranch: VaultBranch }>
   },
 ): Promise<
   | { success: true; resolvedCount: number }
   | {
     success: false
     resolvedCount: number
-    failed: Array<{ item: string; success: false; error?: string }>
+    failed: Array<{ item: ItemId; success: false; error?: string }>
   }
 > {
   const currentItems = await ctx.vault.fetchMany({
@@ -345,7 +345,7 @@ export async function resolveBranchConflicts(
   }).catch(() => [])
 
   const currentById = new Map(currentItems.map(item => [item.item, item]))
-  const results: Array<{ item: string; success: boolean; error?: string }> = []
+  const results: Array<{ item: ItemId; success: boolean; error?: string }> = []
 
   const resolutionResults = await Promise.all(input.resolutions.map(async resolution => {
     const currentItem = currentById.get(resolution.item)
@@ -391,7 +391,7 @@ export async function resolveBranchConflicts(
     })
   }
 
-  const failedResolutions = results.filter((result): result is { item: string; success: false; error?: string } => !result.success)
+  const failedResolutions = results.filter((result): result is { item: ItemId; success: false; error?: string } => !result.success)
   if (failedResolutions.length > 0) {
     return {
       success: false,

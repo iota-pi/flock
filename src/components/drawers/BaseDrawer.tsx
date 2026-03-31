@@ -21,7 +21,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook'
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
-import { ItemId } from '../../state/items'
+import type { ItemId } from '../../shared/itemTypes'
 import { usePrevious } from '../../utils'
 
 
