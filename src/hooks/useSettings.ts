@@ -3,7 +3,7 @@ import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   exportData,
   signOutVault,
-} from '../api/VaultLazy'
+} from '../api/vault'
 import { clearQueryCache, hasItemsInCache, useStoreItemsMutation } from '../api/queries'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'

@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
     getQueryData: vi.fn(),
     decryptObject: vi.fn(),
     encryptObject: vi.fn(),
-    vaultFetchMany: vi.fn(),
+    fetchMany: vi.fn(),
     decryptVaultItems: vi.fn(),
     setOfflineQueueLength: vi.fn(),
     setIsSyncing: vi.fn(),
@@ -63,13 +63,13 @@ vi.mock('./queryClient', () => ({
   },
 }))
 
-vi.mock('./Vault', () => ({
+vi.mock('./vault', () => ({
   decryptObject: mocks.decryptObject,
   encryptObject: mocks.encryptObject,
 }))
 
-vi.mock('./VaultAPI', () => ({
-  vaultFetchMany: mocks.vaultFetchMany,
+vi.mock('./vault/client', () => ({
+  fetchMany: mocks.fetchMany,
 }))
 
 vi.mock('./queries', () => ({

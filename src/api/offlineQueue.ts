@@ -4,8 +4,8 @@ import { trpcClient } from './trpcClient'
 import { Item } from '../state/items'
 import { queryClient, queryKeys } from './queryClient'
 import { useUiStore } from '../state/uiStore'
-import { getVaultKey } from './Vault'
-import { vaultFetchMany } from './VaultAPI'
+import { getVaultKey } from './vault'
+import { fetchMany } from './vault/client'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -280,7 +280,7 @@ async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promi
     return null
   }
 
-  const serverResult = await vaultFetchMany({ ids: [payload.item] })
+  const serverResult = await fetchMany({ ids: [payload.item] })
   const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
   const serverBranch = serverEnvelope?.branches?.[0]
 
@@ -342,7 +342,7 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
       return null
     }
 
-    const serverResult = await vaultFetchMany({ ids: [payload.item] })
+    const serverResult = await fetchMany({ ids: [payload.item] })
     const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
     if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
       return null
@@ -394,7 +394,7 @@ async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<Queue
     return null
   }
 
-  const serverResult = await vaultFetchMany({ ids: itemIds })
+  const serverResult = await fetchMany({ ids: itemIds })
   const serverById = new Map(serverResult.items.map(item => [item.item, item]))
 
   const divergent = batchPayload.items.filter(item => {

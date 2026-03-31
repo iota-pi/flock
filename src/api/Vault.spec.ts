@@ -1,6 +1,6 @@
 import { getBlankPerson } from '../state/items'
 import * as runtime from './runtime'
-import * as vault from './Vault'
+import * as vault from './vault'
 import { queryClient, queryKeys } from './queryClient'
 import { getSalt } from './crypto-utils'
 import { useAuthStore } from '../state/authStore'

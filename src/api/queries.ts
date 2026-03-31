@@ -1,10 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import {
-  vaultFetchMany,
-  vaultGetMetadata,
+  fetchMany,
+  getMetadata,
   type VaultItem,
-} from './VaultAPI'
+} from './vault/client'
 import { trpcClient } from './trpcClient'
 import {
   Item,
@@ -43,7 +43,7 @@ import { toBytes } from './pure-crypto'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {
-  return import('./Vault')
+  return import('./vault')
 }
 
 // Cache for decrypted items
@@ -740,7 +740,7 @@ async function decryptWithoutWorker(
 
 export async function fetchItems(): Promise<Item[]> {
   if (!hasApiAuthToken()) {
-    // If Axios isn't ready, we can't fetch.
+    // If API isn't ready to use (no auth token), we can't fetch.
     // Return empty array to satisfy the query temporarily.
     // The real fetch will happen once loadVault completes and triggers a refetch.
     return []
@@ -754,7 +754,7 @@ export async function fetchItems(): Promise<Item[]> {
     ? lastSyncServerTime
     : null
 
-  const response = await vaultFetchMany({ cacheTime }).catch(error => {
+  const response = await fetchMany({ cacheTime }).catch(error => {
     handleVaultError(error, 'Failed to fetch items from server')
     return { items: [] as VaultItem[], serverTime: lastSyncServerTime || 0 }
   })
@@ -806,7 +806,7 @@ function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string
 
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
-  const result = await vaultGetMetadata()
+  const result = await getMetadata()
   const vault = await getVaultModule()
 
   if (result && typeof result === 'object' && 'branches' in result && Array.isArray(result.branches)) {

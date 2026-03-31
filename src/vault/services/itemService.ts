@@ -11,6 +11,7 @@ type ItemServiceContext = {
 }
 
 const HISTORY_RETENTION_SECONDS = 30 * 24 * 60 * 60
+const BRANCH_IV_PLACEHOLDER = 'branch'
 
 function buildHistoryKey(itemId: string): string {
   return `${itemId}#${Date.now()}#${Math.random().toString(36).slice(2, 10)}`
@@ -95,7 +96,7 @@ export async function putManyItems(
       _expectedParentVersionId: expectedParentVersionId,
       metadata: {
         type: asItemType(incomingItem.type),
-        iv: '',
+        iv: BRANCH_IV_PLACEHOLDER,
         modified: incomingItem.modified,
         deleted: incomingItem.deleted,
       },
@@ -183,7 +184,7 @@ export async function putItem(
     _expectedParentVersionId: expectedParentVersionId,
     metadata: {
       type: asItemType(input.type),
-      iv: '',
+      iv: BRANCH_IV_PLACEHOLDER,
       modified: input.modified,
       deleted: input.deleted,
     },
@@ -258,7 +259,7 @@ export async function compactItem(
     _expectedParentVersionId: currentItem.branches?.[0]?.versionId,
     metadata: {
       type: currentItem.metadata.type,
-      iv: '',
+      iv: BRANCH_IV_PLACEHOLDER,
       modified: Date.now(),
       deleted: currentItem.metadata.deleted,
       compactedAt: Date.now(),
@@ -323,7 +324,7 @@ export async function resolveBranchConflicts(
       branches: [resolution.resolvedBranch],
       metadata: {
         type: currentItem?.metadata.type || 'person',
-        iv: '',
+        iv: BRANCH_IV_PLACEHOLDER,
         modified: Date.now(),
         deleted: currentItem?.metadata.deleted,
         compactedAt: currentItem?.metadata.compactedAt,

@@ -12,13 +12,13 @@ import { useUiStore } from '../state/uiStore'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { Item } from '../state/items'
 import { getAccountId } from '../api/util'
-import { vaultFetchMany } from '../api/VaultAPI'
+import { fetchMany } from '../api/vault/client'
 import { trpcClient } from '../api/trpcClient'
 
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 
 async function getVaultModule() {
-  return import('../api/Vault')
+  return import('../api/vault')
 }
 
 export function useOfflineRecovery() {
@@ -99,7 +99,7 @@ export function useOfflineRecovery() {
         return
       }
 
-      const serverItems = await vaultFetchMany({ ids: [itemId] }).then(response => response.items)
+      const serverItems = await fetchMany({ ids: [itemId] }).then(response => response.items)
       const serverItem = serverItems.find(item => item.item === itemId)
 
       const vault = await getVaultModule()
@@ -140,7 +140,7 @@ export function useOfflineRecovery() {
   const handleForceDeleteCorruptedItem = useCallback(async (itemId: string) => {
     setIsRetrying(itemId)
     try {
-      const serverItems = await vaultFetchMany({ ids: [itemId] }).then(response => response.items)
+      const serverItems = await fetchMany({ ids: [itemId] }).then(response => response.items)
       const serverItem = serverItems.find(item => item.item === itemId)
       const fallbackType = serverItem?.metadata?.type || 'person'
       const vault = await getVaultModule()

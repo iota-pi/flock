@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   setDlqCount: vi.fn(),
 }))
 
-vi.mock('../api/VaultLazy', () => ({
+vi.mock('../api/vault', () => ({
   exportData: mocks.exportData,
   signOutVault: mocks.signOutVault,
 }))

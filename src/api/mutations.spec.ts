@@ -2,24 +2,24 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { mutateDeleteItems, mutateStoreItems, mutateSetMetadata } from './mutations'
 import { queryClient, queryKeys } from './queryClient'
 import { getBlankGroup, getBlankPerson, Item, GroupItem } from '../state/items'
-import * as VaultAPI from './VaultAPI'
-import * as Vault from './Vault'
+import * as VaultAPI from './vault/client'
+import * as Vault from './vault'
 
 // Mock VaultAPI
-vi.mock('./VaultAPI', async importOriginal => {
-  const actual = await importOriginal<typeof import('./VaultAPI')>()
+vi.mock('./vault/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('./vault/client')>()
   return {
     ...actual,
-    vaultPut: vi.fn(),
-    vaultPutMany: vi.fn(),
-    vaultSetMetadata: vi.fn(),
-    vaultGetMetadata: vi.fn(),
-    vaultFetchMany: vi.fn(),
+    put: vi.fn(),
+    putMany: vi.fn(),
+    setMetadata: vi.fn(),
+    getMetadata: vi.fn(),
+    fetchMany: vi.fn(),
   }
 })
 
 // Mock Vault (for encryption/getVaultModule dynamic import resolution)
-vi.mock('./Vault', () => ({
+vi.mock('./vault', () => ({
   encryptObject: vi.fn().mockResolvedValue({ cipher: 'cipher', iv: 'iv' }),
   encryptObjectAsAutomerge: vi.fn().mockResolvedValue({
     encryptedAutomergeDoc: 'automerge-doc',
@@ -56,7 +56,7 @@ describe('mutations', () => {
 
       expect(result[0].id).toBe(item.id)
 
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         branches: expect.any(Array),
       }))
     })
@@ -79,7 +79,7 @@ describe('mutations', () => {
       expect(cached![0].name).toBe('Updated')
 
       // Verify API
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         branches: expect.any(Array),
       }))
     })
@@ -95,7 +95,7 @@ describe('mutations', () => {
 
       expect(result[0].id).toBe(item.id)
 
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         branches: expect.any(Array),
       }))
     })
@@ -112,11 +112,11 @@ describe('mutations', () => {
       const yours = { ...item, description: 'Yours' }
 
       // Mock put failure once.
-      vi.mocked(VaultAPI.vaultPut)
+      vi.mocked(VaultAPI.put)
         .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
 
       // Mock Fetch Many to return current branching state.
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           branches: [
@@ -134,8 +134,8 @@ describe('mutations', () => {
 
       // Conflict is resolved via branch compaction endpoint; local optimistic state is retained.
       expect(result[0].description).toBe('Yours')
-      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(1)
-      expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
+      expect(VaultAPI.put).toHaveBeenCalledTimes(1)
+      expect(VaultAPI.fetchMany).toHaveBeenCalled()
     })
 
     it('does not throw when server emits a branch conflict on equivalent payload', async () => {
@@ -145,10 +145,10 @@ describe('mutations', () => {
       queryClient.setQueryData(queryKeys.items, [{ ...item }])
 
       const local = { ...item }
-      vi.mocked(VaultAPI.vaultPut)
+      vi.mocked(VaultAPI.put)
         .mockRejectedValueOnce(new Error('Version conflict: The item has been modified by another client.'))
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           branches: [
@@ -164,9 +164,9 @@ describe('mutations', () => {
 
       const result = await mutateStoreItems(local)
 
-      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(1)
+      expect(VaultAPI.put).toHaveBeenCalledTimes(1)
       expect(result[0].name).toBe(local.name)
-      expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
+      expect(VaultAPI.fetchMany).toHaveBeenCalled()
     })
 
     it('handles repeated conflicts by routing to branch conflict resolver', async () => {
@@ -174,15 +174,15 @@ describe('mutations', () => {
 
       // First update succeeds and records latest successful version (2).
       queryClient.setQueryData(queryKeys.items, [{ ...item }])
-      vi.mocked(VaultAPI.vaultPut).mockResolvedValueOnce(undefined)
+      vi.mocked(VaultAPI.put).mockResolvedValueOnce(undefined)
       await mutateStoreItems({ ...item, name: 'newer-write' })
 
       // Simulate stale cache producing an older write attempt.
       queryClient.setQueryData(queryKeys.items, [{ ...item }])
-      vi.mocked(VaultAPI.vaultPut).mockRejectedValueOnce(
+      vi.mocked(VaultAPI.put).mockRejectedValueOnce(
         new Error('Version conflict: The item has been modified by another client.'),
       )
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({
         items: [
           {
             item: item.id,
@@ -200,11 +200,11 @@ describe('mutations', () => {
       })
 
       await expect(mutateStoreItems({ ...item, description: 'stale-write' })).resolves.toBeDefined()
-      expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
-      expect(VaultAPI.vaultPut).toHaveBeenCalledTimes(2)
+      expect(VaultAPI.fetchMany).toHaveBeenCalled()
+      expect(VaultAPI.put).toHaveBeenCalledTimes(2)
     })
 
-    it('uses transaction conflict ids returned by vaultPutMany', async () => {
+    it('uses transaction conflict ids returned by putMany', async () => {
       const first = getBlankPerson()
       first.id = 'first'
 
@@ -214,10 +214,10 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [{ ...first }, { ...second }])
 
-      vi.mocked(VaultAPI.vaultPutMany)
+      vi.mocked(VaultAPI.putMany)
         .mockRejectedValueOnce(new VaultAPI.VaultVersionConflictError([second.id]))
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: second.id,
           branches: [
@@ -233,7 +233,7 @@ describe('mutations', () => {
 
       const result = await mutateStoreItems([first, second])
 
-      expect(VaultAPI.vaultFetchMany).toHaveBeenCalled()
+      expect(VaultAPI.fetchMany).toHaveBeenCalled()
       expect(result.find(item => item.id === second.id)?.name).toBe('Updated')
     })
   })
@@ -250,7 +250,7 @@ describe('mutations', () => {
       queryClient.setQueryData(queryKeys.items, [gItem, pItem])
 
       // Mock Fetch Many (called by fetchItems to get fresh group state)
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: gItem.id,
           cipher: 'cipher-group',
@@ -271,12 +271,12 @@ describe('mutations', () => {
       })
 
       // Mock Metadata
-      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+      vi.mocked(VaultAPI.getMetadata).mockResolvedValue({})
 
       await mutateDeleteItems('p1')
 
       // Verify Group Update
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         item: 'g1',
         metadata: expect.objectContaining({
           deleted: undefined,
@@ -284,7 +284,7 @@ describe('mutations', () => {
       }))
 
       // Verify Item Tombstone save through regular put flow
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
         branches: expect.arrayContaining([
           expect.objectContaining({
@@ -305,7 +305,7 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item1, item2])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: item1.id,
           cipher: 'cipher1',
@@ -324,13 +324,13 @@ describe('mutations', () => {
         return {}
       })
 
-      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+      vi.mocked(VaultAPI.getMetadata).mockResolvedValue({})
 
       await mutateDeleteItems(['p1', 'p2'])
 
       // Verify tombstones are created via putMany (batch deletion)
-      expect(VaultAPI.vaultPutMany).toHaveBeenCalled()
-      const putManyCall = vi.mocked(VaultAPI.vaultPutMany).mock.calls[0][0]
+      expect(VaultAPI.putMany).toHaveBeenCalled()
+      const putManyCall = vi.mocked(VaultAPI.putMany).mock.calls[0][0]
       const tombstones = putManyCall.items.filter((item: any) => item.metadata?.deleted === true)
       expect(tombstones).toHaveLength(2)
       expect(tombstones.every((item: any) => Array.isArray(item.branches) && item.metadata?.iv === '')).toBe(true)
@@ -341,7 +341,7 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher1',
@@ -350,12 +350,12 @@ describe('mutations', () => {
       ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockResolvedValue(item)
-      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+      vi.mocked(VaultAPI.getMetadata).mockResolvedValue({})
 
       await mutateDeleteItems('p1')
 
       // Verify deletion created a tombstone via put (not using deprecated delete endpoint)
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
         branches: expect.arrayContaining([
           expect.objectContaining({
@@ -375,7 +375,7 @@ describe('mutations', () => {
 
       queryClient.setQueryData(queryKeys.items, [item])
 
-      vi.mocked(VaultAPI.vaultFetchMany).mockResolvedValue({ items: [
+      vi.mocked(VaultAPI.fetchMany).mockResolvedValue({ items: [
         {
           item: item.id,
           cipher: 'cipher1',
@@ -384,11 +384,11 @@ describe('mutations', () => {
       ], serverTime: Date.now() })
 
       vi.mocked(Vault.decryptObject).mockResolvedValue(item)
-      vi.mocked(VaultAPI.vaultGetMetadata).mockResolvedValue({})
+      vi.mocked(VaultAPI.getMetadata).mockResolvedValue({})
 
       await mutateDeleteItems('p1')
 
-      expect(VaultAPI.vaultPut).toHaveBeenCalledWith(expect.objectContaining({
+      expect(VaultAPI.put).toHaveBeenCalledWith(expect.objectContaining({
         item: 'p1',
         branches: expect.arrayContaining([
           expect.objectContaining({
@@ -409,8 +409,8 @@ describe('mutations', () => {
       const initialMetadata = { prayerGoal: 10 }
       queryClient.setQueryData(queryKeys.metadata, initialMetadata)
 
-      const setMetadataSpy = vi.spyOn(VaultAPI, 'vaultSetMetadata').mockResolvedValue(undefined)
-      vi.spyOn(VaultAPI, 'vaultGetMetadata').mockResolvedValue({})
+      const setMetadataSpy = vi.spyOn(VaultAPI, 'setMetadata').mockResolvedValue(undefined)
+      vi.spyOn(VaultAPI, 'getMetadata').mockResolvedValue({})
 
       await mutateSetMetadata(prev => ({ ...prev, prayerGoal: 20 }))
 

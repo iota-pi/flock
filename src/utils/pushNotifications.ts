@@ -2,9 +2,9 @@ import {
   addPushSubscription,
   deletePushSubscription,
   updateReminderSettings,
-} from '../api/VaultLazy'
+} from '../api/vault'
 import env from '../env'
-import { vaultGetReminderSettings } from '../api/VaultAPI'
+import { getReminderSettings } from '../api/vault/client'
 
 function fromBase64Url(base64Url: string) {
   const padding = '='.repeat((4 - (base64Url.length % 4)) % 4)
@@ -92,7 +92,7 @@ export async function checkSubscription() {
     return null
   }
 
-  const settings = await vaultGetReminderSettings()
+  const settings = await getReminderSettings()
   if (!settings.reminderEnabled) {
     return null
   }

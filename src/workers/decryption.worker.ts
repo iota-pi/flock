@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import * as Automerge from '@automerge/automerge'
-import type { VaultItem } from '../api/VaultAPI'
+import type { VaultItem } from '../api/vault/client'
 import type { VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/pure-crypto'
 

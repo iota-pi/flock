@@ -16,7 +16,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { ROUTES } from './routes'
 import { useUiStore } from '../../state/uiStore'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
-import { fetchSalt, loginVault } from '../../api/VaultLazy'
+import { getSalt, loginVault } from '../../api/vault'
 import { useAuth } from '../../hooks/useAuth'
 import { useAuthStore } from '../../state/authStore'
 
@@ -87,7 +87,7 @@ function LoginPage() {
       setLoading(true)
       setError('')
       setAccount({ account: accountInput })
-      const salt = await fetchSalt().catch(() => '')
+      const salt = await getSalt().catch(() => '')
       if (salt.length) {
         try {
           await loginVault({ password, salt })

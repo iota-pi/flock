@@ -6,15 +6,15 @@ import {
   ItemId,
 } from '../state/items'
 import {
-  vaultGetMetadata,
-  vaultFetchMany,
-  vaultPut,
-  vaultPutMany,
-  vaultSetMetadata,
+  getMetadata,
+  fetchMany,
+  put,
+  putMany,
+  setMetadata,
   VaultBatchError,
   VaultVersionConflictError,
   type VaultItem,
-} from './VaultAPI'
+} from './vault/client'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
 import { fetchItems } from './queries'
@@ -31,12 +31,12 @@ import {
 
 // Helper to avoid circular dependency on Vault.ts for encryption
 function getVaultModule() {
-  return import('./Vault')
+  return import('./vault')
 }
 
 function hasVaultKeyAccessor(
-  vault: typeof import('./Vault'),
-): vault is typeof import('./Vault') & { getVaultKey: () => CryptoKey } {
+  vault: typeof import('./vault'),
+): vault is typeof import('./vault') & { getVaultKey: () => CryptoKey } {
   return Object.prototype.hasOwnProperty.call(vault, 'getVaultKey')
     && typeof (vault as { getVaultKey?: unknown }).getVaultKey === 'function'
 }
@@ -91,9 +91,9 @@ export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((p
         return current
       },
       performSave: async current => {
-        const serverMetadata = await vaultGetMetadata()
+        const serverMetadata = await getMetadata()
         const payload = await serializeMetadataAsBranch(current, serverMetadata as MetadataEnvelope)
-        await vaultSetMetadata({
+        await setMetadata({
           branches: payload.branches,
           _expectedParentVersionId: payload.branches[0]?.parentIds.at(-1),
         })
@@ -260,7 +260,7 @@ function getHeadVersionId(item?: VaultItem): string | undefined {
 
 async function serializeItemAsBranch(
   item: Item,
-  vault: typeof import('./Vault'),
+  vault: typeof import('./vault'),
   currentServerItem?: VaultItem,
 ): Promise<{ branches: BranchPayload[] }> {
   const cachedBinary = getCachedAutomergeBinary(item.id)
@@ -371,7 +371,7 @@ async function saveItemsToVault(items: Item[]) {
   const modifiedTime = new Date().getTime()
   let serverItems: VaultItem[] = []
   try {
-    const response = await vaultFetchMany({ ids: items.map(item => item.id) })
+    const response = await fetchMany({ ids: items.map(item => item.id) })
     serverItems = response?.items || []
   } catch {
     serverItems = []
@@ -385,7 +385,7 @@ async function saveItemsToVault(items: Item[]) {
   if (items.length === 1) {
     const payload = payloadItems[0]
     const item = items[0]
-    await vaultPut({
+    await put({
       item: item.id,
       branches: payload.branches,
       metadata: {
@@ -396,7 +396,7 @@ async function saveItemsToVault(items: Item[]) {
       },
     } as any)
   } else {
-    await vaultPutMany({
+    await putMany({
       items: payloadItems.map((payload, i) => {
         const item = items[i]
 
@@ -435,7 +435,7 @@ async function handleItemsConflict(
 
   const account = getAccountId()
   const vaultModule = await getVaultModule()
-  const serverItems = await vaultFetchMany({ ids: conflictIds }).then(result => result.items)
+  const serverItems = await fetchMany({ ids: conflictIds }).then(result => result.items)
   const serverById = new Map(serverItems.map(item => [item.item, item]))
 
   const resolutions = await Promise.all(conflictIds.map(async conflictId => {
@@ -494,7 +494,7 @@ async function handleMetadataConflict(
   const isConflict = errorMessage.includes('ConditionalCheckFailed') || errorMessage.includes('Version conflict') || errorMessage.includes('conditional request failed')
 
   if (isConflict) {
-    const serverEnvelope = await vaultGetMetadata() as MetadataEnvelope
+    const serverEnvelope = await getMetadata() as MetadataEnvelope
     const localPayload = await serializeMetadataAsBranch(current, serverEnvelope)
     const serverBranches = Array.isArray(serverEnvelope?.branches) ? serverEnvelope.branches : []
 
@@ -749,7 +749,7 @@ async function buildOfflineMutation<TData>(
 
   if (sameQueryKey(queryKey, queryKeys.metadata)) {
     const metadata = current as unknown as AccountMetadata
-    const serverMetadata = await vaultGetMetadata()
+    const serverMetadata = await getMetadata()
     const payload = await serializeMetadataAsBranch(metadata, serverMetadata as MetadataEnvelope)
 
     return {

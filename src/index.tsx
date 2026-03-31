@@ -88,7 +88,7 @@ root.render(
 registerSW()
 
 if (window.Cypress) {
-  window.vault = import('./api/Vault')
+  window.vault = import('./api/vault')
   window.mutations = import('./api/mutations')
   window.invalidateQuery = (key: keyof typeof queryKeys) => queryClient.invalidateQueries({ queryKey: queryKeys[key] })
   window.queryKeys = queryKeys
