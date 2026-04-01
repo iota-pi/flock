@@ -14,12 +14,14 @@ import { useAuth } from './useAuth'
 import { AccountMetadata } from '../state/metadata'
 import { queryClient, queryKeys } from '../api/queryClient'
 import {
+  registerBackgroundSync,
+} from '../sync/offlineQueue'
+import {
   readDeadLetterQueue,
   readQueue,
-  registerBackgroundSync,
   writeDeadLetterQueue,
   writeQueue,
-} from '../sync/offlineSyncService'
+} from '../sync/offlineQueueStore'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 
 export type SettingsDialogType = (

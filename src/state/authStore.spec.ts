@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { syncDB } from '../api/db'
-import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../sync/offlineSyncService'
+import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../sync/offlineQueueStore'
 import { clearPersistedAuthSyncState, useAuthStore } from './authStore'
 
 vi.mock('../api/db', () => ({

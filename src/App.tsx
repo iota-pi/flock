@@ -21,7 +21,7 @@ import {
   initialiseDeadLetterQueueCount,
   processOfflineQueue,
   startOfflineQueueHealthMonitor,
-} from './sync/offlineSyncService'
+} from './sync/offlineQueue'
 import {
   startRealtimeCoordinator,
   stopRealtimeCoordinator,

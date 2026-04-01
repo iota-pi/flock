@@ -24,7 +24,7 @@ import {
   getMutationId,
   readDeadLetterQueue,
   writeDeadLetterQueue,
-} from '../sync/offlineSyncService'
+} from '../sync/offlineQueueStore'
 import { useUiStore } from '../state/uiStore'
 import { emitSyncRuntimeMessage, setSyncRuntimeState } from '../sync/syncRuntime'
 import * as Automerge from '@automerge/automerge'

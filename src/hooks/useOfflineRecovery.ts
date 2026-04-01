@@ -1,13 +1,15 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
+  processOfflineQueue,
+} from '../sync/offlineQueue'
+import {
   type QueuedMutation,
   readDeadLetterQueue,
   readQueue,
   writeDeadLetterQueue,
   writeQueue,
-  processOfflineQueue,
-} from '../sync/offlineSyncService'
+} from '../sync/offlineQueueStore'
 import { useUiStore } from '../state/uiStore'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { Item } from '../state/items'

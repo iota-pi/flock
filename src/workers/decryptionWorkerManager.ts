@@ -1,4 +1,5 @@
 import type { VaultBranch } from '../shared/itemTypes'
+import { type Remote, wrap } from 'comlink'
 
 type ResolvedBranch = {
   encryptedAutomergeDoc: string
@@ -7,8 +8,6 @@ type ResolvedBranch = {
 }
 
 type ResolveConflictRequest = {
-  type: 'RESOLVE_QUEUE_CONFLICT'
-  jobId: number
   key: CryptoKey
   itemId: string
   localBranches: ResolvedBranch[]
@@ -16,103 +15,36 @@ type ResolveConflictRequest = {
 }
 
 type RescueStaleBranchRequest = {
-  type: 'RESCUE_STALE_COMPACTED_BRANCH'
-  jobId: number
   key: CryptoKey
   itemId: string
   localBranch: ResolvedBranch
   serverBranch: ResolvedBranch
 }
 
-type WorkerResponse = {
-  type?: string
-  jobId?: number
-  itemId?: string
-  resolvedBranch?: ResolvedBranch
-  rescuedBranch?: ResolvedBranch
+type DecryptionConflictWorkerApi = {
+  resolveQueueConflict: (request: ResolveConflictRequest) => Promise<ResolvedBranch>
+  rescueStaleCompactedBranch: (request: RescueStaleBranchRequest) => Promise<ResolvedBranch>
 }
 
 let worker: Worker | null = null
-let nextJobId = 0
+let workerApi: Remote<DecryptionConflictWorkerApi> | null = null
 
-const pendingJobs = new Map<number, {
-  resolve: (value: any) => void
-  reject: (reason?: unknown) => void
-}>()
-
-function getWorker() {
-  if (worker) {
-    return worker
+function getWorkerApi(): Remote<DecryptionConflictWorkerApi> {
+  if (workerApi) {
+    return workerApi
   }
 
-  worker = new Worker(new URL('./decryption.worker.ts', import.meta.url), {
+  worker = new Worker(new URL('./decryptionConflict.worker.ts', import.meta.url), {
     type: 'module',
   })
+  workerApi = wrap<DecryptionConflictWorkerApi>(worker)
 
-  worker.onmessage = event => {
-    const payload = event.data as WorkerResponse
-    if (typeof payload.jobId !== 'number') {
-      return
-    }
-
-    const pending = pendingJobs.get(payload.jobId)
-    if (!pending) {
-      return
-    }
-
-    pendingJobs.delete(payload.jobId)
-
-    if (payload.type === 'QUEUE_CONFLICT_RESOLVED' && payload.resolvedBranch) {
-      pending.resolve(payload.resolvedBranch)
-      return
-    }
-
-    if (payload.type === 'STALE_COMPACTED_BRANCH_RESCUED' && payload.rescuedBranch) {
-      pending.resolve(payload.rescuedBranch)
-      return
-    }
-
-    pending.reject(new Error('Unexpected decryption worker response'))
-  }
-
-  worker.onerror = event => {
-    const error = new Error(event.message || 'Decryption worker failed')
-    for (const pending of pendingJobs.values()) {
-      pending.reject(error)
-    }
-    pendingJobs.clear()
+  worker.onerror = () => {
     worker = null
+    workerApi = null
   }
 
-  return worker
-}
-
-function postResolveConflictRequest(request: Omit<ResolveConflictRequest, 'jobId'>): Promise<ResolvedBranch> {
-  const activeWorker = getWorker()
-  nextJobId += 1
-  const jobId = nextJobId
-
-  return new Promise<ResolvedBranch>((resolve, reject) => {
-    pendingJobs.set(jobId, { resolve, reject })
-    activeWorker.postMessage({
-      ...request,
-      jobId,
-    })
-  })
-}
-
-function postRescueStaleBranchRequest(request: Omit<RescueStaleBranchRequest, 'jobId'>): Promise<ResolvedBranch> {
-  const activeWorker = getWorker()
-  nextJobId += 1
-  const jobId = nextJobId
-
-  return new Promise<ResolvedBranch>((resolve, reject) => {
-    pendingJobs.set(jobId, { resolve, reject })
-    activeWorker.postMessage({
-      ...request,
-      jobId,
-    })
-  })
+  return workerApi
 }
 
 export async function resolveQueueConflictInWorker(input: {
@@ -121,8 +53,8 @@ export async function resolveQueueConflictInWorker(input: {
   localBranches: VaultBranch[]
   serverBranches: VaultBranch[]
 }): Promise<ResolvedBranch> {
-  return postResolveConflictRequest({
-    type: 'RESOLVE_QUEUE_CONFLICT',
+  const api = getWorkerApi()
+  return api.resolveQueueConflict({
     key: input.key,
     itemId: input.itemId,
     localBranches: input.localBranches,
@@ -136,8 +68,8 @@ export async function rescueStaleCompactedBranchInWorker(input: {
   localBranch: VaultBranch
   serverBranch: VaultBranch
 }): Promise<ResolvedBranch> {
-  return postRescueStaleBranchRequest({
-    type: 'RESCUE_STALE_COMPACTED_BRANCH',
+  const api = getWorkerApi()
+  return api.rescueStaleCompactedBranch({
     key: input.key,
     itemId: input.itemId,
     localBranch: input.localBranch,

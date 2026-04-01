@@ -4,7 +4,7 @@ import type {
   RealtimeEventEnvelope,
 } from '../shared/realtime'
 import { getApiAuthToken } from './runtime'
-import { readQueue } from '../sync/offlineSyncService'
+import { readQueue } from '../sync/offlineQueueStore'
 
 type RealtimeCoordinatorOptions = {
   account: string

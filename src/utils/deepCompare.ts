@@ -33,10 +33,26 @@ export function deepEqual(left: unknown, right: unknown): boolean {
       return false
     }
 
-    for (const value of left.values()) {
-      if (!right.has(value)) {
+    const rightValues = Array.from(right.values())
+    const consumedIndexes = new Set<number>()
+
+    for (const leftValue of left.values()) {
+      let matchedIndex = -1
+      for (let index = 0; index < rightValues.length; index += 1) {
+        if (consumedIndexes.has(index)) {
+          continue
+        }
+        if (deepEqual(leftValue, rightValues[index])) {
+          matchedIndex = index
+          break
+        }
+      }
+
+      if (matchedIndex === -1) {
         return false
       }
+
+      consumedIndexes.add(matchedIndex)
     }
 
     return true
