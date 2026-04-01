@@ -131,8 +131,7 @@ export const useIsActive = () => {
   return useCallback(
     (itemId: ItemId) => (
       drawers.findIndex(drawer => (
-        drawer.open
-        && drawer.item === itemId
+        drawer.item === itemId
       )) > -1
     ),
     [drawers],

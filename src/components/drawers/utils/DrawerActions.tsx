@@ -34,7 +34,6 @@ export interface PropsWithSave extends BaseProps {
   onCancel: () => void,
   onDelete: () => void,
   onDone?: undefined,
-  onNext?: undefined,
   onSave: () => void,
   onSkip?: undefined,
 }
@@ -45,7 +44,6 @@ export interface PropsWithDone extends BaseProps {
   onCancel?: undefined,
   onDelete?: undefined,
   onDone: () => void,
-  onNext?: undefined,
   onSave?: undefined,
   onSkip?: () => void,
 }
@@ -56,7 +54,6 @@ export interface PropsWithNext extends BaseProps {
   onCancel?: undefined,
   onDelete?: undefined,
   onDone?: undefined,
-  onNext: () => void,
   onSave?: undefined,
   onSkip: () => void,
 }
@@ -72,7 +69,6 @@ function DrawerActions({
   onCancel,
   onDelete,
   onDone,
-  onNext,
   onSave,
   onSkip,
   permanentDrawer,
@@ -152,21 +148,6 @@ function DrawerActions({
                 variant="contained"
               >
                 Done
-              </Button>
-            </Grid>
-          )}
-
-          {onNext && (
-            <Grid size={{ xs: 12 }}>
-              <Button
-                color="primary"
-                data-cy="drawer-next"
-                endIcon={<NextIcon />}
-                fullWidth
-                onClick={onNext}
-                variant="contained"
-              >
-                Next
               </Button>
             </Grid>
           )}

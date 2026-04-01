@@ -8,12 +8,8 @@ import type { ItemId } from '../shared/itemTypes'
 
 export interface DrawerData {
   id: string,
-  initial?: Item[],
   item?: ItemId,
   newItem?: Item,
-  next?: string[],
-  open: boolean,
-  praying?: boolean,
 }
 
 export interface RequestData {
@@ -45,7 +41,7 @@ export type SetUiPayload = Omit<Partial<UIState>, 'requests' | 'drawers'> & {
 }
 
 export type PushActiveOptions = (
-  'initial' | 'newItem' | 'next' | 'open' | 'praying'
+  'newItem'
 )
 
 export type PushActiveData = (
@@ -62,7 +58,6 @@ export interface UiStore extends UIState {
   setMessage: (payload: BaseUIMessage) => void,
   toggleSelected: (itemId: ItemId) => void,
   replaceActive: (payload: Partial<Omit<DrawerData, 'id'>>) => void,
-  updateActive: (payload: Partial<Omit<DrawerData, 'id'>>) => void,
   pushActive: (payload: PushActiveData) => void,
   removeActive: () => void,
   clearDrawers: () => void,
@@ -139,11 +134,9 @@ export const useUiStore = create<UiStore>()(
       },
       replaceActive: payload => {
         set(state => {
-          const openItems = state.drawers.filter(drawer => drawer.open)
-          const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
+          const lastItem = state.drawers[state.drawers.length - 1]
           const newItem: DrawerData = {
             id: lastItem ? lastItem.id : generateItemId(),
-            open: true,
             ...payload,
           }
           const drawers = [...state.drawers]
@@ -155,28 +148,12 @@ export const useUiStore = create<UiStore>()(
           return { drawers }
         })
       },
-      updateActive: payload => {
-        set(state => {
-          const openItems = state.drawers.filter(drawer => drawer.open)
-          const lastItem = openItems.length > 0 ? openItems[openItems.length - 1] : undefined
-          const newItem: DrawerData = {
-            id: generateItemId(),
-            open: true,
-            ...lastItem,
-            ...payload,
-          }
-          const drawers = [...state.drawers]
-          drawers[drawers.length - 1] = newItem
-          return { drawers }
-        })
-      },
       pushActive: payload => {
         set(state => ({
           drawers: [
             ...state.drawers,
             {
               id: generateItemId(),
-              open: true,
               ...payload,
             },
           ],
@@ -198,12 +175,6 @@ export const useUiStore = create<UiStore>()(
           let modified = false
           for (const drawer of state.drawers) {
             if (drawer.item && itemIds.includes(drawer.item)) {
-              modified = true
-            } else if (drawer.next && drawer.next.find(item => !itemIds.includes(item))) {
-              newDrawers.push({
-                ...drawer,
-                next: drawer.next.filter(item => !itemIds.includes(item)),
-              })
               modified = true
             } else {
               newDrawers.push(drawer)

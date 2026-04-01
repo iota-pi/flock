@@ -1,5 +1,5 @@
 import { Theme, useMediaQuery } from '@mui/material'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
 import { DrawerData, useUiStore } from '../../state/uiStore'
@@ -79,11 +79,13 @@ function useDrawerRouting(drawers: DrawerData[]) {
 
 function IndividualDrawer({
   drawer,
+  open,
   onClose,
   onExited,
   stacked,
 }: {
   drawer: DrawerData,
+  open: boolean,
   onClose: () => void,
   onExited: () => void,
   stacked: boolean,
@@ -118,13 +120,12 @@ function IndividualDrawer({
     return (
       <Suspense fallback={null}>
         <ItemDrawer
-          fromPrayerPage={!!drawer.praying}
           item={localItem}
           onBack={onClose}
           onChange={handleChange}
           onClose={onClose}
           onExited={onExited}
-          open={drawer.open}
+          open={open}
           stacked={stacked}
         />
       </Suspense>
@@ -138,22 +139,47 @@ const noop = () => {}
 
 function DrawerDisplay() {
   const removeActive = useUiStore(state => state.removeActive)
-  const updateActive = useUiStore(state => state.updateActive)
   const drawers = useUiStore(state => state.drawers)
   const loggedIn = useLoggedIn()
   const page = usePage()
+  const [closingDrawerId, setClosingDrawerId] = useState<string | null>(null)
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
+  const topDrawerId = drawers[drawers.length - 1]?.id || null
+
+  useEffect(() => {
+    if (!topDrawerId && closingDrawerId) {
+      setClosingDrawerId(null)
+      return
+    }
+    if (closingDrawerId && closingDrawerId !== topDrawerId) {
+      setClosingDrawerId(null)
+    }
+  }, [closingDrawerId, topDrawerId])
 
   const handleClose = useCallback(
-    () => updateActive({ open: false }),
-    [updateActive],
+    () => {
+      if (topDrawerId) {
+        setClosingDrawerId(topDrawerId)
+      }
+    },
+    [topDrawerId],
   )
   const handleExited = useCallback(
-    () => removeActive(),
+    () => {
+      setClosingDrawerId(null)
+      removeActive()
+    },
     [removeActive],
   )
   const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose
+  const drawerOpenById = useMemo(() => {
+    const result = new Map<string, boolean>()
+    for (const drawer of drawers) {
+      result.set(drawer.id, drawer.id !== closingDrawerId)
+    }
+    return result
+  }, [closingDrawerId, drawers])
 
   useDrawerRouting(drawers)
 
@@ -170,6 +196,7 @@ function DrawerDisplay() {
         <IndividualDrawer
           key={drawer.id}
           drawer={drawer}
+          open={drawerOpenById.get(drawer.id) ?? true}
           onClose={onClose}
           onExited={handleExited}
           stacked={i > 0}
