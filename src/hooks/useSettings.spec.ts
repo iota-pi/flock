@@ -71,14 +71,14 @@ vi.mock('../api/queryClient', () => ({
   },
 }))
 
-vi.mock('../api/offlineQueueStore', () => ({
+vi.mock('../sync/offlineQueueStore', () => ({
   readQueue: mocks.readQueue,
   readDeadLetterQueue: mocks.readDeadLetterQueue,
   writeQueue: mocks.writeQueue,
   writeDeadLetterQueue: mocks.writeDeadLetterQueue,
 }))
 
-vi.mock('../api/offlineQueue', () => ({
+vi.mock('../sync/offlineQueue', () => ({
   registerBackgroundSync: mocks.registerBackgroundSync,
 }))
 

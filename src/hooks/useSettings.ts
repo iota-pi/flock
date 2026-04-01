@@ -19,7 +19,7 @@ import {
   registerBackgroundSync,
   writeDeadLetterQueue,
   writeQueue,
-} from '../api/offlineSyncService'
+} from '../sync/offlineSyncService'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 
 export type SettingsDialogType = (

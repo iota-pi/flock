@@ -5,7 +5,7 @@ import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { processOfflineQueue } from '../../api/offlineQueue'
+import { processOfflineQueue } from '../../sync/offlineQueue'
 import { trpc } from '../../api/trpc'
 
 function SyncNowButton() {

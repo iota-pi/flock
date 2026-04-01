@@ -25,13 +25,14 @@ import { fetchItems } from './clientQueries'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
-import { enqueueMutation, isLikelyNetworkError } from './offlineQueue'
-import { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './offlineQueue'
+import { enqueueMutation, isLikelyNetworkError } from '../sync/offlineQueue'
+import { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from '../sync/offlineQueue'
 import {
   getCachedAutomergeBinary,
   getCachedMetadataAutomergeBinary,
   setCachedMetadataAutomergeBinary,
-} from './automergeBinaryCache'
+} from '../sync/automergeBinaryCache'
+import { toBytes } from './vault/crypto'
 
 // Helper to avoid circular dependency on Vault.ts for encryption
 function getVaultModule() {
@@ -528,7 +529,6 @@ async function decodeMetadataFromBranch(branch: BranchPayload): Promise<{ value:
   const encryptedDoc = branch.encryptedAutomergeDoc
   const ivHex = encryptedDoc.slice(0, 32)
   const cipherHex = encryptedDoc.slice(32)
-  const { toBytes } = await import('./pure-crypto')
 
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: new Uint8Array(toBytes(ivHex)) },

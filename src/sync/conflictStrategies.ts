@@ -1,12 +1,12 @@
-import type { Item } from '../../state/items'
-import type { ItemId } from '../../shared/itemTypes'
-import type { QueuedMutation } from '../offlineQueueStore'
-import { fetchMany } from '../vault/client'
-import { getVaultKey } from '../vault'
+import type { Item } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
+import type { QueuedMutation } from './offlineQueueStore'
+import { fetchMany } from '../api/vault/client'
+import { getVaultKey } from '../api/vault'
 import {
   resolveQueueConflictInWorker as resolveQueueConflictWithManager,
   rescueStaleCompactedBranchInWorker as rescueStaleCompactedBranchWithManager,
-} from '../../workers/decryptionWorkerManager'
+} from '../workers/decryptionWorkerManager'
 
 export const CONFLICT_HANDLER_AUTOMERGE_ITEMS = 'automerge-items'
 

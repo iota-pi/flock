@@ -24,16 +24,16 @@ import {
   getMutationId,
   readDeadLetterQueue,
   writeDeadLetterQueue,
-} from './offlineSyncService'
+} from '../sync/offlineSyncService'
 import { useUiStore } from '../state/uiStore'
-import { emitSyncRuntimeMessage, setSyncRuntimeState } from './syncRuntime'
+import { emitSyncRuntimeMessage, setSyncRuntimeState } from '../sync/syncRuntime'
 import * as Automerge from '@automerge/automerge'
 import {
   setCachedAutomergeBinary,
   getCachedMetadataAutomergeBinary,
   setCachedMetadataAutomergeBinary,
-} from './automergeBinaryCache'
-import { toBytes } from './pure-crypto'
+} from '../sync/automergeBinaryCache'
+import { toBytes } from './vault/crypto'
 
 // Crypto helpers - these need the key from Vault.ts, so we import dynamically
 async function getVaultModule() {

@@ -72,10 +72,6 @@ vi.mock('./vault/client', () => ({
   fetchMany: mocks.fetchMany,
 }))
 
-vi.mock('./queries', () => ({
-  decryptVaultItems: mocks.decryptVaultItems,
-}))
-
 vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'acct-1'),
 }))
@@ -111,8 +107,8 @@ describe('offlineQueue', () => {
   })
 
   it('moves failed non-conflict mutation to DLQ and rolls back cache base state', async () => {
-    const { enqueueMutation, processOfflineQueue } = await import('./offlineQueue')
-    const { readDeadLetterQueue, readQueue } = await import('./offlineQueueStore')
+    const { enqueueMutation, processOfflineQueue } = await import('../sync/offlineQueue')
+    const { readDeadLetterQueue, readQueue } = await import('../sync/offlineQueueStore')
 
     const baseState = {
       id: 'item-1',
@@ -149,8 +145,8 @@ describe('offlineQueue', () => {
   })
 
   it('chunks putMany payloads of 120 items into 50/50/20 requests', async () => {
-    const { enqueueMutation, processOfflineQueue } = await import('./offlineQueue')
-    const { readQueue } = await import('./offlineQueueStore')
+    const { enqueueMutation, processOfflineQueue } = await import('../sync/offlineQueue')
+    const { readQueue } = await import('../sync/offlineQueueStore')
 
     const batch = Array.from({ length: 120 }, (_, index) => ({
       id: `item-${index + 1}`,

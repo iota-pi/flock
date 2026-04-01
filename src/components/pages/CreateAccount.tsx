@@ -19,7 +19,7 @@ import { ROUTES } from './routes'
 import { HomeIcon, PasswordIcon } from '../Icons'
 import { useUiStore } from '../../state/uiStore'
 import { createAccount, initialiseVault } from '../../api/vault'
-import { getSalt } from '../../api/crypto-utils'
+import { generateSalt } from '../../api/vault/crypto'
 import { usePasswordStrength } from '../../hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
@@ -99,7 +99,7 @@ function CreateAccountPage() {
     async () => {
       setWaiting(true)
       try {
-        const salt = getSalt()
+        const salt = generateSalt()
         const authToken = await initialiseVault({
           password,
           salt,

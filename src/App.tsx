@@ -21,7 +21,7 @@ import {
   initialiseDeadLetterQueueCount,
   processOfflineQueue,
   startOfflineQueueHealthMonitor,
-} from './api/offlineSyncService'
+} from './sync/offlineSyncService'
 import {
   startRealtimeCoordinator,
   stopRealtimeCoordinator,
@@ -30,7 +30,7 @@ import type { RealtimeEventEnvelope } from './shared/realtime'
 import {
   subscribeSyncRuntime,
   subscribeSyncRuntimeMessages,
-} from './api/syncRuntime'
+} from './sync/syncRuntime'
 
 const Root = styled('div')({
   display: 'flex',

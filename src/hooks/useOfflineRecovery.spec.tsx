@@ -46,14 +46,14 @@ vi.mock('../api/trpc', () => ({
   },
 }))
 
-vi.mock('../api/offlineQueueStore', () => ({
+vi.mock('../sync/offlineQueueStore', () => ({
   readDeadLetterQueue: mocks.readDeadLetterQueue,
   readQueue: mocks.readQueue,
   writeDeadLetterQueue: mocks.writeDeadLetterQueue,
   writeQueue: mocks.writeQueue,
 }))
 
-vi.mock('../api/offlineQueue', () => ({
+vi.mock('../sync/offlineQueue', () => ({
   processOfflineQueue: mocks.processOfflineQueue,
 }))
 

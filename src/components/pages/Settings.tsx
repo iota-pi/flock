@@ -24,7 +24,7 @@ import {
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
 import { useUiStore } from '../../state/uiStore'
-import { processOfflineQueue } from '../../api/offlineQueue'
+import { processOfflineQueue } from '../../sync/offlineQueue'
 import { useDialogState } from '../../hooks/useDialogState'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))

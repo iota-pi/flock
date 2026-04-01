@@ -1,6 +1,6 @@
 import { generateItemId } from '../utils'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { setCachedAutomergeBinary } from '../api/automergeBinaryCache'
+import { setCachedAutomergeBinary } from '../sync/automergeBinaryCache'
 import { seedAutomergeBinaryWithWorker } from '../workers/itemWorkerManager'
 
 export function importPeople(data: Record<string, string>[]): Item[] {

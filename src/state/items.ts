@@ -3,7 +3,7 @@ import type { Frequency } from '../utils/frequencies'
 import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
 import * as Automerge from '@automerge/automerge'
-import { setCachedAutomergeBinary } from '../api/automergeBinaryCache'
+import { setCachedAutomergeBinary } from '../sync/automergeBinaryCache'
 
 export { ITEM_TYPES }
 export type OldItemType = 'general'

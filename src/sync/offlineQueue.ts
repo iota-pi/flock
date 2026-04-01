@@ -1,8 +1,8 @@
 import env from '../env'
 import * as Sentry from '@sentry/react'
-import { trpcClient } from './trpcClient'
+import { trpcClient } from '../api/trpcClient'
 import { Item } from '../state/items'
-import { queryClient, queryKeys } from './queryClient'
+import { queryClient, queryKeys } from '../api/queryClient'
 import {
   emitSyncRuntimeMessage,
   setSyncRuntimeState,
@@ -24,15 +24,15 @@ import {
 import {
   getConflictStrategiesByKey,
   type QueueConflictHandler,
-} from './sync/conflictStrategies'
+} from './conflictStrategies'
 import {
   extractTargetIds,
   getPayloadTelemetry,
   moveClientErrorMutationToDlq,
   moveUnhandledMutationToDlq,
-} from './sync/dlqManager'
+} from './dlqManager'
 
-export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './sync/conflictStrategies'
+export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './conflictStrategies'
 
 let processing = false
 const CHUNK_SIZE = 50

@@ -6,7 +6,7 @@ import {
   readQueue,
   writeQueue,
   type QueuedMutation,
-} from './api/offlineQueueStore'
+} from './sync/offlineQueueStore'
 import {
   hasVersionConflictSignature,
   isVersionConflictError,

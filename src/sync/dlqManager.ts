@@ -1,17 +1,17 @@
 import type { z } from 'zod'
-import { queryClient, queryKeys } from '../queryClient'
-import { type Item, getItemName } from '../../state/items'
-import type { ItemId } from '../../shared/itemTypes'
+import { queryClient, queryKeys } from '../api/queryClient'
+import { type Item, getItemName } from '../state/items'
+import type { ItemId } from '../shared/itemTypes'
 import {
   moveToDeadLetterQueue,
   readDeadLetterQueue,
   writeDeadLetterQueue,
   type QueuedMutation,
-} from '../offlineQueueStore'
+} from './offlineQueueStore'
 import {
   PutItemBodySchema,
   PutItemsBatchBodySchema,
-} from '../../shared/syncSchemas'
+} from '../shared/syncSchemas'
 
 const ResolveBatchPayloadSchema = PutItemBodySchema.pick({ account: true }).extend({
   resolutions: PutItemsBatchBodySchema.shape.items

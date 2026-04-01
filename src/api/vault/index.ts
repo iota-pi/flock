@@ -5,7 +5,7 @@ import {
   clearActiveSessionToken,
   clearOfflineQueue,
   setActiveSessionToken,
-} from '../offlineQueueStore'
+} from '../../sync/offlineQueueStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
 import {

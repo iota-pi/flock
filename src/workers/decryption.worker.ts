@@ -2,7 +2,7 @@
 import * as Automerge from '@automerge/automerge'
 import type { VaultItem } from '../api/vault/client'
 import type { ItemId, VaultBranch } from '../shared/itemTypes'
-import { toBytes } from '../api/pure-crypto'
+import { toBytes } from '../api/vault/crypto'
 
 type DecryptItemsWorkerInput = {
   type?: 'DECRYPT_ITEMS'

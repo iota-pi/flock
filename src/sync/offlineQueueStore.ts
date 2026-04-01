@@ -1,4 +1,4 @@
-import { syncDB } from './db'
+import { syncDB } from '../api/db'
 import { Item } from '../state/items'
 import type { z } from 'zod'
 import { DlqFailureSnapshotSchema } from '../shared/syncSchemas'
