@@ -5,6 +5,7 @@ import browserslistToEsbuild from 'browserslist-to-esbuild';
 import { VitePWA } from 'vite-plugin-pwa';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
 
 import { visualizer } from 'rollup-plugin-visualizer';
 
@@ -17,12 +18,17 @@ export default defineConfig({
   base: '',
   plugins: [
     wasm(),
+    topLevelAwait(),
     react(),
     viteTsconfigPaths(),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'service-worker.ts',
+      injectManifest: {
+        rollupFormat: 'es',
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
       registerType: 'autoUpdate',
       manifest: {
         short_name: 'Flock',
@@ -81,5 +87,12 @@ export default defineConfig({
         },
       },
     },
+  },
+  worker: {
+    format: 'es',
+    plugins: () => [
+      wasm(),
+      topLevelAwait(),
+    ],
   },
 });
