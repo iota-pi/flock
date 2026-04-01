@@ -3,8 +3,8 @@ import type { UseQueryOptions } from '@tanstack/react-query'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import type { ItemId } from '../shared/itemTypes'
-import { fetchItems, fetchMetadata } from './queries'
-import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from './mutations'
+import { fetchItems, fetchMetadata } from './clientQueries'
+import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from './clientMutations'
 import { queryClient, queryKeys } from './queryClient'
 
 export function useItemsViewQuery<TData = Item[]>(

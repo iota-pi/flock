@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
+import { Fragment, lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import {
   Divider,
   List,
@@ -20,11 +20,12 @@ import {
 import { useItemsById } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
-import ConfirmationDialog from './dialogs/ConfirmationDialog'
-import GroupDialog from './dialogs/GroupDialog'
-import FrequencyDialog from './dialogs/FrequencyDialog'
 import { useDeleteItemsViewMutation, useStoreItemsViewMutation } from '../api/viewQueries'
 import { useUiStore } from '../state/uiStore'
+
+const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
+const GroupDialog = lazy(() => import('./dialogs/GroupDialog'))
+const FrequencyDialog = lazy(() => import('./dialogs/FrequencyDialog'))
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -185,32 +186,34 @@ function SelectedActions() {
         ))}
       </List>
 
-      <ConfirmationDialog
-        confirmColour="error"
-        open={showConfirm}
-        onCancel={handleConfirmCancel}
-        onConfirm={handleConfirmDelete}
-      >
-        <Typography>
-          Are you sure you want to delete {selected.length} items?
-        </Typography>
+      <Suspense fallback={null}>
+        <ConfirmationDialog
+          confirmColour="error"
+          open={showConfirm}
+          onCancel={handleConfirmCancel}
+          onConfirm={handleConfirmDelete}
+        >
+          <Typography>
+            Are you sure you want to delete {selected.length} items?
+          </Typography>
 
-        <Typography>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
+          <Typography>
+            This action cannot be undone.
+          </Typography>
+        </ConfirmationDialog>
 
-      <GroupDialog
-        items={selectedItems}
-        onClose={handleHideGroup}
-        open={showGroup}
-      />
+        <GroupDialog
+          items={selectedItems}
+          onClose={handleHideGroup}
+          open={showGroup}
+        />
 
-      <FrequencyDialog
-        items={selectedItems}
-        onClose={handleHideFrequency}
-        open={showFrequency}
-      />
+        <FrequencyDialog
+          items={selectedItems}
+          onClose={handleHideFrequency}
+          open={showFrequency}
+        />
+      </Suspense>
     </Root>
   )
 }

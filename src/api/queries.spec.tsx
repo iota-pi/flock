@@ -14,11 +14,11 @@ import {
 } from 'vitest'
 import { getBlankPerson } from '../state/items'
 import { queryClient } from './queryClient'
-import { useStoreItemsMutation } from './queries'
-import * as mutations from './mutations'
+import { useStoreItemsViewMutation } from './viewQueries'
+import * as mutations from './clientMutations'
 
-vi.mock('./mutations', async importOriginal => {
-  const actual = await importOriginal<typeof import('./mutations')>()
+vi.mock('./clientMutations', async importOriginal => {
+  const actual = await importOriginal<typeof import('./clientMutations')>()
   return {
     ...actual,
     mutateStoreItems: vi.fn(),
@@ -42,7 +42,7 @@ describe('useStoreItemsMutation', () => {
   it('updates the items cache optimistically before the mutation resolves', async () => {
     const updatedItem = { ...getBlankPerson(), name: 'Prayed For' }
     vi.mocked(mutations.mutateStoreItems).mockResolvedValue([updatedItem])
-    const { result } = renderHook(() => useStoreItemsMutation(), { wrapper })
+    const { result } = renderHook(() => useStoreItemsViewMutation(), { wrapper })
 
     await act(async () => {
       await result.current.mutateAsync(updatedItem)
@@ -56,7 +56,7 @@ describe('useStoreItemsMutation', () => {
 
     vi.mocked(mutations.mutateStoreItems).mockRejectedValue(new Error('save failed'))
 
-    const { result } = renderHook(() => useStoreItemsMutation(), { wrapper })
+    const { result } = renderHook(() => useStoreItemsViewMutation(), { wrapper })
 
     await act(async () => {
       await expect(result.current.mutateAsync(updatedItem)).rejects.toThrow('save failed')

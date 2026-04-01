@@ -25,11 +25,13 @@ self.onmessage = (e: MessageEvent) => {
       }
     })
 
+    const transferables = seeded.map(entry => entry.binary.buffer)
+
     self.postMessage({
       type,
       jobId,
       seeded,
-    })
+    }, transferables)
     return
   }
 

@@ -15,6 +15,8 @@ import { loadVault } from './api/vault'
 import ErrorPage from './components/pages/ErrorPage'
 import { getApiAuthToken } from './api/runtime'
 import { trpc } from './api/trpc'
+import { queryClient, queryKeys } from './api/queryClient'
+import type { Item } from './state/items'
 import {
   initialiseDeadLetterQueueCount,
   processOfflineQueue,
@@ -148,6 +150,28 @@ function RootLayout() {
       startRealtimeCoordinator({
         account,
         onServerEvent: handleRealtimeEvent,
+        onItemsChanged: ({ updatedItemIds, deletedItemIds }) => {
+          if (deletedItemIds.length > 0) {
+            queryClient.setQueryData<Item[]>(queryKeys.items, old => {
+              if (!old) {
+                return old
+              }
+              const deletedIdSet = new Set(deletedItemIds)
+              return old.filter(item => !deletedIdSet.has(item.id))
+            })
+          }
+
+          if (updatedItemIds.length > 0) {
+            void trpcUtils.items.fetchMany.invalidate({
+              account,
+              ids: updatedItemIds,
+            })
+          }
+
+          if (deletedItemIds.length > 0) {
+            void trpcUtils.items.fetchMany.invalidate()
+          }
+        },
       })
       started = true
     }

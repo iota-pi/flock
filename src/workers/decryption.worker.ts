@@ -483,7 +483,7 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
       compactedBinary,
     }
 
-    self.postMessage(compactedMessage)
+    self.postMessage(compactedMessage, [compactedBinary.buffer])
     return
   }
 
@@ -578,5 +578,13 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
     jobId,
     items: decryptedItems,
   }
-  self.postMessage(resultMessage)
+
+  const transferables: ArrayBuffer[] = []
+  for (const item of decryptedItems) {
+    if (item.automergeBinary instanceof Uint8Array) {
+      transferables.push(item.automergeBinary.buffer)
+    }
+  }
+
+  self.postMessage(resultMessage, transferables)
 }

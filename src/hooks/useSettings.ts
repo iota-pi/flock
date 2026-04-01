@@ -4,8 +4,7 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { clearQueryCache, hasItemsInCache } from '../api/queries'
-import { useStoreItemsViewMutation } from '../api/viewQueries'
+import { useSetMetadataViewMutation, useStoreItemsViewMutation } from '../api/viewQueries'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -21,7 +20,6 @@ import {
   writeDeadLetterQueue,
   writeQueue,
 } from '../api/offlineSyncService'
-import { mutateSetMetadata } from '../api/mutations'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 
 export type SettingsDialogType = (
@@ -39,6 +37,7 @@ export default function useSettings() {
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
   const { mutateAsync: storeItems } = useStoreItemsViewMutation()
+  const { mutateAsync: setMetadata } = useSetMetadataViewMutation()
 
   // Actions
   const handleSignOut = useCallback(
@@ -63,7 +62,7 @@ export default function useSettings() {
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
   const handleClearCache = useCallback(
     () => {
-      clearQueryCache()
+      queryClient.clear()
       setCacheClearCounter(c => c + 1)
       setMessage({ message: 'Item cache cleared' })
     },
@@ -112,7 +111,7 @@ export default function useSettings() {
         const parsedDlq = Array.isArray(deadLetterQueue) ? deadLetterQueue : []
 
         if (metadata) {
-          await mutateSetMetadata(metadata)
+          await setMetadata(metadata)
         }
 
         await storeItems(restoredItems)
@@ -130,7 +129,7 @@ export default function useSettings() {
         console.error('Restore failed', err)
       }
     },
-    [closeDialog, setMessage, storeItems],
+    [closeDialog, setMessage, setMetadata, storeItems],
   )
 
   const handleConfirmImport = useCallback(
@@ -187,7 +186,7 @@ export default function useSettings() {
   const [goal] = useMetadata('prayerGoal', naturalGoal)
 
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? hasItemsInCache() : false),
+    () => (cacheClearCounter ? queryClient.getQueryData(queryKeys.items) !== undefined : false),
     [cacheClearCounter],
   )
 

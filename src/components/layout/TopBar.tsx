@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 import {
   Box,
   Checkbox,
@@ -14,9 +14,10 @@ import {
 } from '@mui/material'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
 import { usePracticalFilterCount } from '../../state/selectors'
-import SortDialog from '../dialogs/SortDialog'
-import FilterDialog from '../dialogs/FilterDialog'
 import SyncNowButton from './SyncNowButton'
+
+const SortDialog = lazy(() => import('../dialogs/SortDialog'))
+const FilterDialog = lazy(() => import('../dialogs/FilterDialog'))
 
 const MENU_POPUP_ID = 'top-bar-menu'
 
@@ -176,15 +177,17 @@ function TopBar({
         ))}
       </Menu>
 
-      <FilterDialog
-        onClose={handleCloseFilter}
-        open={showFilter}
-      />
+      <Suspense fallback={null}>
+        <FilterDialog
+          onClose={handleCloseFilter}
+          open={showFilter}
+        />
 
-      <SortDialog
-        onClose={handleCloseSort}
-        open={showSort}
-      />
+        <SortDialog
+          onClose={handleCloseSort}
+          open={showSort}
+        />
+      </Suspense>
     </StyledPaper>
   )
 }

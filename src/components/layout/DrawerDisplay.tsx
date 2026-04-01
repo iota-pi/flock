@@ -1,13 +1,14 @@
 import { Theme, useMediaQuery } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
 import { DrawerData, useUiStore } from '../../state/uiStore'
-import ItemDrawer from '../drawers/ItemDrawer'
-import PlaceholderDrawer from '../drawers/Placeholder'
 import { useItem, useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
+
+const ItemDrawer = lazy(() => import('../drawers/ItemDrawer'))
+const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 
 function useDrawerRouting(drawers: DrawerData[]) {
   const clearDrawers = useUiStore(state => state.clearDrawers)
@@ -115,16 +116,18 @@ function IndividualDrawer({
 
   if (localItem) {
     return (
-      <ItemDrawer
-        fromPrayerPage={!!drawer.praying}
-        item={localItem}
-        onBack={onClose}
-        onChange={handleChange}
-        onClose={onClose}
-        onExited={onExited}
-        open={drawer.open}
-        stacked={stacked}
-      />
+      <Suspense fallback={null}>
+        <ItemDrawer
+          fromPrayerPage={!!drawer.praying}
+          item={localItem}
+          onBack={onClose}
+          onChange={handleChange}
+          onClose={onClose}
+          onExited={onExited}
+          open={drawer.open}
+          stacked={stacked}
+        />
+      </Suspense>
     )
   }
 
@@ -174,10 +177,12 @@ function DrawerDisplay() {
       ))}
 
       {showPlaceholder && (
-        <PlaceholderDrawer
-          open
-          onClose={noop}
-        />
+        <Suspense fallback={null}>
+          <PlaceholderDrawer
+            open
+            onClose={noop}
+          />
+        </Suspense>
       )}
     </>
   )

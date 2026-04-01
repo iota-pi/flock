@@ -8,6 +8,7 @@ import { getApiAuthToken } from './runtime'
 type RealtimeCoordinatorOptions = {
   account: string
   onServerEvent: (event: RealtimeEventEnvelope) => void
+  onItemsChanged?: (payload: { updatedItemIds: string[]; deletedItemIds: string[] }) => void
 }
 
 type RealtimeCoordinatorHandle = {
@@ -80,7 +81,7 @@ export function stopRealtimeCoordinator(): void {
   activeKey = ''
 }
 
-function createCoordinator({ account, onServerEvent }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
+function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
   const tabId = createTabId()
   const supportsBroadcastChannel = typeof BroadcastChannel !== 'undefined'
   const channelName = `flock:realtime:${account}`
@@ -108,6 +109,23 @@ function createCoordinator({ account, onServerEvent }: RealtimeCoordinatorOption
   const handleServerEvent = (event: RealtimeEventEnvelope) => {
     if (event.account !== account) {
       return
+    }
+
+    if (event.eventType === 'items.updated' || event.eventType === 'items.deleted') {
+      const data = (event.data || {}) as {
+        itemIds?: unknown
+        deletedItemIds?: unknown
+      }
+      const updatedItemIds = Array.isArray(data.itemIds)
+        ? data.itemIds.filter((value): value is string => typeof value === 'string')
+        : []
+      const deletedItemIds = Array.isArray(data.deletedItemIds)
+        ? data.deletedItemIds.filter((value): value is string => typeof value === 'string')
+        : []
+
+      if (onItemsChanged && (updatedItemIds.length > 0 || deletedItemIds.length > 0)) {
+        onItemsChanged({ updatedItemIds, deletedItemIds })
+      }
     }
 
     if (typeof event.eventId === 'number' && event.eventId > 0) {

@@ -1,6 +1,6 @@
 
 import type * as vault from '../api/vault'
-import type * as mutations from '../api/mutations'
+import type * as mutations from '../api/clientMutations'
 import type { hasApiAuthToken } from '../api/runtime'
 import type { queryKeys } from '../api/queryClient'
 

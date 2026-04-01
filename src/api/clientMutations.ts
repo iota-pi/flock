@@ -1,3 +1,7 @@
+/**
+ * @deprecated Prefer generated tRPC hooks from `src/api/trpc.ts` and
+ * keep this file only for transitional optimistic/offline orchestration.
+ */
 import { AccountMetadata } from '../state/metadata'
 import {
   checkProperties,
@@ -17,7 +21,7 @@ import {
 } from './vault/client'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
-import { fetchItems } from './queries'
+import { fetchItems } from './clientQueries'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'

@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   exportData: vi.fn(),
   signOutVault: vi.fn(),
   mutateStoreItems: vi.fn(),
-  clearQueryCache: vi.fn(),
-  hasItemsInCache: vi.fn(() => true),
+  mutateSetMetadataView: vi.fn(),
   readQueue: vi.fn(),
   readDeadLetterQueue: vi.fn(),
   writeQueue: vi.fn(),
@@ -26,12 +25,11 @@ vi.mock('../api/vault', () => ({
 }))
 
 vi.mock('../api/queries', () => ({
-  clearQueryCache: mocks.clearQueryCache,
-  hasItemsInCache: mocks.hasItemsInCache,
 }))
 
 vi.mock('../api/viewQueries', () => ({
   useStoreItemsViewMutation: () => ({ mutateAsync: mocks.mutateStoreItems }),
+  useSetMetadataViewMutation: () => ({ mutateAsync: mocks.mutateSetMetadataView }),
 }))
 
 vi.mock('../state/selectors', () => ({
@@ -70,6 +68,7 @@ vi.mock('../state/uiStore', () => ({
 vi.mock('../api/queryClient', () => ({
   queryClient: {
     getQueryData: vi.fn(() => ({ meta: 'value' })),
+    clear: vi.fn(),
   },
   queryKeys: {
     metadata: ['metadata'],

@@ -1,5 +1,6 @@
 export type RealtimeEventType =
   | 'items.updated'
+  | 'items.deleted'
   | 'metadata.updated'
   | 'system.heartbeat'
 

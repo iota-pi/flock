@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Box } from '@mui/material'
-import DrawerDisplay from './DrawerDisplay'
 import SelectedActions from '../SelectedActions'
 import GeneralMessage from '../GeneralMessage'
 import { useLoggedIn } from '../../state/selectors'
+
+const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
 
 
 function MainLayout({ children }: { children: ReactNode }) {
@@ -37,7 +38,9 @@ function MainLayout({ children }: { children: ReactNode }) {
       </Box>
 
       {loggedIn && (
-        <DrawerDisplay />
+        <Suspense fallback={null}>
+          <DrawerDisplay />
+        </Suspense>
       )}
 
       <GeneralMessage />

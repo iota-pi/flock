@@ -93,7 +93,7 @@ registerSW()
 
 if (window.Cypress) {
   window.vault = import('./api/vault')
-  window.mutations = import('./api/mutations')
+  window.mutations = import('./api/clientMutations')
   window.invalidateQuery = (key: keyof typeof queryKeys) => queryClient.invalidateQueries({ queryKey: queryKeys[key] })
   window.queryKeys = queryKeys
 }

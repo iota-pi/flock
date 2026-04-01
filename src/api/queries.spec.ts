@@ -19,7 +19,7 @@ describe('decryption cache persistence', () => {
   })
 
   afterEach(async () => {
-    const mod = await import('./queries')
+    const mod = await import('./clientQueries')
     mod.__decryptionCacheTestUtils.reset()
     vi.useRealTimers()
   })
@@ -40,7 +40,7 @@ describe('decryption cache persistence', () => {
 
     mocks.getItem.mockResolvedValue(persisted)
 
-    const mod = await import('./queries')
+    const mod = await import('./clientQueries')
     await mod.__decryptionCacheTestUtils.load(accountId)
 
     const cacheSnapshot = mod.__decryptionCacheTestUtils.getSnapshot()
@@ -66,7 +66,7 @@ describe('decryption cache persistence', () => {
 
     mocks.getItem.mockResolvedValue(persisted)
 
-    const mod = await import('./queries')
+    const mod = await import('./clientQueries')
     await mod.__decryptionCacheTestUtils.load(accountId)
 
     mod.__decryptionCacheTestUtils.schedulePersist(accountId)
@@ -112,7 +112,7 @@ describe('decryption cache persistence', () => {
       return null
     })
 
-    const mod = await import('./queries')
+    const mod = await import('./clientQueries')
 
     await mod.__decryptionCacheTestUtils.load('acct-a')
     expect(mod.__decryptionCacheTestUtils.getSnapshot().has('item-a')).toBe(true)

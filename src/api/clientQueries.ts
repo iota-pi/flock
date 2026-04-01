@@ -1,5 +1,3 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import type { UseQueryOptions } from '@tanstack/react-query'
 import {
   fetchMany,
   getMetadata,
@@ -15,14 +13,8 @@ import { AccountMetadata } from '../state/metadata'
 import { hasApiAuthToken } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import {
-  mutateDeleteItems,
-  mutateSetMetadata,
-  mutateStoreItems,
-} from './mutations'
-import {
   queryClient,
   queryKeys,
-  clearQueryCache as clearQueryClientCache,
 } from './queryClient'
 import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
@@ -111,14 +103,15 @@ async function requestCompactionWithWorker(
 
   return new Promise((resolve, reject) => {
     pendingCompactionJobs.set(jobId, { resolve, reject })
+    const binaryToTransfer = automergeBinary.slice()
     worker.postMessage({
       type: 'COMPACT_ITEM',
       jobId,
       key,
       itemId,
       baseVersionId,
-      automergeBinary,
-    })
+      automergeBinary: binaryToTransfer,
+    }, [binaryToTransfer.buffer])
   })
 }
 
@@ -853,66 +846,9 @@ export async function fetchMetadata(): Promise<AccountMetadata> {
   return metadata
 }
 
-// Hook: Fetch items
-export function useItemsQuery<TData = Item[]>(
-  options?: Omit<UseQueryOptions<Item[], Error, TData>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    ...options,
-    queryKey: queryKeys.items,
-    queryFn: fetchItems,
-    enabled: options?.enabled ?? true,
-  })
-}
-
-// Hook: Fetch metadata
-export function useMetadataQuery(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.metadata,
-    queryFn: fetchMetadata,
-    enabled,
-  })
-}
-
-// Hook: Update metadata
-export function useSetMetadataMutation() {
-  return useMutation<AccountMetadata, Error, AccountMetadata | ((prev: AccountMetadata) => AccountMetadata), { previousMetadata: AccountMetadata | undefined }>({
-    mutationFn: mutateSetMetadata,
-    onMutate: async variables => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.metadata })
-
-      const previousMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata)
-      const nextMetadata = typeof variables === 'function'
-        ? variables(previousMetadata || {} as AccountMetadata)
-        : variables
-
-      queryClient.setQueryData<AccountMetadata>(queryKeys.metadata, nextMetadata)
-
-      return { previousMetadata }
-    },
-    onError: (_error, _variables, context) => {
-      queryClient.setQueryData(queryKeys.metadata, context?.previousMetadata)
-    },
-  })
-}
-
-// Hook: Store items mutation
-export function useStoreItemsMutation() {
-  return useMutation<Item[], Error, Item | Item[]>({
-    mutationFn: items => mutateStoreItems(items),
-  })
-}
-
-// Hook: Delete items mutation
-export function useDeleteItemsMutation() {
-  return useMutation({
-    mutationFn: mutateDeleteItems,
-  })
-}
-
 // Helper to clear the cache (e.g., on logout)
 export function clearQueryCache() {
-  clearQueryClientCache()
+  queryClient.clear()
 }
 
 // Helper to check if we have cached data (for UI purposes)
