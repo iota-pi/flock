@@ -4,7 +4,8 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { clearQueryCache, hasItemsInCache, useStoreItemsMutation } from '../api/queries'
+import { clearQueryCache, hasItemsInCache } from '../api/queries'
+import { useStoreItemsViewMutation } from '../api/viewQueries'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -37,7 +38,7 @@ export default function useSettings() {
   const setMessage = useUiStore(state => state.setMessage)
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
-  const { mutateAsync: storeItems } = useStoreItemsMutation()
+  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
 
   // Actions
   const handleSignOut = useCallback(

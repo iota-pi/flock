@@ -18,7 +18,7 @@ import {
 import { useItemMap } from '../../state/selectors'
 import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useToday } from '../../hooks/useToday'
-import { useStoreItemsMutation } from '../../api/queries'
+import { useStoreItemsViewMutation } from '../../api/viewQueries'
 import { recordPrayerCompletion } from '../../api/vault'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
@@ -41,7 +41,7 @@ type FlowState =
 function PrayerPage() {
   const location = useLocation()
   const itemMap = useItemMap()
-  const { mutate: storeItems } = useStoreItemsMutation()
+  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
 
   const today = useToday()
   const prevTodayRef = useRef(today)

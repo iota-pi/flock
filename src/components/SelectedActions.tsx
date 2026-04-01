@@ -23,7 +23,7 @@ import { usePrevious } from '../utils'
 import ConfirmationDialog from './dialogs/ConfirmationDialog'
 import GroupDialog from './dialogs/GroupDialog'
 import FrequencyDialog from './dialogs/FrequencyDialog'
-import { useDeleteItemsMutation, useStoreItemsMutation } from '../api/queries'
+import { useDeleteItemsViewMutation, useStoreItemsViewMutation } from '../api/viewQueries'
 import { useUiStore } from '../state/uiStore'
 
 const Root = styled('div')(({ theme }) => ({
@@ -51,8 +51,8 @@ function SelectedActions() {
   const setUi = useUiStore(state => state.setUi)
   const getItemsById = useItemsById()
   const selected = useUiStore(state => state.selected)
-  const { mutateAsync: deleteItems } = useDeleteItemsMutation()
-  const { mutateAsync: storeItems } = useStoreItemsMutation()
+  const { mutateAsync: deleteItems } = useDeleteItemsViewMutation()
+  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
 
   const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
   const prevSelectedItems = usePrevious(selectedItems) || []

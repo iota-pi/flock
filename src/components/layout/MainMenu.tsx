@@ -14,7 +14,7 @@ import {
 } from '@mui/material'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { useMetadataQuery } from '../../api/queries'
+import { useMetadataViewQuery } from '../../api/viewQueries'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
 import { useUiStore } from '../../state/uiStore'
@@ -194,7 +194,7 @@ function MainMenu({
   const dlqCount = useUiStore(state => state.dlqCount)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
-  const { data: metadata = {} } = useMetadataQuery(loggedIn)
+  const { data: metadata = {} } = useMetadataViewQuery(loggedIn)
   const page = usePage()
 
   const handleClick = useCallback(

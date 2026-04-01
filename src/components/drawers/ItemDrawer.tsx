@@ -32,7 +32,7 @@ import {
   UnarchiveIcon,
 } from '../Icons'
 import { getLastPrayedFor } from '../../utils/prayer'
-import { useDeleteItemsMutation, useStoreItemsMutation } from '../../api/queries'
+import { useDeleteItemsViewMutation, useStoreItemsViewMutation } from '../../api/viewQueries'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 
@@ -62,8 +62,8 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const { mutateAsync: deleteItem } = useDeleteItemsMutation()
-  const { mutate: storeItems } = useStoreItemsMutation()
+  const { mutateAsync: deleteItem } = useDeleteItemsViewMutation()
+  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
 
   const [disableAutoSave, setDisableAutoSave] = useState(false)
 

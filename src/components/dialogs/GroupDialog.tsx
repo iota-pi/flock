@@ -9,7 +9,7 @@ import {
 } from '@mui/material'
 import { GroupItem, Item } from '../../state/items'
 import Search from '../Search'
-import { useStoreItemsMutation } from '../../api/queries'
+import { useStoreItemsViewMutation } from '../../api/viewQueries'
 
 export interface Props {
   items: Item[],
@@ -25,7 +25,7 @@ function GroupDialog({
 }: Props) {
   const [addGroups, setAddGroups] = useState<GroupItem[]>([])
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
-  const { mutate: storeItems } = useStoreItemsMutation()
+  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
 
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
   const selectedIds = useMemo(() => items.map(item => item.id), [items])

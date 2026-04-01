@@ -13,6 +13,37 @@ const mocks = vi.hoisted(() => ({
   setDlqCount: vi.fn(),
   setOfflineQueueLength: vi.fn(),
   setMessage: vi.fn(),
+  invalidateItems: vi.fn(),
+  putMutateAsync: vi.fn(),
+  resolveBranchConflictMutateAsync: vi.fn(),
+}))
+
+vi.mock('../api/trpc', () => ({
+  trpc: {
+    items: {
+      fetchMany: {},
+      put: {
+        useMutation: () => ({
+          mutateAsync: mocks.putMutateAsync,
+        }),
+      },
+      resolveBranchConflict: {
+        useMutation: () => ({
+          mutateAsync: mocks.resolveBranchConflictMutateAsync,
+        }),
+      },
+    },
+    accounts: {
+      getMetadata: {},
+    },
+    useUtils: () => ({
+      items: {
+        fetchMany: {
+          invalidate: mocks.invalidateItems,
+        },
+      },
+    }),
+  },
 }))
 
 vi.mock('../api/offlineQueueStore', () => ({
@@ -24,6 +55,16 @@ vi.mock('../api/offlineQueueStore', () => ({
 
 vi.mock('../api/offlineQueue', () => ({
   processOfflineQueue: mocks.processOfflineQueue,
+}))
+
+vi.mock('../api/queryClient', () => ({
+  queryClient: {
+    getQueryData: vi.fn(),
+  },
+  queryKeys: {
+    items: ['items'],
+    metadata: ['metadata'],
+  },
 }))
 
 vi.mock('../state/uiStore', () => ({

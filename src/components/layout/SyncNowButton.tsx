@@ -6,18 +6,19 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { processOfflineQueue } from '../../api/offlineQueue'
-import { queryClient, queryKeys } from '../../api/queryClient'
+import { trpc } from '../../api/trpc'
 
 function SyncNowButton() {
+  const trpcUtils = trpc.useUtils()
   const isSyncing = useUiStore(state => state.isSyncing || state.requests.active > 0)
   const offlineQueueLength = useUiStore(state => state.offlineQueueLength)
   const isOnline = useOnlineStatus()
 
   const handleForceSync = useCallback(async () => {
     await processOfflineQueue()
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
-  }, [])
+    await trpcUtils.items.fetchMany.invalidate()
+    await trpcUtils.accounts.getMetadata.invalidate()
+  }, [trpcUtils])
 
   const isQueueActive = isSyncing || offlineQueueLength > 0
   const syncStatusIcon = !isOnline

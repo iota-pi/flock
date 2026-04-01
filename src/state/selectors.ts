@@ -3,7 +3,7 @@ import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
-import { useItemsQuery, useMetadataQuery, useSetMetadataMutation } from '../api/queries'
+import { useItemsViewQuery, useMetadataViewQuery, useSetMetadataViewMutation } from '../api/viewQueries'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
@@ -28,7 +28,7 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
     },
     [itemType],
   )
-  const { data: items = EMPTY_ARRAY as T[] } = useItemsQuery<T[]>({ enabled: loggedIn, select: selectItems })
+  const { data: items = EMPTY_ARRAY as T[] } = useItemsViewQuery<T[]>({ enabled: loggedIn, select: selectItems })
   return items
 }
 
@@ -41,7 +41,7 @@ export const useItemMap = () => {
     },
     [],
   )
-  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsQuery<Record<ItemId, Item>>({
+  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsViewQuery<Record<ItemId, Item>>({
     enabled: loggedIn,
     select: selectItemMap,
   })
@@ -56,7 +56,7 @@ export const useItem = (id: ItemId) => {
       .find(item => item.id === id),
     [id],
   )
-  const { data: item } = useItemsQuery<Item | undefined>({ enabled: loggedIn, select: selectItem })
+  const { data: item } = useItemsViewQuery<Item | undefined>({ enabled: loggedIn, select: selectItem })
   return item
 }
 
@@ -85,8 +85,8 @@ export function useMetadata<K extends MetadataKey>(
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
   const loggedIn = useLoggedIn()
-  const { data: metadata = {} as Metadata } = useMetadataQuery(loggedIn)
-  const { mutateAsync: setMetadata } = useSetMetadataMutation()
+  const { data: metadata = {} as Metadata } = useMetadataViewQuery(loggedIn)
+  const { mutateAsync: setMetadata } = useSetMetadataViewMutation()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(

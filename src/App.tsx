@@ -4,7 +4,6 @@ import { styled, Toolbar, useMediaQuery } from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
-import { httpBatchLink } from '@trpc/client'
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
@@ -14,10 +13,8 @@ import { useUiStore } from './state/uiStore'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/vault'
 import ErrorPage from './components/pages/ErrorPage'
-import env from './env'
+import { getApiAuthToken } from './api/runtime'
 import { trpc } from './api/trpc'
-import { queryClient, queryKeys } from './api/queryClient'
-import { getApiAuthToken, trackedFetch } from './api/runtime'
 import {
   initialiseDeadLetterQueueCount,
   processOfflineQueue,
@@ -44,6 +41,7 @@ const Content = styled('div')({
 })
 
 function RootLayout() {
+  const trpcUtils = trpc.useUtils()
   const loggedIn = useLoggedIn()
   const account = useAuthStore(state => state.account)
   const setUi = useUiStore(state => state.setUi)
@@ -120,14 +118,14 @@ function RootLayout() {
 
   const handleRealtimeEvent = useCallback((event: RealtimeEventEnvelope) => {
     if (event.eventType === 'items.updated') {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      void trpcUtils.items.fetchMany.invalidate()
       return
     }
 
     if (event.eventType === 'metadata.updated') {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metadata })
+      void trpcUtils.accounts.getMetadata.invalidate()
     }
-  }, [])
+  }, [trpcUtils])
 
   useEffect(() => {
     if (!loggedIn || !account) {
@@ -202,24 +200,9 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
-  const [trpcClient] = useState(() => trpc.createClient({
-    links: [
-      httpBatchLink({
-        url: `${env.VAULT_ENDPOINT}/trpc`,
-        headers: () => {
-          const authToken = getApiAuthToken()
-          return authToken ? { Authorization: `Basic ${authToken}` } : {}
-        },
-        fetch: trackedFetch,
-      }),
-    ],
-  }))
-
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <LocalizationProvider dateAdapter={AdapterDateFns}>
-        <RouterProvider router={router} />
-      </LocalizationProvider>
-    </trpc.Provider>
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <RouterProvider router={router} />
+    </LocalizationProvider>
   )
 }

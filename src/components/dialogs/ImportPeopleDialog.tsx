@@ -13,7 +13,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
 import { useItems } from '../../state/selectors'
 import { UploadIcon } from '../Icons'
-import { importPeople } from '../../utils/importUtils'
+import { importPeopleWithAutomergeSeed } from '../../utils/importUtils'
 
 
 export interface Props {
@@ -91,7 +91,7 @@ function ImportPeopleDialog({
           },
         })
         setErrorMessage('')
-        const items = importPeople(data)
+        const items = await importPeopleWithAutomergeSeed(data)
         setImportedItems(items)
       } else {
         setImportedItems([])

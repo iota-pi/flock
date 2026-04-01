@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
+import { MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
   Button,
@@ -12,6 +12,9 @@ import {
 } from '@mui/material'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
+import { z } from 'zod'
 import { ROUTES } from './routes'
 import { HomeIcon, PasswordIcon } from '../Icons'
 import { useUiStore } from '../../state/uiStore'
@@ -50,23 +53,36 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),
 }))
 
-export interface ChecklistItem {
-  id: string,
-  description: string,
-}
+const CreateAccountFormSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+})
+
+type CreateAccountFormInput = z.input<typeof CreateAccountFormSchema>
 
 function CreateAccountPage() {
   const setUi = useUiStore(state => state.setUi)
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
-  const [password, setPassword] = useState('')
   const [waiting, setWaiting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
   const [newAccount, setNewAccount] = useState('')
   const setAccount = useAuthStore(state => state.setAccount)
 
+  const {
+    register,
+    watch,
+    formState: { errors },
+  } = useForm<CreateAccountFormInput>({
+    resolver: zodResolver(CreateAccountFormSchema),
+    mode: 'onChange',
+    defaultValues: {
+      password: '',
+    },
+  })
+
+  const password = watch('password') || ''
   const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
   const handleClickHome = useCallback(
@@ -77,11 +93,6 @@ function CreateAccountPage() {
   const handleClickLogin = useCallback(
     () => navigate(ROUTES.login.path),
     [navigate],
-  )
-
-  const handleChangePassword = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
-    [],
   )
 
   const handleClickCreate = useCallback(
@@ -176,7 +187,9 @@ function CreateAccountPage() {
           <form>
             <StyledTextField
               autoComplete="new-password"
+              error={!!errors.password}
               fullWidth
+              helperText={errors.password?.message || ' '}
               id="password"
               slotProps={{
                 input: {
@@ -199,10 +212,9 @@ function CreateAccountPage() {
                 }
               }}
               label="Password"
-              onChange={handleChangePassword}
               type={showPassword ? 'text' : 'password'}
-              value={password}
               variant="standard"
+              {...register('password')}
             />
 
             <PasswordMeter score={passwordScore} />
@@ -210,7 +222,6 @@ function CreateAccountPage() {
             <Collapse in={!!passwordError}>
               <Typography color="error">
                 {passwordError}
-                {/* non-breaking space preserves height, smoothing exit transition */}
                 &nbsp;
               </Typography>
             </Collapse>

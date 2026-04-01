@@ -49,8 +49,8 @@ const itemsFixture: Item[] = [
   },
 ]
 
-vi.mock('../api/queries', () => ({
-  useItemsQuery: (options?: { enabled?: boolean, select?: (items: Item[]) => unknown }) => {
+vi.mock('../api/viewQueries', () => ({
+  useItemsViewQuery: (options?: { enabled?: boolean, select?: (items: Item[]) => unknown }) => {
     if (options?.enabled === false) {
       return { data: undefined }
     }
@@ -58,8 +58,8 @@ vi.mock('../api/queries', () => ({
       data: options?.select ? options.select(itemsFixture) : itemsFixture,
     }
   },
-  useMetadataQuery: () => ({ data: {} }),
-  useSetMetadataMutation: () => ({ mutateAsync: vi.fn() }),
+  useMetadataViewQuery: () => ({ data: {} }),
+  useSetMetadataViewMutation: () => ({ mutateAsync: vi.fn() }),
 }))
 
 describe('state selectors', () => {

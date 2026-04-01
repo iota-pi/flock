@@ -1,11 +1,8 @@
 import env from '../env'
 import * as Sentry from '@sentry/react'
 import { trpcClient } from './trpcClient'
-import { Item, getItemName } from '../state/items'
-import type { ItemId } from '../shared/itemTypes'
+import { Item } from '../state/items'
 import { queryClient, queryKeys } from './queryClient'
-import { getVaultKey } from './vault'
-import { fetchMany } from './vault/client'
 import {
   emitSyncRuntimeMessage,
   setSyncRuntimeState,
@@ -20,21 +17,22 @@ import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
   type QueuedMutation,
-  moveToDeadLetterQueue,
   readDeadLetterQueue,
   readQueue,
-  writeDeadLetterQueue,
   writeQueue,
 } from './offlineQueueStore'
-import { z } from 'zod'
 import {
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
-} from '../shared/syncSchemas'
+  getConflictStrategiesByKey,
+  type QueueConflictHandler,
+} from './sync/conflictStrategies'
 import {
-  resolveQueueConflictInWorker as resolveQueueConflictWithManager,
-  rescueStaleCompactedBranchInWorker as rescueStaleCompactedBranchWithManager,
-} from '../workers/decryptionWorkerManager'
+  extractTargetIds,
+  getPayloadTelemetry,
+  moveClientErrorMutationToDlq,
+  moveUnhandledMutationToDlq,
+} from './sync/dlqManager'
+
+export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './sync/conflictStrategies'
 
 let processing = false
 const CHUNK_SIZE = 50
@@ -43,45 +41,6 @@ const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
 let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
-
-export const CONFLICT_HANDLER_AUTOMERGE_ITEMS = 'automerge-items'
-
-const ResolveBatchPayloadSchema = z.object({
-  account: z.string().min(1).optional(),
-  resolutions: z.array(z.object({
-    item: z.string().min(1),
-  })),
-})
-
-const QueuePayloadSchema = z.union([
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
-  ResolveBatchPayloadSchema,
-])
-
-function extractTargetIds(payload: unknown): string[] {
-  const parsed = QueuePayloadSchema.safeParse(payload)
-  if (!parsed.success) {
-    return []
-  }
-
-  const value = parsed.data
-  if ('item' in value) {
-    return [value.item]
-  }
-  if ('items' in value) {
-    return value.items
-      .map(item => item.id)
-      .sort()
-  }
-  if ('resolutions' in value) {
-    return value.resolutions
-      .map(resolution => resolution.item)
-      .sort()
-  }
-
-  return []
-}
 
 function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
   if (existing.mutationType !== mutationType) {
@@ -101,56 +60,6 @@ function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: strin
   return existingTargets.every((target, index) => target === incomingTargets[index])
 }
 
-function getPayloadTelemetry(payload: unknown): Record<string, unknown> {
-  const parsed = QueuePayloadSchema.safeParse(payload)
-  if (!parsed.success) {
-    return {}
-  }
-
-  const typed = parsed.data
-
-  const targetIds = extractTargetIds(payload)
-
-  return {
-    account: typeof typed.account === 'string' ? typed.account : undefined,
-    item: 'item' in typed ? typed.item : undefined,
-    itemIds: targetIds,
-    itemCount: 'items' in typed
-      ? typed.items.length
-      : ('resolutions' in typed ? typed.resolutions.length : undefined),
-  }
-}
-
-function getMutationActionLabel(mutationType: string): string {
-  if (mutationType.includes('delete')) {
-    return 'Delete'
-  }
-  if (mutationType.includes('put') || mutationType.includes('update') || mutationType.includes('resolve')) {
-    return 'Update'
-  }
-  return 'Sync'
-}
-
-function getHumanReadableDlqTitle(mutation: QueuedMutation): string | undefined {
-  const targetIds = extractTargetIds(mutation.payload)
-  if (targetIds.length === 0) {
-    return undefined
-  }
-
-  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
-  const itemById = new Map(cachedItems.map(item => [item.id, item]))
-
-  const firstItem = itemById.get(targetIds[0] as ItemId)
-  const firstName = firstItem ? getItemName(firstItem) || firstItem.id : targetIds[0]
-  const action = getMutationActionLabel(mutation.mutationType)
-
-  if (targetIds.length === 1) {
-    return `${action} to ${firstName}`
-  }
-
-  return `${action} to ${firstName} and ${targetIds.length - 1} more`
-}
-
 export function isLikelyNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false
@@ -167,226 +76,10 @@ export function isLikelyNetworkError(error: unknown): boolean {
   )
 }
 
-type ResolvedBranch = {
-  encryptedAutomergeDoc: string
-  versionId: string
-  parentIds: string[]
-}
-
-type QueueConflictHandler = {
-  resolveVersionConflict?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
-  resolveStaleCompactedBranch?: (mutation: QueuedMutation) => Promise<QueuedMutation | null>
-}
-
 type MutationExecutionStrategy = QueueConflictHandler & {
   execute: (mutation: QueuedMutation) => Promise<void>
 }
-
-async function mergeConflictBranchesInWorker(
-  itemId: ItemId,
-  localBranches: ResolvedBranch[],
-  serverBranches: ResolvedBranch[],
-): Promise<ResolvedBranch> {
-  return resolveQueueConflictWithManager({
-    key: getVaultKey(),
-    itemId,
-    localBranches,
-    serverBranches,
-  })
-}
-
-async function rescueStaleCompactedBranchInWorker(
-  itemId: ItemId,
-  localBranch: ResolvedBranch,
-  serverBranch: ResolvedBranch,
-): Promise<ResolvedBranch> {
-  return rescueStaleCompactedBranchWithManager({
-    key: getVaultKey(),
-    itemId,
-    localBranch,
-    serverBranch,
-  })
-}
-
-async function rescueQueuedStaleCompactedBranch(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType !== 'items.put') {
-    return null
-  }
-
-  const payload = mutation.payload as {
-    account?: string
-    item?: ItemId
-    branches?: Array<ResolvedBranch>
-    modified?: number
-    type?: Item['type']
-    deleted?: boolean
-  }
-
-  if (!payload.account || !payload.item || !Array.isArray(payload.branches) || payload.branches.length !== 1) {
-    return null
-  }
-
-  const serverResult = await fetchMany({ ids: [payload.item] })
-  const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
-  const serverBranch = serverEnvelope?.branches?.[0]
-
-  if (!serverBranch) {
-    return null
-  }
-
-  const rescuedBranch = await rescueStaleCompactedBranchInWorker(
-    payload.item,
-    payload.branches[0],
-    serverBranch as ResolvedBranch,
-  )
-
-  return {
-    ...mutation,
-    payload: {
-      ...payload,
-      branches: [rescuedBranch],
-      modified: Date.now(),
-    },
-    conflict: true,
-    lastConflictAt: Date.now(),
-    attemptCount: (mutation.attemptCount || 0) + 1,
-    nextAttemptAt: Date.now() + 500,
-  }
-}
-
-const conflictStrategiesByKey: Record<string, QueueConflictHandler> = {
-  [CONFLICT_HANDLER_AUTOMERGE_ITEMS]: {
-    resolveVersionConflict: resolveQueuedPutConflict,
-    resolveStaleCompactedBranch: rescueQueuedStaleCompactedBranch,
-  },
-}
-
-async function resolveQueuedPutConflict(mutation: QueuedMutation): Promise<QueuedMutation | null> {
-  if (mutation.mutationType !== 'items.put' && mutation.mutationType !== 'items.putMany') {
-    return null
-  }
-
-  if (mutation.mutationType === 'items.put') {
-    const payload = mutation.payload as {
-      account?: string
-      item?: ItemId
-      branches?: Array<ResolvedBranch>
-      modified?: number
-      type?: Item['type']
-      deleted?: boolean
-    }
-
-    if (!payload.item || !Array.isArray(payload.branches) || payload.branches.length === 0) {
-      return null
-    }
-
-    const serverResult = await fetchMany({ ids: [payload.item] })
-    const serverEnvelope = serverResult.items.find(item => item.item === payload.item)
-    if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
-      return null
-    }
-
-    const resolvedBranch = await mergeConflictBranchesInWorker(
-      payload.item,
-      payload.branches,
-      serverEnvelope.branches,
-    )
-
-    return {
-      ...mutation,
-      mutationType: 'items.resolveBranchConflict',
-      payload: {
-        account: payload.account,
-        resolutions: [
-          {
-            item: payload.item,
-            resolvedBranch,
-          },
-        ],
-      },
-      conflict: true,
-      lastConflictAt: Date.now(),
-      attemptCount: (mutation.attemptCount || 0) + 1,
-      nextAttemptAt: Date.now() + 500,
-    }
-  }
-
-  const batchPayload = mutation.payload as {
-    account?: string
-    items?: Array<{
-      id?: string
-      branches?: Array<ResolvedBranch>
-      type?: Item['type']
-      deleted?: boolean
-    }>
-  }
-
-  if (!batchPayload.account || !Array.isArray(batchPayload.items) || batchPayload.items.length === 0) {
-    return null
-  }
-
-  const itemIds = batchPayload.items
-    .map(item => item.id)
-    .filter((id): id is string => typeof id === 'string')
-  if (itemIds.length === 0) {
-    return null
-  }
-
-  const serverResult = await fetchMany({ ids: itemIds })
-  const serverById = new Map(serverResult.items.map(item => [item.item, item]))
-
-  const divergent = batchPayload.items.filter(item => {
-    if (!item.id || !Array.isArray(item.branches) || item.branches.length === 0) {
-      return false
-    }
-    const serverEnvelope = serverById.get(item.id)
-    const serverHead = serverEnvelope?.branches?.[0]?.versionId
-    if (!serverEnvelope?.branches || serverEnvelope.branches.length === 0) {
-      return false
-    }
-
-    if (!serverHead) {
-      return true
-    }
-
-    if (serverEnvelope.branches.length > 1) {
-      return true
-    }
-
-    return !item.branches[0].parentIds.includes(serverHead)
-  })
-
-  if (divergent.length === 0) {
-    return null
-  }
-
-  const resolutions = await Promise.all(divergent.map(async item => {
-    const serverBranches = serverById.get(item.id as string)?.branches || []
-    const resolvedBranch = await mergeConflictBranchesInWorker(
-      item.id as string,
-      item.branches as ResolvedBranch[],
-      serverBranches as ResolvedBranch[],
-    )
-
-    return {
-      item: item.id as string,
-      resolvedBranch,
-    }
-  }))
-
-  return {
-    ...mutation,
-    mutationType: 'items.resolveBranchConflict',
-    payload: {
-      account: batchPayload.account,
-      resolutions,
-    },
-    conflict: true,
-    lastConflictAt: Date.now(),
-    attemptCount: (mutation.attemptCount || 0) + 1,
-    nextAttemptAt: Date.now() + 500,
-  }
-}
+const conflictStrategiesByKey = getConflictStrategiesByKey()
 
 const mutationStrategies: Record<string, MutationExecutionStrategy> = {
   'items.put': {
@@ -584,22 +277,19 @@ export async function processOfflineQueue() {
 
         const status = getErrorStatusCode(error)
         if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
-          const humanTitle = getHumanReadableDlqTitle(normalizedMutation)
-          await moveToDeadLetterQueue(
-            normalizedMutation.id,
-            getErrorReason(error),
+          const dlqCount = await moveClientErrorMutationToDlq({
+            mutation: normalizedMutation,
+            errorReason: getErrorReason(error),
             status,
-            {
+            telemetry: {
               timestamp: Date.now(),
               queueLength: queue.length,
               attemptCount: normalizedMutation.attemptCount,
               queuedAt: normalizedMutation.queuedAt,
               payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
             },
-            humanTitle,
-          )
-          const deadLetterQueue = await readDeadLetterQueue()
-          setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
+          })
+          setSyncRuntimeState({ dlqCount })
           emitSyncRuntimeMessage({
             severity: 'warning',
             message: 'An invalid offline change was isolated for recovery and sync continued.',
@@ -619,14 +309,11 @@ export async function processOfflineQueue() {
           break
         }
 
-        const deadLetterQueue = await readDeadLetterQueue()
-        deadLetterQueue.push({
-          ...normalizedMutation,
-          humanTitle: getHumanReadableDlqTitle(normalizedMutation),
-          lastErrorStatus: status || 500,
-          failedAt: Date.now(),
+        const dlqCount = await moveUnhandledMutationToDlq({
+          mutation: normalizedMutation,
+          status: status || 500,
           errorReason: error instanceof Error ? error.message : 'Unhandled sync error',
-          failureSnapshot: {
+          telemetry: {
             timestamp: Date.now(),
             queueLength: queue.length,
             attemptCount: normalizedMutation.attemptCount,
@@ -634,7 +321,6 @@ export async function processOfflineQueue() {
             payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
           },
         })
-        await writeDeadLetterQueue(deadLetterQueue)
         Sentry.captureException(error, {
           tags: {
             queueAction: 'dlq_routing',
@@ -645,7 +331,7 @@ export async function processOfflineQueue() {
             payload: getPayloadTelemetry(normalizedMutation.payload),
           },
         })
-        setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
+        setSyncRuntimeState({ dlqCount })
 
         if (normalizedMutation.baseState) {
           const targetIds = extractTargetIds(normalizedMutation.payload)

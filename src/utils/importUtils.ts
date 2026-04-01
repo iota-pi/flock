@@ -1,5 +1,7 @@
 import { generateItemId } from '../utils'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
+import { setCachedAutomergeBinary } from '../api/automergeBinaryCache'
+import { seedAutomergeBinaryWithWorker } from '../workers/itemWorkerManager'
 
 export function importPeople(data: Record<string, string>[]): Item[] {
   const d = new Date()
@@ -32,4 +34,13 @@ export function importPeople(data: Record<string, string>[]): Item[] {
   }
 
   return results
+}
+
+export async function importPeopleWithAutomergeSeed(data: Record<string, string>[]): Promise<Item[]> {
+  const items = importPeople(data)
+  const seeded = await seedAutomergeBinaryWithWorker(items)
+  for (const entry of seeded) {
+    setCachedAutomergeBinary(entry.id, entry.binary)
+  }
+  return items
 }

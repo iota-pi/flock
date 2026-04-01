@@ -56,6 +56,7 @@ describe('itemWorkerManager', () => {
 
     firstWorker.onmessage?.({
       data: {
+        type: 'PROCESS_ITEMS',
         jobId: postedMessages[1].jobId,
         results: [{ id: 'second' }],
         totalApplicable: 2,
@@ -65,6 +66,7 @@ describe('itemWorkerManager', () => {
 
     firstWorker.onmessage?.({
       data: {
+        type: 'PROCESS_ITEMS',
         jobId: postedMessages[0].jobId,
         results: [{ id: 'first' }],
         totalApplicable: 1,
@@ -74,6 +76,7 @@ describe('itemWorkerManager', () => {
 
     firstWorker.onmessage?.({
       data: {
+        type: 'PROCESS_ITEMS',
         jobId: postedMessages[2].jobId,
         results: [{ id: 'third' }],
         totalApplicable: 3,
@@ -126,6 +129,7 @@ describe('itemWorkerManager', () => {
     const recoveryJobId = secondWorker.postMessage.mock.calls[0][0].jobId
     secondWorker.onmessage?.({
       data: {
+        type: 'PROCESS_ITEMS',
         jobId: recoveryJobId,
         results: [],
         totalApplicable: 0,
@@ -138,5 +142,28 @@ describe('itemWorkerManager', () => {
       totalApplicable: 0,
       archivedCount: 0,
     })
+  })
+
+  it('seeds automerge binaries via worker channel', async () => {
+    const { seedAutomergeBinaryWithWorker } = await import('./itemWorkerManager')
+
+    const promise = seedAutomergeBinaryWithWorker([
+      { id: 'item-1' } as any,
+    ])
+
+    expect(workerConstructorSpy).toHaveBeenCalledTimes(1)
+    const activeWorker = workerInstances[0]
+    const posted = activeWorker.postMessage.mock.calls[0][0]
+    expect(posted.type).toBe('SEED_AUTOMERGE')
+
+    activeWorker.onmessage?.({
+      data: {
+        type: 'SEED_AUTOMERGE',
+        jobId: posted.jobId,
+        seeded: [{ id: 'item-1', binary: new Uint8Array([1, 2, 3]) }],
+      },
+    } as MessageEvent)
+
+    await expect(promise).resolves.toEqual([{ id: 'item-1', binary: new Uint8Array([1, 2, 3]) }])
   })
 })

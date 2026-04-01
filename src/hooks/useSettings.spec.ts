@@ -28,7 +28,10 @@ vi.mock('../api/vault', () => ({
 vi.mock('../api/queries', () => ({
   clearQueryCache: mocks.clearQueryCache,
   hasItemsInCache: mocks.hasItemsInCache,
-  useStoreItemsMutation: () => ({ mutateAsync: mocks.mutateStoreItems }),
+}))
+
+vi.mock('../api/viewQueries', () => ({
+  useStoreItemsViewMutation: () => ({ mutateAsync: mocks.mutateStoreItems }),
 }))
 
 vi.mock('../state/selectors', () => ({

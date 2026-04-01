@@ -14,7 +14,7 @@ import { Item } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import { getAccountId } from '../api/util'
 import { fetchMany } from '../api/vault/client'
-import { trpcClient } from '../api/trpcClient'
+import { trpc } from '../api/trpc'
 
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 
@@ -23,6 +23,9 @@ async function getVaultModule() {
 }
 
 export function useOfflineRecovery() {
+  const trpcUtils = trpc.useUtils()
+  const putItemMutation = trpc.items.put.useMutation()
+  const resolveBranchConflictMutation = trpc.items.resolveBranchConflict.useMutation()
   const setDlqCount = useUiStore(state => state.setDlqCount)
   const setOfflineQueueLength = useUiStore(state => state.setOfflineQueueLength)
   const setMessage = useUiStore(state => state.setMessage)
@@ -113,13 +116,13 @@ export function useOfflineRecovery() {
 
       const account = getAccountId()
       if (resolvedBranch.parentIds.length > 0) {
-        await trpcClient.items.resolveBranchConflict.mutate({
+        await resolveBranchConflictMutation.mutateAsync({
           account,
           resolutions: [{ item: itemId, resolvedBranch }],
           idempotencyKey: `manual-recovery-overwrite-${itemId}-${Date.now()}`,
         })
       } else {
-        await trpcClient.items.put.mutate({
+        await putItemMutation.mutateAsync({
           account,
           item: itemId,
           branches: [resolvedBranch],
@@ -130,13 +133,13 @@ export function useOfflineRecovery() {
         })
       }
 
-      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      await trpcUtils.items.fetchMany.invalidate()
       await removeManualRecoveryEntry(itemId)
       setMessage({ message: `Recovered ${itemId} using local cache.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
     }
-  }, [removeManualRecoveryEntry, setMessage])
+  }, [putItemMutation, removeManualRecoveryEntry, resolveBranchConflictMutation, setMessage, trpcUtils])
 
   const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
@@ -151,7 +154,7 @@ export function useOfflineRecovery() {
         deleted: true,
       })
 
-      await trpcClient.items.put.mutate({
+      await putItemMutation.mutateAsync({
         account: getAccountId(),
         item: itemId,
         branches: [{
@@ -165,13 +168,13 @@ export function useOfflineRecovery() {
         idempotencyKey: `manual-recovery-delete-${itemId}-${Date.now()}`,
       })
 
-      await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+      await trpcUtils.items.fetchMany.invalidate()
       await removeManualRecoveryEntry(itemId)
       setMessage({ message: `Deleted corrupted server item ${itemId}.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
     }
-  }, [removeManualRecoveryEntry, setMessage])
+  }, [putItemMutation, removeManualRecoveryEntry, setMessage, trpcUtils])
 
   return {
     deadLetterItems,
