@@ -19,6 +19,8 @@ import {
   VaultVersionConflictError,
   type VaultItem,
 } from './vault/client'
+import * as vaultApi from './vault'
+import * as Automerge from '@automerge/automerge'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
 import { fetchItems } from './itemReadService'
@@ -33,15 +35,11 @@ import {
   setCachedMetadataAutomergeBinary,
 } from '../sync/automergeBinaryCache'
 import { toBytes } from './vault/crypto'
-
-// Helper to avoid circular dependency on Vault.ts for encryption
-function getVaultModule() {
-  return import('./vault')
-}
+import { resolveQueueConflictInWorker } from '../workers/decryptionWorkerManager'
 
 function hasVaultKeyAccessor(
-  vault: typeof import('./vault'),
-): vault is typeof import('./vault') & { getVaultKey: () => CryptoKey } {
+  vault: typeof vaultApi,
+): vault is typeof vaultApi & { getVaultKey: () => CryptoKey } {
   return Object.prototype.hasOwnProperty.call(vault, 'getVaultKey')
     && typeof (vault as { getVaultKey?: unknown }).getVaultKey === 'function'
 }
@@ -265,7 +263,7 @@ function getHeadVersionId(item?: VaultItem): string | undefined {
 
 async function serializeItemAsBranch(
   item: Item,
-  vault: typeof import('./vault'),
+  vault: typeof vaultApi,
   currentServerItem?: VaultItem,
 ): Promise<{ branches: BranchPayload[] }> {
   const cachedBinary = getCachedAutomergeBinary(item.id)
@@ -273,7 +271,6 @@ async function serializeItemAsBranch(
   let versionId: string
 
   if (cachedBinary && hasVaultKeyAccessor(vault)) {
-    const Automerge = await import('@automerge/automerge')
     let doc = Automerge.load(cachedBinary)
     doc = Automerge.change(doc, draft => {
       for (const key of Object.keys(draft as Record<string, unknown>)) {
@@ -328,51 +325,17 @@ async function mergeConflictBranchesInWorker(
     }
   }
 
-  const key = (await getVaultModule()).getVaultKey()
-  const worker = new Worker(new URL('../workers/decryption.worker.ts', import.meta.url), {
-    type: 'module',
-  })
-
-  const jobId = Date.now() + Math.floor(Math.random() * 1000)
-
-  return new Promise<BranchPayload>((resolve, reject) => {
-    worker.onmessage = event => {
-      const payload = event.data as {
-        type?: string
-        jobId?: number
-        itemId?: string
-        resolvedBranch?: BranchPayload
-      }
-
-      if (
-        payload.type === 'QUEUE_CONFLICT_RESOLVED'
-        && payload.jobId === jobId
-        && payload.itemId === itemId
-        && payload.resolvedBranch
-      ) {
-        worker.terminate()
-        resolve(payload.resolvedBranch)
-      }
-    }
-
-    worker.onerror = error => {
-      worker.terminate()
-      reject(error)
-    }
-
-    worker.postMessage({
-      type: 'RESOLVE_QUEUE_CONFLICT',
-      jobId,
-      key,
-      itemId,
-      localBranches,
-      serverBranches,
-    })
+  const key = vaultApi.getVaultKey()
+  return resolveQueueConflictInWorker({
+    key,
+    itemId,
+    localBranches,
+    serverBranches,
   })
 }
 
 async function saveItemsToVault(items: Item[]) {
-  const vault = await getVaultModule()
+  const vault = vaultApi
   const modifiedTime = new Date().getTime()
   let serverItems: VaultItem[] = []
   try {
@@ -439,7 +402,7 @@ async function handleItemsConflict(
   }
 
   const account = getAccountId()
-  const vaultModule = await getVaultModule()
+  const vaultModule = vaultApi
   const serverItems = await fetchMany({ ids: conflictIds }).then(result => result.items)
   const serverById = new Map(serverItems.map(item => [item.item, item]))
 
@@ -525,7 +488,7 @@ async function handleMetadataConflict(
 }
 
 async function decodeMetadataFromBranch(branch: BranchPayload): Promise<{ value: AccountMetadata, binary: Uint8Array }> {
-  const key = (await getVaultModule()).getVaultKey()
+  const key = vaultApi.getVaultKey()
   const encryptedDoc = branch.encryptedAutomergeDoc
   const ivHex = encryptedDoc.slice(0, 32)
   const cipherHex = encryptedDoc.slice(32)
@@ -536,7 +499,6 @@ async function decodeMetadataFromBranch(branch: BranchPayload): Promise<{ value:
     toBytes(cipherHex),
   )
 
-  const Automerge = await import('@automerge/automerge')
   const binary = new Uint8Array(decrypted)
   const doc = Automerge.load(binary)
   return {
@@ -549,13 +511,12 @@ async function serializeMetadataAsBranch(
   metadata: AccountMetadata,
   currentServerMetadata?: MetadataEnvelope,
 ): Promise<{ branches: BranchPayload[] }> {
-  const vault = await getVaultModule()
+  const vault = vaultApi
   const headVersionId = currentServerMetadata?.branches?.[0]?.versionId
 
   const cachedBinary = getCachedMetadataAutomergeBinary()
   let binary: Uint8Array
   if (cachedBinary) {
-    const Automerge = await import('@automerge/automerge')
     let doc = Automerge.load(cachedBinary)
     doc = Automerge.change(doc, draft => {
       for (const key of Object.keys(draft as Record<string, unknown>)) {
@@ -565,7 +526,6 @@ async function serializeMetadataAsBranch(
     })
     binary = Automerge.save(doc)
   } else {
-    const Automerge = await import('@automerge/automerge')
     const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
     binary = Automerge.save(doc)
   }
@@ -715,7 +675,7 @@ async function buildOfflineMutation<TData>(
 ): Promise<{ mutationType: string, payload: unknown } | null> {
   if (sameQueryKey(queryKey, queryKeys.items)) {
     const items = current as unknown as Item[]
-    const vault = await getVaultModule()
+    const vault = vaultApi
     const payloadItems = await Promise.all(items.map(item => (
       serializeItemAsBranch(item, vault)
     )))

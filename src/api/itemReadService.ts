@@ -3,6 +3,7 @@ import {
   getMetadata,
   type VaultItem,
 } from './vault/client'
+import * as vault from './vault'
 import { trpcClient } from './trpcClient'
 import {
   Item,
@@ -34,11 +35,6 @@ import {
   setCachedMetadataAutomergeBinary,
 } from '../sync/automergeBinaryCache'
 import { toBytes } from './vault/crypto'
-
-// Crypto helpers - these need the key from Vault.ts, so we import dynamically
-async function getVaultModule() {
-  return import('./vault')
-}
 
 // Cache for decrypted items
 const decryptionCache = new Map<string, { cacheKey: string, item: Item }>()
@@ -150,7 +146,7 @@ async function triggerItemCompactionIfNeeded(
       return
     }
 
-    const key = (await getVaultModule()).getVaultKey()
+    const key = vault.getVaultKey()
     const compacted = await requestCompactionWithWorker(worker, key, itemId, headVersionId, automergeBinary)
 
     await trpcClient.items.compactItem.mutate({
@@ -387,7 +383,6 @@ async function attemptAutoRecovery(
       return
     }
 
-    const vault = await getVaultModule()
     const key = vault.getVaultKey()
     const healthyEnvelope = await evaluateHistoryWithWorker(worker, key, itemId, historyResponse.history)
 
@@ -638,8 +633,6 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
 }
 
 async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise<Item[]> {
-  const vault = await getVaultModule()
-
   if (typeof Worker === 'undefined' || typeof window === 'undefined') {
     return decryptWithoutWorker(accountId, vault, items)
   }
@@ -700,7 +693,7 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
 
 async function decryptWithoutWorker(
   accountId: string,
-  vault: Awaited<ReturnType<typeof getVaultModule>>,
+  vaultModule: typeof vault,
   items: VaultItem[],
 ): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(
@@ -710,7 +703,7 @@ async function decryptWithoutWorker(
         throw new Error(`Cannot decrypt branching format without worker`)
       }
 
-      const decrypted = await vault.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
+      const decrypted = await vaultModule.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
       const filled = supplyMissingAttributes(decrypted)
 
       decryptionCache.set(source.item, {
@@ -802,7 +795,6 @@ function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
   const result = await getMetadata()
-  const vault = await getVaultModule()
 
   if (result && typeof result === 'object' && 'branches' in result && Array.isArray(result.branches)) {
     const branches = result.branches

@@ -6,6 +6,8 @@ import { registerSW } from 'virtual:pwa-register'
 import { queryClient, queryKeys, queryPersister } from './api/queryClient'
 import { trpc } from './api/trpc'
 import { trpcReactClient } from './api/trpcClient'
+import * as vault from './api/vault'
+import * as mutations from './api/itemWriteService'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
@@ -92,8 +94,8 @@ root.render(
 registerSW()
 
 if (window.Cypress) {
-  window.vault = import('./api/vault')
-  window.mutations = import('./api/itemWriteService')
+  window.vault = Promise.resolve(vault)
+  window.mutations = Promise.resolve(mutations)
   window.invalidateQuery = (key: keyof typeof queryKeys) => queryClient.invalidateQueries({ queryKey: queryKeys[key] })
   window.queryKeys = queryKeys
 }

@@ -12,6 +12,7 @@ import {
 } from '../sync/offlineQueueStore'
 import { useUiStore } from '../state/uiStore'
 import { queryClient, queryKeys } from '../api/queryClient'
+import * as vault from '../api/vault'
 import { Item } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import { getAccountId } from '../api/util'
@@ -19,10 +20,6 @@ import { fetchMany } from '../api/vault/client'
 import { trpc } from '../api/trpc'
 
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
-
-async function getVaultModule() {
-  return import('../api/vault')
-}
 
 export function useOfflineRecovery() {
   const trpcUtils = trpc.useUtils()
@@ -108,7 +105,6 @@ export function useOfflineRecovery() {
       const serverItems = await fetchMany({ ids: [itemId] }).then(response => response.items)
       const serverItem = serverItems.find(item => item.item === itemId)
 
-      const vault = await getVaultModule()
       const encrypted = await vault.encryptObjectAsAutomerge(localItem)
       const resolvedBranch = {
         encryptedAutomergeDoc: encrypted.encryptedAutomergeDoc,
@@ -149,7 +145,6 @@ export function useOfflineRecovery() {
       const serverItems = await fetchMany({ ids: [itemId] }).then(response => response.items)
       const serverItem = serverItems.find(item => item.item === itemId)
       const fallbackType = serverItem?.metadata?.type || 'person'
-      const vault = await getVaultModule()
       const deletedPayload = await vault.encryptObjectAsAutomerge({
         id: itemId,
         type: fallbackType,

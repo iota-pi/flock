@@ -71,6 +71,21 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.match(/@automerge\/automerge/)) {
+              return 'vendor-automerge'
+            }
+            if (id.match(/react\/|react-dom\//)) {
+              return 'vendor-react'
+            }
+            if (id.match(/@emotion\/react|@emotion\/styled/)) {
+              return 'vendor-emotion'
+            }
+            if (id.match(/@mui\/lab/)) {
+              return 'vendor-mui-lab'
+            }
+            if (id.match(/@mui\/material|@mui\/system/)) {
+              return 'vendor-mui-core'
+            }
             if (id.match(/@mui\/icons-material/)) {
               return 'vendor-icons'
             }
@@ -82,6 +97,9 @@ export default defineConfig({
             }
             if (id.match(/zxcvbn/)) {
               return 'vendor-security'
+            }
+            if (id.match(/lodash-es|zod|@trpc\//)) {
+              return 'vendor-utils'
             }
           }
         },
