@@ -316,6 +316,13 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const ddb = new DynamoDBClient(options)
     const client = this.getDocumentClient(ddb)
 
+    // eslint-disable-next-line no-explicit-any
+    const isResourceInUseError = (err: any) => (
+      err.name === 'ResourceInUseException' ||
+      err.code === 'ResourceInUseException' ||
+      err.__type?.includes('ResourceInUseException')
+    )
+
     try {
       await client.send(new CreateTableCommand(
         {
@@ -343,8 +350,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           BillingMode: 'PAY_PER_REQUEST',
         },
       ))
-    } catch (err: unknown) {
-      if (!(err instanceof ResourceInUseException)) {
+    } catch (err: any) {
+      if (!isResourceInUseError(err)) {
         throw err
       }
     }
@@ -368,8 +375,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           BillingMode: 'PAY_PER_REQUEST',
         },
       ))
-    } catch (err: unknown) {
-      if (!(err instanceof ResourceInUseException)) {
+    } catch (err: any) {
+      if (!isResourceInUseError(err)) {
         throw err
       }
     }
@@ -393,8 +400,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           BillingMode: 'PAY_PER_REQUEST',
         },
       ))
-    } catch (err: unknown) {
-      if (!(err instanceof ResourceInUseException)) {
+    } catch (err: any) {
+      if (!isResourceInUseError(err)) {
         throw err
       }
     }
@@ -426,8 +433,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           BillingMode: 'PAY_PER_REQUEST',
         },
       ))
-    } catch (err: unknown) {
-      if (!(err instanceof ResourceInUseException)) {
+    } catch (err: any) {
+      if (!isResourceInUseError(err)) {
         throw err
       }
     }
