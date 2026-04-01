@@ -11,7 +11,7 @@ import {
   EditIcon,
   NextIcon,
 } from '../../Icons'
-import PageContainer from '../../PageContainer'
+import PageContainer from '../../ui/PageContainer'
 
 interface Props {
   completed: number,

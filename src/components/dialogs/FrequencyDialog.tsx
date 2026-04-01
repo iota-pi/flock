@@ -8,7 +8,7 @@ import {
   Grid,
 } from '@mui/material'
 import { Item } from '../../state/items'
-import { mutateStoreItems } from '../../api/clientMutations'
+import { mutateStoreItems } from '../../api/itemWriteService'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'

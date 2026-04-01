@@ -3,7 +3,7 @@ import { Item } from '../state/items'
 import { FilterCriterion } from '../utils/customFilter'
 import { SortCriterion } from '../utils/customSort'
 import { processItemsWithWorker } from '../workers/itemWorkerManager'
-import { useDeepCompareMemo } from '../utils/deepCompare'
+import { useStableDeepValue } from './useStableDeepValue'
 
 interface UseAsyncItemsProps<T extends Item> {
   items: T[],
@@ -27,8 +27,8 @@ export function useAsyncItems<T extends Item>({
   const [archivedCount, setArchivedCount] = useState(() => (
     items.filter(i => i.archived).length
   ))
-  const stableFilters = useDeepCompareMemo<FilterCriterion[]>(filters)
-  const stableSortCriteria = useDeepCompareMemo<SortCriterion[]>(sortCriteria)
+  const stableFilters = useStableDeepValue<FilterCriterion[]>(filters)
+  const stableSortCriteria = useStableDeepValue<SortCriterion[]>(sortCriteria)
 
   useEffect(() => {
     let cancelled = false

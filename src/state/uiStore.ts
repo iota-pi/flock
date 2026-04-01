@@ -3,7 +3,8 @@ import { persist } from 'zustand/middleware'
 import type { AlertColor } from '@mui/material'
 import { generateItemId } from '../utils'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
-import type { ItemId, Item } from './items'
+import type { Item } from './items'
+import type { ItemId } from '../shared/itemTypes'
 
 export interface DrawerData {
   id: string,

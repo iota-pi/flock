@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { mutateDeleteItems, mutateStoreItems, mutateSetMetadata } from './clientMutations'
+import { mutateDeleteItems, mutateStoreItems, mutateSetMetadata } from './itemWriteService'
 import { queryClient, queryKeys } from './queryClient'
 import { getBlankGroup, getBlankPerson, Item, GroupItem } from '../state/items'
 import * as VaultAPI from './vault/client'

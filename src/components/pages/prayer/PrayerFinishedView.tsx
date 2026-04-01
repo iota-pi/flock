@@ -3,7 +3,8 @@ import {
   Button,
   Typography,
 } from '@mui/material'
-import InlineText from '../../InlineText'
+import InlineText from '../../ui/InlineText'
+import LargeIcon from 'src/components/ui/LargeIcon'
 import {
   BackIcon,
   NextIcon,
@@ -37,7 +38,7 @@ function PrayerFinishedView({
         textAlign: 'center',
       }}
     >
-      <PrayerIcon sx={{ fontSize: 90 }} />
+      <LargeIcon icon={PrayerIcon} />
       <Typography variant="h5">All done!</Typography>
       <Typography color="text.secondary">
         {'You prayed for '}

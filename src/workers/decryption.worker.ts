@@ -582,7 +582,10 @@ self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
   const transferables: ArrayBuffer[] = []
   for (const item of decryptedItems) {
     if (item.automergeBinary instanceof Uint8Array) {
-      transferables.push(item.automergeBinary.buffer)
+      const buffer = item.automergeBinary.buffer
+      if (buffer instanceof ArrayBuffer) {
+        transferables.push(buffer)
+      }
     }
   }
 

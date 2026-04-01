@@ -12,7 +12,7 @@ import {
 } from '@mui/material'
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
 import { DeleteIcon, NextIcon, SaveIcon } from '../../Icons'
-import InlineText from '../../InlineText'
+import InlineText from '../../ui/InlineText'
 
 
 const StyledContainer = styled(Container)(({ theme }) => ({

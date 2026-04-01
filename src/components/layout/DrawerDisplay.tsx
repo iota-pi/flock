@@ -7,7 +7,7 @@ import { useItem, useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
 
-const ItemDrawer = lazy(() => import('../drawers/ItemDrawer'))
+const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 
 function useDrawerRouting(drawers: DrawerData[]) {

@@ -1,6 +1,6 @@
 import { Theme } from '@mui/material'
 import { useCallback } from 'react'
-import { MuiIconType } from './Icons'
+import { MuiIconType } from '../Icons'
 
 
 interface Props {

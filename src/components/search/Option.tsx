@@ -8,7 +8,7 @@ import {
   Typography,
 } from '@mui/material'
 import { isItem, getItemTypeLabel } from '../../state/items'
-import InlineText from '../InlineText'
+import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
 import { getName, isSearchableStandardItem } from './utils'

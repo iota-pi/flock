@@ -1,5 +1,5 @@
-import type { Item } from '../state/items'
 import { differenceWith, isEqual, sortBy } from 'lodash-es'
+import type { Item } from '../../../state/items'
 
 function isPrimitive(value: unknown): value is string | number | boolean | null | undefined {
   return value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
@@ -39,7 +39,7 @@ function areArraysEquivalent(left: unknown[], right: unknown[]): boolean {
   return true
 }
 
-export function diffItems(existing: Item, item: Item): string[] {
+export function getItemDiffKeys(existing: Item, item: Item): string[] {
   const allKeys = new Set([...Object.keys(existing), ...Object.keys(item)])
   const ignoredKeys = new Set(['id', 'version', 'lastUpdated'])
 
@@ -62,4 +62,8 @@ export function diffItems(existing: Item, item: Item): string[] {
   )
 
   return changed.map(entry => entry.key)
+}
+
+export function hasItemDiff(existing: Item, item: Item): boolean {
+  return getItemDiffKeys(existing, item).length > 0
 }

@@ -19,7 +19,7 @@ import {
 } from '../utils/frequencies'
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
-import InlineText from './InlineText'
+import InlineText from './ui/InlineText'
 import { useItems } from '../state/selectors'
 
 type OnChangeData<T extends Item> = Partial<

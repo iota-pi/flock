@@ -27,12 +27,12 @@ import {
   RowComponentProps,
   useDynamicRowHeight,
 } from 'react-window'
-import { getItemName, GroupItem, isItem, Item } from '../state/items'
-import TagDisplay from './TagDisplay'
-import { getIcon as getItemIcon } from './Icons'
-import { MostlyRequired } from '../utils'
-import { useItems } from '../state/selectors'
-import { useSize } from '../hooks/useSize'
+import { getItemName, GroupItem, isItem, Item } from '../../../state/items'
+import TagDisplay from '../../../components/TagDisplay'
+import { getIcon as getItemIcon } from '../../../components/Icons'
+import { MostlyRequired } from '../../../utils'
+import { useItems } from '../../../state/selectors'
+import { useSize } from '../../../hooks/useSize'
 
 const FADED_OPACITY = 0.65
 const DEFAULT_ROW_HEIGHT = 58

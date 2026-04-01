@@ -11,9 +11,9 @@ import {
   DirtyItem,
   Item,
 } from '../../../state/items'
-import ItemDrawer from '../../drawers/ItemDrawer'
-import ItemFormContent from '../../drawers/ItemFormContent'
-import ItemViewTopBar from '../../drawers/ItemViewTopBar'
+import ItemDrawer from '../../../features/items/components/ItemDrawer'
+import ItemFormContent from '../../../features/items/components/ItemFormContent'
+import ItemViewTopBar from '../../../features/items/components/ItemViewTopBar'
 import {
   ArchiveIcon,
   PrayerIcon,

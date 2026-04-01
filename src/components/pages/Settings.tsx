@@ -33,7 +33,7 @@ const OfflineRecoveryDialog = lazy(() => import('../dialogs/OfflineRecoveryDialo
 const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
-import PageContainer from '../PageContainer'
+import PageContainer from '../ui/PageContainer'
 
 const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
   marginRight: 0,

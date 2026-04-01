@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { diffItems } from './diff'
-import type { Item } from '../state/items'
+import type { Item } from '../../../state/items'
+import { getItemDiffKeys } from './itemDiff'
 
 function createItem(overrides: Partial<Item> = {}): Item {
   const now = Date.now()
@@ -18,7 +18,7 @@ function createItem(overrides: Partial<Item> = {}): Item {
   } as Item
 }
 
-describe('diffItems', () => {
+describe('itemDiff', () => {
   it('ignores primitive array order', () => {
     const existing = createItem({
       prayedFor: [10, 20],
@@ -27,7 +27,7 @@ describe('diffItems', () => {
       prayedFor: [20, 10],
     })
 
-    expect(diffItems(existing, incoming)).toEqual([])
+    expect(getItemDiffKeys(existing, incoming)).toEqual([])
   })
 
   it('detects nested object changes', () => {
@@ -38,7 +38,7 @@ describe('diffItems', () => {
       notes: [{ id: 'n1', text: 'updated', archived: false, time: 10 }],
     })
 
-    expect(diffItems(existing, incoming)).toEqual(['notes'])
+    expect(getItemDiffKeys(existing, incoming)).toEqual(['notes'])
   })
 
   it('ignores id and version metadata keys', () => {
@@ -48,6 +48,6 @@ describe('diffItems', () => {
     const incoming = createItem({ id: 'item-2' }) as Item & { version?: number }
     incoming.version = 2
 
-    expect(diffItems(existing, incoming)).toEqual([])
+    expect(getItemDiffKeys(existing, incoming)).toEqual([])
   })
 })

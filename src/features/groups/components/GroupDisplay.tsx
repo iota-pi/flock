@@ -1,12 +1,12 @@
 import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { GroupItem } from '../state/items'
-import type { ItemId } from '../shared/itemTypes'
-import { useItems } from '../state/selectors'
-import ItemList from './ItemList'
-import { mutateStoreItems } from '../api/clientMutations'
-import Search from './Search'
-import { useUiStore } from '../state/uiStore'
+import type { GroupItem } from '../../../state/items'
+import type { ItemId } from '../../../shared/itemTypes'
+import { useItems } from '../../../state/selectors'
+import ItemList from '../../items/components/ItemList'
+import { mutateStoreItems } from '../../../api/itemWriteService'
+import Search from '../../../components/Search'
+import { useUiStore } from '../../../state/uiStore'
 
 export interface Props {
   editable?: boolean,

@@ -2,36 +2,36 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import getTheme from '../../theme'
+import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
-import type { DirtyItem, Item } from '../../state/items'
-import { getBlankPerson } from '../../state/items'
+import type { DirtyItem, Item } from '../../../state/items'
+import { getBlankPerson } from '../../../state/items'
 
-vi.mock('../../state/selectors', () => ({
+vi.mock('../../../state/selectors', () => ({
   useItems: vi.fn(),
 }))
 
-vi.mock('../FrequencyControls', () => ({
+vi.mock('../../../components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,
 }))
 
-vi.mock('../GroupDisplay', () => ({
+vi.mock('../../groups/components/GroupDisplay', () => ({
   default: () => <div data-testid="group-display" />,
 }))
 
-vi.mock('../MemberDisplay', () => ({
+vi.mock('../../groups/components/MemberDisplay', () => ({
   default: () => <div data-testid="member-display" />,
 }))
 
-vi.mock('../NotesSection', () => ({
+vi.mock('../../../components/NotesSection', () => ({
   default: () => <div data-testid="notes-section" />,
 }))
 
-vi.mock('./utils/CollapsibleSection', () => ({
+vi.mock('../../../components/drawers/utils/CollapsibleSection', () => ({
   default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
 }))
 
-const { useItems } = await import('../../state/selectors')
+const { useItems } = await import('../../../state/selectors')
 
 function renderWithTheme(ui: React.ReactNode) {
   return render(

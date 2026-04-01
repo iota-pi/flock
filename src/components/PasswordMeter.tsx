@@ -5,7 +5,7 @@ import {
   Theme,
   Typography,
 } from '@mui/material'
-import InlineText from './InlineText'
+import InlineText from './ui/InlineText'
 
 function passwordScoreToWord(score: number) {
   const words = ['', 'very bad', 'not good', 'passable', 'okay']

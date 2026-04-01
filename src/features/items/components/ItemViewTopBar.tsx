@@ -5,12 +5,12 @@ import {
   Menu,
   Typography,
 } from '@mui/material'
-import { Item } from '../../state/items'
+import { Item } from '../../../state/items'
 import {
   EditIcon,
   getIcon,
   MoreOptionsIcon,
-} from '../Icons'
+} from '../../../components/Icons'
 
 interface Props {
   item: Pick<Item, 'type' | 'name' | 'description'>,

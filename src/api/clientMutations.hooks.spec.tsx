@@ -14,10 +14,10 @@ import {
 } from 'vitest'
 import { getBlankPerson } from '../state/items'
 import { queryClient } from './queryClient'
-import * as mutations from './clientMutations'
+import * as mutations from './itemWriteService'
 
-vi.mock('./clientMutations', async importOriginal => {
-  const actual = await importOriginal<typeof import('./clientMutations')>()
+vi.mock('./itemWriteService', async importOriginal => {
+  const actual = await importOriginal<typeof import('./itemWriteService')>()
   return {
     ...actual,
     mutateStoreItems: vi.fn(),
@@ -41,13 +41,16 @@ describe('useStoreItemsMutation', () => {
   it('updates the items cache optimistically before the mutation resolves', async () => {
     const updatedItem = { ...getBlankPerson(), name: 'Prayed For' }
     vi.mocked(mutations.mutateStoreItems).mockResolvedValue([updatedItem])
-    const { result } = renderHook(() => useMutation({ mutationFn: mutations.mutateStoreItems }), { wrapper })
+    const { result } = renderHook(
+      () => useMutation({ mutationFn: (items: typeof updatedItem | typeof updatedItem[]) => mutations.mutateStoreItems(items) }),
+      { wrapper },
+    )
 
     await act(async () => {
       await result.current.mutateAsync(updatedItem)
     })
 
-    expect(mutations.mutateStoreItems).toHaveBeenCalledWith(updatedItem, expect.any(Object))
+    expect(mutations.mutateStoreItems).toHaveBeenCalledWith(updatedItem)
   })
 
   it('exposes mutation error state when save fails', async () => {
@@ -55,7 +58,10 @@ describe('useStoreItemsMutation', () => {
 
     vi.mocked(mutations.mutateStoreItems).mockRejectedValue(new Error('save failed'))
 
-    const { result } = renderHook(() => useMutation({ mutationFn: mutations.mutateStoreItems }), { wrapper })
+    const { result } = renderHook(
+      () => useMutation({ mutationFn: (items: typeof updatedItem | typeof updatedItem[]) => mutations.mutateStoreItems(items) }),
+      { wrapper },
+    )
 
     await act(async () => {
       await expect(result.current.mutateAsync(updatedItem)).rejects.toThrow('save failed')

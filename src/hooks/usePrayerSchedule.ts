@@ -4,7 +4,7 @@ import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { mutateStoreItems } from '../api/clientMutations'
+import { mutateStoreItems } from '../api/itemWriteService'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { createDebouncedByKey } from '../utils/debounceByKey'
 

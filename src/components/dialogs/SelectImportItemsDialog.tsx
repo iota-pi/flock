@@ -14,8 +14,8 @@ import { matchSorter } from 'match-sorter'
 import { useMemo, useState } from 'react'
 import { Item, getItemName } from '../../state/items'
 import type { ItemId } from '../../shared/itemTypes'
-import ItemList from '../ItemList'
-import { diffItems } from 'src/utils/diff'
+import ItemList from '../../features/items/components/ItemList'
+import { getItemDiffKeys } from '../../features/items/utils/itemDiff'
 
 export interface Props {
   open: boolean
@@ -43,7 +43,7 @@ export default function SelectImportItemsDialog({
       return 'Restore deleted item'
     }
 
-    const differences = diffItems(existing, item)
+    const differences = getItemDiffKeys(existing, item)
     if (differences.length === 0) return 'No changes detected'
     return `Changes: ${differences.join(', ')}`
   }

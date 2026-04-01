@@ -15,7 +15,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { fetchMetadata } from '../../api/clientQueries'
+import { fetchMetadata } from '../../api/itemReadService'
 import { queryKeys } from '../../api/queryClient'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'

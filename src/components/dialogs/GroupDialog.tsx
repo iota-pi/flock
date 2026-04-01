@@ -9,7 +9,7 @@ import {
 } from '@mui/material'
 import { GroupItem, Item } from '../../state/items'
 import Search from '../Search'
-import { mutateStoreItems } from '../../api/clientMutations'
+import { mutateStoreItems } from '../../api/itemWriteService'
 
 export interface Props {
   items: Item[],

@@ -3,13 +3,13 @@ import {
   useMemo,
 } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { GroupItem, Item, PersonItem } from '../state/items'
-import type { ItemId } from '../shared/itemTypes'
-import { useItemsById, useSortCriteria } from '../state/selectors'
-import ItemList from './ItemList'
-import { sortItems } from '../utils/customSort'
-import Search from './Search'
-import { useUiStore } from '../state/uiStore'
+import type { GroupItem, Item, PersonItem } from '../../../state/items'
+import type { ItemId } from '../../../shared/itemTypes'
+import { useItemsById, useSortCriteria } from '../../../state/selectors'
+import ItemList from '../../items/components/ItemList'
+import { sortItems } from '../../../utils/customSort'
+import Search from '../../../components/Search'
+import { useUiStore } from '../../../state/uiStore'
 
 
 export interface Props {

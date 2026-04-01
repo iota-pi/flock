@@ -15,10 +15,10 @@ import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
-import InlineText from '../InlineText'
+import InlineText from '../ui/InlineText'
 import { importData } from '../../api/vault'
 import { useItems } from '../../state/selectors'
-import { diffItems } from 'src/utils/diff'
+import { hasItemDiff } from '../../features/items/utils/itemDiff'
 import SelectImportItemsDialog from './SelectImportItemsDialog'
 import {
   type BackupPayloadV1,
@@ -55,7 +55,7 @@ function getChangedItems(importedItems: Item[], existingItems: Item[]): Item[] {
   return importedItems.filter(item => {
     const existing = existingMap.get(item.id)
     if (!existing) return true
-    return diffItems(existing, item).length > 0
+    return hasItemDiff(existing, item)
   })
 }
 

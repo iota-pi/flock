@@ -1,4 +1,4 @@
-import type { ItemType } from './items'
+import type { ItemType } from '../shared/itemTypes'
 import type { SortCriterion } from '../utils/customSort'
 import type { Frequency } from '../utils/frequencies'
 

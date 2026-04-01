@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { Box, Typography } from '@mui/material'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
-import LargeIcon from '../LargeIcon'
+import LargeIcon from '../ui/LargeIcon'
 import { usePage } from '../pages'
 import { InternalPageId, PageId } from '../pages/types'
-import InlineText from '../InlineText'
+import InlineText from '../ui/InlineText'
 
 
 const pagesWithAddButton: PageId[] = [

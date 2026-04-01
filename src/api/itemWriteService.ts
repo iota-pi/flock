@@ -21,7 +21,7 @@ import {
 } from './vault/client'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
-import { fetchItems } from './clientQueries'
+import { fetchItems } from './itemReadService'
 import { queryClient, queryKeys } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'

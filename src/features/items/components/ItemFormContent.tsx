@@ -12,27 +12,27 @@ import {
   getItemName,
   GroupItem,
   Item,
-} from '../../state/items'
+} from '../../../state/items'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { useItems } from '../../state/selectors'
-import FrequencyControls from '../FrequencyControls'
-import GroupDisplay from '../GroupDisplay'
-import MemberDisplay from '../MemberDisplay'
-import CollapsibleSection from './utils/CollapsibleSection'
-import DuplicateAlert from './utils/DuplicateAlert'
-import { usePrevious } from '../../utils'
+import { useItems } from '../../../state/selectors'
+import FrequencyControls from '../../../components/FrequencyControls'
+import GroupDisplay from '../../groups/components/GroupDisplay'
+import MemberDisplay from '../../groups/components/MemberDisplay'
+import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
+import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
+import { usePrevious } from '../../../utils'
 import {
   DeleteIcon,
   FrequencyIcon,
   GroupIcon,
   NotesIcon,
   PersonIcon,
-} from '../Icons'
-import { getLastPrayedFor } from '../../utils/prayer'
-import NotesSection from '../NotesSection'
-import { ItemFormInputSchema } from '../../shared/syncSchemas'
+} from '../../../components/Icons'
+import { getLastPrayedFor } from '../../../utils/prayer'
+import NotesSection from '../../../components/NotesSection'
+import { ItemFormInputSchema } from '../../../shared/syncSchemas'
 
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {

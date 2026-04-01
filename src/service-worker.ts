@@ -43,14 +43,40 @@ self.addEventListener('push', event => {
   const body = payload.body || fallbackBody
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: payload.icon || '/flock.png',
-      badge: payload.badge || '/flock.png',
-      data: {
-        url: payload.url || '/',
-      },
-    }),
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        includeUncontrolled: true,
+        type: 'window',
+      })
+
+      const hasVisibleFocusedClient = clientList.some(client => {
+        const focused = 'focused' in client ? Boolean(client.focused) : true
+        return client.visibilityState === 'visible' && focused
+      })
+
+      if (hasVisibleFocusedClient) {
+        for (const client of clientList) {
+          client.postMessage({
+            type: 'PASSIVE_PUSH_NOTIFICATION',
+            payload: {
+              title,
+              body,
+              url: payload.url || '/',
+            },
+          })
+        }
+        return
+      }
+
+      await self.registration.showNotification(title, {
+        body,
+        icon: payload.icon || '/flock.png',
+        badge: payload.badge || '/flock.png',
+        data: {
+          url: payload.url || '/',
+        },
+      })
+    })(),
   )
 })
 

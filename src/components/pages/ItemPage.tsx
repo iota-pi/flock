@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
 import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
-import ItemList from '../ItemList'
+import ItemList from '../../features/items/components/ItemList'
 import {
   useIsActive,
   useItems,
