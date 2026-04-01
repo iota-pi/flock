@@ -4,6 +4,7 @@ import type {
   RealtimeEventEnvelope,
 } from '../shared/realtime'
 import { getApiAuthToken } from './runtime'
+import { readQueue } from './offlineSyncService'
 
 type RealtimeCoordinatorOptions = {
   account: string
@@ -98,6 +99,77 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
   let electionTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let socket: WebSocket | null = null
+  const stashedItemEvents = new Map<number, {
+    event: RealtimeEventEnvelope
+    updatedItemIds: string[]
+    deletedItemIds: string[]
+  }>()
+
+  const extractTargetIds = (payload: unknown): string[] => {
+    if (!payload || typeof payload !== 'object') {
+      return []
+    }
+    const value = payload as {
+      item?: unknown
+      items?: Array<{ id?: unknown }>
+      resolutions?: Array<{ item?: unknown }>
+    }
+    if (typeof value.item === 'string') {
+      return [value.item]
+    }
+    if (Array.isArray(value.items)) {
+      return value.items
+        .map(item => item?.id)
+        .filter((id): id is string => typeof id === 'string')
+    }
+    if (Array.isArray(value.resolutions)) {
+      return value.resolutions
+        .map(resolution => resolution?.item)
+        .filter((id): id is string => typeof id === 'string')
+    }
+    return []
+  }
+
+  const getPendingQueueItemIdSet = async (): Promise<Set<string>> => {
+    const queue = await readQueue()
+    const ids = new Set<string>()
+    for (const mutation of queue) {
+      const targetIds = extractTargetIds(mutation.payload)
+      for (const id of targetIds) {
+        ids.add(id)
+      }
+    }
+    return ids
+  }
+
+  const flushStashedEvents = async (): Promise<void> => {
+    if (stashedItemEvents.size === 0 || !onItemsChanged) {
+      return
+    }
+
+    const pendingIds = await getPendingQueueItemIdSet()
+    const ordered = Array.from(stashedItemEvents.entries()).sort((a, b) => a[0] - b[0])
+
+    for (const [eventId, stashed] of ordered) {
+      const blockedIds = new Set(stashed.updatedItemIds.filter(id => pendingIds.has(id)))
+      for (const id of stashed.deletedItemIds) {
+        if (pendingIds.has(id)) {
+          blockedIds.add(id)
+        }
+      }
+
+      if (blockedIds.size > 0) {
+        continue
+      }
+
+      stashedItemEvents.delete(eventId)
+      onItemsChanged({
+        updatedItemIds: stashed.updatedItemIds,
+        deletedItemIds: stashed.deletedItemIds,
+      })
+      onServerEvent(stashed.event)
+    }
+  }
 
   const emit = (message: RealtimeChannelMessage) => {
     if (!channel) {
@@ -106,7 +178,7 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
     channel.postMessage(message)
   }
 
-  const handleServerEvent = (event: RealtimeEventEnvelope) => {
+  const handleServerEvent = async (event: RealtimeEventEnvelope) => {
     if (event.account !== account) {
       return
     }
@@ -124,7 +196,28 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
         : []
 
       if (onItemsChanged && (updatedItemIds.length > 0 || deletedItemIds.length > 0)) {
-        onItemsChanged({ updatedItemIds, deletedItemIds })
+        const pendingIds = await getPendingQueueItemIdSet()
+
+        const blockedUpdated = updatedItemIds.filter(id => pendingIds.has(id))
+        const blockedDeleted = deletedItemIds.filter(id => pendingIds.has(id))
+
+        const unblockedUpdated = updatedItemIds.filter(id => !pendingIds.has(id))
+        const unblockedDeleted = deletedItemIds.filter(id => !pendingIds.has(id))
+
+        if (blockedUpdated.length > 0 || blockedDeleted.length > 0) {
+          stashedItemEvents.set(event.eventId, {
+            event,
+            updatedItemIds,
+            deletedItemIds,
+          })
+        }
+
+        if (unblockedUpdated.length > 0 || unblockedDeleted.length > 0) {
+          onItemsChanged({
+            updatedItemIds: unblockedUpdated,
+            deletedItemIds: unblockedDeleted,
+          })
+        }
       }
     }
 
@@ -132,7 +225,11 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
       writeLastEventId(account, event.eventId)
     }
 
-    onServerEvent(event)
+    if (!stashedItemEvents.has(event.eventId)) {
+      onServerEvent(event)
+    }
+
+    await flushStashedEvents()
   }
 
   const parseAndHandleEvent = (rawData: string | null | undefined) => {
@@ -142,7 +239,7 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
 
     try {
       const payload = JSON.parse(rawData) as RealtimeEventEnvelope
-      handleServerEvent(payload)
+      void handleServerEvent(payload)
       emit({ type: 'server-event', tabId, event: payload })
     } catch {
       // Ignore malformed events to keep the connection alive.

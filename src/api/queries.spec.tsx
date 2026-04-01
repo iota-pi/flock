@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, useMutation } from '@tanstack/react-query'
 import {
   act,
   renderHook,
@@ -14,7 +14,6 @@ import {
 } from 'vitest'
 import { getBlankPerson } from '../state/items'
 import { queryClient } from './queryClient'
-import { useStoreItemsViewMutation } from './viewQueries'
 import * as mutations from './clientMutations'
 
 vi.mock('./clientMutations', async importOriginal => {
@@ -42,13 +41,13 @@ describe('useStoreItemsMutation', () => {
   it('updates the items cache optimistically before the mutation resolves', async () => {
     const updatedItem = { ...getBlankPerson(), name: 'Prayed For' }
     vi.mocked(mutations.mutateStoreItems).mockResolvedValue([updatedItem])
-    const { result } = renderHook(() => useStoreItemsViewMutation(), { wrapper })
+    const { result } = renderHook(() => useMutation({ mutationFn: mutations.mutateStoreItems }), { wrapper })
 
     await act(async () => {
       await result.current.mutateAsync(updatedItem)
     })
 
-    expect(mutations.mutateStoreItems).toHaveBeenCalledWith(updatedItem)
+    expect(mutations.mutateStoreItems).toHaveBeenCalledWith(updatedItem, expect.any(Object))
   })
 
   it('exposes mutation error state when save fails', async () => {
@@ -56,7 +55,7 @@ describe('useStoreItemsMutation', () => {
 
     vi.mocked(mutations.mutateStoreItems).mockRejectedValue(new Error('save failed'))
 
-    const { result } = renderHook(() => useStoreItemsViewMutation(), { wrapper })
+    const { result } = renderHook(() => useMutation({ mutationFn: mutations.mutateStoreItems }), { wrapper })
 
     await act(async () => {
       await expect(result.current.mutateAsync(updatedItem)).rejects.toThrow('save failed')

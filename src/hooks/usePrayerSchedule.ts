@@ -4,7 +4,7 @@ import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { useStoreItemsViewMutation } from '../api/viewQueries'
+import { mutateStoreItems } from '../api/clientMutations'
 import { queryClient, queryKeys } from '../api/queryClient'
 import { createDebouncedByKey } from '../utils/debounceByKey'
 
@@ -17,7 +17,7 @@ export function usePrayerSchedule() {
   const [goal] = useMetadata('prayerGoal', naturalGoal)
   const [todaysGoal, setTodaysGoal] = useState(goal)
 
-  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
+  const storeItems = mutateStoreItems
   const prayerSyncQueue = useMemo(
     () => createDebouncedByKey<string, Item>(500, latestItem => {
       storeItems(latestItem)

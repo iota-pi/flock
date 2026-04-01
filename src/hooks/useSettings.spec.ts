@@ -27,9 +27,9 @@ vi.mock('../api/vault', () => ({
 vi.mock('../api/queries', () => ({
 }))
 
-vi.mock('../api/viewQueries', () => ({
-  useStoreItemsViewMutation: () => ({ mutateAsync: mocks.mutateStoreItems }),
-  useSetMetadataViewMutation: () => ({ mutateAsync: mocks.mutateSetMetadataView }),
+vi.mock('../api/clientMutations', () => ({
+  mutateStoreItems: mocks.mutateStoreItems,
+  mutateSetMetadata: mocks.mutateSetMetadataView,
 }))
 
 vi.mock('../state/selectors', () => ({

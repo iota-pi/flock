@@ -4,7 +4,7 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { useSetMetadataViewMutation, useStoreItemsViewMutation } from '../api/viewQueries'
+import { mutateSetMetadata, mutateStoreItems } from '../api/clientMutations'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -36,8 +36,8 @@ export default function useSettings() {
   const setMessage = useUiStore(state => state.setMessage)
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
-  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
-  const { mutateAsync: setMetadata } = useSetMetadataViewMutation()
+  const storeItems = mutateStoreItems
+  const setMetadata = mutateSetMetadata
 
   // Actions
   const handleSignOut = useCallback(

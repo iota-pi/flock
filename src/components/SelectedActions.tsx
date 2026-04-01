@@ -20,7 +20,7 @@ import {
 import { useItemsById } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
-import { useDeleteItemsViewMutation, useStoreItemsViewMutation } from '../api/viewQueries'
+import { mutateDeleteItems, mutateStoreItems } from '../api/clientMutations'
 import { useUiStore } from '../state/uiStore'
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
@@ -52,8 +52,8 @@ function SelectedActions() {
   const setUi = useUiStore(state => state.setUi)
   const getItemsById = useItemsById()
   const selected = useUiStore(state => state.selected)
-  const { mutateAsync: deleteItems } = useDeleteItemsViewMutation()
-  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
+  const deleteItems = mutateDeleteItems
+  const storeItems = mutateStoreItems
 
   const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
   const prevSelectedItems = usePrevious(selectedItems) || []

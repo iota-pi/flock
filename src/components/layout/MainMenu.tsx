@@ -12,9 +12,11 @@ import {
   styled,
   Toolbar,
 } from '@mui/material'
+import { useQuery } from '@tanstack/react-query'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { useMetadataViewQuery } from '../../api/viewQueries'
+import { fetchMetadata } from '../../api/clientQueries'
+import { queryKeys } from '../../api/queryClient'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
 import { useUiStore } from '../../state/uiStore'
@@ -194,7 +196,11 @@ function MainMenu({
   const dlqCount = useUiStore(state => state.dlqCount)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
-  const { data: metadata = {} } = useMetadataViewQuery(loggedIn)
+  const { data: metadata = {} } = useQuery({
+    queryKey: queryKeys.metadata,
+    queryFn: fetchMetadata,
+    enabled: loggedIn,
+  })
   const page = usePage()
 
   const handleClick = useCallback(

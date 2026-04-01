@@ -119,11 +119,6 @@ function RootLayout() {
   )
 
   const handleRealtimeEvent = useCallback((event: RealtimeEventEnvelope) => {
-    if (event.eventType === 'items.updated') {
-      void trpcUtils.items.fetchMany.invalidate()
-      return
-    }
-
     if (event.eventType === 'metadata.updated') {
       void trpcUtils.accounts.getMetadata.invalidate()
     }
@@ -183,7 +178,7 @@ function RootLayout() {
       window.clearInterval(intervalId)
       stopRealtimeCoordinator()
     }
-  }, [account, handleRealtimeEvent, loggedIn])
+  }, [account, handleRealtimeEvent, loggedIn, trpcUtils])
 
   return (
     <Root>

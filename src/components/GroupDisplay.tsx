@@ -4,7 +4,7 @@ import type { GroupItem } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import { useItems } from '../state/selectors'
 import ItemList from './ItemList'
-import { useStoreItemsViewMutation } from '../api/viewQueries'
+import { mutateStoreItems } from '../api/clientMutations'
 import Search from './Search'
 import { useUiStore } from '../state/uiStore'
 
@@ -20,7 +20,7 @@ function GroupDisplay({
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
   const pushActive = useUiStore(state => state.pushActive)
-  const { mutateAsync: storeItems } = useStoreItemsViewMutation()
+  const storeItems = mutateStoreItems
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),

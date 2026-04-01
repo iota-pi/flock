@@ -1,9 +1,12 @@
 import { useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
-import { useItemsViewQuery, useMetadataViewQuery, useSetMetadataViewMutation } from '../api/viewQueries'
+import { fetchItems, fetchMetadata } from '../api/clientQueries'
+import { mutateSetMetadata } from '../api/clientMutations'
+import { queryKeys } from '../api/queryClient'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
@@ -28,7 +31,12 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
     },
     [itemType],
   )
-  const { data: items = EMPTY_ARRAY as T[] } = useItemsViewQuery<T[]>({ enabled: loggedIn, select: selectItems })
+  const { data: items = EMPTY_ARRAY as T[] } = useQuery<Item[], Error, T[]>({
+    queryKey: queryKeys.items,
+    queryFn: fetchItems,
+    enabled: loggedIn,
+    select: selectItems,
+  })
   return items
 }
 
@@ -41,7 +49,9 @@ export const useItemMap = () => {
     },
     [],
   )
-  const { data: itemMap = EMPTY_ITEM_MAP } = useItemsViewQuery<Record<ItemId, Item>>({
+  const { data: itemMap = EMPTY_ITEM_MAP } = useQuery<Item[], Error, Record<ItemId, Item>>({
+    queryKey: queryKeys.items,
+    queryFn: fetchItems,
     enabled: loggedIn,
     select: selectItemMap,
   })
@@ -56,7 +66,12 @@ export const useItem = (id: ItemId) => {
       .find(item => item.id === id),
     [id],
   )
-  const { data: item } = useItemsViewQuery<Item | undefined>({ enabled: loggedIn, select: selectItem })
+  const { data: item } = useQuery<Item[], Error, Item | undefined>({
+    queryKey: queryKeys.items,
+    queryFn: fetchItems,
+    enabled: loggedIn,
+    select: selectItem,
+  })
   return item
 }
 
@@ -85,8 +100,12 @@ export function useMetadata<K extends MetadataKey>(
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
   const loggedIn = useLoggedIn()
-  const { data: metadata = {} as Metadata } = useMetadataViewQuery(loggedIn)
-  const { mutateAsync: setMetadata } = useSetMetadataViewMutation()
+  const { data: metadata = {} as Metadata } = useQuery({
+    queryKey: queryKeys.metadata,
+    queryFn: fetchMetadata,
+    enabled: loggedIn,
+  })
+  const setMetadata = mutateSetMetadata
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(

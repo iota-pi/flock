@@ -49,18 +49,21 @@ const itemsFixture: Item[] = [
   },
 ]
 
-vi.mock('../api/viewQueries', () => ({
-  useItemsViewQuery: (options?: { enabled?: boolean, select?: (items: Item[]) => unknown }) => {
-    if (options?.enabled === false) {
-      return { data: undefined }
-    }
-    return {
-      data: options?.select ? options.select(itemsFixture) : itemsFixture,
-    }
-  },
-  useMetadataViewQuery: () => ({ data: {} }),
-  useSetMetadataViewMutation: () => ({ mutateAsync: vi.fn() }),
-}))
+vi.mock('@tanstack/react-query', async importOriginal => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQuery: (options?: { enabled?: boolean, select?: (items: Item[]) => unknown }) => {
+      if (options?.enabled === false) {
+        return { data: undefined }
+      }
+      return {
+        data: options?.select ? options.select(itemsFixture) : itemsFixture,
+      }
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  }
+})
 
 describe('state selectors', () => {
   beforeEach(() => {

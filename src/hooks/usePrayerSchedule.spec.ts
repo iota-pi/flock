@@ -8,8 +8,8 @@ vi.mock('../state/selectors', () => ({
   useItemMap: vi.fn(),
   useMetadata: vi.fn(),
 }))
-vi.mock('../api/viewQueries', () => ({
-  useStoreItemsViewMutation: vi.fn(),
+vi.mock('../api/clientMutations', () => ({
+  mutateStoreItems: vi.fn(),
 }))
 vi.mock('../utils/prayer', () => ({
   getLastPrayedFor: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock('./useToday', () => ({
 }))
 
 import { useItems, useItemMap, useMetadata } from '../state/selectors'
-import { useStoreItemsViewMutation } from '../api/viewQueries'
+import { mutateStoreItems } from '../api/clientMutations'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
 import { Item } from 'src/state/items'
@@ -39,7 +39,7 @@ describe('usePrayerSchedule', () => {
     vi.mocked(useToday).mockReturnValue(new Date('2024-01-01T12:00:00'))
     vi.mocked(useMetadata).mockReturnValue([3, mockSetMetadata])
 
-    vi.mocked(useStoreItemsViewMutation).mockReturnValue({ mutateAsync: mockStoreItems } as any)
+    vi.mocked(mutateStoreItems).mockImplementation(mockStoreItems as any)
 
     vi.mocked(getNaturalPrayerGoal).mockReturnValue(5)
     vi.mocked(getPrayerSchedule).mockReturnValue([])
