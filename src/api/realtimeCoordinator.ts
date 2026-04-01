@@ -21,6 +21,7 @@ const LEADER_STALE_MS = 7000
 const ELECTION_DELAY_MS = 600
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
+const STASH_FLUSH_INTERVAL_MS = 1500
 
 let activeHandle: RealtimeCoordinatorHandle | null = null
 let activeKey = ''
@@ -96,6 +97,7 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
 
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
   let staleLeaderTimer: ReturnType<typeof setInterval> | null = null
+  let stashedFlushTimer: ReturnType<typeof setInterval> | null = null
   let electionTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let socket: WebSocket | null = null
@@ -169,6 +171,24 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
       })
       onServerEvent(stashed.event)
     }
+
+    if (stashedItemEvents.size === 0 && stashedFlushTimer) {
+      clearInterval(stashedFlushTimer)
+      stashedFlushTimer = null
+    }
+  }
+
+  const ensureStashedFlushTimer = () => {
+    if (stashedFlushTimer || stashedItemEvents.size === 0) {
+      return
+    }
+
+    stashedFlushTimer = setInterval(() => {
+      if (stopped) {
+        return
+      }
+      void flushStashedEvents()
+    }, STASH_FLUSH_INTERVAL_MS)
   }
 
   const emit = (message: RealtimeChannelMessage) => {
@@ -207,9 +227,10 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
         if (blockedUpdated.length > 0 || blockedDeleted.length > 0) {
           stashedItemEvents.set(event.eventId, {
             event,
-            updatedItemIds,
-            deletedItemIds,
+            updatedItemIds: blockedUpdated,
+            deletedItemIds: blockedDeleted,
           })
+          ensureStashedFlushTimer()
         }
 
         if (unblockedUpdated.length > 0 || unblockedDeleted.length > 0) {
@@ -495,6 +516,11 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
       if (staleLeaderTimer) {
         clearInterval(staleLeaderTimer)
         staleLeaderTimer = null
+      }
+
+      if (stashedFlushTimer) {
+        clearInterval(stashedFlushTimer)
+        stashedFlushTimer = null
       }
 
       if (electionTimer) {

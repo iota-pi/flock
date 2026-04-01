@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { itemsRouter } from './items'
+import { TransactionConflictsError } from '../../drivers/dynamo'
 
 function createMockContext() {
   const vault = {
@@ -151,15 +152,14 @@ describe('itemsRouter contracts', () => {
     })
   })
 
-  it('resolveBranchConflict handles partial failures gracefully', async () => {
+  it('resolveBranchConflict handles transaction conflicts gracefully', async () => {
     const ctx = createMockContext()
     ctx.vault.fetchMany.mockResolvedValue([
       { item: 'item-1', metadata: { type: 'person', iv: '', modified: 1 }, branches: [] },
       { item: 'item-2', metadata: { type: 'person', iv: '', modified: 1 }, branches: [] },
     ] as any)
-    ctx.vault.archiveAndReplaceTransaction
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('Item not found'))
+    ctx.vault.archiveAndSetManyTransaction
+      .mockRejectedValueOnce(new TransactionConflictsError(['item-2']))
 
     const caller = itemsRouter.createCaller(ctx as any)
     const result = await caller.resolveBranchConflict({
@@ -176,5 +176,25 @@ describe('itemsRouter contracts', () => {
     if (!result.success) {
       expect(result.failed[0].item).toBe('item-2')
     }
+  })
+
+  it('resolveBranchConflict passes transactional idempotency context', async () => {
+    const ctx = createMockContext()
+    const caller = itemsRouter.createCaller(ctx as any)
+
+    await caller.resolveBranchConflict({
+      account: 'acct-1',
+      idempotencyKey: 'resolve-key',
+      resolutions: [
+        { item: 'item-1', resolvedBranch: { encryptedAutomergeDoc: 'merged1', versionId: 'vm1', parentIds: ['v1'] } },
+      ],
+    })
+
+    expect(ctx.vault.archiveAndSetManyTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      idempotency: expect.objectContaining({
+        account: 'acct-1',
+        idempotencyKey: 'resolve-key',
+      }),
+    }))
   })
 })

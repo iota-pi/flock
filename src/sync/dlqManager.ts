@@ -92,8 +92,15 @@ export function getHumanReadableDlqTitle(mutation: QueuedMutation): string | und
   const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
   const itemById = new Map(cachedItems.map(item => [item.id, item]))
 
-  const firstItem = itemById.get(targetIds[0])
-  const firstName = firstItem ? getItemName(firstItem) || firstItem.id : targetIds[0]
+  const firstTargetId = targetIds[0]
+  const firstItem = itemById.get(firstTargetId)
+  const firstName = firstItem
+    ? getItemName(firstItem) || firstItem.id
+    : (
+      mutation.baseState && mutation.baseState.id === firstTargetId
+        ? (getItemName(mutation.baseState) || mutation.baseState.id)
+        : firstTargetId
+    )
   const action = getMutationActionLabel(mutation.mutationType)
 
   if (targetIds.length === 1) {

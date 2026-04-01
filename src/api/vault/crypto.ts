@@ -1,3 +1,5 @@
+import * as Automerge from '@automerge/automerge'
+
 export interface CryptoResult {
   iv: string,
   cipher: string,
@@ -133,8 +135,6 @@ export async function encryptObjectAsAutomergeWithKey(
   key: CryptoKey,
   obj: object,
 ): Promise<{ encryptedAutomergeDoc: string, versionId: string }> {
-  const Automerge = await import('@automerge/automerge')
-
   const cleanedObject = stripUndefinedDeep(obj) as Record<string, unknown>
   const doc = Automerge.from(cleanedObject)
   const binary = Automerge.save(doc)

@@ -80,11 +80,13 @@ export const idempotentMutationMiddleware = t.middleware(async ({ ctx, input, ty
     item?: unknown
     items?: unknown
     branches?: unknown
+    resolutions?: unknown
   }
 
   const usesTransactionalItemIdempotency = (
     (typeof typedInput.item === 'string' && Array.isArray(typedInput.branches))
     || Array.isArray(typedInput.items)
+    || Array.isArray(typedInput.resolutions)
   )
   if (usesTransactionalItemIdempotency) {
     return next()

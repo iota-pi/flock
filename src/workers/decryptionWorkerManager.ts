@@ -28,6 +28,16 @@ type DecryptionConflictWorkerApi = {
 
 let worker: Worker | null = null
 let workerApi: Remote<DecryptionConflictWorkerApi> | null = null
+let pendingTaskChain: Promise<void> = Promise.resolve()
+
+function enqueueWorkerTask<T>(task: () => Promise<T>): Promise<T> {
+  const nextTask = pendingTaskChain.then(task, task)
+  pendingTaskChain = nextTask.then(
+    () => undefined,
+    () => undefined,
+  )
+  return nextTask
+}
 
 function getWorkerApi(): Remote<DecryptionConflictWorkerApi> {
   if (workerApi) {
@@ -53,12 +63,14 @@ export async function resolveQueueConflictInWorker(input: {
   localBranches: VaultBranch[]
   serverBranches: VaultBranch[]
 }): Promise<ResolvedBranch> {
-  const api = getWorkerApi()
-  return api.resolveQueueConflict({
-    key: input.key,
-    itemId: input.itemId,
-    localBranches: input.localBranches,
-    serverBranches: input.serverBranches,
+  return enqueueWorkerTask(async () => {
+    const api = getWorkerApi()
+    return api.resolveQueueConflict({
+      key: input.key,
+      itemId: input.itemId,
+      localBranches: input.localBranches,
+      serverBranches: input.serverBranches,
+    })
   })
 }
 
@@ -68,11 +80,13 @@ export async function rescueStaleCompactedBranchInWorker(input: {
   localBranch: VaultBranch
   serverBranch: VaultBranch
 }): Promise<ResolvedBranch> {
-  const api = getWorkerApi()
-  return api.rescueStaleCompactedBranch({
-    key: input.key,
-    itemId: input.itemId,
-    localBranch: input.localBranch,
-    serverBranch: input.serverBranch,
+  return enqueueWorkerTask(async () => {
+    const api = getWorkerApi()
+    return api.rescueStaleCompactedBranch({
+      key: input.key,
+      itemId: input.itemId,
+      localBranch: input.localBranch,
+      serverBranch: input.serverBranch,
+    })
   })
 }

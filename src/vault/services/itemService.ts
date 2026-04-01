@@ -350,6 +350,7 @@ export async function resolveBranchConflicts(
   ctx: ItemServiceContext,
   input: {
     account: string
+    idempotencyKey?: string
     resolutions: Array<{ item: ItemId; resolvedBranch: VaultBranch }>
   },
 ): Promise<
@@ -366,11 +367,9 @@ export async function resolveBranchConflicts(
   }).catch(() => [])
 
   const currentById = new Map(currentItems.map(item => [item.item, item]))
-  const results: Array<{ item: ItemId; success: boolean; error?: string }> = []
-
-  const resolutionResults = await Promise.all(input.resolutions.map(async resolution => {
+  const replacements = input.resolutions.map(resolution => {
     const currentItem = currentById.get(resolution.item)
-    const replacement: VaultItem = {
+    return {
       account: input.account,
       item: resolution.item,
       branches: [resolution.resolvedBranch],
@@ -382,29 +381,47 @@ export async function resolveBranchConflicts(
         compactedAt: currentItem?.metadata.compactedAt,
       },
     }
+  })
 
-    try {
-      if (currentItem) {
-        await ctx.vault.archiveAndReplaceTransaction({
-          history: makeHistoryEntry(input.account, resolution.item, currentItem),
-          replacement,
-        })
-      } else {
-        await ctx.vault.set(replacement)
+  const historyEntries = input.resolutions
+    .map(resolution => {
+      const currentItem = currentById.get(resolution.item)
+      if (!currentItem) {
+        return null
       }
-      return { item: resolution.item, success: true } as const
-    } catch (error) {
-      return {
-        item: resolution.item,
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      } as const
+      return makeHistoryEntry(input.account, resolution.item, currentItem)
+    })
+    .filter((entry): entry is VaultItemHistory => !!entry)
+
+  try {
+    await ctx.vault.archiveAndSetManyTransaction({
+      historyEntries,
+      replacements,
+      idempotency: toIdempotencyContext(input.account, input.idempotencyKey),
+    })
+  } catch (error) {
+    if (error instanceof TransactionConflictsError) {
+      const conflictedSet = new Set(error.conflictedIds)
+      const failed = input.resolutions
+        .filter(resolution => conflictedSet.has(resolution.item))
+        .map(resolution => ({
+          item: resolution.item,
+          success: false as const,
+          error: 'Version conflict',
+        }))
+
+      if (failed.length > 0) {
+        return {
+          success: false,
+          resolvedCount: Math.max(0, input.resolutions.length - failed.length),
+          failed,
+        }
+      }
     }
-  }))
+    throw error
+  }
 
-  results.push(...resolutionResults)
-
-  const resolvedItemIds = results.filter(result => result.success).map(result => result.item)
+  const resolvedItemIds = input.resolutions.map(result => result.item)
   if (resolvedItemIds.length > 0) {
     await publishRealtimeEvent(input.account, 'items.updated', {
       itemIds: resolvedItemIds,
@@ -412,17 +429,8 @@ export async function resolveBranchConflicts(
     })
   }
 
-  const failedResolutions = results.filter((result): result is { item: ItemId; success: false; error?: string } => !result.success)
-  if (failedResolutions.length > 0) {
-    return {
-      success: false,
-      resolvedCount: results.filter(result => result.success).length,
-      failed: failedResolutions,
-    }
-  }
-
   return {
     success: true,
-    resolvedCount: results.length,
+    resolvedCount: input.resolutions.length,
   }
 }
