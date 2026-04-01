@@ -104,75 +104,81 @@ export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [
   },
 ]
 
+const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
+  created: (item, criterion) => {
+    if (criterion.baseOperator === 'is') {
+      return isSameDay(new Date(item.created), new Date(criterion.value as number))
+    }
+    if (criterion.baseOperator === 'greater') {
+      return item.created > (criterion.value as number)
+    }
+    return true
+  },
+  description: (item, criterion) => {
+    const description = item.description.toLocaleLowerCase()
+    const value = (criterion.value as string).toLocaleLowerCase()
+    if (criterion.baseOperator === 'is') {
+      return description === value
+    }
+    if (criterion.baseOperator === 'contains') {
+      return description.includes(value)
+    }
+    return true
+  },
+  lastPrayedFor: (item, criterion) => {
+    const lastPrayer = getLastPrayedFor(item)
+    const value = criterion.value as number
+    if (criterion.baseOperator === 'is') {
+      return isSameDay(new Date(lastPrayer), new Date(value))
+    }
+    if (criterion.baseOperator === 'greater') {
+      return item.created > value
+    }
+    return true
+  },
+  name: (item, criterion) => {
+    const name = getItemName(item).toLocaleLowerCase()
+    const value = (criterion.value as string).toLocaleLowerCase()
+    if (criterion.baseOperator === 'is') {
+      return name === value
+    }
+    if (criterion.baseOperator === 'contains') {
+      return name.includes(value)
+    }
+    return true
+  },
+  prayerFrequency: (item, criterion) => {
+    if (criterion.baseOperator === 'is') {
+      return item.prayerFrequency === criterion.value
+    }
+    if (criterion.baseOperator === 'greater') {
+      const daysItem = frequencyToDays(item.prayerFrequency)
+      const daysCriterion = frequencyToDays(criterion.value as Frequency)
+      return daysItem < daysCriterion
+    }
+    return true
+  },
+}
+
 export function filterItems<T extends Item>(
   items: T[],
   criteria: FilterCriterion[],
 ) {
-  const funcs: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
-    created: (item, criterion) => {
-      if (criterion.baseOperator === 'is') {
-        return isSameDay(new Date(item.created), new Date(criterion.value as number))
-      }
-      if (criterion.baseOperator === 'greater') {
-        return item.created > (criterion.value as number)
-      }
-      return true
-    },
-    description: (item, criterion) => {
-      const description = item.description.toLocaleLowerCase()
-      const value = (criterion.value as string).toLocaleLowerCase()
-      if (criterion.baseOperator === 'is') {
-        return description === value
-      }
-      if (criterion.baseOperator === 'contains') {
-        return description.includes(value)
-      }
-      return true
-    },
-    lastPrayedFor: (item, criterion) => {
-      const lastPrayer = getLastPrayedFor(item)
-      const value = criterion.value as number
-      if (criterion.baseOperator === 'is') {
-        return isSameDay(new Date(lastPrayer), new Date(value))
-      }
-      if (criterion.baseOperator === 'greater') {
-        return item.created > value
-      }
-      return true
-    },
-    name: (item, criterion) => {
-      const name = getItemName(item).toLocaleLowerCase()
-      const value = (criterion.value as string).toLocaleLowerCase()
-      if (criterion.baseOperator === 'is') {
-        return name === value
-      }
-      if (criterion.baseOperator === 'contains') {
-        return name.includes(value)
-      }
-      return true
-    },
-    prayerFrequency: (item, criterion) => {
-      if (criterion.baseOperator === 'is') {
-        return item.prayerFrequency === criterion.value
-      }
-      if (criterion.baseOperator === 'greater') {
-        const daysItem = frequencyToDays(item.prayerFrequency)
-        const daysCriterion = frequencyToDays(criterion.value as Frequency)
-        return daysItem < daysCriterion
-      }
-      return true
-    },
-  }
-
   if (!criteria.length) {
     return items
   }
 
+  const compiledCriteria = criteria.map(criterion => {
+    const evaluator = criterionEvaluators[criterion.type]
+    return (item: Item) => {
+      const baseResult = evaluator(item, criterion)
+      return criterion.inverse ? !baseResult : baseResult
+    }
+  })
+
   const filteredItems = items.filter(item => {
-    for (const criterion of criteria) {
-      const func = funcs[criterion.type]
-      const baseResult = func(item, criterion)
-      const result = criterion.inverse ? !baseResult : baseResult
+    for (const predicate of compiledCriteria) {
+      const result = predicate(item)
       if (!result) {
         return false
       }

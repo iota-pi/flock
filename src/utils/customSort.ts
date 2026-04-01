@@ -41,22 +41,24 @@ export const AUTOMATIC_CRITERIA: SortCriterion[] = [
   { type: 'type', reverse: false },
 ]
 
+const typeOrderByName = new Map(ITEM_TYPES.map((itemType, index) => [itemType, index]))
+
+const criterionComparators: Record<CriterionName, (a: Item, b: Item) => number> = {
+  archived: (a, b) => +a.archived - +b.archived,
+  created: (a, b) => b.created - a.created,
+  description: (a, b) => a.description.localeCompare(b.description),
+  lastPrayedFor: (a, b) => getLastPrayedFor(b) - getLastPrayedFor(a),
+  name: (a, b) => getItemName(a).localeCompare(getItemName(b)),
+  type: (a, b) => (typeOrderByName.get(a.type) || 0) - (typeOrderByName.get(b.type) || 0),
+}
+
 
 const compareItems = (
   criteria: SortCriterion[],
 ) => (itemA: Item, itemB: Item) => {
-  const funcs: Record<CriterionName, (a: Item, b: Item) => number> = {
-    archived: (a, b) => +a.archived - +b.archived,
-    created: (a, b) => b.created - a.created,
-    description: (a, b) => a.description.localeCompare(b.description),
-    lastPrayedFor: (a, b) => getLastPrayedFor(b) - getLastPrayedFor(a),
-    name: (a, b) => getItemName(a).localeCompare(getItemName(b)),
-    type: (a, b) => ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type),
-  }
-
   const allCriteria = [...AUTOMATIC_CRITERIA, ...criteria]
   for (const criterion of allCriteria) {
-    const func = funcs[criterion.type]
+    const func = criterionComparators[criterion.type]
     const result = func(itemA, itemB)
     if (result) {
       return criterion.reverse ? -result : result

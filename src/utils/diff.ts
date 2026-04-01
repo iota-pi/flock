@@ -1,5 +1,5 @@
 import type { Item } from '../state/items'
-import { deepEqual } from './deepCompare'
+import { differenceWith, isEqual, sortBy } from 'lodash-es'
 
 function isPrimitive(value: unknown): value is string | number | boolean | null | undefined {
   return value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
@@ -11,9 +11,9 @@ function areArraysEquivalent(left: unknown[], right: unknown[]): boolean {
   }
 
   if (left.every(isPrimitive) && right.every(isPrimitive)) {
-    const normalizedLeft = left.map(value => String(value)).sort()
-    const normalizedRight = right.map(value => String(value)).sort()
-    return deepEqual(normalizedLeft, normalizedRight)
+    const normalizedLeft = sortBy(left.map(value => String(value)))
+    const normalizedRight = sortBy(right.map(value => String(value)))
+    return isEqual(normalizedLeft, normalizedRight)
   }
 
   const consumedIndexes = new Set<number>()
@@ -23,7 +23,7 @@ function areArraysEquivalent(left: unknown[], right: unknown[]): boolean {
       if (consumedIndexes.has(index)) {
         continue
       }
-      if (deepEqual(leftValue, right[index])) {
+      if (isEqual(leftValue, right[index])) {
         matchedIndex = index
         break
       }
@@ -40,24 +40,26 @@ function areArraysEquivalent(left: unknown[], right: unknown[]): boolean {
 }
 
 export function diffItems(existing: Item, item: Item): string[] {
-  const differences: string[] = []
   const allKeys = new Set([...Object.keys(existing), ...Object.keys(item)])
   const ignoredKeys = new Set(['id', 'version', 'lastUpdated'])
 
-  allKeys.forEach(key => {
-    if (ignoredKeys.has(key)) return
+  const comparable = Array.from(allKeys)
+    .filter(key => !ignoredKeys.has(key))
+    .map(key => {
+      const val1 = (existing as unknown as Record<string, unknown>)[key]
+      const val2 = (item as unknown as Record<string, unknown>)[key]
+      const equal = Array.isArray(val1) && Array.isArray(val2)
+        ? areArraysEquivalent(val1, val2)
+        : isEqual(val1, val2)
 
-    const val1 = (existing as unknown as Record<string, unknown>)[key]
-    const val2 = (item as unknown as Record<string, unknown>)[key]
+      return { key, equal }
+    })
 
-    if (Array.isArray(val1) && Array.isArray(val2)) {
-      if (!areArraysEquivalent(val1, val2)) {
-        differences.push(key)
-      }
-    } else if (!deepEqual(val1, val2)) {
-      differences.push(key)
-    }
-  })
+  const changed = differenceWith(
+    comparable,
+    comparable.filter(entry => entry.equal),
+    (left, right) => left.key === right.key,
+  )
 
-  return differences
+  return changed.map(entry => entry.key)
 }

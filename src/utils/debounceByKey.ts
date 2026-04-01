@@ -1,6 +1,6 @@
-import debounce from '@mui/utils/debounce'
+import { debounce } from 'lodash-es'
 
-type DebouncedFunction<TValue> = ((value: TValue) => void) & { clear: () => void }
+type DebouncedFunction<TValue> = ((value: TValue) => void) & { cancel: () => void }
 
 export type DebouncedByKey<TKey, TValue> = {
   schedule: (key: TKey, value: TValue) => void
@@ -28,13 +28,13 @@ export function createDebouncedByKey<TKey, TValue>(
     },
     clear: () => {
       for (const debounced of debouncedByKey.values()) {
-        debounced.clear()
+        debounced.cancel()
       }
       debouncedByKey.clear()
     },
     clearKey: key => {
       const debounced = debouncedByKey.get(key)
-      debounced?.clear()
+      debounced?.cancel()
       debouncedByKey.delete(key)
     },
   }
