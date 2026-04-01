@@ -25,6 +25,7 @@ import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
 import { useUiStore } from '../../state/uiStore'
 import { processOfflineQueue } from '../../api/offlineQueue'
+import { useDialogState } from '../../hooks/useDialogState'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
@@ -56,8 +57,14 @@ type SettingsItemConfig = {
 }
 
 function SettingsPage() {
-  const { actions, dialogs, values } = useSettings()
+  const { actions, values } = useSettings()
   const dlqCount = useUiStore(state => state.dlqCount)
+  const goalDialog = useDialogState('goal')
+  const restoreDialog = useDialogState('restore')
+  const offlineRecoveryDialog = useDialogState('offlineRecovery')
+  const importDialog = useDialogState('import')
+  const subscriptionDialog = useDialogState('subscription')
+  const defaultFrequencyDialog = useDialogState('defaultFrequency')
 
   const onExport = useCallback(
     async () => {
@@ -118,7 +125,7 @@ function SettingsPage() {
       id: 'prayer-goal',
       title: 'Daily prayer goal',
       icon: EditIcon,
-      onClick: () => dialogs.open('goal'),
+      onClick: goalDialog.openDialog,
       value: (
         <Typography
           color={values.goal < values.naturalGoal ? 'secondary' : 'textPrimary'}
@@ -134,7 +141,7 @@ function SettingsPage() {
       id: 'default-frequency',
       title: 'Set default prayer frequency for new items',
       icon: FrequencyIcon,
-      onClick: () => dialogs.open('defaultFrequency'),
+      onClick: defaultFrequencyDialog.openDialog,
     },
     { type: 'divider', key: 'd4' },
     {
@@ -142,7 +149,7 @@ function SettingsPage() {
       id: 'reminders',
       title: 'Prayer reminder notifications',
       icon: NotificationIcon,
-      onClick: () => dialogs.open('subscription'),
+      onClick: subscriptionDialog.openDialog,
     },
     { type: 'divider', key: 'd5' },
     {
@@ -157,14 +164,14 @@ function SettingsPage() {
       id: 'restore',
       title: 'Restore from a backup',
       icon: UploadIcon,
-      onClick: () => dialogs.open('restore'),
+      onClick: restoreDialog.openDialog,
     },
     {
       type: 'item',
       id: 'offline-recovery',
       title: 'Offline data recovery',
       icon: RestoreIcon,
-      onClick: () => dialogs.open('offlineRecovery'),
+      onClick: offlineRecoveryDialog.openDialog,
       disabled: dlqCount === 0,
       value: dlqCount > 0
         ? (
@@ -179,10 +186,43 @@ function SettingsPage() {
       id: 'import-people',
       title: 'Import from CSV',
       icon: PersonIcon,
-      onClick: () => dialogs.open('import'),
+      onClick: importDialog.openDialog,
     },
     { type: 'divider', key: 'd6' },
-  ], [actions, dialogs, darkModeLabel, dlqCount, onExport, values])
+  ], [
+    actions,
+    darkModeLabel,
+    defaultFrequencyDialog.openDialog,
+    dlqCount,
+    goalDialog.openDialog,
+    importDialog.openDialog,
+    offlineRecoveryDialog.openDialog,
+    onExport,
+    restoreDialog.openDialog,
+    subscriptionDialog.openDialog,
+    values,
+  ])
+
+  const handleRestoreConfirm = useCallback(async (payload: Parameters<typeof actions.handleConfirmRestore>[0]) => {
+    const saved = await actions.handleConfirmRestore(payload)
+    if (saved) {
+      restoreDialog.closeDialog()
+    }
+  }, [actions, restoreDialog])
+
+  const handleImportConfirm = useCallback(async (items: Parameters<typeof actions.handleConfirmImport>[0]) => {
+    const saved = await actions.handleConfirmImport(items)
+    if (saved) {
+      importDialog.closeDialog()
+    }
+  }, [actions, importDialog])
+
+  const handleSubscriptionSave = useCallback(async (hours: Parameters<typeof actions.handleSubscribe>[0]) => {
+    const saved = await actions.handleSubscribe(hours)
+    if (saved) {
+      subscriptionDialog.closeDialog()
+    }
+  }, [actions, subscriptionDialog])
 
   return (
     <BasePage>
@@ -220,32 +260,32 @@ function SettingsPage() {
       <Suspense fallback={null}>
         <GoalDialog
           naturalGoal={values.naturalGoal}
-          onClose={dialogs.close}
-          open={dialogs.active === 'goal'}
+          onClose={goalDialog.closeDialog}
+          open={goalDialog.isOpen}
         />
         <RestoreBackupDialog
-          onClose={dialogs.close}
-          onConfirm={actions.handleConfirmRestore}
-          open={dialogs.active === 'restore'}
+          onClose={restoreDialog.closeDialog}
+          onConfirm={handleRestoreConfirm}
+          open={restoreDialog.isOpen}
         />
         <OfflineRecoveryDialog
-          onClose={dialogs.close}
-          open={dialogs.active === 'offlineRecovery'}
+          onClose={offlineRecoveryDialog.closeDialog}
+          open={offlineRecoveryDialog.isOpen}
         />
         <ImportPeopleDialog
-          onClose={dialogs.close}
-          onConfirm={actions.handleConfirmImport}
-          open={dialogs.active === 'import'}
+          onClose={importDialog.closeDialog}
+          onConfirm={handleImportConfirm}
+          open={importDialog.isOpen}
         />
         <SubscriptionDialog
-          onClose={dialogs.close}
-          onSave={actions.handleSubscribe}
-          open={dialogs.active === 'subscription'}
+          onClose={subscriptionDialog.closeDialog}
+          onSave={handleSubscriptionSave}
+          open={subscriptionDialog.isOpen}
         />
         <DefaultFrequencyDialog
-          open={dialogs.active === 'defaultFrequency'}
+          open={defaultFrequencyDialog.isOpen}
           defaults={values.defaultFrequencies}
-          onClose={dialogs.close}
+          onClose={defaultFrequencyDialog.closeDialog}
           onSave={actions.saveDefaultFrequencies}
         />
       </Suspense>

@@ -20,6 +20,7 @@ import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useToday } from '../../hooks/useToday'
 import { mutateStoreItems } from '../../api/clientMutations'
 import { recordPrayerCompletion } from '../../api/vault'
+import { useDialogState } from '../../hooks/useDialogState'
 import GoalDialog from '../dialogs/GoalDialog'
 import BasePage from './BasePage'
 import { isSameDay } from '../../utils'
@@ -48,7 +49,7 @@ function PrayerPage() {
 
   const [flow, setFlow] = useState<FlowState>({ type: 'overview' })
   const [localItems, setLocalItems] = useState<DirtyItem<Item>[]>([])
-  const [showGoalDialog, setShowGoalDialog] = useState(false)
+  const goalDialog = useDialogState('goal')
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
   const [isActiveViewPrepared, setIsActiveViewPrepared] = useState(false)
@@ -355,8 +356,8 @@ function PrayerPage() {
     [buildLocalItems, isPrayedForToday, schedule, showUntil, visibleSchedule.length],
   )
 
-  const handleEditGoal = useCallback(() => setShowGoalDialog(true), [])
-  const handleCloseGoalDialog = useCallback(() => setShowGoalDialog(false), [])
+  const handleEditGoal = useCallback(() => goalDialog.openDialog(), [goalDialog])
+  const handleCloseGoalDialog = useCallback(() => goalDialog.closeDialog(), [goalDialog])
   const handleOpenEditDrawer = useCallback(() => setIsEditDrawerOpen(true), [])
   const handleCloseEditDrawer = useCallback(
     () => {
@@ -521,7 +522,7 @@ function PrayerPage() {
       <GoalDialog
         naturalGoal={naturalGoal}
         onClose={handleCloseGoalDialog}
-        open={showGoalDialog}
+        open={goalDialog.isOpen}
       />
     </BasePage>
   )

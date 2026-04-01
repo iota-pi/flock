@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   writeQueue: vi.fn(),
   writeDeadLetterQueue: vi.fn(),
   registerBackgroundSync: vi.fn(),
-  mutateSetMetadata: vi.fn(),
   setMessage: vi.fn(),
   setUi: vi.fn(),
   setOfflineQueueLength: vi.fn(),
@@ -22,9 +21,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../api/vault', () => ({
   exportData: mocks.exportData,
   signOutVault: mocks.signOutVault,
-}))
-
-vi.mock('../api/queries', () => ({
 }))
 
 vi.mock('../api/clientMutations', () => ({
@@ -84,10 +80,6 @@ vi.mock('../api/offlineQueueStore', () => ({
 
 vi.mock('../api/offlineQueue', () => ({
   registerBackgroundSync: mocks.registerBackgroundSync,
-}))
-
-vi.mock('../api/mutations', () => ({
-  mutateSetMetadata: mocks.mutateSetMetadata,
 }))
 
 describe('useSettings backup portability', () => {

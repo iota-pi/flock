@@ -15,6 +15,7 @@ import {
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
 import { usePracticalFilterCount } from '../../state/selectors'
 import SyncNowButton from './SyncNowButton'
+import { useDialogState } from '../../hooks/useDialogState'
 
 const SortDialog = lazy(() => import('../dialogs/SortDialog'))
 const FilterDialog = lazy(() => import('../dialogs/FilterDialog'))
@@ -62,8 +63,16 @@ function TopBar({
   title,
 }: Props) {
   const [showOptions, setShowOptions] = useState(false)
-  const [showFilter, setShowFilter] = useState(false)
-  const [showSort, setShowSort] = useState(false)
+  const {
+    isOpen: isFilterOpen,
+    toggleDialog: toggleFilterDialog,
+    closeDialog: closeFilterDialog,
+  } = useDialogState('filter')
+  const {
+    isOpen: isSortOpen,
+    openDialog: openSortDialog,
+    closeDialog: closeSortDialog,
+  } = useDialogState('sort')
 
   const filterCount = usePracticalFilterCount()
 
@@ -75,16 +84,16 @@ function TopBar({
 
   const handleClickOptions = useCallback(() => setShowOptions(o => !o), [])
   const handleCloseOptions = useCallback(() => setShowOptions(false), [])
-  const handleClickFilter = useCallback(() => setShowFilter(f => !f), [])
-  const handleCloseFilter = useCallback(() => setShowFilter(false), [])
+  const handleClickFilter = useCallback(() => toggleFilterDialog(), [toggleFilterDialog])
+  const handleCloseFilter = useCallback(() => closeFilterDialog(), [closeFilterDialog])
   const handleClickSort = useCallback(
     () => {
-      setShowSort(true)
+      openSortDialog()
       handleCloseOptions()
     },
-    [handleCloseOptions],
+    [handleCloseOptions, openSortDialog],
   )
-  const handleCloseSort = useCallback(() => setShowSort(false), [])
+  const handleCloseSort = useCallback(() => closeSortDialog(), [closeSortDialog])
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
@@ -180,12 +189,12 @@ function TopBar({
       <Suspense fallback={null}>
         <FilterDialog
           onClose={handleCloseFilter}
-          open={showFilter}
+          open={isFilterOpen}
         />
 
         <SortDialog
           onClose={handleCloseSort}
-          open={showSort}
+          open={isSortOpen}
         />
       </Suspense>
     </StyledPaper>

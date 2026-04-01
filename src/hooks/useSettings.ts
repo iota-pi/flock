@@ -93,12 +93,6 @@ export default function useSettings() {
     [items, setMessage],
   )
 
-  // Dialog State
-  const [activeDialog, setActiveDialog] = useState<SettingsDialogType | null>(null)
-  const openDialog = useCallback((type: SettingsDialogType) => setActiveDialog(type), [])
-  const closeDialog = useCallback(() => setActiveDialog(null), [])
-
-  // Dialog Actions
   const handleConfirmRestore = useCallback(
     async ({
       deadLetterQueue,
@@ -123,13 +117,14 @@ export default function useSettings() {
         await registerBackgroundSync()
 
         setMessage({ message: 'Restore successful' })
-        closeDialog()
+        return true
       } catch (err) {
         setMessage({ message: 'Restore failed', severity: 'error' })
         console.error('Restore failed', err)
+        return false
       }
     },
-    [closeDialog, setMessage, setMetadata, storeItems],
+    [setMessage, setMetadata, storeItems],
   )
 
   const handleConfirmImport = useCallback(
@@ -137,13 +132,14 @@ export default function useSettings() {
       try {
         await storeItems(imported)
         setMessage({ message: 'Import successful' })
-        closeDialog()
+        return true
       } catch (err) {
         setMessage({ message: 'Import failed', severity: 'error' })
         console.error('Import failed', err)
+        return false
       }
     },
-    [closeDialog, setMessage, storeItems],
+    [setMessage, storeItems],
   )
 
   const handleSubscribe = useCallback(
@@ -157,13 +153,14 @@ export default function useSettings() {
           await unsubscribe()
           setMessage({ message: 'Subscription removed' })
         }
-        closeDialog()
+        return true
       } catch (err) {
         setMessage({ message: 'Failed to update subscription', severity: 'error' })
         console.error('Subscription update failed', err)
+        return false
       }
     },
-    [closeDialog, setMessage],
+    [setMessage],
   )
 
   const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
@@ -200,11 +197,6 @@ export default function useSettings() {
       handleSubscribe,
       handleToggleDarkMode,
       saveDefaultFrequencies,
-    },
-    dialogs: {
-      active: activeDialog,
-      open: openDialog,
-      close: closeDialog,
     },
     values: {
       account,
