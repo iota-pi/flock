@@ -7,6 +7,7 @@ import { useUiStore } from '../../state/uiStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { processOfflineQueue } from '../../sync/offlineQueue'
 import { trpc } from '../../api/trpc'
+import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
   const trpcUtils = trpc.useUtils()
@@ -14,11 +15,19 @@ function SyncNowButton() {
   const offlineQueueLength = useUiStore(state => state.offlineQueueLength)
   const isOnline = useOnlineStatus()
 
-  const handleForceSync = useCallback(async () => {
-    await processOfflineQueue()
-    await trpcUtils.items.fetchMany.invalidate()
-    await trpcUtils.accounts.getMetadata.invalidate()
-  }, [trpcUtils])
+  const handleForceSync = useCallback(
+    async () => {
+      await processOfflineQueue()
+      await trpcUtils.items.fetchMany.invalidate()
+      await trpcUtils.accounts.getMetadata.invalidate()
+      const account = getAccountId()
+      await Promise.all([
+        trpcUtils.items.fetchMany.fetch({ account }),
+        trpcUtils.accounts.getMetadata.fetch({ account }),
+      ])
+    },
+    [trpcUtils],
+  )
 
   const isQueueActive = isSyncing || offlineQueueLength > 0
   const syncStatusIcon = !isOnline
@@ -30,7 +39,7 @@ function SyncNowButton() {
     ? 'Offline'
     : isQueueActive
       ? `Syncing (${offlineQueueLength} queued)`
-      : 'Synced'
+      : 'Sync Now'
 
   return (
     <Tooltip title={syncTooltip}>

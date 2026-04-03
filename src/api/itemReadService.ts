@@ -260,7 +260,7 @@ async function queueConflictResolutions(
   try {
     // Only send resolutions if we're online
     if (!hasApiAuthToken()) {
-      console.log(`[Automerge] Deferring conflict resolution - offline`)
+      console.info(`[Automerge] Deferring conflict resolution - offline`)
       return
     }
 
@@ -270,7 +270,7 @@ async function queueConflictResolutions(
       resolvedBranch: branch,
     }))
 
-    console.log(`[Automerge] Pushing conflict resolutions for ${resolutions.length} items`)
+    console.info(`[Automerge] Pushing conflict resolutions for ${resolutions.length} items`)
 
     // Send to server - this will replace multiple branches with single merged branch
     const response = await trpcClient.items.resolveBranchConflict.mutate({
@@ -280,7 +280,7 @@ async function queueConflictResolutions(
     }) as any
 
     if (response?.success) {
-      console.log(`[Automerge] ✓ Resolved ${response.resolvedCount} conflict(s)`)
+      console.info(`[Automerge] ✓ Resolved ${response.resolvedCount} conflict(s)`)
     } else if (response?.failed && response.failed.length > 0) {
       console.warn(`[Automerge] Partially resolved - ${response.failed.length} failed:`, response.failed)
     }
@@ -411,7 +411,7 @@ async function attemptAutoRecovery(
 
     recoveryCooldownUntilByItemId.delete(itemId)
     await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    console.log(`[Recovery] Successfully rolled back item ${itemId}`)
+    console.info(`[Recovery] Successfully rolled back item ${itemId}`)
   } catch (err) {
     console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, err)
     recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
