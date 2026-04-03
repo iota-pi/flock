@@ -1,9 +1,9 @@
 import {
   ConditionalCheckFailedException,
   CreateTableCommand,
+  CreateTableCommandInput,
   DynamoDBClient,
   DynamoDBClientConfig,
-  ResourceInUseException,
   TransactionCanceledException,
 } from '@aws-sdk/client-dynamodb'
 import {
@@ -312,10 +312,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async init(_options?: T) {
-    const options = getConnectionParams(_options)
-    const ddb = new DynamoDBClient(options)
-    const client = this.getDocumentClient(ddb)
-
     // eslint-disable-next-line no-explicit-any
     const isResourceInUseError = (err: any) => (
       err.name === 'ResourceInUseException' ||
@@ -323,119 +319,66 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       err.__type?.includes('ResourceInUseException')
     )
 
-    try {
-      await client.send(new CreateTableCommand(
-        {
-          TableName: ITEM_TABLE_NAME,
-          KeySchema: [
-            {
-              AttributeName: 'account',
-              KeyType: 'HASH',
-            },
-            {
-              AttributeName: 'item',
-              KeyType: 'RANGE',
-            },
-          ],
-          AttributeDefinitions: [
-            {
-              AttributeName: 'account',
-              AttributeType: 'S',
-            },
-            {
-              AttributeName: 'item',
-              AttributeType: 'S',
-            },
-          ],
-          BillingMode: 'PAY_PER_REQUEST',
-        },
-      ))
-    } catch (err: any) {
-      if (!isResourceInUseError(err)) {
-        throw err
-      }
-    }
+    const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>[] = [
+      {
+        TableName: ITEM_TABLE_NAME,
+        KeySchema: [
+          { AttributeName: 'account', KeyType: 'HASH' },
+          { AttributeName: 'item', KeyType: 'RANGE' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'account', AttributeType: 'S' },
+          { AttributeName: 'item', AttributeType: 'S' },
+        ],
+      },
+      {
+        TableName: IDEMPOTENCY_TABLE_NAME,
+        KeySchema: [
+          { AttributeName: 'idempotencyKey', KeyType: 'HASH' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'idempotencyKey', AttributeType: 'S' },
+        ],
+      },
+      {
+        TableName: ACCOUNT_TABLE_NAME,
+        KeySchema: [
+          { AttributeName: 'account', KeyType: 'HASH' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'account', AttributeType: 'S' },
+        ],
+      },
+      {
+        TableName: ITEM_HISTORY_TABLE,
+        KeySchema: [
+          { AttributeName: 'account', KeyType: 'HASH' },
+          { AttributeName: 'historyKey', KeyType: 'RANGE' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'account', AttributeType: 'S' },
+          { AttributeName: 'historyKey', AttributeType: 'S' },
+        ],
+      },
+    ]
 
-    try {
-      await client.send(new CreateTableCommand(
-        {
-          TableName: IDEMPOTENCY_TABLE_NAME,
-          KeySchema: [
-            {
-              AttributeName: 'idempotencyKey',
-              KeyType: 'HASH',
-            },
-          ],
-          AttributeDefinitions: [
-            {
-              AttributeName: 'idempotencyKey',
-              AttributeType: 'S',
-            },
-          ],
-          BillingMode: 'PAY_PER_REQUEST',
-        },
-      ))
-    } catch (err: any) {
-      if (!isResourceInUseError(err)) {
-        throw err
-      }
-    }
-
-    try {
-      await client.send(new CreateTableCommand(
-        {
-          TableName: ACCOUNT_TABLE_NAME,
-          KeySchema: [
-            {
-              AttributeName: 'account',
-              KeyType: 'HASH',
-            },
-          ],
-          AttributeDefinitions: [
-            {
-              AttributeName: 'account',
-              AttributeType: 'S',
-            },
-          ],
-          BillingMode: 'PAY_PER_REQUEST',
-        },
-      ))
-    } catch (err: any) {
-      if (!isResourceInUseError(err)) {
-        throw err
-      }
-    }
-
-    try {
-      await client.send(new CreateTableCommand(
-        {
-          TableName: ITEM_HISTORY_TABLE,
-          KeySchema: [
-            {
-              AttributeName: 'account',
-              KeyType: 'HASH',
-            },
-            {
-              AttributeName: 'historyKey',
-              KeyType: 'RANGE',
-            },
-          ],
-          AttributeDefinitions: [
-            {
-              AttributeName: 'account',
-              AttributeType: 'S',
-            },
-            {
-              AttributeName: 'historyKey',
-              AttributeType: 'S',
-            },
-          ],
-          BillingMode: 'PAY_PER_REQUEST',
-        },
-      ))
-    } catch (err: any) {
-      if (!isResourceInUseError(err)) {
-        throw err
+    for (const table of tablesToEnsure) {
+      try {
+        console.info(`Create table: ${table.TableName}`)
+        await this.client.send(new CreateTableCommand(
+          {
+            TableName: table.TableName,
+            KeySchema: table.KeySchema,
+            AttributeDefinitions: table.AttributeDefinitions,
+            BillingMode: 'PAY_PER_REQUEST',
+          },
+        ))
+        console.info(`Table created: ${table.TableName}`)
+      } catch (err: any) {
+        if (!isResourceInUseError(err)) {
+          throw err
+        }
+        console.info('Already exists, skipping.')
       }
     }
 

@@ -1,4 +1,4 @@
 import getDriver from '.'
-import { getConnectionParams } from './dynamo'
 
-getDriver('dynamo').init(getConnectionParams())
+process.env.DYNAMODB_ENDPOINT ??= 'http://localhost:8000'
+getDriver('dynamo').init()
