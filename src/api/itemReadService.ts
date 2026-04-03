@@ -1,14 +1,11 @@
 import {
   fetchMany,
   getMetadata,
-  type VaultMetadataEnvelope,
   type VaultItem,
 } from './vault/client'
 import * as vault from './vault'
-import { trpcClient } from './trpcClient'
 import {
   Item,
-  mergeDeltaItems,
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/metadata'
@@ -22,58 +19,45 @@ import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
 import * as Automerge from '@automerge/automerge'
-import {
-  setCachedAutomergeBinary,
-  getCachedMetadataAutomergeBinary,
-  setCachedMetadataAutomergeBinary,
-} from '../sync/automergeBinaryCache'
-import type { VaultEnvelope } from '../vault/types'
+import { getCachedMetadataAutomergeBinary } from '../sync/automergeBinaryCache'
 import {
   decryptItemsInWorker,
-  maybeCompactItemInWorker,
 } from '../workers/decryptionWorkerManager'
 import { sharedDecryptionCache } from './vault/DecryptionCache'
 import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
 import { decryptVaultEnvelope } from './vault/decryptVaultEnvelope'
 import { getLastSyncServerTime } from '../sync/syncServerTimeStore'
-import { initializeSyncHealthWatchers } from './syncHealthCoordinator'
+import {
+  initializeSyncHealthWatchers,
+  reportDecryptionFailure,
+} from './syncHealthCoordinator'
+import { parseVaultEnvelope } from './vault/envelopeParser'
+import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
+import { itemsSyncEngine } from './vault/syncEngine'
 
-function toItemEnvelope(item: VaultItem): VaultEnvelope | null {
-  if (typeof item.cipher === 'string') {
-    return {
-      kind: 'legacy',
-      cipher: item.cipher,
-      iv: item.metadata.iv,
+type DecryptionResult =
+  | { ok: true; item: Item }
+  | { ok: false; itemId?: string; error: unknown }
+
+function collectSuccessfulDecryptions(
+  source: 'worker' | 'main-thread',
+  results: DecryptionResult[],
+): Item[] {
+  const successful: Item[] = []
+  for (const result of results) {
+    if (result.ok) {
+      successful.push(result.item)
+      continue
     }
+
+    reportDecryptionFailure({
+      source,
+      itemId: result.itemId,
+      error: result.error,
+    })
   }
 
-  if (Array.isArray(item.branches)) {
-    return {
-      kind: 'branching',
-      branches: item.branches,
-    }
-  }
-
-  return null
-}
-
-function toMetadataEnvelope(metadata: VaultMetadataEnvelope): VaultEnvelope | null {
-  if (metadata && typeof metadata === 'object' && 'branches' in metadata && Array.isArray(metadata.branches)) {
-    return {
-      kind: 'branching',
-      branches: metadata.branches,
-    }
-  }
-
-  if (metadata && typeof metadata === 'object' && 'cipher' in metadata && typeof metadata.cipher === 'string' && 'iv' in metadata && typeof metadata.iv === 'string') {
-    return {
-      kind: 'legacy',
-      cipher: metadata.cipher,
-      iv: metadata.iv,
-    }
-  }
-
-  return null
+  return successful
 }
 
 // Fetch and decrypt all items - TanStack Query handles caching
@@ -94,9 +78,13 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
       continue
     }
 
-    const envelope = toItemEnvelope(item)
+    const envelope = parseVaultEnvelope(item)
     if (!envelope) {
-      handleVaultError(new Error(`Missing payload for item ${item.item ?? index}`), 'Failed to decrypt item from server')
+      reportDecryptionFailure({
+        source: 'main-thread',
+        itemId: item.item,
+        error: new Error(`Missing payload for item ${item.item ?? index}`),
+      })
       continue
     }
 
@@ -125,77 +113,59 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
 
   const key = vault.getVaultKey()
   const decrypted = await decryptItemsInWorker({ key, items }).catch(error => {
-    handleVaultError(error as Error, 'Failed to decrypt item from server')
+    reportDecryptionFailure({
+      source: 'worker',
+      error,
+    })
     return []
   })
 
   const sourcesById = new Map(items.map(item => [item.item, item]))
 
-  return decrypted
-    .map(item => {
+  const results = decrypted.map(item => {
       const id = (item as { id?: unknown }).id
       if (typeof id !== 'string') {
-        return null
+        return {
+          ok: false,
+          error: new Error('Worker returned decrypted item without id'),
+        } satisfies DecryptionResult
       }
 
       const workerItem = item as { automergeBinary?: unknown } & Record<string, unknown>
       const source = sourcesById.get(id)
       if (!source) {
-        return null
+        return {
+          ok: false,
+          itemId: id,
+          error: new Error(`Worker returned unknown item id: ${id}`),
+        } satisfies DecryptionResult
       }
 
       const automergeBinary = workerItem.automergeBinary
       if (automergeBinary instanceof Uint8Array) {
-        maybeCompactItemInWorker({
-          key,
-          source,
-          automergeBinary,
-          onCompacted: async compacted => {
-            if (!hasApiAuthToken()) {
-              return
-            }
-
-            await trpcClient.items.compactItem.mutate({
-              account: getAccountId(),
-              item: compacted.itemId,
-              baseVersionId: compacted.baseVersionId,
-              compactedBranch: compacted.compactedBranch,
-              idempotencyKey: `compact-${compacted.itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            })
-
-            setCachedAutomergeBinary(compacted.itemId, compacted.compactedBinary)
-
-            const compactedEnvelope: VaultEnvelope = {
-              kind: 'branching',
-              branches: [compacted.compactedBranch],
-            }
-            const cached = sharedDecryptionCache.get(compacted.itemId)
-            if (cached) {
-              sharedDecryptionCache.set(compacted.itemId, {
-                ...cached,
-                cacheKey: getEnvelopeCacheKey(compactedEnvelope),
-              })
-              sharedDecryptionCache.schedulePersist(getAccountId())
-            }
-          },
-          onError: error => {
-            const itemId = source.item
-            console.warn(`[Compaction] watcher failed for item ${itemId}`, error)
-          },
-        }).catch(error => {
-          console.warn(`[Compaction] watcher failed for item ${id}`, error)
-        })
+        enqueueCompactionCandidate({ source, automergeBinary })
       }
 
       const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-      return hydrateAndCacheItem({
-        accountId,
-        source,
-        materialized: materialized as unknown as Item,
-        automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
-      })
+      const filled = supplyMissingAttributes(materialized as unknown as Item)
+      const envelope = parseVaultEnvelope(source)
+
+      if (envelope) {
+        sharedDecryptionCache.set(source.item, {
+          cacheKey: getEnvelopeCacheKey(envelope),
+          item: filled,
+          automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
+        })
+        sharedDecryptionCache.schedulePersist(accountId)
+      }
+
+      return {
+        ok: true,
+        item: filled,
+      } satisfies DecryptionResult
     })
-    .filter((item): item is Item => !!item)
+
+  return collectSuccessfulDecryptions('worker', results)
 }
 
 async function decryptWithoutWorker(
@@ -205,7 +175,7 @@ async function decryptWithoutWorker(
 ): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(
     items.map(async source => {
-      const envelope = toItemEnvelope(source)
+      const envelope = parseVaultEnvelope(source)
       if (!envelope) {
         throw new Error(`Missing payload for item ${source.item}`)
       }
@@ -216,23 +186,31 @@ async function decryptWithoutWorker(
         decryptLegacyEnvelope: vaultModule.decryptObject,
       })
 
-      return hydrateAndCacheItem({
-        accountId,
-        source,
-        materialized: decrypted.materialized,
+      const filled = supplyMissingAttributes(decrypted.materialized)
+      sharedDecryptionCache.set(source.item, {
+        cacheKey: getEnvelopeCacheKey(envelope),
+        item: filled,
         automergeBinary: decrypted.automergeBinary,
       })
+      sharedDecryptionCache.schedulePersist(accountId)
+
+      return {
+        ok: true,
+        item: filled,
+      } satisfies DecryptionResult
     }),
   )
 
-  return decryptedResults.flatMap(result => {
-    if (result.status === 'fulfilled') {
-      return [result.value]
-    }
+  const results = decryptedResults.map(result => (
+    result.status === 'fulfilled'
+      ? result.value
+      : {
+        ok: false,
+        error: result.reason,
+      } satisfies DecryptionResult
+  ))
 
-    handleVaultError(result.reason as Error, 'Failed to decrypt item from server')
-    return [] as Item[]
-  })
+  return collectSuccessfulDecryptions('main-thread', results)
 }
 
 export async function fetchItems(): Promise<Item[]> {
@@ -243,31 +221,23 @@ export async function fetchItems(): Promise<Item[]> {
     return []
   }
 
-  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
-  const hasCachedItems = cachedItems.length > 0
   const accountId = getAccountId()
-  const lastSyncServerTime = getLastSyncServerTime(accountId)
-  const cacheTime = hasCachedItems && typeof lastSyncServerTime === 'number'
-    ? lastSyncServerTime
-    : null
 
-  const response = await fetchMany({ cacheTime }).catch(error => {
-    handleVaultError(error, 'Failed to fetch items from server')
-    return { items: [] as VaultItem[], serverTime: lastSyncServerTime || 0 }
+  const mergedItems = await itemsSyncEngine.pull({
+    accountId,
+    fetchDelta: async cacheTime => {
+      const response = await fetchMany({ cacheTime }).catch(error => {
+        handleVaultError(error, 'Failed to fetch items from server')
+        return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0 }
+      })
+
+      return {
+        items: response.items as VaultItem[],
+        serverTime: response.serverTime,
+      }
+    },
+    decryptItems: decryptVaultItems,
   })
-
-  const items = response.items as VaultItem[]
-
-  const decrypted = await decryptVaultItems(items)
-  const deletedIds = new Set(
-    items
-      .filter(item => item.metadata?.deleted === true)
-      .map(item => item.item),
-  )
-
-  const mergedItems = cacheTime === null
-    ? decrypted
-    : mergeDeltaItems(cachedItems, decrypted, deletedIds)
 
   // Run migrations
   try {
@@ -287,7 +257,7 @@ export async function fetchItems(): Promise<Item[]> {
 export async function fetchMetadata(): Promise<AccountMetadata> {
   const result = await getMetadata()
 
-  const envelope = toMetadataEnvelope(result)
+  const envelope = parseVaultEnvelope(result)
   if (envelope) {
     const decrypted = await decryptVaultEnvelope<AccountMetadata>({
       envelope,
@@ -297,38 +267,14 @@ export async function fetchMetadata(): Promise<AccountMetadata> {
 
     const metadata = decrypted.materialized
     const binary = decrypted.automergeBinary || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
-    setCachedMetadataAutomergeBinary(binary)
+    sharedDecryptionCache.setMetadataBinary(binary)
     return metadata
   }
 
   const metadata = (result || {}) as AccountMetadata
   const fallbackBinary = getCachedMetadataAutomergeBinary() || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
-  setCachedMetadataAutomergeBinary(fallbackBinary)
+  sharedDecryptionCache.setMetadataBinary(fallbackBinary)
   return metadata
-}
-
-function hydrateAndCacheItem(input: {
-  accountId: string
-  source: VaultItem
-  materialized: Item
-  automergeBinary?: Uint8Array
-}): Item {
-  if (input.automergeBinary) {
-    setCachedAutomergeBinary(input.source.item, input.automergeBinary)
-  }
-
-  const filled = supplyMissingAttributes(input.materialized)
-  const envelope = toItemEnvelope(input.source)
-
-  if (envelope) {
-    sharedDecryptionCache.set(input.source.item, {
-      cacheKey: getEnvelopeCacheKey(envelope),
-      item: filled,
-    })
-    sharedDecryptionCache.schedulePersist(input.accountId)
-  }
-
-  return filled
 }
 
 // Helper to clear the cache (e.g., on logout)

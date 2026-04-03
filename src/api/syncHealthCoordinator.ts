@@ -16,6 +16,12 @@ import {
 import { queryClient, queryKeys } from './queryClient'
 import type { VaultItem } from './vault/client'
 
+export type DecryptionFailedEvent = {
+  source: 'worker' | 'main-thread'
+  itemId?: string
+  error: unknown
+}
+
 const recoveryInFlightItemIds = new Set<ItemId>()
 const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
@@ -195,4 +201,18 @@ export function initializeSyncHealthWatchers(): void {
   })
 
   syncHealthWatchersInitialized = true
+}
+
+export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
+  console.error('[Decryption] Failed to decrypt item', {
+    source: event.source,
+    itemId: event.itemId,
+    error: event.error,
+  })
+
+  if (event.source === 'worker' && typeof event.itemId === 'string') {
+    attemptAutoRecovery(event.itemId).catch(error => {
+      console.error(`Failed to run auto-recovery after decryption failure for item ${event.itemId}`, error)
+    })
+  }
 }

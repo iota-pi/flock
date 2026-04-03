@@ -1,5 +1,9 @@
 import type { Item } from '../../state/items'
 import { syncDB } from '../db'
+import {
+  setCachedAutomergeBinary,
+  setCachedMetadataAutomergeBinary,
+} from '../../sync/automergeBinaryCache'
 
 const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
 const MAX_DECRYPTION_CACHE_ITEMS = 2000
@@ -8,6 +12,7 @@ const PERSIST_DEBOUNCE_MS = 200
 export type DecryptionCacheEntry = {
   cacheKey: string
   item: Item
+  automergeBinary?: Uint8Array
 }
 
 function getStorageKey(accountId: string): string {
@@ -27,6 +32,7 @@ export class DecryptionCache {
   private readonly entries = new Map<string, DecryptionCacheEntry>()
   private loadedAccountId: string | null = null
   private writeTimer: ReturnType<typeof setTimeout> | null = null
+  private metadataBinary: Uint8Array | null = null
 
   async load(accountId: string): Promise<void> {
     if (this.loadedAccountId === accountId) {
@@ -40,6 +46,9 @@ export class DecryptionCache {
       for (const [key, value] of Object.entries(persisted)) {
         if (isCacheEntry(value)) {
           this.entries.set(key, value)
+          if (value.automergeBinary instanceof Uint8Array) {
+            setCachedAutomergeBinary(key, value.automergeBinary)
+          }
         }
       }
     }
@@ -53,6 +62,18 @@ export class DecryptionCache {
 
   set(itemId: string, value: DecryptionCacheEntry): void {
     this.entries.set(itemId, value)
+    if (value.automergeBinary instanceof Uint8Array) {
+      setCachedAutomergeBinary(itemId, value.automergeBinary)
+    }
+  }
+
+  setMetadataBinary(binary: Uint8Array): void {
+    this.metadataBinary = binary
+    setCachedMetadataAutomergeBinary(binary)
+  }
+
+  getMetadataBinary(): Uint8Array | null {
+    return this.metadataBinary
   }
 
   delete(itemId: string): void {
@@ -89,6 +110,7 @@ export class DecryptionCache {
 
     this.writeTimer = null
     this.loadedAccountId = null
+    this.metadataBinary = null
     this.entries.clear()
   }
 }
