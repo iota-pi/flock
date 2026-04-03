@@ -8,9 +8,9 @@ import * as vault from './vault'
 import { trpcClient } from './trpcClient'
 import {
   Item,
+  mergeDeltaItems,
   supplyMissingAttributes,
 } from '../state/items'
-import type { ItemId } from '../shared/itemTypes'
 import { AccountMetadata } from '../state/metadata'
 import { hasApiAuthToken } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
@@ -21,13 +21,6 @@ import {
 import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
-import {
-  getMutationId,
-  readDeadLetterQueue,
-  writeDeadLetterQueue,
-} from '../sync/offlineQueueStore'
-import { useUiStore } from '../state/uiStore'
-import { emitSyncRuntimeMessage, setSyncRuntimeState } from '../sync/syncRuntime'
 import * as Automerge from '@automerge/automerge'
 import {
   setCachedAutomergeBinary,
@@ -36,223 +29,14 @@ import {
 } from '../sync/automergeBinaryCache'
 import type { VaultEnvelope } from '../vault/types'
 import {
-  configureDecryptionWorkerCallbacks,
   decryptItemsInWorker,
-  evaluateHistoryInWorker,
   maybeCompactItemInWorker,
 } from '../workers/decryptionWorkerManager'
 import { sharedDecryptionCache } from './vault/DecryptionCache'
 import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
-import { decryptAndMergeAutomerge } from './vault/decryptAndMergeAutomerge'
-import { getLastSyncServerTime, setLastSyncServerTime } from '../sync/syncServerTimeStore'
-
-const recoveryInFlightItemIds = new Set<ItemId>()
-const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
-const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
-const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
-let workerCallbacksConfigured = false
-
-type WorkerResolvedBranch = {
-  encryptedAutomergeDoc: string
-  versionId: string
-  parentIds: string[]
-}
-
-/**
- * Queue conflict resolutions for background sync
- * When multiple branches are detected and merged, push the resolution back to server
- *
- * This runs in the background and doesn't block the UI:
- * 1. Client receives multi-branch item from server (via WebSocket)
- * 2. Worker merges them deterministically
- * 3. Sends resolution back to server
- * 4. Server replaces multiple branches with single branch
- * 5. Broadcasts updated item to all clients
- */
-async function queueConflictResolutions(
-  resolutionItems: Array<{ itemId: ItemId; branch: { encryptedAutomergeDoc: string; versionId: string; parentIds: string[] } }>,
-): Promise<void> {
-  if (resolutionItems.length === 0) {
-    return
-  }
-
-  try {
-    // Only send resolutions if we're online
-    if (!hasApiAuthToken()) {
-      console.info(`[Automerge] Deferring conflict resolution - offline`)
-      return
-    }
-
-    const account = getAccountId()
-    const resolutions = resolutionItems.map(({ itemId, branch }) => ({
-      item: itemId,
-      resolvedBranch: branch,
-    }))
-
-    console.info(`[Automerge] Pushing conflict resolutions for ${resolutions.length} items`)
-
-    // Send to server - this will replace multiple branches with single merged branch
-    const response = await trpcClient.items.resolveBranchConflict.mutate({
-      account,
-      resolutions,
-      idempotencyKey: `conflict-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    }) as any
-
-    if (response?.success) {
-      console.info(`[Automerge] ✓ Resolved ${response.resolvedCount} conflict(s)`)
-    } else if (response?.failed && response.failed.length > 0) {
-      console.warn(`[Automerge] Partially resolved - ${response.failed.length} failed:`, response.failed)
-    }
-  } catch (err) {
-    // Silently fail - conflicts will be re-detected on next fetch
-    console.error('[Automerge] Failed to push conflict resolution', err)
-  }
-}
-
-function getRecoveryCooldownUntil(itemId: ItemId): number {
-  return recoveryCooldownUntilByItemId.get(itemId) || 0
-}
-
-async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
-  const deadLetterQueue = await readDeadLetterQueue()
-  const existing = deadLetterQueue.find(item => (
-    item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
-    && typeof (item.payload as { itemId?: unknown })?.itemId === 'string'
-    && (item.payload as { itemId: ItemId }).itemId === itemId
-  ))
-
-  if (!existing) {
-    deadLetterQueue.push({
-      id: getMutationId(),
-      mutationType: MANUAL_RECOVERY_MUTATION_TYPE,
-      payload: { itemId },
-      endpoint: 'manual-recovery',
-      queuedAt: Date.now(),
-      failedAt: Date.now(),
-      errorReason: reason,
-      lastErrorStatus: 500,
-    })
-    await writeDeadLetterQueue(deadLetterQueue)
-  }
-
-  setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
-  emitSyncRuntimeMessage({
-    severity: 'warning',
-    message: 'A corrupted item could not be auto-recovered. Open Settings > Offline data recovery for manual repair.',
-  })
-}
-
-async function evaluateHistoryWithWorker(
-  key: CryptoKey,
-  itemId: ItemId,
-  history: VaultItem[],
-): Promise<VaultItem | null> {
-  if (history.length === 0) {
-    return null
-  }
-
-  const result = await evaluateHistoryInWorker({
-      key,
-      itemId,
-      history,
-    }).catch(error => {
-    handleVaultError(error as Error, `Failed to evaluate history for item ${itemId}`)
-    return null
-  })
-
-  return result
-}
-
-async function attemptAutoRecovery(
-  itemId: ItemId,
-  failedBranches?: string[],
-): Promise<void> {
-  const now = Date.now()
-  if (recoveryInFlightItemIds.has(itemId) || getRecoveryCooldownUntil(itemId) > now) {
-    return
-  }
-
-  recoveryInFlightItemIds.add(itemId)
-
-  try {
-    if (!hasApiAuthToken()) {
-      return
-    }
-
-    const account = getAccountId()
-    const historyResponse = await trpcClient.items.fetchItemHistory.query({
-      account,
-      itemId,
-    }) as { success: boolean; history: VaultItem[] }
-
-    if (!historyResponse.success || !Array.isArray(historyResponse.history) || historyResponse.history.length === 0) {
-      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
-      await triggerManualRecoveryUI(itemId, 'No history available for automated recovery')
-      return
-    }
-
-    const key = vault.getVaultKey()
-  const healthyEnvelope = await evaluateHistoryWithWorker(key, itemId, historyResponse.history)
-
-    if (!healthyEnvelope) {
-      console.error(`[Recovery] No healthy historical envelope found for item ${itemId}`, { failedBranches })
-      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
-      await triggerManualRecoveryUI(itemId, 'All historical revisions are corrupted')
-      return
-    }
-
-    if (!healthyEnvelope.branches || healthyEnvelope.branches.length === 0) {
-      recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
-      await triggerManualRecoveryUI(itemId, 'Historical recovery revision is not in branch format')
-      return
-    }
-
-    await trpcClient.items.put.mutate({
-      account,
-      item: healthyEnvelope.item,
-      branches: healthyEnvelope.branches,
-      modified: Date.now(),
-      type: healthyEnvelope.metadata.type,
-      deleted: healthyEnvelope.metadata.deleted,
-      idempotencyKey: `recovery-${itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    })
-
-    recoveryCooldownUntilByItemId.delete(itemId)
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
-    console.info(`[Recovery] Successfully rolled back item ${itemId}`)
-  } catch (err) {
-    console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, err)
-    recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
-    await triggerManualRecoveryUI(itemId, 'Automated recovery attempt failed')
-  } finally {
-    recoveryInFlightItemIds.delete(itemId)
-  }
-}
-
-function ensureDecryptionWorkerCallbacksConfigured(): void {
-  if (workerCallbacksConfigured) {
-    return
-  }
-
-  configureDecryptionWorkerCallbacks({
-    onCorruptedItem: ({ itemId, failedBranches }) => {
-      attemptAutoRecovery(itemId, failedBranches).catch(err => {
-        console.error(`Failed to run auto-recovery for item ${itemId}`, err)
-      })
-    },
-    onConflictResolved: ({ itemId, resolvedBranch }) => {
-      queueConflictResolutions([{ itemId, branch: resolvedBranch }]).catch(err => {
-        console.error('Failed to queue conflict resolution', err)
-      })
-    },
-  })
-
-  workerCallbacksConfigured = true
-}
-
-function assertNeverEnvelope(value: never): never {
-  throw new Error(`Unhandled envelope kind: ${JSON.stringify(value)}`)
-}
+import { decryptVaultEnvelope } from './vault/decryptVaultEnvelope'
+import { getLastSyncServerTime } from '../sync/syncServerTimeStore'
+import { initializeSyncHealthWatchers } from './syncHealthCoordinator'
 
 function toItemEnvelope(item: VaultItem): VaultEnvelope | null {
   if (typeof item.cipher === 'string') {
@@ -294,7 +78,7 @@ function toMetadataEnvelope(metadata: VaultMetadataEnvelope): VaultEnvelope | nu
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
-  ensureDecryptionWorkerCallbacksConfigured()
+  initializeSyncHealthWatchers()
 
   const accountId = getAccountId()
   await sharedDecryptionCache.load(accountId)
@@ -362,7 +146,6 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
 
       const automergeBinary = workerItem.automergeBinary
       if (automergeBinary instanceof Uint8Array) {
-        setCachedAutomergeBinary(id, automergeBinary)
         maybeCompactItemInWorker({
           key,
           source,
@@ -405,21 +188,12 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       }
 
       const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-
-      const filled = supplyMissingAttributes(materialized as unknown as Item)
-
-      const envelope = toItemEnvelope(source)
-      if (!envelope) {
-        return filled
-      }
-
-      sharedDecryptionCache.set(source.item, {
-        cacheKey: getEnvelopeCacheKey(envelope),
-        item: filled,
+      return hydrateAndCacheItem({
+        accountId,
+        source,
+        materialized: materialized as unknown as Item,
+        automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
       })
-      sharedDecryptionCache.schedulePersist(accountId)
-
-      return filled
     })
     .filter((item): item is Item => !!item)
 }
@@ -436,34 +210,18 @@ async function decryptWithoutWorker(
         throw new Error(`Missing payload for item ${source.item}`)
       }
 
-      let decrypted: Item
-      switch (envelope.kind) {
-        case 'legacy': {
-          decrypted = await vaultModule.decryptObject({
-            cipher: envelope.cipher,
-            iv: envelope.iv,
-          }) as Item
-          break
-        }
-        case 'branching': {
-          const merged = await decryptAndMergeAutomerge(envelope.branches, vaultModule.getVaultKey())
-          decrypted = Automerge.toJS(merged.mergedDoc) as Item
-          setCachedAutomergeBinary(source.item, merged.mergedBinary)
-          break
-        }
-        default:
-          assertNeverEnvelope(envelope)
-      }
-
-      const filled = supplyMissingAttributes(decrypted)
-
-      sharedDecryptionCache.set(source.item, {
-        cacheKey: getEnvelopeCacheKey(envelope),
-        item: filled,
+      const decrypted = await decryptVaultEnvelope<Item>({
+        envelope,
+        key: vaultModule.getVaultKey(),
+        decryptLegacyEnvelope: vaultModule.decryptObject,
       })
-      sharedDecryptionCache.schedulePersist(accountId)
 
-      return filled
+      return hydrateAndCacheItem({
+        accountId,
+        source,
+        materialized: decrypted.materialized,
+        automergeBinary: decrypted.automergeBinary,
+      })
     }),
   )
 
@@ -499,9 +257,6 @@ export async function fetchItems(): Promise<Item[]> {
   })
 
   const items = response.items as VaultItem[]
-  if (typeof response.serverTime === 'number' && response.serverTime > 0) {
-    setLastSyncServerTime(accountId, response.serverTime)
-  }
 
   const decrypted = await decryptVaultItems(items)
   const deletedIds = new Set(
@@ -528,51 +283,52 @@ export async function fetchItems(): Promise<Item[]> {
 
   return sortItems(mergedItems, DEFAULT_CRITERIA)
 }
-
-function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string>): Item[] {
-  const mergedMap = new Map(
-    existing
-      .filter(item => !deletedIds.has(item.id))
-      .map(item => [item.id, item]),
-  )
-
-  for (const item of delta) {
-    mergedMap.set(item.id, item)
-  }
-
-  return Array.from(mergedMap.values())
-}
-
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
   const result = await getMetadata()
 
   const envelope = toMetadataEnvelope(result)
   if (envelope) {
-    switch (envelope.kind) {
-      case 'branching': {
-        const merged = await decryptAndMergeAutomerge(envelope.branches, vault.getVaultKey())
-        setCachedMetadataAutomergeBinary(merged.mergedBinary)
-        return Automerge.toJS(merged.mergedDoc) as AccountMetadata
-      }
-      case 'legacy': {
-        const metadata = await vault.decryptObject({
-          cipher: envelope.cipher,
-          iv: envelope.iv,
-        }) as AccountMetadata
-        const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
-        setCachedMetadataAutomergeBinary(Automerge.save(doc))
-        return metadata
-      }
-      default:
-        assertNeverEnvelope(envelope)
-    }
+    const decrypted = await decryptVaultEnvelope<AccountMetadata>({
+      envelope,
+      key: vault.getVaultKey(),
+      decryptLegacyEnvelope: vault.decryptObject,
+    })
+
+    const metadata = decrypted.materialized
+    const binary = decrypted.automergeBinary || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
+    setCachedMetadataAutomergeBinary(binary)
+    return metadata
   }
 
   const metadata = (result || {}) as AccountMetadata
   const fallbackBinary = getCachedMetadataAutomergeBinary() || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
   setCachedMetadataAutomergeBinary(fallbackBinary)
   return metadata
+}
+
+function hydrateAndCacheItem(input: {
+  accountId: string
+  source: VaultItem
+  materialized: Item
+  automergeBinary?: Uint8Array
+}): Item {
+  if (input.automergeBinary) {
+    setCachedAutomergeBinary(input.source.item, input.automergeBinary)
+  }
+
+  const filled = supplyMissingAttributes(input.materialized)
+  const envelope = toItemEnvelope(input.source)
+
+  if (envelope) {
+    sharedDecryptionCache.set(input.source.item, {
+      cacheKey: getEnvelopeCacheKey(envelope),
+      item: filled,
+    })
+    sharedDecryptionCache.schedulePersist(input.accountId)
+  }
+
+  return filled
 }
 
 // Helper to clear the cache (e.g., on logout)
