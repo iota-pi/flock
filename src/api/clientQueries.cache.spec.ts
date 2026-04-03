@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { sharedDecryptionCache } from './vault/DecryptionCache'
 
 const mocks = vi.hoisted(() => ({
   getItem: vi.fn(),
@@ -19,8 +20,7 @@ describe('decryption cache persistence', () => {
   })
 
   afterEach(async () => {
-    const mod = await import('./itemReadService')
-    mod.__decryptionCacheTestUtils.reset()
+    sharedDecryptionCache.reset()
     vi.useRealTimers()
   })
 
@@ -28,8 +28,7 @@ describe('decryption cache persistence', () => {
     const accountId = 'acct-a'
     const persisted = {
       'item-1': {
-        cipher: 'cipher-1',
-        iv: 'iv-1',
+        cacheKey: 'cipher-hash-v1:abcd1234',
         item: {
           id: 'item-1',
           type: 'person',
@@ -40,12 +39,11 @@ describe('decryption cache persistence', () => {
 
     mocks.getItem.mockResolvedValue(persisted)
 
-    const mod = await import('./itemReadService')
-    await mod.__decryptionCacheTestUtils.load(accountId)
+    await sharedDecryptionCache.load(accountId)
 
-    const cacheSnapshot = mod.__decryptionCacheTestUtils.getSnapshot()
+    const cacheSnapshot = sharedDecryptionCache.getSnapshot()
     expect(cacheSnapshot.get('item-1')).toEqual({
-      cacheKey: 'cipher-1',
+      cacheKey: 'cipher-hash-v1:abcd1234',
       item: persisted['item-1'].item,
     })
   })
@@ -54,8 +52,7 @@ describe('decryption cache persistence', () => {
     const accountId = 'acct-a'
     const persisted = {
       'item-1': {
-        cipher: 'cipher-1',
-        iv: 'iv-1',
+        cacheKey: 'cipher-hash-v1:abcd1234',
         item: {
           id: 'item-1',
           type: 'person',
@@ -66,12 +63,11 @@ describe('decryption cache persistence', () => {
 
     mocks.getItem.mockResolvedValue(persisted)
 
-    const mod = await import('./itemReadService')
-    await mod.__decryptionCacheTestUtils.load(accountId)
+  await sharedDecryptionCache.load(accountId)
 
-    mod.__decryptionCacheTestUtils.schedulePersist(accountId)
-    mod.__decryptionCacheTestUtils.schedulePersist(accountId)
-    mod.__decryptionCacheTestUtils.schedulePersist(accountId)
+  sharedDecryptionCache.schedulePersist(accountId)
+  sharedDecryptionCache.schedulePersist(accountId)
+  sharedDecryptionCache.schedulePersist(accountId)
 
     await vi.advanceTimersByTimeAsync(201)
 
@@ -80,7 +76,7 @@ describe('decryption cache persistence', () => {
       'decryption-cache_acct-a',
       expect.objectContaining({
         'item-1': {
-          cacheKey: 'cipher-1',
+          cacheKey: 'cipher-hash-v1:abcd1234',
           item: persisted['item-1'].item,
         },
       }),
@@ -92,8 +88,7 @@ describe('decryption cache persistence', () => {
       if (key === 'decryption-cache_acct-a') {
         return {
           'item-a': {
-            cipher: 'cipher-a',
-            iv: 'iv-a',
+            cacheKey: 'cipher-hash-v1:aaaa1111',
             item: { id: 'item-a', type: 'person', name: 'Account A item' },
           },
         }
@@ -102,8 +97,7 @@ describe('decryption cache persistence', () => {
       if (key === 'decryption-cache_acct-b') {
         return {
           'item-b': {
-            cipher: 'cipher-b',
-            iv: 'iv-b',
+            cacheKey: 'cipher-hash-v1:bbbb2222',
             item: { id: 'item-b', type: 'person', name: 'Account B item' },
           },
         }
@@ -112,13 +106,11 @@ describe('decryption cache persistence', () => {
       return null
     })
 
-    const mod = await import('./itemReadService')
+  await sharedDecryptionCache.load('acct-a')
+  expect(sharedDecryptionCache.getSnapshot().has('item-a')).toBe(true)
 
-    await mod.__decryptionCacheTestUtils.load('acct-a')
-    expect(mod.__decryptionCacheTestUtils.getSnapshot().has('item-a')).toBe(true)
-
-    await mod.__decryptionCacheTestUtils.load('acct-b')
-    const scopedSnapshot = mod.__decryptionCacheTestUtils.getSnapshot()
+  await sharedDecryptionCache.load('acct-b')
+  const scopedSnapshot = sharedDecryptionCache.getSnapshot()
 
     expect(scopedSnapshot.has('item-a')).toBe(false)
     expect(scopedSnapshot.has('item-b')).toBe(true)

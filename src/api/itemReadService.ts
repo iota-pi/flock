@@ -1,6 +1,7 @@
 import {
   fetchMany,
   getMetadata,
+  type VaultMetadataEnvelope,
   type VaultItem,
 } from './vault/client'
 import * as vault from './vault'
@@ -20,7 +21,6 @@ import {
 import { handleVaultError } from './runtime'
 import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
-import { syncDB } from './db'
 import {
   getMutationId,
   readDeadLetterQueue,
@@ -34,209 +34,28 @@ import {
   getCachedMetadataAutomergeBinary,
   setCachedMetadataAutomergeBinary,
 } from '../sync/automergeBinaryCache'
-import { toBytes } from './vault/crypto'
+import type { VaultEnvelope } from '../vault/types'
+import {
+  configureDecryptionWorkerCallbacks,
+  decryptItemsInWorker,
+  evaluateHistoryInWorker,
+  maybeCompactItemInWorker,
+} from '../workers/decryptionWorkerManager'
+import { sharedDecryptionCache } from './vault/DecryptionCache'
+import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
+import { decryptAndMergeAutomerge } from './vault/decryptAndMergeAutomerge'
+import { getLastSyncServerTime, setLastSyncServerTime } from '../sync/syncServerTimeStore'
 
-// Cache for decrypted items
-const decryptionCache = new Map<string, { cacheKey: string, item: Item }>()
-const DECRYPTION_CACHE_KEY_PREFIX = 'decryption-cache'
-const MAX_DECRYPTION_CACHE_ITEMS = 2000
-let inMemoryLastSyncServerTime: number | null = null
-let loadedDecryptionCacheAccountId: string | null = null
-let decryptionCacheWriteTimer: ReturnType<typeof setTimeout> | null = null
-
-let sharedDecryptionWorker: Worker | null = null
-let decryptionJobCounter = 0
-const pendingDecryptionJobs = new Map<number, {
-  resolve: (value: object[]) => void
-  reject: (reason?: unknown) => void
-}>()
-const pendingHistoryEvaluationJobs = new Map<number, {
-  resolve: (value: VaultItem | null) => void
-  reject: (reason?: unknown) => void
-}>()
-const pendingCompactionJobs = new Map<number, {
-  resolve: (value: {
-    itemId: ItemId
-    baseVersionId: string
-    compactedBranch: WorkerResolvedBranch
-    compactedBinary: Uint8Array
-  }) => void
-  reject: (reason?: unknown) => void
-}>()
 const recoveryInFlightItemIds = new Set<ItemId>()
 const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
-const COMPACTION_THRESHOLD_BYTES = 100_000
-const COMPACTION_COOLDOWN_MS = 15 * 60 * 1000
-const compactionInFlightItemIds = new Set<ItemId>()
-const compactionCooldownUntilByItemId = new Map<ItemId, number>()
+let workerCallbacksConfigured = false
 
 type WorkerResolvedBranch = {
   encryptedAutomergeDoc: string
   versionId: string
   parentIds: string[]
-}
-
-function getCompactionCooldownUntil(itemId: ItemId): number {
-  return compactionCooldownUntilByItemId.get(itemId) || 0
-}
-
-async function requestCompactionWithWorker(
-  worker: Worker,
-  key: CryptoKey,
-  itemId: ItemId,
-  baseVersionId: string,
-  automergeBinary: Uint8Array,
-): Promise<{
-  itemId: ItemId
-  baseVersionId: string
-  compactedBranch: WorkerResolvedBranch
-  compactedBinary: Uint8Array
-}> {
-  decryptionJobCounter += 1
-  const jobId = decryptionJobCounter
-
-  return new Promise((resolve, reject) => {
-    pendingCompactionJobs.set(jobId, { resolve, reject })
-    const binaryToTransfer = automergeBinary.slice()
-    worker.postMessage({
-      type: 'COMPACT_ITEM',
-      jobId,
-      key,
-      itemId,
-      baseVersionId,
-      automergeBinary: binaryToTransfer,
-    }, [binaryToTransfer.buffer])
-  })
-}
-
-async function triggerItemCompactionIfNeeded(
-  worker: Worker,
-  source: VaultItem,
-  automergeBinary: Uint8Array,
-): Promise<void> {
-  if (automergeBinary.byteLength <= COMPACTION_THRESHOLD_BYTES) {
-    return
-  }
-
-  if (source.metadata?.deleted === true || !Array.isArray(source.branches) || source.branches.length === 0) {
-    return
-  }
-
-  const itemId = source.item
-  const headVersionId = source.branches[0]?.versionId
-  if (!itemId || !headVersionId) {
-    return
-  }
-
-  const now = Date.now()
-  if (compactionInFlightItemIds.has(itemId) || getCompactionCooldownUntil(itemId) > now) {
-    return
-  }
-
-  if (typeof source.metadata?.compactedAt === 'number' && now - source.metadata.compactedAt < COMPACTION_COOLDOWN_MS) {
-    return
-  }
-
-  compactionInFlightItemIds.add(itemId)
-
-  try {
-    if (!hasApiAuthToken()) {
-      return
-    }
-
-    const key = vault.getVaultKey()
-    const compacted = await requestCompactionWithWorker(worker, key, itemId, headVersionId, automergeBinary)
-
-    await trpcClient.items.compactItem.mutate({
-      account: getAccountId(),
-      item: compacted.itemId,
-      baseVersionId: compacted.baseVersionId,
-      compactedBranch: compacted.compactedBranch,
-      idempotencyKey: `compact-${compacted.itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    })
-
-    setCachedAutomergeBinary(compacted.itemId, compacted.compactedBinary)
-    const cached = decryptionCache.get(compacted.itemId)
-    if (cached) {
-      decryptionCache.set(compacted.itemId, {
-        ...cached,
-        cacheKey: `branches-${compacted.compactedBranch.versionId}`,
-      })
-      schedulePersistDecryptionCache(getAccountId())
-    }
-
-    compactionCooldownUntilByItemId.set(itemId, Date.now() + COMPACTION_COOLDOWN_MS)
-  } catch (error) {
-    compactionCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
-    console.warn(`[Compaction] Failed to compact item ${itemId}`, error)
-  } finally {
-    compactionInFlightItemIds.delete(itemId)
-  }
-}
-
-function getDecryptionCacheKey(accountId: string): string {
-  return `${DECRYPTION_CACHE_KEY_PREFIX}_${accountId}`
-}
-
-async function loadDecryptionCache(accountId: string): Promise<void> {
-  if (loadedDecryptionCacheAccountId === accountId) {
-    return
-  }
-
-  const persisted = await syncDB.getItem<Record<string, any>>(getDecryptionCacheKey(accountId))
-  decryptionCache.clear()
-
-  if (persisted) {
-    for (const [key, value] of Object.entries(persisted)) {
-      // Support both old format (with cipher/iv) and new format (with cacheKey)
-      if ('cacheKey' in value && 'item' in value) {
-        decryptionCache.set(key, value)
-      } else if ('cipher' in value && 'iv' in value && 'item' in value) {
-        // Migrate old format to new format
-        decryptionCache.set(key, {
-          cacheKey: value.cipher,
-          item: value.item,
-        })
-      }
-    }
-  }
-
-  loadedDecryptionCacheAccountId = accountId
-}
-
-function schedulePersistDecryptionCache(accountId: string): void {
-  if (decryptionCacheWriteTimer) {
-    clearTimeout(decryptionCacheWriteTimer)
-  }
-
-  decryptionCacheWriteTimer = setTimeout(() => {
-    if (decryptionCache.size > MAX_DECRYPTION_CACHE_ITEMS) {
-      const entries = Array.from(decryptionCache.entries())
-      const newestEntries = entries.slice(entries.length - MAX_DECRYPTION_CACHE_ITEMS)
-      decryptionCache.clear()
-      for (const [key, value] of newestEntries) {
-        decryptionCache.set(key, value)
-      }
-    }
-
-    const snapshot = Object.fromEntries(decryptionCache.entries())
-    void syncDB.setItem(getDecryptionCacheKey(accountId), snapshot)
-  }, 200)
-}
-
-function resetDecryptionCacheForTests(): void {
-  if (decryptionCacheWriteTimer) {
-    clearTimeout(decryptionCacheWriteTimer)
-  }
-  decryptionCacheWriteTimer = null
-  decryptionCache.clear()
-  loadedDecryptionCacheAccountId = null
-}
-
-function getDecryptionCacheSnapshotForTests() {
-  return new Map(decryptionCache)
 }
 
 /**
@@ -324,7 +143,6 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
 }
 
 async function evaluateHistoryWithWorker(
-  worker: Worker,
   key: CryptoKey,
   itemId: ItemId,
   history: VaultItem[],
@@ -333,21 +151,12 @@ async function evaluateHistoryWithWorker(
     return null
   }
 
-  decryptionJobCounter += 1
-  const jobId = decryptionJobCounter
-
-  const result = await new Promise<VaultItem | null>((resolve, reject) => {
-    pendingHistoryEvaluationJobs.set(jobId, { resolve, reject })
-    worker.postMessage({
-      type: 'EVALUATE_HISTORY',
-      jobId,
+  const result = await evaluateHistoryInWorker({
       key,
       itemId,
       history,
-    })
-  }).catch(error => {
+    }).catch(error => {
     handleVaultError(error as Error, `Failed to evaluate history for item ${itemId}`)
-    pendingHistoryEvaluationJobs.delete(jobId)
     return null
   })
 
@@ -355,7 +164,6 @@ async function evaluateHistoryWithWorker(
 }
 
 async function attemptAutoRecovery(
-  worker: Worker,
   itemId: ItemId,
   failedBranches?: string[],
 ): Promise<void> {
@@ -384,7 +192,7 @@ async function attemptAutoRecovery(
     }
 
     const key = vault.getVaultKey()
-    const healthyEnvelope = await evaluateHistoryWithWorker(worker, key, itemId, historyResponse.history)
+  const healthyEnvelope = await evaluateHistoryWithWorker(key, itemId, historyResponse.history)
 
     if (!healthyEnvelope) {
       console.error(`[Recovery] No healthy historical envelope found for item ${itemId}`, { failedBranches })
@@ -421,173 +229,75 @@ async function attemptAutoRecovery(
   }
 }
 
-function ensureSharedDecryptionWorker(): Worker {
-  if (sharedDecryptionWorker) {
-    return sharedDecryptionWorker
-  }
-
-  const worker = new Worker(
-    new URL('../workers/decryption.worker.ts', import.meta.url),
-    { type: 'module' },
-  )
-
-  worker.addEventListener('message', event => {
-    const payload = event.data as {
-      type?: unknown
-      jobId?: unknown
-      items?: object[]
-      itemId?: unknown
-      failedBranches?: unknown
-      resolvedBranch?: WorkerResolvedBranch
-      compactedBranch?: WorkerResolvedBranch
-      baseVersionId?: unknown
-      compactedBinary?: unknown
-      healthyEnvelope?: VaultItem | null
-      resolutionItems?: Array<{ itemId: ItemId; branch: WorkerResolvedBranch }>
-    }
-
-    if (payload.type === 'CORRUPTED_ITEM_DETECTED') {
-      if (typeof payload.itemId === 'string') {
-        const failedBranches = Array.isArray(payload.failedBranches)
-          ? payload.failedBranches.filter((value): value is string => typeof value === 'string')
-          : undefined
-
-        attemptAutoRecovery(worker, payload.itemId, failedBranches).catch(err => {
-          console.error(`Failed to run auto-recovery for item ${payload.itemId}`, err)
-        })
-      }
-      return
-    }
-
-    if (payload.type === 'HISTORY_EVALUATED') {
-      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-      const pending = pendingHistoryEvaluationJobs.get(jobId)
-      if (!pending) {
-        return
-      }
-
-      pendingHistoryEvaluationJobs.delete(jobId)
-      pending.resolve((payload.healthyEnvelope as VaultItem | null) || null)
-      return
-    }
-
-    if (payload.type === 'CONFLICT_RESOLVED') {
-      if (typeof payload.itemId === 'string' && payload.resolvedBranch) {
-        queueConflictResolutions([{ itemId: payload.itemId, branch: payload.resolvedBranch }]).catch(err => {
-          console.error('Failed to queue conflict resolution', err)
-        })
-      }
-      return
-    }
-
-    if (payload.type === 'COMPACTED_ENVELOPE') {
-      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-      const pending = pendingCompactionJobs.get(jobId)
-      if (!pending) {
-        return
-      }
-
-      pendingCompactionJobs.delete(jobId)
-      if (
-        typeof payload.itemId !== 'string'
-        || typeof payload.baseVersionId !== 'string'
-        || !payload.compactedBranch
-        || !(payload.compactedBinary instanceof Uint8Array)
-      ) {
-        pending.reject(new Error('Invalid COMPACTED_ENVELOPE payload from worker'))
-        return
-      }
-
-      pending.resolve({
-        itemId: payload.itemId,
-        baseVersionId: payload.baseVersionId,
-        compactedBranch: payload.compactedBranch,
-        compactedBinary: payload.compactedBinary,
-      })
-      return
-    }
-
-    if (payload.type !== 'DECRYPTION_RESULT' && payload.type !== undefined) {
-      return
-    }
-
-    const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-    const pending = pendingDecryptionJobs.get(jobId)
-    if (!pending) {
-      return
-    }
-
-    pendingDecryptionJobs.delete(jobId)
-
-    // Backward compatibility for older worker payloads.
-    if (payload.resolutionItems && payload.resolutionItems.length > 0) {
-      queueConflictResolutions(payload.resolutionItems).catch(err => {
-        console.error('Failed to queue conflict resolutions', err)
-      })
-    }
-
-    pending.resolve(payload.items || [])
-  })
-
-  worker.onerror = event => {
-    const error = new Error(event.message || 'Worker decryption failed')
-    for (const pending of pendingDecryptionJobs.values()) {
-      pending.reject(error)
-    }
-    pendingDecryptionJobs.clear()
-
-    for (const pending of pendingHistoryEvaluationJobs.values()) {
-      pending.reject(error)
-    }
-    pendingHistoryEvaluationJobs.clear()
-
-    for (const pending of pendingCompactionJobs.values()) {
-      pending.reject(error)
-    }
-    pendingCompactionJobs.clear()
-
-    sharedDecryptionWorker = null
-  }
-
-  sharedDecryptionWorker = worker
-  return worker
-}
-
-function getLastSyncServerTimeKey(accountId: string): string {
-  return `lastSyncServerTime_${accountId}`
-}
-
-function getLastSyncServerTime(accountId: string): number | null {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return inMemoryLastSyncServerTime
-  }
-
-  const rawValue = window.localStorage.getItem(getLastSyncServerTimeKey(accountId))
-  if (!rawValue) {
-    return null
-  }
-
-  const parsed = Number(rawValue)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null
-  }
-
-  return parsed
-}
-
-function setLastSyncServerTime(accountId: string, serverTime: number): void {
-  inMemoryLastSyncServerTime = serverTime
-  if (typeof window === 'undefined' || !window.localStorage) {
+function ensureDecryptionWorkerCallbacksConfigured(): void {
+  if (workerCallbacksConfigured) {
     return
   }
 
-  window.localStorage.setItem(getLastSyncServerTimeKey(accountId), serverTime.toString())
+  configureDecryptionWorkerCallbacks({
+    onCorruptedItem: ({ itemId, failedBranches }) => {
+      attemptAutoRecovery(itemId, failedBranches).catch(err => {
+        console.error(`Failed to run auto-recovery for item ${itemId}`, err)
+      })
+    },
+    onConflictResolved: ({ itemId, resolvedBranch }) => {
+      queueConflictResolutions([{ itemId, branch: resolvedBranch }]).catch(err => {
+        console.error('Failed to queue conflict resolution', err)
+      })
+    },
+  })
+
+  workerCallbacksConfigured = true
+}
+
+function assertNeverEnvelope(value: never): never {
+  throw new Error(`Unhandled envelope kind: ${JSON.stringify(value)}`)
+}
+
+function toItemEnvelope(item: VaultItem): VaultEnvelope | null {
+  if (typeof item.cipher === 'string') {
+    return {
+      kind: 'legacy',
+      cipher: item.cipher,
+      iv: item.metadata.iv,
+    }
+  }
+
+  if (Array.isArray(item.branches)) {
+    return {
+      kind: 'branching',
+      branches: item.branches,
+    }
+  }
+
+  return null
+}
+
+function toMetadataEnvelope(metadata: VaultMetadataEnvelope): VaultEnvelope | null {
+  if (metadata && typeof metadata === 'object' && 'branches' in metadata && Array.isArray(metadata.branches)) {
+    return {
+      kind: 'branching',
+      branches: metadata.branches,
+    }
+  }
+
+  if (metadata && typeof metadata === 'object' && 'cipher' in metadata && typeof metadata.cipher === 'string' && 'iv' in metadata && typeof metadata.iv === 'string') {
+    return {
+      kind: 'legacy',
+      cipher: metadata.cipher,
+      iv: metadata.iv,
+    }
+  }
+
+  return null
 }
 
 // Fetch and decrypt all items - TanStack Query handles caching
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
+  ensureDecryptionWorkerCallbacksConfigured()
+
   const accountId = getAccountId()
-  await loadDecryptionCache(accountId)
+  await sharedDecryptionCache.load(accountId)
 
   const fromCache: Item[] = []
   const toDecrypt: VaultItem[] = []
@@ -595,30 +305,22 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]
     if (item.metadata?.deleted) {
-      decryptionCache.delete(item.item)
-      schedulePersistDecryptionCache(accountId)
+      sharedDecryptionCache.delete(item.item)
+      sharedDecryptionCache.schedulePersist(accountId)
       continue
     }
 
-    // Support both legacy cipher and branches format
-    const cipher = item.cipher
-    const branches = item.branches
-    const iv = item.metadata?.iv
-
-    // Check if item has valid payload (either cipher or branches)
-    if (!cipher && !branches) {
+    const envelope = toItemEnvelope(item)
+    if (!envelope) {
       handleVaultError(new Error(`Missing payload for item ${item.item ?? index}`), 'Failed to decrypt item from server')
       continue
     }
 
-    // Try cache lookup (using cipher for legacy items)
-    const cacheKey = cipher || (branches ? `branches-${branches[0]?.versionId}` : undefined)
-    if (cacheKey) {
-      const cached = decryptionCache.get(item.item)
-      if (cached && cached.cacheKey === cacheKey) {
-        fromCache.push(cached.item)
-        continue
-      }
+    const cacheKey = getEnvelopeCacheKey(envelope)
+    const cached = sharedDecryptionCache.get(item.item)
+    if (cached && cached.cacheKey === cacheKey) {
+      fromCache.push(cached.item)
+      continue
     }
 
     toDecrypt.push(item)
@@ -638,16 +340,8 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
   }
 
   const key = vault.getVaultKey()
-  const worker = ensureSharedDecryptionWorker()
-  decryptionJobCounter += 1
-  const jobId = decryptionJobCounter
-
-  const decrypted = await new Promise<object[]>((resolve, reject) => {
-    pendingDecryptionJobs.set(jobId, { resolve, reject })
-    worker.postMessage({ type: 'DECRYPT_ITEMS', jobId, key, items })
-  }).catch(error => {
+  const decrypted = await decryptItemsInWorker({ key, items }).catch(error => {
     handleVaultError(error as Error, 'Failed to decrypt item from server')
-    pendingDecryptionJobs.delete(jobId)
     return []
   })
 
@@ -669,7 +363,43 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       const automergeBinary = workerItem.automergeBinary
       if (automergeBinary instanceof Uint8Array) {
         setCachedAutomergeBinary(id, automergeBinary)
-        triggerItemCompactionIfNeeded(worker, source, automergeBinary).catch(error => {
+        maybeCompactItemInWorker({
+          key,
+          source,
+          automergeBinary,
+          onCompacted: async compacted => {
+            if (!hasApiAuthToken()) {
+              return
+            }
+
+            await trpcClient.items.compactItem.mutate({
+              account: getAccountId(),
+              item: compacted.itemId,
+              baseVersionId: compacted.baseVersionId,
+              compactedBranch: compacted.compactedBranch,
+              idempotencyKey: `compact-${compacted.itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            })
+
+            setCachedAutomergeBinary(compacted.itemId, compacted.compactedBinary)
+
+            const compactedEnvelope: VaultEnvelope = {
+              kind: 'branching',
+              branches: [compacted.compactedBranch],
+            }
+            const cached = sharedDecryptionCache.get(compacted.itemId)
+            if (cached) {
+              sharedDecryptionCache.set(compacted.itemId, {
+                ...cached,
+                cacheKey: getEnvelopeCacheKey(compactedEnvelope),
+              })
+              sharedDecryptionCache.schedulePersist(getAccountId())
+            }
+          },
+          onError: error => {
+            const itemId = source.item
+            console.warn(`[Compaction] watcher failed for item ${itemId}`, error)
+          },
+        }).catch(error => {
           console.warn(`[Compaction] watcher failed for item ${id}`, error)
         })
       }
@@ -678,13 +408,16 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
 
       const filled = supplyMissingAttributes(materialized as unknown as Item)
 
-      // Generate cache key based on format
-      const cacheKey = source.cipher || (source.branches ? `branches-${source.branches[0]?.versionId}` : '')
-      decryptionCache.set(source.item, {
-        cacheKey,
+      const envelope = toItemEnvelope(source)
+      if (!envelope) {
+        return filled
+      }
+
+      sharedDecryptionCache.set(source.item, {
+        cacheKey: getEnvelopeCacheKey(envelope),
         item: filled,
       })
-      schedulePersistDecryptionCache(accountId)
+      sharedDecryptionCache.schedulePersist(accountId)
 
       return filled
     })
@@ -698,19 +431,37 @@ async function decryptWithoutWorker(
 ): Promise<Item[]> {
   const decryptedResults = await Promise.allSettled(
     items.map(async source => {
-      // Only support legacy cipher format in fallback (no worker)
-      if (!source.cipher) {
-        throw new Error(`Cannot decrypt branching format without worker`)
+      const envelope = toItemEnvelope(source)
+      if (!envelope) {
+        throw new Error(`Missing payload for item ${source.item}`)
       }
 
-      const decrypted = await vaultModule.decryptObject({ cipher: source.cipher, iv: source.metadata.iv }) as Item
+      let decrypted: Item
+      switch (envelope.kind) {
+        case 'legacy': {
+          decrypted = await vaultModule.decryptObject({
+            cipher: envelope.cipher,
+            iv: envelope.iv,
+          }) as Item
+          break
+        }
+        case 'branching': {
+          const merged = await decryptAndMergeAutomerge(envelope.branches, vaultModule.getVaultKey())
+          decrypted = Automerge.toJS(merged.mergedDoc) as Item
+          setCachedAutomergeBinary(source.item, merged.mergedBinary)
+          break
+        }
+        default:
+          assertNeverEnvelope(envelope)
+      }
+
       const filled = supplyMissingAttributes(decrypted)
 
-      decryptionCache.set(source.item, {
-        cacheKey: source.cipher,
+      sharedDecryptionCache.set(source.item, {
+        cacheKey: getEnvelopeCacheKey(envelope),
         item: filled,
       })
-      schedulePersistDecryptionCache(accountId)
+      sharedDecryptionCache.schedulePersist(accountId)
 
       return filled
     }),
@@ -796,40 +547,26 @@ function mergeDeltaItems(existing: Item[], delta: Item[], deletedIds: Set<string
 export async function fetchMetadata(): Promise<AccountMetadata> {
   const result = await getMetadata()
 
-  if (result && typeof result === 'object' && 'branches' in result && Array.isArray(result.branches)) {
-    const branches = result.branches
-    if (branches.length === 0) {
-      setCachedMetadataAutomergeBinary(Automerge.save(Automerge.from({})))
-      return {}
+  const envelope = toMetadataEnvelope(result)
+  if (envelope) {
+    switch (envelope.kind) {
+      case 'branching': {
+        const merged = await decryptAndMergeAutomerge(envelope.branches, vault.getVaultKey())
+        setCachedMetadataAutomergeBinary(merged.mergedBinary)
+        return Automerge.toJS(merged.mergedDoc) as AccountMetadata
+      }
+      case 'legacy': {
+        const metadata = await vault.decryptObject({
+          cipher: envelope.cipher,
+          iv: envelope.iv,
+        }) as AccountMetadata
+        const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
+        setCachedMetadataAutomergeBinary(Automerge.save(doc))
+        return metadata
+      }
+      default:
+        assertNeverEnvelope(envelope)
     }
-
-    const decryptedDocs = await Promise.all(branches.map(async branch => {
-      const encryptedDoc = branch.encryptedAutomergeDoc
-      const iv = encryptedDoc.slice(0, 32)
-      const cipher = encryptedDoc.slice(32)
-      const binary = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(toBytes(iv)) },
-        vault.getVaultKey(),
-        toBytes(cipher),
-      )
-      return Automerge.load(new Uint8Array(binary))
-    }))
-
-    let mergedDoc = decryptedDocs[0]
-    for (let index = 1; index < decryptedDocs.length; index += 1) {
-      mergedDoc = Automerge.merge(mergedDoc, decryptedDocs[index])
-    }
-
-    const mergedBinary = Automerge.save(mergedDoc)
-    setCachedMetadataAutomergeBinary(mergedBinary)
-    return Automerge.toJS(mergedDoc) as AccountMetadata
-  }
-
-  if (result && typeof result === 'object' && 'cipher' in result && 'iv' in result) {
-    const metadata = await vault.decryptObject(result as { cipher: string; iv: string }) as AccountMetadata
-    const doc = Automerge.from(metadata as unknown as Record<string, unknown>)
-    setCachedMetadataAutomergeBinary(Automerge.save(doc))
-    return metadata
   }
 
   const metadata = (result || {}) as AccountMetadata
@@ -846,11 +583,4 @@ export function clearQueryCache() {
 // Helper to check if we have cached data (for UI purposes)
 export function hasItemsInCache(): boolean {
   return queryClient.getQueryData(queryKeys.items) !== undefined
-}
-
-export const __decryptionCacheTestUtils = {
-  getSnapshot: getDecryptionCacheSnapshotForTests,
-  load: loadDecryptionCache,
-  reset: resetDecryptionCacheForTests,
-  schedulePersist: schedulePersistDecryptionCache,
 }
