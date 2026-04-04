@@ -59,10 +59,11 @@ class ItemsSyncEngine {
         .filter(item => item.metadata?.deleted === true)
         .map(item => item.item),
     )
+    const incoming = decrypted.filter(item => !deletedIds.has(item.id))
 
     this.items = cacheTime === null
-      ? decrypted
-      : mergeDeltaItems(this.items, decrypted, deletedIds)
+      ? incoming
+      : mergeDeltaItems(this.items, incoming, deletedIds)
 
     await input.migrateItems(this.items, input.metadata)
 
