@@ -33,6 +33,9 @@ import { parseVaultEnvelope } from './vault/envelopeParser'
 import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
 import { itemsSyncEngine } from './vault/syncEngine'
 import migrateItems from '../state/migrations'
+import type { RealtimeEventEnvelope } from '../shared/realtime'
+import { readQueue } from '../sync/offlineQueueStore'
+import { projectOfflineMutations } from '../state/optimisticProjection'
 
 type DecryptionResult =
   | { ok: true; item: Item }
@@ -256,7 +259,76 @@ export async function fetchItems(): Promise<Item[]> {
     migrateItems,
   })
 
-  return sortItems(mergedItems, DEFAULT_CRITERIA)
+  const projectedItems = await applyOptimisticProjection(mergedItems)
+
+  return sortItems(projectedItems, DEFAULT_CRITERIA)
+}
+
+export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[]): Promise<void> {
+  if (!events.length) {
+    return
+  }
+
+  const accountId = getAccountId()
+  const updatedItemIds = new Set<string>()
+  const deletedItemIds = new Set<string>()
+
+  for (const event of events) {
+    if (event.eventType !== 'items.updated' && event.eventType !== 'items.deleted') {
+      continue
+    }
+
+    const data = (event.data || {}) as {
+      itemIds?: unknown
+      deletedItemIds?: unknown
+    }
+
+    if (Array.isArray(data.itemIds)) {
+      for (const id of data.itemIds) {
+        if (typeof id === 'string') {
+          updatedItemIds.add(id)
+        }
+      }
+    }
+
+    if (Array.isArray(data.deletedItemIds)) {
+      for (const id of data.deletedItemIds) {
+        if (typeof id === 'string') {
+          deletedItemIds.add(id)
+        }
+      }
+    }
+  }
+
+  if (updatedItemIds.size === 0 && deletedItemIds.size === 0) {
+    return
+  }
+
+  const updatedIds = Array.from(updatedItemIds)
+  const updatedResponse = updatedIds.length > 0
+    ? await fetchMany({ ids: updatedIds }).catch(error => {
+      handleVaultError(error, 'Failed to fetch realtime item delta from server')
+      return { items: [] as VaultItem[], serverTime: Date.now() }
+    })
+    : { items: [] as VaultItem[], serverTime: Date.now() }
+
+  const updatedVaultItems = updatedResponse.items as VaultItem[]
+  const decryptedDelta = await decryptVaultItems(updatedVaultItems)
+
+  for (const item of updatedVaultItems) {
+    if (item.metadata?.deleted === true) {
+      deletedItemIds.add(item.item)
+    }
+  }
+
+  const updatedItems = await itemsSyncEngine.applyRealtimeDelta({
+    accountId,
+    decryptedDelta,
+    deletedIds: deletedItemIds,
+  })
+
+  const projectedItems = await applyOptimisticProjection(updatedItems)
+  queryClient.setQueryData<Item[]>(queryKeys.items, sortItems(projectedItems, DEFAULT_CRITERIA))
 }
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
@@ -300,6 +372,11 @@ function hydrateAndCacheItem(
   })
 
   return { item: filled, cacheUpdated: true }
+}
+
+async function applyOptimisticProjection(baseItems: Item[]): Promise<Item[]> {
+  const offlineQueue = await readQueue()
+  return projectOfflineMutations(baseItems, offlineQueue)
 }
 
 // Helper to clear the cache (e.g., on logout)

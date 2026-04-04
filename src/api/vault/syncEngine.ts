@@ -19,6 +19,11 @@ class ItemsSyncEngine {
   private loadedAccountId: string | null = null
   private items: Item[] = []
 
+  reset(): void {
+    this.loadedAccountId = null
+    this.items = []
+  }
+
   private async load(accountId: string): Promise<void> {
     if (this.loadedAccountId === accountId) {
       return
@@ -61,6 +66,18 @@ class ItemsSyncEngine {
 
     await input.migrateItems(this.items, input.metadata)
 
+    await this.persist(input.accountId)
+    return this.items
+  }
+
+  async applyRealtimeDelta(input: {
+    accountId: string
+    decryptedDelta: Item[]
+    deletedIds: Set<string>
+  }): Promise<Item[]> {
+    await this.load(input.accountId)
+
+    this.items = mergeDeltaItems(this.items, input.decryptedDelta, input.deletedIds)
     await this.persist(input.accountId)
     return this.items
   }

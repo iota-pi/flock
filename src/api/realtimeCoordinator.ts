@@ -10,6 +10,7 @@ type RealtimeCoordinatorOptions = {
   account: string
   onServerEvent: (event: RealtimeEventEnvelope) => void
   onItemsChanged?: (payload: { updatedItemIds: string[]; deletedItemIds: string[] }) => void
+  onItemEvents?: (events: RealtimeEventEnvelope[]) => void
 }
 
 type RealtimeCoordinatorHandle = {
@@ -83,7 +84,7 @@ export function stopRealtimeCoordinator(): void {
   activeKey = ''
 }
 
-function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
+function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvents }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
   const tabId = createTabId()
   const supportsBroadcastChannel = typeof BroadcastChannel !== 'undefined'
   const channelName = `flock:realtime:${account}`
@@ -169,6 +170,13 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
         updatedItemIds: stashed.updatedItemIds,
         deletedItemIds: stashed.deletedItemIds,
       })
+      onItemEvents?.([{
+        ...stashed.event,
+        data: {
+          itemIds: stashed.updatedItemIds,
+          deletedItemIds: stashed.deletedItemIds,
+        },
+      }])
       onServerEvent(stashed.event)
     }
 
@@ -238,6 +246,13 @@ function createCoordinator({ account, onServerEvent, onItemsChanged }: RealtimeC
             updatedItemIds: unblockedUpdated,
             deletedItemIds: unblockedDeleted,
           })
+          onItemEvents?.([{
+            ...event,
+            data: {
+              itemIds: unblockedUpdated,
+              deletedItemIds: unblockedDeleted,
+            },
+          }])
         }
       }
     }

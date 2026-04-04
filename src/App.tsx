@@ -26,6 +26,7 @@ import {
   startRealtimeCoordinator,
   stopRealtimeCoordinator,
 } from './api/realtimeCoordinator'
+import { processRealtimeItemEvents } from './api/itemReadService'
 import type { RealtimeEventEnvelope } from './shared/realtime'
 import {
   subscribeSyncRuntime,
@@ -145,6 +146,9 @@ function RootLayout() {
       startRealtimeCoordinator({
         account,
         onServerEvent: handleRealtimeEvent,
+        onItemEvents: events => {
+          void processRealtimeItemEvents(events)
+        },
         onItemsChanged: ({ updatedItemIds, deletedItemIds }) => {
           if (deletedItemIds.length > 0) {
             queryClient.setQueryData<Item[]>(queryKeys.items, old => {
@@ -154,17 +158,6 @@ function RootLayout() {
               const deletedIdSet = new Set(deletedItemIds)
               return old.filter(item => !deletedIdSet.has(item.id))
             })
-          }
-
-          if (updatedItemIds.length > 0) {
-            void trpcUtils.items.fetchMany.invalidate({
-              account,
-              ids: updatedItemIds,
-            })
-          }
-
-          if (deletedItemIds.length > 0) {
-            void trpcUtils.items.fetchMany.invalidate()
           }
         },
       })

@@ -42,6 +42,10 @@ let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
 
+function invalidateItemsProjection() {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.items })
+}
+
 function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
   if (existing.mutationType !== mutationType) {
     return false
@@ -189,6 +193,7 @@ export async function enqueueMutation(
 
   await writeQueue(queue)
   setSyncRuntimeState({ offlineQueueLength: queue.length })
+  invalidateItemsProjection()
 
   await registerBackgroundSync()
 }
@@ -362,6 +367,7 @@ export async function processOfflineQueue() {
 
     await writeQueue(nextQueue)
     setSyncRuntimeState({ offlineQueueLength: nextQueue.length })
+    invalidateItemsProjection()
   } finally {
     setSyncRuntimeState({ isSyncing: false })
     processing = false
