@@ -173,11 +173,26 @@ export function useOfflineRecovery() {
     }
   }, [putItemMutation, removeManualRecoveryEntry, setMessage, trpcUtils])
 
+  const handleRetryCorruptedItem = useCallback(async (itemId: ItemId) => {
+    setIsRetrying(itemId)
+    try {
+      await removeManualRecoveryEntry(itemId)
+      await trpcUtils.items.fetchMany.invalidate()
+      setMessage({
+        severity: 'info',
+        message: `Retry sync triggered for ${itemId}.`,
+      })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [removeManualRecoveryEntry, setMessage, trpcUtils])
+
   return {
     deadLetterItems,
     isRetrying,
     handleRetryDeadLetterMutation,
     handleDiscardDeadLetterMutation,
+    handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
   }

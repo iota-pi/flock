@@ -29,7 +29,11 @@ export function parseVaultEnvelope(payload: unknown): VaultEnvelope | null {
     }
   }
 
-  if (Array.isArray(candidate.branches) && candidate.branches.every(isBranch)) {
+  if (
+    Array.isArray(candidate.branches)
+    && candidate.branches.length > 0
+    && candidate.branches.every(isBranch)
+  ) {
     return {
       kind: 'branching',
       branches: candidate.branches,

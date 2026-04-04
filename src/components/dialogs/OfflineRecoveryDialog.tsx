@@ -22,6 +22,7 @@ function OfflineRecoveryDialog({ onClose, open }: Props) {
     isRetrying,
     handleRetryDeadLetterMutation,
     handleDiscardDeadLetterMutation,
+    handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
   } = useOfflineRecovery()
@@ -55,6 +56,21 @@ function OfflineRecoveryDialog({ onClose, open }: Props) {
                       </Stack>
 
                       <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          size="small"
+                          disabled={isRetrying !== null}
+                          startIcon={isRetrying === (item.payload as { itemId?: string })?.itemId ? <CircularProgress size={14} color="inherit" /> : undefined}
+                          onClick={() => {
+                            const itemId = (item.payload as { itemId?: string })?.itemId
+                            if (itemId) {
+                              void handleRetryCorruptedItem(itemId)
+                            }
+                          }}
+                        >
+                          Retry
+                        </Button>
                         <Button
                           variant="contained"
                           color="warning"

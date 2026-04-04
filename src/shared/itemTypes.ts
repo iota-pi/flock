@@ -15,21 +15,43 @@ export type VaultBranch = {
   parentIds: string[],
 }
 
-/**
- * ItemEnvelope: Dual-format container supporting legacy and new branching formats
- * - Legacy: Has `cipher` string, no `branches`
- * - Single Branch: Has `branches` array with 1 item
- * - Multiple Branches (Conflict): Has `branches` array with 2+ items
- */
-export type ItemEnvelope = {
-  item: ItemId, // item ID
-  cipher?: string, // Legacy format only
-  branches?: VaultBranch[], // New branching format
-  metadata: {
-    type: ItemType,
-    iv: string, // For legacy cipher decryption
-    modified: number,
-    deleted?: boolean,
-    compactedAt?: number,
+export type VaultBranchList = [VaultBranch, ...VaultBranch[]]
+
+export type ItemEnvelopeMetadata = {
+  type: ItemType,
+  iv: string,
+  modified: number,
+  deleted?: boolean,
+  compactedAt?: number,
+}
+
+export type LegacyItemEnvelope = {
+  item: ItemId,
+  cipher: string,
+  branches?: undefined,
+  metadata: ItemEnvelopeMetadata,
+}
+
+export type StandardItemEnvelope = {
+  item: ItemId,
+  cipher?: undefined,
+  branches: VaultBranchList,
+  metadata: ItemEnvelopeMetadata,
+}
+
+export type TombstoneItemEnvelope = {
+  item: ItemId,
+  cipher?: undefined,
+  branches?: undefined,
+  metadata: ItemEnvelopeMetadata & {
+    deleted: true,
   },
 }
+
+/**
+ * ItemEnvelope: Union container supporting legacy and standard envelopes.
+ * - Legacy: encrypted JSON payload in `cipher`.
+ * - Standard: Automerge CRDT payload in non-empty `branches`.
+ * - Tombstone: deleted marker without encrypted payload.
+ */
+export type ItemEnvelope = LegacyItemEnvelope | StandardItemEnvelope | TombstoneItemEnvelope

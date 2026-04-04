@@ -338,16 +338,11 @@ export async function processIncomingItem(
   }
 }> {
   try {
-    // Scenario 1: Legacy item
-    if (envelope.cipher && !envelope.branches) {
-      const plainJson = await decryptLegacyCipher(envelope.cipher, envelope.metadata.iv, key)
-      const parsed = JSON.parse(plainJson) as HydratedItem
-      parsed.id = envelope.item
-      return { item: parsed }
-    }
+    const branches = Array.isArray(envelope.branches) ? envelope.branches : []
+    const hasBranches = branches.length > 0
 
-    // Scenario 2+: Branching format (single or multiple branches)
-    if (envelope.branches && envelope.branches.length > 0) {
+    // Scenario 1: Branching format (single or multiple branches)
+    if (hasBranches) {
       // Phase 1: Decrypt and validate each branch independently
       const decryptedBranches: Array<{
         versionId: string
@@ -359,7 +354,7 @@ export async function processIncomingItem(
         valid: false
       }> = []
 
-      for (const branch of envelope.branches) {
+      for (const branch of branches) {
         try {
           const binary = await decryptAutomergeBinary(branch.encryptedAutomergeDoc, key)
           const doc = Automerge.load(binary)
@@ -389,7 +384,7 @@ export async function processIncomingItem(
           item: null,
           corrupted: {
             itemId: envelope.item,
-            failedBranches: envelope.branches.map(branch => branch.versionId),
+              failedBranches: branches.map(branch => branch.versionId),
           },
         }
       }
@@ -403,7 +398,7 @@ export async function processIncomingItem(
       }
 
       // Phase 4: Encrypt and create resolution for multi-branch conflicts.
-      const shouldEmitResolution = envelope.branches.length > 1
+      const shouldEmitResolution = branches.length > 1
       const encryptedAutomergeDoc = shouldEmitResolution
         ? await encryptAutomergeBinary(mergedBinary, key)
         : ''
@@ -413,7 +408,7 @@ export async function processIncomingItem(
         ? {
           encryptedAutomergeDoc,
           versionId: createVersionId(),
-          parentIds: envelope.branches.map(branch => branch.versionId),
+          parentIds: branches.map(branch => branch.versionId),
         }
         : undefined
 
@@ -429,6 +424,14 @@ export async function processIncomingItem(
       }
 
       return { item, resolvedBranch }
+    }
+
+    // Scenario 2: Legacy item (including rows with empty branches arrays)
+    if (typeof envelope.cipher === 'string') {
+      const plainJson = await decryptLegacyCipher(envelope.cipher, envelope.metadata.iv, key)
+      const parsed = JSON.parse(plainJson) as HydratedItem
+      parsed.id = envelope.item
+      return { item: parsed }
     }
 
     return { item: null }

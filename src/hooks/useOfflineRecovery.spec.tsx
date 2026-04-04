@@ -174,4 +174,47 @@ describe('useOfflineRecovery', () => {
     expect(mocks.processOfflineQueue).toHaveBeenCalledTimes(1)
     expect(result.current.isRetrying).toBe(null)
   })
+
+  it('retries a corrupted item by removing manual recovery marker and invalidating fetch cache', async () => {
+    const itemId = 'item-corrupted-1'
+    const manualRecoveryEntry = {
+      id: 'm-recovery',
+      mutationType: 'items.manualRecovery',
+      payload: { itemId },
+      endpoint: 'x',
+    }
+    const unrelatedEntry = {
+      id: 'm-other',
+      mutationType: 'items.put',
+      payload: { item: 'other' },
+      endpoint: 'x',
+    }
+
+    mocks.readDeadLetterQueue
+      .mockResolvedValueOnce([manualRecoveryEntry, unrelatedEntry])
+      .mockResolvedValueOnce([manualRecoveryEntry, unrelatedEntry])
+      .mockResolvedValue([unrelatedEntry])
+    mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
+    mocks.invalidateItems.mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useOfflineRecovery(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => {
+      expect(result.current.deadLetterItems.length).toBe(2)
+    })
+
+    await act(async () => {
+      await result.current.handleRetryCorruptedItem(itemId)
+    })
+
+    expect(mocks.writeDeadLetterQueue).toHaveBeenCalledWith([unrelatedEntry])
+    expect(mocks.invalidateItems).toHaveBeenCalledTimes(1)
+    expect(mocks.setMessage).toHaveBeenCalledWith({
+      severity: 'info',
+      message: `Retry sync triggered for ${itemId}.`,
+    })
+    expect(result.current.isRetrying).toBe(null)
+  })
 })
