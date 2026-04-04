@@ -162,6 +162,8 @@ function RootLayout() {
         },
       })
       started = true
+
+      void queryClient.invalidateQueries({ queryKey: queryKeys.items })
     }
 
     tryStartRealtime()

@@ -14,12 +14,12 @@ const EMPTY_ARRAY: [] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
-export const useAuthInitializing = () => useAuthStore(state => state.initializing)
+export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state.initializing)
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const loggedIn = useLoggedIn()
+  const authReady = useAuthReady()
   const selectItems = useCallback(
     (items: Item[]) => {
       const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
@@ -34,24 +34,24 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
   const { data: items = EMPTY_ARRAY as T[] } = useQuery<Item[], Error, T[]>({
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    enabled: loggedIn,
+    enabled: authReady,
     select: selectItems,
   })
   return items
 }
 
 export function useItemsInitialLoading(): boolean {
-  const loggedIn = useLoggedIn()
+  const authReady = useAuthReady()
   const { isLoading } = useQuery<Item[]>({
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    enabled: loggedIn,
+    enabled: authReady,
   })
   return isLoading
 }
 
 export const useItemMap = () => {
-  const loggedIn = useLoggedIn()
+  const authReady = useAuthReady()
   const selectItemMap = useCallback(
     (items: Item[]) => {
       const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
@@ -62,14 +62,14 @@ export const useItemMap = () => {
   const { data: itemMap = EMPTY_ITEM_MAP } = useQuery<Item[], Error, Record<ItemId, Item>>({
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    enabled: loggedIn,
+    enabled: authReady,
     select: selectItemMap,
   })
   return itemMap
 }
 
 export const useItem = (id: ItemId) => {
-  const loggedIn = useLoggedIn()
+  const authReady = useAuthReady()
   const selectItem = useCallback(
     (items: Item[]) => items
       .filter(item => !(item as Item & { deleted?: boolean }).deleted)
@@ -79,7 +79,7 @@ export const useItem = (id: ItemId) => {
   const { data: item } = useQuery<Item[], Error, Item | undefined>({
     queryKey: queryKeys.items,
     queryFn: fetchItems,
-    enabled: loggedIn,
+    enabled: authReady      && typeof id === 'string',
     select: selectItem,
   })
   return item
@@ -109,11 +109,11 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const loggedIn = useLoggedIn()
+  const authReady = useAuthReady()
   const { data: metadata = {} as Metadata } = useQuery({
     queryKey: queryKeys.metadata,
     queryFn: fetchMetadata,
-    enabled: loggedIn,
+    enabled: authReady,
   })
   const setMetadata = mutateSetMetadata
 

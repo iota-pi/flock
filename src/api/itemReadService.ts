@@ -227,9 +227,6 @@ async function decryptWithoutWorker(
 
 export async function fetchItems(): Promise<Item[]> {
   if (!hasApiAuthToken()) {
-    // If API isn't ready to use (no auth token), we can't fetch.
-    // Return empty array to satisfy the query temporarily.
-    // The real fetch will happen once loadVault completes and triggers a refetch.
     return []
   }
 

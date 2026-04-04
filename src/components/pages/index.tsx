@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
 import { CircularProgress, Box } from '@mui/material'
-import { useLoggedIn, useAuthInitializing } from '../../state/selectors'
+import { useLoggedIn, useAuthReady } from '../../state/selectors'
 
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { Page, PageId } from './types'
@@ -21,10 +21,10 @@ function Loading() {
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthInitializing()
+  const ready = useAuthReady()
   const location = useLocation()
 
-  if (initializing) {
+  if (loggedIn && !ready) {
     return <Loading />
   }
 
@@ -42,13 +42,13 @@ function RedirectIfLoggedIn(
   },
 ) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthInitializing()
-
-  if (initializing) {
-    return <Loading />
-  }
+  const ready = useAuthReady()
 
   if (loggedIn) {
+    if (!ready) {
+      return <Loading />
+    }
+
     return <Navigate to={redirect} replace />
   }
 
