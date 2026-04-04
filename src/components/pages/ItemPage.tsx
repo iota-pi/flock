@@ -5,6 +5,7 @@ import ItemList from '../../features/items/components/ItemList'
 import {
   useIsActive,
   useItems,
+  useItemsInitialLoading,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
@@ -24,6 +25,7 @@ function ItemPage<T extends Item>({
   const setUi = useUiStore(state => state.setUi)
   const toggleSelected = useUiStore(state => state.toggleSelected)
   const isActive = useIsActive()
+  const itemsInitialLoading = useItemsInitialLoading()
   const rawItems = useItems<T>(itemType)
   const selected = useUiStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
@@ -104,9 +106,11 @@ function ItemPage<T extends Item>({
   const pluralLabelLower = pluralLabel.toLowerCase()
 
   const noItemsHint = (
-    hiddenItemCount
-      ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
-      : 'Click the plus button to add one!'
+    itemsInitialLoading
+      ? undefined
+      : hiddenItemCount
+        ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
+        : 'Click the plus button to add one!'
   )
   const itemCountText = (
     filterCount > 0
@@ -177,7 +181,7 @@ function ItemPage<T extends Item>({
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
         maxTags={3}
         noItemsHint={noItemsHint}
-        noItemsText={`No ${pluralLabelLower} found`}
+        noItemsText={itemsInitialLoading ? 'Loading items...' : `No ${pluralLabelLower} found`}
         onCheck={handleCheck}
         onClick={handleClickItem}
       />

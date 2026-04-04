@@ -28,7 +28,7 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
+import { useItems, useItemsInitialLoading, useMetadata, useSortCriteria } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
@@ -126,6 +126,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
   const items = useItems()
+  const itemsInitialLoading = useItemsInitialLoading()
   const [sortCriteria] = useSortCriteria()
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
 
@@ -334,6 +335,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           } as any,
         }}
         multiple
+        loading={itemsInitialLoading}
+        loadingText="Loading items..."
         noOptionsText={noItemsText}
         onChange={handleChange}
         onHighlightChange={handleHighlightChange}

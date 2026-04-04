@@ -40,6 +40,16 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
   return items
 }
 
+export function useItemsInitialLoading(): boolean {
+  const loggedIn = useLoggedIn()
+  const { isLoading } = useQuery<Item[]>({
+    queryKey: queryKeys.items,
+    queryFn: fetchItems,
+    enabled: loggedIn,
+  })
+  return isLoading
+}
+
 export const useItemMap = () => {
   const loggedIn = useLoggedIn()
   const selectItemMap = useCallback(

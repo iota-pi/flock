@@ -8,6 +8,7 @@ import getTheme from '../theme'
 // Mocks
 vi.mock('../state/selectors', () => ({
   useItems: vi.fn(),
+  useItemsInitialLoading: vi.fn(),
   useMetadata: vi.fn(),
   useSortCriteria: vi.fn(),
 }))
@@ -28,7 +29,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
   )
 }
 
-import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
+import { useItems, useItemsInitialLoading, useMetadata, useSortCriteria } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
 
@@ -46,6 +47,7 @@ describe('Search Component', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useItems).mockReturnValue(items)
+    vi.mocked(useItemsInitialLoading).mockReturnValue(false)
     vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
     vi.mocked(useSortCriteria).mockReturnValue([[], vi.fn()])
     vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
