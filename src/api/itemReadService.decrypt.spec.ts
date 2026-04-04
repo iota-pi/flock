@@ -49,15 +49,26 @@ describe('decryptVaultItems', () => {
   })
 
   it('decrypts with manager then reuses cache on next call', async () => {
-    const envelope = {
-      item: 'item-1',
-      cipher: 'cipher-value',
-      metadata: {
-        type: 'person' as const,
-        iv: 'iv-value',
-        modified: Date.now(),
+    const envelopes = [
+      {
+        item: 'item-1',
+        cipher: 'cipher-value-1',
+        metadata: {
+          type: 'person' as const,
+          iv: 'iv-value-1',
+          modified: Date.now(),
+        },
       },
-    }
+      {
+        item: 'item-2',
+        cipher: 'cipher-value-2',
+        metadata: {
+          type: 'person' as const,
+          iv: 'iv-value-2',
+          modified: Date.now(),
+        },
+      },
+    ]
 
     mocks.decryptItemsInWorker.mockResolvedValue([
       {
@@ -65,17 +76,25 @@ describe('decryptVaultItems', () => {
         type: 'person',
         name: 'Alice',
       },
+      {
+        id: 'item-2',
+        type: 'person',
+        name: 'Bob',
+      },
     ])
 
     const mod = await import('./itemReadService')
+    const schedulePersistSpy = vi.spyOn(sharedDecryptionCache, 'schedulePersist')
 
-    const first = await mod.decryptVaultItems([envelope])
-    const second = await mod.decryptVaultItems([envelope])
+    const first = await mod.decryptVaultItems(envelopes)
+    const second = await mod.decryptVaultItems(envelopes)
 
-    expect(first).toHaveLength(1)
+    expect(first).toHaveLength(2)
     expect(first[0]).toMatchObject({ id: 'item-1', type: 'person', name: 'Alice' })
-    expect(second).toHaveLength(1)
+    expect(first[1]).toMatchObject({ id: 'item-2', type: 'person', name: 'Bob' })
+    expect(second).toHaveLength(2)
     expect(mocks.decryptItemsInWorker).toHaveBeenCalledTimes(1)
     expect(mocks.configureDecryptionWorkerCallbacks).toHaveBeenCalledTimes(1)
+    expect(schedulePersistSpy).toHaveBeenCalledTimes(1)
   })
 })

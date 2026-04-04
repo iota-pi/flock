@@ -27,13 +27,17 @@ type DecryptionConflictWorkerApi = {
   rescueStaleCompactedBranch: (request: RescueStaleBranchRequest) => Promise<ResolvedBranch>
 }
 
-type HydratedWorkerItem = Record<string, unknown>
+export type WorkerDecryptedItem = {
+  id: string
+  automergeBinary?: Uint8Array
+  [key: string]: unknown
+}
 
 type DecryptionWorkerResponse =
   | {
     type: 'DECRYPTION_RESULT'
     jobId?: number
-    items?: HydratedWorkerItem[]
+    items?: Array<Record<string, unknown>>
   }
   | {
     type: 'CORRUPTED_ITEM_DETECTED'
@@ -79,7 +83,7 @@ let pendingTaskChain: Promise<void> = Promise.resolve()
 
 let decryptionWorker: Worker | null = null
 let nextDecryptionJobId = 0
-const pendingDecryptionJobs = new Map<number, PendingPromise<HydratedWorkerItem[]>>()
+const pendingDecryptionJobs = new Map<number, PendingPromise<WorkerDecryptedItem[]>>()
 const pendingHistoryJobs = new Map<number, PendingPromise<VaultItem | null>>()
 const pendingCompactionJobs = new Map<number, PendingPromise<{
   itemId: string
@@ -218,8 +222,26 @@ function getDecryptionWorker(): Worker {
       return
     }
 
+    const normalized = (payload.items || []).flatMap((item): WorkerDecryptedItem[] => {
+      if (!item || typeof item !== 'object') {
+        return []
+      }
+
+      const id = (item as { id?: unknown }).id
+      if (typeof id !== 'string') {
+        return []
+      }
+
+      const automergeBinary = (item as { automergeBinary?: unknown }).automergeBinary
+      return [{
+        ...item,
+        id,
+        automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
+      }]
+    })
+
     pendingDecryptionJobs.delete(jobId)
-    pending.resolve(payload.items || [])
+    pending.resolve(normalized)
   }
 
   decryptionWorker.onerror = event => {
@@ -244,7 +266,7 @@ export function configureDecryptionWorkerCallbacks(callbacks: DecryptionWorkerCa
 export async function decryptItemsInWorker(input: {
   key: CryptoKey
   items: VaultItem[]
-}): Promise<HydratedWorkerItem[]> {
+}): Promise<WorkerDecryptedItem[]> {
   const activeWorker = getDecryptionWorker()
   const jobId = nextJobId()
 

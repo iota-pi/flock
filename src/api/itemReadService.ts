@@ -16,12 +16,10 @@ import {
   queryKeys,
 } from './queryClient'
 import { handleVaultError } from './runtime'
-import migrateItems from '../state/migrations'
 import { getAccountId } from './util'
-import * as Automerge from '@automerge/automerge'
-import { getCachedMetadataAutomergeBinary } from '../sync/automergeBinaryCache'
 import {
   decryptItemsInWorker,
+  type WorkerDecryptedItem,
 } from '../workers/decryptionWorkerManager'
 import { sharedDecryptionCache } from './vault/DecryptionCache'
 import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
@@ -34,6 +32,7 @@ import {
 import { parseVaultEnvelope } from './vault/envelopeParser'
 import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
 import { itemsSyncEngine } from './vault/syncEngine'
+import migrateItems from '../state/migrations'
 
 type DecryptionResult =
   | { ok: true; item: Item }
@@ -69,12 +68,13 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
 
   const fromCache: Item[] = []
   const toDecrypt: VaultItem[] = []
+  let cacheMutated = false
 
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]
     if (item.metadata?.deleted) {
       sharedDecryptionCache.delete(item.item)
-      sharedDecryptionCache.schedulePersist(accountId)
+      cacheMutated = true
       continue
     }
 
@@ -99,10 +99,16 @@ export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
   }
 
   if (toDecrypt.length === 0) {
+    if (cacheMutated) {
+      sharedDecryptionCache.schedulePersist(accountId)
+    }
     return fromCache
   }
 
   const workerDecrypted = await decryptWithWorker(accountId, toDecrypt)
+  if (cacheMutated) {
+    sharedDecryptionCache.schedulePersist(accountId)
+  }
   return [...fromCache, ...workerDecrypted]
 }
 
@@ -121,23 +127,15 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
   })
 
   const sourcesById = new Map(items.map(item => [item.item, item]))
+  let cacheMutated = false
 
-  const results = decrypted.map(item => {
-      const id = (item as { id?: unknown }).id
-      if (typeof id !== 'string') {
-        return {
-          ok: false,
-          error: new Error('Worker returned decrypted item without id'),
-        } satisfies DecryptionResult
-      }
-
-      const workerItem = item as { automergeBinary?: unknown } & Record<string, unknown>
-      const source = sourcesById.get(id)
+  const results = decrypted.map((workerItem: WorkerDecryptedItem) => {
+      const source = sourcesById.get(workerItem.id)
       if (!source) {
         return {
           ok: false,
-          itemId: id,
-          error: new Error(`Worker returned unknown item id: ${id}`),
+          itemId: workerItem.id,
+          error: new Error(`Worker returned unknown item id: ${workerItem.id}`),
         } satisfies DecryptionResult
       }
 
@@ -147,23 +145,26 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       }
 
       const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-      const filled = supplyMissingAttributes(materialized as unknown as Item)
-      const envelope = parseVaultEnvelope(source)
+      const hydrated = hydrateAndCacheItem(
+        accountId,
+        source,
+        materialized as Partial<Item>,
+        automergeBinary,
+      )
 
-      if (envelope) {
-        sharedDecryptionCache.set(source.item, {
-          cacheKey: getEnvelopeCacheKey(envelope),
-          item: filled,
-          automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
-        })
-        sharedDecryptionCache.schedulePersist(accountId)
+      if (hydrated.cacheUpdated) {
+        cacheMutated = true
       }
 
       return {
         ok: true,
-        item: filled,
+        item: hydrated.item,
       } satisfies DecryptionResult
     })
+
+  if (cacheMutated) {
+    sharedDecryptionCache.schedulePersist(accountId)
+  }
 
   return collectSuccessfulDecryptions('worker', results)
 }
@@ -173,6 +174,7 @@ async function decryptWithoutWorker(
   vaultModule: typeof vault,
   items: VaultItem[],
 ): Promise<Item[]> {
+  let cacheMutated = false
   const decryptedResults = await Promise.allSettled(
     items.map(async source => {
       const envelope = parseVaultEnvelope(source)
@@ -186,17 +188,20 @@ async function decryptWithoutWorker(
         decryptLegacyEnvelope: vaultModule.decryptObject,
       })
 
-      const filled = supplyMissingAttributes(decrypted.materialized)
-      sharedDecryptionCache.set(source.item, {
-        cacheKey: getEnvelopeCacheKey(envelope),
-        item: filled,
-        automergeBinary: decrypted.automergeBinary,
-      })
-      sharedDecryptionCache.schedulePersist(accountId)
+      const hydrated = hydrateAndCacheItem(
+        accountId,
+        source,
+        decrypted.materialized as Partial<Item>,
+        decrypted.automergeBinary,
+      )
+
+      if (hydrated.cacheUpdated) {
+        cacheMutated = true
+      }
 
       return {
         ok: true,
-        item: filled,
+        item: hydrated.item,
       } satisfies DecryptionResult
     }),
   )
@@ -209,6 +214,10 @@ async function decryptWithoutWorker(
         error: result.reason,
       } satisfies DecryptionResult
   ))
+
+  if (cacheMutated) {
+    sharedDecryptionCache.schedulePersist(accountId)
+  }
 
   return collectSuccessfulDecryptions('main-thread', results)
 }
@@ -223,8 +232,15 @@ export async function fetchItems(): Promise<Item[]> {
 
   const accountId = getAccountId()
 
+  const metadata = await queryClient.fetchQuery({
+    queryKey: queryKeys.metadata,
+    queryFn: fetchMetadata,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const mergedItems = await itemsSyncEngine.pull({
     accountId,
+    metadata,
     fetchDelta: async cacheTime => {
       const response = await fetchMany({ cacheTime }).catch(error => {
         handleVaultError(error, 'Failed to fetch items from server')
@@ -237,19 +253,8 @@ export async function fetchItems(): Promise<Item[]> {
       }
     },
     decryptItems: decryptVaultItems,
+    migrateItems,
   })
-
-  // Run migrations
-  try {
-    const metadata = await queryClient.fetchQuery({
-      queryKey: queryKeys.metadata,
-      queryFn: fetchMetadata,
-      staleTime: 5 * 60 * 1000,
-    })
-    await migrateItems(mergedItems, metadata)
-  } catch (err) {
-    console.error('Migration check failed during fetchItems', err)
-  }
 
   return sortItems(mergedItems, DEFAULT_CRITERIA)
 }
@@ -265,16 +270,36 @@ export async function fetchMetadata(): Promise<AccountMetadata> {
       decryptLegacyEnvelope: vault.decryptObject,
     })
 
-    const metadata = decrypted.materialized
-    const binary = decrypted.automergeBinary || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
-    sharedDecryptionCache.setMetadataBinary(binary)
-    return metadata
+    if (decrypted.automergeBinary) {
+      sharedDecryptionCache.setMetadataBinary(decrypted.automergeBinary)
+    }
+
+    return decrypted.materialized
   }
 
-  const metadata = (result || {}) as AccountMetadata
-  const fallbackBinary = getCachedMetadataAutomergeBinary() || Automerge.save(Automerge.from(metadata as Record<string, unknown>))
-  sharedDecryptionCache.setMetadataBinary(fallbackBinary)
-  return metadata
+  return (result || {}) as AccountMetadata
+}
+
+function hydrateAndCacheItem(
+  accountId: string,
+  source: VaultItem,
+  materializedItem: Partial<Item>,
+  automergeBinary?: Uint8Array,
+): { item: Item; cacheUpdated: boolean } {
+  const filled = supplyMissingAttributes(materializedItem as Item)
+  const envelope = parseVaultEnvelope(source)
+
+  if (!envelope) {
+    return { item: filled, cacheUpdated: false }
+  }
+
+  sharedDecryptionCache.set(source.item, {
+    cacheKey: getEnvelopeCacheKey(envelope),
+    item: filled,
+    automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
+  })
+
+  return { item: filled, cacheUpdated: true }
 }
 
 // Helper to clear the cache (e.g., on logout)

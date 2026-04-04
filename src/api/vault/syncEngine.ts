@@ -3,6 +3,7 @@ import { mergeDeltaItems } from '../../state/items'
 import { syncDB } from '../db'
 import type { VaultItem } from './client'
 import { getLastSyncServerTime } from '../../sync/syncServerTimeStore'
+import type { AccountMetadata } from '../../state/metadata'
 
 type PersistedItemsSyncState = {
   items: Item[]
@@ -34,8 +35,10 @@ class ItemsSyncEngine {
 
   async pull(input: {
     accountId: string
+    metadata: AccountMetadata
     fetchDelta: (cacheTime: number | null) => Promise<{ items: VaultItem[]; serverTime: number }>
     decryptItems: (items: VaultItem[]) => Promise<Item[]>
+    migrateItems: (items: Item[], metadata: AccountMetadata) => Promise<unknown>
   }): Promise<Item[]> {
     await this.load(input.accountId)
 
@@ -55,6 +58,8 @@ class ItemsSyncEngine {
     this.items = cacheTime === null
       ? decrypted
       : mergeDeltaItems(this.items, decrypted, deletedIds)
+
+    await input.migrateItems(this.items, input.metadata)
 
     await this.persist(input.accountId)
     return this.items
