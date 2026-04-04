@@ -22,7 +22,6 @@ import {
   FilterOptionsState,
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
-import { useListRef } from 'react-window'
 import {
   getBlankItem,
   getItemName,
@@ -44,7 +43,7 @@ import {
   getName,
   sortSearchables,
 } from './search/utils'
-import ListBoxComponent from './search/ListBox'
+import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
@@ -288,7 +287,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     () => (forceDarkTheme ? DARK_THEME : {}),
     [forceDarkTheme],
   )
-  const internalListRef = useListRef(null)
+  const internalListRef = useRef<SearchListVirtualizerApi | null>(null)
   const optionIndexMapRef = useRef<Map<string, number>>(new Map())
 
   const handleItemsBuilt = useCallback(
@@ -305,7 +304,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
       const index = optionIndexMapRef.current.get(option.id)
       if (index !== undefined) {
-        internalListRef.current.scrollToRow({ align: 'auto', index })
+        internalListRef.current.scrollToIndex(index)
       }
     },
     [internalListRef],

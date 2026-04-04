@@ -1,10 +1,9 @@
 import {
   MouseEvent,
+  CSSProperties,
   ReactNode,
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
 import {
@@ -22,20 +21,16 @@ import {
   styled,
   SxProps,
 } from '@mui/material'
-import {
-  List as ReactWindowList,
-  RowComponentProps,
-  useDynamicRowHeight,
-} from 'react-window'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { getItemName, GroupItem, isItem, Item } from '../../../state/items'
 import TagDisplay from '../../../components/TagDisplay'
 import { getIcon as getItemIcon } from '../../../components/Icons'
 import { MostlyRequired } from '../../../utils'
 import { useItems } from '../../../state/selectors'
-import { useSize } from '../../../hooks/useSize'
 
 const FADED_OPACITY = 0.65
 const DEFAULT_ROW_HEIGHT = 58
+const FALLBACK_RENDER_COUNT = 20
 
 const StyledListItem = styled(ListItemButton)(
   () => ({
@@ -92,6 +87,7 @@ export interface BaseProps<T extends Item> {
   getHighlighted?: (item: T) => boolean,
   getIcon?: (item: T) => ReactNode,
   getTitle?: (item: T) => string,
+  groupsByMemberId?: ReadonlyMap<string, GroupItem[]>,
   items: T[],
   linkTags?: boolean,
   maxTags?: number,
@@ -112,8 +108,14 @@ export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   paddingBottom?: number,
 }
 
-export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<T>>) {
-  const { index, style, ...data } = props
+interface ItemListItemProps<T extends Item> extends BaseProps<T> {
+  index: number
+  style: CSSProperties
+  measureElement?: (node: HTMLElement | null) => void
+}
+
+export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
+  const { index, style, measureElement, ...data } = props
   const {
     checkboxes,
     checkboxSide,
@@ -129,6 +131,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
     getHighlighted,
     getIcon,
     getTitle,
+    groupsByMemberId,
     items,
     linkTags = true,
     maxTags,
@@ -140,8 +143,6 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
     wrapText = false,
   } = data
   const item = items[index]
-  const allGroups = useItems('group') as GroupItem[]
-  const rowRef = useRef<HTMLDivElement>(null)
 
   const handleClick = useCallback(
     () => onClick?.(item),
@@ -196,10 +197,8 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
     [getDescription, item],
   )
   const groups = useMemo(
-    () => (
-      allGroups.filter(g => g.members.includes(item.id))
-    ),
-    [allGroups, item.id],
+    () => groupsByMemberId?.get(item.id) || [],
+    [groupsByMemberId, item.id],
   )
   const tags = useMemo(
     () => {
@@ -261,7 +260,7 @@ export function ItemListItem<T extends Item>(props: RowComponentProps<BaseProps<
   )
 
   return (
-    <div style={style} ref={rowRef} data-index={index}>
+    <div style={style} ref={measureElement} data-index={index}>
       {extras}
 
       {dividers && <Divider />}
@@ -375,38 +374,34 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   } = props
 
   const [listNode, setListNode] = useState<HTMLDivElement | null>(null)
-  const size = useSize(listNode)
-  const dynamicRowHeight = useDynamicRowHeight({
-    defaultRowHeight,
-  })
-
-  const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listComponentRef = useRef<any>(null)
-
-  // Observe row elements for dynamic height measurement
-  useEffect(() => {
-    if (!useDynamicHeight) return
-    if (!listNode) return
-    const rows = listNode.querySelectorAll('[data-index]')
-    let cleanup: (() => void) | undefined
-    try {
-      cleanup = dynamicRowHeight.observeRowElements(rows)
-    } catch {
-      // Ignore errors during observation
-    }
-
-    return () => {
-      try {
-        if (cleanup) {
-          cleanup()
+  const allGroups = useItems('group') as GroupItem[]
+  const groupsByMemberId = useMemo(() => {
+    const lookup = new Map<string, GroupItem[]>()
+    for (const group of allGroups) {
+      const members = Array.isArray(group.members) ? group.members : []
+      for (const memberId of members) {
+        const existing = lookup.get(memberId)
+        if (existing) {
+          existing.push(group)
+        } else {
+          lookup.set(memberId, [group])
         }
-      } catch {
-        // Ignore errors during cleanup (likely detached DOM nodes)
       }
     }
-  }, [dynamicRowHeight, items, listNode, useDynamicHeight])
+    return lookup
+  }, [allGroups])
+
+  const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => listNode,
+    estimateSize: () => defaultRowHeight,
+    getItemKey: index => items[index]?.id || index,
+    overscan: 5,
+    measureElement: useDynamicHeight
+      ? element => element.getBoundingClientRect().height
+      : undefined,
+  })
 
   const itemData: MostlyRequired<BaseProps<T>> = useMemo(
     () => ({
@@ -425,6 +420,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       getHighlighted,
       getIcon,
       getTitle,
+      groupsByMemberId,
       linkTags,
       maxTags,
       onCheck,
@@ -449,6 +445,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       getHighlighted,
       getIcon,
       getTitle,
+      groupsByMemberId,
       items,
       linkTags,
       maxTags,
@@ -484,28 +481,70 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
           key={items[index].id}
           index={index}
           style={{}}
-          ariaAttributes={{
-            'aria-posinset': index + 1,
-            'aria-setsize': items.length,
-            role: 'listitem',
-          }}
           {...itemData}
         />
       ))
     }
 
+    const virtualItems = rowVirtualizer.getVirtualItems()
+    const fallbackItems = virtualItems.length === 0
+      ? items.slice(0, Math.min(items.length, FALLBACK_RENDER_COUNT))
+      : []
+
     return (
-      <div ref={setListNode} style={{ height: '100%', width: '100%' }}>
-        {size && (
-          <ReactWindowList<BaseProps<Item>>
-            listRef={listComponentRef}
-            style={{ height: size.height }}
-            rowCount={items.length}
-            rowProps={itemData as unknown as BaseProps<Item>}
-            rowHeight={dynamicRowHeight}
-            rowComponent={ItemListItem}
-          />
-        )}
+      <div
+        ref={setListNode}
+        style={{
+          height: '100%',
+          width: '100%',
+          overflowY: 'auto',
+        }}
+      >
+        <div
+          style={{
+            height: virtualItems.length > 0 ? rowVirtualizer.getTotalSize() : undefined,
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {virtualItems.length > 0
+            ? virtualItems.map(virtualRow => {
+              const item = items[virtualRow.index]
+              if (!item) {
+                return null
+              }
+
+              return (
+                <ItemListItem
+                  key={item.id}
+                  index={virtualRow.index}
+                  style={{
+                    left: 0,
+                    position: 'absolute',
+                    top: 0,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    width: '100%',
+                  }}
+                  measureElement={useDynamicHeight
+                    ? node => {
+                      if (node) {
+                        rowVirtualizer.measureElement(node)
+                      }
+                    }
+                    : undefined}
+                  {...itemData}
+                />
+              )
+            })
+            : fallbackItems.map((item, index) => (
+              <ItemListItem
+                key={item.id}
+                index={index}
+                style={{}}
+                {...itemData}
+              />
+            ))}
+        </div>
       </div>
     )
   }

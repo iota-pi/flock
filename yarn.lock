@@ -5859,6 +5859,25 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/react-virtual@npm:^3.13.12":
+  version: 3.13.23
+  resolution: "@tanstack/react-virtual@npm:3.13.23"
+  dependencies:
+    "@tanstack/virtual-core": "npm:3.13.23"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/a3e33463eb471067f9539858655bbefb99778f930156165afb0218fe5ffa181bc2e3dacfe3b6f655f1716d9994064f58ef009370975f801b4c83826aa33a5791
+  languageName: node
+  linkType: hard
+
+"@tanstack/virtual-core@npm:3.13.23":
+  version: 3.13.23
+  resolution: "@tanstack/virtual-core@npm:3.13.23"
+  checksum: 10c0/3487089ea4e1dcbb01836f51a1b35b709f9ba03312fe600ddb97c893c16be213e1690af735717b1d6b2e22dfec691c338bc96b5965228c195840249699d5273a
+  languageName: node
+  linkType: hard
+
 "@testing-library/dom@npm:^10.4.1":
   version: 10.4.1
   resolution: "@testing-library/dom@npm:10.4.1"
@@ -9361,6 +9380,7 @@ __metadata:
     "@tanstack/query-async-storage-persister": "npm:^5.90.14"
     "@tanstack/react-query": "npm:^5.90.12"
     "@tanstack/react-query-persist-client": "npm:^5.90.14"
+    "@tanstack/react-virtual": "npm:^3.13.12"
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/react": "npm:^16.3.0"
     "@testing-library/user-event": "npm:^14.6.1"
@@ -9412,7 +9432,6 @@ __metadata:
     react-icons: "npm:^5.5.0"
     react-router: "npm:^7.9.6"
     react-swipeable: "npm:^7.0.2"
-    react-window: "npm:^2.2.3"
     rollup-plugin-visualizer: "npm:^6.0.5"
     source-map-explorer: "npm:^2.5.2"
     sst: "npm:^3.17.37"
@@ -12225,16 +12244,6 @@ __metadata:
     react: ">=16.6.0"
     react-dom: ">=16.6.0"
   checksum: 10c0/2ba754ba748faefa15f87c96dfa700d5525054a0141de8c75763aae6734af0740e77e11261a1e8f4ffc08fd9ab78510122e05c21c2d79066c38bb6861a886c82
-  languageName: node
-  linkType: hard
-
-"react-window@npm:^2.2.3":
-  version: 2.2.3
-  resolution: "react-window@npm:2.2.3"
-  peerDependencies:
-    react: ^18.0.0 || ^19.0.0
-    react-dom: ^18.0.0 || ^19.0.0
-  checksum: 10c0/7e97381b269560038c4c76c4ae17121d87efb628fce840fe382e73ae0e9816d4b68384a402340b0a08f9e4a47d8bd7328ae8502fd26b0d9399339a20e1c550be
   languageName: node
   linkType: hard
 
