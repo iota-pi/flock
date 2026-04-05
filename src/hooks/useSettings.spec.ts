@@ -23,7 +23,7 @@ vi.mock('../api/vault', () => ({
   signOutVault: mocks.signOutVault,
 }))
 
-vi.mock('../api/itemWriteService', () => ({
+vi.mock('../api/localFirstItemMutations', () => ({
   mutateStoreItems: mocks.mutateStoreItems,
   mutateSetMetadata: mocks.mutateSetMetadataView,
 }))

@@ -1,6 +1,6 @@
 
 import type * as vault from '../api/vault'
-import type * as mutations from '../api/itemWriteService'
+import type * as mutations from '../api/localFirstItemMutations'
 import type { hasApiAuthToken } from '../api/runtime'
 
 // Expose store for Cypress in a typed way

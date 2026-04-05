@@ -11,7 +11,6 @@ import {
 } from '@mui/material'
 import {
   cleanItem,
-  compareNames,
   convertItem,
   dirtyItem,
   DirtyItem,
@@ -32,7 +31,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { mutateDeleteItems, mutateStoreItems } from '../../../api/itemWriteService'
+import { mutateDeleteItems, mutateStoreItems } from '../../../api/localFirstItemMutations'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 
