@@ -75,3 +75,35 @@ export function getErrorReason(error: unknown): string {
   const text = extractErrorText(error).trim()
   return text || 'Client error'
 }
+
+export function normalizeSyncError(error: unknown): Error {
+  if (error instanceof Error) {
+    if (error instanceof StaleCompactedBranchError) {
+      return error
+    }
+
+    if (error instanceof VersionConflictError) {
+      return error
+    }
+
+    if (isStaleCompactedBranchError(error)) {
+      return new StaleCompactedBranchError()
+    }
+
+    if (isVersionConflictError(error)) {
+      return new VersionConflictError(error.message || 'Version conflict')
+    }
+
+    return error
+  }
+
+  if (isStaleCompactedBranchError(error)) {
+    return new StaleCompactedBranchError()
+  }
+
+  if (isVersionConflictError(error)) {
+    return new VersionConflictError('Version conflict')
+  }
+
+  return new Error('Sync operation failed')
+}

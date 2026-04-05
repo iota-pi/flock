@@ -8,7 +8,8 @@ import {
   readDeadLetterQueue,
   writeDeadLetterQueue,
 } from '../sync/offlineQueueStore'
-import { emitSyncRuntimeMessage, setSyncRuntimeState } from '../sync/syncRuntime'
+import { emitSyncEvent } from '../sync/syncEvents'
+import { normalizeSyncError } from '../shared/syncErrors'
 import {
   configureDecryptionWorkerCallbacks,
   evaluateHistoryInWorker,
@@ -103,10 +104,14 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
     await writeDeadLetterQueue(deadLetterQueue)
   }
 
-  setSyncRuntimeState({ dlqCount: deadLetterQueue.length })
-  emitSyncRuntimeMessage({
-    severity: 'warning',
-    message: 'A corrupted item could not be auto-recovered. Open Settings > Offline data recovery for manual repair.',
+  emitSyncEvent({
+    type: 'queue:dlq-count-changed',
+    count: deadLetterQueue.length,
+  })
+  emitSyncEvent({
+    type: 'sync:item-corrupted',
+    itemId,
+    reason,
   })
 }
 
@@ -174,6 +179,10 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
 
     recoveryCooldownUntilByItemId.delete(itemId)
     await queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
+    emitSyncEvent({
+      type: 'sync:item-recovered',
+      itemId,
+    })
     console.info(`[Recovery] Successfully rolled back item ${itemId}`)
   } catch (error) {
     console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, error)
@@ -206,10 +215,19 @@ export function initializeSyncHealthWatchers(): void {
 }
 
 export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
+  const normalizedError = normalizeSyncError(event.error)
+  const reason = normalizedError.message || 'Failed to decrypt item'
+
   console.error('[Decryption] Failed to decrypt item', {
     source: event.source,
     itemId: event.itemId,
-    error: event.error,
+    error: normalizedError,
+  })
+
+  emitSyncEvent({
+    type: 'sync:item-corrupted',
+    itemId: event.itemId,
+    reason,
   })
 
   if (event.source === 'worker' && typeof event.itemId === 'string') {

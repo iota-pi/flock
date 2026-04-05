@@ -1,18 +1,4 @@
 import env from '../env'
-import * as Sentry from '@sentry/react'
-import { trpcClient } from '../api/trpcClient'
-import { Item } from '../state/items'
-import { queryClient } from '../api/queryClient'
-import {
-  emitSyncRuntimeMessage,
-  setSyncRuntimeState,
-} from './syncRuntime'
-import {
-  getErrorReason,
-  getErrorStatusCode,
-  isStaleCompactedBranchError,
-  isVersionConflictError,
-} from '../shared/syncErrors'
 import {
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
@@ -27,26 +13,24 @@ import {
 } from './conflictStrategies'
 import {
   extractTargetIds,
-  getPayloadTelemetry,
-  moveClientErrorMutationToDlq,
-  moveUnhandledMutationToDlq,
 } from './dlqManager'
-import { getQueryKey } from '@trpc/react-query'
-import { trpc } from '../api/trpc'
+import {
+  getRegisteredMutationStrategy,
+  type RegisteredMutationStrategy,
+} from './mutationStrategyRegistry'
+import { ensureDefaultMutationStrategiesRegistered } from './defaultMutationStrategies'
+import { emitSyncEvent } from './syncEvents'
+import { routeQueueMutationError } from './queueErrorRouter'
+import { canProcessOfflineQueue, requestQueueProcessing } from './queueLeaderLock'
 
 export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './conflictStrategies'
 
 let processing = false
-const CHUNK_SIZE = 50
 const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
 
 let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
-
-function invalidateItemsProjection() {
-  void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
-}
 
 function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
   if (existing.mutationType !== mutationType) {
@@ -66,80 +50,11 @@ function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: strin
   return existingTargets.every((target, index) => target === incomingTargets[index])
 }
 
-export function isLikelyNetworkError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const message = error.message.toLowerCase()
-  return (
-    message.includes('failed to fetch')
-    || message.includes('networkerror')
-    || message.includes('fetch failed')
-    || message.includes('network request failed')
-    || message.includes('timeout')
-    || message.includes('offline')
-  )
-}
-
-type MutationExecutionStrategy = QueueConflictHandler & {
-  execute: (mutation: QueuedMutation) => Promise<void>
-}
+type MutationExecutionStrategy = QueueConflictHandler & RegisteredMutationStrategy
 const conflictStrategiesByKey = getConflictStrategiesByKey()
 
-const mutationStrategies: Record<string, MutationExecutionStrategy> = {
-  'items.put': {
-    execute: async mutation => {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.put.mutate>[0]
-      await trpcClient.items.put.mutate({
-        ...payload,
-        idempotencyKey: mutation.id,
-      })
-    },
-  },
-  'items.putMany': {
-    execute: async mutation => {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.putMany.mutate>[0]
-      const payloadItems = payload.items || []
-
-      if (payloadItems.length <= CHUNK_SIZE) {
-        await trpcClient.items.putMany.mutate({
-          ...payload,
-          idempotencyKey: mutation.id,
-        })
-        return
-      }
-
-      for (let index = 0; index < payloadItems.length; index += CHUNK_SIZE) {
-        const chunk = payloadItems.slice(index, index + CHUNK_SIZE)
-        await trpcClient.items.putMany.mutate({
-          ...payload,
-          items: chunk,
-          idempotencyKey: mutation.id,
-        })
-      }
-    },
-  },
-  'items.resolveBranchConflict': {
-    execute: async mutation => {
-      const payload = mutation.payload as Parameters<typeof trpcClient.items.resolveBranchConflict.mutate>[0]
-      await trpcClient.items.resolveBranchConflict.mutate({
-        ...payload,
-        idempotencyKey: mutation.id,
-      })
-    },
-  },
-  'accounts.updateMetadata': {
-    execute: async mutation => {
-      await trpcClient.accounts.updateMetadata.mutate(
-        mutation.payload as Parameters<typeof trpcClient.accounts.updateMetadata.mutate>[0],
-      )
-    },
-  },
-}
-
 function getMutationStrategy(mutation: QueuedMutation): MutationExecutionStrategy {
-  const base = mutationStrategies[mutation.mutationType]
+  const base = getRegisteredMutationStrategy(mutation.mutationType)
   if (!base) {
     throw new Error(`Unknown offline mutation type: ${mutation.mutationType}`)
   }
@@ -194,8 +109,8 @@ export async function enqueueMutation(
   }
 
   await writeQueue(queue)
-  setSyncRuntimeState({ offlineQueueLength: queue.length })
-  invalidateItemsProjection()
+  emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
+  requestQueueProcessing()
 
   await registerBackgroundSync()
 }
@@ -203,10 +118,8 @@ export async function enqueueMutation(
 export async function initialiseDeadLetterQueueCount() {
   const deadLetterQueue = await readDeadLetterQueue()
   const queue = await readQueue()
-  setSyncRuntimeState({
-    dlqCount: deadLetterQueue.length,
-    offlineQueueLength: queue.length,
-  })
+  emitSyncEvent({ type: 'queue:dlq-count-changed', count: deadLetterQueue.length })
+  emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
 }
 
 export async function registerBackgroundSync() {
@@ -226,15 +139,21 @@ export async function registerBackgroundSync() {
 }
 
 export async function processOfflineQueue() {
+  if (!canProcessOfflineQueue()) {
+    requestQueueProcessing()
+    return
+  }
+
   if (processing) {
     return
   }
 
   processing = true
   try {
-    setSyncRuntimeState({ isSyncing: true })
+    ensureDefaultMutationStrategiesRegistered()
+    emitSyncEvent({ type: 'queue:processing-changed', isSyncing: true })
     const queue = await readQueue()
-    setSyncRuntimeState({ offlineQueueLength: queue.length })
+    emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
     if (queue.length === 0) {
       return
     }
@@ -261,120 +180,33 @@ export async function processOfflineQueue() {
 
       try {
         await strategy.execute(normalizedMutation)
-        if (normalizedMutation.mutationType === 'items.put' || normalizedMutation.mutationType === 'items.putMany') {
-          invalidateItemsProjection()
-        }
+        emitSyncEvent({
+          type: 'queue:mutation-success',
+          mutation: normalizedMutation,
+        })
       } catch (error) {
-        if (isStaleCompactedBranchError(error)) {
-          const rescued = strategy.resolveStaleCompactedBranch
-            ? await strategy.resolveStaleCompactedBranch(normalizedMutation)
-            : null
-          if (rescued) {
-            nextQueue.push(rescued, ...queue.slice(index + 1))
-            break
-          }
-        }
-
-        if (isVersionConflictError(error)) {
-          const resolved = strategy.resolveVersionConflict
-            ? await strategy.resolveVersionConflict(normalizedMutation)
-            : null
-          if (resolved) {
-            nextQueue.push(resolved, ...queue.slice(index + 1))
-            break
-          }
-        }
-
-        const status = getErrorStatusCode(error)
-        if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
-          const dlqCount = await moveClientErrorMutationToDlq({
-            mutation: normalizedMutation,
-            errorReason: getErrorReason(error),
-            status,
-            telemetry: {
-              timestamp: Date.now(),
-              queueLength: queue.length,
-              attemptCount: normalizedMutation.attemptCount,
-              queuedAt: normalizedMutation.queuedAt,
-              payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
-            },
-          })
-          setSyncRuntimeState({ dlqCount })
-          emitSyncRuntimeMessage({
-            severity: 'warning',
-            message: 'An invalid offline change was isolated for recovery and sync continued.',
-          })
-          continue
-        }
-
-        if (isLikelyNetworkError(error)) {
-          const attemptCount = (mutation.attemptCount || 0) + 1
-          const backoffDelay = 2000 * Math.pow(2, attemptCount)
-
-          nextQueue.push({
+        const directive = await routeQueueMutationError({
+          mutation: {
             ...normalizedMutation,
-            attemptCount,
-            nextAttemptAt: Date.now() + backoffDelay,
-          }, ...queue.slice(index + 1))
+            baseState: normalizedMutation.baseState,
+          },
+          queueLength: queue.length,
+          error,
+          resolveStaleCompactedBranch: strategy.resolveStaleCompactedBranch,
+          resolveVersionConflict: strategy.resolveVersionConflict,
+        })
+
+        if (directive.type === 'retry-with-mutation' || directive.type === 'retry-later') {
+          nextQueue.push(directive.mutation, ...queue.slice(index + 1))
           break
         }
-
-        const dlqCount = await moveUnhandledMutationToDlq({
-          mutation: normalizedMutation,
-          status: status || 500,
-          errorReason: error instanceof Error ? error.message : 'Unhandled sync error',
-          telemetry: {
-            timestamp: Date.now(),
-            queueLength: queue.length,
-            attemptCount: normalizedMutation.attemptCount,
-            queuedAt: normalizedMutation.queuedAt,
-            payloadSummary: getPayloadTelemetry(normalizedMutation.payload),
-          },
-        })
-        Sentry.captureException(error, {
-          tags: {
-            queueAction: 'dlq_routing',
-            mutationType: normalizedMutation.mutationType,
-          },
-          extra: {
-            mutationId: normalizedMutation.id,
-            payload: getPayloadTelemetry(normalizedMutation.payload),
-          },
-        })
-        setSyncRuntimeState({ dlqCount })
-
-        if (normalizedMutation.baseState) {
-          const targetIds = extractTargetIds(normalizedMutation.payload)
-          const targetId = targetIds[0] || normalizedMutation.baseState.id
-
-          queryClient.setQueryData<Item[]>(getQueryKey(trpc.items.fetchMany), previous => {
-            if (!previous) {
-              return [normalizedMutation.baseState as Item]
-            }
-
-            const index = previous.findIndex(item => item.id === targetId)
-            if (index === -1) {
-              return [...previous, normalizedMutation.baseState as Item]
-            }
-
-            const next = [...previous]
-            next[index] = normalizedMutation.baseState as Item
-            return next
-          })
-        }
-
-        emitSyncRuntimeMessage({
-          severity: 'error',
-          message: 'An offline save failed and was moved to recovery queue. Please review recovery options.',
-        })
       }
     }
 
     await writeQueue(nextQueue)
-    setSyncRuntimeState({ offlineQueueLength: nextQueue.length })
-    invalidateItemsProjection()
+    emitSyncEvent({ type: 'queue:length-changed', length: nextQueue.length })
   } finally {
-    setSyncRuntimeState({ isSyncing: false })
+    emitSyncEvent({ type: 'queue:processing-changed', isSyncing: false })
     processing = false
   }
 }
@@ -402,23 +234,21 @@ export async function checkQueueHealth() {
 
   if (queueItems.length > 50 && Date.now() - lastHighVolumeSignalAt > 60 * 60 * 1000) {
     lastHighVolumeSignalAt = Date.now()
-    Sentry.captureMessage('High Offline Queue Volume', {
-      level: 'warning',
-      extra: {
-        queueLength: queueItems.length,
-        oldestItemAgeMinutes: Math.round(ageInMinutes),
-      },
+    emitSyncEvent({
+      type: 'queue:health-warning',
+      code: 'high-volume',
+      queueLength: queueItems.length,
+      oldestItemAgeMinutes: Math.round(ageInMinutes),
     })
   }
 
   if (ageInMinutes > 1440 && Date.now() - lastStaleSignalAt > 60 * 60 * 1000) {
     lastStaleSignalAt = Date.now()
-    Sentry.captureMessage('Stale Offline Queue Detected', {
-      level: 'error',
-      extra: {
-        queueLength: queueItems.length,
-        oldestItemAgeMinutes: Math.round(ageInMinutes),
-      },
+    emitSyncEvent({
+      type: 'queue:health-warning',
+      code: 'stale',
+      queueLength: queueItems.length,
+      oldestItemAgeMinutes: Math.round(ageInMinutes),
     })
   }
 }

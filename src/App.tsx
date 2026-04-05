@@ -9,27 +9,10 @@ import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
 import { useAuthStore } from './state/authStore'
-import { useUiStore } from './state/uiStore'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/vault'
 import ErrorPage from './components/pages/ErrorPage'
-import { getApiAuthToken } from './api/runtime'
-import { trpc } from './api/trpc'
-import {
-  initialiseDeadLetterQueueCount,
-  processOfflineQueue,
-  startOfflineQueueHealthMonitor,
-} from './sync/offlineQueue'
-import {
-  startRealtimeCoordinator,
-  stopRealtimeCoordinator,
-} from './api/realtimeCoordinator'
-import { processRealtimeItemEvents } from './api/itemReadService'
-import type { RealtimeEventEnvelope } from './shared/realtime'
-import {
-  subscribeSyncRuntime,
-  subscribeSyncRuntimeMessages,
-} from './sync/syncRuntime'
+import { startSyncCoordinator, stopSyncCoordinator } from './sync/syncCoordinator'
 
 const Root = styled('div')({
   display: 'flex',
@@ -42,11 +25,8 @@ const Content = styled('div')({
 })
 
 function RootLayout() {
-  const trpcUtils = trpc.useUtils()
   const loggedIn = useLoggedIn()
   const account = useAuthStore(state => state.account)
-  const setUi = useUiStore(state => state.setUi)
-  const setMessage = useUiStore(state => state.setMessage)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -78,89 +58,27 @@ function RootLayout() {
     [xs],
   )
 
-  useEffect(
-    () => {
-      const unsubscribeSyncState = subscribeSyncRuntime(syncState => {
-        setUi({
-          isSyncing: syncState.isSyncing,
-          offlineQueueLength: syncState.offlineQueueLength,
-          dlqCount: syncState.dlqCount,
-        })
-      })
-
-      const unsubscribeSyncMessages = subscribeSyncRuntimeMessages(event => {
-        setMessage({
-          severity: event.severity,
-          message: event.message,
-        })
-      })
-
-      const handleOnline = () => {
-        void processOfflineQueue()
-      }
-
-      void (async () => {
-        await loadVault()
-        await initialiseDeadLetterQueueCount()
-        startOfflineQueueHealthMonitor()
-        await processOfflineQueue()
-      })()
-
-      window.addEventListener('online', handleOnline)
-
-      return () => {
-        window.removeEventListener('online', handleOnline)
-        unsubscribeSyncState()
-        unsubscribeSyncMessages()
-      }
-    },
-    [setMessage, setUi],
-  )
-
-  const handleRealtimeEvent = useCallback((event: RealtimeEventEnvelope) => {
-    if (event.eventType === 'metadata.updated') {
-      void trpcUtils.accounts.getMetadata.invalidate()
-    }
-  }, [trpcUtils])
-
   useEffect(() => {
     if (!loggedIn || !account) {
-      stopRealtimeCoordinator()
+      stopSyncCoordinator()
       return
     }
 
-    let started = false
+    let disposed = false
 
-    const tryStartRealtime = () => {
-      if (started) {
+    void (async () => {
+      await loadVault()
+      if (disposed) {
         return
       }
-
-      const token = getApiAuthToken()
-      if (!token) {
-        return
-      }
-
-      startRealtimeCoordinator({
-        account,
-        onServerEvent: handleRealtimeEvent,
-        onItemEvents: events => {
-          void processRealtimeItemEvents(events)
-        },
-      })
-      started = true
-
-      void trpcUtils.items.fetchMany.invalidate()
-    }
-
-    tryStartRealtime()
-    const intervalId = window.setInterval(tryStartRealtime, 500)
+      startSyncCoordinator({ account })
+    })()
 
     return () => {
-      window.clearInterval(intervalId)
-      stopRealtimeCoordinator()
+      disposed = true
+      stopSyncCoordinator()
     }
-  }, [account, handleRealtimeEvent, loggedIn, trpcUtils])
+  }, [account, loggedIn])
 
   return (
     <Root>

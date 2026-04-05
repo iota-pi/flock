@@ -107,6 +107,12 @@ describe('offlineQueue', () => {
   it('moves failed non-conflict mutation to DLQ and rolls back cache base state', async () => {
     const { enqueueMutation, processOfflineQueue } = await import('../sync/offlineQueue')
     const { readDeadLetterQueue, readQueue } = await import('../sync/offlineQueueStore')
+    const { subscribeSyncEvents } = await import('../sync/syncEvents')
+
+    const events: Array<{ type: string }> = []
+    const unsubscribe = subscribeSyncEvents(event => {
+      events.push(event)
+    })
 
     const baseState = {
       id: 'item-1',
@@ -132,6 +138,7 @@ describe('offlineQueue', () => {
     mocks.putMutate.mockRejectedValue(new Error('500 Internal Server Error'))
 
     await processOfflineQueue()
+    unsubscribe()
 
     const deadLetterQueue = await readDeadLetterQueue()
     const queue = await readQueue()
@@ -139,7 +146,7 @@ describe('offlineQueue', () => {
     expect(deadLetterQueue).toHaveLength(1)
     expect(deadLetterQueue[0].mutationType).toBe('items.put')
     expect(queue).toHaveLength(0)
-    expect(mocks.setQueryData).toHaveBeenCalled()
+    expect(events.some(event => event.type === 'queue:rollback-base-state')).toBe(true)
   })
 
   it('chunks putMany payloads of 120 items into 50/50/20 requests', async () => {

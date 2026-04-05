@@ -2,6 +2,7 @@ import { syncDB } from '../api/db'
 import { Item } from '../state/items'
 import type { z } from 'zod'
 import { DlqFailureSnapshotSchema } from '../shared/syncSchemas'
+import { PersistedQueueStorage } from './queueStorage'
 
 export const OFFLINE_QUEUE_SYNC_TAG = 'sync-vault'
 export const OFFLINE_QUEUE_KEY = 'mutations'
@@ -29,20 +30,23 @@ export type QueuedMutation = {
   failureSnapshot?: DlqFailureSnapshot
 }
 
+const offlineQueueStorage = new PersistedQueueStorage<QueuedMutation>(OFFLINE_QUEUE_KEY)
+const deadLetterQueueStorage = new PersistedQueueStorage<QueuedMutation>(DEAD_LETTER_QUEUE_KEY)
+
 export async function readQueue(): Promise<QueuedMutation[]> {
-  return (await syncDB.getItem<QueuedMutation[]>(OFFLINE_QUEUE_KEY)) || []
+  return offlineQueueStorage.read()
 }
 
 export async function writeQueue(queue: QueuedMutation[]) {
-  await syncDB.setItem(OFFLINE_QUEUE_KEY, queue)
+  await offlineQueueStorage.write(queue)
 }
 
 export async function readDeadLetterQueue(): Promise<QueuedMutation[]> {
-  return (await syncDB.getItem<QueuedMutation[]>(DEAD_LETTER_QUEUE_KEY)) || []
+  return deadLetterQueueStorage.read()
 }
 
 export async function writeDeadLetterQueue(queue: QueuedMutation[]) {
-  await syncDB.setItem(DEAD_LETTER_QUEUE_KEY, queue)
+  await deadLetterQueueStorage.write(queue)
 }
 
 export async function moveToDeadLetterQueue(
@@ -88,7 +92,7 @@ export async function clearActiveSessionToken(): Promise<void> {
 }
 
 export async function clearOfflineQueue(): Promise<void> {
-  await syncDB.removeItem(OFFLINE_QUEUE_KEY)
+  await offlineQueueStorage.clear()
 }
 
 export function getMutationId() {
