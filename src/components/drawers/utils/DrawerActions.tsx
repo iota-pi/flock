@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
-import { DeleteIcon, NextIcon, SaveIcon } from '../../Icons'
+import { DeleteIcon, SaveIcon } from '../../Icons'
 import InlineText from '../../ui/InlineText'
 
 

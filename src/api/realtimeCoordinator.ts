@@ -124,8 +124,8 @@ function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvent
         ? data.deletedItemIds.filter((value): value is string => typeof value === 'string')
         : []
 
-      if (onItemsChanged && (updatedItemIds.length > 0 || deletedItemIds.length > 0)) {
-        onItemsChanged({
+      if (updatedItemIds.length > 0 || deletedItemIds.length > 0) {
+        onItemsChanged?.({
           updatedItemIds,
           deletedItemIds,
         })

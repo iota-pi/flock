@@ -1,12 +1,15 @@
-import { useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { isEqual } from 'lodash-es'
 
 export function useStableDeepValue<T>(value: T): T {
-  const ref = useRef(value)
+  const [stableValue, setStableValue] = useState(value)
 
-  if (!isEqual(ref.current, value)) {
-    ref.current = value
-  }
+  useEffect(() => {
+    if (!isEqual(stableValue, value)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStableValue(value)
+    }
+  }, [stableValue, value])
 
-  return ref.current
+  return stableValue
 }

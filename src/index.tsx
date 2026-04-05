@@ -8,7 +8,7 @@ import { queryClient, queryPersister } from './api/queryClient'
 import { trpc } from './api/trpc'
 import { trpcReactClient } from './api/trpcClient'
 import * as vault from './api/vault'
-import * as mutations from './api/localFirstItemMutations'
+import * as mutations from './api/itemMutations'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [

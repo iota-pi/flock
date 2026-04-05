@@ -384,7 +384,7 @@ export async function processIncomingItem(
           item: null,
           corrupted: {
             itemId: envelope.item,
-              failedBranches: branches.map(branch => branch.versionId),
+            failedBranches: branches.map(branch => branch.versionId),
           },
         }
       }

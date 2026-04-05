@@ -1,4 +1,4 @@
-import { mutateSetMetadata, mutateStoreItems } from '../../api/localFirstItemMutations'
+import { mutateSetMetadata, mutateStoreItems } from '../../api/itemMutations'
 import { Item } from '../items'
 import { AccountMetadata } from '../metadata'
 import { migrations } from './migrations'

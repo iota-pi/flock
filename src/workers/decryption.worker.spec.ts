@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import * as Automerge from '@automerge/automerge'
-import type { VaultItem } from '../api/vault/client'
 import type { VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/vault/crypto'
 
@@ -138,7 +137,7 @@ describe('Web Worker: decryption.worker.ts', () => {
       })
 
       // Merge
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged)
 
       expect(result.name).toBe('Updated Name')
@@ -168,7 +167,7 @@ describe('Web Worker: decryption.worker.ts', () => {
       })
 
       // Merge
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged)
 
       // Both tags should be present (Automerge handles concurrent array appends)
@@ -201,7 +200,7 @@ describe('Web Worker: decryption.worker.ts', () => {
       })
 
       // Merge
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged)
 
       expect((result as any).members).toHaveLength(3)
@@ -233,7 +232,7 @@ describe('Web Worker: decryption.worker.ts', () => {
       })
 
       // Merge
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged)
 
       expect(result.title).toBe('Same Title')
@@ -306,7 +305,7 @@ describe('Web Worker: decryption.worker.ts', () => {
         doc.data = 'modified-b'
       })
 
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const mergedBinary = Automerge.save(merged)
 
       // Simulate worker resolution
@@ -336,7 +335,7 @@ describe('Web Worker: decryption.worker.ts', () => {
         doc.title = 'Update B'
       })
 
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged) as any
 
       // Even though field conflicts, the version metadata should be intact
@@ -357,7 +356,7 @@ describe('Web Worker: decryption.worker.ts', () => {
         doc.b = 2
       })
 
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged)
 
       expect(result).toEqual(expect.objectContaining({ a: 1, b: 2 }))
@@ -386,7 +385,7 @@ describe('Web Worker: decryption.worker.ts', () => {
         doc.nested.level2.level3.extra = 'added-b'
       })
 
-      let merged = Automerge.merge(docA, docB)
+      const merged = Automerge.merge(docA, docB)
       const result = Automerge.toJS(merged) as any
 
       expect((result as any).nested.level2.level3.value).toBe('changed-a')

@@ -18,7 +18,7 @@ import {
 import { useItemMap } from '../../state/selectors'
 import { usePrayerSchedule } from '../../hooks/usePrayerSchedule'
 import { useToday } from '../../hooks/useToday'
-import { mutateStoreItems } from '../../api/localFirstItemMutations'
+import { mutateStoreItems } from '../../api/itemMutations'
 import { recordPrayerCompletion } from '../../api/vault'
 import { useDialogState } from '../../hooks/useDialogState'
 import GoalDialog from '../dialogs/GoalDialog'

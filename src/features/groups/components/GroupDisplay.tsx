@@ -4,7 +4,7 @@ import type { GroupItem } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItems } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
-import { useStoreItemsLocalFirstMutation } from '../../../api/localFirstItemMutations'
+import { useStoreItemsMutation } from '../../../api/itemMutations'
 import Search from '../../../components/Search'
 import { useUiStore } from '../../../state/uiStore'
 
@@ -20,7 +20,7 @@ function GroupDisplay({
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
   const pushActive = useUiStore(state => state.pushActive)
-  const storeItemsMutation = useStoreItemsLocalFirstMutation()
+  const storeItemsMutation = useStoreItemsMutation()
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),

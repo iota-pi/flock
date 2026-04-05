@@ -196,7 +196,7 @@ export function optimisticStoreItemsUpdate(old: Item[] | undefined, items: Item[
   return nextItems
 }
 
-export async function mutateStoreItemsLocalFirst(items: Item | Item[]): Promise<Item[]> {
+export async function mutateStoreItems(items: Item | Item[]): Promise<Item[]> {
   const current = dedupeById(items)
   const previous = queryClient.getQueryData<Item[]>(itemsQueryKey)
   const previousById = new Map((previous || []).map(item => [item.id, item]))
@@ -240,8 +240,6 @@ export async function mutateStoreItemsLocalFirst(items: Item | Item[]): Promise<
   }
 }
 
-export const mutateStoreItems = mutateStoreItemsLocalFirst
-
 export async function mutateDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
   const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
   const idsSet = new Set(ids)
@@ -266,7 +264,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]): Promise<Ite
 
     const updates = [...groupsToUpdate, ...tombstones]
     if (updates.length > 0) {
-      await mutateStoreItemsLocalFirst(updates)
+      await mutateStoreItems(updates)
     }
 
     useUiStore.getState().pruneItemDrawers(ids)
@@ -306,13 +304,13 @@ export async function mutateSetMetadata(
   }
 }
 
-export function useDeleteItemsLocalFirstMutation() {
+export function useDeleteItemsMutation() {
   return useMutation({
     mutationFn: (itemIds: ItemId | ItemId[]) => mutateDeleteItems(itemIds),
   })
 }
 
-export function useSetMetadataLocalFirstMutation() {
+export function useSetMetadataMutation() {
   return useMutation({
     mutationFn: (metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) => (
       mutateSetMetadata(metadataOrUpdater)
@@ -320,8 +318,8 @@ export function useSetMetadataLocalFirstMutation() {
   })
 }
 
-export function useStoreItemsLocalFirstMutation() {
+export function useStoreItemsMutation() {
   return useMutation({
-    mutationFn: (items: Item | Item[]) => mutateStoreItemsLocalFirst(items),
+    mutationFn: (items: Item | Item[]) => mutateStoreItems(items),
   })
 }

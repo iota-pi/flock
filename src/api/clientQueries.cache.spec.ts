@@ -63,11 +63,11 @@ describe('decryption cache persistence', () => {
 
     mocks.getItem.mockResolvedValue(persisted)
 
-  await sharedDecryptionCache.load(accountId)
+    await sharedDecryptionCache.load(accountId)
 
-  sharedDecryptionCache.schedulePersist(accountId)
-  sharedDecryptionCache.schedulePersist(accountId)
-  sharedDecryptionCache.schedulePersist(accountId)
+    sharedDecryptionCache.schedulePersist(accountId)
+    sharedDecryptionCache.schedulePersist(accountId)
+    sharedDecryptionCache.schedulePersist(accountId)
 
     await vi.advanceTimersByTimeAsync(201)
 
@@ -106,11 +106,11 @@ describe('decryption cache persistence', () => {
       return null
     })
 
-  await sharedDecryptionCache.load('acct-a')
-  expect(sharedDecryptionCache.getSnapshot().has('item-a')).toBe(true)
+    await sharedDecryptionCache.load('acct-a')
+    expect(sharedDecryptionCache.getSnapshot().has('item-a')).toBe(true)
 
-  await sharedDecryptionCache.load('acct-b')
-  const scopedSnapshot = sharedDecryptionCache.getSnapshot()
+    await sharedDecryptionCache.load('acct-b')
+    const scopedSnapshot = sharedDecryptionCache.getSnapshot()
 
     expect(scopedSnapshot.has('item-a')).toBe(false)
     expect(scopedSnapshot.has('item-b')).toBe(true)

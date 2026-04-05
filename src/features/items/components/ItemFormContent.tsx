@@ -80,7 +80,7 @@ function ItemFormContent({
       name: item.name,
       description: item.description || '',
     })
-  }, [item.id, reset])
+  }, [item.description, item.id, item.name, reset])
 
   // Reset showDescription when item changes
   if (prevItemId !== item.id && showDescription !== !!item.description) {

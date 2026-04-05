@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import SearchableRow, { PropsAndOption, SearchableRowProps } from './Row'
+import SearchableRow, { PropsAndOption } from './Row'
 
 const LISTBOX_PADDING = 8
 const FALLBACK_RENDER_COUNT = 20
@@ -30,15 +30,15 @@ const ListBoxComponent = forwardRef<
 >(
   (props, ref) => {
     const { children, internalListRef, onItemsBuilt, ...otherProps } = props
-      const itemData = useMemo<PropsAndOption[]>(
-        () => {
-          const rawChildren: unknown[] = Array.isArray(children)
-            ? children
-            : [children]
-          return rawChildren.filter(isPropsAndOption)
-        },
-        [children],
-      )
+    const itemData = useMemo<PropsAndOption[]>(
+      () => {
+        const rawChildren: unknown[] = Array.isArray(children)
+          ? children
+          : [children]
+        return rawChildren.filter(isPropsAndOption)
+      },
+      [children],
+    )
     const optionIndexMap = useMemo(
       () => {
         const indexMap = new Map<string, number>()
@@ -53,6 +53,7 @@ const ListBoxComponent = forwardRef<
 
     const itemsHeight = itemSize * Math.min(itemData.length, 6)
     const scrollElementRef = useRef<HTMLDivElement | null>(null)
+    // eslint-disable-next-line react-hooks/incompatible-library
     const virtualizer = useVirtualizer({
       count: itemData.length,
       getScrollElement: () => scrollElementRef.current,
@@ -97,34 +98,34 @@ const ListBoxComponent = forwardRef<
         >
           <ul
             style={{
-                height: virtualItems.length > 0 ? virtualizer.getTotalSize() : undefined,
+              height: virtualItems.length > 0 ? virtualizer.getTotalSize() : undefined,
               margin: 0,
               padding: 0,
               position: 'relative',
             }}
           >
             {virtualItems.length > 0
-                ? virtualItems.map(virtualRow => {
-                  const row = itemData[virtualRow.index]
-                  if (!row) {
-                    return null
-                  }
+              ? virtualItems.map(virtualRow => {
+                const row = itemData[virtualRow.index]
+                if (!row) {
+                  return null
+                }
 
-                  return (
-                    <SearchableRow
-                      key={row[1].id}
-                      itemData={itemData}
-                      index={virtualRow.index}
-                      style={{
-                        left: 0,
-                        position: 'absolute',
-                        top: 0,
-                        transform: `translateY(${virtualRow.start}px)`,
-                        width: '100%',
-                      }}
-                    />
-                  )
-                })
+                return (
+                  <SearchableRow
+                    key={row[1].id}
+                    itemData={itemData}
+                    index={virtualRow.index}
+                    style={{
+                      left: 0,
+                      position: 'absolute',
+                      top: 0,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      width: '100%',
+                    }}
+                  />
+                )
+              })
               : itemData.slice(0, Math.min(itemData.length, FALLBACK_RENDER_COUNT)).map((item, index) => (
                 <SearchableRow
                   key={item[1].id}

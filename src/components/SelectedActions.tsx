@@ -20,7 +20,7 @@ import {
 import { useItemsById } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
-import { mutateDeleteItems, mutateStoreItems } from '../api/localFirstItemMutations'
+import { mutateDeleteItems, mutateStoreItems } from '../api/itemMutations'
 import { useUiStore } from '../state/uiStore'
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))

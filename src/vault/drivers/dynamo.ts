@@ -169,46 +169,6 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   return params
 }
 
-function estimateTransactWriteBytes(item: VaultItem): number {
-  const persistedItem = item.metadata.deleted
-    ? {
-      ...item,
-      ttl: Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS,
-    }
-    : item
-
-  return Buffer.byteLength(JSON.stringify({ Put: { Item: persistedItem } }), 'utf8')
-}
-
-function chunkItemsForTransactions(items: VaultItem[]): VaultItem[][] {
-  const chunks: VaultItem[][] = []
-  let currentChunk: VaultItem[] = []
-  let currentChunkByteSize = 0
-
-  for (const item of items) {
-    const itemBytes = estimateTransactWriteBytes(item)
-    const shouldSplitChunk = currentChunk.length > 0 && (
-      currentChunk.length === MAX_TRANSACTION_ITEMS
-      || currentChunkByteSize + itemBytes >= MAX_TRANSACTION_BYTES
-    )
-
-    if (shouldSplitChunk) {
-      chunks.push(currentChunk)
-      currentChunk = []
-      currentChunkByteSize = 0
-    }
-
-    currentChunk.push(item)
-    currentChunkByteSize += itemBytes
-  }
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk)
-  }
-
-  return chunks
-}
-
 function chunkKeys<T>(items: T[], chunkSize: number): T[][] {
   const chunks: T[][] = []
   for (let index = 0; index < items.length; index += chunkSize) {
@@ -311,13 +271,22 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this.internalClient
   }
 
-  async init(_options?: T) {
-    // eslint-disable-next-line no-explicit-any
-    const isResourceInUseError = (err: any) => (
-      err.name === 'ResourceInUseException' ||
-      err.code === 'ResourceInUseException' ||
-      err.__type?.includes('ResourceInUseException')
-    )
+  async init(_: T | undefined = undefined) {
+    const isResourceInUseError = (err: unknown) => {
+      if (!err || typeof err !== 'object') {
+        return false
+      }
+
+      const typed = err as {
+        name?: unknown
+        code?: unknown
+        __type?: unknown
+      }
+
+      return typed.name === 'ResourceInUseException'
+        || typed.code === 'ResourceInUseException'
+        || (typeof typed.__type === 'string' && typed.__type.includes('ResourceInUseException'))
+    }
 
     const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>[] = [
       {
@@ -374,7 +343,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
           },
         ))
         console.info(`Table created: ${table.TableName}`)
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isResourceInUseError(err)) {
           throw err
         }
@@ -697,7 +666,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       return
     }
 
-    const transactItems: Array<any> = []
+    const transactItems: Array<{ Put: PutCommandInput }> = []
 
     for (const rawItem of items) {
       const item = rawItem as WritableVaultItem
@@ -759,10 +728,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
    * Chunk mixed Put/Update operations for transaction write
    */
   private _chunkTransactItems(
-    items: Array<any>,
-  ): Array<Array<any>> {
-    const chunks: Array<Array<any>> = []
-    let currentChunk: Array<any> = []
+    items: Array<{ Put: PutCommandInput }>,
+  ): Array<Array<{ Put: PutCommandInput }>> {
+    const chunks: Array<Array<{ Put: PutCommandInput }>> = []
+    let currentChunk: Array<{ Put: PutCommandInput }> = []
     let currentChunkByteSize = 0
 
     for (const item of items) {

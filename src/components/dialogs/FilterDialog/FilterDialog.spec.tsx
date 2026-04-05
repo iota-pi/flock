@@ -60,7 +60,7 @@ describe('FilterDialog', () => {
   })
 
   it('serializes multiple filter criteria into store payload on Done', async () => {
-    const user = userEvent.setup()
+    userEvent.setup()
     const onClose = vi.fn()
 
     const { rerender } = renderWithProviders(<FilterDialog open={false} onClose={onClose} />)

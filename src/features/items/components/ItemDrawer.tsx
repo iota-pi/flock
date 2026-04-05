@@ -31,7 +31,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { mutateDeleteItems, mutateStoreItems } from '../../../api/localFirstItemMutations'
+import { mutateDeleteItems, mutateStoreItems } from '../../../api/itemMutations'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 

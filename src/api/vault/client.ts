@@ -48,27 +48,6 @@ export type FetchManyResponse<TItem> = {
   serverTime: number,
 }
 
-type PutManyResponse =
-  | {
-    success: true,
-    conflicts: ItemId[],
-  }
-  | {
-    success: false,
-    error: 'Version conflict',
-    conflicts: ItemId[],
-  }
-
-type PutResponse =
-  | {
-    success: true,
-  }
-  | {
-    success: false,
-    error: 'Version conflict',
-    conflicts: ItemId[],
-  }
-
 export type ReminderSettingsResponse = {
   success: boolean,
   reminderEnabled: boolean,

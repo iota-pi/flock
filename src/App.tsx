@@ -147,11 +147,6 @@ function RootLayout() {
         onItemEvents: events => {
           void processRealtimeItemEvents(events)
         },
-        onItemsChanged: ({ updatedItemIds, deletedItemIds }) => {
-          if (updatedItemIds.length > 0 || deletedItemIds.length > 0) {
-            void trpcUtils.items.fetchMany.invalidate()
-          }
-        },
       })
       started = true
 

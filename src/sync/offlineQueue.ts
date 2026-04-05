@@ -261,6 +261,9 @@ export async function processOfflineQueue() {
 
       try {
         await strategy.execute(normalizedMutation)
+        if (normalizedMutation.mutationType === 'items.put' || normalizedMutation.mutationType === 'items.putMany') {
+          invalidateItemsProjection()
+        }
       } catch (error) {
         if (isStaleCompactedBranchError(error)) {
           const rescued = strategy.resolveStaleCompactedBranch

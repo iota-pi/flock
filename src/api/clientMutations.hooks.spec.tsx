@@ -14,10 +14,10 @@ import {
 } from 'vitest'
 import { getBlankPerson } from '../state/items'
 import { queryClient } from './queryClient'
-import * as mutations from './localFirstItemMutations'
+import * as mutations from './itemMutations'
 
-vi.mock('./localFirstItemMutations', async importOriginal => {
-  const actual = await importOriginal<typeof import('./localFirstItemMutations')>()
+vi.mock('./itemMutations', async importOriginal => {
+  const actual = await importOriginal<typeof import('./itemMutations')>()
   return {
     ...actual,
     mutateStoreItems: vi.fn(),

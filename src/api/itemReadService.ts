@@ -9,10 +9,9 @@ import {
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/metadata'
-import { hasApiAuthToken } from './runtime'
+import { hasApiAuthToken, handleVaultError  } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import { queryClient } from './queryClient'
-import { handleVaultError } from './runtime'
 import { getAccountId } from './util'
 import {
   decryptItemsInWorker,
@@ -132,37 +131,37 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
   let cacheMutated = false
 
   const results = decrypted.map((workerItem: WorkerDecryptedItem) => {
-      const source = sourcesById.get(workerItem.id)
-      if (!source) {
-        return {
-          ok: false,
-          itemId: workerItem.id,
-          error: new Error(`Worker returned unknown item id: ${workerItem.id}`),
-        } satisfies DecryptionResult
-      }
-
-      const automergeBinary = workerItem.automergeBinary
-      if (automergeBinary instanceof Uint8Array) {
-        enqueueCompactionCandidate({ source, automergeBinary })
-      }
-
-      const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-      const hydrated = hydrateAndCacheItem(
-        accountId,
-        source,
-        materialized as Partial<Item>,
-        automergeBinary,
-      )
-
-      if (hydrated.cacheUpdated) {
-        cacheMutated = true
-      }
-
+    const source = sourcesById.get(workerItem.id)
+    if (!source) {
       return {
-        ok: true,
-        item: hydrated.item,
+        ok: false,
+        itemId: workerItem.id,
+        error: new Error(`Worker returned unknown item id: ${workerItem.id}`),
       } satisfies DecryptionResult
-    })
+    }
+
+    const automergeBinary = workerItem.automergeBinary
+    if (automergeBinary instanceof Uint8Array) {
+      enqueueCompactionCandidate({ source, automergeBinary })
+    }
+
+    const { automergeBinary: _automergeBinary, ...materialized } = workerItem
+    const hydrated = hydrateAndCacheItem(
+      accountId,
+      source,
+      materialized as Partial<Item>,
+      automergeBinary,
+    )
+
+    if (hydrated.cacheUpdated) {
+      cacheMutated = true
+    }
+
+    return {
+      ok: true,
+      item: hydrated.item,
+    } satisfies DecryptionResult
+  })
 
   if (cacheMutated) {
     sharedDecryptionCache.schedulePersist(accountId)

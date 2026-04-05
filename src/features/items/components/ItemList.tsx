@@ -392,6 +392,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   }, [allGroups])
 
   const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => listNode,

@@ -146,16 +146,9 @@ function DrawerDisplay() {
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
   const topDrawerId = drawers[drawers.length - 1]?.id || null
-
-  useEffect(() => {
-    if (!topDrawerId && closingDrawerId) {
-      setClosingDrawerId(null)
-      return
-    }
-    if (closingDrawerId && closingDrawerId !== topDrawerId) {
-      setClosingDrawerId(null)
-    }
-  }, [closingDrawerId, topDrawerId])
+  const activeClosingDrawerId = closingDrawerId && topDrawerId === closingDrawerId
+    ? closingDrawerId
+    : null
 
   const handleClose = useCallback(
     () => {
@@ -176,10 +169,10 @@ function DrawerDisplay() {
   const drawerOpenById = useMemo(() => {
     const result = new Map<string, boolean>()
     for (const drawer of drawers) {
-      result.set(drawer.id, drawer.id !== closingDrawerId)
+      result.set(drawer.id, drawer.id !== activeClosingDrawerId)
     }
     return result
-  }, [closingDrawerId, drawers])
+  }, [activeClosingDrawerId, drawers])
 
   useDrawerRouting(drawers)
 

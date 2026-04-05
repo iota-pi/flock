@@ -13,7 +13,7 @@ import {
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import Visibility from '@mui/icons-material/Visibility'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { ROUTES } from './routes'
 import { HomeIcon, PasswordIcon } from '../Icons'
@@ -72,7 +72,7 @@ function CreateAccountPage() {
 
   const {
     register,
-    watch,
+    control,
     formState: { errors },
   } = useForm<CreateAccountFormInput>({
     resolver: zodResolver(CreateAccountFormSchema),
@@ -82,7 +82,7 @@ function CreateAccountPage() {
     },
   })
 
-  const password = watch('password') || ''
+  const password = useWatch({ control, name: 'password' }) || ''
   const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
   const handleClickHome = useCallback(

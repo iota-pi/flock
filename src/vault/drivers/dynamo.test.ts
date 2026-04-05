@@ -59,7 +59,7 @@ describe('DynamoDriver', function () {
       item,
       branches: [baseBranch],
       metadata: { type, iv, modified },
-    } as any)
+    } as unknown as Parameters<typeof driver.set>[0])
 
     // Wrong expected parent should fail.
     await expect(
@@ -73,7 +73,7 @@ describe('DynamoDriver', function () {
         }],
         metadata: { type, iv, modified },
         _expectedParentVersionId: 'wrong-parent',
-      } as any)
+      } as unknown as Parameters<typeof driver.set>[0])
     ).rejects.toThrow('Version conflict')
 
     // Correct expected parent should succeed.
@@ -87,7 +87,7 @@ describe('DynamoDriver', function () {
       }],
       metadata: { type, iv, modified },
       _expectedParentVersionId: 'v1',
-    } as any)
+    } as unknown as Parameters<typeof driver.set>[0])
 
     const result = await driver.get({ account, item })
     expect(result.branches?.[0]?.versionId).toBe('v2')
@@ -138,7 +138,7 @@ describe('DynamoDriver', function () {
           branches: [{ encryptedAutomergeDoc: 'new-cipher-2', versionId: `${Date.now()}-new-2`, parentIds: [secondVersionId] }],
           _expectedParentVersionId: 'branch-missing',
         },
-      ] as any),
+      ] as unknown as Parameters<typeof driver.setMany>[0]),
     ).rejects.toBeInstanceOf(TransactionConflictsError)
 
     const unchangedFirst = await driver.get({ account, item: firstItem })
