@@ -11,13 +11,14 @@ import {
   writeQueue,
 } from '../sync/offlineQueueStore'
 import { useUiStore } from '../state/uiStore'
-import { queryClient, queryKeys } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
 import * as vault from '../api/vault'
 import { Item } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import { getAccountId } from '../api/util'
 import { fetchMany } from '../api/vault/client'
 import { trpc } from '../api/trpc'
+import { getQueryKey } from '@trpc/react-query'
 
 const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 
@@ -92,7 +93,7 @@ export function useOfflineRecovery() {
   const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
-      const localItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+      const localItems = queryClient.getQueryData<Item[]>(getQueryKey(trpc.items.fetchMany)) || []
       const localItem = localItems.find(item => item.id === itemId)
       if (!localItem) {
         setMessage({

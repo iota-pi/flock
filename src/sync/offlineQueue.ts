@@ -2,7 +2,7 @@ import env from '../env'
 import * as Sentry from '@sentry/react'
 import { trpcClient } from '../api/trpcClient'
 import { Item } from '../state/items'
-import { queryClient, queryKeys } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
 import {
   emitSyncRuntimeMessage,
   setSyncRuntimeState,
@@ -31,6 +31,8 @@ import {
   moveClientErrorMutationToDlq,
   moveUnhandledMutationToDlq,
 } from './dlqManager'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from '../api/trpc'
 
 export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './conflictStrategies'
 
@@ -43,7 +45,7 @@ let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
 
 function invalidateItemsProjection() {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.items })
+  void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
 }
 
 function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
@@ -342,7 +344,7 @@ export async function processOfflineQueue() {
           const targetIds = extractTargetIds(normalizedMutation.payload)
           const targetId = targetIds[0] || normalizedMutation.baseState.id
 
-          queryClient.setQueryData<Item[]>(queryKeys.items, previous => {
+          queryClient.setQueryData<Item[]>(getQueryKey(trpc.items.fetchMany), previous => {
             if (!previous) {
               return [normalizedMutation.baseState as Item]
             }

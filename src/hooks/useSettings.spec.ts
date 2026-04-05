@@ -66,9 +66,6 @@ vi.mock('../api/queryClient', () => ({
     getQueryData: vi.fn(() => ({ meta: 'value' })),
     clear: vi.fn(),
   },
-  queryKeys: {
-    metadata: ['metadata'],
-  },
 }))
 
 vi.mock('../sync/offlineQueueStore', () => ({

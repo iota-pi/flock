@@ -12,7 +12,9 @@ import type { Item } from '../state/items'
 import { useUiStore } from '../state/uiStore'
 import { useAuth } from './useAuth'
 import { AccountMetadata } from '../state/metadata'
-import { queryClient, queryKeys } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from '../api/trpc'
 import {
   registerBackgroundSync,
 } from '../sync/offlineQueue'
@@ -74,7 +76,7 @@ export default function useSettings() {
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = queryClient.getQueryData<AccountMetadata>(queryKeys.metadata) || {}
+        const currentMetadata = queryClient.getQueryData<AccountMetadata>(getQueryKey(trpc.accounts.getMetadata)) || {}
         const backupPayload: BackupPayloadV1 = {
           version: 1,
           metadata: currentMetadata,
@@ -185,7 +187,7 @@ export default function useSettings() {
   const [goal] = useMetadata('prayerGoal', naturalGoal)
 
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? queryClient.getQueryData(queryKeys.items) !== undefined : false),
+    () => (cacheClearCounter ? queryClient.getQueryData(getQueryKey(trpc.items.fetchMany)) !== undefined : false),
     [cacheClearCounter],
   )
 

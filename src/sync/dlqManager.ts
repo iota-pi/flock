@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { queryClient, queryKeys } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
 import { type Item, getItemName } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import {
@@ -12,6 +12,8 @@ import {
   PutItemBodySchema,
   PutItemsBatchBodySchema,
 } from '../shared/syncSchemas'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from '../api/trpc'
 
 const ResolveBatchPayloadSchema = PutItemBodySchema.pick({ account: true }).extend({
   resolutions: PutItemsBatchBodySchema.shape.items
@@ -89,7 +91,7 @@ export function getHumanReadableDlqTitle(mutation: QueuedMutation): string | und
     return undefined
   }
 
-  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+  const cachedItems = queryClient.getQueryData<Item[]>(getQueryKey(trpc.items.fetchMany)) || []
   const itemById = new Map(cachedItems.map(item => [item.id, item]))
 
   const firstTargetId = targetIds[0]

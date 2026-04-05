@@ -6,7 +6,8 @@ import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
 import { fetchItems, fetchMetadata } from '../api/itemReadService'
 import { mutateSetMetadata } from '../api/itemWriteService'
-import { queryKeys } from '../api/queryClient'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 
@@ -32,7 +33,7 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
     [itemType],
   )
   const { data: items = EMPTY_ARRAY as T[] } = useQuery<Item[], Error, T[]>({
-    queryKey: queryKeys.items,
+    queryKey: getQueryKey(trpc.items.fetchMany),
     queryFn: fetchItems,
     enabled: authReady,
     select: selectItems,
@@ -43,7 +44,7 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
 export function useItemsInitialLoading(): boolean {
   const authReady = useAuthReady()
   const { isLoading } = useQuery<Item[]>({
-    queryKey: queryKeys.items,
+    queryKey: getQueryKey(trpc.items.fetchMany),
     queryFn: fetchItems,
     enabled: authReady,
   })
@@ -60,7 +61,7 @@ export const useItemMap = () => {
     [],
   )
   const { data: itemMap = EMPTY_ITEM_MAP } = useQuery<Item[], Error, Record<ItemId, Item>>({
-    queryKey: queryKeys.items,
+    queryKey: getQueryKey(trpc.items.fetchMany),
     queryFn: fetchItems,
     enabled: authReady,
     select: selectItemMap,
@@ -77,7 +78,7 @@ export const useItem = (id: ItemId) => {
     [id],
   )
   const { data: item } = useQuery<Item[], Error, Item | undefined>({
-    queryKey: queryKeys.items,
+    queryKey: getQueryKey(trpc.items.fetchMany),
     queryFn: fetchItems,
     enabled: authReady      && typeof id === 'string',
     select: selectItem,
@@ -111,7 +112,7 @@ export function useMetadata<K extends MetadataKey>(
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
   const authReady = useAuthReady()
   const { data: metadata = {} as Metadata } = useQuery({
-    queryKey: queryKeys.metadata,
+    queryKey: getQueryKey(trpc.accounts.getMetadata),
     queryFn: fetchMetadata,
     enabled: authReady,
   })

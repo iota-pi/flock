@@ -2,7 +2,6 @@
 import type * as vault from '../api/vault'
 import type * as mutations from '../api/itemWriteService'
 import type { hasApiAuthToken } from '../api/runtime'
-import type { queryKeys } from '../api/queryClient'
 
 // Expose store for Cypress in a typed way
 declare global {
@@ -11,8 +10,7 @@ declare global {
     vault?: Promise<typeof vault>
     mutations?: Promise<typeof mutations>
     hasApiAuthToken?: typeof hasApiAuthToken
-    invalidateQuery?: (key: keyof typeof queryKeys) => Promise<void>
-    queryKeys?: typeof queryKeys
+    invalidateQuery?: (key: 'items' | 'metadata') => Promise<void>
   }
 }
 

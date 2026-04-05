@@ -13,8 +13,10 @@ import {
   configureDecryptionWorkerCallbacks,
   evaluateHistoryInWorker,
 } from '../workers/decryptionWorkerManager'
-import { queryClient, queryKeys } from './queryClient'
+import { queryClient } from './queryClient'
 import type { VaultItem } from './vault/client'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from './trpc'
 
 export type DecryptionFailedEvent = {
   source: 'worker' | 'main-thread'
@@ -171,7 +173,7 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
     })
 
     recoveryCooldownUntilByItemId.delete(itemId)
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    await queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
     console.info(`[Recovery] Successfully rolled back item ${itemId}`)
   } catch (error) {
     console.error(`[Recovery] Auto-recovery failed for item ${itemId}`, error)

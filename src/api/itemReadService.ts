@@ -11,10 +11,7 @@ import {
 import { AccountMetadata } from '../state/metadata'
 import { hasApiAuthToken } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
-import {
-  queryClient,
-  queryKeys,
-} from './queryClient'
+import { queryClient } from './queryClient'
 import { handleVaultError } from './runtime'
 import { getAccountId } from './util'
 import {
@@ -36,6 +33,8 @@ import migrateItems from '../state/migrations'
 import type { RealtimeEventEnvelope } from '../shared/realtime'
 import { readQueue } from '../sync/offlineQueueStore'
 import { projectOfflineMutations } from '../state/optimisticProjection'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from './trpc'
 
 type DecryptionResult =
   | { ok: true; item: Item }
@@ -233,7 +232,7 @@ export async function fetchItems(): Promise<Item[]> {
   const accountId = getAccountId()
 
   const metadata = await queryClient.fetchQuery({
-    queryKey: queryKeys.metadata,
+    queryKey: getQueryKey(trpc.accounts.getMetadata),
     queryFn: fetchMetadata,
     staleTime: 5 * 60 * 1000,
   })
@@ -325,7 +324,7 @@ export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[])
   })
 
   const projectedItems = await applyOptimisticProjection(updatedItems)
-  queryClient.setQueryData<Item[]>(queryKeys.items, sortItems(projectedItems, DEFAULT_CRITERIA))
+  queryClient.setQueryData<Item[]>(getQueryKey(trpc.items.fetchMany), sortItems(projectedItems, DEFAULT_CRITERIA))
 }
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
@@ -383,5 +382,5 @@ export function clearQueryCache() {
 
 // Helper to check if we have cached data (for UI purposes)
 export function hasItemsInCache(): boolean {
-  return queryClient.getQueryData(queryKeys.items) !== undefined
+  return queryClient.getQueryData(getQueryKey(trpc.items.fetchMany)) !== undefined
 }

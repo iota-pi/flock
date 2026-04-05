@@ -5,7 +5,9 @@ import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
 import { mutateStoreItems } from '../api/itemWriteService'
-import { queryClient, queryKeys } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from '../api/trpc'
 import { createDebouncedByKey } from '../utils/debounceByKey'
 
 export function usePrayerSchedule() {
@@ -78,7 +80,7 @@ export function usePrayerSchedule() {
 
       // Update cache immediately for responsive UI, then debounce server sync.
       queryClient.setQueryData<Item[]>(
-        queryKeys.items,
+        getQueryKey(trpc.items.fetchMany),
         oldItems => {
           if (!oldItems) return [newItem]
           const index = oldItems.findIndex(existing => existing.id === newItem.id)

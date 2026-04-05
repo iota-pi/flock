@@ -1,14 +1,11 @@
-type QueryKeys = typeof import('../../src/api/queryClient').queryKeys
-
 declare global {
   // Cypress window augmentation for tests that call into vault helpers
   // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Window {
-    vault?: Promise<typeof import('../../src/api/vault')>
-    mutations?: Promise<typeof import('../../src/api/mutations')>
+    vault?: Promise<typeof import('../../src/api/vault/index')>
+    mutations?: Promise<typeof import('../../src/api/itemWriteService')>
     hasApiAuthToken?: typeof import('../../src/api/runtime').hasApiAuthToken
-    invalidateQuery?: (key: keyof QueryKeys) => Promise<void>
-    queryKeys?: QueryKeys
+    invalidateQuery?: (key: 'items' | 'metadata') => Promise<void>
   }
 }
 

@@ -61,10 +61,6 @@ vi.mock('../api/queryClient', () => ({
   queryClient: {
     getQueryData: vi.fn(),
   },
-  queryKeys: {
-    items: ['items'],
-    metadata: ['metadata'],
-  },
 }))
 
 vi.mock('../state/uiStore', () => ({

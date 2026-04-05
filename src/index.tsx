@@ -1,9 +1,10 @@
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import { getQueryKey } from '@trpc/react-query'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
-import { queryClient, queryKeys, queryPersister } from './api/queryClient'
+import { queryClient, queryPersister } from './api/queryClient'
 import { trpc } from './api/trpc'
 import { trpcReactClient } from './api/trpcClient'
 import * as vault from './api/vault'
@@ -96,6 +97,10 @@ registerSW()
 if (window.Cypress) {
   window.vault = Promise.resolve(vault)
   window.mutations = Promise.resolve(mutations)
-  window.invalidateQuery = (key: keyof typeof queryKeys) => queryClient.invalidateQueries({ queryKey: queryKeys[key] })
-  window.queryKeys = queryKeys
+  window.invalidateQuery = (key: 'items' | 'metadata') => {
+    const queryKey = key === 'items'
+      ? getQueryKey(trpc.items.fetchMany)
+      : getQueryKey(trpc.accounts.getMetadata)
+    return queryClient.invalidateQueries({ queryKey })
+  }
 }

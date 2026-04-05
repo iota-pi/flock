@@ -1,9 +1,6 @@
 import type { PageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/state/items'
 
-type QueryKeys = typeof import('../../src/api/queryClient').queryKeys
-type AppQueryKey = keyof QueryKeys
-
 function generateLocalItemId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -391,7 +388,7 @@ Cypress.Commands.add(
 
 Cypress.Commands.add(
   'invalidateQuery',
-  (key: AppQueryKey): Cypress.Chainable => {
+  (key: 'items' | 'metadata'): Cypress.Chainable => {
     return cy.window({ log: false }).then(win => {
       if (!win.invalidateQuery) {
         throw new Error('invalidateQuery function not found on window object')

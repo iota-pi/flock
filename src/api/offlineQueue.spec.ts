@@ -57,9 +57,7 @@ vi.mock('./queryClient', () => ({
   queryClient: {
     setQueryData: mocks.setQueryData,
     getQueryData: mocks.getQueryData,
-  },
-  queryKeys: {
-    items: ['items'],
+    invalidateQueries: vi.fn(),
   },
 }))
 

@@ -24,7 +24,7 @@ import * as Automerge from '@automerge/automerge'
 import { trpcClient } from './trpcClient'
 import { getAccountId } from './util'
 import { fetchItems } from './itemReadService'
-import { queryClient, queryKeys } from './queryClient'
+import { queryClient } from './queryClient'
 import { handleVaultError } from './runtime'
 import { useUiStore } from '../state/uiStore'
 import { enqueueMutation, isLikelyNetworkError } from '../sync/offlineQueue'
@@ -36,6 +36,11 @@ import {
 } from '../sync/automergeBinaryCache'
 import { toBytes } from './vault/crypto'
 import { resolveQueueConflictInWorker } from '../workers/decryptionWorkerManager'
+import { getQueryKey } from '@trpc/react-query'
+import { trpc } from './trpc'
+
+const itemsQueryKey = getQueryKey(trpc.items.fetchMany)
+const metadataQueryKey = getQueryKey(trpc.accounts.getMetadata)
 
 function hasVaultKeyAccessor(
   vault: typeof vaultApi,
@@ -85,7 +90,7 @@ function extractConflictIdsFromError(err: Error): ItemId[] {
 export async function mutateSetMetadata(metadataOrUpdater: AccountMetadata | ((prev: AccountMetadata) => AccountMetadata)) {
   return mutateWithRetry<AccountMetadata, AccountMetadata>(
     {
-      queryKey: queryKeys.metadata,
+      queryKey: metadataQueryKey,
       getBaseState: previous => previous || {} as AccountMetadata,
       calculateNextState: async base => {
         const current = typeof metadataOrUpdater === 'function'
@@ -113,14 +118,14 @@ export async function mutateStoreItems(
 ) {
   const queuedItems = Array.isArray(items) ? items : [items]
   const targetItemId = queuedItems.length === 1 ? queuedItems[0].id : undefined
-  const cachedItems = queryClient.getQueryData<Item[]>(queryKeys.items) || []
+  const cachedItems = queryClient.getQueryData<Item[]>(itemsQueryKey) || []
   const baseState = targetItemId
     ? cachedItems.find(item => item.id === targetItemId)
     : undefined
 
   return mutateWithRetry<Item[], Map<ItemId, Item>>(
     {
-      queryKey: queryKeys.items,
+      queryKey: itemsQueryKey,
       getBaseState: previous => (
         new Map((previous || []).map(i => [i.id, i]))
       ),
@@ -177,15 +182,15 @@ export function optimisticStoreItemsUpdate(old: Item[] | undefined, items: Item[
 }
 
 export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
-  const previousItems = queryClient.getQueryData<Item[]>(queryKeys.items)
+  const previousItems = queryClient.getQueryData<Item[]>(itemsQueryKey)
   const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
   const idsSet = new Set(ids)
 
   try {
-    await queryClient.cancelQueries({ queryKey: queryKeys.items })
+    await queryClient.cancelQueries({ queryKey: itemsQueryKey })
 
     // Optimistic Update
-    queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticDeleteUpdate(old, idsSet))
+    queryClient.setQueryData<Item[]>(itemsQueryKey, old => optimisticDeleteUpdate(old, idsSet))
 
     // Prefer local cache to build tombstones and related group updates.
     const allItems = previousItems || await fetchItems()
@@ -213,12 +218,12 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]) {
     return ids
   } catch (err) {
     if (previousItems) {
-      queryClient.setQueryData(queryKeys.items, previousItems)
+      queryClient.setQueryData(itemsQueryKey, previousItems)
     }
     handleVaultError(err as Error, 'Failed to delete items')
     throw err
   } finally {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.items })
+    await queryClient.invalidateQueries({ queryKey: itemsQueryKey })
   }
 }
 
@@ -253,8 +258,8 @@ function optimisticDeleteUpdate(old: Item[] | undefined, idsSet: Set<ItemId>): I
 }
 
 async function updateCacheOptimistically(items: Item[]) {
-  await queryClient.cancelQueries({ queryKey: queryKeys.items })
-  queryClient.setQueryData<Item[]>(queryKeys.items, old => optimisticStoreItemsUpdate(old, items))
+  await queryClient.cancelQueries({ queryKey: itemsQueryKey })
+  queryClient.setQueryData<Item[]>(itemsQueryKey, old => optimisticStoreItemsUpdate(old, items))
 }
 
 function getHeadVersionId(item?: VaultItem): string | undefined {
@@ -578,7 +583,7 @@ async function mutateWithRetry<TData, TBase>(
     offlineMutationMeta,
     externalCacheLifecycle = false,
   }: {
-    queryKey: readonly string[]
+    queryKey: ReturnType<typeof getQueryKey>
     getBaseState: (previous: TData | undefined) => TBase
     calculateNextState: (base: TBase) => TData | Promise<TData>
     performSave: (data: TData) => Promise<TData>
@@ -665,15 +670,15 @@ async function mutateWithRetry<TData, TBase>(
   }
 }
 
-function sameQueryKey(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((part, index) => part === b[index])
+function sameQueryKey(a: ReturnType<typeof getQueryKey>, b: ReturnType<typeof getQueryKey>): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 async function buildOfflineMutation<TData>(
-  queryKey: readonly string[],
+  queryKey: ReturnType<typeof getQueryKey>,
   current: TData,
 ): Promise<{ mutationType: string, payload: unknown } | null> {
-  if (sameQueryKey(queryKey, queryKeys.items)) {
+  if (sameQueryKey(queryKey, itemsQueryKey)) {
     const items = current as unknown as Item[]
     const vault = vaultApi
     const payloadItems = await Promise.all(items.map(item => (
@@ -711,7 +716,7 @@ async function buildOfflineMutation<TData>(
     }
   }
 
-  if (sameQueryKey(queryKey, queryKeys.metadata)) {
+  if (sameQueryKey(queryKey, metadataQueryKey)) {
     const metadata = current as unknown as AccountMetadata
     const serverMetadata = await getMetadata()
     const payload = await serializeMetadataAsBranch(metadata, serverMetadata as MetadataEnvelope)

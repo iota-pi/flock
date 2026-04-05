@@ -13,10 +13,11 @@ import {
   Toolbar,
 } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
+import { getQueryKey } from '@trpc/react-query'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
 import { fetchMetadata } from '../../api/itemReadService'
-import { queryKeys } from '../../api/queryClient'
+import { trpc } from '../../api/trpc'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
 import { useUiStore } from '../../state/uiStore'
@@ -197,7 +198,7 @@ function MainMenu({
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useQuery({
-    queryKey: queryKeys.metadata,
+    queryKey: getQueryKey(trpc.accounts.getMetadata),
     queryFn: fetchMetadata,
     enabled: loggedIn,
   })
