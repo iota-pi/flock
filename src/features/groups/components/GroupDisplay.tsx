@@ -6,7 +6,7 @@ import { useItems } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { useStoreItemsMutation } from '../../../api/itemMutations'
 import Search from '../../../components/Search'
-import { useUiStore } from '../../../state/uiStore'
+import { useNavigationStore } from '../../../state/navigationStore'
 
 export interface Props {
   editable?: boolean,
@@ -19,7 +19,7 @@ function GroupDisplay({
   itemId,
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
-  const pushActive = useUiStore(state => state.pushActive)
+  const pushActive = useNavigationStore(state => state.pushActive)
   const storeItemsMutation = useStoreItemsMutation()
 
   const currentGroups = useMemo(

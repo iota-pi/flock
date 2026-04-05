@@ -6,7 +6,7 @@ import { useHotkeys } from 'react-hotkeys-hook'
 import { Item } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
-import { useUiStore } from '../../state/uiStore'
+import { useNavigationStore } from '../../state/navigationStore'
 
 export interface Props {
   label: string,
@@ -19,7 +19,7 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const replaceActive = useUiStore(state => state.replaceActive)
+  const replaceActive = useNavigationStore(state => state.replaceActive)
   const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {

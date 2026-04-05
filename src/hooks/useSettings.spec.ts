@@ -38,27 +38,30 @@ vi.mock('./useAuth', () => ({
 }))
 
 vi.mock('../state/uiStore', () => ({
-  useUiStore: Object.assign(
-    (selector: (state: {
-      setMessage: typeof mocks.setMessage
-      setUi: typeof mocks.setUi
-      darkMode: boolean | null
-      setOfflineQueueLength: typeof mocks.setOfflineQueueLength
-      setDlqCount: typeof mocks.setDlqCount
-    }) => unknown) => selector({
-      setMessage: mocks.setMessage,
-      setUi: mocks.setUi,
-      darkMode: null,
+  useUiStore: (selector: (state: {
+    setUi: typeof mocks.setUi
+    darkMode: boolean | null
+  }) => unknown) => selector({
+    setUi: mocks.setUi,
+    darkMode: null,
+  }),
+}))
+
+vi.mock('../state/toastStore', () => ({
+  useToastStore: (selector: (state: {
+    setMessage: typeof mocks.setMessage
+  }) => unknown) => selector({
+    setMessage: mocks.setMessage,
+  }),
+}))
+
+vi.mock('../state/syncStore', () => ({
+  useSyncStore: {
+    getState: () => ({
       setOfflineQueueLength: mocks.setOfflineQueueLength,
       setDlqCount: mocks.setDlqCount,
     }),
-    {
-      getState: () => ({
-        setOfflineQueueLength: mocks.setOfflineQueueLength,
-        setDlqCount: mocks.setDlqCount,
-      }),
-    },
-  ),
+  },
 }))
 
 vi.mock('../api/queryClient', () => ({

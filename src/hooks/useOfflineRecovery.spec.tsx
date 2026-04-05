@@ -63,11 +63,18 @@ vi.mock('../api/queryClient', () => ({
   },
 }))
 
-vi.mock('../state/uiStore', () => ({
-  useUiStore: (selector: (state: { setDlqCount: typeof mocks.setDlqCount, setOfflineQueueLength: typeof mocks.setOfflineQueueLength, setMessage: typeof mocks.setMessage }) => unknown) => (
+vi.mock('../state/syncStore', () => ({
+  useSyncStore: (selector: (state: { setDlqCount: typeof mocks.setDlqCount, setOfflineQueueLength: typeof mocks.setOfflineQueueLength }) => unknown) => (
     selector({
       setDlqCount: mocks.setDlqCount,
       setOfflineQueueLength: mocks.setOfflineQueueLength,
+    })
+  ),
+}))
+
+vi.mock('../state/toastStore', () => ({
+  useToastStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
+    selector({
       setMessage: mocks.setMessage,
     })
   ),

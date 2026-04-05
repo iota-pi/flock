@@ -1,18 +1,18 @@
 import { useCallback, useState } from 'react'
 import { Alert, Snackbar } from '@mui/material'
-import { useUiStore } from '../state/uiStore'
+import { useToastStore } from '../state/toastStore'
 
 
 function GeneralMessage() {
-  const setUi = useUiStore(state => state.setUi)
-  const data = useUiStore(state => state.message)
+  const clearMessage = useToastStore(state => state.clearMessage)
+  const data = useToastStore(state => state.message)
   const { message, severity } = data || {}
 
   const [open, setOpen] = useState(false)
   const handleClose = useCallback(() => setOpen(false), [])
   const handleExited = useCallback(
-    () => setUi({ message: null }),
-    [setUi],
+    () => clearMessage(),
+    [clearMessage],
   )
 
   // Derived state to open snackbar when message changes

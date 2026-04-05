@@ -35,6 +35,22 @@ import { projectOfflineMutations } from '../state/optimisticProjection'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from './trpc'
 
+itemsSyncEngine.initialize({
+  fetchDelta: async (accountId: string, cacheTime: number | null) => {
+    const response = await fetchMany({ cacheTime }).catch(error => {
+      handleVaultError(error, 'Failed to fetch items from server')
+      return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0 }
+    })
+
+    return {
+      items: response.items as VaultItem[],
+      serverTime: response.serverTime,
+    }
+  },
+  decryptItems: decryptVaultItems,
+  migrateItems,
+})
+
 type DecryptionResult =
   | { ok: true; item: Item }
   | { ok: false; itemId?: string; error: unknown }
@@ -239,19 +255,6 @@ export async function fetchItems(): Promise<Item[]> {
   const mergedItems = await itemsSyncEngine.pull({
     accountId,
     metadata,
-    fetchDelta: async cacheTime => {
-      const response = await fetchMany({ cacheTime }).catch(error => {
-        handleVaultError(error, 'Failed to fetch items from server')
-        return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0 }
-      })
-
-      return {
-        items: response.items as VaultItem[],
-        serverTime: response.serverTime,
-      }
-    },
-    decryptItems: decryptVaultItems,
-    migrateItems,
   })
 
   const projectedItems = await applyOptimisticProjection(mergedItems)

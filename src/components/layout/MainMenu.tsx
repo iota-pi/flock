@@ -20,7 +20,8 @@ import { fetchMetadata } from '../../api/itemReadService'
 import { trpc } from '../../api/trpc'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
-import { useUiStore } from '../../state/uiStore'
+import { useNavigationStore } from '../../state/navigationStore'
+import { useSyncStore } from '../../state/syncStore'
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
@@ -193,8 +194,8 @@ function MainMenu({
   onMinimise,
   open,
 }: Props) {
-  const setUi = useUiStore(state => state.setUi)
-  const dlqCount = useUiStore(state => state.dlqCount)
+  const setSelected = useNavigationStore(state => state.setSelected)
+  const dlqCount = useSyncStore(state => state.dlqCount)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useQuery({
@@ -209,7 +210,7 @@ function MainMenu({
       if (pageId && page?.id !== pageId) {
         const newPage = pages.find(p => p.id === pageId)!
         navigate(newPage.path)
-        setUi({ selected: [] })
+        setSelected([])
       } else if (pageId === 'prayer' && page?.id === 'prayer') {
         navigate('/', {
           replace: true,
@@ -220,7 +221,7 @@ function MainMenu({
       }
       onClick()
     },
-    [page?.id, navigate, onClick, setUi],
+    [page?.id, navigate, onClick, setSelected],
   )
 
   const pagesToShow = useMemo(

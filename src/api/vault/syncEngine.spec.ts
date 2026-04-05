@@ -37,12 +37,15 @@ describe('ItemsSyncEngine', () => {
     ])
     const migrateMock = vi.fn().mockResolvedValue([])
 
+    itemsSyncEngine.initialize({
+      fetchDelta: (_accountId, cacheTime) => fetchDeltaMock(cacheTime),
+      decryptItems: decryptMock,
+      migrateItems: migrateMock,
+    })
+
     const result = await itemsSyncEngine.pull({
       accountId: 'acct-1',
       metadata: {},
-      fetchDelta: fetchDeltaMock,
-      decryptItems: decryptMock,
-      migrateItems: migrateMock,
     })
 
     expect(fetchDeltaMock).toHaveBeenCalledWith(null)
@@ -72,12 +75,15 @@ describe('ItemsSyncEngine', () => {
     ])
     const migrateMock = vi.fn().mockResolvedValue([])
 
+    itemsSyncEngine.initialize({
+      fetchDelta: (_accountId, cacheTime) => fetchDeltaMock(cacheTime),
+      decryptItems: decryptMock,
+      migrateItems: migrateMock,
+    })
+
     const result = await itemsSyncEngine.pull({
       accountId: 'acct-1',
       metadata: {},
-      fetchDelta: fetchDeltaMock,
-      decryptItems: decryptMock,
-      migrateItems: migrateMock,
     })
 
     expect(fetchDeltaMock).toHaveBeenCalledWith(5000)
@@ -104,12 +110,15 @@ describe('ItemsSyncEngine', () => {
     ])
     const migrateMock = vi.fn().mockResolvedValue([])
 
+    itemsSyncEngine.initialize({
+      fetchDelta: (_accountId, cacheTime) => fetchDeltaMock(cacheTime),
+      decryptItems: decryptMock,
+      migrateItems: migrateMock,
+    })
+
     const result = await itemsSyncEngine.pull({
       accountId: 'acct-1',
       metadata: {},
-      fetchDelta: fetchDeltaMock,
-      decryptItems: decryptMock,
-      migrateItems: migrateMock,
     })
 
     expect(result).toHaveLength(1)

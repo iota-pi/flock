@@ -9,6 +9,12 @@ type PersistedItemsSyncState = {
   items: Item[]
 }
 
+type PullDependencies = {
+  fetchDelta: (accountId: string, cacheTime: number | null) => Promise<{ items: VaultItem[]; serverTime: number }>
+  decryptItems: (items: VaultItem[]) => Promise<Item[]>
+  migrateItems: (items: Item[], metadata: AccountMetadata) => Promise<unknown>
+}
+
 const SYNC_ENGINE_STORAGE_KEY_PREFIX = 'items-sync-engine'
 
 function getStorageKey(accountId: string): string {
@@ -18,6 +24,11 @@ function getStorageKey(accountId: string): string {
 class ItemsSyncEngine {
   private loadedAccountId: string | null = null
   private items: Item[] = []
+  private dependencies: PullDependencies | null = null
+
+  initialize(dependencies: PullDependencies): void {
+    this.dependencies = dependencies
+  }
 
   reset(): void {
     this.loadedAccountId = null
@@ -38,13 +49,19 @@ class ItemsSyncEngine {
     await syncDB.setItem(getStorageKey(accountId), { items: this.items })
   }
 
+  private requireDependencies(): PullDependencies {
+    if (!this.dependencies) {
+      throw new Error('ItemsSyncEngine is not initialized')
+    }
+
+    return this.dependencies
+  }
+
   async pull(input: {
     accountId: string
     metadata: AccountMetadata
-    fetchDelta: (cacheTime: number | null) => Promise<{ items: VaultItem[]; serverTime: number }>
-    decryptItems: (items: VaultItem[]) => Promise<Item[]>
-    migrateItems: (items: Item[], metadata: AccountMetadata) => Promise<unknown>
   }): Promise<Item[]> {
+    const dependencies = this.requireDependencies()
     await this.load(input.accountId)
 
     const lastSyncServerTime = getLastSyncServerTime(input.accountId)
@@ -52,8 +69,8 @@ class ItemsSyncEngine {
       ? lastSyncServerTime
       : null
 
-    const response = await input.fetchDelta(cacheTime)
-    const decrypted = await input.decryptItems(response.items)
+    const response = await dependencies.fetchDelta(input.accountId, cacheTime)
+    const decrypted = await dependencies.decryptItems(response.items)
     const deletedIds = new Set(
       response.items
         .filter(item => item.metadata?.deleted === true)
@@ -65,7 +82,7 @@ class ItemsSyncEngine {
       ? incoming
       : mergeDeltaItems(this.items, incoming, deletedIds)
 
-    await input.migrateItems(this.items, input.metadata)
+    await dependencies.migrateItems(this.items, input.metadata)
 
     await this.persist(input.accountId)
     return this.items

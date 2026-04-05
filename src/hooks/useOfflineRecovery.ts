@@ -10,7 +10,8 @@ import {
   writeDeadLetterQueue,
   writeQueue,
 } from '../sync/offlineQueueStore'
-import { useUiStore } from '../state/uiStore'
+import { useSyncStore } from '../state/syncStore'
+import { useToastStore } from '../state/toastStore'
 import { queryClient } from '../api/queryClient'
 import * as vault from '../api/vault'
 import { Item } from '../state/items'
@@ -26,9 +27,9 @@ export function useOfflineRecovery() {
   const trpcUtils = trpc.useUtils()
   const putItemMutation = trpc.items.put.useMutation()
   const resolveBranchConflictMutation = trpc.items.resolveBranchConflict.useMutation()
-  const setDlqCount = useUiStore(state => state.setDlqCount)
-  const setOfflineQueueLength = useUiStore(state => state.setOfflineQueueLength)
-  const setMessage = useUiStore(state => state.setMessage)
+  const setDlqCount = useSyncStore(state => state.setDlqCount)
+  const setOfflineQueueLength = useSyncStore(state => state.setOfflineQueueLength)
+  const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
 
   const fetchDeadLetterItems = useCallback(async (): Promise<QueuedMutation[]> => {

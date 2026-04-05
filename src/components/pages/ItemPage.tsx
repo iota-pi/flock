@@ -12,6 +12,7 @@ import {
 } from '../../state/selectors'
 import BasePage from './BasePage'
 import { useUiStore } from '../../state/uiStore'
+import { useNavigationStore } from '../../state/navigationStore'
 import { useAsyncItems } from '../../hooks/useAsyncItems'
 
 export interface Props<T extends Item> {
@@ -21,13 +22,13 @@ export interface Props<T extends Item> {
 function ItemPage<T extends Item>({
   itemType,
 }: Props<T>) {
-  const replaceActive = useUiStore(state => state.replaceActive)
-  const setUi = useUiStore(state => state.setUi)
-  const toggleSelected = useUiStore(state => state.toggleSelected)
+  const replaceActive = useNavigationStore(state => state.replaceActive)
+  const setSelected = useNavigationStore(state => state.setSelected)
+  const toggleSelected = useNavigationStore(state => state.toggleSelected)
   const isActive = useIsActive()
   const itemsInitialLoading = useItemsInitialLoading()
   const rawItems = useItems<T>(itemType)
-  const selected = useUiStore(state => state.selected)
+  const selected = useNavigationStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
@@ -79,9 +80,9 @@ function ItemPage<T extends Item>({
   const handleSelectAll = useCallback(
     () => {
       const newSelected = allSelected ? [] : items.map(item => item.id)
-      setUi({ selected: newSelected })
+      setSelected(newSelected)
     },
-    [allSelected, items, setUi],
+    [allSelected, items, setSelected],
   )
 
   const getChecked = useCallback((item: T) => selected.includes(item.id), [selected])

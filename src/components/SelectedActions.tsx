@@ -21,7 +21,7 @@ import { useItemsById } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { mutateDeleteItems, mutateStoreItems } from '../api/itemMutations'
-import { useUiStore } from '../state/uiStore'
+import { useNavigationStore } from '../state/navigationStore'
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
 const GroupDialog = lazy(() => import('./dialogs/GroupDialog'))
@@ -49,9 +49,9 @@ const PADDING_HEIGHT = 2
 const ACTION_HEIGHT = 36.02
 
 function SelectedActions() {
-  const setUi = useUiStore(state => state.setUi)
+  const setSelected = useNavigationStore(state => state.setSelected)
   const getItemsById = useItemsById()
-  const selected = useUiStore(state => state.selected)
+  const selected = useNavigationStore(state => state.selected)
   const deleteItems = mutateDeleteItems
   const storeItems = mutateStoreItems
 
@@ -87,8 +87,8 @@ function SelectedActions() {
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
-    () => setUi({ selected: [] }),
-    [setUi],
+    () => setSelected([]),
+    [setSelected],
   )
 
   const open = selectedItems.length > 0

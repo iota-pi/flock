@@ -23,7 +23,7 @@ import {
 } from '../Icons'
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
-import { useUiStore } from '../../state/uiStore'
+import { useSyncStore } from '../../state/syncStore'
 import { processOfflineQueue } from '../../sync/offlineQueue'
 import { useDialogState } from '../../hooks/useDialogState'
 
@@ -58,7 +58,7 @@ type SettingsItemConfig = {
 
 function SettingsPage() {
   const { actions, values } = useSettings()
-  const dlqCount = useUiStore(state => state.dlqCount)
+  const dlqCount = useSyncStore(state => state.dlqCount)
   const goalDialog = useDialogState('goal')
   const restoreDialog = useDialogState('restore')
   const offlineRecoveryDialog = useDialogState('offlineRecovery')

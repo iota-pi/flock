@@ -2,7 +2,7 @@ import { Theme, useMediaQuery } from '@mui/material'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
-import { DrawerData, useUiStore } from '../../state/uiStore'
+import { DrawerData, useNavigationStore } from '../../state/navigationStore'
 import { useItem, useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
@@ -11,8 +11,8 @@ const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 
 function useDrawerRouting(drawers: DrawerData[]) {
-  const clearDrawers = useUiStore(state => state.clearDrawers)
-  const removeActive = useUiStore(state => state.removeActive)
+  const clearDrawers = useNavigationStore(state => state.clearDrawers)
+  const removeActive = useNavigationStore(state => state.removeActive)
   const routerLocation = useLocation()
   const navigate = useNavigate()
   const prevDrawers = usePrevious(drawers)
@@ -138,8 +138,8 @@ function IndividualDrawer({
 const noop = () => {}
 
 function DrawerDisplay() {
-  const removeActive = useUiStore(state => state.removeActive)
-  const drawers = useUiStore(state => state.drawers)
+  const removeActive = useNavigationStore(state => state.removeActive)
+  const drawers = useNavigationStore(state => state.drawers)
   const loggedIn = useLoggedIn()
   const page = usePage()
   const [closingDrawerId, setClosingDrawerId] = useState<string | null>(null)

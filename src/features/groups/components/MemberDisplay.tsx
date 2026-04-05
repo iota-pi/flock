@@ -9,7 +9,7 @@ import { useItemsById, useSortCriteria } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { sortItems } from '../../../utils/customSort'
 import Search from '../../../components/Search'
-import { useUiStore } from '../../../state/uiStore'
+import { useNavigationStore } from '../../../state/navigationStore'
 
 
 export interface Props {
@@ -25,7 +25,7 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const pushActive = useUiStore(state => state.pushActive)
+  const pushActive = useNavigationStore(state => state.pushActive)
   const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
 

@@ -4,6 +4,7 @@ import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
+import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { processOfflineQueue } from '../../sync/offlineQueue'
 import { trpc } from '../../api/trpc'
@@ -11,8 +12,10 @@ import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
   const trpcUtils = trpc.useUtils()
-  const isSyncing = useUiStore(state => state.isSyncing || state.requests.active > 0)
-  const offlineQueueLength = useUiStore(state => state.offlineQueueLength)
+  const syncInProgress = useSyncStore(state => state.isSyncing)
+  const activeRequests = useUiStore(state => state.requests.active)
+  const isSyncing = syncInProgress || activeRequests > 0
+  const offlineQueueLength = useSyncStore(state => state.offlineQueueLength)
   const isOnline = useOnlineStatus()
 
   const handleForceSync = useCallback(

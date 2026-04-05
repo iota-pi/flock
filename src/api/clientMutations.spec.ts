@@ -37,8 +37,8 @@ vi.mock('./vault', () => ({
   }),
 }))
 
-vi.mock('../state/uiStore', () => ({
-  useUiStore: {
+vi.mock('../state/navigationStore', () => ({
+  useNavigationStore: {
     getState: () => ({
       pruneItemDrawers: mocks.pruneItemDrawers,
     }),

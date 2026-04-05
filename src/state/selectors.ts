@@ -10,6 +10,7 @@ import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
+import { useNavigationStore } from './navigationStore'
 
 const EMPTY_ARRAY: [] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -138,7 +139,7 @@ export function useMetadata<K extends MetadataKey>(
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
 export const useIsActive = () => {
-  const drawers = useUiStore(state => state.drawers)
+  const drawers = useNavigationStore(state => state.drawers)
   return useCallback(
     (itemId: ItemId) => (
       drawers.findIndex(drawer => (

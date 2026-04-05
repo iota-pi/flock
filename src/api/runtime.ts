@@ -1,7 +1,9 @@
 import { useUiStore } from '../state/uiStore'
+import { useToastStore } from '../state/toastStore'
 
 let authToken = ''
 let onSessionExpired: (() => void) | null = null
+const authTokenListeners = new Set<(token: string) => void>()
 
 function startRequest() {
   useUiStore.getState().startRequest()
@@ -49,6 +51,18 @@ export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit)
 
 export function setApiAuthToken(nextAuthToken: string) {
   authToken = nextAuthToken
+
+  for (const listener of authTokenListeners) {
+    listener(authToken)
+  }
+}
+
+export function subscribeApiAuthToken(listener: (token: string) => void): () => void {
+  authTokenListeners.add(listener)
+
+  return () => {
+    authTokenListeners.delete(listener)
+  }
 }
 
 export function setApiSessionExpiredHandler(handler: () => void) {
@@ -72,10 +86,8 @@ export function handleVaultError(error: Error, message: string) {
     return
   }
   console.error(error)
-  useUiStore.getState().setUi({
-    message: {
-      message,
-      severity: 'error',
-    },
+  useToastStore.getState().setMessage({
+    message,
+    severity: 'error',
   })
 }

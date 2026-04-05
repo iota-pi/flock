@@ -3,51 +3,41 @@ import { useUiStore, type UIState } from './uiStore'
 
 const initialState: UIState = {
   darkMode: null,
-  dlqCount: 0,
-  isSyncing: false,
-  offlineQueueLength: 0,
-  drawers: [],
   filters: useUiStore.getState().filters,
-  message: null,
   requests: { active: 0 },
-  selected: [],
   justCreatedAccount: false,
 }
 
-describe('uiStore sync state actions', () => {
+describe('uiStore base state actions', () => {
   beforeEach(() => {
     window.localStorage.clear()
     useUiStore.setState(initialState)
   })
 
-  it('setUi applies exact sync-related payload values', () => {
+  it('setUi applies payload values for retained ui fields', () => {
     useUiStore.getState().setUi({
-      dlqCount: 4,
-      isSyncing: true,
-      offlineQueueLength: 9,
+      darkMode: true,
+      justCreatedAccount: true,
       requests: { active: 2 },
     })
 
     const state = useUiStore.getState()
-    expect(state.dlqCount).toBe(4)
-    expect(state.isSyncing).toBe(true)
-    expect(state.offlineQueueLength).toBe(9)
+    expect(state.darkMode).toBe(true)
+    expect(state.justCreatedAccount).toBe(true)
     expect(state.requests.active).toBe(2)
   })
 
-  it('sync state action creators persist injected payload values', () => {
+  it('request lifecycle updates active request counter', () => {
     const store = useUiStore.getState()
-    store.setDlqCount(7)
-    store.setIsSyncing(true)
-    store.setOfflineQueueLength(11)
+    store.startRequest()
+    store.startRequest()
 
     let state = useUiStore.getState()
-    expect(state.dlqCount).toBe(7)
-    expect(state.isSyncing).toBe(true)
-    expect(state.offlineQueueLength).toBe(11)
+    expect(state.requests.active).toBe(2)
 
-    store.setIsSyncing(false)
+    store.finishRequest()
+    store.finishRequest()
     state = useUiStore.getState()
-    expect(state.isSyncing).toBe(false)
+    expect(state.requests.active).toBe(0)
   })
 })

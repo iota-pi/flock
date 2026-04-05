@@ -10,6 +10,8 @@ import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
 import { useUiStore } from '../state/uiStore'
+import { useToastStore } from '../state/toastStore'
+import { useSyncStore } from '../state/syncStore'
 import { useAuth } from './useAuth'
 import { AccountMetadata } from '../state/metadata'
 import { queryClient } from '../api/queryClient'
@@ -37,7 +39,7 @@ export type SettingsDialogType = (
 
 export default function useSettings() {
   const { account } = useAuth()
-  const setMessage = useUiStore(state => state.setMessage)
+  const setMessage = useToastStore(state => state.setMessage)
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
   const storeItems = mutateStoreItems
@@ -116,8 +118,8 @@ export default function useSettings() {
 
         await writeQueue(parsedQueue)
         await writeDeadLetterQueue(parsedDlq)
-        useUiStore.getState().setOfflineQueueLength(parsedQueue.length)
-        useUiStore.getState().setDlqCount(parsedDlq.length)
+        useSyncStore.getState().setOfflineQueueLength(parsedQueue.length)
+        useSyncStore.getState().setDlqCount(parsedDlq.length)
         await registerBackgroundSync()
 
         setMessage({ message: 'Restore successful' })

@@ -9,7 +9,7 @@ import { handleVaultError } from './runtime'
 import { trpc } from './trpc'
 import { getAccountId } from './util'
 import { fetchItems } from './itemReadService'
-import { useUiStore } from '../state/uiStore'
+import { useNavigationStore } from '../state/navigationStore'
 import {
   buildQueuedItemMutationPayload,
   dedupeItemsById,
@@ -95,7 +95,7 @@ export async function mutateDeleteItems(itemIds: ItemId | ItemId[]): Promise<Ite
       await mutateStoreItems(updates)
     }
 
-    useUiStore.getState().pruneItemDrawers(ids)
+    useNavigationStore.getState().pruneItemDrawers(ids)
     return ids
   } catch (error) {
     handleVaultError(error as Error, 'Failed to delete items')
