@@ -1,24 +1,17 @@
-export type AppEvent =
-  | {
-    type: 'data:updated'
-    domain: string
-    reason?: string
-  }
+import { emitDomainEvent, subscribeDomainEvents, type DomainEvent } from '../events/domainEvents'
+
+export type AppEvent = Extract<DomainEvent, { type: 'data:updated' }>
 
 type AppEventListener = (event: AppEvent) => void
 
-const listeners = new Set<AppEventListener>()
-
 export function emitAppEvent(event: AppEvent): void {
-  for (const listener of listeners) {
-    listener(event)
-  }
+  emitDomainEvent(event)
 }
 
 export function subscribeAppEvents(listener: AppEventListener): () => void {
-  listeners.add(listener)
-
-  return () => {
-    listeners.delete(listener)
-  }
+  return subscribeDomainEvents(event => {
+    if (event.type === 'data:updated') {
+      listener(event)
+    }
+  })
 }

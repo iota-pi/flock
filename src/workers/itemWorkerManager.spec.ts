@@ -1,18 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const wrapSpy = vi.hoisted(() => vi.fn())
+
+vi.mock('comlink', () => ({
+  wrap: wrapSpy,
+}))
+
 type MockWorkerInstance = {
-  onmessage: ((event: MessageEvent) => void) | null
   onerror: ((event: ErrorEvent) => void) | null
-  postMessage: ReturnType<typeof vi.fn>
 }
 
 const workerInstances: MockWorkerInstance[] = []
 const workerConstructorSpy = vi.fn()
 
 class WorkerMock {
-  onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: ErrorEvent) => void) | null = null
-  postMessage = vi.fn()
 
   constructor() {
     workerConstructorSpy()
@@ -20,11 +22,32 @@ class WorkerMock {
   }
 }
 
+type ItemWorkerApi = {
+  processItems: ReturnType<typeof vi.fn>
+  seedAutomerge: ReturnType<typeof vi.fn>
+}
+
+const workerApis: ItemWorkerApi[] = []
+
+function queueWorkerApi(api: ItemWorkerApi): void {
+  workerApis.push(api)
+}
+
 describe('itemWorkerManager', () => {
   beforeEach(() => {
     workerInstances.length = 0
+    workerApis.length = 0
     vi.clearAllMocks()
     vi.resetModules()
+
+    wrapSpy.mockImplementation(() => {
+      if (workerApis.length === 0) {
+        throw new Error('Missing queued worker api')
+      }
+
+      return workerApis.shift()
+    })
+
     Object.defineProperty(globalThis, 'Worker', {
       value: WorkerMock,
       writable: true,
@@ -32,8 +55,30 @@ describe('itemWorkerManager', () => {
     })
   })
 
-  it('reuses a single Worker for rapid requests and resolves by job id', async () => {
+  it('reuses a single Worker for rapid requests', async () => {
     const { processItemsWithWorker } = await import('./itemWorkerManager')
+
+    const processItems = vi.fn()
+      .mockResolvedValueOnce({
+        results: [{ id: 'first' }],
+        totalApplicable: 1,
+        archivedCount: 0,
+      })
+      .mockResolvedValueOnce({
+        results: [{ id: 'second' }],
+        totalApplicable: 2,
+        archivedCount: 0,
+      })
+      .mockResolvedValueOnce({
+        results: [{ id: 'third' }],
+        totalApplicable: 3,
+        archivedCount: 1,
+      })
+
+    queueWorkerApi({
+      processItems,
+      seedAutomerge: vi.fn(),
+    })
 
     const request = {
       items: [],
@@ -48,41 +93,10 @@ describe('itemWorkerManager', () => {
 
     expect(workerConstructorSpy).toHaveBeenCalledTimes(1)
     expect(workerInstances).toHaveLength(1)
-
-    const firstWorker = workerInstances[0]
-    const postedMessages = firstWorker.postMessage.mock.calls.map(call => call[0]) as Array<{ jobId: number }>
-
-    expect(postedMessages).toHaveLength(3)
-
-    firstWorker.onmessage?.({
-      data: {
-        type: 'PROCESS_ITEMS',
-        jobId: postedMessages[1].jobId,
-        results: [{ id: 'second' }],
-        totalApplicable: 2,
-        archivedCount: 0,
-      },
-    } as MessageEvent)
-
-    firstWorker.onmessage?.({
-      data: {
-        type: 'PROCESS_ITEMS',
-        jobId: postedMessages[0].jobId,
-        results: [{ id: 'first' }],
-        totalApplicable: 1,
-        archivedCount: 0,
-      },
-    } as MessageEvent)
-
-    firstWorker.onmessage?.({
-      data: {
-        type: 'PROCESS_ITEMS',
-        jobId: postedMessages[2].jobId,
-        results: [{ id: 'third' }],
-        totalApplicable: 3,
-        archivedCount: 1,
-      },
-    } as MessageEvent)
+    expect(processItems).toHaveBeenCalledTimes(3)
+    expect(processItems).toHaveBeenNthCalledWith(1, request)
+    expect(processItems).toHaveBeenNthCalledWith(2, request)
+    expect(processItems).toHaveBeenNthCalledWith(3, request)
 
     await expect(promiseOne).resolves.toEqual({
       results: [{ id: 'first' }],
@@ -101,8 +115,30 @@ describe('itemWorkerManager', () => {
     })
   })
 
-  it('rejects pending jobs on worker error and resets worker reference', async () => {
+  it('resets cached worker api on worker error', async () => {
     const { processItemsWithWorker } = await import('./itemWorkerManager')
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      // suppress expected worker error logs during test
+    })
+
+    queueWorkerApi({
+      processItems: vi.fn().mockResolvedValue({
+        results: [],
+        totalApplicable: 0,
+        archivedCount: 0,
+      }),
+      seedAutomerge: vi.fn(),
+    })
+
+    queueWorkerApi({
+      processItems: vi.fn().mockResolvedValue({
+        results: [{ id: 'recovered' }],
+        totalApplicable: 1,
+        archivedCount: 0,
+      }),
+      seedAutomerge: vi.fn(),
+    })
 
     const request = {
       items: [],
@@ -111,58 +147,47 @@ describe('itemWorkerManager', () => {
       showArchived: false,
     }
 
-    const pendingOne = processItemsWithWorker(request)
-    const pendingTwo = processItemsWithWorker(request)
+    await expect(processItemsWithWorker(request)).resolves.toEqual({
+      results: [],
+      totalApplicable: 0,
+      archivedCount: 0,
+    })
 
     expect(workerConstructorSpy).toHaveBeenCalledTimes(1)
     const firstWorker = workerInstances[0]
 
     firstWorker.onerror?.({ message: 'worker crashed' } as ErrorEvent)
 
-    await expect(pendingOne).rejects.toThrow('worker crashed')
-    await expect(pendingTwo).rejects.toThrow('worker crashed')
-
     const recoveryPromise = processItemsWithWorker(request)
     expect(workerConstructorSpy).toHaveBeenCalledTimes(2)
 
-    const secondWorker = workerInstances[1]
-    const recoveryJobId = secondWorker.postMessage.mock.calls[0][0].jobId
-    secondWorker.onmessage?.({
-      data: {
-        type: 'PROCESS_ITEMS',
-        jobId: recoveryJobId,
-        results: [],
-        totalApplicable: 0,
-        archivedCount: 0,
-      },
-    } as MessageEvent)
-
     await expect(recoveryPromise).resolves.toEqual({
-      results: [],
-      totalApplicable: 0,
+      results: [{ id: 'recovered' }],
+      totalApplicable: 1,
       archivedCount: 0,
     })
+
+    consoleSpy.mockRestore()
   })
 
-  it('seeds automerge binaries via worker channel', async () => {
+  it('seeds automerge binaries via Comlink worker api', async () => {
     const { seedAutomergeBinaryWithWorker } = await import('./itemWorkerManager')
+
+    const seedAutomerge = vi.fn().mockResolvedValue([
+      { id: 'item-1', binary: new Uint8Array([1, 2, 3]) },
+    ])
+
+    queueWorkerApi({
+      processItems: vi.fn(),
+      seedAutomerge,
+    })
 
     const promise = seedAutomergeBinaryWithWorker([
       { id: 'item-1' } as any,
     ])
 
     expect(workerConstructorSpy).toHaveBeenCalledTimes(1)
-    const activeWorker = workerInstances[0]
-    const posted = activeWorker.postMessage.mock.calls[0][0]
-    expect(posted.type).toBe('SEED_AUTOMERGE')
-
-    activeWorker.onmessage?.({
-      data: {
-        type: 'SEED_AUTOMERGE',
-        jobId: posted.jobId,
-        seeded: [{ id: 'item-1', binary: new Uint8Array([1, 2, 3]) }],
-      },
-    } as MessageEvent)
+    expect(seedAutomerge).toHaveBeenCalledTimes(1)
 
     await expect(promise).resolves.toEqual([{ id: 'item-1', binary: new Uint8Array([1, 2, 3]) }])
   })

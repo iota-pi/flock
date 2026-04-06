@@ -9,8 +9,11 @@ import {
   processOfflineQueue,
   startOfflineQueueHealthMonitor,
 } from './offlineQueue'
+import { ensureDefaultMutationStrategiesRegistered } from './defaultMutationStrategies'
+import { initializeQueueNetworkExecutor, getQueueNetworkExecutor } from './queueNetworkExecutor'
 import { startQueueLeaderLock, stopQueueLeaderLock, requestQueueProcessing } from './queueLeaderLock'
 import { startSyncEventHandlers } from './syncEventHandlers'
+import { createTrpcQueueNetworkExecutor } from './trpcQueueNetworkExecutor'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -30,6 +33,9 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   const unsubscribeSyncEvents = startSyncEventHandlers()
   const unsubscribeDataInvalidation = startDataInvalidationController()
+
+  initializeQueueNetworkExecutor(createTrpcQueueNetworkExecutor())
+  ensureDefaultMutationStrategiesRegistered(getQueueNetworkExecutor())
 
   initializeSyncHealthWatchers()
   startOfflineQueueHealthMonitor()

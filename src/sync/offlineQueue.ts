@@ -1,11 +1,17 @@
 import env from '../env'
 import {
+  clearQueueTargetIndex,
+  deleteQueueMutationById,
+  getQueueMutationById,
+  getQueueMutationIdByTargetIndex,
   getMutationId,
   OFFLINE_QUEUE_SYNC_TAG,
   type QueuedMutation,
-  readDeadLetterQueue,
+  readDeadLetterQueueLength,
   readQueue,
-  writeQueue,
+  readQueueLength,
+  setQueueTargetIndex,
+  upsertQueueMutation,
 } from './offlineQueueStore'
 import {
   getConflictStrategiesByKey,
@@ -18,10 +24,16 @@ import {
   getRegisteredMutationStrategy,
   type RegisteredMutationStrategy,
 } from './mutationStrategyRegistry'
-import { ensureDefaultMutationStrategiesRegistered } from './defaultMutationStrategies'
 import { emitSyncEvent } from './syncEvents'
 import { routeQueueMutationError } from './queueErrorRouter'
 import { canProcessOfflineQueue, requestQueueProcessing } from './queueLeaderLock'
+import { ensureDefaultMutationStrategiesRegistered } from './defaultMutationStrategies'
+import {
+  getQueueNetworkExecutor,
+  initializeQueueNetworkExecutor,
+  isQueueNetworkExecutorInitialized,
+} from './queueNetworkExecutor'
+import { createTrpcQueueNetworkExecutor } from './trpcQueueNetworkExecutor'
 
 export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './conflictStrategies'
 
@@ -31,6 +43,29 @@ const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
 let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
 let lastStaleSignalAt = 0
+let strategiesInitialized = false
+
+function ensureMutationStrategiesInitialized(): void {
+  if (strategiesInitialized) {
+    return
+  }
+
+  if (!isQueueNetworkExecutorInitialized()) {
+    initializeQueueNetworkExecutor(createTrpcQueueNetworkExecutor())
+  }
+
+  ensureDefaultMutationStrategiesRegistered(getQueueNetworkExecutor())
+  strategiesInitialized = true
+}
+
+function getMutationTargetKey(mutationType: string, payload: unknown): string | null {
+  const targetIds = extractTargetIds(payload)
+  if (targetIds.length === 0) {
+    return null
+  }
+
+  return `${mutationType}:${targetIds.join('|')}`
+}
 
 function hasMatchingMutationTarget(existing: QueuedMutation, mutationType: string, payload: unknown): boolean {
   if (existing.mutationType !== mutationType) {
@@ -74,52 +109,61 @@ export async function enqueueMutation(
   payload: unknown,
   metadata?: Pick<QueuedMutation, 'baseState' | 'conflictHandlerKey'>,
 ) {
+  ensureMutationStrategiesInitialized()
+
   if (!env.VAULT_ENDPOINT) {
     throw new Error('Cannot queue offline mutation without API endpoint')
   }
 
-  const queue = await readQueue()
-  const existingIndex = queue.findIndex(mutation => hasMatchingMutationTarget(mutation, mutationType, payload))
+  const mutationTargetKey = getMutationTargetKey(mutationType, payload)
+  let existingMutation: QueuedMutation | null = null
 
-  if (existingIndex >= 0) {
-    queue[existingIndex] = {
-      ...queue[existingIndex],
-      id: getMutationId(),
-      payload,
-      endpoint: env.VAULT_ENDPOINT,
-      queuedAt: Date.now(),
-      baseState: metadata?.baseState || queue[existingIndex].baseState,
-      conflictHandlerKey: metadata?.conflictHandlerKey || queue[existingIndex].conflictHandlerKey,
-      attemptCount: undefined,
-      nextAttemptAt: undefined,
+  if (mutationTargetKey) {
+    const existingMutationId = await getQueueMutationIdByTargetIndex(mutationTargetKey)
+    if (existingMutationId) {
+      existingMutation = await getQueueMutationById(existingMutationId)
     }
-  } else {
-    queue.push({
-      id: getMutationId(),
-      mutationType,
-      payload,
-      endpoint: env.VAULT_ENDPOINT,
-      queuedAt: Date.now(),
-      baseState: metadata?.baseState,
-      conflictHandlerKey: metadata?.conflictHandlerKey,
-      attemptCount: 0,
-      nextAttemptAt: undefined,
-      conflict: false,
-    })
   }
 
-  await writeQueue(queue)
-  emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
+  if (!existingMutation) {
+    const queue = await readQueue()
+    existingMutation = queue.find(mutation => hasMatchingMutationTarget(mutation, mutationType, payload)) || null
+  }
+
+  const nextMutation: QueuedMutation = {
+    ...(existingMutation || {}),
+    id: getMutationId(),
+    mutationType,
+    payload,
+    endpoint: env.VAULT_ENDPOINT,
+    queuedAt: Date.now(),
+    baseState: metadata?.baseState || existingMutation?.baseState,
+    conflictHandlerKey: metadata?.conflictHandlerKey || existingMutation?.conflictHandlerKey,
+    attemptCount: existingMutation ? undefined : 0,
+    nextAttemptAt: undefined,
+    conflict: false,
+    lastConflictAt: undefined,
+    lastErrorStatus: undefined,
+  }
+
+  if (existingMutation && existingMutation.id !== nextMutation.id) {
+    await deleteQueueMutationById(existingMutation.id)
+  }
+
+  await upsertQueueMutation(nextMutation)
+  if (mutationTargetKey) {
+    await setQueueTargetIndex(mutationTargetKey, nextMutation.id)
+  }
+
+  emitSyncEvent({ type: 'queue:length-changed', length: await readQueueLength() })
   requestQueueProcessing()
 
   await registerBackgroundSync()
 }
 
 export async function initialiseDeadLetterQueueCount() {
-  const deadLetterQueue = await readDeadLetterQueue()
-  const queue = await readQueue()
-  emitSyncEvent({ type: 'queue:dlq-count-changed', count: deadLetterQueue.length })
-  emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
+  emitSyncEvent({ type: 'queue:dlq-count-changed', count: await readDeadLetterQueueLength() })
+  emitSyncEvent({ type: 'queue:length-changed', length: await readQueueLength() })
 }
 
 export async function registerBackgroundSync() {
@@ -139,6 +183,8 @@ export async function registerBackgroundSync() {
 }
 
 export async function processOfflineQueue() {
+  ensureMutationStrategiesInitialized()
+
   if (!canProcessOfflineQueue()) {
     requestQueueProcessing()
     return
@@ -150,7 +196,6 @@ export async function processOfflineQueue() {
 
   processing = true
   try {
-    ensureDefaultMutationStrategiesRegistered()
     emitSyncEvent({ type: 'queue:processing-changed', isSyncing: true })
     const queue = await readQueue()
     emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
@@ -158,12 +203,9 @@ export async function processOfflineQueue() {
       return
     }
 
-    const nextQueue: QueuedMutation[] = []
-
     for (let index = 0; index < queue.length; index += 1) {
       const mutation = queue[index]
       if (mutation.nextAttemptAt && mutation.nextAttemptAt > Date.now()) {
-        nextQueue.push(mutation)
         continue
       }
 
@@ -180,6 +222,7 @@ export async function processOfflineQueue() {
 
       try {
         await strategy.execute(normalizedMutation)
+        await deleteQueueMutationById(normalizedMutation.id)
         emitSyncEvent({
           type: 'queue:mutation-success',
           mutation: normalizedMutation,
@@ -197,14 +240,27 @@ export async function processOfflineQueue() {
         })
 
         if (directive.type === 'retry-with-mutation' || directive.type === 'retry-later') {
-          nextQueue.push(directive.mutation, ...queue.slice(index + 1))
+          if (directive.mutation.id !== normalizedMutation.id) {
+            await deleteQueueMutationById(normalizedMutation.id)
+          }
+
+          await upsertQueueMutation(directive.mutation)
+          const targetKey = getMutationTargetKey(directive.mutation.mutationType, directive.mutation.payload)
+          if (targetKey) {
+            await setQueueTargetIndex(targetKey, directive.mutation.id)
+          }
+
           break
+        }
+
+        const targetKey = getMutationTargetKey(normalizedMutation.mutationType, normalizedMutation.payload)
+        if (targetKey) {
+          await clearQueueTargetIndex(targetKey)
         }
       }
     }
 
-    await writeQueue(nextQueue)
-    emitSyncEvent({ type: 'queue:length-changed', length: nextQueue.length })
+    emitSyncEvent({ type: 'queue:length-changed', length: await readQueueLength() })
   } finally {
     emitSyncEvent({ type: 'queue:processing-changed', isSyncing: false })
     processing = false

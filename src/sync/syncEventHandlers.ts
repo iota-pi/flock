@@ -5,7 +5,6 @@ import { trpc } from '../api/trpc'
 import type { Item } from '../state/items'
 import { useSyncStore } from '../state/syncStore'
 import { useToastStore } from '../state/toastStore'
-import { emitAppEvent } from '../app/appEvents'
 import { subscribeSyncEvents, type SyncEvent } from './syncEvents'
 
 const itemsQueryKey = getQueryKey(trpc.items.fetchMany)
@@ -47,12 +46,6 @@ function handleSyncEvent(event: SyncEvent): void {
   }
 
   if (event.type === 'queue:mutation-success') {
-    if (event.mutation.mutationType === 'items.put' || event.mutation.mutationType === 'items.putMany') {
-      emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'queue:mutation-success' })
-    }
-    if (event.mutation.mutationType === 'accounts.updateMetadata') {
-      emitAppEvent({ type: 'data:updated', domain: 'metadata', reason: 'queue:mutation-success' })
-    }
     return
   }
 
@@ -79,7 +72,6 @@ function handleSyncEvent(event: SyncEvent): void {
 
   if (event.type === 'queue:rollback-base-state') {
     applyBaseStateRollback(event.targetId, event.baseState)
-    emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'queue:rollback-base-state' })
     return
   }
 
@@ -110,7 +102,6 @@ function handleSyncEvent(event: SyncEvent): void {
       severity: 'success',
       message: 'Recovered a corrupted item revision.',
     })
-    emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'sync:item-recovered' })
   }
 }
 

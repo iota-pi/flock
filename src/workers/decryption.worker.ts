@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import * as Automerge from '@automerge/automerge'
+import { expose } from 'comlink'
 import type { VaultItem } from '../api/vault/client'
 import type { ItemId, VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/vault/crypto'
@@ -53,76 +54,10 @@ type MergeObjectsWorkerInput = {
   right: Record<string, unknown>
 }
 
-type DecryptionWorkerInput =
-  | DecryptItemsWorkerInput
-  | EvaluateHistoryWorkerInput
-  | ResolveQueueConflictWorkerInput
-  | CompactItemWorkerInput
-  | RescueStaleCompactedBranchWorkerInput
-  | MergeObjectsWorkerInput
-
 type HydratedItem = Record<string, unknown> & {
   id?: ItemId
   automergeBinary?: Uint8Array
 }
-
-type ConflictResolvedMessage = {
-  type: 'CONFLICT_RESOLVED'
-  jobId?: number
-  itemId: ItemId
-  resolvedBranch: VaultBranch
-}
-
-type DecryptionResultMessage = {
-  type: 'DECRYPTION_RESULT'
-  jobId?: number
-  items: HydratedItem[]
-}
-
-type CorruptedItemDetectedMessage = {
-  type: 'CORRUPTED_ITEM_DETECTED'
-  jobId?: number
-  itemId: ItemId
-  failedBranches?: string[]
-}
-
-type HistoryEvaluatedMessage = {
-  type: 'HISTORY_EVALUATED'
-  jobId?: number
-  itemId: ItemId
-  healthyEnvelope: VaultItem | null
-}
-
-type QueueConflictResolvedMessage = {
-  type: 'QUEUE_CONFLICT_RESOLVED'
-  jobId?: number
-  itemId: ItemId
-  resolvedBranch: VaultBranch
-}
-
-type CompactedEnvelopeMessage = {
-  type: 'COMPACTED_ENVELOPE'
-  jobId?: number
-  itemId: ItemId
-  baseVersionId: string
-  compactedBranch: VaultBranch
-  compactedBinary: Uint8Array
-}
-
-type StaleCompactedBranchRescuedMessage = {
-  type: 'STALE_COMPACTED_BRANCH_RESCUED'
-  jobId?: number
-  itemId: ItemId
-  rescuedBranch: VaultBranch
-}
-
-type MergedObjectsMessage = {
-  type: 'MERGED_OBJECTS'
-  jobId?: number
-  merged: Record<string, unknown>
-}
-
-declare const self: DedicatedWorkerGlobalScope
 
 async function decryptLegacyCipher(
   cipher: string,
@@ -459,138 +394,84 @@ export async function evaluateHistory(
   }
   return null
 }
+const workerApi = {
+  async mergeObjects(input: MergeObjectsWorkerInput): Promise<Record<string, unknown>> {
+    return mergePlainObjectsWithAutomerge(input.left, input.right)
+  },
 
-self.onmessage = async (event: MessageEvent<DecryptionWorkerInput>) => {
-  if (event.data.type === 'MERGE_OBJECTS') {
-    const { jobId, left, right } = event.data
-    const merged = mergePlainObjectsWithAutomerge(left, right)
-    const mergedMessage: MergedObjectsMessage = {
-      type: 'MERGED_OBJECTS',
-      jobId,
-      merged,
-    }
-    self.postMessage(mergedMessage)
-    return
-  }
-
-  if (event.data.type === 'COMPACT_ITEM') {
-    const { jobId, key, itemId, baseVersionId, automergeBinary } = event.data
-    const { compactedBinary, compactedBranch } = await compactItemBranchFromBinary(automergeBinary, key)
-
-    const compactedMessage: CompactedEnvelopeMessage = {
-      type: 'COMPACTED_ENVELOPE',
-      jobId,
-      itemId,
-      baseVersionId,
+  async compactItem(input: CompactItemWorkerInput): Promise<{
+    itemId: ItemId
+    baseVersionId: string
+    compactedBranch: VaultBranch
+    compactedBinary: Uint8Array
+  }> {
+    const { compactedBinary, compactedBranch } = await compactItemBranchFromBinary(input.automergeBinary, input.key)
+    return {
+      itemId: input.itemId,
+      baseVersionId: input.baseVersionId,
       compactedBranch,
       compactedBinary,
     }
+  },
 
-    self.postMessage(compactedMessage, [compactedBinary.buffer])
-    return
-  }
+  async rescueStaleCompactedBranch(input: RescueStaleCompactedBranchWorkerInput): Promise<VaultBranch> {
+    return rescueStaleCompactedBranch(input.localBranch, input.serverBranch, input.key)
+  },
 
-  if (event.data.type === 'RESCUE_STALE_COMPACTED_BRANCH') {
-    const { jobId, key, itemId, localBranch, serverBranch } = event.data
-    const rescuedBranch = await rescueStaleCompactedBranch(localBranch, serverBranch, key)
-
-    const rescuedMessage: StaleCompactedBranchRescuedMessage = {
-      type: 'STALE_COMPACTED_BRANCH_RESCUED',
-      jobId,
-      itemId,
-      rescuedBranch,
-    }
-
-    self.postMessage(rescuedMessage)
-    return
-  }
-
-  if (event.data.type === 'RESOLVE_QUEUE_CONFLICT') {
-    const { jobId, key, itemId, localBranches, serverBranches } = event.data
-    const resolvedBranch = await mergeBranchesToResolvedBranch(
-      [...localBranches, ...serverBranches],
-      key,
+  async resolveQueueConflict(input: ResolveQueueConflictWorkerInput): Promise<VaultBranch> {
+    return mergeBranchesToResolvedBranch(
+      [...input.localBranches, ...input.serverBranches],
+      input.key,
     )
+  },
 
-    const message: QueueConflictResolvedMessage = {
-      type: 'QUEUE_CONFLICT_RESOLVED',
-      jobId,
-      itemId,
-      resolvedBranch,
-    }
-    self.postMessage(message)
-    return
-  }
+  async evaluateHistory(input: EvaluateHistoryWorkerInput): Promise<VaultItem | null> {
+    return evaluateHistory(input.history, input.key)
+  },
 
-  if (event.data.type === 'EVALUATE_HISTORY') {
-    const { jobId, key, itemId, history } = event.data
-    const healthyEnvelope = await evaluateHistory(history, key)
+  async decryptItems(input: DecryptItemsWorkerInput): Promise<{
+    items: HydratedItem[]
+    corrupted: Array<{ itemId: ItemId; failedBranches?: string[] }>
+    resolvedConflicts: Array<{ itemId: ItemId; resolvedBranch: VaultBranch }>
+  }> {
+    const decryptedItems: HydratedItem[] = []
+    const corrupted: Array<{ itemId: ItemId; failedBranches?: string[] }> = []
+    const resolvedConflicts: Array<{ itemId: ItemId; resolvedBranch: VaultBranch }> = []
 
-    const historyMessage: HistoryEvaluatedMessage = {
-      type: 'HISTORY_EVALUATED',
-      jobId,
-      itemId,
-      healthyEnvelope,
-    }
-    self.postMessage(historyMessage)
-    return
-  }
-
-  const { jobId, key, items } = event.data
-  const decryptedItems: HydratedItem[] = []
-
-  for (const envelope of items) {
-    if (envelope.metadata?.deleted === true) {
-      decryptedItems.push({
-        id: envelope.item,
-      })
-      continue
-    }
-
-    const result = await processIncomingItem(envelope, key)
-    if (result.corrupted) {
-      const corruptedMessage: CorruptedItemDetectedMessage = {
-        type: 'CORRUPTED_ITEM_DETECTED',
-        jobId,
-        itemId: result.corrupted.itemId,
-        failedBranches: result.corrupted.failedBranches,
+    for (const envelope of input.items) {
+      if (envelope.metadata?.deleted === true) {
+        decryptedItems.push({
+          id: envelope.item,
+        })
+        continue
       }
-      self.postMessage(corruptedMessage)
-      continue
-    }
 
-    if (!result.item) {
-      continue
-    }
-
-    decryptedItems.push(result.item)
-
-    if (result.resolvedBranch) {
-      const conflictMessage: ConflictResolvedMessage = {
-        type: 'CONFLICT_RESOLVED',
-        jobId,
-        itemId: envelope.item,
-        resolvedBranch: result.resolvedBranch,
+      const result = await processIncomingItem(envelope, input.key)
+      if (result.corrupted) {
+        corrupted.push(result.corrupted)
+        continue
       }
-      self.postMessage(conflictMessage)
-    }
-  }
 
-  const resultMessage: DecryptionResultMessage = {
-    type: 'DECRYPTION_RESULT',
-    jobId,
-    items: decryptedItems,
-  }
+      if (!result.item) {
+        continue
+      }
 
-  const transferables: ArrayBuffer[] = []
-  for (const item of decryptedItems) {
-    if (item.automergeBinary instanceof Uint8Array) {
-      const buffer = item.automergeBinary.buffer
-      if (buffer instanceof ArrayBuffer) {
-        transferables.push(buffer)
+      decryptedItems.push(result.item)
+
+      if (result.resolvedBranch) {
+        resolvedConflicts.push({
+          itemId: envelope.item,
+          resolvedBranch: result.resolvedBranch,
+        })
       }
     }
-  }
 
-  self.postMessage(resultMessage, transferables)
+    return {
+      items: decryptedItems,
+      corrupted,
+      resolvedConflicts,
+    }
+  },
 }
+
+expose(workerApi)

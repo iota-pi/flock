@@ -2,9 +2,10 @@ import { queryClient } from '../api/queryClient'
 import { type Item, getItemName } from '../state/items'
 import type { ItemId } from '../shared/itemTypes'
 import {
+  appendDeadLetterMutation,
+  deleteQueueMutationById,
   moveToDeadLetterQueue,
-  readDeadLetterQueue,
-  writeDeadLetterQueue,
+  readDeadLetterQueueLength,
   type QueuedMutation,
 } from './offlineQueueStore'
 import {
@@ -126,8 +127,7 @@ export async function moveClientErrorMutationToDlq(args: {
     humanTitle,
   )
 
-  const deadLetterQueue = await readDeadLetterQueue()
-  return deadLetterQueue.length
+  return readDeadLetterQueueLength()
 }
 
 export async function moveUnhandledMutationToDlq(args: {
@@ -136,8 +136,8 @@ export async function moveUnhandledMutationToDlq(args: {
   errorReason: string
   telemetry: DlqTelemetry
 }): Promise<number> {
-  const deadLetterQueue = await readDeadLetterQueue()
-  deadLetterQueue.push({
+  await deleteQueueMutationById(args.mutation.id)
+  await appendDeadLetterMutation({
     ...args.mutation,
     humanTitle: getHumanReadableDlqTitle(args.mutation),
     lastErrorStatus: args.status,
@@ -146,6 +146,5 @@ export async function moveUnhandledMutationToDlq(args: {
     failureSnapshot: args.telemetry,
   })
 
-  await writeDeadLetterQueue(deadLetterQueue)
-  return deadLetterQueue.length
+  return readDeadLetterQueueLength()
 }

@@ -27,45 +27,41 @@ type DecryptionConflictWorkerApi = {
   rescueStaleCompactedBranch: (request: RescueStaleBranchRequest) => Promise<ResolvedBranch>
 }
 
+type DecryptionWorkerApi = {
+  decryptItems: (input: {
+    key: CryptoKey
+    items: VaultItem[]
+  }) => Promise<{
+    items: Array<Record<string, unknown>>
+    corrupted: Array<{ itemId: string; failedBranches?: string[] }>
+    resolvedConflicts: Array<{ itemId: string; resolvedBranch: ResolvedBranch }>
+  }>
+  evaluateHistory: (input: {
+    key: CryptoKey
+    itemId: string
+    history: VaultItem[]
+  }) => Promise<VaultItem | null>
+  compactItem: (input: {
+    key: CryptoKey
+    itemId: string
+    baseVersionId: string
+    automergeBinary: Uint8Array
+  }) => Promise<{
+    itemId: string
+    baseVersionId: string
+    compactedBranch: ResolvedBranch
+    compactedBinary: Uint8Array
+  }>
+  mergeObjects: (input: {
+    left: Record<string, unknown>
+    right: Record<string, unknown>
+  }) => Promise<Record<string, unknown>>
+}
+
 export type WorkerDecryptedItem = {
   id: string
   automergeBinary?: Uint8Array
   [key: string]: unknown
-}
-
-type DecryptionWorkerResponse =
-  | {
-    type: 'DECRYPTION_RESULT'
-    jobId?: number
-    items?: Array<Record<string, unknown>>
-  }
-  | {
-    type: 'CORRUPTED_ITEM_DETECTED'
-    itemId?: unknown
-    failedBranches?: unknown
-  }
-  | {
-    type: 'CONFLICT_RESOLVED'
-    itemId?: unknown
-    resolvedBranch?: ResolvedBranch
-  }
-  | {
-    type: 'HISTORY_EVALUATED'
-    jobId?: number
-    healthyEnvelope?: VaultItem | null
-  }
-  | {
-    type: 'COMPACTED_ENVELOPE'
-    jobId?: number
-    itemId?: unknown
-    baseVersionId?: unknown
-    compactedBranch?: ResolvedBranch
-    compactedBinary?: unknown
-  }
-
-type PendingPromise<T> = {
-  resolve: (value: T) => void
-  reject: (reason?: unknown) => void
 }
 
 type DecryptionWorkerCallbacks = {
@@ -77,20 +73,12 @@ const COMPACTION_THRESHOLD_BYTES = 100_000
 const COMPACTION_COOLDOWN_MS = 15 * 60 * 1000
 const FAILED_COMPACTION_COOLDOWN_MS = 60 * 1000
 
-let worker: Worker | null = null
-let workerApi: Remote<DecryptionConflictWorkerApi> | null = null
+let conflictWorker: Worker | null = null
+let conflictWorkerApi: Remote<DecryptionConflictWorkerApi> | null = null
 let pendingTaskChain: Promise<void> = Promise.resolve()
 
 let decryptionWorker: Worker | null = null
-let nextDecryptionJobId = 0
-const pendingDecryptionJobs = new Map<number, PendingPromise<WorkerDecryptedItem[]>>()
-const pendingHistoryJobs = new Map<number, PendingPromise<VaultItem | null>>()
-const pendingCompactionJobs = new Map<number, PendingPromise<{
-  itemId: string
-  baseVersionId: string
-  compactedBranch: ResolvedBranch
-  compactedBinary: Uint8Array
-}>>()
+let decryptionWorkerApi: Remote<DecryptionWorkerApi> | null = null
 const decryptionWorkerCallbacks: DecryptionWorkerCallbacks = {}
 const compactionInFlightItemIds = new Set<string>()
 const compactionCooldownUntilByItemId = new Map<string, number>()
@@ -104,158 +92,46 @@ function enqueueWorkerTask<T>(task: () => Promise<T>): Promise<T> {
   return nextTask
 }
 
-function getWorkerApi(): Remote<DecryptionConflictWorkerApi> {
-  if (workerApi) {
-    return workerApi
+function getConflictWorkerApi(): Remote<DecryptionConflictWorkerApi> {
+  if (conflictWorkerApi) {
+    return conflictWorkerApi
   }
 
-  worker = new Worker(new URL('./decryptionConflict.worker.ts', import.meta.url), {
+  conflictWorker = new Worker(new URL('./decryptionConflict.worker.ts', import.meta.url), {
     type: 'module',
   })
-  workerApi = wrap<DecryptionConflictWorkerApi>(worker)
+  conflictWorkerApi = wrap<DecryptionConflictWorkerApi>(conflictWorker)
 
-  worker.onerror = () => {
-    worker = null
-    workerApi = null
+  conflictWorker.onerror = () => {
+    conflictWorker = null
+    conflictWorkerApi = null
   }
 
-  return workerApi
-}
-
-function rejectAllPendingJobs(error: Error): void {
-  for (const pending of pendingDecryptionJobs.values()) {
-    pending.reject(error)
-  }
-  for (const pending of pendingHistoryJobs.values()) {
-    pending.reject(error)
-  }
-  for (const pending of pendingCompactionJobs.values()) {
-    pending.reject(error)
-  }
-
-  pendingDecryptionJobs.clear()
-  pendingHistoryJobs.clear()
-  pendingCompactionJobs.clear()
+  return conflictWorkerApi
 }
 
 function getCompactionCooldownUntil(itemId: string): number {
   return compactionCooldownUntilByItemId.get(itemId) || 0
 }
 
-function getDecryptionWorker(): Worker {
-  if (decryptionWorker) {
-    return decryptionWorker
+function getDecryptionWorkerApi(): Remote<DecryptionWorkerApi> {
+  if (decryptionWorkerApi) {
+    return decryptionWorkerApi
   }
 
   decryptionWorker = new Worker(new URL('./decryption.worker.ts', import.meta.url), {
     type: 'module',
   })
-
-  decryptionWorker.onmessage = event => {
-    const payload = event.data as DecryptionWorkerResponse
-
-    if (payload.type === 'CORRUPTED_ITEM_DETECTED') {
-      if (typeof payload.itemId === 'string') {
-        const failedBranches = Array.isArray(payload.failedBranches)
-          ? payload.failedBranches.filter((value): value is string => typeof value === 'string')
-          : undefined
-        decryptionWorkerCallbacks.onCorruptedItem?.({
-          itemId: payload.itemId,
-          failedBranches,
-        })
-      }
-      return
-    }
-
-    if (payload.type === 'CONFLICT_RESOLVED') {
-      if (typeof payload.itemId === 'string' && payload.resolvedBranch) {
-        decryptionWorkerCallbacks.onConflictResolved?.({
-          itemId: payload.itemId,
-          resolvedBranch: payload.resolvedBranch,
-        })
-      }
-      return
-    }
-
-    if (payload.type === 'HISTORY_EVALUATED') {
-      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-      const pending = pendingHistoryJobs.get(jobId)
-      if (!pending) {
-        return
-      }
-
-      pendingHistoryJobs.delete(jobId)
-      pending.resolve(payload.healthyEnvelope || null)
-      return
-    }
-
-    if (payload.type === 'COMPACTED_ENVELOPE') {
-      const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-      const pending = pendingCompactionJobs.get(jobId)
-      if (!pending) {
-        return
-      }
-
-      pendingCompactionJobs.delete(jobId)
-      if (
-        typeof payload.itemId !== 'string'
-        || typeof payload.baseVersionId !== 'string'
-        || !payload.compactedBranch
-        || !(payload.compactedBinary instanceof Uint8Array)
-      ) {
-        pending.reject(new Error('Invalid COMPACTED_ENVELOPE payload from worker'))
-        return
-      }
-
-      pending.resolve({
-        itemId: payload.itemId,
-        baseVersionId: payload.baseVersionId,
-        compactedBranch: payload.compactedBranch,
-        compactedBinary: payload.compactedBinary,
-      })
-      return
-    }
-
-    const jobId = typeof payload.jobId === 'number' ? payload.jobId : -1
-    const pending = pendingDecryptionJobs.get(jobId)
-    if (!pending) {
-      return
-    }
-
-    const normalized = (payload.items || []).flatMap((item): WorkerDecryptedItem[] => {
-      if (!item || typeof item !== 'object') {
-        return []
-      }
-
-      const id = (item as { id?: unknown }).id
-      if (typeof id !== 'string') {
-        return []
-      }
-
-      const automergeBinary = (item as { automergeBinary?: unknown }).automergeBinary
-      return [{
-        ...item,
-        id,
-        automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
-      }]
-    })
-
-    pendingDecryptionJobs.delete(jobId)
-    pending.resolve(normalized)
-  }
+  decryptionWorkerApi = wrap<DecryptionWorkerApi>(decryptionWorker)
 
   decryptionWorker.onerror = event => {
     const error = new Error(event.message || 'Worker decryption failed')
-    rejectAllPendingJobs(error)
+    console.error(error)
     decryptionWorker = null
+    decryptionWorkerApi = null
   }
 
-  return decryptionWorker
-}
-
-function nextJobId(): number {
-  nextDecryptionJobId += 1
-  return nextDecryptionJobId
+  return decryptionWorkerApi
 }
 
 export function configureDecryptionWorkerCallbacks(callbacks: DecryptionWorkerCallbacks): void {
@@ -267,17 +143,43 @@ export async function decryptItemsInWorker(input: {
   key: CryptoKey
   items: VaultItem[]
 }): Promise<WorkerDecryptedItem[]> {
-  const activeWorker = getDecryptionWorker()
-  const jobId = nextJobId()
+  const api = getDecryptionWorkerApi()
+  const result = await api.decryptItems({
+    key: input.key,
+    items: input.items,
+  })
 
-  return new Promise((resolve, reject) => {
-    pendingDecryptionJobs.set(jobId, { resolve, reject })
-    activeWorker.postMessage({
-      type: 'DECRYPT_ITEMS',
-      jobId,
-      key: input.key,
-      items: input.items,
+  for (const corrupted of result.corrupted) {
+    decryptionWorkerCallbacks.onCorruptedItem?.({
+      itemId: corrupted.itemId,
+      failedBranches: corrupted.failedBranches,
     })
+  }
+
+  for (const conflict of result.resolvedConflicts) {
+    decryptionWorkerCallbacks.onConflictResolved?.({
+      itemId: conflict.itemId,
+      resolvedBranch: conflict.resolvedBranch,
+    })
+  }
+
+  return result.items.flatMap((item): WorkerDecryptedItem[] => {
+    if (!item || typeof item !== 'object') {
+      return []
+    }
+
+    const id = (item as { id?: unknown }).id
+    if (typeof id !== 'string') {
+      return []
+    }
+
+    const automergeBinary = (item as { automergeBinary?: unknown }).automergeBinary
+
+    return [{
+      ...item,
+      id,
+      automergeBinary: automergeBinary instanceof Uint8Array ? automergeBinary : undefined,
+    }]
   })
 }
 
@@ -286,19 +188,25 @@ export async function evaluateHistoryInWorker(input: {
   itemId: string
   history: VaultItem[]
 }): Promise<VaultItem | null> {
-  const activeWorker = getDecryptionWorker()
-  const jobId = nextJobId()
-
-  return new Promise((resolve, reject) => {
-    pendingHistoryJobs.set(jobId, { resolve, reject })
-    activeWorker.postMessage({
-      type: 'EVALUATE_HISTORY',
-      jobId,
-      key: input.key,
-      itemId: input.itemId,
-      history: input.history,
-    })
+  const api = getDecryptionWorkerApi()
+  return api.evaluateHistory({
+    key: input.key,
+    itemId: input.itemId,
+    history: input.history,
   })
+}
+
+export async function mergeObjectsInWorker<T extends Record<string, unknown>>(input: {
+  left: T
+  right: T
+}): Promise<T> {
+  const api = getDecryptionWorkerApi()
+  const merged = await api.mergeObjects({
+    left: input.left,
+    right: input.right,
+  })
+
+  return merged as T
 }
 
 export async function compactItemInWorker(input: {
@@ -312,20 +220,14 @@ export async function compactItemInWorker(input: {
   compactedBranch: ResolvedBranch
   compactedBinary: Uint8Array
 }> {
-  const activeWorker = getDecryptionWorker()
-  const jobId = nextJobId()
+  const api = getDecryptionWorkerApi()
   const binaryToTransfer = input.automergeBinary.slice()
 
-  return new Promise((resolve, reject) => {
-    pendingCompactionJobs.set(jobId, { resolve, reject })
-    activeWorker.postMessage({
-      type: 'COMPACT_ITEM',
-      jobId,
-      key: input.key,
-      itemId: input.itemId,
-      baseVersionId: input.baseVersionId,
-      automergeBinary: binaryToTransfer,
-    }, [binaryToTransfer.buffer])
+  return api.compactItem({
+    key: input.key,
+    itemId: input.itemId,
+    baseVersionId: input.baseVersionId,
+    automergeBinary: binaryToTransfer,
   })
 }
 
@@ -389,7 +291,7 @@ export async function resolveQueueConflictInWorker(input: {
   serverBranches: VaultBranch[]
 }): Promise<ResolvedBranch> {
   return enqueueWorkerTask(async () => {
-    const api = getWorkerApi()
+    const api = getConflictWorkerApi()
     return api.resolveQueueConflict({
       key: input.key,
       itemId: input.itemId,
@@ -406,7 +308,7 @@ export async function rescueStaleCompactedBranchInWorker(input: {
   serverBranch: VaultBranch
 }): Promise<ResolvedBranch> {
   return enqueueWorkerTask(async () => {
-    const api = getWorkerApi()
+    const api = getConflictWorkerApi()
     return api.rescueStaleCompactedBranch({
       key: input.key,
       itemId: input.itemId,

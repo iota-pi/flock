@@ -25,6 +25,7 @@ import {
   type DecryptedBackupPayload,
   type RestorePayload,
 } from '../../types/backup'
+import { mergeObjectsInWorker } from '../../workers/decryptionWorkerManager'
 
 function normalizeDecryptedBackup(payload: DecryptedBackupPayload): RestorePayload {
   if (Array.isArray(payload)) {
@@ -64,37 +65,10 @@ async function mergeWithAutomergeInWorker<T extends object>(left: T, right: T): 
     return right
   }
 
-  const worker = new Worker(new URL('../../workers/decryption.worker.ts', import.meta.url), {
-    type: 'module',
-  })
-  const jobId = Date.now() + Math.floor(Math.random() * 1000)
-
-  return new Promise<T>((resolve, reject) => {
-    worker.onmessage = event => {
-      const payload = event.data as {
-        type?: string
-        jobId?: number
-        merged?: unknown
-      }
-
-      if (payload.type === 'MERGED_OBJECTS' && payload.jobId === jobId) {
-        worker.terminate()
-        resolve(payload.merged as T)
-      }
-    }
-
-    worker.onerror = error => {
-      worker.terminate()
-      reject(error)
-    }
-
-    worker.postMessage({
-      type: 'MERGE_OBJECTS',
-      jobId,
-      left: left as unknown as Record<string, unknown>,
-      right: right as unknown as Record<string, unknown>,
-    })
-  })
+  return mergeObjectsInWorker({
+    left: left as Record<string, unknown>,
+    right: right as Record<string, unknown>,
+  }) as Promise<T>
 }
 
 function RestoreBackupDialog({
