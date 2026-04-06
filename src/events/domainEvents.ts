@@ -51,6 +51,11 @@ export type DomainEvent =
     domain: string
     reason?: string
   }
+  | {
+    type: 'data:deleted'
+    domain: 'items'
+    ids: string[]
+  }
 
 type DomainEventListener = (event: DomainEvent) => void
 

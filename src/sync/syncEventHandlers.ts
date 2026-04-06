@@ -3,7 +3,6 @@ import { getQueryKey } from '@trpc/react-query'
 import { queryClient } from '../api/queryClient'
 import { trpc } from '../api/trpc'
 import type { Item } from '../state/items'
-import { useSyncStore } from '../state/syncStore'
 import { useToastStore } from '../state/toastStore'
 import { subscribeSyncEvents, type SyncEvent } from './syncEvents'
 
@@ -27,23 +26,7 @@ function applyBaseStateRollback(targetId: string, baseState: Item): void {
 }
 
 function handleSyncEvent(event: SyncEvent): void {
-  const syncState = useSyncStore.getState()
   const toastState = useToastStore.getState()
-
-  if (event.type === 'queue:length-changed') {
-    syncState.setOfflineQueueLength(event.length)
-    return
-  }
-
-  if (event.type === 'queue:dlq-count-changed') {
-    syncState.setDlqCount(event.count)
-    return
-  }
-
-  if (event.type === 'queue:processing-changed') {
-    syncState.setIsSyncing(event.isSyncing)
-    return
-  }
 
   if (event.type === 'queue:mutation-success') {
     return

@@ -5,7 +5,7 @@ import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
 import { fetchItems, fetchMetadata } from '../api/itemReadService'
-import { mutateSetMetadata } from '../api/itemMutations'
+import { useSetMetadataMutation } from '../api/itemMutations'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
@@ -117,12 +117,12 @@ export function useMetadata<K extends MetadataKey>(
     queryFn: fetchMetadata,
     enabled: authReady,
   })
-  const setMetadata = mutateSetMetadata
+  const setMetadataMutation = useSetMetadataMutation()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      await setMetadata(prevMetadata => {
+      await setMetadataMutation.mutateAsync(prevMetadata => {
         const baseMetadata = prevMetadata ?? {} as Metadata
         const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
         const newValue = typeof newValueOrFunc === 'function'
@@ -131,7 +131,7 @@ export function useMetadata<K extends MetadataKey>(
         return { ...baseMetadata, [key]: newValue } as Metadata
       })
     },
-    [defaultValue, key, setMetadata],
+    [defaultValue, key, setMetadataMutation],
   )
   return [value, setValue]
 }

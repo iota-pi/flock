@@ -5,8 +5,8 @@ import useSettings from './useSettings'
 const mocks = vi.hoisted(() => ({
   exportData: vi.fn(),
   signOutVault: vi.fn(),
-  mutateStoreItems: vi.fn(),
-  mutateSetMetadataView: vi.fn(),
+  storeItemsMutateAsync: vi.fn(),
+  setMetadataMutateAsync: vi.fn(),
   readQueue: vi.fn(),
   readDeadLetterQueue: vi.fn(),
   writeQueue: vi.fn(),
@@ -24,8 +24,12 @@ vi.mock('../api/vault', () => ({
 }))
 
 vi.mock('../api/itemMutations', () => ({
-  mutateStoreItems: mocks.mutateStoreItems,
-  mutateSetMetadata: mocks.mutateSetMetadataView,
+  useStoreItemsMutation: () => ({
+    mutateAsync: mocks.storeItemsMutateAsync,
+  }),
+  useSetMetadataMutation: () => ({
+    mutateAsync: mocks.setMetadataMutateAsync,
+  }),
 }))
 
 vi.mock('../state/selectors', () => ({
@@ -108,7 +112,8 @@ describe('useSettings backup portability', () => {
   })
 
   it('restores version 1 payloads with or without queue fields', async () => {
-    mocks.mutateStoreItems.mockResolvedValue(undefined)
+    mocks.storeItemsMutateAsync.mockResolvedValue(undefined)
+    mocks.setMetadataMutateAsync.mockResolvedValue(undefined)
     mocks.writeQueue.mockResolvedValue(undefined)
     mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
     mocks.registerBackgroundSync.mockResolvedValue(undefined)

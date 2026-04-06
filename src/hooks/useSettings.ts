@@ -4,7 +4,7 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { mutateSetMetadata, mutateStoreItems } from '../api/itemMutations'
+import { useSetMetadataMutation, useStoreItemsMutation } from '../api/itemMutations'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -42,8 +42,8 @@ export default function useSettings() {
   const setMessage = useToastStore(state => state.setMessage)
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
-  const storeItems = mutateStoreItems
-  const setMetadata = mutateSetMetadata
+  const storeItemsMutation = useStoreItemsMutation()
+  const setMetadataMutation = useSetMetadataMutation()
 
   // Actions
   const handleSignOut = useCallback(
@@ -111,10 +111,10 @@ export default function useSettings() {
         const parsedDlq = Array.isArray(deadLetterQueue) ? deadLetterQueue : []
 
         if (metadata) {
-          await setMetadata(metadata)
+          await setMetadataMutation.mutateAsync(metadata)
         }
 
-        await storeItems(restoredItems)
+        await storeItemsMutation.mutateAsync(restoredItems)
 
         await writeQueue(parsedQueue)
         await writeDeadLetterQueue(parsedDlq)
@@ -130,13 +130,13 @@ export default function useSettings() {
         return false
       }
     },
-    [setMessage, setMetadata, storeItems],
+    [setMessage, setMetadataMutation, storeItemsMutation],
   )
 
   const handleConfirmImport = useCallback(
     async (imported: Item[]) => {
       try {
-        await storeItems(imported)
+        await storeItemsMutation.mutateAsync(imported)
         setMessage({ message: 'Import successful' })
         return true
       } catch (err) {
@@ -145,7 +145,7 @@ export default function useSettings() {
         return false
       }
     },
-    [setMessage, storeItems],
+    [setMessage, storeItemsMutation],
   )
 
   const handleSubscribe = useCallback(

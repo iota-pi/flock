@@ -31,7 +31,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { mutateDeleteItems, mutateStoreItems } from '../../../api/itemMutations'
+import { useDeleteItemsMutation, useStoreItemsMutation } from '../../../api/itemMutations'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 
@@ -61,8 +61,8 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const deleteItem = mutateDeleteItems
-  const storeItems = mutateStoreItems
+  const deleteItemMutation = useDeleteItemsMutation()
+  const storeItemsMutation = useStoreItemsMutation()
 
   const [disableAutoSave, setDisableAutoSave] = useState(false)
 
@@ -87,13 +87,13 @@ function ItemDrawer({
         setDisableAutoSave(true)
         const clean = cleanItem(itemToSave)
         if (isItem(clean)) {
-          storeItems(clean)
+          storeItemsMutation.mutate(clean)
         }
         return clean
       }
       return undefined
     },
-    [storeItems],
+    [storeItemsMutation],
   )
   const handleClose = useCallback(
     (disableSave?: boolean) => {
@@ -122,11 +122,11 @@ function ItemDrawer({
   )
   const handleDelete = useCallback(
     () => {
-      deleteItem(item.id)
+      deleteItemMutation.mutateAsync(item.id)
         .catch(error => console.error(error))
       onClose()
     },
-    [deleteItem, item.id, onClose],
+    [deleteItemMutation, item.id, onClose],
   )
 
   const handleUnmount = useCallback(

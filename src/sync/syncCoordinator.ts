@@ -14,6 +14,7 @@ import { initializeQueueNetworkExecutor, getQueueNetworkExecutor } from './queue
 import { startQueueLeaderLock, stopQueueLeaderLock, requestQueueProcessing } from './queueLeaderLock'
 import { startSyncEventHandlers } from './syncEventHandlers'
 import { createTrpcQueueNetworkExecutor } from './trpcQueueNetworkExecutor'
+import { startStoreBindings } from '../state/storeBindings'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -33,6 +34,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   const unsubscribeSyncEvents = startSyncEventHandlers()
   const unsubscribeDataInvalidation = startDataInvalidationController()
+  const unsubscribeStoreBindings = startStoreBindings()
 
   initializeQueueNetworkExecutor(createTrpcQueueNetworkExecutor())
   ensureDefaultMutationStrategiesRegistered(getQueueNetworkExecutor())
@@ -115,6 +117,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   activeCleanup = () => {
     unsubscribeSyncEvents()
     unsubscribeDataInvalidation()
+    unsubscribeStoreBindings()
     unsubscribeAuthToken()
     stopRealtime()
     stopQueueLeaderLock()

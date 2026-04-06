@@ -3,14 +3,13 @@ import type { Item } from '../../../state/items'
 import { getItemDiffKeys } from './itemDiff'
 
 function createItem(overrides: Partial<Item> = {}): Item {
-  const now = Date.now()
   return {
     id: 'item-1',
     type: 'person',
     name: 'Alex',
     description: 'desc',
     prayerFrequency: 'monthly',
-    created: now,
+    created: 1700000000000,
     archived: false,
     notes: [],
     prayedFor: [],

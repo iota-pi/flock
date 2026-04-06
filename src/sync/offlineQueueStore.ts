@@ -64,6 +64,28 @@ function sortQueuedMutations(left: QueuedMutation, right: QueuedMutation): numbe
   return left.id.localeCompare(right.id)
 }
 
+function insertSortedLimited(items: QueuedMutation[], candidate: QueuedMutation, limit: number): void {
+  let insertAt = items.length
+  for (let index = 0; index < items.length; index += 1) {
+    if (sortQueuedMutations(candidate, items[index]) < 0) {
+      insertAt = index
+      break
+    }
+  }
+
+  if (items.length < limit) {
+    items.splice(insertAt, 0, candidate)
+    return
+  }
+
+  if (insertAt >= items.length) {
+    return
+  }
+
+  items.splice(insertAt, 0, candidate)
+  items.pop()
+}
+
 async function readAllFromStore(
   storage: LocalForageInstance,
 ): Promise<QueuedMutation[]> {
@@ -80,6 +102,46 @@ async function readAllFromStore(
 
 export async function readQueue(): Promise<QueuedMutation[]> {
   return readAllFromStore(offlineQueueStorage)
+}
+
+export async function readReadyQueueChunk(limit: number, now = Date.now()): Promise<QueuedMutation[]> {
+  if (limit <= 0) {
+    return []
+  }
+
+  const items: QueuedMutation[] = []
+  await offlineQueueStorage.iterate<QueuedMutation, void>(value => {
+    if (!value || typeof value !== 'object' || typeof value.id !== 'string') {
+      return
+    }
+
+    if (value.nextAttemptAt && value.nextAttemptAt > now) {
+      return
+    }
+
+    insertSortedLimited(items, value, limit)
+  })
+
+  return items
+}
+
+export async function readQueueStats(): Promise<{ length: number, oldestQueuedAt: number }> {
+  let length = 0
+  let oldestQueuedAt = 0
+
+  await offlineQueueStorage.iterate<QueuedMutation, void>(value => {
+    if (!value || typeof value !== 'object' || typeof value.id !== 'string') {
+      return
+    }
+
+    length += 1
+    const queuedAt = value.queuedAt || 0
+    if (queuedAt > 0 && (oldestQueuedAt <= 0 || queuedAt < oldestQueuedAt)) {
+      oldestQueuedAt = queuedAt
+    }
+  })
+
+  return { length, oldestQueuedAt }
 }
 
 export async function writeQueue(queue: QueuedMutation[]) {

@@ -7,9 +7,9 @@ import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from './itemMu
 import { serializeItemAsBranch } from './vault/serializeItemAsBranch'
 import { enqueueMutation, processOfflineQueue, CONFLICT_HANDLER_AUTOMERGE_ITEMS } from '../sync/offlineQueue'
 import * as vault from './vault'
+import { emitDomainEvent } from '../events/domainEvents'
 
 const mocks = vi.hoisted(() => ({
-  pruneItemDrawers: vi.fn(),
   fetchItems: vi.fn(),
 }))
 
@@ -37,12 +37,8 @@ vi.mock('./vault', () => ({
   }),
 }))
 
-vi.mock('../state/navigationStore', () => ({
-  useNavigationStore: {
-    getState: () => ({
-      pruneItemDrawers: mocks.pruneItemDrawers,
-    }),
-  },
+vi.mock('../events/domainEvents', () => ({
+  emitDomainEvent: vi.fn(),
 }))
 
 vi.mock('./itemReadService', () => ({
@@ -50,7 +46,6 @@ vi.mock('./itemReadService', () => ({
 }))
 
 const itemsQueryKey = getQueryKey(trpc.items.fetchMany)
-const metadataQueryKey = getQueryKey(trpc.accounts.getMetadata)
 
 describe('local-first mutations', () => {
   beforeEach(() => {
@@ -72,13 +67,13 @@ describe('local-first mutations', () => {
     })
   })
 
-  it('optimistically updates cache and enqueues single-item put mutations', async () => {
+  it('enqueues single-item put mutations', async () => {
     const item = getBlankPerson('p1')
 
     const result = await mutateStoreItems(item)
 
     expect(result[0].id).toBe('p1')
-    expect(queryClient.getQueryData<Item[]>(itemsQueryKey)?.[0]?.id).toBe('p1')
+    expect(queryClient.getQueryData<Item[]>(itemsQueryKey)).toBeUndefined()
 
     expect(enqueueMutation).toHaveBeenCalledWith(
       'items.put',
@@ -92,6 +87,11 @@ describe('local-first mutations', () => {
       }),
     )
     expect(processOfflineQueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('validates incoming item payloads with zod before queueing', async () => {
+    await expect(mutateStoreItems({ id: 'bad-item', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
+    expect(enqueueMutation).not.toHaveBeenCalled()
   })
 
   it('enqueues batch updates as putMany mutations', async () => {
@@ -115,32 +115,16 @@ describe('local-first mutations', () => {
     )
   })
 
-  it('rolls back optimistic cache update when enqueue fails', async () => {
-    const existing = getBlankPerson('p-existing')
-    queryClient.setQueryData(itemsQueryKey, [existing])
-
-    vi.mocked(enqueueMutation).mockRejectedValueOnce(new Error('queue failure'))
-
-    await expect(mutateStoreItems({ ...existing, name: 'Updated' })).rejects.toThrow('queue failure')
-
-    const cached = queryClient.getQueryData<Item[]>(itemsQueryKey)
-    expect(cached?.[0]?.name).toBe(existing.name)
-  })
-
-  it('deletes by queueing group updates and tombstones, then prunes drawers', async () => {
+  it('deletes by queueing group updates and tombstones and emits item delete event', async () => {
     const group = {
       ...getBlankGroup('g1', false),
       members: ['p1'],
     }
     const person = getBlankPerson('p1', false)
 
-    queryClient.setQueryData(itemsQueryKey, [group, person])
+    mocks.fetchItems.mockResolvedValue([group, person])
 
     await mutateDeleteItems('p1')
-
-    const cached = queryClient.getQueryData<Item[]>(itemsQueryKey) || []
-    expect(cached.find(item => item.id === 'p1')).toBeUndefined()
-    expect((cached.find(item => item.id === 'g1') as typeof group | undefined)?.members).toEqual([])
 
     expect(enqueueMutation).toHaveBeenCalledWith(
       'items.putMany',
@@ -154,16 +138,17 @@ describe('local-first mutations', () => {
         conflictHandlerKey: CONFLICT_HANDLER_AUTOMERGE_ITEMS,
       }),
     )
-    expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
+    expect(emitDomainEvent).toHaveBeenCalledWith({
+      type: 'data:deleted',
+      domain: 'items',
+      ids: ['p1'],
+    })
   })
 
-  it('optimistically updates metadata and enqueues encrypted metadata branches', async () => {
-    queryClient.setQueryData(metadataQueryKey, { prayerGoal: 10 })
-
-    const result = await mutateSetMetadata(prev => ({ ...prev, prayerGoal: 20 }))
+  it('enqueues encrypted metadata branches', async () => {
+    const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(queryClient.getQueryData(metadataQueryKey)).toEqual({ prayerGoal: 20 })
 
     expect(enqueueMutation).toHaveBeenCalledWith(
       'accounts.updateMetadata',

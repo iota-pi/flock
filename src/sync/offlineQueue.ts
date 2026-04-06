@@ -9,7 +9,9 @@ import {
   type QueuedMutation,
   readDeadLetterQueueLength,
   readQueue,
+  readReadyQueueChunk,
   readQueueLength,
+  readQueueStats,
   setQueueTargetIndex,
   upsertQueueMutation,
 } from './offlineQueueStore'
@@ -39,6 +41,7 @@ export { CONFLICT_HANDLER_AUTOMERGE_ITEMS } from './conflictStrategies'
 
 let processing = false
 const QUEUE_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000
+const QUEUE_PROCESSING_CHUNK_SIZE = 10
 
 let queueHealthTimer: ReturnType<typeof setInterval> | null = null
 let lastHighVolumeSignalAt = 0
@@ -197,65 +200,72 @@ export async function processOfflineQueue() {
   processing = true
   try {
     emitSyncEvent({ type: 'queue:processing-changed', isSyncing: true })
-    const queue = await readQueue()
-    emitSyncEvent({ type: 'queue:length-changed', length: queue.length })
-    if (queue.length === 0) {
+    const initialQueueLength = await readQueueLength()
+    emitSyncEvent({ type: 'queue:length-changed', length: initialQueueLength })
+    if (initialQueueLength === 0) {
       return
     }
 
-    for (let index = 0; index < queue.length; index += 1) {
-      const mutation = queue[index]
-      if (mutation.nextAttemptAt && mutation.nextAttemptAt > Date.now()) {
-        continue
+    let shouldStopProcessing = false
+
+    while (!shouldStopProcessing) {
+      const chunk = await readReadyQueueChunk(QUEUE_PROCESSING_CHUNK_SIZE)
+      if (chunk.length === 0) {
+        break
       }
 
-      const normalizedMutation = {
-        ...mutation,
-        attemptCount: mutation.attemptCount,
-        nextAttemptAt: undefined,
-        conflict: false,
-        lastConflictAt: undefined,
-        lastErrorStatus: undefined,
-      }
+      const queueLengthSnapshot = await readQueueLength()
 
-      const strategy = getMutationStrategy(normalizedMutation)
-
-      try {
-        await strategy.execute(normalizedMutation)
-        await deleteQueueMutationById(normalizedMutation.id)
-        emitSyncEvent({
-          type: 'queue:mutation-success',
-          mutation: normalizedMutation,
-        })
-      } catch (error) {
-        const directive = await routeQueueMutationError({
-          mutation: {
-            ...normalizedMutation,
-            baseState: normalizedMutation.baseState,
-          },
-          queueLength: queue.length,
-          error,
-          resolveStaleCompactedBranch: strategy.resolveStaleCompactedBranch,
-          resolveVersionConflict: strategy.resolveVersionConflict,
-        })
-
-        if (directive.type === 'retry-with-mutation' || directive.type === 'retry-later') {
-          if (directive.mutation.id !== normalizedMutation.id) {
-            await deleteQueueMutationById(normalizedMutation.id)
-          }
-
-          await upsertQueueMutation(directive.mutation)
-          const targetKey = getMutationTargetKey(directive.mutation.mutationType, directive.mutation.payload)
-          if (targetKey) {
-            await setQueueTargetIndex(targetKey, directive.mutation.id)
-          }
-
-          break
+      for (const mutation of chunk) {
+        const normalizedMutation = {
+          ...mutation,
+          attemptCount: mutation.attemptCount,
+          nextAttemptAt: undefined,
+          conflict: false,
+          lastConflictAt: undefined,
+          lastErrorStatus: undefined,
         }
 
-        const targetKey = getMutationTargetKey(normalizedMutation.mutationType, normalizedMutation.payload)
-        if (targetKey) {
-          await clearQueueTargetIndex(targetKey)
+        const strategy = getMutationStrategy(normalizedMutation)
+
+        try {
+          await strategy.execute(normalizedMutation)
+          await deleteQueueMutationById(normalizedMutation.id)
+          emitSyncEvent({
+            type: 'queue:mutation-success',
+            mutation: normalizedMutation,
+          })
+        } catch (error) {
+          const directive = await routeQueueMutationError({
+            mutation: {
+              ...normalizedMutation,
+              baseState: normalizedMutation.baseState,
+            },
+            queueLength: queueLengthSnapshot,
+            error,
+            resolveStaleCompactedBranch: strategy.resolveStaleCompactedBranch,
+            resolveVersionConflict: strategy.resolveVersionConflict,
+          })
+
+          if (directive.type === 'retry-with-mutation' || directive.type === 'retry-later') {
+            if (directive.mutation.id !== normalizedMutation.id) {
+              await deleteQueueMutationById(normalizedMutation.id)
+            }
+
+            await upsertQueueMutation(directive.mutation)
+            const targetKey = getMutationTargetKey(directive.mutation.mutationType, directive.mutation.payload)
+            if (targetKey) {
+              await setQueueTargetIndex(targetKey, directive.mutation.id)
+            }
+
+            shouldStopProcessing = true
+            break
+          }
+
+          const targetKey = getMutationTargetKey(normalizedMutation.mutationType, normalizedMutation.payload)
+          if (targetKey) {
+            await clearQueueTargetIndex(targetKey)
+          }
         }
       }
     }
@@ -268,32 +278,21 @@ export async function processOfflineQueue() {
 }
 
 export async function checkQueueHealth() {
-  const queueItems = await readQueue()
-  if (queueItems.length === 0) {
+  const queueStats = await readQueueStats()
+  if (queueStats.length === 0) {
     return
   }
 
-  const oldestQueuedAt = queueItems.reduce((oldest, item) => {
-    const queuedAt = item.queuedAt || 0
-    if (queuedAt <= 0) {
-      return oldest
-    }
-    if (oldest <= 0) {
-      return queuedAt
-    }
-    return Math.min(oldest, queuedAt)
-  }, 0)
-
-  const ageInMinutes = oldestQueuedAt > 0
-    ? (Date.now() - oldestQueuedAt) / 1000 / 60
+  const ageInMinutes = queueStats.oldestQueuedAt > 0
+    ? (Date.now() - queueStats.oldestQueuedAt) / 1000 / 60
     : 0
 
-  if (queueItems.length > 50 && Date.now() - lastHighVolumeSignalAt > 60 * 60 * 1000) {
+  if (queueStats.length > 50 && Date.now() - lastHighVolumeSignalAt > 60 * 60 * 1000) {
     lastHighVolumeSignalAt = Date.now()
     emitSyncEvent({
       type: 'queue:health-warning',
       code: 'high-volume',
-      queueLength: queueItems.length,
+      queueLength: queueStats.length,
       oldestItemAgeMinutes: Math.round(ageInMinutes),
     })
   }
@@ -303,7 +302,7 @@ export async function checkQueueHealth() {
     emitSyncEvent({
       type: 'queue:health-warning',
       code: 'stale',
-      queueLength: queueItems.length,
+      queueLength: queueStats.length,
       oldestItemAgeMinutes: Math.round(ageInMinutes),
     })
   }
