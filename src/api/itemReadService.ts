@@ -30,10 +30,14 @@ import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
 import { itemsSyncEngine } from './vault/syncEngine'
 import migrateItems from '../state/migrations'
 import type { RealtimeEventEnvelope } from '../shared/realtime'
-import { readQueue } from '../sync/offlineQueueStore'
-import { projectOfflineMutations } from '../state/optimisticProjection'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from './trpc'
+import {
+  getAutomergeItems,
+  initializeAutomergeDocStore,
+  seedAutomergeItems,
+} from '../sync/automergeDocStore'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 itemsSyncEngine.initialize({
   fetchDelta: async (accountId: string, cacheTime: number | null) => {
@@ -245,21 +249,29 @@ export async function fetchItems(): Promise<Item[]> {
   }
 
   const accountId = getAccountId()
+  await initializeAutomergeDocStore(accountId)
 
-  const metadata = await queryClient.fetchQuery({
-    queryKey: getQueryKey(trpc.accounts.getMetadata),
-    queryFn: fetchMetadata,
-    staleTime: 5 * 60 * 1000,
-  })
+  let localItems = getAutomergeItems()
 
-  const mergedItems = await itemsSyncEngine.pull({
-    accountId,
-    metadata,
-  })
+  if (localItems.length === 0) {
+    const metadata = await queryClient.fetchQuery({
+      queryKey: getQueryKey(trpc.accounts.getMetadata),
+      queryFn: fetchMetadata,
+      staleTime: 5 * 60 * 1000,
+    })
 
-  const projectedItems = await applyOptimisticProjection(mergedItems)
+    const mergedItems = await itemsSyncEngine.pull({
+      accountId,
+      metadata,
+    })
 
-  return sortItems(projectedItems, DEFAULT_CRITERIA)
+    await seedAutomergeItems(mergedItems)
+    localItems = getAutomergeItems()
+  }
+
+  requestAutomergeSync()
+
+  return sortItems(localItems, DEFAULT_CRITERIA)
 }
 
 export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[]): Promise<void> {
@@ -267,7 +279,6 @@ export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[])
     return
   }
 
-  const accountId = getAccountId()
   const updatedItemIds = new Set<string>()
   const deletedItemIds = new Set<string>()
 
@@ -302,31 +313,7 @@ export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[])
     return
   }
 
-  const updatedIds = Array.from(updatedItemIds)
-  const updatedResponse = updatedIds.length > 0
-    ? await fetchMany({ ids: updatedIds }).catch(error => {
-      handleVaultError(error, 'Failed to fetch realtime item delta from server')
-      return { items: [] as VaultItem[], serverTime: Date.now() }
-    })
-    : { items: [] as VaultItem[], serverTime: Date.now() }
-
-  const updatedVaultItems = updatedResponse.items as VaultItem[]
-  const decryptedDelta = await decryptVaultItems(updatedVaultItems)
-
-  for (const item of updatedVaultItems) {
-    if (item.metadata?.deleted === true) {
-      deletedItemIds.add(item.item)
-    }
-  }
-
-  const updatedItems = await itemsSyncEngine.applyRealtimeDelta({
-    accountId,
-    decryptedDelta,
-    deletedIds: deletedItemIds,
-  })
-
-  const projectedItems = await applyOptimisticProjection(updatedItems)
-  queryClient.setQueryData<Item[]>(getQueryKey(trpc.items.fetchMany), sortItems(projectedItems, DEFAULT_CRITERIA))
+  requestAutomergeSync(Array.from(new Set([...updatedItemIds, ...deletedItemIds])))
 }
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
@@ -370,11 +357,6 @@ function hydrateAndCacheItem(
   })
 
   return { item: filled, cacheUpdated: true }
-}
-
-async function applyOptimisticProjection(baseItems: Item[]): Promise<Item[]> {
-  const offlineQueue = await readQueue()
-  return projectOfflineMutations(baseItems, offlineQueue)
 }
 
 // Helper to clear the cache (e.g., on logout)

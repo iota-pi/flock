@@ -24,7 +24,6 @@ import {
 import SettingsItem from '../SettingsItem'
 import useSettings from '../../hooks/useSettings'
 import { useSyncStore } from '../../state/syncStore'
-import { processOfflineQueue } from '../../sync/offlineQueue'
 import { useDialogState } from '../../hooks/useDialogState'
 
 const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
@@ -58,7 +57,7 @@ type SettingsItemConfig = {
 
 function SettingsPage() {
   const { actions, values } = useSettings()
-  const dlqCount = useSyncStore(state => state.dlqCount)
+  const recoveryCount = useSyncStore(state => state.recoveryCount)
   const goalDialog = useDialogState('goal')
   const restoreDialog = useDialogState('restore')
   const offlineRecoveryDialog = useDialogState('offlineRecovery')
@@ -69,7 +68,6 @@ function SettingsPage() {
   const onExport = useCallback(
     async () => {
       try {
-        await processOfflineQueue()
         const json = await actions.handleExport()
         download(json, 'flock.backup.json')
       } catch (err) {
@@ -172,11 +170,11 @@ function SettingsPage() {
       title: 'Offline data recovery',
       icon: RestoreIcon,
       onClick: offlineRecoveryDialog.openDialog,
-      disabled: dlqCount === 0,
-      value: dlqCount > 0
+      disabled: recoveryCount === 0,
+      value: recoveryCount > 0
         ? (
           <Typography color="warning.main" fontWeight={500} sx={{ mr: 2 }}>
-            {dlqCount}
+            {recoveryCount}
           </Typography>
         )
         : undefined,
@@ -193,7 +191,7 @@ function SettingsPage() {
     actions,
     darkModeLabel,
     defaultFrequencyDialog.openDialog,
-    dlqCount,
+    recoveryCount,
     goalDialog.openDialog,
     importDialog.openDialog,
     offlineRecoveryDialog.openDialog,

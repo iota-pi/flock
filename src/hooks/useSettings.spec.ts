@@ -7,15 +7,8 @@ const mocks = vi.hoisted(() => ({
   signOutVault: vi.fn(),
   storeItemsMutateAsync: vi.fn(),
   setMetadataMutateAsync: vi.fn(),
-  readQueue: vi.fn(),
-  readDeadLetterQueue: vi.fn(),
-  writeQueue: vi.fn(),
-  writeDeadLetterQueue: vi.fn(),
-  registerBackgroundSync: vi.fn(),
   setMessage: vi.fn(),
   setUi: vi.fn(),
-  setOfflineQueueLength: vi.fn(),
-  setDlqCount: vi.fn(),
 }))
 
 vi.mock('../api/vault', () => ({
@@ -61,10 +54,7 @@ vi.mock('../state/toastStore', () => ({
 
 vi.mock('../state/syncStore', () => ({
   useSyncStore: {
-    getState: () => ({
-      setOfflineQueueLength: mocks.setOfflineQueueLength,
-      setDlqCount: mocks.setDlqCount,
-    }),
+    getState: () => ({}),
   },
 }))
 
@@ -75,25 +65,12 @@ vi.mock('../api/queryClient', () => ({
   },
 }))
 
-vi.mock('../sync/offlineQueueStore', () => ({
-  readQueue: mocks.readQueue,
-  readDeadLetterQueue: mocks.readDeadLetterQueue,
-  writeQueue: mocks.writeQueue,
-  writeDeadLetterQueue: mocks.writeDeadLetterQueue,
-}))
-
-vi.mock('../sync/offlineQueue', () => ({
-  registerBackgroundSync: mocks.registerBackgroundSync,
-}))
-
 describe('useSettings backup portability', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('bundles offline queue and dead letter queue in export payload', async () => {
-    mocks.readQueue.mockResolvedValue([{ id: 'q1', mutationType: 'items.put', payload: {}, endpoint: 'x' }])
-    mocks.readDeadLetterQueue.mockResolvedValue([{ id: 'd1', mutationType: 'items.put', payload: {}, endpoint: 'x' }])
+  it('exports metadata and items in a queueless v1 payload', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
 
     const { result } = renderHook(() => useSettings())
@@ -106,17 +83,15 @@ describe('useSettings backup portability', () => {
     const parsed = JSON.parse(json)
     expect(parsed).toMatchObject({
       version: 1,
-      offlineQueue: [{ id: 'q1', mutationType: 'items.put', payload: {}, endpoint: 'x' }],
-      deadLetterQueue: [{ id: 'd1', mutationType: 'items.put', payload: {}, endpoint: 'x' }],
+      items: [{ id: 'i1', type: 'person', name: 'N', archived: false }],
     })
+    expect(parsed.offlineQueue).toBeUndefined()
+    expect(parsed.deadLetterQueue).toBeUndefined()
   })
 
-  it('restores version 1 payloads with or without queue fields', async () => {
+  it('restores metadata and items without queue side effects', async () => {
     mocks.storeItemsMutateAsync.mockResolvedValue(undefined)
     mocks.setMetadataMutateAsync.mockResolvedValue(undefined)
-    mocks.writeQueue.mockResolvedValue(undefined)
-    mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
-    mocks.registerBackgroundSync.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useSettings())
 
@@ -127,7 +102,7 @@ describe('useSettings backup portability', () => {
       } as any)
     })
 
-    expect(mocks.writeQueue).toHaveBeenCalledWith([])
-    expect(mocks.writeDeadLetterQueue).toHaveBeenCalledWith([])
+    expect(mocks.setMetadataMutateAsync).toHaveBeenCalledTimes(1)
+    expect(mocks.storeItemsMutateAsync).toHaveBeenCalledTimes(1)
   })
 })

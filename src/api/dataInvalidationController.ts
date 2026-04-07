@@ -21,23 +21,7 @@ export function startDataInvalidationController(): () => void {
       return
     }
 
-    if (
-      event.type === 'queue:mutation-success'
-      && (event.mutation.mutationType === 'items.put' || event.mutation.mutationType === 'items.putMany')
-    ) {
-      void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
-      return
-    }
-
-    if (
-      event.type === 'queue:mutation-success'
-      && event.mutation.mutationType === 'accounts.updateMetadata'
-    ) {
-      void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.accounts.getMetadata) })
-      return
-    }
-
-    if (event.type === 'queue:rollback-base-state' || event.type === 'sync:item-recovered') {
+    if (event.type === 'sync:item-recovered') {
       void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
     }
   })

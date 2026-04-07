@@ -4,10 +4,10 @@ import { getAccountId } from './util'
 import { hasApiAuthToken } from './runtime'
 import { getVaultKey } from './vault'
 import {
-  getMutationId,
-  readDeadLetterQueue,
-  writeDeadLetterQueue,
-} from '../sync/offlineQueueStore'
+  readManualRecoveryCount,
+  removeManualRecoveryEntryByItemId,
+  upsertManualRecoveryEntry,
+} from '../sync/manualRecoveryStore'
 import { emitSyncEvent } from '../sync/syncEvents'
 import { normalizeSyncError } from '../shared/syncErrors'
 import {
@@ -28,7 +28,6 @@ export type DecryptionFailedEvent = {
 const recoveryInFlightItemIds = new Set<ItemId>()
 const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
-const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
 let syncHealthWatchersInitialized = false
 
 type WorkerResolvedBranch = {
@@ -83,30 +82,11 @@ function getRecoveryCooldownUntil(itemId: ItemId): number {
 }
 
 async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
-  const deadLetterQueue = await readDeadLetterQueue()
-  const existing = deadLetterQueue.find(item => (
-    item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
-    && typeof (item.payload as { itemId?: unknown })?.itemId === 'string'
-    && (item.payload as { itemId: ItemId }).itemId === itemId
-  ))
-
-  if (!existing) {
-    deadLetterQueue.push({
-      id: getMutationId(),
-      mutationType: MANUAL_RECOVERY_MUTATION_TYPE,
-      payload: { itemId },
-      endpoint: 'manual-recovery',
-      queuedAt: Date.now(),
-      failedAt: Date.now(),
-      errorReason: reason,
-      lastErrorStatus: 500,
-    })
-    await writeDeadLetterQueue(deadLetterQueue)
-  }
+  await upsertManualRecoveryEntry({ itemId, reason })
 
   emitSyncEvent({
-    type: 'queue:dlq-count-changed',
-    count: deadLetterQueue.length,
+    type: 'sync:recovery-count-changed',
+    count: await readManualRecoveryCount(),
   })
   emitSyncEvent({
     type: 'sync:item-corrupted',
@@ -178,7 +158,12 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
     })
 
     recoveryCooldownUntilByItemId.delete(itemId)
+    await removeManualRecoveryEntryByItemId(itemId)
     await queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
+    emitSyncEvent({
+      type: 'sync:recovery-count-changed',
+      count: await readManualRecoveryCount(),
+    })
     emitSyncEvent({
       type: 'sync:item-recovered',
       itemId,

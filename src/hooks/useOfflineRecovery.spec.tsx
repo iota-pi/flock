@@ -5,13 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useOfflineRecovery } from './useOfflineRecovery'
 
 const mocks = vi.hoisted(() => ({
-  readDeadLetterQueue: vi.fn(),
-  readQueue: vi.fn(),
-  writeDeadLetterQueue: vi.fn(),
-  writeQueue: vi.fn(),
-  processOfflineQueue: vi.fn(),
-  setDlqCount: vi.fn(),
-  setOfflineQueueLength: vi.fn(),
+  readManualRecoveryEntries: vi.fn(),
+  readManualRecoveryCount: vi.fn(),
+  removeManualRecoveryEntryById: vi.fn(),
+  removeManualRecoveryEntryByItemId: vi.fn(),
+  setRecoveryCount: vi.fn(),
+  requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   invalidateItems: vi.fn(),
   putMutateAsync: vi.fn(),
@@ -46,15 +45,15 @@ vi.mock('../api/trpc', () => ({
   },
 }))
 
-vi.mock('../sync/offlineQueueStore', () => ({
-  readDeadLetterQueue: mocks.readDeadLetterQueue,
-  readQueue: mocks.readQueue,
-  writeDeadLetterQueue: mocks.writeDeadLetterQueue,
-  writeQueue: mocks.writeQueue,
+vi.mock('../sync/manualRecoveryStore', () => ({
+  readManualRecoveryEntries: mocks.readManualRecoveryEntries,
+  readManualRecoveryCount: mocks.readManualRecoveryCount,
+  removeManualRecoveryEntryById: mocks.removeManualRecoveryEntryById,
+  removeManualRecoveryEntryByItemId: mocks.removeManualRecoveryEntryByItemId,
 }))
 
-vi.mock('../sync/offlineQueue', () => ({
-  processOfflineQueue: mocks.processOfflineQueue,
+vi.mock('../sync/automergeSyncDispatcher', () => ({
+  requestAutomergeSync: mocks.requestAutomergeSync,
 }))
 
 vi.mock('../api/queryClient', () => ({
@@ -64,10 +63,9 @@ vi.mock('../api/queryClient', () => ({
 }))
 
 vi.mock('../state/syncStore', () => ({
-  useSyncStore: (selector: (state: { setDlqCount: typeof mocks.setDlqCount, setOfflineQueueLength: typeof mocks.setOfflineQueueLength }) => unknown) => (
+  useSyncStore: (selector: (state: { setRecoveryCount: typeof mocks.setRecoveryCount }) => unknown) => (
     selector({
-      setDlqCount: mocks.setDlqCount,
-      setOfflineQueueLength: mocks.setOfflineQueueLength,
+      setRecoveryCount: mocks.setRecoveryCount,
     })
   ),
 }))
@@ -103,101 +101,49 @@ describe('useOfflineRecovery', () => {
     vi.clearAllMocks()
   })
 
-  it('loads dead letter items from storage', async () => {
-    const failedMutations = [
-      { id: 'm1', mutationType: 'items.put', payload: {}, endpoint: 'x' },
-      { id: 'm2', mutationType: 'items.put', payload: {}, endpoint: 'x' },
+  it('loads manual recovery entries from storage', async () => {
+    const failedEntries = [
+      { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 },
+      { id: 'r2', itemId: 'item-2', reason: 'failed', createdAt: 2 },
     ]
-    mocks.readDeadLetterQueue.mockResolvedValue(failedMutations)
+    mocks.readManualRecoveryEntries.mockResolvedValue(failedEntries)
 
     const { result } = renderHook(() => useOfflineRecovery(), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => {
-      expect(result.current.deadLetterItems).toEqual(failedMutations)
+      expect(result.current.recoveryItems).toEqual(failedEntries)
     })
+    expect(mocks.setRecoveryCount).toHaveBeenCalledWith(2)
   })
 
-  it('discards a dead letter mutation and updates dlq count', async () => {
-    mocks.readDeadLetterQueue.mockResolvedValue([
-      { id: 'm1', mutationType: 'items.put', payload: {}, endpoint: 'x' },
-      { id: 'm2', mutationType: 'items.put', payload: {}, endpoint: 'x' },
-    ])
-    mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
+  it('dismisses a recovery entry and refreshes recovery count', async () => {
+    mocks.readManualRecoveryEntries.mockResolvedValue([{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }])
+    mocks.readManualRecoveryCount.mockResolvedValue(0)
+    mocks.removeManualRecoveryEntryById.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useOfflineRecovery(), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => {
-      expect(result.current.deadLetterItems.length).toBe(2)
+      expect(result.current.recoveryItems.length).toBe(1)
     })
 
     await act(async () => {
-      await result.current.handleDiscardDeadLetterMutation('m1')
+      await result.current.handleDismissRecoveryItem('r1')
     })
 
-    expect(mocks.writeDeadLetterQueue).toHaveBeenCalledWith([
-      { id: 'm2', mutationType: 'items.put', payload: {}, endpoint: 'x' },
-    ])
-    expect(mocks.setDlqCount).toHaveBeenCalledWith(1)
+    expect(mocks.removeManualRecoveryEntryById).toHaveBeenCalledWith('r1')
+    expect(mocks.setRecoveryCount).toHaveBeenCalledWith(0)
   })
 
-  it('retries a dead letter mutation and clears retrying state', async () => {
-    const mutation = { id: 'm1', mutationType: 'items.put', payload: { item: 'a' }, endpoint: 'x' }
-    mocks.readDeadLetterQueue
-      .mockResolvedValueOnce([mutation])
-      .mockResolvedValueOnce([mutation])
-      .mockResolvedValue([])
-    mocks.readQueue.mockResolvedValue([{ id: 'q1', mutationType: 'items.put', payload: {}, endpoint: 'x' }])
-    mocks.writeQueue.mockResolvedValue(undefined)
-    mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
-    mocks.processOfflineQueue.mockResolvedValue(undefined)
-
-    const { result } = renderHook(() => useOfflineRecovery(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => {
-      expect(result.current.deadLetterItems.length).toBe(1)
-    })
-
-    await act(async () => {
-      await result.current.handleRetryDeadLetterMutation('m1')
-    })
-
-    expect(mocks.writeQueue).toHaveBeenCalledWith([
-      { id: 'q1', mutationType: 'items.put', payload: {}, endpoint: 'x' },
-      mutation,
-    ])
-    expect(mocks.writeDeadLetterQueue).toHaveBeenCalledWith([])
-    expect(mocks.setOfflineQueueLength).toHaveBeenCalledWith(2)
-    expect(mocks.setDlqCount).toHaveBeenCalledWith(0)
-    expect(mocks.processOfflineQueue).toHaveBeenCalledTimes(1)
-    expect(result.current.isRetrying).toBe(null)
-  })
-
-  it('retries a corrupted item by removing manual recovery marker and invalidating fetch cache', async () => {
-    const itemId = 'item-corrupted-1'
-    const manualRecoveryEntry = {
-      id: 'm-recovery',
-      mutationType: 'items.manualRecovery',
-      payload: { itemId },
-      endpoint: 'x',
-    }
-    const unrelatedEntry = {
-      id: 'm-other',
-      mutationType: 'items.put',
-      payload: { item: 'other' },
-      endpoint: 'x',
-    }
-
-    mocks.readDeadLetterQueue
-      .mockResolvedValueOnce([manualRecoveryEntry, unrelatedEntry])
-      .mockResolvedValueOnce([manualRecoveryEntry, unrelatedEntry])
-      .mockResolvedValue([unrelatedEntry])
-    mocks.writeDeadLetterQueue.mockResolvedValue(undefined)
+  it('retries a corrupted item and requests sync', async () => {
+    const entry = { id: 'r1', itemId: 'item-corrupted-1', reason: 'failed', createdAt: 1 }
+    mocks.readManualRecoveryEntries.mockResolvedValue([entry])
+    mocks.readManualRecoveryCount.mockResolvedValue(0)
+    mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
     mocks.invalidateItems.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useOfflineRecovery(), {
@@ -205,18 +151,19 @@ describe('useOfflineRecovery', () => {
     })
 
     await waitFor(() => {
-      expect(result.current.deadLetterItems.length).toBe(2)
+      expect(result.current.recoveryItems.length).toBe(1)
     })
 
     await act(async () => {
-      await result.current.handleRetryCorruptedItem(itemId)
+      await result.current.handleRetryCorruptedItem('item-corrupted-1')
     })
 
-    expect(mocks.writeDeadLetterQueue).toHaveBeenCalledWith([unrelatedEntry])
+    expect(mocks.removeManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-corrupted-1')
+    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-corrupted-1'])
     expect(mocks.invalidateItems).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({
       severity: 'info',
-      message: `Retry sync triggered for ${itemId}.`,
+      message: 'Retry sync triggered for item-corrupted-1.',
     })
     expect(result.current.isRetrying).toBe(null)
   })

@@ -2,6 +2,7 @@ import env from '../env'
 import type {
   RealtimeChannelMessage,
   RealtimeEventEnvelope,
+  RealtimeSyncPing,
 } from '../shared/realtime'
 import { getApiAuthToken } from './runtime'
 
@@ -10,6 +11,7 @@ type RealtimeCoordinatorOptions = {
   onServerEvent: (event: RealtimeEventEnvelope) => void
   onItemsChanged?: (payload: { updatedItemIds: string[]; deletedItemIds: string[] }) => void
   onItemEvents?: (events: RealtimeEventEnvelope[]) => void
+  onSyncPing?: (itemIds: string[]) => void
 }
 
 type RealtimeCoordinatorHandle = {
@@ -82,7 +84,7 @@ export function stopRealtimeCoordinator(): void {
   activeKey = ''
 }
 
-function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvents }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
+function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvents, onSyncPing }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
   const tabId = createTabId()
   const supportsBroadcastChannel = typeof BroadcastChannel !== 'undefined'
   const channelName = `flock:realtime:${account}`
@@ -152,9 +154,22 @@ function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvent
     }
 
     try {
-      const payload = JSON.parse(rawData) as RealtimeEventEnvelope
-      handleServerEvent(payload)
-      emit({ type: 'server-event', tabId, event: payload })
+      const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
+
+      if ('action' in payload && payload.action === 'sync_ping') {
+        const itemIds = Array.isArray(payload.itemIds)
+          ? payload.itemIds.filter((value): value is string => typeof value === 'string')
+          : []
+
+        onSyncPing?.(itemIds)
+        emit({ type: 'sync-ping', tabId, itemIds })
+        return
+      }
+
+      if ('eventType' in payload && 'account' in payload) {
+        handleServerEvent(payload)
+        emit({ type: 'server-event', tabId, event: payload })
+      }
     } catch {
       // Ignore malformed events to keep the connection alive.
     }
@@ -348,6 +363,11 @@ function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvent
 
     if (message.type === 'server-event') {
       handleServerEvent(message.event)
+      return
+    }
+
+    if (message.type === 'sync-ping') {
+      onSyncPing?.(message.itemIds)
     }
   }
 
@@ -357,22 +377,10 @@ function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvent
     }
   }
 
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'hidden') {
-      relinquishLeadership()
-      return
-    }
-
-    if (!isLeader) {
-      requestLeader()
-    }
-  }
-
   const handlePageHide = () => {
     relinquishLeadership()
   }
 
-  document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('pagehide', handlePageHide)
   window.addEventListener('beforeunload', handlePageHide)
 
@@ -418,7 +426,6 @@ function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvent
 
       clearReconnectTimer()
 
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handlePageHide)
 

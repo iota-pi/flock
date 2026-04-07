@@ -12,6 +12,11 @@ export interface RealtimeEventEnvelope<T = unknown> {
   data: T
 }
 
+export type RealtimeSyncPing = {
+  action: 'sync_ping'
+  itemIds: string[]
+}
+
 export type RealtimeChannelMessage =
   | { type: 'request-leader'; tabId: string }
   | { type: 'im-leader'; tabId: string }
@@ -19,3 +24,4 @@ export type RealtimeChannelMessage =
   | { type: 'leader-dying'; tabId: string }
   | { type: 'reconnecting'; tabId: string; reconnecting: boolean }
   | { type: 'server-event'; tabId: string; event: RealtimeEventEnvelope }
+  | { type: 'sync-ping'; tabId: string; itemIds: string[] }

@@ -3,9 +3,10 @@ import { clearPersistedAuthSyncState, useAuthStore } from '../../state/authStore
 import { queryClient } from '../queryClient'
 import {
   clearActiveSessionToken,
-  clearOfflineQueue,
   setActiveSessionToken,
-} from '../../sync/offlineQueueStore'
+} from '../../sync/sessionTokenStore'
+import { clearAutomergeDocStore } from '../../sync/automergeDocStore'
+import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
 import {
@@ -191,7 +192,8 @@ export async function signOutVault() {
 
   clearStoredMetadata()
   await clearActiveSessionToken()
-  await clearOfflineQueue()
+  await clearAutomergeDocStore()
+  await clearManualRecoveryEntries()
   await clearPersistedAuthSyncState()
 }
 

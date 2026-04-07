@@ -33,6 +33,11 @@ const inMemoryReplayLog = new Map<string, RealtimeEventEnvelope[]>()
 const inMemoryCounters = new Map<string, number>()
 const inMemoryConnections = new Map<string, Set<string>>()
 
+type SyncPingPayload = {
+  action: 'sync_ping'
+  itemIds: string[]
+}
+
 async function getNextEventId(account: string): Promise<number> {
   const counterKey = {
     account,
@@ -105,7 +110,7 @@ async function removeConnection(account: string, connectionId: string): Promise<
   }
 }
 
-async function broadcastToApiGatewayConnections(event: RealtimeEventEnvelope): Promise<void> {
+async function broadcastPayloadToApiGatewayConnections(account: string, payload: unknown): Promise<void> {
   if (DISABLE_WS_PUSH) {
     return
   }
@@ -118,7 +123,7 @@ async function broadcastToApiGatewayConnections(event: RealtimeEventEnvelope): P
       '#account': 'account',
     },
     ExpressionAttributeValues: {
-      ':account': event.account,
+      ':account': account,
     },
   })).catch(() => ({ Items: [] as Record<string, unknown>[] }))
 
@@ -141,19 +146,23 @@ async function broadcastToApiGatewayConnections(event: RealtimeEventEnvelope): P
     try {
       await client.send(new PostToConnectionCommand({
         ConnectionId: connectionId,
-        Data: Buffer.from(JSON.stringify(event), 'utf8'),
+        Data: Buffer.from(JSON.stringify(payload), 'utf8'),
       }))
     } catch (error) {
       if (error instanceof GoneException) {
-        await removeConnection(event.account, connectionId)
+        await removeConnection(account, connectionId)
       }
     }
   }
 
-  const fallbackConnections = inMemoryConnections.get(event.account)
+  const fallbackConnections = inMemoryConnections.get(account)
   if (fallbackConnections && fallbackConnections.size > 0) {
     // No-op: local fallback only tracks membership for tests/dev without WS infra.
   }
+}
+
+async function broadcastToApiGatewayConnections(event: RealtimeEventEnvelope): Promise<void> {
+  await broadcastPayloadToApiGatewayConnections(event.account, event)
 }
 
 async function postEventToConnection(
@@ -261,6 +270,15 @@ export async function publishRealtimeEvent<T>(
   await broadcastToApiGatewayConnections(event)
 
   return event
+}
+
+export async function publishSyncPing(account: string, itemIds: string[]): Promise<void> {
+  const payload: SyncPingPayload = {
+    action: 'sync_ping',
+    itemIds,
+  }
+
+  await broadcastPayloadToApiGatewayConnections(account, payload)
 }
 
 export async function getRealtimeEventsSince(

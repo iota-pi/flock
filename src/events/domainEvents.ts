@@ -1,41 +1,11 @@
-import type { Item } from '../state/items'
-import type { QueuedMutation } from '../sync/offlineQueueStore'
-
 export type DomainEvent =
   | {
-    type: 'queue:length-changed'
-    length: number
-  }
-  | {
-    type: 'queue:dlq-count-changed'
-    count: number
-  }
-  | {
-    type: 'queue:processing-changed'
+    type: 'sync:processing-changed'
     isSyncing: boolean
   }
   | {
-    type: 'queue:mutation-success'
-    mutation: QueuedMutation
-  }
-  | {
-    type: 'queue:mutation-failed'
-    mutation: QueuedMutation
-    status?: number
-    reason: string
-    routedToDlq: boolean
-  }
-  | {
-    type: 'queue:rollback-base-state'
-    mutation: QueuedMutation
-    targetId: string
-    baseState: Item
-  }
-  | {
-    type: 'queue:health-warning'
-    code: 'high-volume' | 'stale'
-    queueLength: number
-    oldestItemAgeMinutes: number
+    type: 'sync:recovery-count-changed'
+    count: number
   }
   | {
     type: 'sync:item-corrupted'

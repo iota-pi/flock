@@ -195,7 +195,7 @@ function MainMenu({
   open,
 }: Props) {
   const setSelected = useNavigationStore(state => state.setSelected)
-  const dlqCount = useSyncStore(state => state.dlqCount)
+  const recoveryCount = useSyncStore(state => state.recoveryCount)
   const navigate = useNavigate()
   const loggedIn = useLoggedIn()
   const { data: metadata = {} } = useQuery({
@@ -249,7 +249,7 @@ function MainMenu({
               name={name}
               onClick={handleClick}
               selected={id === page?.id}
-              warningCount={id === 'settings' ? dlqCount : 0}
+              warningCount={id === 'settings' ? recoveryCount : 0}
             />
           ))}
 

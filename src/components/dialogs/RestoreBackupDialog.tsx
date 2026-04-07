@@ -31,8 +31,6 @@ function normalizeDecryptedBackup(payload: DecryptedBackupPayload): RestorePaylo
   if (Array.isArray(payload)) {
     return {
       items: payload,
-      offlineQueue: [],
-      deadLetterQueue: [],
     }
   }
 
@@ -40,8 +38,6 @@ function normalizeDecryptedBackup(payload: DecryptedBackupPayload): RestorePaylo
   return {
     metadata: data.metadata,
     items: data.items || [],
-    offlineQueue: data.offlineQueue || [],
-    deadLetterQueue: data.deadLetterQueue || [],
   }
 }
 
@@ -86,8 +82,6 @@ function RestoreBackupDialog({
   const [restoreSettings, setRestoreSettings] = useState(false)
   const [restoredPayload, setRestoredPayload] = useState<RestorePayload>({
     items: [],
-    offlineQueue: [],
-    deadLetterQueue: [],
   })
 
   const changedItems = useMemo(
@@ -155,8 +149,6 @@ function RestoreBackupDialog({
         setRestoreSettings(false)
         setRestoredPayload({
           items: [],
-          offlineQueue: [],
-          deadLetterQueue: [],
         })
       }
     },
@@ -178,14 +170,12 @@ function RestoreBackupDialog({
         await onConfirm({
           metadata: restoreSettings ? restoredPayload.metadata : undefined,
           items: itemsToImport,
-          offlineQueue: restoredPayload.offlineQueue,
-          deadLetterQueue: restoredPayload.deadLetterQueue,
         })
       } finally {
         setLoading(false)
       }
     },
-    [existingItems, importedItems, onConfirm, restoreSettings, restoredPayload.deadLetterQueue, restoredPayload.metadata, restoredPayload.offlineQueue, selectedIds],
+    [existingItems, importedItems, onConfirm, restoreSettings, restoredPayload.metadata, selectedIds],
   )
 
   return (

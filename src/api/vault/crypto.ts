@@ -100,6 +100,32 @@ export async function decryptWithKey(key: CryptoKey, payload: CryptoResult): Pro
   return new TextDecoder().decode(plaintext)
 }
 
+export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array): Promise<CryptoResult> {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const normalizedBytes = new Uint8Array(bytes.byteLength)
+  normalizedBytes.set(bytes)
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    normalizedBytes,
+  )
+
+  return {
+    iv: fromBytes(iv.buffer),
+    cipher: fromBytes(cipher),
+  }
+}
+
+export async function decryptBytesWithKey(key: CryptoKey, payload: CryptoResult): Promise<Uint8Array> {
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: toBytes(payload.iv) },
+    key,
+    toBytes(payload.cipher),
+  )
+
+  return new Uint8Array(plaintext)
+}
+
 function stripUndefinedDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value

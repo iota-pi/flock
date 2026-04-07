@@ -7,17 +7,12 @@ let stopBindings: (() => void) | null = null
 function handleDomainEvent(event: DomainEvent): void {
   const syncStore = useSyncStore.getState()
 
-  if (event.type === 'queue:length-changed') {
-    syncStore.setOfflineQueueLength(event.length)
+  if (event.type === 'sync:recovery-count-changed') {
+    syncStore.setRecoveryCount(event.count)
     return
   }
 
-  if (event.type === 'queue:dlq-count-changed') {
-    syncStore.setDlqCount(event.count)
-    return
-  }
-
-  if (event.type === 'queue:processing-changed') {
+  if (event.type === 'sync:processing-changed') {
     syncStore.setIsSyncing(event.isSyncing)
     return
   }

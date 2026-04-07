@@ -6,7 +6,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
 import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { processOfflineQueue } from '../../sync/offlineQueue'
+import { requestAutomergeSync } from '../../sync/automergeSyncDispatcher'
 import { trpc } from '../../api/trpc'
 import { getAccountId } from 'src/api/util'
 
@@ -15,12 +15,11 @@ function SyncNowButton() {
   const syncInProgress = useSyncStore(state => state.isSyncing)
   const activeRequests = useUiStore(state => state.requests.active)
   const isSyncing = syncInProgress || activeRequests > 0
-  const offlineQueueLength = useSyncStore(state => state.offlineQueueLength)
   const isOnline = useOnlineStatus()
 
   const handleForceSync = useCallback(
     async () => {
-      await processOfflineQueue()
+      requestAutomergeSync()
       await trpcUtils.items.fetchMany.invalidate()
       await trpcUtils.accounts.getMetadata.invalidate()
       const account = getAccountId()
@@ -32,7 +31,7 @@ function SyncNowButton() {
     [trpcUtils],
   )
 
-  const isQueueActive = isSyncing || offlineQueueLength > 0
+  const isQueueActive = isSyncing
   const syncStatusIcon = !isOnline
     ? <CloudOffIcon color="warning" />
     : isQueueActive
@@ -41,7 +40,7 @@ function SyncNowButton() {
   const syncTooltip = !isOnline
     ? 'Offline'
     : isQueueActive
-      ? `Syncing (${offlineQueueLength} queued)`
+      ? 'Syncing'
       : 'Sync Now'
 
   return (

@@ -11,21 +11,11 @@ import type { Frequency } from '../utils/frequencies'
 import type { Item } from '../state/items'
 import { useUiStore } from '../state/uiStore'
 import { useToastStore } from '../state/toastStore'
-import { useSyncStore } from '../state/syncStore'
 import { useAuth } from './useAuth'
 import { AccountMetadata } from '../state/metadata'
 import { queryClient } from '../api/queryClient'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
-import {
-  registerBackgroundSync,
-} from '../sync/offlineQueue'
-import {
-  readDeadLetterQueue,
-  readQueue,
-  writeDeadLetterQueue,
-  writeQueue,
-} from '../sync/offlineQueueStore'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 
 export type SettingsDialogType = (
@@ -83,8 +73,6 @@ export default function useSettings() {
           version: 1,
           metadata: currentMetadata,
           items,
-          offlineQueue: await readQueue(),
-          deadLetterQueue: await readDeadLetterQueue(),
         }
 
         const data = await exportData(backupPayload)
@@ -101,26 +89,15 @@ export default function useSettings() {
 
   const handleConfirmRestore = useCallback(
     async ({
-      deadLetterQueue,
       items: restoredItems,
       metadata,
-      offlineQueue,
     }: Partial<RestorePayload> & Pick<RestorePayload, 'items'>) => {
       try {
-        const parsedQueue = Array.isArray(offlineQueue) ? offlineQueue : []
-        const parsedDlq = Array.isArray(deadLetterQueue) ? deadLetterQueue : []
-
         if (metadata) {
           await setMetadataMutation.mutateAsync(metadata)
         }
 
         await storeItemsMutation.mutateAsync(restoredItems)
-
-        await writeQueue(parsedQueue)
-        await writeDeadLetterQueue(parsedDlq)
-        useSyncStore.getState().setOfflineQueueLength(parsedQueue.length)
-        useSyncStore.getState().setDlqCount(parsedDlq.length)
-        await registerBackgroundSync()
 
         setMessage({ message: 'Restore successful' })
         return true

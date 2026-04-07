@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { syncDB } from '../api/db'
-import { ACTIVE_SESSION_TOKEN_KEY, OFFLINE_QUEUE_KEY } from '../sync/offlineQueueStore'
+import { ACTIVE_SESSION_TOKEN_KEY } from '../sync/sessionTokenStore'
 import { clearPersistedAuthSyncState, useAuthStore } from './authStore'
 
 vi.mock('../api/db', () => ({
@@ -52,11 +52,10 @@ describe('authStore', () => {
     })
   })
 
-  it('clears persisted session and offline queue sync keys', async () => {
+  it('clears persisted session token key', async () => {
     await clearPersistedAuthSyncState()
 
     expect(syncDB.removeItem).toHaveBeenCalledWith(ACTIVE_SESSION_TOKEN_KEY)
-    expect(syncDB.removeItem).toHaveBeenCalledWith(OFFLINE_QUEUE_KEY)
-    expect(syncDB.removeItem).toHaveBeenCalledTimes(2)
+    expect(syncDB.removeItem).toHaveBeenCalledTimes(1)
   })
 })

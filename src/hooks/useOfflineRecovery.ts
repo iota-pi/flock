@@ -1,15 +1,12 @@
 import { useCallback, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  processOfflineQueue,
-} from '../sync/offlineQueue'
-import {
-  type QueuedMutation,
-  readDeadLetterQueue,
-  readQueue,
-  writeDeadLetterQueue,
-  writeQueue,
-} from '../sync/offlineQueueStore'
+  type ManualRecoveryEntry,
+  readManualRecoveryCount,
+  readManualRecoveryEntries,
+  removeManualRecoveryEntryById,
+  removeManualRecoveryEntryByItemId,
+} from '../sync/manualRecoveryStore'
 import { useSyncStore } from '../state/syncStore'
 import { useToastStore } from '../state/toastStore'
 import { queryClient } from '../api/queryClient'
@@ -20,76 +17,45 @@ import { getAccountId } from '../api/util'
 import { fetchMany } from '../api/vault/client'
 import { trpc } from '../api/trpc'
 import { getQueryKey } from '@trpc/react-query'
-
-const MANUAL_RECOVERY_MUTATION_TYPE = 'items.manualRecovery'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function useOfflineRecovery() {
   const trpcUtils = trpc.useUtils()
   const putItemMutation = trpc.items.put.useMutation()
   const resolveBranchConflictMutation = trpc.items.resolveBranchConflict.useMutation()
-  const setDlqCount = useSyncStore(state => state.setDlqCount)
-  const setOfflineQueueLength = useSyncStore(state => state.setOfflineQueueLength)
+  const setRecoveryCount = useSyncStore(state => state.setRecoveryCount)
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
 
-  const fetchDeadLetterItems = useCallback(async (): Promise<QueuedMutation[]> => {
-    const items = await readDeadLetterQueue()
-    setDlqCount(items.length)
+  const fetchManualRecoveryItems = useCallback(async (): Promise<ManualRecoveryEntry[]> => {
+    const items = await readManualRecoveryEntries()
+    setRecoveryCount(items.length)
     return items
-  }, [setDlqCount])
+  }, [setRecoveryCount])
 
   const {
-    data: deadLetterItems = [],
-    refetch: refetchDeadLetterItems,
+    data: recoveryItems = [],
+    refetch: refetchRecoveryItems,
   } = useQuery({
-    queryKey: ['deadLetterQueue'],
-    queryFn: fetchDeadLetterItems,
+    queryKey: ['manualRecoveryItems'],
+    queryFn: fetchManualRecoveryItems,
   })
 
-  const handleRetryDeadLetterMutation = useCallback(async (id: string) => {
-    setIsRetrying(id)
-    try {
-      const dlqItems = await readDeadLetterQueue()
-      const mutation = dlqItems.find(item => item.id === id)
-      if (!mutation) {
-        await refetchDeadLetterItems()
-        return
-      }
-
-      const nextDlqItems = dlqItems.filter(item => item.id !== id)
-      const queueItems = await readQueue()
-      queueItems.push(mutation)
-
-      await writeQueue(queueItems)
-      setOfflineQueueLength(queueItems.length)
-      await writeDeadLetterQueue(nextDlqItems)
-      setDlqCount(nextDlqItems.length)
-
-      await processOfflineQueue()
-      await refetchDeadLetterItems()
-    } finally {
-      setIsRetrying(current => (current === id ? null : current))
-    }
-  }, [refetchDeadLetterItems, setDlqCount, setOfflineQueueLength])
-
-  const handleDiscardDeadLetterMutation = useCallback(async (id: string) => {
-    const dlqItems = await readDeadLetterQueue()
-    const nextDlqItems = dlqItems.filter(item => item.id !== id)
-    await writeDeadLetterQueue(nextDlqItems)
-    setDlqCount(nextDlqItems.length)
-    await refetchDeadLetterItems()
-  }, [refetchDeadLetterItems, setDlqCount])
+  const refreshRecoveryCount = useCallback(async () => {
+    setRecoveryCount(await readManualRecoveryCount())
+  }, [setRecoveryCount])
 
   const removeManualRecoveryEntry = useCallback(async (itemId: ItemId) => {
-    const dlqItems = await readDeadLetterQueue()
-    const nextDlqItems = dlqItems.filter(item => !(
-      item.mutationType === MANUAL_RECOVERY_MUTATION_TYPE
-      && (item.payload as { itemId?: unknown })?.itemId === itemId
-    ))
-    await writeDeadLetterQueue(nextDlqItems)
-    setDlqCount(nextDlqItems.length)
-    await refetchDeadLetterItems()
-  }, [refetchDeadLetterItems, setDlqCount])
+    await removeManualRecoveryEntryByItemId(itemId)
+    await refreshRecoveryCount()
+    await refetchRecoveryItems()
+  }, [refetchRecoveryItems, refreshRecoveryCount])
+
+  const handleDismissRecoveryItem = useCallback(async (id: string) => {
+    await removeManualRecoveryEntryById(id)
+    await refreshRecoveryCount()
+    await refetchRecoveryItems()
+  }, [refetchRecoveryItems, refreshRecoveryCount])
 
   const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
@@ -135,6 +101,7 @@ export function useOfflineRecovery() {
 
       await trpcUtils.items.fetchMany.invalidate()
       await removeManualRecoveryEntry(itemId)
+      requestAutomergeSync([itemId])
       setMessage({ message: `Recovered ${itemId} using local cache.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -169,6 +136,7 @@ export function useOfflineRecovery() {
 
       await trpcUtils.items.fetchMany.invalidate()
       await removeManualRecoveryEntry(itemId)
+      requestAutomergeSync([itemId])
       setMessage({ message: `Deleted corrupted server item ${itemId}.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -179,6 +147,7 @@ export function useOfflineRecovery() {
     setIsRetrying(itemId)
     try {
       await removeManualRecoveryEntry(itemId)
+      requestAutomergeSync([itemId])
       await trpcUtils.items.fetchMany.invalidate()
       setMessage({
         severity: 'info',
@@ -190,10 +159,9 @@ export function useOfflineRecovery() {
   }, [removeManualRecoveryEntry, setMessage, trpcUtils])
 
   return {
-    deadLetterItems,
+    recoveryItems,
     isRetrying,
-    handleRetryDeadLetterMutation,
-    handleDiscardDeadLetterMutation,
+    handleDismissRecoveryItem,
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,

@@ -1,143 +1,107 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getQueryKey } from '@trpc/react-query'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { queryClient } from './queryClient'
-import { trpc } from './trpc'
 import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from './itemMutations'
-import { serializeItemAsBranch } from './vault/serializeItemAsBranch'
-import { enqueueMutation, processOfflineQueue, CONFLICT_HANDLER_AUTOMERGE_ITEMS } from '../sync/offlineQueue'
-import * as vault from './vault'
 import { emitDomainEvent } from '../events/domainEvents'
+import {
+  getAutomergeItems,
+  initializeAutomergeDocStore,
+  upsertAutomergeItemSnapshot,
+} from '../sync/automergeDocStore'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
+import { setMetadata } from './vault/client'
+import { fetchItems } from './itemReadService'
 
-const mocks = vi.hoisted(() => ({
-  fetchItems: vi.fn(),
-}))
-
-vi.mock('../sync/offlineQueue', async importOriginal => {
-  const actual = await importOriginal<typeof import('../sync/offlineQueue')>()
+vi.mock('../sync/automergeDocStore', async importOriginal => {
+  const actual = await importOriginal<typeof import('../sync/automergeDocStore')>()
   return {
     ...actual,
-    enqueueMutation: vi.fn(),
-    processOfflineQueue: vi.fn(),
+    getAutomergeItems: vi.fn(() => []),
+    initializeAutomergeDocStore: vi.fn(),
+    upsertAutomergeItemSnapshot: vi.fn(),
   }
 })
 
-vi.mock('./vault/serializeItemAsBranch', () => ({
-  serializeItemAsBranch: vi.fn(),
+vi.mock('../sync/automergeSyncDispatcher', () => ({
+  requestAutomergeSync: vi.fn(),
 }))
 
 vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'test-account'),
 }))
 
-vi.mock('./vault', () => ({
-  encryptObjectAsAutomerge: vi.fn().mockResolvedValue({
-    encryptedAutomergeDoc: 'metadata-doc',
-    versionId: 'metadata-v1',
-  }),
-}))
+vi.mock('./vault/client', async importOriginal => {
+  const actual = await importOriginal<typeof import('./vault/client')>()
+  return {
+    ...actual,
+    setMetadata: vi.fn(),
+  }
+})
 
 vi.mock('../events/domainEvents', () => ({
   emitDomainEvent: vi.fn(),
 }))
 
-vi.mock('./itemReadService', () => ({
-  fetchItems: mocks.fetchItems,
-}))
-
-const itemsQueryKey = getQueryKey(trpc.items.fetchMany)
+vi.mock('./itemReadService', async importOriginal => {
+  const actual = await importOriginal<typeof import('./itemReadService')>()
+  return {
+    ...actual,
+    fetchItems: vi.fn(),
+  }
+})
 
 describe('local-first mutations', () => {
   beforeEach(() => {
-    queryClient.clear()
     vi.clearAllMocks()
-    mocks.fetchItems.mockResolvedValue([])
-
-    vi.mocked(serializeItemAsBranch).mockImplementation(async item => ({
-      branches: [{
-        encryptedAutomergeDoc: `doc-${item.id}`,
-        versionId: `v-${item.id}`,
-        parentIds: [],
-      }],
-    }))
-
-    vi.mocked(vault.encryptObjectAsAutomerge).mockResolvedValue({
-      encryptedAutomergeDoc: 'metadata-doc',
-      versionId: 'metadata-v1',
-    })
+    vi.mocked(fetchItems).mockResolvedValue([])
+    vi.mocked(getAutomergeItems).mockReturnValue([])
+    vi.mocked(setMetadata).mockResolvedValue()
   })
 
-  it('enqueues single-item put mutations', async () => {
+  it('stores single-item snapshots and requests sync', async () => {
     const item = getBlankPerson('p1')
 
     const result = await mutateStoreItems(item)
 
     expect(result[0].id).toBe('p1')
-    expect(queryClient.getQueryData<Item[]>(itemsQueryKey)).toBeUndefined()
-
-    expect(enqueueMutation).toHaveBeenCalledWith(
-      'items.put',
-      expect.objectContaining({
-        account: 'test-account',
-        item: 'p1',
-        branches: expect.any(Array),
-      }),
-      expect.objectContaining({
-        conflictHandlerKey: CONFLICT_HANDLER_AUTOMERGE_ITEMS,
-      }),
-    )
-    expect(processOfflineQueue).toHaveBeenCalledTimes(1)
+    expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
+    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(item)
+    expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 
-  it('validates incoming item payloads with zod before queueing', async () => {
+  it('validates incoming item payloads with zod before storing', async () => {
     await expect(mutateStoreItems({ id: 'bad-item', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
-    expect(enqueueMutation).not.toHaveBeenCalled()
+    expect(upsertAutomergeItemSnapshot).not.toHaveBeenCalled()
   })
 
-  it('enqueues batch updates as putMany mutations', async () => {
+  it('stores batch updates and requests sync for all ids', async () => {
     const first = getBlankPerson('p1')
     const second = getBlankPerson('p2')
 
     await mutateStoreItems([first, second])
 
-    expect(enqueueMutation).toHaveBeenCalledWith(
-      'items.putMany',
-      expect.objectContaining({
-        account: 'test-account',
-        items: expect.arrayContaining([
-          expect.objectContaining({ id: 'p1' }),
-          expect.objectContaining({ id: 'p2' }),
-        ]),
-      }),
-      expect.objectContaining({
-        conflictHandlerKey: CONFLICT_HANDLER_AUTOMERGE_ITEMS,
-      }),
-    )
+    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledTimes(2)
+    expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
   })
 
-  it('deletes by queueing group updates and tombstones and emits item delete event', async () => {
+  it('deletes with group updates and tombstones and emits item delete event', async () => {
     const group = {
       ...getBlankGroup('g1', false),
       members: ['p1'],
     }
     const person = getBlankPerson('p1', false)
 
-    mocks.fetchItems.mockResolvedValue([group, person])
+    vi.mocked(fetchItems).mockResolvedValue([group, person])
 
     await mutateDeleteItems('p1')
 
-    expect(enqueueMutation).toHaveBeenCalledWith(
-      'items.putMany',
-      expect.objectContaining({
-        items: expect.arrayContaining([
-          expect.objectContaining({ id: 'g1', deleted: undefined }),
-          expect.objectContaining({ id: 'p1', deleted: true }),
-        ]),
-      }),
-      expect.objectContaining({
-        conflictHandlerKey: CONFLICT_HANDLER_AUTOMERGE_ITEMS,
-      }),
+    expect(fetchItems).toHaveBeenCalledTimes(1)
+    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'g1', members: [] }),
     )
+    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p1', deleted: true }),
+    )
+    expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
     expect(emitDomainEvent).toHaveBeenCalledWith({
       type: 'data:deleted',
       domain: 'items',
@@ -145,20 +109,15 @@ describe('local-first mutations', () => {
     })
   })
 
-  it('enqueues encrypted metadata branches', async () => {
+  it('pushes metadata updates directly to vault client', async () => {
     const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-
-    expect(enqueueMutation).toHaveBeenCalledWith(
-      'accounts.updateMetadata',
-      expect.objectContaining({
-        account: 'test-account',
-        metadata: expect.objectContaining({
-          branches: expect.any(Array),
-        }),
-      }),
-    )
-    expect(processOfflineQueue).toHaveBeenCalledTimes(1)
+    expect(setMetadata).toHaveBeenCalledWith(expect.objectContaining({ prayerGoal: 20 }))
+    expect(emitDomainEvent).toHaveBeenCalledWith({
+      type: 'data:updated',
+      domain: 'metadata',
+      reason: 'automerge:metadata-updated',
+    })
   })
 })

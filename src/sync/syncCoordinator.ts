@@ -1,20 +1,19 @@
 import { emitAppEvent } from '../app/appEvents'
+import { emitDomainEvent } from '../events/domainEvents'
 import { startDataInvalidationController } from '../api/dataInvalidationController'
 import { processRealtimeItemEvents } from '../api/itemReadService'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
-import {
-  initialiseDeadLetterQueueCount,
-  processOfflineQueue,
-  startOfflineQueueHealthMonitor,
-} from './offlineQueue'
-import { ensureDefaultMutationStrategiesRegistered } from './defaultMutationStrategies'
-import { initializeQueueNetworkExecutor, getQueueNetworkExecutor } from './queueNetworkExecutor'
-import { startQueueLeaderLock, stopQueueLeaderLock, requestQueueProcessing } from './queueLeaderLock'
 import { startSyncEventHandlers } from './syncEventHandlers'
-import { createTrpcQueueNetworkExecutor } from './trpcQueueNetworkExecutor'
 import { startStoreBindings } from '../state/storeBindings'
+import {
+  requestAutomergeSync,
+  startAutomergeSyncDispatcher,
+  stopAutomergeSyncDispatcher,
+} from './automergeSyncDispatcher'
+import { initializeAutomergeDocStore } from './automergeDocStore'
+import { readManualRecoveryCount } from './manualRecoveryStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -22,6 +21,7 @@ type SyncCoordinatorOptions = {
 
 let activeKey = ''
 let activeCleanup: (() => void) | null = null
+const HIDDEN_DISCONNECT_DELAY_MS = 30 * 1000
 
 export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   const key = options.account
@@ -36,22 +36,16 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   const unsubscribeDataInvalidation = startDataInvalidationController()
   const unsubscribeStoreBindings = startStoreBindings()
 
-  initializeQueueNetworkExecutor(createTrpcQueueNetworkExecutor())
-  ensureDefaultMutationStrategiesRegistered(getQueueNetworkExecutor())
-
   initializeSyncHealthWatchers()
-  startOfflineQueueHealthMonitor()
 
-  startQueueLeaderLock({
-    account: options.account,
-    onProcessRequested: () => {
-      void processOfflineQueue()
-    },
+  void initializeAutomergeDocStore(options.account)
+  startAutomergeSyncDispatcher(options.account)
+  void readManualRecoveryCount().then(count => {
+    emitDomainEvent({ type: 'sync:recovery-count-changed', count })
   })
 
   const handleOnline = () => {
-    requestQueueProcessing()
-    void processOfflineQueue()
+    requestAutomergeSync()
   }
 
   if (typeof window !== 'undefined') {
@@ -59,7 +53,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   }
 
   let realtimeStarted = false
-  const startRealtimeIfAuthorized = () => {
+  function startRealtimeIfAuthorized(): void {
     if (realtimeStarted) {
       return
     }
@@ -80,9 +74,11 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
         void (async () => {
           await processRealtimeItemEvents(events)
           emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'realtime:event' })
-          requestQueueProcessing()
-          await processOfflineQueue()
+          requestAutomergeSync()
         })()
+      },
+      onSyncPing: itemIds => {
+        requestAutomergeSync(itemIds)
       },
     })
 
@@ -90,7 +86,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'realtime:start' })
   }
 
-  const stopRealtime = () => {
+  function stopRealtime(): void {
     if (!realtimeStarted) {
       return
     }
@@ -99,28 +95,66 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     realtimeStarted = false
   }
 
+  let hiddenDisconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearHiddenDisconnectTimer = () => {
+    if (!hiddenDisconnectTimer) {
+      return
+    }
+
+    clearTimeout(hiddenDisconnectTimer)
+    hiddenDisconnectTimer = null
+  }
+
+  const handleVisibilityChange = () => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    if (document.visibilityState === 'hidden') {
+      clearHiddenDisconnectTimer()
+      hiddenDisconnectTimer = setTimeout(() => {
+        hiddenDisconnectTimer = null
+        if (document.visibilityState === 'hidden') {
+          stopRealtime()
+        }
+      }, HIDDEN_DISCONNECT_DELAY_MS)
+      return
+    }
+
+    clearHiddenDisconnectTimer()
+    startRealtimeIfAuthorized()
+    requestAutomergeSync()
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
   startRealtimeIfAuthorized()
   const unsubscribeAuthToken = subscribeApiAuthToken(token => {
     if (token) {
       startRealtimeIfAuthorized()
+      requestAutomergeSync()
     } else {
       stopRealtime()
     }
   })
 
-  void (async () => {
-    await initialiseDeadLetterQueueCount()
-    requestQueueProcessing()
-    await processOfflineQueue()
-  })()
+  requestAutomergeSync()
 
   activeCleanup = () => {
     unsubscribeSyncEvents()
     unsubscribeDataInvalidation()
     unsubscribeStoreBindings()
     unsubscribeAuthToken()
+    clearHiddenDisconnectTimer()
     stopRealtime()
-    stopQueueLeaderLock()
+    stopAutomergeSyncDispatcher()
+
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
 
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', handleOnline)
