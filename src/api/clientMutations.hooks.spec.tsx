@@ -23,7 +23,7 @@ import { emitDomainEvent } from '../events/domainEvents'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
-  upsertAutomergeItemSnapshot,
+  withAutomergeItemChange,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { setMetadata } from './vault/client'
@@ -36,7 +36,7 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     ...actual,
     getAutomergeItems: vi.fn(() => []),
     initializeAutomergeDocStore: vi.fn(),
-    upsertAutomergeItemSnapshot: vi.fn(),
+    withAutomergeItemChange: vi.fn(async () => undefined),
   }
 })
 
@@ -98,7 +98,7 @@ describe('item mutation hooks', () => {
   })
 
   it('exposes mutation error state when automerge store save fails', async () => {
-    vi.mocked(upsertAutomergeItemSnapshot).mockRejectedValueOnce(new Error('save failed'))
+    vi.mocked(withAutomergeItemChange).mockRejectedValueOnce(new Error('save failed'))
 
     const { result } = renderHook(() => useStoreItemsMutation(), { wrapper })
     const updated = { ...getBlankPerson('p1', false), name: 'Updated' }
@@ -147,12 +147,8 @@ describe('item mutation hooks', () => {
     })
 
     expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'g1', members: [] }),
-    )
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'p1', deleted: true }),
-    )
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('g1', expect.any(Function))
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
 
     expect(emitDomainEvent).toHaveBeenCalledWith({
@@ -171,7 +167,7 @@ describe('item mutation hooks', () => {
       await result.current.mutateAsync({ ...existing, name: 'Saved' })
     })
 
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', name: 'Saved' }))
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 })

@@ -5,7 +5,7 @@ import { emitDomainEvent } from '../events/domainEvents'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
-  upsertAutomergeItemSnapshot,
+  withAutomergeItemChange,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { setMetadata } from './vault/client'
@@ -17,7 +17,7 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     ...actual,
     getAutomergeItems: vi.fn(() => []),
     initializeAutomergeDocStore: vi.fn(),
-    upsertAutomergeItemSnapshot: vi.fn(),
+    withAutomergeItemChange: vi.fn(async () => undefined),
   }
 })
 
@@ -64,13 +64,13 @@ describe('local-first mutations', () => {
 
     expect(result[0].id).toBe('p1')
     expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(item)
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 
   it('validates incoming item payloads with zod before storing', async () => {
     await expect(mutateStoreItems({ id: 'bad-item', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
-    expect(upsertAutomergeItemSnapshot).not.toHaveBeenCalled()
+    expect(withAutomergeItemChange).not.toHaveBeenCalled()
   })
 
   it('stores batch updates and requests sync for all ids', async () => {
@@ -79,7 +79,9 @@ describe('local-first mutations', () => {
 
     await mutateStoreItems([first, second])
 
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledTimes(2)
+    expect(withAutomergeItemChange).toHaveBeenCalledTimes(2)
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p2', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
   })
 
@@ -95,12 +97,8 @@ describe('local-first mutations', () => {
     await mutateDeleteItems('p1')
 
     expect(fetchItems).toHaveBeenCalledTimes(1)
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'g1', members: [] }),
-    )
-    expect(upsertAutomergeItemSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'p1', deleted: true }),
-    )
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('g1', expect.any(Function))
+    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
     expect(emitDomainEvent).toHaveBeenCalledWith({
       type: 'data:deleted',

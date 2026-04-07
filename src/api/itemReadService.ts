@@ -29,7 +29,6 @@ import { parseVaultEnvelope } from './vault/envelopeParser'
 import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
 import { itemsSyncEngine } from './vault/syncEngine'
 import migrateItems from '../state/migrations'
-import type { RealtimeEventEnvelope } from '../shared/realtime'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from './trpc'
 import {
@@ -272,48 +271,6 @@ export async function fetchItems(): Promise<Item[]> {
   requestAutomergeSync()
 
   return sortItems(localItems, DEFAULT_CRITERIA)
-}
-
-export async function processRealtimeItemEvents(events: RealtimeEventEnvelope[]): Promise<void> {
-  if (!events.length) {
-    return
-  }
-
-  const updatedItemIds = new Set<string>()
-  const deletedItemIds = new Set<string>()
-
-  for (const event of events) {
-    if (event.eventType !== 'items.updated' && event.eventType !== 'items.deleted') {
-      continue
-    }
-
-    const data = (event.data || {}) as {
-      itemIds?: unknown
-      deletedItemIds?: unknown
-    }
-
-    if (Array.isArray(data.itemIds)) {
-      for (const id of data.itemIds) {
-        if (typeof id === 'string') {
-          updatedItemIds.add(id)
-        }
-      }
-    }
-
-    if (Array.isArray(data.deletedItemIds)) {
-      for (const id of data.deletedItemIds) {
-        if (typeof id === 'string') {
-          deletedItemIds.add(id)
-        }
-      }
-    }
-  }
-
-  if (updatedItemIds.size === 0 && deletedItemIds.size === 0) {
-    return
-  }
-
-  requestAutomergeSync(Array.from(new Set([...updatedItemIds, ...deletedItemIds])))
 }
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {

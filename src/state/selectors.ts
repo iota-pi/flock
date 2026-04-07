@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
@@ -11,9 +11,49 @@ import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
+import { getAutomergeItems, subscribeAutomergeItems } from '../sync/automergeDocStore'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
-const EMPTY_ARRAY: [] = []
+const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
+const bootstrapPromiseByAccount = new Map<string, Promise<void>>()
+
+function ensureItemsBootstrap(account: string): Promise<void> {
+  const inFlight = bootstrapPromiseByAccount.get(account)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const bootstrap = fetchItems()
+    .then(() => {
+      requestAutomergeSync()
+    })
+    .finally(() => {
+      bootstrapPromiseByAccount.delete(account)
+    })
+
+  bootstrapPromiseByAccount.set(account, bootstrap)
+  return bootstrap
+}
+
+function useAutomergeItemsSnapshot(): Item[] {
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const account = useAuthStore(state => state.account)
+
+  useEffect(() => {
+    if (!authReady || !account) {
+      return
+    }
+
+    void ensureItemsBootstrap(account)
+  }, [account, authReady])
+
+  return useSyncExternalStore(
+    subscribeAutomergeItems,
+    () => (authReady ? getAutomergeItems() : EMPTY_ARRAY),
+    () => EMPTY_ARRAY,
+  )
+}
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
 export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state.initializing)
@@ -21,70 +61,44 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const authReady = useAuthReady()
-  const selectItems = useCallback(
-    (items: Item[]) => {
-      const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
-      return (
-        itemType
-          ? visibleItems.filter(i => i.type === itemType)
-          : visibleItems
-      ) as T[]
-    },
-    [itemType],
-  )
-  const { data: items = EMPTY_ARRAY as T[] } = useQuery<Item[], Error, T[]>({
-    queryKey: getQueryKey(trpc.items.fetchMany),
-    queryFn: fetchItems,
-    enabled: authReady,
-    select: selectItems,
-  })
-  return items
+  const items = useAutomergeItemsSnapshot()
+
+  return useMemo(() => {
+    const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
+    return (
+      itemType
+        ? visibleItems.filter(i => i.type === itemType)
+        : visibleItems
+    ) as T[]
+  }, [itemType, items])
 }
 
 export function useItemsInitialLoading(): boolean {
-  const authReady = useAuthReady()
-  const { isLoading } = useQuery<Item[]>({
-    queryKey: getQueryKey(trpc.items.fetchMany),
-    queryFn: fetchItems,
-    enabled: authReady,
-  })
-  return isLoading
+  return false
 }
 
 export const useItemMap = () => {
-  const authReady = useAuthReady()
-  const selectItemMap = useCallback(
-    (items: Item[]) => {
-      const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
-      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
-    },
-    [],
-  )
-  const { data: itemMap = EMPTY_ITEM_MAP } = useQuery<Item[], Error, Record<ItemId, Item>>({
-    queryKey: getQueryKey(trpc.items.fetchMany),
-    queryFn: fetchItems,
-    enabled: authReady,
-    select: selectItemMap,
-  })
-  return itemMap
+  const items = useAutomergeItemsSnapshot()
+
+  return useMemo(() => {
+    if (items.length === 0) {
+      return EMPTY_ITEM_MAP
+    }
+
+    const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
+    return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
+  }, [items])
 }
 
 export const useItem = (id: ItemId) => {
-  const authReady = useAuthReady()
-  const selectItem = useCallback(
-    (items: Item[]) => items
+  const items = useAutomergeItemsSnapshot()
+
+  return useMemo(
+    () => items
       .filter(item => !(item as Item & { deleted?: boolean }).deleted)
       .find(item => item.id === id),
-    [id],
+    [id, items],
   )
-  const { data: item } = useQuery<Item[], Error, Item | undefined>({
-    queryKey: getQueryKey(trpc.items.fetchMany),
-    queryFn: fetchItems,
-    enabled: authReady      && typeof id === 'string',
-    select: selectItem,
-  })
-  return item
 }
 
 export function useItemsById() {

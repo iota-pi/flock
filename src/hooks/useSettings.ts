@@ -17,6 +17,8 @@ import { queryClient } from '../api/queryClient'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
+import { clearAutomergeDocStore, getAutomergeItems } from '../sync/automergeDocStore'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export type SettingsDialogType = (
   | 'goal'
@@ -57,8 +59,10 @@ export default function useSettings() {
 
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
   const handleClearCache = useCallback(
-    () => {
+    async () => {
+      await clearAutomergeDocStore()
       queryClient.clear()
+      requestAutomergeSync()
       setCacheClearCounter(c => c + 1)
       setMessage({ message: 'Item cache cleared' })
     },
@@ -166,7 +170,7 @@ export default function useSettings() {
   const [goal] = useMetadata('prayerGoal', naturalGoal)
 
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? queryClient.getQueryData(getQueryKey(trpc.items.fetchMany)) !== undefined : false),
+    () => (cacheClearCounter ? getAutomergeItems().length > 0 : false),
     [cacheClearCounter],
   )
 

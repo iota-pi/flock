@@ -143,17 +143,6 @@ export default abstract class BaseDriver<T = unknown> {
 
   abstract delete(key: VaultKey): Promise<void>
 
-  // Conflict resolution - replace multiple branches with single merged branch
-  abstract resolveBranchConflict(
-    account: string,
-    itemId: string,
-    resolvedBranch: {
-      encryptedAutomergeDoc: string
-      versionId: string
-      parentIds: string[]
-    },
-  ): Promise<void>
-
   abstract claimIdempotencyKey(
     account: string,
     idempotencyKey: string,

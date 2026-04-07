@@ -6,8 +6,6 @@ import { getAccountId } from '../util'
 import { setLastSyncServerTime } from '../../sync/syncServerTimeStore'
 import {
   FetchItemsInputSchema,
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
   UpdateMetadataBodySchema,
 } from '../../shared/syncSchemas'
 
@@ -37,11 +35,6 @@ export type VaultItem = ItemEnvelope & {
   ttl?: number,
 }
 
-export type BatchResultResponse = {
-  success: boolean,
-  details: Array<{ item: ItemId, success: boolean, error?: string }>,
-}
-
 export type FetchManyResponse<TItem> = {
   success: boolean,
   items: TItem[],
@@ -64,70 +57,6 @@ export type VaultMetadataEnvelope =
   | {
     branches: VaultBranch[]
   }
-
-export class VaultBatchError extends Error {
-  failures: Array<{ item: ItemId, error?: string }>
-
-  constructor(failures: Array<{ item: ItemId, error?: string }>) {
-    super(`Vault client batch operation failed for items: ${failures.map(f => f.item).join(', ')}`)
-    this.name = 'VaultBatchError'
-    this.failures = failures
-  }
-}
-
-export class VaultVersionConflictError extends Error {
-  conflictIds: ItemId[]
-
-  constructor(conflictIds: ItemId[]) {
-    super(`Version conflict for items: ${conflictIds.join(', ')}`)
-    this.name = 'VaultVersionConflictError'
-    this.conflictIds = conflictIds
-  }
-}
-
-function extractConflictIdsFromError(error: unknown): ItemId[] {
-  const maybeAny = error as {
-    message?: unknown
-    cause?: { conflicts?: unknown }
-    data?: { code?: unknown; cause?: { conflicts?: unknown } }
-  }
-
-  const fromCause = maybeAny?.cause?.conflicts
-  if (Array.isArray(fromCause)) {
-    return fromCause.filter((item): item is string => typeof item === 'string')
-  }
-
-  const fromDataCause = maybeAny?.data?.cause?.conflicts
-  if (Array.isArray(fromDataCause)) {
-    return fromDataCause.filter((item): item is string => typeof item === 'string')
-  }
-
-  const message = typeof maybeAny?.message === 'string' ? maybeAny.message : ''
-  const prefix = 'VERSION_CONFLICT:'
-  if (message.startsWith(prefix)) {
-    const serializedIds = message.slice(prefix.length).trim()
-    if (!serializedIds) {
-      return []
-    }
-    return serializedIds.split(',').map(id => id.trim()).filter(Boolean)
-  }
-
-  return []
-}
-
-function isConflictTrpcError(error: unknown): boolean {
-  const maybeAny = error as {
-    data?: { code?: unknown }
-    message?: unknown
-  }
-
-  if (maybeAny?.data?.code === 'CONFLICT') {
-    return true
-  }
-
-  const message = typeof maybeAny?.message === 'string' ? maybeAny.message : ''
-  return message.startsWith('VERSION_CONFLICT:')
-}
 
 function assertSuccess(response: { success: boolean }, operation: string) {
   if (!response.success) {
@@ -168,50 +97,6 @@ export async function fetchMany({
   return {
     items: data.items as CachedVaultItem[] | VaultItem[],
     serverTime,
-  }
-}
-
-export async function put(item: VaultItem) {
-  const input = PutItemBodySchema.parse({
-    account: getAccountId(),
-    item: item.item,
-    branches: item.branches || [],
-    modified: item.metadata.modified,
-    type: item.metadata.type,
-    deleted: item.metadata.deleted,
-  })
-
-  try {
-    await trpcClient.items.put.mutate(input)
-  } catch (error) {
-    if (isConflictTrpcError(error)) {
-      throw new VaultVersionConflictError(extractConflictIdsFromError(error))
-    }
-
-    throw error
-  }
-}
-
-export async function putMany({ items }: { items: VaultItem[] }) {
-  const input = PutItemsBatchBodySchema.parse({
-    account: getAccountId(),
-    items: items.map(item => ({
-      id: item.item,
-      branches: item.branches || [],
-      modified: item.metadata.modified,
-      type: item.metadata.type,
-      deleted: item.metadata.deleted,
-    })),
-  })
-
-  try {
-    await trpcClient.items.putMany.mutate(input)
-  } catch (error) {
-    if (isConflictTrpcError(error)) {
-      throw new VaultVersionConflictError(extractConflictIdsFromError(error))
-    }
-
-    throw error
   }
 }
 

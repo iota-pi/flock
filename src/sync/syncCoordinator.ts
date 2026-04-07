@@ -1,7 +1,6 @@
 import { emitAppEvent } from '../app/appEvents'
 import { emitDomainEvent } from '../events/domainEvents'
 import { startDataInvalidationController } from '../api/dataInvalidationController'
-import { processRealtimeItemEvents } from '../api/itemReadService'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
@@ -69,13 +68,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
         if (event.eventType === 'metadata.updated') {
           emitAppEvent({ type: 'data:updated', domain: 'metadata', reason: 'realtime:event' })
         }
-      },
-      onItemEvents: events => {
-        void (async () => {
-          await processRealtimeItemEvents(events)
-          emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'realtime:event' })
-          requestAutomergeSync()
-        })()
       },
       onSyncPing: itemIds => {
         requestAutomergeSync(itemIds)

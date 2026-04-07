@@ -1,8 +1,5 @@
 import type { VaultItem } from './client'
-import { hasApiAuthToken } from '../runtime'
-import { getAccountId } from '../util'
 import { getVaultKey } from '../vault'
-import { trpcClient } from '../trpcClient'
 import { maybeCompactItemInWorker } from '../../workers/decryptionWorkerManager'
 import { getEnvelopeCacheKey } from './decryptionCacheKey'
 import { sharedDecryptionCache } from './DecryptionCache'
@@ -52,18 +49,6 @@ async function processQueue(): Promise<void> {
           source: candidate.source,
           automergeBinary: candidate.automergeBinary,
           onCompacted: async compacted => {
-            if (!hasApiAuthToken()) {
-              return
-            }
-
-            await trpcClient.items.compactItem.mutate({
-              account: getAccountId(),
-              item: compacted.itemId,
-              baseVersionId: compacted.baseVersionId,
-              compactedBranch: compacted.compactedBranch,
-              idempotencyKey: `compact-${compacted.itemId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            })
-
             const compactedEnvelope: VaultEnvelope = {
               kind: 'branching',
               branches: [compacted.compactedBranch],
@@ -78,7 +63,7 @@ async function processQueue(): Promise<void> {
               cacheKey: getEnvelopeCacheKey(compactedEnvelope),
               automergeBinary: compacted.compactedBinary,
             })
-            sharedDecryptionCache.schedulePersist(getAccountId())
+            sharedDecryptionCache.schedulePersist(candidate.source.account || '')
           },
           onError: error => {
             const itemId = candidate.source.item

@@ -12,7 +12,7 @@ import {
   writeAutomergeSyncCursor,
 } from './automergeDocStore'
 
-const DISPATCH_INTERVAL_MS = 15 * 1000
+const FALLBACK_POLL_INTERVAL_MS = 10 * 60 * 1000
 const MAX_PUSH_MESSAGES_PER_ITEM = 10
 
 let activeAccount: string | null = null
@@ -131,7 +131,7 @@ export function startAutomergeSyncDispatcher(account: string): void {
 
   intervalHandle = setInterval(() => {
     void runSyncCycle()
-  }, DISPATCH_INTERVAL_MS)
+  }, FALLBACK_POLL_INTERVAL_MS)
 
   scheduleImmediateSync()
 }

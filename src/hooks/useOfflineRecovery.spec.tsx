@@ -12,37 +12,8 @@ const mocks = vi.hoisted(() => ({
   setRecoveryCount: vi.fn(),
   requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
-  invalidateItems: vi.fn(),
-  putMutateAsync: vi.fn(),
-  resolveBranchConflictMutateAsync: vi.fn(),
-}))
-
-vi.mock('../api/trpc', () => ({
-  trpc: {
-    items: {
-      fetchMany: {},
-      put: {
-        useMutation: () => ({
-          mutateAsync: mocks.putMutateAsync,
-        }),
-      },
-      resolveBranchConflict: {
-        useMutation: () => ({
-          mutateAsync: mocks.resolveBranchConflictMutateAsync,
-        }),
-      },
-    },
-    accounts: {
-      getMetadata: {},
-    },
-    useUtils: () => ({
-      items: {
-        fetchMany: {
-          invalidate: mocks.invalidateItems,
-        },
-      },
-    }),
-  },
+  getAutomergeItem: vi.fn(),
+  withAutomergeItemChange: vi.fn(async () => undefined),
 }))
 
 vi.mock('../sync/manualRecoveryStore', () => ({
@@ -56,10 +27,9 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
   requestAutomergeSync: mocks.requestAutomergeSync,
 }))
 
-vi.mock('../api/queryClient', () => ({
-  queryClient: {
-    getQueryData: vi.fn(),
-  },
+vi.mock('../sync/automergeDocStore', () => ({
+  getAutomergeItem: mocks.getAutomergeItem,
+  withAutomergeItemChange: mocks.withAutomergeItemChange,
 }))
 
 vi.mock('../state/syncStore', () => ({
@@ -144,7 +114,6 @@ describe('useOfflineRecovery', () => {
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
     mocks.readManualRecoveryCount.mockResolvedValue(0)
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
-    mocks.invalidateItems.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useOfflineRecovery(), {
       wrapper: createWrapper(),
@@ -160,11 +129,39 @@ describe('useOfflineRecovery', () => {
 
     expect(mocks.removeManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-corrupted-1')
     expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-corrupted-1'])
-    expect(mocks.invalidateItems).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({
       severity: 'info',
       message: 'Retry sync triggered for item-corrupted-1.',
     })
     expect(result.current.isRetrying).toBe(null)
+  })
+
+  it('force overwrite applies local item snapshot and requests sync', async () => {
+    const entry = { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }
+    mocks.readManualRecoveryEntries.mockResolvedValue([entry])
+    mocks.readManualRecoveryCount.mockResolvedValue(0)
+    mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
+    mocks.getAutomergeItem.mockReturnValue({
+      id: 'item-1',
+      type: 'person',
+      name: 'Alice',
+      prayedFor: [],
+      notes: [],
+      description: '',
+      archived: false,
+      created: 0,
+      prayerFrequency: 'none',
+    })
+
+    const { result } = renderHook(() => useOfflineRecovery(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      await result.current.handleForceOverwriteCorruptedItem('item-1')
+    })
+
+    expect(mocks.withAutomergeItemChange).toHaveBeenCalledWith('item-1', expect.any(Function))
+    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-1'])
   })
 })

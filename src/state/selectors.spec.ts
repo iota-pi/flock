@@ -49,21 +49,19 @@ const itemsFixture: Item[] = [
   },
 ]
 
-vi.mock('@tanstack/react-query', async importOriginal => {
-  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
-  return {
-    ...actual,
-    useQuery: (options?: { enabled?: boolean, select?: (items: Item[]) => unknown }) => {
-      if (options?.enabled === false) {
-        return { data: undefined }
-      }
-      return {
-        data: options?.select ? options.select(itemsFixture) : itemsFixture,
-      }
-    },
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  }
-})
+vi.mock('../api/itemReadService', () => ({
+  fetchItems: vi.fn(async () => itemsFixture),
+  fetchMetadata: vi.fn(async () => ({})),
+}))
+
+vi.mock('../sync/automergeDocStore', () => ({
+  getAutomergeItems: vi.fn(() => itemsFixture),
+  subscribeAutomergeItems: vi.fn(() => () => undefined),
+}))
+
+vi.mock('../sync/automergeSyncDispatcher', () => ({
+  requestAutomergeSync: vi.fn(),
+}))
 
 describe('state selectors', () => {
   beforeEach(() => {
@@ -87,7 +85,7 @@ describe('state selectors', () => {
     expect(result.current.map(item => item.id)).toEqual(['person-1', 'group-1', 'topic-1'])
   })
 
-  it('useItems filters by type using query select', () => {
+  it('useItems filters by type', () => {
     const { result } = renderHook(() => useItems<Item>('person'))
     expect(result.current.map(item => item.id)).toEqual(['person-1'])
   })

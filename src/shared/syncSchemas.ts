@@ -2,16 +2,12 @@ import { z } from 'zod'
 import {
   FetchItemsInputSchema,
   ItemFormInputSchema,
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
   UpdateMetadataBodySchema,
 } from '../vault/trpc/schemas'
 
 export {
   FetchItemsInputSchema,
   ItemFormInputSchema,
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
   UpdateMetadataBodySchema,
 }
 

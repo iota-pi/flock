@@ -758,40 +758,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return chunks
   }
 
-  /**
-   * Resolve multiple branches for an item by replacing them with a single merged branch
-   * Used when a client detects and merges multiple branches
-   */
-  async resolveBranchConflict(
-    account: string,
-    itemId: string,
-    resolvedBranch: {
-      encryptedAutomergeDoc: string
-      versionId: string
-      parentIds: string[]
-    },
-  ): Promise<void> {
-    const params: UpdateCommandInput = {
-      TableName: ITEM_TABLE_NAME,
-      Key: { account, item: itemId },
-      UpdateExpression: 'SET branches = :newBranch, metadata.modified = :modified',
-      ExpressionAttributeValues: {
-        ':newBranch': [resolvedBranch],
-        ':modified': new Date().getTime(),
-      },
-      ConditionExpression: 'attribute_exists(item)',
-    }
-
-    try {
-      await this.client.send(new UpdateCommand(params))
-    } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
-        throw new Error(`Item not found: ${itemId}`)
-      }
-      throw error
-    }
-  }
-
   async get({ account, item }: VaultKey) {
     const response = await this.client.send(new GetCommand(
       {

@@ -15,7 +15,7 @@ import {
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
-  upsertAutomergeItemSnapshot,
+  withAutomergeItemChange,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
 import { setMetadata as pushMetadata } from '../../../api/vault/client'
@@ -64,7 +64,13 @@ export async function mutateStoreItems(
   await ensureAutomergeStoreReady()
 
   for (const item of current) {
-    await upsertAutomergeItemSnapshot(item)
+    await withAutomergeItemChange(item.id, draft => {
+      for (const key of Object.keys(draft)) {
+        delete draft[key]
+      }
+
+      Object.assign(draft, item as unknown as Record<string, unknown>)
+    })
   }
 
   requestAutomergeSync(current.map(item => item.id))

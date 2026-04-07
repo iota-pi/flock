@@ -170,6 +170,8 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
       // Ignore invalid records to keep local store robust.
     }
   })
+
+  notifyAll()
 }
 
 export function listAutomergeItemIds(): string[] {
