@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from './itemMutations'
+import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from '../features/items/mutations/itemMutations'
 import { emitDomainEvent } from '../events/domainEvents'
 import {
   getAutomergeItems,

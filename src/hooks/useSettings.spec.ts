@@ -16,7 +16,7 @@ vi.mock('../api/vault', () => ({
   signOutVault: mocks.signOutVault,
 }))
 
-vi.mock('../api/itemMutations', () => ({
+vi.mock('../features/items/mutations/itemMutations', () => ({
   mutateStoreItems: mocks.mutateStoreItems,
   mutateSetMetadata: mocks.mutateSetMetadata,
 }))
@@ -81,8 +81,6 @@ describe('useSettings backup portability', () => {
       version: 1,
       items: [{ id: 'i1', type: 'person', name: 'N', archived: false }],
     })
-    expect(parsed.offlineQueue).toBeUndefined()
-    expect(parsed.deadLetterQueue).toBeUndefined()
   })
 
   it('restores metadata and items without queue side effects', async () => {

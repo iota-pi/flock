@@ -4,7 +4,7 @@ import type { GroupItem } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItems } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
-import { mutateStoreItems } from '../../../api/itemMutations'
+import { mutateStoreItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 

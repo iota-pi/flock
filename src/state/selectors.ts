@@ -9,7 +9,7 @@ import {
   fetchMetadata,
   metadataQueryOptions,
 } from '../api/itemReadService'
-import { mutateSetMetadata } from '../api/itemMutations'
+import { mutateSetMetadata } from '../features/items/mutations/itemMutations'
 import { queryClient } from '../api/queryClient'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'

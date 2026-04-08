@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
 import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
 import ItemList from '../../features/items/components/ItemList'
@@ -13,7 +13,8 @@ import {
 import BasePage from './BasePage'
 import { useUiStore } from '../../state/uiStore'
 import { useNavigationStore } from '../../state/navigationStore'
-import { useAsyncItems } from '../../hooks/useAsyncItems'
+import { processItemsWithWorker } from '../../workers/itemWorkerManager'
+import { useStableDeepValue } from '../../hooks/useStableDeepValue'
 
 export interface Props<T extends Item> {
   itemType: T['type'],
@@ -35,21 +36,57 @@ function ItemPage<T extends Item>({
   const [sortCriteria] = useSortCriteria()
 
   const [showArchived, setShowArchived] = useState(false)
+  const [items, setItems] = useState<T[]>(() => (
+    showArchived ? rawItems : rawItems.filter(i => !i.archived) as T[]
+  ))
+  const [totalApplicable, setTotalApplicable] = useState(() => (
+    showArchived ? rawItems.length : rawItems.filter(i => !i.archived).length
+  ))
+  const [archivedCount, setArchivedCount] = useState(() => (
+    rawItems.filter(i => i.archived).length
+  ))
+  const stableFilters = useStableDeepValue(filters)
+  const stableSortCriteria = useStableDeepValue(sortCriteria)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void processItemsWithWorker({
+      items: rawItems,
+      filters: stableFilters,
+      sortCriteria: stableSortCriteria,
+      showArchived,
+    })
+      .then(result => {
+        if (cancelled) {
+          return
+        }
+
+        setItems(result.results as T[])
+        setTotalApplicable(result.totalApplicable)
+        setArchivedCount(result.archivedCount)
+      })
+      .catch(() => {
+        if (cancelled) {
+          return
+        }
+
+        const fallbackItems = showArchived ? rawItems : rawItems.filter(i => !i.archived)
+        setItems(fallbackItems as T[])
+        setTotalApplicable(fallbackItems.length)
+        setArchivedCount(rawItems.filter(i => i.archived).length)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [rawItems, showArchived, stableFilters, stableSortCriteria])
+
   const handleClickShowArchived = useCallback(
     () => setShowArchived(sa => !sa),
     [],
   )
 
-  const {
-    items,
-    totalApplicable,
-    archivedCount,
-  } = useAsyncItems({
-    items: rawItems,
-    filters,
-    sortCriteria,
-    showArchived,
-  })
   const hiddenItemCount = totalApplicable - items.length
 
   const handleClickItem = useCallback(

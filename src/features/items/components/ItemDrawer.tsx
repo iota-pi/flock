@@ -31,7 +31,8 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { mutateDeleteItems, mutateStoreItems } from '../../../api/itemMutations'
+import { mutateDeleteItems, mutateStoreItems } from '../mutations/itemMutations'
+import { useAutomergeItem } from '../../../hooks/useAutomergeItem'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 
@@ -61,7 +62,20 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
+  const automergeItem = useAutomergeItem(item.id)
   const [disableAutoSave, setDisableAutoSave] = useState(false)
+
+  const resolvedItem = useMemo(() => {
+    if (item.dirty || item.isNew || !automergeItem) {
+      return item
+    }
+
+    return {
+      ...automergeItem,
+      dirty: item.dirty,
+      isNew: item.isNew,
+    } as DirtyItem<Item>
+  }, [automergeItem, item])
 
   const prevItem = usePrevious(item)
 
@@ -161,8 +175,8 @@ function ItemDrawer({
     [handleSave, item],
   )
 
-  const { archived } = item
-  const lastPrayer = getLastPrayedFor(item)
+  const { archived } = resolvedItem
+  const lastPrayer = getLastPrayedFor(resolvedItem)
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
 
   const archiveMenuItem = useMemo(
@@ -170,7 +184,7 @@ function ItemDrawer({
       <MenuItem
         data-cy="archive"
         key="archive"
-        disabled={item.isNew}
+        disabled={resolvedItem.isNew}
         onClick={() => {
           handleChange({ archived: !archived })
         }}
@@ -181,11 +195,11 @@ function ItemDrawer({
         <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
       </MenuItem>
     ),
-    [archived, handleChange, item.isNew],
+    [archived, handleChange, resolvedItem.isNew],
   )
 
   const changeTypeMenuItems = useMemo(
-    () => ITEM_TYPES.filter(t => t !== item.type).map(itemType => (
+    () => ITEM_TYPES.filter(t => t !== resolvedItem.type).map(itemType => (
       <MenuItem
         data-cy="change-type"
         key={itemType}
@@ -199,7 +213,7 @@ function ItemDrawer({
         <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
       </MenuItem>
     )),
-    [item.type, handleChange],
+    [resolvedItem.type, handleChange],
   )
 
   const markPrayedMenuItem = useMemo(
@@ -207,7 +221,7 @@ function ItemDrawer({
       <MenuItem
         data-cy="mark-prayed"
         key="mark-prayed"
-        disabled={item.isNew}
+        disabled={resolvedItem.isNew}
         onClick={() => {
           handleChange(prev => {
             let prayedFor = prev.prayedFor
@@ -230,14 +244,14 @@ function ItemDrawer({
         </ListItemText>
       </MenuItem>
     ),
-    [handleChange, item.isNew, isPrayedForToday],
+    [handleChange, resolvedItem.isNew, isPrayedForToday],
   )
 
   const headerActions = useMemo(
     () => (
       <ItemViewTopBar
         compact
-        item={item}
+        item={resolvedItem}
         menuButtonDataCy="item-menu-button"
         menuItems={[
           markPrayedMenuItem,
@@ -247,19 +261,19 @@ function ItemDrawer({
         showEditButton={false}
       />
     ),
-    [archiveMenuItem, changeTypeMenuItems, fromPrayerPage, item, markPrayedMenuItem],
+    [archiveMenuItem, changeTypeMenuItems, fromPrayerPage, markPrayedMenuItem, resolvedItem],
   )
 
   return (
     <BaseDrawer
       ActionProps={{
-        canSave: isValid(item),
-        itemIsNew: item.isNew,
-        itemName: getItemName(item),
+        canSave: isValid(resolvedItem),
+        itemIsNew: resolvedItem.isNew,
+        itemName: getItemName(resolvedItem),
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
-        promptSave: !!item.dirty,
+        promptSave: !!resolvedItem.dirty,
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}
@@ -270,11 +284,11 @@ function ItemDrawer({
       onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
-      typeIcon={getIconType(item.type)}
+      typeIcon={getIconType(resolvedItem.type)}
     >
       <ItemFormContent
         handleChange={handleChange}
-        item={item}
+        item={resolvedItem}
         fromPrayerPage={fromPrayerPage}
       />
     </BaseDrawer>

@@ -3,9 +3,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { useLocation, useNavigate } from 'react-router'
 import { isItem, Item } from '../../state/items'
 import { DrawerData, useNavigationStore } from '../../state/navigationStore'
-import { useItem, useLoggedIn } from '../../state/selectors'
+import { useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
+import { useAutomergeItem } from '../../hooks/useAutomergeItem'
 
 const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
@@ -90,7 +91,7 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const existingItem = useItem(drawer.item || generateItemId())
+  const existingItem = useAutomergeItem(drawer.item || generateItemId())
   const item = existingItem || drawer.newItem
 
   const [localItem, setLocalItem] = useState<Item | undefined>(item)

@@ -4,7 +4,7 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { mutateSetMetadata, mutateStoreItems } from '../api/itemMutations'
+import { mutateSetMetadata, mutateStoreItems } from '../features/items/mutations/itemMutations'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
