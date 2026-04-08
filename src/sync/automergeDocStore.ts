@@ -235,6 +235,61 @@ export function listAutomergeItemIds(): string[] {
   return listAutomergeDocumentIds().filter(documentId => !isMetadataDocumentId(documentId))
 }
 
+async function refreshDocumentFromStorage(documentId: string): Promise<void> {
+  if (!loadedAccount) {
+    return
+  }
+
+  const stored = await store.getItem<PersistedDocRecord>(toDocStorageKey(loadedAccount, documentId))
+
+  if (!stored || typeof stored !== 'object') {
+    entriesByDocumentId.delete(documentId)
+    return
+  }
+
+  try {
+    const docBinary = decodeBytes(stored.doc)
+    const encodedSyncState = decodeBytes(stored.syncState)
+    const doc = Automerge.load<Record<string, unknown>>(docBinary)
+    const syncState = Automerge.decodeSyncState(encodedSyncState)
+
+    entriesByDocumentId.set(documentId, {
+      doc,
+      syncState,
+      cursor: typeof stored.cursor === 'number' ? stored.cursor : 0,
+    })
+  } catch {
+    entriesByDocumentId.delete(documentId)
+  }
+}
+
+export function invalidateCachedItems(itemIds: string[]): void {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(itemId => typeof itemId === 'string' && itemId.length > 0)))
+  if (uniqueItemIds.length === 0) {
+    return
+  }
+
+  for (const itemId of uniqueItemIds) {
+    cachedItemSnapshotById.delete(itemId)
+  }
+
+  markItemsSnapshotDirty()
+  if (uniqueItemIds.some(itemId => isMetadataDocumentId(itemId))) {
+    markMetadataSnapshotDirty()
+  }
+
+  void Promise.all(uniqueItemIds.map(itemId => refreshDocumentFromStorage(itemId))).finally(() => {
+    for (const itemId of uniqueItemIds) {
+      if (isMetadataDocumentId(itemId)) {
+        notifyMetadata()
+      } else {
+        notifyItem(itemId)
+        notifyAll()
+      }
+    }
+  })
+}
+
 export function getAutomergeItems(): Item[] {
   if (!cachedItemsSnapshotDirty) {
     return cachedItemsSnapshot

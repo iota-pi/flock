@@ -29,14 +29,14 @@ function createCursor(): number {
   return Number(`${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`)
 }
 
-export async function pushAutomergeSyncMessage(input: {
+async function appendSyncMessage(input: {
   account: string
   itemId: string
   encryptedMessage: {
     iv: string
     cipher: string
   }
-}): Promise<{ success: true; cursor: number }> {
+}): Promise<number> {
   const now = Date.now()
   const cursor = createCursor()
   const entry: StoredSyncMessage = {
@@ -63,11 +63,56 @@ export async function pushAutomergeSyncMessage(input: {
     },
   }))
 
+  return cursor
+}
+
+export async function pushAutomergeSyncMessage(input: {
+  account: string
+  itemId: string
+  encryptedMessage: {
+    iv: string
+    cipher: string
+  }
+}): Promise<{ success: true; cursor: number }> {
+  const cursor = await appendSyncMessage(input)
+
   await publishSyncPing(input.account, [input.itemId])
 
   return {
     success: true,
     cursor,
+  }
+}
+
+export async function pushAutomergeSyncBatch(input: {
+  account: string
+  messages: Array<{
+    itemId: string
+    encryptedMessage: {
+      iv: string
+      cipher: string
+    }
+  }>
+}): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
+  const results: Array<{ itemId: string; cursor: number }> = []
+
+  for (const message of input.messages) {
+    const cursor = await appendSyncMessage({
+      account: input.account,
+      itemId: message.itemId,
+      encryptedMessage: message.encryptedMessage,
+    })
+    results.push({ itemId: message.itemId, cursor })
+  }
+
+  const uniqueItemIds = Array.from(new Set(input.messages.map(message => message.itemId)))
+  if (uniqueItemIds.length > 0) {
+    await publishSyncPing(input.account, uniqueItemIds)
+  }
+
+  return {
+    success: true,
+    results,
   }
 }
 
@@ -108,5 +153,49 @@ export async function pullAutomergeSyncMessages(input: {
     itemId: input.itemId,
     nextCursor,
     messages,
+  }
+}
+
+export async function pullAutomergeSyncBatch(input: {
+  account: string
+  cursors: Array<{
+    itemId: string
+    cursor?: number
+  }>
+}): Promise<{
+  success: true
+  results: Array<{
+    success: true
+    itemId: string
+    nextCursor: number
+    messages: StoredSyncMessage[]
+  }>
+}> {
+  const dedupedCursorsByItemId = new Map<string, number>()
+  for (const cursorInput of input.cursors) {
+    const existing = dedupedCursorsByItemId.get(cursorInput.itemId) || 0
+    const next = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0
+    dedupedCursorsByItemId.set(cursorInput.itemId, Math.max(existing, next))
+  }
+
+  const results: Array<{
+    success: true
+    itemId: string
+    nextCursor: number
+    messages: StoredSyncMessage[]
+  }> = []
+
+  for (const [itemId, cursor] of dedupedCursorsByItemId.entries()) {
+    const pulled = await pullAutomergeSyncMessages({
+      account: input.account,
+      itemId,
+      cursor,
+    })
+    results.push(pulled)
+  }
+
+  return {
+    success: true,
+    results,
   }
 }

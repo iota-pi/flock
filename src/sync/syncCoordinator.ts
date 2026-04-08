@@ -1,12 +1,8 @@
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
-import {
-  requestAutomergeSync,
-  startAutomergeSyncDispatcher,
-  stopAutomergeSyncDispatcher,
-} from './automergeSyncDispatcher'
-import { ACCOUNT_METADATA_DOCUMENT_ID, initializeAutomergeDocStore } from './automergeDocStore'
+import { requestAutomergeSync } from './automergeSyncDispatcher'
+import { initializeAutomergeDocStore } from './automergeDocStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -28,7 +24,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   initializeSyncHealthWatchers()
 
   void initializeAutomergeDocStore(options.account)
-  startAutomergeSyncDispatcher(options.account)
 
   const handleOnline = () => {
     requestAutomergeSync()
@@ -53,11 +48,8 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       account: options.account,
       onServerEvent: event => {
         if (event.eventType === 'metadata.updated') {
-          requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
+          requestAutomergeSync()
         }
-      },
-      onSyncPing: itemIds => {
-        requestAutomergeSync(itemIds)
       },
     })
 
@@ -125,7 +117,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     unsubscribeAuthToken()
     clearHiddenDisconnectTimer()
     stopRealtime()
-    stopAutomergeSyncDispatcher()
 
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibilityChange)

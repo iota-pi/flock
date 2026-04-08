@@ -17,11 +17,7 @@ export type RealtimeSyncPing = {
   itemIds: string[]
 }
 
-export type RealtimeChannelMessage =
-  | { type: 'request-leader'; tabId: string }
-  | { type: 'im-leader'; tabId: string }
-  | { type: 'leader-alive'; tabId: string; timestamp: number }
-  | { type: 'leader-dying'; tabId: string }
-  | { type: 'reconnecting'; tabId: string; reconnecting: boolean }
-  | { type: 'server-event'; tabId: string; event: RealtimeEventEnvelope }
-  | { type: 'sync-ping'; tabId: string; itemIds: string[] }
+export type RealtimeBusEvent =
+  | { type: 'LOCAL_EDIT'; itemId: string }
+  | { type: 'REMOTE_UPDATED'; itemIds: string[] }
+  | { type: 'SYNC_PING'; itemIds: string[] }

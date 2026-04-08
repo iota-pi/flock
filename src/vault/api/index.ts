@@ -8,7 +8,9 @@ import { appRouter } from '../trpc/root'
 import { createContext } from '../trpc/trpc'
 import { getAuthToken } from './util'
 import {
+  pullAutomergeSyncBatch,
   pullAutomergeSyncMessages,
+  pushAutomergeSyncBatch,
   pushAutomergeSyncMessage,
 } from '../services/automergeSyncService'
 
@@ -47,14 +49,12 @@ async function createServer() {
       account?: unknown
       itemId?: unknown
       encryptedMessage?: { iv?: unknown; cipher?: unknown }
+      messages?: unknown
     }
 
     const account = typeof body?.account === 'string' ? body.account : ''
-    const itemId = typeof body?.itemId === 'string' ? body.itemId : ''
-    const iv = typeof body?.encryptedMessage?.iv === 'string' ? body.encryptedMessage.iv : ''
-    const cipher = typeof body?.encryptedMessage?.cipher === 'string' ? body.encryptedMessage.cipher : ''
 
-    if (!account || !itemId || !iv || !cipher) {
+    if (!account) {
       return reply.status(400).send({ success: false, error: 'Invalid sync push payload' })
     }
 
@@ -64,10 +64,108 @@ async function createServer() {
       return reply.status(401).send({ success: false, error: 'Unauthorized' })
     }
 
+    if (Array.isArray(body.messages)) {
+      const messages = body.messages.map(message => {
+        const typedMessage = message as {
+          itemId?: unknown
+          encryptedMessage?: {
+            iv?: unknown
+            cipher?: unknown
+          }
+        }
+
+        const itemId = typeof typedMessage.itemId === 'string' ? typedMessage.itemId : ''
+        const iv = typeof typedMessage.encryptedMessage?.iv === 'string' ? typedMessage.encryptedMessage.iv : ''
+        const cipher = typeof typedMessage.encryptedMessage?.cipher === 'string' ? typedMessage.encryptedMessage.cipher : ''
+
+        return {
+          itemId,
+          encryptedMessage: {
+            iv,
+            cipher,
+          },
+        }
+      })
+
+      const validMessages = messages.filter(message => (
+        message.itemId.length > 0
+        && message.encryptedMessage.iv.length > 0
+        && message.encryptedMessage.cipher.length > 0
+      ))
+
+      if (validMessages.length !== messages.length) {
+        return reply.status(400).send({ success: false, error: 'Invalid sync push payload' })
+      }
+
+      const result = await pushAutomergeSyncBatch({
+        account,
+        messages: validMessages,
+      })
+
+      return reply.send(result)
+    }
+
+    const itemId = typeof body?.itemId === 'string' ? body.itemId : ''
+    const iv = typeof body?.encryptedMessage?.iv === 'string' ? body.encryptedMessage.iv : ''
+    const cipher = typeof body?.encryptedMessage?.cipher === 'string' ? body.encryptedMessage.cipher : ''
+
+    if (!itemId || !iv || !cipher) {
+      return reply.status(400).send({ success: false, error: 'Invalid sync push payload' })
+    }
+
     const result = await pushAutomergeSyncMessage({
       account,
       itemId,
       encryptedMessage: { iv, cipher },
+    })
+
+    return reply.send(result)
+  })
+
+  server.post('/sync/pull', async (request, reply) => {
+    const body = request.body as {
+      account?: unknown
+      cursors?: unknown
+    }
+
+    const account = typeof body.account === 'string' ? body.account : ''
+    if (!account || !Array.isArray(body.cursors)) {
+      return reply.status(400).send({ success: false, error: 'Invalid sync pull payload' })
+    }
+
+    const cursors = body.cursors.map(cursorEntry => {
+      const typedCursorEntry = cursorEntry as {
+        itemId?: unknown
+        cursor?: unknown
+      }
+
+      const itemId = typeof typedCursorEntry.itemId === 'string' ? typedCursorEntry.itemId : ''
+      const cursor = typeof typedCursorEntry.cursor === 'number'
+        ? typedCursorEntry.cursor
+        : typeof typedCursorEntry.cursor === 'string'
+          ? Number(typedCursorEntry.cursor)
+          : 0
+
+      return {
+        itemId,
+        cursor: Number.isFinite(cursor) ? cursor : 0,
+      }
+    })
+
+    const validCursors = cursors.filter(cursorEntry => cursorEntry.itemId.length > 0)
+    if (validCursors.length !== cursors.length) {
+      return reply.status(400).send({ success: false, error: 'Invalid sync pull payload' })
+    }
+
+    const session = getAuthToken(request)
+    const valid = await vault.checkSession({ account, session }).catch(() => ({ success: false }))
+    if (!valid.success) {
+      return reply.status(401).send({ success: false, error: 'Unauthorized' })
+    }
+
+    const result = await pullAutomergeSyncBatch({
+      account,
+      cursors: validCursors,
     })
 
     return reply.send(result)

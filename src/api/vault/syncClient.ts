@@ -17,6 +17,35 @@ type PullSyncMessagesInput = {
   cursor?: number
 }
 
+export type PushSyncBatchInput = {
+  account?: string
+  messages: Array<{
+    itemId: string
+    encryptedMessage: SyncMessageEnvelope
+  }>
+}
+
+export type PushSyncBatchResponse = {
+  success: boolean
+  results: Array<{
+    itemId: string
+    cursor: number
+  }>
+}
+
+export type PullSyncBatchInput = {
+  account?: string
+  cursors: Array<{
+    itemId: string
+    cursor?: number
+  }>
+}
+
+export type PullSyncBatchResponse = {
+  success: boolean
+  results: PullSyncMessagesResponse[]
+}
+
 type PullSyncMessagesResponse = {
   success: boolean
   itemId: string
@@ -36,6 +65,26 @@ function requireEndpoint(): string {
 }
 
 export async function pushSyncMessage(input: PushSyncMessageInput): Promise<{ success: boolean; cursor: number }> {
+  const response = await pushSyncBatch({
+    account: input.account,
+    messages: [{
+      itemId: input.itemId,
+      encryptedMessage: input.encryptedMessage,
+    }],
+  })
+
+  const result = response.results.find(entry => entry.itemId === input.itemId)
+  if (!result) {
+    throw new Error('Sync push failed: missing cursor in batch response')
+  }
+
+  return {
+    success: response.success,
+    cursor: result.cursor,
+  }
+}
+
+export async function pushSyncBatch(input: PushSyncBatchInput): Promise<PushSyncBatchResponse> {
   const account = input.account || getAccountId()
 
   const response = await trackedFetch(`${requireEndpoint()}/sync/push`, {
@@ -45,8 +94,7 @@ export async function pushSyncMessage(input: PushSyncMessageInput): Promise<{ su
     },
     body: JSON.stringify({
       account,
-      itemId: input.itemId,
-      encryptedMessage: input.encryptedMessage,
+      messages: input.messages,
     }),
   })
 
@@ -54,25 +102,47 @@ export async function pushSyncMessage(input: PushSyncMessageInput): Promise<{ su
     throw new Error(`Sync push failed with status ${response.status}`)
   }
 
-  return response.json() as Promise<{ success: boolean; cursor: number }>
+  return response.json() as Promise<PushSyncBatchResponse>
 }
 
 export async function pullSyncMessages(input: PullSyncMessagesInput): Promise<PullSyncMessagesResponse> {
-  const account = input.account || getAccountId()
-  const url = new URL(`${requireEndpoint()}/sync/pull`)
-  url.searchParams.set('account', account)
-  url.searchParams.set('itemId', input.itemId)
-  if (typeof input.cursor === 'number' && input.cursor > 0) {
-    url.searchParams.set('cursor', String(input.cursor))
+  const response = await pullSyncBatch({
+    account: input.account,
+    cursors: [{
+      itemId: input.itemId,
+      cursor: input.cursor,
+    }],
+  })
+
+  const result = response.results.find(entry => entry.itemId === input.itemId)
+  if (result) {
+    return result
   }
 
-  const response = await trackedFetch(url, {
-    method: 'GET',
+  return {
+    success: true,
+    itemId: input.itemId,
+    nextCursor: typeof input.cursor === 'number' ? input.cursor : 0,
+    messages: [],
+  }
+}
+
+export async function pullSyncBatch(input: PullSyncBatchInput): Promise<PullSyncBatchResponse> {
+  const account = input.account || getAccountId()
+  const response = await trackedFetch(`${requireEndpoint()}/sync/pull`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      account,
+      cursors: input.cursors,
+    }),
   })
 
   if (!response.ok) {
     throw new Error(`Sync pull failed with status ${response.status}`)
   }
 
-  return response.json() as Promise<PullSyncMessagesResponse>
+  return response.json() as Promise<PullSyncBatchResponse>
 }

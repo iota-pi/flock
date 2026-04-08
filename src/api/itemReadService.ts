@@ -4,7 +4,6 @@ import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import { syncDB } from './db'
 import { getAccountId } from './util'
 import {
-  ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
@@ -45,12 +44,11 @@ async function shouldLazyLoadLegacyMigrator(
 }
 
 function requestSyncForKnownDocuments(): void {
-  const knownDocumentIds = listAutomergeDocumentIds()
-  if (knownDocumentIds.length === 0) {
+  if (listAutomergeDocumentIds().length === 0) {
     return
   }
 
-  requestAutomergeSync(knownDocumentIds)
+  requestAutomergeSync()
 }
 
 export function getCachedMetadata(): AccountMetadata {
@@ -93,7 +91,7 @@ export async function ensureItemsBootstrap(
   requestSyncForKnownDocuments()
 
   if (options.forceMetadataRefetch) {
-    requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
+    requestAutomergeSync()
   }
 }
 

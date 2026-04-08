@@ -1,9 +1,17 @@
 import env from '../env'
 import type {
-  RealtimeChannelMessage,
+  RealtimeBusEvent,
   RealtimeEventEnvelope,
   RealtimeSyncPing,
 } from '../shared/realtime'
+import { invalidateCachedItems } from '../sync/automergeDocStore'
+import {
+  pullRemoteMessagesNow,
+  requestAutomergeSync,
+  startAutomergeSyncDispatcher,
+  stopAutomergeSyncDispatcher,
+} from '../sync/automergeSyncDispatcher'
+import { createRealtimeBusChannel, isRealtimeBusEvent, postRealtimeBusEvent } from '../sync/realtimeBus'
 import { getApiAuthToken } from './runtime'
 
 type RealtimeCoordinatorOptions = {
@@ -18,9 +26,6 @@ type RealtimeCoordinatorHandle = {
   stop: () => void
 }
 
-const LEADER_HEARTBEAT_INTERVAL_MS = 2000
-const LEADER_STALE_MS = 7000
-const ELECTION_DELAY_MS = 600
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
 
@@ -53,9 +58,303 @@ function writeLastEventId(account: string, eventId: number): void {
   window.localStorage.setItem(getLastEventIdStorageKey(account), String(eventId))
 }
 
-function createTabId(): string {
-  const randomPart = Math.random().toString(36).slice(2)
-  return `tab_${Date.now()}_${randomPart}`
+function normalizeItemIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const normalized = new Set<string>()
+  for (const candidate of value) {
+    if (typeof candidate !== 'string' || candidate.length === 0) {
+      continue
+    }
+
+    normalized.add(candidate)
+  }
+
+  return Array.from(normalized)
+}
+
+function handleServerEvent(
+  event: RealtimeEventEnvelope,
+  options: Pick<RealtimeCoordinatorOptions, 'account' | 'onServerEvent' | 'onItemsChanged' | 'onItemEvents'>,
+): void {
+  if (event.account !== options.account) {
+    return
+  }
+
+  if (event.eventType === 'items.updated' || event.eventType === 'items.deleted') {
+    const data = (event.data || {}) as {
+      itemIds?: unknown
+      deletedItemIds?: unknown
+    }
+
+    const updatedItemIds = normalizeItemIds(data.itemIds)
+    const deletedItemIds = normalizeItemIds(data.deletedItemIds)
+
+    if (updatedItemIds.length > 0 || deletedItemIds.length > 0) {
+      options.onItemsChanged?.({
+        updatedItemIds,
+        deletedItemIds,
+      })
+
+      options.onItemEvents?.([{
+        ...event,
+        data: {
+          itemIds: updatedItemIds,
+          deletedItemIds,
+        },
+      }])
+    }
+  }
+
+  if (typeof event.eventId === 'number' && event.eventId > 0) {
+    writeLastEventId(options.account, event.eventId)
+  }
+
+  options.onServerEvent(event)
+}
+
+function parseServerPayload(rawData: string | null | undefined): RealtimeEventEnvelope | RealtimeSyncPing | null {
+  if (!rawData) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
+
+    if ('action' in payload && payload.action === 'sync_ping') {
+      return payload
+    }
+
+    if ('eventType' in payload && 'account' in payload) {
+      return payload
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
+function createWebLockCoordinator(options: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
+  const account = options.account
+  const lockName = `flock-realtime-lock:${account}`
+
+  const bus = createRealtimeBusChannel(account)
+
+  let stopped = false
+  let reconnectAttempts = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let socket: WebSocket | null = null
+  let releaseLeadership: (() => void) | null = null
+  const lockAbortController = typeof AbortController !== 'undefined'
+    ? new AbortController()
+    : null
+
+  const clearReconnectTimer = () => {
+    if (!reconnectTimer) {
+      return
+    }
+
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
+  const closeWebSocket = () => {
+    if (!socket) {
+      return
+    }
+
+    socket.close()
+    socket = null
+  }
+
+  const runRemotePull = (itemIds: string[]) => {
+    const normalizedItemIds = normalizeItemIds(itemIds)
+    if (normalizedItemIds.length === 0) {
+      return
+    }
+
+    void pullRemoteMessagesNow(normalizedItemIds).then(updatedItemIds => {
+      const normalizedUpdatedIds = normalizeItemIds(updatedItemIds)
+      if (normalizedUpdatedIds.length === 0) {
+        return
+      }
+
+      const busEvent: RealtimeBusEvent = {
+        type: 'REMOTE_UPDATED',
+        itemIds: normalizedUpdatedIds,
+      }
+
+      postRealtimeBusEvent(account, busEvent)
+    }).catch(() => undefined)
+  }
+
+  const scheduleReconnect = () => {
+    clearReconnectTimer()
+    if (stopped) {
+      return
+    }
+
+    reconnectAttempts += 1
+    const backoff = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (reconnectAttempts - 1)))
+    const jitter = Math.random() * 0.2 * backoff
+    const delay = Math.floor(backoff + jitter)
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectWebSocket()
+    }, delay)
+  }
+
+  function connectWebSocket(): void {
+    if (stopped) {
+      return
+    }
+
+    closeWebSocket()
+
+    const token = getApiAuthToken()
+    if (!token || !env.VAULT_WS_ENDPOINT) {
+      scheduleReconnect()
+      return
+    }
+
+    const params = new URLSearchParams({
+      account,
+      token,
+    })
+
+    const lastEventId = readLastEventId(account)
+    if (lastEventId > 0) {
+      params.set('lastEventId', String(lastEventId))
+    }
+
+    const wsEndpoint = env.VAULT_WS_ENDPOINT.replace(/^http/i, 'ws')
+    const nextSocket = new WebSocket(`${wsEndpoint}?${params.toString()}`)
+    socket = nextSocket
+
+    nextSocket.onopen = () => {
+      reconnectAttempts = 0
+      requestAutomergeSync()
+    }
+
+    nextSocket.onmessage = event => {
+      const payload = parseServerPayload(typeof event.data === 'string' ? event.data : null)
+      if (!payload) {
+        return
+      }
+
+      if ('action' in payload && payload.action === 'sync_ping') {
+        const pingItemIds = normalizeItemIds(payload.itemIds)
+        postRealtimeBusEvent(account, {
+          type: 'SYNC_PING',
+          itemIds: pingItemIds,
+        })
+
+        options.onSyncPing?.(pingItemIds)
+        runRemotePull(pingItemIds)
+        return
+      }
+
+      if ('eventType' in payload && 'account' in payload) {
+        handleServerEvent(payload, options)
+      }
+    }
+
+    nextSocket.onerror = () => {
+      closeWebSocket()
+      scheduleReconnect()
+    }
+
+    nextSocket.onclose = () => {
+      closeWebSocket()
+      scheduleReconnect()
+    }
+  }
+
+  const stopLeader = () => {
+    clearReconnectTimer()
+    closeWebSocket()
+    stopAutomergeSyncDispatcher()
+  }
+
+  const startLeader = () => {
+    startAutomergeSyncDispatcher(account)
+    connectWebSocket()
+    requestAutomergeSync()
+  }
+
+  if (bus) {
+    bus.onmessage = event => {
+      if (!isRealtimeBusEvent(event.data)) {
+        return
+      }
+
+      if (event.data.type === 'REMOTE_UPDATED') {
+        invalidateCachedItems(event.data.itemIds)
+        return
+      }
+
+      if (event.data.type === 'SYNC_PING') {
+        options.onSyncPing?.(event.data.itemIds)
+      }
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    void navigator.locks.request(lockName, {
+      signal: lockAbortController?.signal,
+    }, async () => {
+      if (stopped) {
+        return
+      }
+
+      startLeader()
+
+      await new Promise<void>(resolve => {
+        releaseLeadership = () => {
+          if (!releaseLeadership) {
+            return
+          }
+
+          releaseLeadership = null
+          stopLeader()
+          resolve()
+        }
+      })
+    }).catch(() => {
+      stopLeader()
+    })
+  } else {
+    startLeader()
+  }
+
+  return {
+    stop: () => {
+      if (stopped) {
+        return
+      }
+
+      stopped = true
+      clearReconnectTimer()
+
+      if (releaseLeadership) {
+        releaseLeadership()
+      } else {
+        stopLeader()
+      }
+
+      if (lockAbortController) {
+        lockAbortController.abort()
+      }
+
+      if (bus) {
+        bus.close()
+      }
+    },
+  }
 }
 
 export function startRealtimeCoordinator(options: RealtimeCoordinatorOptions): void {
@@ -71,7 +370,7 @@ export function startRealtimeCoordinator(options: RealtimeCoordinatorOptions): v
   }
 
   activeKey = key
-  activeHandle = createCoordinator(options)
+  activeHandle = createWebLockCoordinator(options)
 }
 
 export function stopRealtimeCoordinator(): void {
@@ -82,356 +381,4 @@ export function stopRealtimeCoordinator(): void {
   activeHandle.stop()
   activeHandle = null
   activeKey = ''
-}
-
-function createCoordinator({ account, onServerEvent, onItemsChanged, onItemEvents, onSyncPing }: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
-  const tabId = createTabId()
-  const supportsBroadcastChannel = typeof BroadcastChannel !== 'undefined'
-  const channelName = `flock:realtime:${account}`
-  const channel = supportsBroadcastChannel ? new BroadcastChannel(channelName) : null
-
-  let stopped = false
-  let isLeader = false
-  let leaderTabId: string | null = null
-  let leaderLastSeenAt = 0
-  let reconnectAttempts = 0
-
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
-  let staleLeaderTimer: ReturnType<typeof setInterval> | null = null
-  let electionTimer: ReturnType<typeof setTimeout> | null = null
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let socket: WebSocket | null = null
-
-  const emit = (message: RealtimeChannelMessage) => {
-    if (!channel) {
-      return
-    }
-    channel.postMessage(message)
-  }
-
-  const handleServerEvent = (event: RealtimeEventEnvelope) => {
-    if (event.account !== account) {
-      return
-    }
-
-    if (event.eventType === 'items.updated' || event.eventType === 'items.deleted') {
-      const data = (event.data || {}) as {
-        itemIds?: unknown
-        deletedItemIds?: unknown
-      }
-      const updatedItemIds = Array.isArray(data.itemIds)
-        ? data.itemIds.filter((value): value is string => typeof value === 'string')
-        : []
-      const deletedItemIds = Array.isArray(data.deletedItemIds)
-        ? data.deletedItemIds.filter((value): value is string => typeof value === 'string')
-        : []
-
-      if (updatedItemIds.length > 0 || deletedItemIds.length > 0) {
-        onItemsChanged?.({
-          updatedItemIds,
-          deletedItemIds,
-        })
-        onItemEvents?.([{
-          ...event,
-          data: {
-            itemIds: updatedItemIds,
-            deletedItemIds,
-          },
-        }])
-      }
-    }
-
-    if (typeof event.eventId === 'number' && event.eventId > 0) {
-      writeLastEventId(account, event.eventId)
-    }
-
-    onServerEvent(event)
-  }
-
-  const parseAndHandleEvent = (rawData: string | null | undefined) => {
-    if (!rawData) {
-      return
-    }
-
-    try {
-      const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
-
-      if ('action' in payload && payload.action === 'sync_ping') {
-        const itemIds = Array.isArray(payload.itemIds)
-          ? payload.itemIds.filter((value): value is string => typeof value === 'string')
-          : []
-
-        onSyncPing?.(itemIds)
-        emit({ type: 'sync-ping', tabId, itemIds })
-        return
-      }
-
-      if ('eventType' in payload && 'account' in payload) {
-        handleServerEvent(payload)
-        emit({ type: 'server-event', tabId, event: payload })
-      }
-    } catch {
-      // Ignore malformed events to keep the connection alive.
-    }
-  }
-
-  const closeWebSocket = () => {
-    if (!socket) {
-      return
-    }
-    socket.close()
-    socket = null
-  }
-
-  const clearReconnectTimer = () => {
-    if (!reconnectTimer) {
-      return
-    }
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-
-  function connectWebSocket() {
-    if (stopped || !isLeader) {
-      return
-    }
-
-    closeWebSocket()
-
-    const token = getApiAuthToken()
-    if (!token || !env.VAULT_WS_ENDPOINT) {
-      scheduleReconnect()
-      return
-    }
-
-    const params = new URLSearchParams({ account, token })
-
-    const lastEventId = readLastEventId(account)
-    if (lastEventId > 0) {
-      params.set('lastEventId', String(lastEventId))
-    }
-
-    const wsEndpoint = env.VAULT_WS_ENDPOINT.replace(/^http/i, 'ws')
-    const ws = new WebSocket(`${wsEndpoint}?${params.toString()}`)
-    socket = ws
-
-    ws.onopen = () => {
-      reconnectAttempts = 0
-      emit({ type: 'reconnecting', tabId, reconnecting: false })
-    }
-
-    ws.onmessage = event => {
-      parseAndHandleEvent(typeof event.data === 'string' ? event.data : null)
-    }
-
-    ws.onerror = () => {
-      closeWebSocket()
-      scheduleReconnect()
-    }
-
-    ws.onclose = () => {
-      closeWebSocket()
-      scheduleReconnect()
-    }
-  }
-
-  function scheduleReconnect() {
-    clearReconnectTimer()
-    if (stopped || !isLeader) {
-      return
-    }
-
-    reconnectAttempts += 1
-    const backoff = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (reconnectAttempts - 1)))
-    const jitter = Math.random() * 0.2 * backoff
-    const delay = Math.floor(backoff + jitter)
-    emit({ type: 'reconnecting', tabId, reconnecting: true })
-
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      if (stopped || !isLeader) {
-        return
-      }
-      connectWebSocket()
-    }, delay)
-  }
-
-  const becomeLeader = () => {
-    if (stopped || isLeader) {
-      return
-    }
-
-    isLeader = true
-    leaderTabId = tabId
-    leaderLastSeenAt = Date.now()
-
-    emit({ type: 'im-leader', tabId })
-
-    if (!heartbeatTimer) {
-      heartbeatTimer = setInterval(() => {
-        emit({ type: 'leader-alive', tabId, timestamp: Date.now() })
-      }, LEADER_HEARTBEAT_INTERVAL_MS)
-    }
-
-    connectWebSocket()
-  }
-
-  const stepDownAsLeader = () => {
-    if (!isLeader) {
-      return
-    }
-
-    isLeader = false
-    leaderTabId = null
-
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer)
-      heartbeatTimer = null
-    }
-
-    closeWebSocket()
-    clearReconnectTimer()
-  }
-
-  function relinquishLeadership() {
-    if (!isLeader) {
-      return
-    }
-
-    emit({ type: 'leader-dying', tabId })
-    stepDownAsLeader()
-  }
-
-  const requestLeader = () => {
-    emit({ type: 'request-leader', tabId })
-
-    if (electionTimer) {
-      clearTimeout(electionTimer)
-    }
-
-    electionTimer = setTimeout(() => {
-      electionTimer = null
-      if (stopped || isLeader) {
-        return
-      }
-
-      const leaderIsFresh = leaderLastSeenAt > 0 && (Date.now() - leaderLastSeenAt) < LEADER_STALE_MS
-      if (!leaderIsFresh) {
-        becomeLeader()
-      }
-    }, ELECTION_DELAY_MS)
-  }
-
-  const handleChannelMessage = (message: RealtimeChannelMessage) => {
-    if (message.tabId === tabId) {
-      return
-    }
-
-    if (message.type === 'request-leader') {
-      if (isLeader) {
-        emit({ type: 'im-leader', tabId })
-      }
-      return
-    }
-
-    if (message.type === 'im-leader') {
-      leaderTabId = message.tabId
-      leaderLastSeenAt = Date.now()
-      if (isLeader && message.tabId !== tabId) {
-        stepDownAsLeader()
-      }
-      return
-    }
-
-    if (message.type === 'leader-alive') {
-      leaderTabId = message.tabId
-      leaderLastSeenAt = message.timestamp
-      if (isLeader && message.tabId !== tabId) {
-        stepDownAsLeader()
-      }
-      return
-    }
-
-    if (message.type === 'leader-dying') {
-      if (leaderTabId === message.tabId) {
-        leaderTabId = null
-        leaderLastSeenAt = 0
-        requestLeader()
-      }
-      return
-    }
-
-    if (message.type === 'server-event') {
-      handleServerEvent(message.event)
-      return
-    }
-
-    if (message.type === 'sync-ping') {
-      onSyncPing?.(message.itemIds)
-    }
-  }
-
-  if (channel) {
-    channel.onmessage = event => {
-      handleChannelMessage(event.data as RealtimeChannelMessage)
-    }
-  }
-
-  const handlePageHide = () => {
-    relinquishLeadership()
-  }
-
-  window.addEventListener('pagehide', handlePageHide)
-  window.addEventListener('beforeunload', handlePageHide)
-
-  if (!supportsBroadcastChannel) {
-    becomeLeader()
-  } else {
-    requestLeader()
-
-    staleLeaderTimer = setInterval(() => {
-      if (stopped || isLeader) {
-        return
-      }
-
-      const leaderIsFresh = leaderLastSeenAt > 0 && (Date.now() - leaderLastSeenAt) < LEADER_STALE_MS
-      if (!leaderIsFresh) {
-        requestLeader()
-      }
-    }, LEADER_HEARTBEAT_INTERVAL_MS)
-  }
-
-  return {
-    stop: () => {
-      if (stopped) {
-        return
-      }
-      stopped = true
-
-      if (isLeader) {
-        emit({ type: 'leader-dying', tabId })
-      }
-
-      stepDownAsLeader()
-
-      if (staleLeaderTimer) {
-        clearInterval(staleLeaderTimer)
-        staleLeaderTimer = null
-      }
-
-      if (electionTimer) {
-        clearTimeout(electionTimer)
-        electionTimer = null
-      }
-
-      clearReconnectTimer()
-
-      window.removeEventListener('pagehide', handlePageHide)
-      window.removeEventListener('beforeunload', handlePageHide)
-
-      if (channel) {
-        channel.close()
-      }
-    },
-  }
 }

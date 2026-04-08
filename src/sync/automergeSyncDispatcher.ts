@@ -1,7 +1,7 @@
 import { decryptBytesWithKey, encryptBytesWithKey } from '../api/vault/crypto'
 import { getVaultKey } from '../api/vault'
-import { syncDB } from '../api/db'
-import { pullSyncMessages, pushSyncMessage } from '../api/vault/syncClient'
+import { getAccountId } from '../api/util'
+import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
@@ -12,197 +12,259 @@ import {
   writeAutomergeSyncCursor,
 } from './automergeDocStore'
 import { useSyncStore } from '../state/syncStore'
+import { createRealtimeBusChannel, isRealtimeBusEvent, postRealtimeBusEvent } from './realtimeBus'
 
-const FALLBACK_POLL_INTERVAL_MS = 10 * 60 * 1000
-const MAX_PUSH_MESSAGES_PER_ITEM = 10
-const SYNC_QUEUE_STORAGE_KEY = 'automerge-pending-sync-queue'
 const SHOULD_THROW_SYNC_ERRORS = (
   typeof window !== 'undefined'
   && !!(window as Window & { Cypress?: unknown }).Cypress
 )
 
 let activeAccount: string | null = null
-let intervalHandle: ReturnType<typeof setInterval> | null = null
-let syncing = false
-let isQueueLoaded = false
-const pendingRequestedDocumentIds = new Set<string>()
+let activeBusChannel: BroadcastChannel | null = null
+let operationChain: Promise<void> = Promise.resolve()
 
-function getSyncQueueStorageKey(account: string): string {
-  return `${SYNC_QUEUE_STORAGE_KEY}_${account}`
-}
+async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
+  const pendingBatch: Array<{
+    itemId: string
+    encryptedMessage: {
+      iv: string
+      cipher: string
+    }
+    nextSyncState: Parameters<typeof commitAutomergeSyncState>[1]
+  }> = []
 
-async function persistPendingQueue(account: string): Promise<void> {
-  await syncDB.setItem(getSyncQueueStorageKey(account), Array.from(pendingRequestedDocumentIds))
-}
-
-function scheduleImmediateSync(): void {
-  queueMicrotask(() => {
-    void runSyncCycle()
-  })
-}
-
-async function pushLocalMessages(account: string, itemId: string): Promise<void> {
-  for (let iteration = 0; iteration < MAX_PUSH_MESSAGES_PER_ITEM; iteration += 1) {
+  for (const itemId of itemIds) {
     const generated = createAutomergeSyncMessage(itemId)
     if (!generated || !generated.message) {
-      return
+      continue
     }
 
     const encryptedMessage = await encryptBytesWithKey(getVaultKey(), generated.message)
-    await pushSyncMessage({
-      account,
+    pendingBatch.push({
       itemId,
       encryptedMessage,
+      nextSyncState: generated.nextSyncState,
     })
-
-    await commitAutomergeSyncState(itemId, generated.nextSyncState)
   }
-}
 
-async function pullRemoteMessages(account: string, itemId: string): Promise<void> {
-  const cursor = readAutomergeSyncCursor(itemId)
-  const response = await pullSyncMessages({
+  if (pendingBatch.length === 0) {
+    return
+  }
+
+  await pushSyncBatch({
     account,
-    itemId,
-    cursor,
+    messages: pendingBatch.map(entry => ({
+      itemId: entry.itemId,
+      encryptedMessage: entry.encryptedMessage,
+    })),
   })
 
-  if (!Array.isArray(response.messages) || response.messages.length === 0) {
-    if (typeof response.nextCursor === 'number' && response.nextCursor > cursor) {
-      await writeAutomergeSyncCursor(itemId, response.nextCursor)
-    }
-    return
-  }
+  await Promise.all(pendingBatch.map(entry => (
+    commitAutomergeSyncState(entry.itemId, entry.nextSyncState)
+  )))
+}
 
-  for (const message of response.messages) {
-    if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
+async function pullRemoteMessagesBatch(account: string, itemIds: string[]): Promise<string[]> {
+  const response = await pullSyncBatch({
+    account,
+    cursors: itemIds.map(itemId => ({
+      itemId,
+      cursor: readAutomergeSyncCursor(itemId),
+    })),
+  })
+
+  const updatedItemIds = new Set<string>()
+
+  for (const itemResult of response.results) {
+    if (!itemResult || typeof itemResult.itemId !== 'string' || itemResult.itemId.length === 0) {
       continue
     }
 
-    const decrypted = await decryptBytesWithKey(getVaultKey(), message.encryptedMessage)
-    await receiveAutomergeSyncMessage(itemId, decrypted)
+    let highestCursor = readAutomergeSyncCursor(itemResult.itemId)
 
-    if (typeof message.cursor === 'number' && message.cursor > 0) {
-      await writeAutomergeSyncCursor(itemId, message.cursor)
-    }
-  }
+    for (const message of itemResult.messages || []) {
+      if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
+        continue
+      }
 
-}
+      const decrypted = await decryptBytesWithKey(getVaultKey(), message.encryptedMessage)
+      const changed = await receiveAutomergeSyncMessage(itemResult.itemId, decrypted)
+      if (changed) {
+        updatedItemIds.add(itemResult.itemId)
+      }
 
-async function runSyncCycle(): Promise<void> {
-  if (syncing || !activeAccount || !isQueueLoaded) {
-    return
-  }
-
-  const account = activeAccount
-
-  syncing = true
-  useSyncStore.getState().setIsSyncing(true)
-  try {
-    await initializeAutomergeDocStore(account)
-
-    const targetIds = Array.from(pendingRequestedDocumentIds)
-
-    if (targetIds.length === 0) {
-      return
-    }
-
-    for (const itemId of targetIds) {
-      try {
-        await pushLocalMessages(account, itemId)
-        await pullRemoteMessages(account, itemId)
-        pendingRequestedDocumentIds.delete(itemId)
-        await persistPendingQueue(account)
-      } catch (error) {
-        if (SHOULD_THROW_SYNC_ERRORS) {
-          throw error
-        }
+      if (typeof message.cursor === 'number' && message.cursor > highestCursor) {
+        highestCursor = message.cursor
       }
     }
-  } catch (error) {
-    // Sync is best-effort; failures are retried on future sync requests.
-    if (SHOULD_THROW_SYNC_ERRORS) {
-      throw error
+
+    if (typeof itemResult.nextCursor === 'number' && itemResult.nextCursor > highestCursor) {
+      highestCursor = itemResult.nextCursor
     }
-  } finally {
-    useSyncStore.getState().setIsSyncing(false)
-    syncing = false
+
+    if (highestCursor > 0) {
+      await writeAutomergeSyncCursor(itemResult.itemId, highestCursor)
+    }
+  }
+
+  return Array.from(updatedItemIds)
+}
+
+function uniqueItemIds(itemIds?: string[]): string[] {
+  const source = Array.isArray(itemIds) && itemIds.length > 0
+    ? itemIds
+    : listAutomergeDocumentIds()
+
+  const unique = new Set<string>()
+  for (const itemId of source) {
+    if (typeof itemId !== 'string' || itemId.length === 0) {
+      continue
+    }
+
+    unique.add(itemId)
+  }
+
+  return Array.from(unique)
+}
+
+function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const wrapped = operationChain.then(async () => {
+    useSyncStore.getState().setIsSyncing(true)
+
+    try {
+      return await operation()
+    } finally {
+      useSyncStore.getState().setIsSyncing(false)
+    }
+  })
+
+  operationChain = wrapped
+    .then(() => undefined)
+    .catch(error => {
+      if (SHOULD_THROW_SYNC_ERRORS) {
+        throw error
+      }
+    })
+
+  return wrapped
+}
+
+async function withActiveAccount<T>(action: (account: string) => Promise<T>): Promise<T | undefined> {
+  const account = activeAccount
+  if (!account) {
+    return undefined
+  }
+
+  await initializeAutomergeDocStore(account)
+  return action(account)
+}
+
+async function pushItemNow(itemId: string): Promise<void> {
+  await withActiveAccount(async account => {
+    await pushLocalMessagesBatch(account, [itemId])
+  })
+}
+
+export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[]> {
+  const normalizedIds = uniqueItemIds(itemIds)
+  if (normalizedIds.length === 0) {
+    return []
+  }
+
+  const result = await enqueueSyncOperation(() => withActiveAccount(async account => {
+    return pullRemoteMessagesBatch(account, normalizedIds)
+  }))
+
+  return result || []
+}
+
+async function runFullSync(itemIds?: string[]): Promise<void> {
+  const normalizedIds = uniqueItemIds(itemIds)
+  if (normalizedIds.length === 0) {
+    return
+  }
+
+  await withActiveAccount(async account => {
+    await pushLocalMessagesBatch(account, normalizedIds)
+    await pullRemoteMessagesBatch(account, normalizedIds)
+  })
+}
+
+function resolveAccountForRealtimeBus(): string | null {
+  if (activeAccount) {
+    return activeAccount
+  }
+
+  try {
+    return getAccountId()
+  } catch {
+    return null
   }
 }
 
-export function requestAutomergeSync(documentIds?: string[]): void {
-  const targetDocumentIds = Array.isArray(documentIds)
-    ? documentIds
-    : listAutomergeDocumentIds()
-
-  let changed = false
-
-  for (const documentId of targetDocumentIds) {
-    if (typeof documentId !== 'string' || documentId.length === 0) {
-      continue
-    }
-
-    if (pendingRequestedDocumentIds.has(documentId)) {
-      continue
-    }
-
-    pendingRequestedDocumentIds.add(documentId)
-    changed = true
+function postLocalEditEvents(itemIds: string[]): void {
+  const account = resolveAccountForRealtimeBus()
+  if (!account) {
+    return
   }
 
-  if (changed && activeAccount) {
-    void persistPendingQueue(activeAccount)
+  for (const itemId of itemIds) {
+    postRealtimeBusEvent(account, {
+      type: 'LOCAL_EDIT',
+      itemId,
+    })
+  }
+}
+
+export function requestAutomergeSync(itemIds?: string[]): void {
+  const normalizedIds = uniqueItemIds(itemIds)
+
+  if (normalizedIds.length > 0) {
+    if (typeof BroadcastChannel !== 'undefined') {
+      postLocalEditEvents(normalizedIds)
+    } else if (activeAccount) {
+      void enqueueSyncOperation(() => runFullSync(normalizedIds))
+    }
+
+    if (!activeAccount && SHOULD_THROW_SYNC_ERRORS) {
+      throw new Error('Sync dispatcher is not active')
+    }
+    return
   }
 
-  scheduleImmediateSync()
+  void enqueueSyncOperation(() => runFullSync())
 }
 
 export function startAutomergeSyncDispatcher(account: string): void {
-  if (activeAccount === account && intervalHandle) {
+  if (activeAccount === account && activeBusChannel) {
     return
   }
 
   stopAutomergeSyncDispatcher()
   activeAccount = account
-  isQueueLoaded = false
+  operationChain = Promise.resolve()
 
-  void syncDB.getItem<string[]>(getSyncQueueStorageKey(account)).then(savedQueue => {
-    if (activeAccount !== account) {
-      return
-    }
-
-    if (Array.isArray(savedQueue)) {
-      for (const id of savedQueue) {
-        if (typeof id === 'string' && id.length > 0) {
-          pendingRequestedDocumentIds.add(id)
-        }
+  activeBusChannel = createRealtimeBusChannel(account)
+  if (activeBusChannel) {
+    activeBusChannel.onmessage = event => {
+      if (!isRealtimeBusEvent(event.data) || event.data.type !== 'LOCAL_EDIT') {
+        return
       }
+
+      void enqueueSyncOperation(() => pushItemNow(event.data.itemId))
     }
+  }
 
-    isQueueLoaded = true
-    scheduleImmediateSync()
-  }).catch(() => {
-    if (activeAccount !== account) {
-      return
-    }
-
-    isQueueLoaded = true
-    scheduleImmediateSync()
-  })
-
-  intervalHandle = setInterval(() => {
-    void runSyncCycle()
-  }, FALLBACK_POLL_INTERVAL_MS)
+  void enqueueSyncOperation(() => runFullSync())
 }
 
 export function stopAutomergeSyncDispatcher(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle)
-    intervalHandle = null
+  if (activeBusChannel) {
+    activeBusChannel.close()
+    activeBusChannel = null
   }
 
   activeAccount = null
-  isQueueLoaded = false
-  pendingRequestedDocumentIds.clear()
+  operationChain = Promise.resolve()
   useSyncStore.getState().setIsSyncing(false)
 }
