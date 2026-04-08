@@ -5,8 +5,8 @@ import useSettings from './useSettings'
 const mocks = vi.hoisted(() => ({
   exportData: vi.fn(),
   signOutVault: vi.fn(),
-  storeItemsMutateAsync: vi.fn(),
-  setMetadataMutateAsync: vi.fn(),
+  mutateStoreItems: vi.fn(),
+  mutateSetMetadata: vi.fn(),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -17,12 +17,8 @@ vi.mock('../api/vault', () => ({
 }))
 
 vi.mock('../api/itemMutations', () => ({
-  useStoreItemsMutation: () => ({
-    mutateAsync: mocks.storeItemsMutateAsync,
-  }),
-  useSetMetadataMutation: () => ({
-    mutateAsync: mocks.setMetadataMutateAsync,
-  }),
+  mutateStoreItems: mocks.mutateStoreItems,
+  mutateSetMetadata: mocks.mutateSetMetadata,
 }))
 
 vi.mock('../state/selectors', () => ({
@@ -90,8 +86,8 @@ describe('useSettings backup portability', () => {
   })
 
   it('restores metadata and items without queue side effects', async () => {
-    mocks.storeItemsMutateAsync.mockResolvedValue(undefined)
-    mocks.setMetadataMutateAsync.mockResolvedValue(undefined)
+    mocks.mutateStoreItems.mockResolvedValue(undefined)
+    mocks.mutateSetMetadata.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useSettings())
 
@@ -102,7 +98,7 @@ describe('useSettings backup portability', () => {
       } as any)
     })
 
-    expect(mocks.setMetadataMutateAsync).toHaveBeenCalledTimes(1)
-    expect(mocks.storeItemsMutateAsync).toHaveBeenCalledTimes(1)
+    expect(mocks.mutateSetMetadata).toHaveBeenCalledTimes(1)
+    expect(mocks.mutateStoreItems).toHaveBeenCalledTimes(1)
   })
 })

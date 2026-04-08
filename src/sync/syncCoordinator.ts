@@ -1,12 +1,9 @@
 import { emitAppEvent } from '../app/appEvents'
-import { emitDomainEvent } from '../events/domainEvents'
 import { startDataInvalidationController } from '../api/dataInvalidationController'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { ensureItemsBootstrap } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
-import { startSyncEventHandlers } from './syncEventHandlers'
-import { startStoreBindings } from '../state/storeBindings'
 import {
   requestAutomergeSync,
   startAutomergeSyncDispatcher,
@@ -14,6 +11,7 @@ import {
 } from './automergeSyncDispatcher'
 import { initializeAutomergeDocStore } from './automergeDocStore'
 import { readManualRecoveryCount } from './manualRecoveryStore'
+import { useSyncStore } from '../state/syncStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -32,16 +30,14 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   stopSyncCoordinator()
   activeKey = key
 
-  const unsubscribeSyncEvents = startSyncEventHandlers()
   const unsubscribeDataInvalidation = startDataInvalidationController()
-  const unsubscribeStoreBindings = startStoreBindings()
 
   initializeSyncHealthWatchers()
 
   void initializeAutomergeDocStore(options.account)
   startAutomergeSyncDispatcher(options.account)
   void readManualRecoveryCount().then(count => {
-    emitDomainEvent({ type: 'sync:recovery-count-changed', count })
+    useSyncStore.getState().setRecoveryCount(count)
   })
 
   const handleOnline = () => {
@@ -147,9 +143,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   requestAutomergeSync()
 
   activeCleanup = () => {
-    unsubscribeSyncEvents()
     unsubscribeDataInvalidation()
-    unsubscribeStoreBindings()
     unsubscribeAuthToken()
     clearHiddenDisconnectTimer()
     stopRealtime()

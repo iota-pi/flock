@@ -1,12 +1,14 @@
+import * as Sentry from '@sentry/react'
 import type { ItemId } from '../shared/itemTypes'
 import {
   readManualRecoveryCount,
   removeManualRecoveryEntryByItemId,
   upsertManualRecoveryEntry,
 } from '../sync/manualRecoveryStore'
-import { emitSyncEvent } from '../sync/syncEvents'
 import { normalizeSyncError } from '../shared/syncErrors'
 import { configureDecryptionWorkerCallbacks } from '../workers/decryptionWorkerManager'
+import { useToastStore } from '../state/toastStore'
+import { useSyncStore } from '../state/syncStore'
 
 export type DecryptionFailedEvent = {
   source: 'worker' | 'main-thread'
@@ -26,15 +28,21 @@ function getRecoveryCooldownUntil(itemId: ItemId): number {
 async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
   await upsertManualRecoveryEntry({ itemId, reason })
 
-  emitSyncEvent({
-    type: 'sync:recovery-count-changed',
-    count: await readManualRecoveryCount(),
+  const count = await readManualRecoveryCount()
+  useSyncStore.getState().setRecoveryCount(count)
+  useToastStore.getState().setMessage({
+    severity: 'warning',
+    message: reason || 'A corrupted item was detected. Recovery will be attempted automatically.',
   })
-  emitSyncEvent({
-    type: 'sync:item-corrupted',
-    itemId,
-    reason,
-  })
+
+  if (count > 0) {
+    Sentry.captureMessage('Manual recovery required for corrupted items', {
+      level: 'warning',
+      extra: {
+        count,
+      },
+    })
+  }
 }
 
 async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
@@ -74,9 +82,10 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
 
   const nextCount = await readManualRecoveryCount()
   if (nextCount !== previousCount) {
-    emitSyncEvent({
-      type: 'sync:recovery-count-changed',
-      count: nextCount,
+    useSyncStore.getState().setRecoveryCount(nextCount)
+    useToastStore.getState().setMessage({
+      severity: 'success',
+      message: 'Recovered a corrupted item revision.',
     })
   }
 }
@@ -110,10 +119,9 @@ export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
     error: normalizedError,
   })
 
-  emitSyncEvent({
-    type: 'sync:item-corrupted',
-    itemId: event.itemId,
-    reason,
+  useToastStore.getState().setMessage({
+    severity: 'warning',
+    message: reason || 'A corrupted item was detected. Recovery will be attempted automatically.',
   })
 
   if (event.source === 'worker' && typeof event.itemId === 'string') {

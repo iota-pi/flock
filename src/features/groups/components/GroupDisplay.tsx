@@ -4,7 +4,7 @@ import type { GroupItem } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItems } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
-import { useStoreItemsMutation } from '../../../api/itemMutations'
+import { mutateStoreItems } from '../../../api/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 
@@ -20,7 +20,6 @@ function GroupDisplay({
 }: Props) {
   const allGroups = useItems<GroupItem>('group')
   const pushActive = useNavigationStore(state => state.pushActive)
-  const storeItemsMutation = useStoreItemsMutation()
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
@@ -33,9 +32,12 @@ function GroupDisplay({
         ...group,
         members: [...group.members, itemId],
       }
-      storeItemsMutation.mutate(newGroup)
+
+      void mutateStoreItems(newGroup).catch(error => {
+        console.error(error)
+      })
     },
-    [itemId, storeItemsMutation],
+    [itemId],
   )
   const handleRemove = useCallback(
     (group: GroupItem) => {
@@ -43,9 +45,12 @@ function GroupDisplay({
         ...group,
         members: group.members.filter(m => m !== itemId),
       }
-      storeItemsMutation.mutate(newGroup)
+
+      void mutateStoreItems(newGroup).catch(error => {
+        console.error(error)
+      })
     },
-    [itemId, storeItemsMutation],
+    [itemId],
   )
   const handleClickGroup = useCallback(
     (group: GroupItem) => {

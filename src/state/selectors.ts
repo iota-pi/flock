@@ -9,7 +9,8 @@ import {
   fetchMetadata,
   metadataQueryOptions,
 } from '../api/itemReadService'
-import { useSetMetadataMutation } from '../api/itemMutations'
+import { mutateSetMetadata } from '../api/itemMutations'
+import { queryClient } from '../api/queryClient'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
@@ -116,21 +117,20 @@ export function useMetadata<K extends MetadataKey>(
     enabled: authReady,
     ...metadataQueryOptions,
   })
-  const setMetadataMutation = useSetMetadataMutation()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      await setMetadataMutation.mutateAsync(prevMetadata => {
-        const baseMetadata = prevMetadata ?? {} as Metadata
-        const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
-        const newValue = typeof newValueOrFunc === 'function'
-          ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
-          : newValueOrFunc
-        return { ...baseMetadata, [key]: newValue } as Metadata
-      })
+      const latestMetadata = queryClient.getQueryData<Metadata>(getQueryKey(trpc.accounts.getMetadata))
+      const baseMetadata = latestMetadata ?? metadata ?? {} as Metadata
+      const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
+      const newValue = typeof newValueOrFunc === 'function'
+        ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
+        : newValueOrFunc
+
+      await mutateSetMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
     },
-    [defaultValue, key, setMetadataMutation],
+    [defaultValue, key, metadata],
   )
   return [value, setValue]
 }

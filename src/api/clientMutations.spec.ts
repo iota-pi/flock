@@ -9,7 +9,11 @@ import {
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { setMetadata } from './vault/client'
-import { fetchItems } from './itemReadService'
+import { ensureItemsBootstrap } from './itemReadService'
+
+const mocks = vi.hoisted(() => ({
+  pruneItemDrawers: vi.fn(),
+}))
 
 vi.mock('../sync/automergeDocStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../sync/automergeDocStore')>()
@@ -45,14 +49,22 @@ vi.mock('./itemReadService', async importOriginal => {
   const actual = await importOriginal<typeof import('./itemReadService')>()
   return {
     ...actual,
-    fetchItems: vi.fn(),
+    ensureItemsBootstrap: vi.fn(),
   }
 })
+
+vi.mock('../state/navigationStore', () => ({
+  useNavigationStore: {
+    getState: () => ({
+      pruneItemDrawers: mocks.pruneItemDrawers,
+    }),
+  },
+}))
 
 describe('local-first mutations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(fetchItems).mockResolvedValue([])
+    vi.mocked(ensureItemsBootstrap).mockResolvedValue()
     vi.mocked(getAutomergeItems).mockReturnValue([])
     vi.mocked(setMetadata).mockResolvedValue()
   })
@@ -91,15 +103,15 @@ describe('local-first mutations', () => {
       members: ['p1'],
     }
     const person = getBlankPerson('p1', false)
-
-    vi.mocked(fetchItems).mockResolvedValue([group, person])
+    vi.mocked(getAutomergeItems).mockReturnValue([group, person])
 
     await mutateDeleteItems('p1')
 
-    expect(fetchItems).toHaveBeenCalledTimes(1)
+    expect(ensureItemsBootstrap).not.toHaveBeenCalled()
     expect(withAutomergeItemChange).toHaveBeenCalledWith('g1', expect.any(Function))
     expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
+    expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
     expect(emitDomainEvent).toHaveBeenCalledWith({
       type: 'data:deleted',
       domain: 'items',

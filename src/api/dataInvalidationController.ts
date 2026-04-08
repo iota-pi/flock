@@ -34,8 +34,5 @@ export function startDataInvalidationController(): () => void {
       return
     }
 
-    if (event.type === 'sync:item-recovered') {
-      void queryClient.invalidateQueries({ queryKey: getQueryKey(trpc.items.fetchMany) })
-    }
   })
 }

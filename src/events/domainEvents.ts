@@ -1,22 +1,5 @@
 export type DomainEvent =
   | {
-    type: 'sync:processing-changed'
-    isSyncing: boolean
-  }
-  | {
-    type: 'sync:recovery-count-changed'
-    count: number
-  }
-  | {
-    type: 'sync:item-corrupted'
-    itemId?: string
-    reason: string
-  }
-  | {
-    type: 'sync:item-recovered'
-    itemId: string
-  }
-  | {
     type: 'data:updated'
     domain: string
     reason?: string

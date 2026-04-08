@@ -20,7 +20,7 @@ import {
 import { sharedDecryptionCache } from './vault/DecryptionCache'
 import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
 import { decryptVaultEnvelope } from './vault/decryptVaultEnvelope'
-import { clearLastSyncServerTime, getLastSyncServerTime } from '../sync/syncServerTimeStore'
+import { getLastSyncServerTime } from '../sync/syncServerTimeStore'
 import {
   clearManualRecoveryForItems,
   initializeSyncHealthWatchers,
@@ -28,16 +28,17 @@ import {
 } from './syncHealthCoordinator'
 import { parseVaultEnvelope } from './vault/envelopeParser'
 import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
-import { itemsSyncEngine } from './vault/syncEngine'
-import migrateItems from '../state/migrations'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from './trpc'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
-  seedAutomergeItems,
+  receiveAutomergeSyncMessage,
+  writeAutomergeSyncCursor,
 } from '../sync/automergeDocStore'
 import { ITEM_TYPES } from '../shared/itemTypes'
+import { decryptBytesWithKey } from './vault/crypto'
+import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 const METADATA_QUERY_STALE_TIME_MS = 15 * 60 * 1000
 
@@ -60,27 +61,87 @@ type EnsureItemsBootstrapOptions = FetchItemsOptions & {
   force?: boolean
 }
 
+type SyncSnapshotMessage = {
+  cursor: number
+  encryptedMessage: {
+    iv: string
+    cipher: string
+  }
+}
+
 function getBootstrapScopeKey(accountId: string): string {
   return `${accountId}:${getApiAuthToken()}`
 }
 
-itemsSyncEngine.initialize({
-  fetchDelta: async (accountId: string, cacheTime: number | null) => {
-    const response = await fetchMany({ cacheTime }).catch(error => {
-      handleVaultError(error, 'Failed to fetch items from server')
-      return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0, success: false }
-    })
-    const wasSuccessful = 'success' in response ? response.success !== false : true
+function getOrderedSyncSnapshotMessages(item: VaultItem): SyncSnapshotMessage[] {
+  if (!Array.isArray(item.syncMessages) || item.syncMessages.length === 0) {
+    return []
+  }
 
-    return {
-      items: response.items as VaultItem[],
-      serverTime: response.serverTime,
-      success: wasSuccessful,
+  const validMessages = item.syncMessages.filter(message => (
+    typeof message?.cursor === 'number'
+    && message.cursor > 0
+    && typeof message?.encryptedMessage?.iv === 'string'
+    && typeof message?.encryptedMessage?.cipher === 'string'
+  )) as SyncSnapshotMessage[]
+
+  validMessages.sort((left, right) => left.cursor - right.cursor)
+  return validMessages
+}
+
+async function bootstrapItemsFromSyncMessages(accountId: string): Promise<void> {
+  if (!hasApiAuthToken()) {
+    return
+  }
+
+  await initializeAutomergeDocStore(accountId)
+
+  const response = await fetchMany({ cacheTime: null }).catch(error => {
+    handleVaultError(error, 'Failed to fetch sync snapshot from server')
+    return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0, success: false }
+  })
+
+  const responseItems = response.items as VaultItem[]
+  const itemIds: string[] = []
+
+  for (const item of responseItems) {
+    if (typeof item.item !== 'string' || item.item.length === 0) {
+      continue
     }
-  },
-  decryptItems: decryptVaultItems,
-  migrateItems,
-})
+
+    itemIds.push(item.item)
+
+    const orderedMessages = getOrderedSyncSnapshotMessages(item)
+    if (orderedMessages.length === 0) {
+      continue
+    }
+
+    let highestCursor = 0
+    for (const message of orderedMessages) {
+      try {
+        const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
+        const changed = await receiveAutomergeSyncMessage(item.item, decryptedMessage)
+        if (changed) {
+          highestCursor = Math.max(highestCursor, message.cursor)
+        }
+      } catch (error) {
+        reportDecryptionFailure({
+          source: 'main-thread',
+          itemId: item.item,
+          error,
+        })
+      }
+    }
+
+    if (highestCursor > 0) {
+      await writeAutomergeSyncCursor(item.item, highestCursor)
+    }
+  }
+
+  if (itemIds.length > 0) {
+    requestAutomergeSync(itemIds)
+  }
+}
 
 type DecryptionResult =
   | { ok: true; item: Item }
@@ -288,36 +349,14 @@ export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[
   }
 
   const accountId = getAccountId()
-  await initializeAutomergeDocStore(accountId)
-  if (options.forceFullSync) {
-    clearLastSyncServerTime(accountId)
-  }
-
-  const metadataQueryKey = getQueryKey(trpc.accounts.getMetadata)
   if (options.forceMetadataRefetch) {
-    queryClient.removeQueries({ queryKey: metadataQueryKey })
-  }
-  const cachedMetadata = queryClient.getQueryData<AccountMetadata>(metadataQueryKey) || {}
-  const metadata = await queryClient.fetchQuery({
-    queryKey: metadataQueryKey,
-    queryFn: fetchMetadata,
-    ...metadataQueryOptions,
-  }).catch(error => {
-    handleVaultError(error as Error, 'Failed to fetch metadata; continuing with cached metadata')
-    return cachedMetadata
-  })
-
-  const mergedItems = await itemsSyncEngine.pull({
-    accountId,
-    metadata,
-  })
-
-  if (mergedItems.length > 0) {
-    await seedAutomergeItems(mergedItems)
+    queryClient.removeQueries({ queryKey: getQueryKey(trpc.accounts.getMetadata) })
   }
 
-  const localItems = getAutomergeItems()
-  const visibleItems = localItems.length > 0 ? localItems : mergedItems
+  await ensureItemsBootstrap(accountId, {
+    force: options.forceFullSync,
+  })
+  const visibleItems = getAutomergeItems()
 
   return sortItems(visibleItems, DEFAULT_CRITERIA)
 }
@@ -334,7 +373,7 @@ export function ensureItemsBootstrap(accountId: string, options: EnsureItemsBoot
     return inFlight
   }
 
-  const bootstrap = fetchItems(options)
+  const bootstrap = bootstrapItemsFromSyncMessages(accountId)
     .then(() => {
       completedBootstrapScopes.add(scopeKey)
     })
@@ -408,5 +447,5 @@ export function clearQueryCache() {
 
 // Helper to check if we have cached data (for UI purposes)
 export function hasItemsInCache(): boolean {
-  return queryClient.getQueryData(getQueryKey(trpc.items.fetchMany)) !== undefined
+  return getAutomergeItems().length > 0
 }

@@ -33,6 +33,14 @@ export type CachedVaultItem = ItemEnvelope & {
 export type VaultItem = ItemEnvelope & {
   account?: string,
   ttl?: number,
+  syncMessages?: Array<{
+    cursor: number
+    encryptedMessage: {
+      iv: string
+      cipher: string
+    }
+    createdAt?: number
+  }>
 }
 
 export type FetchManyResponse<TItem> = {

@@ -4,7 +4,7 @@ import {
   exportData,
   signOutVault,
 } from '../api/vault'
-import { useSetMetadataMutation, useStoreItemsMutation } from '../api/itemMutations'
+import { mutateSetMetadata, mutateStoreItems } from '../api/itemMutations'
 import { useItems, useMetadata } from '../state/selectors'
 import { getNextDarkMode } from '../themeUtils'
 import type { Frequency } from '../utils/frequencies'
@@ -34,8 +34,6 @@ export default function useSettings() {
   const setMessage = useToastStore(state => state.setMessage)
   const setUi = useUiStore(state => state.setUi)
   const items = useItems()
-  const storeItemsMutation = useStoreItemsMutation()
-  const setMetadataMutation = useSetMetadataMutation()
 
   // Actions
   const handleSignOut = useCallback(
@@ -98,10 +96,10 @@ export default function useSettings() {
     }: Partial<RestorePayload> & Pick<RestorePayload, 'items'>) => {
       try {
         if (metadata) {
-          await setMetadataMutation.mutateAsync(metadata)
+          await mutateSetMetadata(metadata)
         }
 
-        await storeItemsMutation.mutateAsync(restoredItems)
+        await mutateStoreItems(restoredItems)
 
         setMessage({ message: 'Restore successful' })
         return true
@@ -111,13 +109,13 @@ export default function useSettings() {
         return false
       }
     },
-    [setMessage, setMetadataMutation, storeItemsMutation],
+    [setMessage],
   )
 
   const handleConfirmImport = useCallback(
     async (imported: Item[]) => {
       try {
-        await storeItemsMutation.mutateAsync(imported)
+        await mutateStoreItems(imported)
         setMessage({ message: 'Import successful' })
         return true
       } catch (err) {
@@ -126,7 +124,7 @@ export default function useSettings() {
         return false
       }
     },
-    [setMessage, storeItemsMutation],
+    [setMessage],
   )
 
   const handleSubscribe = useCallback(

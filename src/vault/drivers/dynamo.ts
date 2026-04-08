@@ -47,7 +47,7 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 export const ITEM_HISTORY_TABLE = process.env.ITEM_HISTORY_TABLE || 'FlockItemHistory'
 export const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE || 'FlockIdempotency'
-const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
+const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000

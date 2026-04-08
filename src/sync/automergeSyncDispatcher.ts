@@ -6,10 +6,12 @@ import {
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
   initializeAutomergeDocStore,
+  listAutomergeItemIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   writeAutomergeSyncCursor,
 } from './automergeDocStore'
+import { useSyncStore } from '../state/syncStore'
 
 const FALLBACK_POLL_INTERVAL_MS = 10 * 60 * 1000
 const MAX_PUSH_MESSAGES_PER_ITEM = 10
@@ -92,7 +94,7 @@ async function runSyncCycle(): Promise<void> {
   }
 
   syncing = true
-  emitDomainEvent({ type: 'sync:processing-changed', isSyncing: true })
+  useSyncStore.getState().setIsSyncing(true)
   try {
     await initializeAutomergeDocStore(activeAccount)
 
@@ -117,17 +119,21 @@ async function runSyncCycle(): Promise<void> {
       throw error
     }
   } finally {
-    emitDomainEvent({ type: 'sync:processing-changed', isSyncing: false })
+    useSyncStore.getState().setIsSyncing(false)
     syncing = false
   }
 }
 
 export function requestAutomergeSync(itemIds?: string[]): void {
-  if (Array.isArray(itemIds)) {
+  if (Array.isArray(itemIds) && itemIds.length > 0) {
     for (const itemId of itemIds) {
       if (itemId) {
         pendingItemIds.add(itemId)
       }
+    }
+  } else {
+    for (const itemId of listAutomergeItemIds()) {
+      pendingItemIds.add(itemId)
     }
   }
 
@@ -157,4 +163,5 @@ export function stopAutomergeSyncDispatcher(): void {
 
   activeAccount = null
   pendingItemIds.clear()
+  useSyncStore.getState().setIsSyncing(false)
 }

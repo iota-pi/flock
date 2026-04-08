@@ -26,6 +26,14 @@ export interface VaultData {
   metadata: VaultMetaData,
   cipher?: string, // Optional for branching format
   branches?: VaultBranch[], // New branching format
+  syncMessages?: Array<{
+    cursor: number
+    encryptedMessage: {
+      iv: string
+      cipher: string
+    }
+    createdAt?: number
+  }>
 }
 
 export interface BaseData {

@@ -27,15 +27,15 @@ function SyncNowButton() {
     [],
   )
 
-  const isQueueActive = isSyncing
+  const isSyncActive = isSyncing
   const syncStatusIcon = !isOnline
     ? <CloudOffIcon color="warning" />
-    : isQueueActive
+    : isSyncActive
       ? <CloudUploadIcon color="info" />
       : <CloudDoneIcon color="success" />
   const syncTooltip = !isOnline
     ? 'Offline'
-    : isQueueActive
+    : isSyncActive
       ? 'Syncing'
       : 'Sync Now'
 
