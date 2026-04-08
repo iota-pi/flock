@@ -6,7 +6,6 @@ import {
   upsertManualRecoveryEntry,
 } from '../sync/manualRecoveryStore'
 import { normalizeSyncError } from '../shared/syncErrors'
-import { configureDecryptionWorkerCallbacks } from '../workers/decryptionWorkerManager'
 import { useToastStore } from '../state/toastStore'
 
 export type DecryptionFailedEvent = {
@@ -91,17 +90,6 @@ export function initializeSyncHealthWatchers(): void {
   if (syncHealthWatchersInitialized) {
     return
   }
-
-  configureDecryptionWorkerCallbacks({
-    onCorruptedItem: ({ itemId, failedBranches }) => {
-      attemptAutoRecovery(itemId, failedBranches).catch(error => {
-        console.error(`Failed to run auto-recovery for item ${itemId}`, error)
-      })
-    },
-    onConflictResolved: ({ itemId }) => {
-      console.info(`[Automerge] Local conflict resolved for ${itemId}; awaiting sync dispatcher push`)
-    },
-  })
 
   syncHealthWatchersInitialized = true
 }

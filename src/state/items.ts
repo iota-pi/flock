@@ -191,24 +191,6 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
   return filled
 }
 
-export function mergeDeltaItems<T extends { id: string }>(
-  existing: T[],
-  delta: T[],
-  deletedIds: Set<string>,
-): T[] {
-  const mergedMap = new Map(
-    existing
-      .filter(item => !deletedIds.has(item.id))
-      .map(item => [item.id, item]),
-  )
-
-  for (const item of delta) {
-    mergedMap.set(item.id, item)
-  }
-
-  return Array.from(mergedMap.values())
-}
-
 export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
   return { ...item, dirty: true }
 }
