@@ -269,13 +269,17 @@ async function bootstrapItemsFromSyncMessages(accountId: string): Promise<void> 
 
 export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[]> {
   const accountId = getAccountId()
+
+  await initializeAutomergeDocStore(accountId)
+
   if (options.forceMetadataRefetch) {
-    await ensureMetadataLoaded(accountId, { force: true })
+    void ensureMetadataLoaded(accountId, { force: true })
   }
 
-  await ensureItemsBootstrap(accountId, {
+  void ensureItemsBootstrap(accountId, {
     force: options.forceFullSync,
   })
+
   const visibleItems = getAutomergeItems()
 
   return sortItems(visibleItems, DEFAULT_CRITERIA)
@@ -286,10 +290,6 @@ export function ensureItemsBootstrap(accountId: string, options: EnsureItemsBoot
     .then(() => {
       const scopeKey = getBootstrapScopeKey(accountId)
       const forced = !!(options.force || options.forceFullSync)
-
-      if (!hasApiAuthToken()) {
-        return
-      }
 
       if (!forced && completedBootstrapScopes.has(scopeKey)) {
         return
