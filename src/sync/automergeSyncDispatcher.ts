@@ -1,12 +1,11 @@
 import { decryptBytesWithKey, encryptBytesWithKey } from '../api/vault/crypto'
 import { getVaultKey } from '../api/vault'
+import { syncDB } from '../api/db'
 import { pullSyncMessages, pushSyncMessage } from '../api/vault/syncClient'
 import {
-  ACCOUNT_METADATA_DOCUMENT_ID,
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
   initializeAutomergeDocStore,
-  listAutomergeDocumentIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   writeAutomergeSyncCursor,
@@ -15,6 +14,7 @@ import { useSyncStore } from '../state/syncStore'
 
 const FALLBACK_POLL_INTERVAL_MS = 10 * 60 * 1000
 const MAX_PUSH_MESSAGES_PER_ITEM = 10
+const SYNC_QUEUE_STORAGE_KEY = 'automerge-pending-sync-queue'
 const SHOULD_THROW_SYNC_ERRORS = (
   typeof window !== 'undefined'
   && !!(window as Window & { Cypress?: unknown }).Cypress
@@ -23,7 +23,16 @@ const SHOULD_THROW_SYNC_ERRORS = (
 let activeAccount: string | null = null
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 let syncing = false
+let isQueueLoaded = false
 const pendingRequestedDocumentIds = new Set<string>()
+
+function getSyncQueueStorageKey(account: string): string {
+  return `${SYNC_QUEUE_STORAGE_KEY}_${account}`
+}
+
+async function persistPendingQueue(account: string): Promise<void> {
+  await syncDB.setItem(getSyncQueueStorageKey(account), Array.from(pendingRequestedDocumentIds))
+}
 
 function scheduleImmediateSync(): void {
   queueMicrotask(() => {
@@ -80,30 +89,29 @@ async function pullRemoteMessages(account: string, itemId: string): Promise<void
 }
 
 async function runSyncCycle(): Promise<void> {
-  if (syncing || !activeAccount) {
+  if (syncing || !activeAccount || !isQueueLoaded) {
     return
   }
+
+  const account = activeAccount
 
   syncing = true
   useSyncStore.getState().setIsSyncing(true)
   try {
-    await initializeAutomergeDocStore(activeAccount)
+    await initializeAutomergeDocStore(account)
 
-    const targetIds = new Set<string>(listAutomergeDocumentIds())
-    targetIds.add(ACCOUNT_METADATA_DOCUMENT_ID)
-    for (const documentId of pendingRequestedDocumentIds) {
-      targetIds.add(documentId)
-    }
-    pendingRequestedDocumentIds.clear()
+    const targetIds = Array.from(pendingRequestedDocumentIds)
 
-    if (targetIds.size === 0) {
+    if (targetIds.length === 0) {
       return
     }
 
     for (const itemId of targetIds) {
       try {
-        await pushLocalMessages(activeAccount, itemId)
-        await pullRemoteMessages(activeAccount, itemId)
+        await pushLocalMessages(account, itemId)
+        await pullRemoteMessages(account, itemId)
+        pendingRequestedDocumentIds.delete(itemId)
+        await persistPendingQueue(account)
       } catch (error) {
         if (SHOULD_THROW_SYNC_ERRORS) {
           throw error
@@ -123,12 +131,23 @@ async function runSyncCycle(): Promise<void> {
 
 export function requestAutomergeSync(documentIds?: string[]): void {
   if (Array.isArray(documentIds)) {
+    let changed = false
+
     for (const documentId of documentIds) {
       if (typeof documentId !== 'string' || documentId.length === 0) {
         continue
       }
 
+      if (pendingRequestedDocumentIds.has(documentId)) {
+        continue
+      }
+
       pendingRequestedDocumentIds.add(documentId)
+      changed = true
+    }
+
+    if (changed && activeAccount) {
+      void persistPendingQueue(activeAccount)
     }
   }
 
@@ -142,12 +161,35 @@ export function startAutomergeSyncDispatcher(account: string): void {
 
   stopAutomergeSyncDispatcher()
   activeAccount = account
+  isQueueLoaded = false
+
+  void syncDB.getItem<string[]>(getSyncQueueStorageKey(account)).then(savedQueue => {
+    if (activeAccount !== account) {
+      return
+    }
+
+    if (Array.isArray(savedQueue)) {
+      for (const id of savedQueue) {
+        if (typeof id === 'string' && id.length > 0) {
+          pendingRequestedDocumentIds.add(id)
+        }
+      }
+    }
+
+    isQueueLoaded = true
+    scheduleImmediateSync()
+  }).catch(() => {
+    if (activeAccount !== account) {
+      return
+    }
+
+    isQueueLoaded = true
+    scheduleImmediateSync()
+  })
 
   intervalHandle = setInterval(() => {
     void runSyncCycle()
   }, FALLBACK_POLL_INTERVAL_MS)
-
-  scheduleImmediateSync()
 }
 
 export function stopAutomergeSyncDispatcher(): void {
@@ -157,6 +199,7 @@ export function stopAutomergeSyncDispatcher(): void {
   }
 
   activeAccount = null
+  isQueueLoaded = false
   pendingRequestedDocumentIds.clear()
   useSyncStore.getState().setIsSyncing(false)
 }
