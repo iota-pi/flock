@@ -6,6 +6,7 @@ import {
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
   initializeAutomergeDocStore,
+  listAutomergeDocumentIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   writeAutomergeSyncCursor,
@@ -130,25 +131,27 @@ async function runSyncCycle(): Promise<void> {
 }
 
 export function requestAutomergeSync(documentIds?: string[]): void {
-  if (Array.isArray(documentIds)) {
-    let changed = false
+  const targetDocumentIds = Array.isArray(documentIds)
+    ? documentIds
+    : listAutomergeDocumentIds()
 
-    for (const documentId of documentIds) {
-      if (typeof documentId !== 'string' || documentId.length === 0) {
-        continue
-      }
+  let changed = false
 
-      if (pendingRequestedDocumentIds.has(documentId)) {
-        continue
-      }
-
-      pendingRequestedDocumentIds.add(documentId)
-      changed = true
+  for (const documentId of targetDocumentIds) {
+    if (typeof documentId !== 'string' || documentId.length === 0) {
+      continue
     }
 
-    if (changed && activeAccount) {
-      void persistPendingQueue(activeAccount)
+    if (pendingRequestedDocumentIds.has(documentId)) {
+      continue
     }
+
+    pendingRequestedDocumentIds.add(documentId)
+    changed = true
+  }
+
+  if (changed && activeAccount) {
+    void persistPendingQueue(activeAccount)
   }
 
   scheduleImmediateSync()

@@ -1,4 +1,9 @@
-import type { ItemEnvelope, ItemId } from '../../shared/itemTypes'
+import type {
+  ItemId,
+  StandardItemEnvelope,
+  TombstoneItemEnvelope,
+} from '../../shared/itemTypes'
+import type { LegacyItemEnvelope } from '../../sync/legacyTypes'
 import type { WebPushSubscription } from '../../vault/types'
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
@@ -6,6 +11,8 @@ import { setLastSyncServerTime } from '../../sync/syncServerTimeStore'
 import {
   FetchItemsInputSchema,
 } from '../../shared/syncSchemas'
+
+type VaultEnvelope = LegacyItemEnvelope | StandardItemEnvelope | TombstoneItemEnvelope
 
 export type CreateAccountBody = {
   salt: string,
@@ -20,15 +27,14 @@ export type LoginBody = {
   authToken: string,
 }
 
-export type CachedVaultItem = ItemEnvelope & {
+export type CachedVaultItem = VaultEnvelope & {
   ttl?: number,
 }
 
 /**
- * VaultItem: Legacy format for backwards compatibility.
- * Extends ItemEnvelope to support both legacy cipher and new branches.
+ * VaultItem: Server payload envelope with legacy and standard formats.
  */
-export type VaultItem = ItemEnvelope & {
+export type VaultItem = VaultEnvelope & {
   account?: string,
   ttl?: number,
   syncMessages?: Array<{

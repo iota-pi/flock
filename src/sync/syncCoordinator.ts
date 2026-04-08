@@ -1,6 +1,5 @@
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
-import { ensureItemsBootstrap, ensureMetadataLoaded } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import {
   requestAutomergeSync,
@@ -35,15 +34,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     requestAutomergeSync()
   }
 
-  const bootstrapItemsIfAuthorized = () => {
-    if (!getApiAuthToken()) {
-      return
-    }
-
-    void ensureItemsBootstrap(options.account).catch(() => undefined)
-    void ensureMetadataLoaded(options.account).catch(() => undefined)
-  }
-
   if (typeof window !== 'undefined') {
     window.addEventListener('online', handleOnline)
   }
@@ -64,7 +54,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       onServerEvent: event => {
         if (event.eventType === 'metadata.updated') {
           requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
-          void ensureMetadataLoaded(options.account, { force: true })
         }
       },
       onSyncPing: itemIds => {
@@ -114,7 +103,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     clearHiddenDisconnectTimer()
     startRealtimeIfAuthorized()
     requestAutomergeSync()
-    void ensureMetadataLoaded(options.account).catch(() => undefined)
   }
 
   if (typeof document !== 'undefined') {
@@ -122,13 +110,10 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   }
 
   startRealtimeIfAuthorized()
-  bootstrapItemsIfAuthorized()
   const unsubscribeAuthToken = subscribeApiAuthToken(token => {
     if (token) {
       startRealtimeIfAuthorized()
-      bootstrapItemsIfAuthorized()
       requestAutomergeSync()
-      void ensureMetadataLoaded(options.account).catch(() => undefined)
     } else {
       stopRealtime()
     }

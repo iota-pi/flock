@@ -25,13 +25,6 @@ export type ItemEnvelopeMetadata = {
   compactedAt?: number,
 }
 
-export type LegacyItemEnvelope = {
-  item: ItemId,
-  cipher: string,
-  branches?: undefined,
-  metadata: ItemEnvelopeMetadata,
-}
-
 export type StandardItemEnvelope = {
   item: ItemId,
   cipher?: undefined,
@@ -49,9 +42,8 @@ export type TombstoneItemEnvelope = {
 }
 
 /**
- * ItemEnvelope: Union container supporting legacy and standard envelopes.
- * - Legacy: encrypted JSON payload in `cipher`.
+ * ItemEnvelope: Union container for active storage envelopes.
  * - Standard: Automerge CRDT payload in non-empty `branches`.
  * - Tombstone: deleted marker without encrypted payload.
  */
-export type ItemEnvelope = LegacyItemEnvelope | StandardItemEnvelope | TombstoneItemEnvelope
+export type ItemEnvelope = StandardItemEnvelope | TombstoneItemEnvelope

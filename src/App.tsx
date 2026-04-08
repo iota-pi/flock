@@ -11,6 +11,7 @@ import { useLoggedIn } from './state/selectors'
 import { useAuthStore } from './state/authStore'
 import MainLayout from './components/layout/MainLayout'
 import { loadVault } from './api/vault'
+import { ensureItemsBootstrap } from './api/itemReadService'
 import ErrorPage from './components/pages/ErrorPage'
 import { startSyncCoordinator, stopSyncCoordinator } from './sync/syncCoordinator'
 
@@ -68,6 +69,7 @@ function RootLayout() {
       return
     }
 
+    void ensureItemsBootstrap(account).catch(() => undefined)
     startSyncCoordinator({ account })
 
     return () => {
