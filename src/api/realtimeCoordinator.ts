@@ -1,17 +1,20 @@
 import env from '../env'
 import type {
-  RealtimeBusEvent,
   RealtimeEventEnvelope,
   RealtimeSyncPing,
 } from '../shared/realtime'
-import { invalidateCachedItems } from '../sync/automergeDocStore'
 import {
   pullRemoteMessagesNow,
   requestAutomergeSync,
   startAutomergeSyncDispatcher,
   stopAutomergeSyncDispatcher,
 } from '../sync/automergeSyncDispatcher'
-import { createRealtimeBusChannel, isRealtimeBusEvent, postRealtimeBusEvent } from '../sync/realtimeBus'
+import {
+  postRealtimeBusEvent,
+  startRealtimeBus,
+  stopRealtimeBus,
+  subscribeRealtimeBusSyncPing,
+} from '../sync/realtimeBus'
 import { getApiAuthToken } from './runtime'
 
 type RealtimeCoordinatorOptions = {
@@ -141,7 +144,10 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
   const account = options.account
   const lockName = `flock-realtime-lock:${account}`
 
-  const bus = createRealtimeBusChannel(account)
+  startRealtimeBus(account)
+  const unsubscribeSyncPing = options.onSyncPing
+    ? subscribeRealtimeBusSyncPing(options.onSyncPing)
+    : () => undefined
 
   let stopped = false
   let reconnectAttempts = 0
@@ -182,12 +188,10 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
         return
       }
 
-      const busEvent: RealtimeBusEvent = {
+      postRealtimeBusEvent({
         type: 'REMOTE_UPDATED',
         itemIds: normalizedUpdatedIds,
-      }
-
-      postRealtimeBusEvent(account, busEvent)
+      })
     }).catch(() => undefined)
   }
 
@@ -248,7 +252,7 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
 
       if ('action' in payload && payload.action === 'sync_ping') {
         const pingItemIds = normalizeItemIds(payload.itemIds)
-        postRealtimeBusEvent(account, {
+        postRealtimeBusEvent({
           type: 'SYNC_PING',
           itemIds: pingItemIds,
         })
@@ -284,23 +288,6 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
     startAutomergeSyncDispatcher(account)
     connectWebSocket()
     requestAutomergeSync()
-  }
-
-  if (bus) {
-    bus.onmessage = event => {
-      if (!isRealtimeBusEvent(event.data)) {
-        return
-      }
-
-      if (event.data.type === 'REMOTE_UPDATED') {
-        invalidateCachedItems(event.data.itemIds)
-        return
-      }
-
-      if (event.data.type === 'SYNC_PING') {
-        options.onSyncPing?.(event.data.itemIds)
-      }
-    }
   }
 
   if (typeof navigator !== 'undefined' && navigator.locks?.request) {
@@ -350,9 +337,8 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
         lockAbortController.abort()
       }
 
-      if (bus) {
-        bus.close()
-      }
+      unsubscribeSyncPing()
+      stopRealtimeBus()
     },
   }
 }

@@ -12,7 +12,12 @@ import {
   writeAutomergeSyncCursor,
 } from './automergeDocStore'
 import { useSyncStore } from '../state/syncStore'
-import { createRealtimeBusChannel, isRealtimeBusEvent, postRealtimeBusEvent } from './realtimeBus'
+import {
+  getActiveRealtimeBusAccount,
+  hasActiveRealtimeBus,
+  postRealtimeBusEvent,
+  setRealtimeBusLocalEditHandler,
+} from './realtimeBus'
 
 const SHOULD_THROW_SYNC_ERRORS = (
   typeof window !== 'undefined'
@@ -20,7 +25,6 @@ const SHOULD_THROW_SYNC_ERRORS = (
 )
 
 let activeAccount: string | null = null
-let activeBusChannel: BroadcastChannel | null = null
 let operationChain: Promise<void> = Promise.resolve()
 
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
@@ -190,9 +194,20 @@ async function runFullSync(itemIds?: string[]): Promise<void> {
   })
 }
 
+async function pushItemIdsNow(itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) {
+    return
+  }
+
+  await withActiveAccount(async account => {
+    await pushLocalMessagesBatch(account, itemIds)
+  })
+}
+
 function resolveAccountForRealtimeBus(): string | null {
-  if (activeAccount) {
-    return activeAccount
+  const busAccount = getActiveRealtimeBusAccount()
+  if (busAccount) {
+    return busAccount
   }
 
   try {
@@ -209,7 +224,7 @@ function postLocalEditEvents(itemIds: string[]): void {
   }
 
   for (const itemId of itemIds) {
-    postRealtimeBusEvent(account, {
+    postRealtimeBusEvent({
       type: 'LOCAL_EDIT',
       itemId,
     })
@@ -220,13 +235,15 @@ export function requestAutomergeSync(itemIds?: string[]): void {
   const normalizedIds = uniqueItemIds(itemIds)
 
   if (normalizedIds.length > 0) {
-    if (typeof BroadcastChannel !== 'undefined') {
+    if (hasActiveRealtimeBus()) {
       postLocalEditEvents(normalizedIds)
-    } else if (activeAccount) {
-      void enqueueSyncOperation(() => runFullSync(normalizedIds))
     }
 
-    if (!activeAccount && SHOULD_THROW_SYNC_ERRORS) {
+    if (activeAccount) {
+      void enqueueSyncOperation(() => pushItemIdsNow(normalizedIds))
+    }
+
+    if (!activeAccount && !hasActiveRealtimeBus() && SHOULD_THROW_SYNC_ERRORS) {
       throw new Error('Sync dispatcher is not active')
     }
     return
@@ -236,7 +253,7 @@ export function requestAutomergeSync(itemIds?: string[]): void {
 }
 
 export function startAutomergeSyncDispatcher(account: string): void {
-  if (activeAccount === account && activeBusChannel) {
+  if (activeAccount === account) {
     return
   }
 
@@ -244,26 +261,15 @@ export function startAutomergeSyncDispatcher(account: string): void {
   activeAccount = account
   operationChain = Promise.resolve()
 
-  activeBusChannel = createRealtimeBusChannel(account)
-  if (activeBusChannel) {
-    activeBusChannel.onmessage = event => {
-      if (!isRealtimeBusEvent(event.data) || event.data.type !== 'LOCAL_EDIT') {
-        return
-      }
-
-      void enqueueSyncOperation(() => pushItemNow(event.data.itemId))
-    }
-  }
+  setRealtimeBusLocalEditHandler(itemId => {
+    void enqueueSyncOperation(() => pushItemNow(itemId))
+  })
 
   void enqueueSyncOperation(() => runFullSync())
 }
 
 export function stopAutomergeSyncDispatcher(): void {
-  if (activeBusChannel) {
-    activeBusChannel.close()
-    activeBusChannel = null
-  }
-
+  setRealtimeBusLocalEditHandler(null)
   activeAccount = null
   operationChain = Promise.resolve()
   useSyncStore.getState().setIsSyncing(false)
