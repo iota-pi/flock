@@ -1,4 +1,5 @@
 import * as Automerge from '@automerge/automerge'
+import { encodeEncryptedAutomergeDoc } from '../../shared/automergeBranchCipher'
 
 export interface CryptoResult {
   iv: string,
@@ -172,11 +173,11 @@ export async function encryptObjectAsAutomergeWithKey(
     binary as BufferSource,
   )
 
-  const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')
-  const ctHex = Array.from(new Uint8Array(cipher)).map(b => b.toString(16).padStart(2, '0')).join('')
-
   return {
-    encryptedAutomergeDoc: ivHex + ctHex,
+    encryptedAutomergeDoc: encodeEncryptedAutomergeDoc({
+      iv,
+      cipher,
+    }),
     versionId: createVersionId(),
   }
 }

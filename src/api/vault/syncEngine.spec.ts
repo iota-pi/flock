@@ -31,6 +31,7 @@ describe('ItemsSyncEngine', () => {
     const fetchDeltaMock = vi.fn().mockResolvedValue({
       items: [{ item: 'item-1', metadata: { deleted: false } }],
       serverTime: 2000,
+      success: true,
     })
     const decryptMock = vi.fn().mockResolvedValue([
       { id: 'item-1', type: 'person', name: 'Decrypted item', archived: false },
@@ -51,7 +52,10 @@ describe('ItemsSyncEngine', () => {
     expect(fetchDeltaMock).toHaveBeenCalledWith(null)
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ id: 'item-1', name: 'Decrypted item' })
-    expect(syncDB.setItem).toHaveBeenCalledWith('items-sync-engine_acct-1', { items: result })
+    expect(syncDB.setItem).toHaveBeenCalledWith('items-sync-engine_acct-1', {
+      items: result,
+      hasFullSnapshot: true,
+    })
   })
 
   it('performs delta merge when local state exists', async () => {
@@ -59,7 +63,7 @@ describe('ItemsSyncEngine', () => {
       { id: 'item-1', type: 'person', name: 'Old Name', archived: false },
     ]
 
-    vi.mocked(syncDB.getItem).mockResolvedValue({ items: existingItems })
+    vi.mocked(syncDB.getItem).mockResolvedValue({ items: existingItems, hasFullSnapshot: true })
     vi.mocked(serverTimeStore.getLastSyncServerTime).mockReturnValue(5000)
 
     const fetchDeltaMock = vi.fn().mockResolvedValue({
@@ -68,6 +72,7 @@ describe('ItemsSyncEngine', () => {
         { item: 'item-2', metadata: { deleted: false } },
       ],
       serverTime: 6000,
+      success: true,
     })
     const decryptMock = vi.fn().mockResolvedValue([
       { id: 'item-1', type: 'person', name: 'New Name', archived: false },
@@ -98,12 +103,13 @@ describe('ItemsSyncEngine', () => {
       { id: 'item-2', type: 'person', name: 'Delete Me', archived: false },
     ]
 
-    vi.mocked(syncDB.getItem).mockResolvedValue({ items: existingItems })
+    vi.mocked(syncDB.getItem).mockResolvedValue({ items: existingItems, hasFullSnapshot: true })
     vi.mocked(serverTimeStore.getLastSyncServerTime).mockReturnValue(5000)
 
     const fetchDeltaMock = vi.fn().mockResolvedValue({
       items: [{ item: 'item-2', metadata: { deleted: true } }],
       serverTime: 6000,
+      success: true,
     })
     const decryptMock = vi.fn().mockResolvedValue([
       { id: 'item-2', type: 'person', name: 'Delete Me', archived: false },
@@ -128,6 +134,7 @@ describe('ItemsSyncEngine', () => {
   it('applies realtime delta and persists merged state', async () => {
     vi.mocked(syncDB.getItem).mockResolvedValue({
       items: [{ id: 'item-1', type: 'person', name: 'Old', archived: false }],
+      hasFullSnapshot: true,
     })
 
     const result = await itemsSyncEngine.applyRealtimeDelta({
@@ -142,6 +149,47 @@ describe('ItemsSyncEngine', () => {
     expect(result).toHaveLength(2)
     expect(result.find(item => item.id === 'item-1')?.name).toBe('New')
     expect(result.find(item => item.id === 'item-2')?.name).toBe('Added')
-    expect(syncDB.setItem).toHaveBeenCalledWith('items-sync-engine_acct-1', { items: result })
+    expect(syncDB.setItem).toHaveBeenCalledWith('items-sync-engine_acct-1', {
+      items: result,
+      hasFullSnapshot: true,
+    })
+  })
+
+  it('forces a full fetch when legacy persisted state is missing full snapshot marker', async () => {
+    const existingItems = [
+      { id: 'item-1', type: 'person', name: 'Old Name', archived: false },
+    ]
+
+    vi.mocked(syncDB.getItem).mockResolvedValue({ items: existingItems })
+    vi.mocked(serverTimeStore.getLastSyncServerTime).mockReturnValue(5000)
+
+    const fetchDeltaMock = vi.fn().mockResolvedValue({
+      items: [{ item: 'item-2', metadata: { deleted: false } }],
+      serverTime: 6000,
+      success: true,
+    })
+    const decryptMock = vi.fn().mockResolvedValue([
+      { id: 'item-2', type: 'person', name: 'From Full Fetch', archived: false },
+    ])
+    const migrateMock = vi.fn().mockResolvedValue([])
+
+    itemsSyncEngine.initialize({
+      fetchDelta: (_accountId, cacheTime) => fetchDeltaMock(cacheTime),
+      decryptItems: decryptMock,
+      migrateItems: migrateMock,
+    })
+
+    const result = await itemsSyncEngine.pull({
+      accountId: 'acct-1',
+      metadata: {},
+    })
+
+    expect(fetchDeltaMock).toHaveBeenCalledWith(null)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: 'item-2', name: 'From Full Fetch' })
+    expect(syncDB.setItem).toHaveBeenCalledWith('items-sync-engine_acct-1', {
+      items: result,
+      hasFullSnapshot: true,
+    })
   })
 })

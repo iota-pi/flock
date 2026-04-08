@@ -1,6 +1,6 @@
 import * as Automerge from '@automerge/automerge'
 import type { VaultBranch } from '../../shared/itemTypes'
-import { toBytes } from './crypto'
+import { decodeEncryptedAutomergeDoc } from '../../shared/automergeBranchCipher'
 
 export type DecryptAndMergeAutomergeResult = {
   mergedDoc: Automerge.Doc<unknown>
@@ -9,13 +9,12 @@ export type DecryptAndMergeAutomergeResult = {
 
 async function decryptBranch(branch: VaultBranch, key: CryptoKey): Promise<Automerge.Doc<unknown>> {
   const encryptedDoc = branch.encryptedAutomergeDoc
-  const iv = encryptedDoc.slice(0, 32)
-  const cipher = encryptedDoc.slice(32)
+  const decoded = decodeEncryptedAutomergeDoc(encryptedDoc)
 
   const binary = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: new Uint8Array(toBytes(iv)) },
+    { name: 'AES-GCM', iv: decoded.iv },
     key,
-    toBytes(cipher),
+    decoded.cipher,
   )
 
   return Automerge.load(new Uint8Array(binary))

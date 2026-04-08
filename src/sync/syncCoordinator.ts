@@ -3,6 +3,7 @@ import { emitDomainEvent } from '../events/domainEvents'
 import { startDataInvalidationController } from '../api/dataInvalidationController'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
+import { ensureItemsBootstrap } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import { startSyncEventHandlers } from './syncEventHandlers'
 import { startStoreBindings } from '../state/storeBindings'
@@ -45,6 +46,14 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   const handleOnline = () => {
     requestAutomergeSync()
+  }
+
+  const bootstrapItemsIfAuthorized = () => {
+    if (!getApiAuthToken()) {
+      return
+    }
+
+    void ensureItemsBootstrap(options.account).catch(() => undefined)
   }
 
   if (typeof window !== 'undefined') {
@@ -124,9 +133,11 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   }
 
   startRealtimeIfAuthorized()
+  bootstrapItemsIfAuthorized()
   const unsubscribeAuthToken = subscribeApiAuthToken(token => {
     if (token) {
       startRealtimeIfAuthorized()
+      bootstrapItemsIfAuthorized()
       requestAutomergeSync()
     } else {
       stopRealtime()

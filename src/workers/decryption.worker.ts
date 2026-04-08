@@ -3,7 +3,10 @@ import * as Automerge from '@automerge/automerge'
 import { expose } from 'comlink'
 import type { VaultItem } from '../api/vault/client'
 import type { ItemId, VaultBranch } from '../shared/itemTypes'
-import { toBytes } from '../api/vault/crypto'
+import {
+  decodeEncryptedAutomergeDoc,
+  encodeEncryptedAutomergeDoc,
+} from '../shared/automergeBranchCipher'
 
 type DecryptItemsWorkerInput = {
   type?: 'DECRYPT_ITEMS'
@@ -80,16 +83,15 @@ async function decryptAutomergeBinary(
   encryptedDoc: string,
   key: CryptoKey,
 ): Promise<Uint8Array> {
-  const iv = new Uint8Array(toBytes(encryptedDoc.slice(0, 32)))
-  const ciphertext = toBytes(encryptedDoc.slice(32))
+  const decoded = decodeEncryptedAutomergeDoc(encryptedDoc)
 
   const plaintext = await crypto.subtle.decrypt(
     {
       name: 'AES-GCM',
-      iv,
+      iv: decoded.iv,
     },
     key,
-    ciphertext,
+    decoded.cipher,
   )
 
   return new Uint8Array(plaintext)
@@ -109,9 +111,10 @@ async function encryptAutomergeBinary(
     binary as BufferSource,
   )
 
-  const ivHex = Array.from(iv).map(byte => byte.toString(16).padStart(2, '0')).join('')
-  const ctHex = Array.from(new Uint8Array(ciphertext)).map(byte => byte.toString(16).padStart(2, '0')).join('')
-  return ivHex + ctHex
+  return encodeEncryptedAutomergeDoc({
+    iv,
+    cipher: ciphertext,
+  })
 }
 
 function materializeDoc(doc: Automerge.Doc<unknown>): HydratedItem {

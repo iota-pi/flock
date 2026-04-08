@@ -6,12 +6,10 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
 import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { requestAutomergeSync } from '../../sync/automergeSyncDispatcher'
-import { trpc } from '../../api/trpc'
+import { ensureItemsBootstrap } from '../../api/itemReadService'
 import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
-  const trpcUtils = trpc.useUtils()
   const syncInProgress = useSyncStore(state => state.isSyncing)
   const activeRequests = useUiStore(state => state.requests.active)
   const isSyncing = syncInProgress || activeRequests > 0
@@ -19,16 +17,14 @@ function SyncNowButton() {
 
   const handleForceSync = useCallback(
     async () => {
-      requestAutomergeSync()
-      await trpcUtils.items.fetchMany.invalidate()
-      await trpcUtils.accounts.getMetadata.invalidate()
       const account = getAccountId()
-      await Promise.all([
-        trpcUtils.items.fetchMany.fetch({ account }),
-        trpcUtils.accounts.getMetadata.fetch({ account }),
-      ])
+      await ensureItemsBootstrap(account, {
+        force: true,
+        forceFullSync: true,
+        forceMetadataRefetch: true,
+      })
     },
-    [trpcUtils],
+    [],
   )
 
   const isQueueActive = isSyncing

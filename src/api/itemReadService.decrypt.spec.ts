@@ -97,4 +97,80 @@ describe('decryptVaultItems', () => {
     expect(mocks.configureDecryptionWorkerCallbacks).toHaveBeenCalledTimes(1)
     expect(schedulePersistSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('falls back to envelope metadata type when worker item omits type', async () => {
+    const envelopes = [
+      {
+        item: 'item-1',
+        cipher: 'cipher-value-1',
+        metadata: {
+          type: 'person' as const,
+          iv: 'iv-value-1',
+          modified: Date.now(),
+        },
+      },
+    ]
+
+    mocks.decryptItemsInWorker.mockResolvedValue([
+      {
+        id: 'item-1',
+        name: 'Alice',
+      },
+    ])
+
+    const mod = await import('./itemReadService')
+    const result = await mod.decryptVaultItems(envelopes)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      id: 'item-1',
+      type: 'person',
+      name: 'Alice',
+    })
+  })
+
+  it('returns valid decrypted items even when one worker item is malformed', async () => {
+    const envelopes = [
+      {
+        item: 'good-item',
+        cipher: 'cipher-value-good',
+        metadata: {
+          type: 'person' as const,
+          iv: 'iv-value-good',
+          modified: Date.now(),
+        },
+      },
+      {
+        item: 'bad-item',
+        cipher: 'cipher-value-bad',
+        metadata: {
+          type: 'invalid' as any,
+          iv: 'iv-value-bad',
+          modified: Date.now(),
+        },
+      },
+    ]
+
+    mocks.decryptItemsInWorker.mockResolvedValue([
+      {
+        id: 'good-item',
+        type: 'person',
+        name: 'Good',
+      },
+      {
+        id: 'bad-item',
+        name: 'Bad',
+      },
+    ])
+
+    const mod = await import('./itemReadService')
+    const result = await mod.decryptVaultItems(envelopes)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      id: 'good-item',
+      type: 'person',
+      name: 'Good',
+    })
+  })
 })

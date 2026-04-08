@@ -41,20 +41,35 @@ import './commands'
 
 Cypress.Commands.overwrite(
   'checkA11y',
-  (originalFn, context?, options?) => originalFn(context, {
-    includedImpacts: ['critical'],
-    ...(options || {}),
-  }, violations => {
-    const details = violations
-      .map(violation => `${violation.id}(${violation.impact}):${violation.nodes.length}`)
-      .join(', ')
+  (originalFn, context?, options?) => {
+    const mergedOptions = {
+      includedImpacts: ['critical'],
+      ...(options || {}),
+    }
 
-    expect(violations, details).to.have.length(0)
-  }),
+    const assertViolations = (violations: Array<{ id: string; impact: string | null; nodes: unknown[] }>) => {
+      const details = violations
+        .map(violation => `${violation.id}(${violation.impact}):${violation.nodes.length}`)
+        .join(', ')
+
+      expect(violations, details).to.have.length(0)
+    }
+
+    if (typeof context === 'string') {
+      return cy.get('body').then($body => {
+        if ($body.find(context).length === 0) {
+          return originalFn(undefined, mergedOptions, assertViolations)
+        }
+
+        return originalFn(context, mergedOptions, assertViolations)
+      })
+    }
+
+    return originalFn(context, mergedOptions, assertViolations)
+  },
 )
 
 const TEST_PASSWORD = 'TestPass123!'
-const SESSION_KEY = `TEST_SESSION_${Date.now()}`
 
 const establishSession = () => {
   Cypress.env('TEST_ACCOUNT_ID', '')
@@ -70,8 +85,7 @@ const establishSession = () => {
 }
 
 beforeEach(() => {
-  cy.session(SESSION_KEY, establishSession, { cacheAcrossSpecs: true })
-  cy.visit('/')
+  establishSession()
   cy.injectAxe()
 })
 

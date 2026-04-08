@@ -1,6 +1,7 @@
 import type { ItemId } from '../shared/itemTypes'
 import {
   readManualRecoveryCount,
+  removeManualRecoveryEntryByItemId,
   upsertManualRecoveryEntry,
 } from '../sync/manualRecoveryStore'
 import { emitSyncEvent } from '../sync/syncEvents'
@@ -53,6 +54,30 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
     recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
   } finally {
     recoveryInFlightItemIds.delete(itemId)
+  }
+}
+
+export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<void> {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(itemId => !!itemId)))
+  if (uniqueItemIds.length === 0) {
+    return
+  }
+
+  const previousCount = await readManualRecoveryCount()
+  if (previousCount === 0) {
+    return
+  }
+
+  for (const itemId of uniqueItemIds) {
+    await removeManualRecoveryEntryByItemId(itemId)
+  }
+
+  const nextCount = await readManualRecoveryCount()
+  if (nextCount !== previousCount) {
+    emitSyncEvent({
+      type: 'sync:recovery-count-changed',
+      count: nextCount,
+    })
   }
 }
 

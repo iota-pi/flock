@@ -16,7 +16,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getQueryKey } from '@trpc/react-query'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { fetchMetadata } from '../../api/itemReadService'
+import { fetchMetadata, metadataQueryOptions } from '../../api/itemReadService'
 import { trpc } from '../../api/trpc'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
 import { useLoggedIn } from 'src/state/selectors'
@@ -202,6 +202,7 @@ function MainMenu({
     queryKey: getQueryKey(trpc.accounts.getMetadata),
     queryFn: fetchMetadata,
     enabled: loggedIn,
+    ...metadataQueryOptions,
   })
   const page = usePage()
 

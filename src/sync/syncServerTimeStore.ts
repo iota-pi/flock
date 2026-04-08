@@ -30,3 +30,12 @@ export function setLastSyncServerTime(accountId: string, serverTime: number): vo
 
   window.localStorage.setItem(getStorageKey(accountId), serverTime.toString())
 }
+
+export function clearLastSyncServerTime(accountId: string): void {
+  inMemoryLastSyncServerTime = null
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return
+  }
+
+  window.localStorage.removeItem(getStorageKey(accountId))
+}

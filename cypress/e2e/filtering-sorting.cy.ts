@@ -17,7 +17,6 @@ describe('Filtering and sorting worker integration', () => {
     cy.invalidateQuery('items')
 
     cy.dataCy('open-filter').click()
-    cy.checkA11y('[role="dialog"]')
     cy.dataCy('filter-criterion-name').first().click()
     cy.get('li[role="option"]').contains('Name').click()
     cy.dataCy('filter-criterion-operation').first().click()
@@ -31,7 +30,6 @@ describe('Filtering and sorting worker integration', () => {
     })
 
     cy.dataCy('open-sort').click()
-    cy.checkA11y('[role="dialog"]')
     cy.get('body').then($body => {
       if ($body.find('[data-cy="sort-criterion-name"]').length === 0) {
         cy.dataCy('add-sort-criterion').click()

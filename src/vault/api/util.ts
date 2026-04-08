@@ -5,8 +5,7 @@ import type { IncomingMessage, Server } from 'http'
 
 export function getAuthToken(request: FastifyRequest<RouteGenericInterface, Server, IncomingMessage>) {
   const auth = request.headers.authorization || ''
-  const token = auth.replace(/^[a-z]+ /i, '')
-  return hashString(token)
+  return auth.replace(/^[a-z]+\s+/i, '').trim()
 }
 
 export function hashString(input: string): string {

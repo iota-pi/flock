@@ -9,7 +9,7 @@ import {
   supplyMissingAttributes,
 } from '../state/items'
 import { AccountMetadata } from '../state/metadata'
-import { hasApiAuthToken, handleVaultError  } from './runtime'
+import { getApiAuthToken, hasApiAuthToken, handleVaultError  } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
 import { queryClient } from './queryClient'
 import { getAccountId } from './util'
@@ -20,8 +20,9 @@ import {
 import { sharedDecryptionCache } from './vault/DecryptionCache'
 import { getEnvelopeCacheKey } from './vault/decryptionCacheKey'
 import { decryptVaultEnvelope } from './vault/decryptVaultEnvelope'
-import { getLastSyncServerTime } from '../sync/syncServerTimeStore'
+import { clearLastSyncServerTime, getLastSyncServerTime } from '../sync/syncServerTimeStore'
 import {
+  clearManualRecoveryForItems,
   initializeSyncHealthWatchers,
   reportDecryptionFailure,
 } from './syncHealthCoordinator'
@@ -36,18 +37,45 @@ import {
   initializeAutomergeDocStore,
   seedAutomergeItems,
 } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
+import { ITEM_TYPES } from '../shared/itemTypes'
+
+const METADATA_QUERY_STALE_TIME_MS = 15 * 60 * 1000
+
+export const metadataQueryOptions = {
+  staleTime: METADATA_QUERY_STALE_TIME_MS,
+  retry: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const
+
+const bootstrapPromiseByScope = new Map<string, Promise<void>>()
+const completedBootstrapScopes = new Set<string>()
+
+type FetchItemsOptions = {
+  forceFullSync?: boolean
+  forceMetadataRefetch?: boolean
+}
+
+type EnsureItemsBootstrapOptions = FetchItemsOptions & {
+  force?: boolean
+}
+
+function getBootstrapScopeKey(accountId: string): string {
+  return `${accountId}:${getApiAuthToken()}`
+}
 
 itemsSyncEngine.initialize({
   fetchDelta: async (accountId: string, cacheTime: number | null) => {
     const response = await fetchMany({ cacheTime }).catch(error => {
       handleVaultError(error, 'Failed to fetch items from server')
-      return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0 }
+      return { items: [] as VaultItem[], serverTime: getLastSyncServerTime(accountId) || 0, success: false }
     })
+    const wasSuccessful = 'success' in response ? response.success !== false : true
 
     return {
       items: response.items as VaultItem[],
       serverTime: response.serverTime,
+      success: wasSuccessful,
     }
   },
   decryptItems: decryptVaultItems,
@@ -74,6 +102,10 @@ function collectSuccessfulDecryptions(
       itemId: result.itemId,
       error: result.error,
     })
+  }
+
+  if (successful.length > 0) {
+    void clearManualRecoveryForItems(successful.map(item => item.id)).catch(() => undefined)
   }
 
   return successful
@@ -159,27 +191,35 @@ async function decryptWithWorker(accountId: string, items: VaultItem[]): Promise
       } satisfies DecryptionResult
     }
 
-    const automergeBinary = workerItem.automergeBinary
-    if (automergeBinary instanceof Uint8Array) {
-      enqueueCompactionCandidate({ source, automergeBinary })
+    try {
+      const automergeBinary = workerItem.automergeBinary
+      if (automergeBinary instanceof Uint8Array) {
+        enqueueCompactionCandidate({ source, automergeBinary })
+      }
+
+      const { automergeBinary: _automergeBinary, ...materialized } = workerItem
+      const hydrated = hydrateAndCacheItem(
+        accountId,
+        source,
+        materialized as Partial<Item>,
+        automergeBinary,
+      )
+
+      if (hydrated.cacheUpdated) {
+        cacheMutated = true
+      }
+
+      return {
+        ok: true,
+        item: hydrated.item,
+      } satisfies DecryptionResult
+    } catch (error) {
+      return {
+        ok: false,
+        itemId: source.item,
+        error,
+      } satisfies DecryptionResult
     }
-
-    const { automergeBinary: _automergeBinary, ...materialized } = workerItem
-    const hydrated = hydrateAndCacheItem(
-      accountId,
-      source,
-      materialized as Partial<Item>,
-      automergeBinary,
-    )
-
-    if (hydrated.cacheUpdated) {
-      cacheMutated = true
-    }
-
-    return {
-      ok: true,
-      item: hydrated.item,
-    } satisfies DecryptionResult
   })
 
   if (cacheMutated) {
@@ -242,36 +282,71 @@ async function decryptWithoutWorker(
   return collectSuccessfulDecryptions('main-thread', results)
 }
 
-export async function fetchItems(): Promise<Item[]> {
+export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[]> {
   if (!hasApiAuthToken()) {
     return []
   }
 
   const accountId = getAccountId()
   await initializeAutomergeDocStore(accountId)
-
-  let localItems = getAutomergeItems()
-
-  if (localItems.length === 0) {
-    const metadata = await queryClient.fetchQuery({
-      queryKey: getQueryKey(trpc.accounts.getMetadata),
-      queryFn: fetchMetadata,
-      staleTime: 5 * 60 * 1000,
-    })
-
-    const mergedItems = await itemsSyncEngine.pull({
-      accountId,
-      metadata,
-    })
-
-    await seedAutomergeItems(mergedItems)
-    localItems = getAutomergeItems()
+  if (options.forceFullSync) {
+    clearLastSyncServerTime(accountId)
   }
 
-  requestAutomergeSync()
+  const metadataQueryKey = getQueryKey(trpc.accounts.getMetadata)
+  if (options.forceMetadataRefetch) {
+    queryClient.removeQueries({ queryKey: metadataQueryKey })
+  }
+  const cachedMetadata = queryClient.getQueryData<AccountMetadata>(metadataQueryKey) || {}
+  const metadata = await queryClient.fetchQuery({
+    queryKey: metadataQueryKey,
+    queryFn: fetchMetadata,
+    ...metadataQueryOptions,
+  }).catch(error => {
+    handleVaultError(error as Error, 'Failed to fetch metadata; continuing with cached metadata')
+    return cachedMetadata
+  })
 
-  return sortItems(localItems, DEFAULT_CRITERIA)
+  const mergedItems = await itemsSyncEngine.pull({
+    accountId,
+    metadata,
+  })
+
+  if (mergedItems.length > 0) {
+    await seedAutomergeItems(mergedItems)
+  }
+
+  const localItems = getAutomergeItems()
+  const visibleItems = localItems.length > 0 ? localItems : mergedItems
+
+  return sortItems(visibleItems, DEFAULT_CRITERIA)
 }
+
+export function ensureItemsBootstrap(accountId: string, options: EnsureItemsBootstrapOptions = {}): Promise<void> {
+  const scopeKey = getBootstrapScopeKey(accountId)
+
+  if (!options.force && completedBootstrapScopes.has(scopeKey)) {
+    return Promise.resolve()
+  }
+
+  const inFlight = bootstrapPromiseByScope.get(scopeKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const bootstrap = fetchItems(options)
+    .then(() => {
+      completedBootstrapScopes.add(scopeKey)
+    })
+    .then(() => undefined)
+    .finally(() => {
+      bootstrapPromiseByScope.delete(scopeKey)
+    })
+
+  bootstrapPromiseByScope.set(scopeKey, bootstrap)
+  return bootstrap
+}
+
 // Fetch and decrypt metadata
 export async function fetchMetadata(): Promise<AccountMetadata> {
   const result = await getMetadata()
@@ -300,7 +375,17 @@ function hydrateAndCacheItem(
   materializedItem: Partial<Item>,
   automergeBinary?: Uint8Array,
 ): { item: Item; cacheUpdated: boolean } {
-  const filled = supplyMissingAttributes(materializedItem as Item)
+  const workerType = (materializedItem as { type?: unknown }).type
+  const metadataType = source.metadata?.type
+  const resolvedType = ITEM_TYPES.includes(workerType as Item['type'])
+    ? workerType
+    : (ITEM_TYPES.includes(metadataType as Item['type']) ? metadataType : undefined)
+  const normalized = {
+    ...materializedItem,
+    id: typeof materializedItem.id === 'string' ? materializedItem.id : source.item,
+    type: resolvedType,
+  } as Partial<Item>
+  const filled = supplyMissingAttributes(normalized as Item)
   const envelope = parseVaultEnvelope(source)
 
   if (!envelope) {

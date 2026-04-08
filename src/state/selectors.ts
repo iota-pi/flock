@@ -4,7 +4,11 @@ import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
-import { fetchItems, fetchMetadata } from '../api/itemReadService'
+import {
+  ensureItemsBootstrap,
+  fetchMetadata,
+  metadataQueryOptions,
+} from '../api/itemReadService'
 import { useSetMetadataMutation } from '../api/itemMutations'
 import { getQueryKey } from '@trpc/react-query'
 import { trpc } from '../api/trpc'
@@ -12,29 +16,9 @@ import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
 import { getAutomergeItems, subscribeAutomergeItems } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
-const bootstrapPromiseByAccount = new Map<string, Promise<void>>()
-
-function ensureItemsBootstrap(account: string): Promise<void> {
-  const inFlight = bootstrapPromiseByAccount.get(account)
-  if (inFlight) {
-    return inFlight
-  }
-
-  const bootstrap = fetchItems()
-    .then(() => {
-      requestAutomergeSync()
-    })
-    .finally(() => {
-      bootstrapPromiseByAccount.delete(account)
-    })
-
-  bootstrapPromiseByAccount.set(account, bootstrap)
-  return bootstrap
-}
 
 function useAutomergeItemsSnapshot(): Item[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
@@ -45,7 +29,7 @@ function useAutomergeItemsSnapshot(): Item[] {
       return
     }
 
-    void ensureItemsBootstrap(account)
+    void ensureItemsBootstrap(account).catch(() => undefined)
   }, [account, authReady])
 
   return useSyncExternalStore(
@@ -130,6 +114,7 @@ export function useMetadata<K extends MetadataKey>(
     queryKey: getQueryKey(trpc.accounts.getMetadata),
     queryFn: fetchMetadata,
     enabled: authReady,
+    ...metadataQueryOptions,
   })
   const setMetadataMutation = useSetMetadataMutation()
 

@@ -69,7 +69,11 @@ export async function mutateStoreItems(
         delete draft[key]
       }
 
-      Object.assign(draft, item as unknown as Record<string, unknown>)
+      for (const [key, value] of Object.entries(item as unknown as Record<string, unknown>)) {
+        if (value !== undefined) {
+          draft[key] = value
+        }
+      }
     })
   }
 

@@ -7,10 +7,11 @@ import type { AccountMetadata } from '../../state/metadata'
 
 type PersistedItemsSyncState = {
   items: Item[]
+  hasFullSnapshot?: boolean
 }
 
 type PullDependencies = {
-  fetchDelta: (accountId: string, cacheTime: number | null) => Promise<{ items: VaultItem[]; serverTime: number }>
+  fetchDelta: (accountId: string, cacheTime: number | null) => Promise<{ items: VaultItem[]; serverTime: number; success: boolean }>
   decryptItems: (items: VaultItem[]) => Promise<Item[]>
   migrateItems: (items: Item[], metadata: AccountMetadata) => Promise<unknown>
 }
@@ -24,6 +25,7 @@ function getStorageKey(accountId: string): string {
 class ItemsSyncEngine {
   private loadedAccountId: string | null = null
   private items: Item[] = []
+  private hasFullSnapshot = false
   private dependencies: PullDependencies | null = null
 
   initialize(dependencies: PullDependencies): void {
@@ -33,6 +35,7 @@ class ItemsSyncEngine {
   reset(): void {
     this.loadedAccountId = null
     this.items = []
+    this.hasFullSnapshot = false
   }
 
   private async load(accountId: string): Promise<void> {
@@ -42,11 +45,15 @@ class ItemsSyncEngine {
 
     const persisted = await syncDB.getItem<PersistedItemsSyncState>(getStorageKey(accountId))
     this.items = Array.isArray(persisted?.items) ? persisted.items : []
+    this.hasFullSnapshot = persisted?.hasFullSnapshot === true
     this.loadedAccountId = accountId
   }
 
   private async persist(accountId: string): Promise<void> {
-    await syncDB.setItem(getStorageKey(accountId), { items: this.items })
+    await syncDB.setItem(getStorageKey(accountId), {
+      items: this.items,
+      hasFullSnapshot: this.hasFullSnapshot,
+    })
   }
 
   private requireDependencies(): PullDependencies {
@@ -65,12 +72,14 @@ class ItemsSyncEngine {
     await this.load(input.accountId)
 
     const lastSyncServerTime = getLastSyncServerTime(input.accountId)
-    const cacheTime = this.items.length > 0 && typeof lastSyncServerTime === 'number'
+    const cacheTime = this.hasFullSnapshot && typeof lastSyncServerTime === 'number'
       ? lastSyncServerTime
       : null
 
     const response = await dependencies.fetchDelta(input.accountId, cacheTime)
-    const decrypted = await dependencies.decryptItems(response.items)
+    const decrypted = response.success
+      ? await dependencies.decryptItems(response.items)
+      : []
     const deletedIds = new Set(
       response.items
         .filter(item => item.metadata?.deleted === true)
@@ -78,9 +87,14 @@ class ItemsSyncEngine {
     )
     const incoming = decrypted.filter(item => !deletedIds.has(item.id))
 
-    this.items = cacheTime === null
-      ? incoming
-      : mergeDeltaItems(this.items, incoming, deletedIds)
+    if (cacheTime === null) {
+      if (response.success) {
+        this.items = incoming
+        this.hasFullSnapshot = true
+      }
+    } else {
+      this.items = mergeDeltaItems(this.items, incoming, deletedIds)
+    }
 
     await dependencies.migrateItems(this.items, input.metadata)
 

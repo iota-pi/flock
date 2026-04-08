@@ -59,23 +59,18 @@ function RootLayout() {
   )
 
   useEffect(() => {
+    void loadVault()
+  }, [])
+
+  useEffect(() => {
     if (!loggedIn || !account) {
       stopSyncCoordinator()
       return
     }
 
-    let disposed = false
-
-    void (async () => {
-      await loadVault()
-      if (disposed) {
-        return
-      }
-      startSyncCoordinator({ account })
-    })()
+    startSyncCoordinator({ account })
 
     return () => {
-      disposed = true
       stopSyncCoordinator()
     }
   }, [account, loggedIn])

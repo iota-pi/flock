@@ -3,6 +3,7 @@ import type { Item } from '../../state/items'
 import type { VaultItem } from './client'
 import type * as vaultApi from '../vault'
 import { getCachedAutomergeBinary } from '../../sync/automergeBinaryCache'
+import { encodeEncryptedAutomergeDoc } from '../../shared/automergeBranchCipher'
 
 export type BranchPayload = {
   encryptedAutomergeDoc: string
@@ -47,9 +48,10 @@ export async function serializeItemAsBranch(
       binary as BufferSource,
     )
 
-    const ivHex = Array.from(iv).map(byte => byte.toString(16).padStart(2, '0')).join('')
-    const ctHex = Array.from(new Uint8Array(cipher)).map(byte => byte.toString(16).padStart(2, '0')).join('')
-    encryptedAutomergeDoc = ivHex + ctHex
+    encryptedAutomergeDoc = encodeEncryptedAutomergeDoc({
+      iv,
+      cipher,
+    })
     versionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   } else {
     const encrypted = await vault.encryptObjectAsAutomerge(item)

@@ -170,7 +170,6 @@ function SettingsPage() {
       title: 'Offline data recovery',
       icon: RestoreIcon,
       onClick: offlineRecoveryDialog.openDialog,
-      disabled: recoveryCount === 0,
       value: recoveryCount > 0
         ? (
           <Typography color="warning.main" fontWeight={500} sx={{ mr: 2 }}>

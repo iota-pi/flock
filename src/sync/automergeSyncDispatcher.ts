@@ -6,7 +6,6 @@ import {
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
   initializeAutomergeDocStore,
-  listAutomergeItemIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   writeAutomergeSyncCursor,
@@ -14,6 +13,10 @@ import {
 
 const FALLBACK_POLL_INTERVAL_MS = 10 * 60 * 1000
 const MAX_PUSH_MESSAGES_PER_ITEM = 10
+const SHOULD_THROW_SYNC_ERRORS = (
+  typeof window !== 'undefined'
+  && !!(window as Window & { Cypress?: unknown }).Cypress
+)
 
 let activeAccount: string | null = null
 let intervalHandle: ReturnType<typeof setInterval> | null = null
@@ -84,7 +87,7 @@ async function pullRemoteMessages(account: string, itemId: string): Promise<void
 }
 
 async function runSyncCycle(): Promise<void> {
-  if (syncing || !activeAccount) {
+  if (syncing || !activeAccount || pendingItemIds.size === 0) {
     return
   }
 
@@ -93,15 +96,25 @@ async function runSyncCycle(): Promise<void> {
   try {
     await initializeAutomergeDocStore(activeAccount)
 
-    const targetIds = pendingItemIds.size > 0
-      ? Array.from(pendingItemIds)
-      : listAutomergeItemIds()
+    const targetIds = Array.from(pendingItemIds)
 
     pendingItemIds.clear()
 
     for (const itemId of targetIds) {
-      await pushLocalMessages(activeAccount, itemId)
-      await pullRemoteMessages(activeAccount, itemId)
+      try {
+        await pushLocalMessages(activeAccount, itemId)
+        await pullRemoteMessages(activeAccount, itemId)
+      } catch (error) {
+        pendingItemIds.add(itemId)
+        if (SHOULD_THROW_SYNC_ERRORS) {
+          throw error
+        }
+      }
+    }
+  } catch (error) {
+    // Sync is best-effort; failures are retried on future sync requests.
+    if (SHOULD_THROW_SYNC_ERRORS) {
+      throw error
     }
   } finally {
     emitDomainEvent({ type: 'sync:processing-changed', isSyncing: false })

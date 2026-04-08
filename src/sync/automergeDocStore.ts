@@ -33,6 +33,12 @@ let loadedAccount: string | null = null
 const entriesByItemId = new Map<string, DocEntry>()
 const allListeners = new Set<() => void>()
 const itemListenersById = new Map<string, Set<(item: Item | null) => void>>()
+let cachedItemsSnapshot: Item[] = []
+let cachedItemsSnapshotDirty = true
+
+function markItemsSnapshotDirty(): void {
+  cachedItemsSnapshotDirty = true
+}
 
 function toDocStorageKey(account: string, itemId: string): string {
   return `${DOC_RECORD_PREFIX}${account}:${itemId}`
@@ -134,6 +140,7 @@ function notifyAll(): void {
 }
 
 function notifyChange(itemId: string): void {
+  markItemsSnapshotDirty()
   notifyItem(itemId)
   notifyAll()
 }
@@ -145,6 +152,8 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   loadedAccount = account
   entriesByItemId.clear()
+  cachedItemsSnapshot = []
+  markItemsSnapshotDirty()
 
   await store.iterate<PersistedDocRecord, void>((value, key) => {
     if (!key.startsWith(`${DOC_RECORD_PREFIX}${account}:`)) {
@@ -179,6 +188,10 @@ export function listAutomergeItemIds(): string[] {
 }
 
 export function getAutomergeItems(): Item[] {
+  if (!cachedItemsSnapshotDirty) {
+    return cachedItemsSnapshot
+  }
+
   const items: Item[] = []
 
   for (const [itemId, entry] of entriesByItemId) {
@@ -190,7 +203,9 @@ export function getAutomergeItems(): Item[] {
     items.push(item)
   }
 
-  return items
+  cachedItemsSnapshot = items
+  cachedItemsSnapshotDirty = false
+  return cachedItemsSnapshot
 }
 
 export function getAutomergeItem(itemId: string): Item | null {
@@ -248,6 +263,8 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByItemId.clear()
   loadedAccount = null
+  cachedItemsSnapshot = []
+  markItemsSnapshotDirty()
   await store.clear()
   notifyAll()
 }

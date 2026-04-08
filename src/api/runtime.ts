@@ -5,6 +5,10 @@ let authToken = ''
 let onSessionExpired: (() => void) | null = null
 const authTokenListeners = new Set<(token: string) => void>()
 
+function isCypressRuntime(): boolean {
+  return typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
+}
+
 function startRequest() {
   useUiStore.getState().startRequest()
 }
@@ -43,6 +47,18 @@ export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit)
 
     if (!response.ok) {
       finishRequest('A request to the server failed. Please retry later.')
+
+      if (isCypressRuntime()) {
+        const requestUrl = typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+
+        setTimeout(() => {
+          throw new Error(`Server request failed (${response.status}) for ${requestUrl}`)
+        }, 0)
+      }
     }
 
     return response
