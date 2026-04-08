@@ -2,12 +2,14 @@ import type { ItemId } from '../../../shared/itemTypes'
 import { GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
-import { ensureItemsBootstrap, queueMetadataForSync, setCachedMetadata } from '../../../api/itemReadService'
+import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import {
+  ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
   initializeAutomergeDocStore,
   withAutomergeItemChange,
+  withAutomergeMetadataChange,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
 
@@ -149,8 +151,22 @@ export async function mutateSetMetadata(
   metadata: AccountMetadata,
 ): Promise<AccountMetadata> {
   const nextMetadata = sanitizeMetadata(metadata)
-  setCachedMetadata(nextMetadata)
-  queueMetadataForSync(nextMetadata)
+
+  await ensureAutomergeStoreReady()
+
+  await withAutomergeMetadataChange(draft => {
+    for (const key of Object.keys(draft)) {
+      delete draft[key]
+    }
+
+    for (const [key, value] of Object.entries(nextMetadata as Record<string, unknown>)) {
+      if (value !== undefined) {
+        draft[key] = value
+      }
+    }
+  })
+
+  requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
 
   return nextMetadata
 }

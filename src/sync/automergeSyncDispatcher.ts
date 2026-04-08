@@ -2,10 +2,11 @@ import { decryptBytesWithKey, encryptBytesWithKey } from '../api/vault/crypto'
 import { getVaultKey } from '../api/vault'
 import { pullSyncMessages, pushSyncMessage } from '../api/vault/syncClient'
 import {
+  ACCOUNT_METADATA_DOCUMENT_ID,
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
   initializeAutomergeDocStore,
-  listAutomergeItemIds,
+  listAutomergeDocumentIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   writeAutomergeSyncCursor,
@@ -22,6 +23,7 @@ const SHOULD_THROW_SYNC_ERRORS = (
 let activeAccount: string | null = null
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 let syncing = false
+const pendingRequestedDocumentIds = new Set<string>()
 
 function scheduleImmediateSync(): void {
   queueMicrotask(() => {
@@ -87,9 +89,14 @@ async function runSyncCycle(): Promise<void> {
   try {
     await initializeAutomergeDocStore(activeAccount)
 
-    const targetIds = listAutomergeItemIds()
+    const targetIds = new Set<string>(listAutomergeDocumentIds())
+    targetIds.add(ACCOUNT_METADATA_DOCUMENT_ID)
+    for (const documentId of pendingRequestedDocumentIds) {
+      targetIds.add(documentId)
+    }
+    pendingRequestedDocumentIds.clear()
 
-    if (targetIds.length === 0) {
+    if (targetIds.size === 0) {
       return
     }
 
@@ -114,7 +121,16 @@ async function runSyncCycle(): Promise<void> {
   }
 }
 
-export function requestAutomergeSync(_?: string[]): void {
+export function requestAutomergeSync(documentIds?: string[]): void {
+  if (Array.isArray(documentIds)) {
+    for (const documentId of documentIds) {
+      if (typeof documentId !== 'string' || documentId.length === 0) {
+        continue
+      }
+
+      pendingRequestedDocumentIds.add(documentId)
+    }
+  }
 
   scheduleImmediateSync()
 }
@@ -141,5 +157,6 @@ export function stopAutomergeSyncDispatcher(): void {
   }
 
   activeAccount = null
+  pendingRequestedDocumentIds.clear()
   useSyncStore.getState().setIsSyncing(false)
 }

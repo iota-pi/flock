@@ -1,12 +1,10 @@
-import type { AccountMetadata } from '../../state/metadata'
-import type { ItemEnvelope, ItemId, VaultBranch } from '../../shared/itemTypes'
+import type { ItemEnvelope, ItemId } from '../../shared/itemTypes'
 import type { WebPushSubscription } from '../../vault/types'
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
 import { setLastSyncServerTime } from '../../sync/syncServerTimeStore'
 import {
   FetchItemsInputSchema,
-  UpdateMetadataBodySchema,
 } from '../../shared/syncSchemas'
 
 export type CreateAccountBody = {
@@ -55,16 +53,6 @@ export type ReminderSettingsResponse = {
   reminderTime: string,
   reminderTimezone: string,
 }
-
-export type VaultMetadataEnvelope =
-  | AccountMetadata
-  | {
-    cipher: string
-    iv: string
-  }
-  | {
-    branches: VaultBranch[]
-  }
 
 function assertSuccess(response: { success: boolean }, operation: string) {
   if (!response.success) {
@@ -133,21 +121,6 @@ export async function getSession(authToken: string): Promise<string> {
     throw new Error('Vault client getSession: missing session')
   }
   return response.session
-}
-
-export async function getMetadata(): Promise<VaultMetadataEnvelope> {
-  const response = await trpcClient.accounts.getMetadata.query({ account: getAccountId() })
-  assertSuccess(response, 'getMetadata')
-  return (response.metadata as VaultMetadataEnvelope) || {}
-}
-
-export async function setMetadata(metadata: Record<string, unknown>): Promise<void> {
-  const input = UpdateMetadataBodySchema.parse({
-    account: getAccountId(),
-    metadata,
-  })
-  const response = await trpcClient.accounts.updateMetadata.mutate(input)
-  assertSuccess(response, 'setMetadata')
 }
 
 export async function addPushSubscription(subscription: WebPushSubscription): Promise<void> {

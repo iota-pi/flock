@@ -1,13 +1,13 @@
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
-import { ensureItemsBootstrap, ensureMetadataLoaded, requestMetadataSync } from '../api/itemReadService'
+import { ensureItemsBootstrap, ensureMetadataLoaded } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import {
   requestAutomergeSync,
   startAutomergeSyncDispatcher,
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
-import { initializeAutomergeDocStore } from './automergeDocStore'
+import { ACCOUNT_METADATA_DOCUMENT_ID, initializeAutomergeDocStore } from './automergeDocStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -33,7 +33,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   const handleOnline = () => {
     requestAutomergeSync()
-    requestMetadataSync(options.account)
   }
 
   const bootstrapItemsIfAuthorized = () => {
@@ -42,7 +41,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     }
 
     void ensureItemsBootstrap(options.account).catch(() => undefined)
-    requestMetadataSync(options.account)
+    void ensureMetadataLoaded(options.account).catch(() => undefined)
   }
 
   if (typeof window !== 'undefined') {
@@ -64,6 +63,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       account: options.account,
       onServerEvent: event => {
         if (event.eventType === 'metadata.updated') {
+          requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
           void ensureMetadataLoaded(options.account, { force: true })
         }
       },
@@ -114,7 +114,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     clearHiddenDisconnectTimer()
     startRealtimeIfAuthorized()
     requestAutomergeSync()
-    requestMetadataSync(options.account)
+    void ensureMetadataLoaded(options.account).catch(() => undefined)
   }
 
   if (typeof document !== 'undefined') {
@@ -128,7 +128,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       startRealtimeIfAuthorized()
       bootstrapItemsIfAuthorized()
       requestAutomergeSync()
-      requestMetadataSync(options.account)
+      void ensureMetadataLoaded(options.account).catch(() => undefined)
     } else {
       stopRealtime()
     }

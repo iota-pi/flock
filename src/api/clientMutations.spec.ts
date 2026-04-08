@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from '../features/items/mutations/itemMutations'
 import {
+  ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
   initializeAutomergeDocStore,
   withAutomergeItemChange,
+  withAutomergeMetadataChange,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
-import { setMetadata } from './vault/client'
 import { ensureItemsBootstrap } from './itemReadService'
 import { setApiAuthToken } from './runtime'
 
@@ -22,6 +23,7 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     getAutomergeItems: vi.fn(() => []),
     initializeAutomergeDocStore: vi.fn(),
     withAutomergeItemChange: vi.fn(async () => undefined),
+    withAutomergeMetadataChange: vi.fn(async () => undefined),
   }
 })
 
@@ -32,14 +34,6 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'test-account'),
 }))
-
-vi.mock('./vault/client', async importOriginal => {
-  const actual = await importOriginal<typeof import('./vault/client')>()
-  return {
-    ...actual,
-    setMetadata: vi.fn(),
-  }
-})
 
 vi.mock('./itemReadService', async importOriginal => {
   const actual = await importOriginal<typeof import('./itemReadService')>()
@@ -63,7 +57,6 @@ describe('local-first mutations', () => {
     setApiAuthToken('')
     vi.mocked(ensureItemsBootstrap).mockResolvedValue()
     vi.mocked(getAutomergeItems).mockReturnValue([])
-    vi.mocked(setMetadata).mockResolvedValue()
   })
 
   it('stores single-item snapshots and requests sync', async () => {
@@ -115,15 +108,7 @@ describe('local-first mutations', () => {
     const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(setMetadata).not.toHaveBeenCalled()
-  })
-
-  it('queues metadata sync to vault when auth token is available', async () => {
-    setApiAuthToken('session-token')
-
-    await mutateSetMetadata({ prayerGoal: 20 } as any)
-    await Promise.resolve()
-
-    expect(setMetadata).toHaveBeenCalledWith(expect.objectContaining({ prayerGoal: 20 }))
+    expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)
+    expect(requestAutomergeSync).toHaveBeenCalledWith([ACCOUNT_METADATA_DOCUMENT_ID])
   })
 })
