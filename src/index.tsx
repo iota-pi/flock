@@ -1,14 +1,11 @@
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { getQueryKey } from '@trpc/react-query'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
-import { queryClient, queryPersister } from './api/queryClient'
-import { trpc } from './api/trpc'
-import { trpcReactClient } from './api/trpcClient'
 import * as vault from './api/vault'
 import * as mutations from './features/items/mutations/itemMutations'
+import { ensureItemsBootstrap, ensureMetadataLoaded } from './api/itemReadService'
+import { useAuthStore } from './state/authStore'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
@@ -78,29 +75,11 @@ Sentry.init({
 
 const rootElement = document.getElementById('root')!
 const root = createRoot(rootElement)
-root.render(
-  <PersistQueryClientProvider
-    client={queryClient}
-    persistOptions={{
-      persister: queryPersister,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    }}
-  >
-    <trpc.Provider client={trpcReactClient} queryClient={queryClient}>
-      <ThemedApp />
-    </trpc.Provider>
-  </PersistQueryClientProvider>,
-)
+root.render(<ThemedApp />)
 
 registerSW()
 
 if (window.Cypress) {
   window.vault = Promise.resolve(vault)
   window.mutations = Promise.resolve(mutations)
-  window.invalidateQuery = (key: 'items' | 'metadata') => {
-    const queryKey = key === 'items'
-      ? getQueryKey(trpc.items.fetchMany)
-      : getQueryKey(trpc.accounts.getMetadata)
-    return queryClient.invalidateQueries({ queryKey })
-  }
 }

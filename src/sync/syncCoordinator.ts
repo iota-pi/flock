@@ -10,8 +10,6 @@ import {
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
 import { initializeAutomergeDocStore } from './automergeDocStore'
-import { readManualRecoveryCount } from './manualRecoveryStore'
-import { useSyncStore } from '../state/syncStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -36,9 +34,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   void initializeAutomergeDocStore(options.account)
   startAutomergeSyncDispatcher(options.account)
-  void readManualRecoveryCount().then(count => {
-    useSyncStore.getState().setRecoveryCount(count)
-  })
 
   const handleOnline = () => {
     requestAutomergeSync()

@@ -31,8 +31,6 @@ declare global {
 
       addToGroup(group: string): Chainable
       addMember(name: string): Chainable
-
-      invalidateQuery(key: string): Chainable
     }
   }
 }

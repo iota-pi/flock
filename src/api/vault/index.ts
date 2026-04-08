@@ -1,6 +1,5 @@
 import type { WebPushSubscription } from '../../vault/types'
 import { clearPersistedAuthSyncState, useAuthStore } from '../../state/authStore'
-import { queryClient } from '../queryClient'
 import {
   clearActiveSessionToken,
   setActiveSessionToken,
@@ -9,6 +8,7 @@ import { clearAutomergeDocStore } from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
+import { clearMetadataCache } from '../itemReadService'
 import {
   addPushSubscription as addPushSubscriptionClient,
   createAccount,
@@ -178,8 +178,7 @@ export async function signOutVault() {
   session = ''
   setApiAuthToken('')
 
-  queryClient.cancelQueries()
-  queryClient.clear()
+  clearMetadataCache()
 
   setAccount({ account: '', loggedIn: false })
 

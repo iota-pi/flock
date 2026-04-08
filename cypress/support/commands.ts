@@ -376,19 +376,3 @@ Cypress.Commands.add(
     })
   },
 )
-
-Cypress.Commands.add(
-  'invalidateQuery',
-  (key: 'items' | 'metadata'): Cypress.Chainable => {
-    return cy.window({ log: false }).then(win => {
-      if (!win.invalidateQuery) {
-        throw new Error('invalidateQuery function not found on window object')
-      }
-
-      return Cypress.Promise.race([
-        Cypress.Promise.resolve(win.invalidateQuery(key)),
-        Cypress.Promise.delay(1500),
-      ])
-    })
-  },
-)

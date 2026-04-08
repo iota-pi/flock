@@ -80,8 +80,8 @@ describe('local-first mutations', () => {
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 
-  it('validates incoming item payloads with zod before storing', async () => {
-    await expect(mutateStoreItems({ id: 'bad-item', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
+  it('rejects invalid item payloads before storing', async () => {
+    await expect(mutateStoreItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
     expect(withAutomergeItemChange).not.toHaveBeenCalled()
   })
 

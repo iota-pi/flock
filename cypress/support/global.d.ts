@@ -3,9 +3,8 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Window {
     vault?: Promise<typeof import('../../src/api/vault/index')>
-    mutations?: Promise<typeof import('../../src/api/itemMutations')>
+    mutations?: Promise<typeof import('../../src/features/items/mutations/itemMutations')>
     hasApiAuthToken?: typeof import('../../src/api/runtime').hasApiAuthToken
-    invalidateQuery?: (key: 'items' | 'metadata') => Promise<void>
   }
 }
 

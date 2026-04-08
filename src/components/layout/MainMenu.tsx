@@ -12,16 +12,11 @@ import {
   styled,
   Toolbar,
 } from '@mui/material'
-import { useQuery } from '@tanstack/react-query'
-import { getQueryKey } from '@trpc/react-query'
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
-import { fetchMetadata, metadataQueryOptions } from '../../api/itemReadService'
-import { trpc } from '../../api/trpc'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
-import { useLoggedIn } from 'src/state/selectors'
+import { useAccountMetadata } from '../../state/selectors'
 import { useNavigationStore } from '../../state/navigationStore'
-import { useSyncStore } from '../../state/syncStore'
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
@@ -195,15 +190,8 @@ function MainMenu({
   open,
 }: Props) {
   const setSelected = useNavigationStore(state => state.setSelected)
-  const recoveryCount = useSyncStore(state => state.recoveryCount)
   const navigate = useNavigate()
-  const loggedIn = useLoggedIn()
-  const { data: metadata = {} } = useQuery({
-    queryKey: getQueryKey(trpc.accounts.getMetadata),
-    queryFn: fetchMetadata,
-    enabled: loggedIn,
-    ...metadataQueryOptions,
-  })
+  const metadata = useAccountMetadata()
   const page = usePage()
 
   const handleClick = useCallback(
@@ -250,7 +238,6 @@ function MainMenu({
               name={name}
               onClick={handleClick}
               selected={id === page?.id}
-              warningCount={id === 'settings' ? recoveryCount : 0}
             />
           ))}
 

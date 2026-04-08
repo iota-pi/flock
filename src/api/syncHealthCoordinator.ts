@@ -8,7 +8,6 @@ import {
 import { normalizeSyncError } from '../shared/syncErrors'
 import { configureDecryptionWorkerCallbacks } from '../workers/decryptionWorkerManager'
 import { useToastStore } from '../state/toastStore'
-import { useSyncStore } from '../state/syncStore'
 
 export type DecryptionFailedEvent = {
   source: 'worker' | 'main-thread'
@@ -29,7 +28,6 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
   await upsertManualRecoveryEntry({ itemId, reason })
 
   const count = await readManualRecoveryCount()
-  useSyncStore.getState().setRecoveryCount(count)
   useToastStore.getState().setMessage({
     severity: 'warning',
     message: reason || 'A corrupted item was detected. Recovery will be attempted automatically.',
@@ -82,7 +80,6 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
 
   const nextCount = await readManualRecoveryCount()
   if (nextCount !== previousCount) {
-    useSyncStore.getState().setRecoveryCount(nextCount)
     useToastStore.getState().setMessage({
       severity: 'success',
       message: 'Recovered a corrupted item revision.',

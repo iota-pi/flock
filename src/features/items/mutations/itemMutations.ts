@@ -1,16 +1,10 @@
 import type { ItemId } from '../../../shared/itemTypes'
-import { type Item } from '../../../state/items'
+import { GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
-import { ensureItemsBootstrap } from '../../../api/itemReadService'
+import { ensureItemsBootstrap, setCachedMetadata } from '../../../api/itemReadService'
 import { emitDomainEvent } from '../../../events/domainEvents'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { dedupeItemsById, updateGroupsForDeletedMembers } from './mutationPayloads'
-import {
-  parseItemIdsMutationInput,
-  parseMetadataMutationInput,
-  parseStoreItemsMutationInput,
-} from './mutationSchemas'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
@@ -18,6 +12,59 @@ import {
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
 import { setMetadata as pushMetadata } from '../../../api/vault/client'
+
+function normalizeItemsInput(items: Item | Item[]): Item[] {
+  const incoming = Array.isArray(items) ? items : [items]
+  if (incoming.length === 0) {
+    throw new Error('Expected at least one item')
+  }
+
+  const deduped = new Map<ItemId, Item>()
+  for (const item of incoming) {
+    if (!item || typeof item.id !== 'string' || item.id.length === 0) {
+      throw new Error('Invalid item: missing id')
+    }
+
+    if (!ITEM_TYPES.includes(item.type)) {
+      throw new Error(`Invalid item: unsupported type ${String(item.type)}`)
+    }
+
+    deduped.set(item.id, item)
+  }
+
+  return Array.from(deduped.values())
+}
+
+function normalizeItemIds(itemIds: ItemId | ItemId[]): ItemId[] {
+  const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+  const normalized = ids
+    .filter(id => typeof id === 'string')
+    .map(id => id.trim())
+    .filter(id => id.length > 0)
+
+  if (normalized.length === 0) {
+    throw new Error('Expected at least one item id')
+  }
+
+  return Array.from(new Set(normalized))
+}
+
+function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('Invalid metadata payload')
+  }
+
+  return metadata
+}
+
+function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
+  return allItems
+    .filter((item): item is GroupItem => item.type === 'group' && item.members.some(memberId => idsSet.has(memberId)))
+    .map(group => ({
+      ...group,
+      members: group.members.filter(memberId => !idsSet.has(memberId)),
+    }))
+}
 
 function buildDeletionUpdates(allItems: Item[], ids: ItemId[]): Item[] {
   const idsSet = new Set(ids)
@@ -46,7 +93,7 @@ async function ensureAutomergeStoreReady(): Promise<void> {
 export async function mutateStoreItems(
   items: Item | Item[],
 ): Promise<Item[]> {
-  const current = dedupeItemsById(parseStoreItemsMutationInput(items))
+  const current = normalizeItemsInput(items)
   await ensureAutomergeStoreReady()
 
   for (const item of current) {
@@ -75,7 +122,7 @@ export async function mutateDeleteItems(
     allItems?: Item[]
   },
 ): Promise<ItemId[]> {
-  const ids = parseItemIdsMutationInput(itemIds)
+  const ids = normalizeItemIds(itemIds)
   await ensureAutomergeStoreReady()
 
   let allItems = options?.allItems ?? getAutomergeItems()
@@ -99,8 +146,9 @@ export async function mutateDeleteItems(
 export async function mutateSetMetadata(
   metadata: AccountMetadata,
 ): Promise<AccountMetadata> {
-  const nextMetadata = parseMetadataMutationInput(metadata) as AccountMetadata
+  const nextMetadata = sanitizeMetadata(metadata)
   await pushMetadata(nextMetadata as Record<string, unknown>)
+  setCachedMetadata(nextMetadata)
   emitDomainEvent({ type: 'data:updated', domain: 'metadata', reason: 'automerge:metadata-updated' })
 
   return nextMetadata

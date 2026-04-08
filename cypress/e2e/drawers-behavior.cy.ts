@@ -9,7 +9,6 @@ describe('Drawer behavior', () => {
     cy.createGroup({ name: fellowshipName })
     cy.createPerson({ name: bilboName, prayerFrequency: 'daily' })
     cy.createPerson({ name: frodoName })
-    cy.invalidateQuery('items')
 
     cy.contains(frodoName).click()
     cy.dataCy('section-groups').click()

@@ -14,7 +14,6 @@ describe('Filtering and sorting worker integration', () => {
     personNames.forEach(name => {
       cy.createPerson({ name })
     })
-    cy.invalidateQuery('items')
 
     cy.dataCy('open-filter').click()
     cy.dataCy('filter-criterion-name').first().click()

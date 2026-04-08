@@ -10,7 +10,6 @@ declare global {
     vault?: Promise<typeof vault>
     mutations?: Promise<typeof mutations>
     hasApiAuthToken?: typeof hasApiAuthToken
-    invalidateQuery?: (key: 'items' | 'metadata') => Promise<void>
   }
 }
 

@@ -1,4 +1,4 @@
-import { createTRPCClient, createTRPCProxyClient, httpBatchLink } from '@trpc/client'
+import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../vault/trpc/root'
 import env from '../env'
 import { getApiAuthToken, trackedFetch } from './runtime'
@@ -17,9 +17,5 @@ function getTrpcLinks() {
 }
 
 export const trpcClient = createTRPCProxyClient<AppRouter>({
-  links: getTrpcLinks(),
-})
-
-export const trpcReactClient = createTRPCClient<AppRouter>({
   links: getTrpcLinks(),
 })

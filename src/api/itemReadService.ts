@@ -11,7 +11,6 @@ import {
 import { AccountMetadata } from '../state/metadata'
 import { getApiAuthToken, hasApiAuthToken, handleVaultError  } from './runtime'
 import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
-import { queryClient } from './queryClient'
 import { getAccountId } from './util'
 import {
   decryptItemsInWorker,
@@ -28,8 +27,6 @@ import {
 } from './syncHealthCoordinator'
 import { parseVaultEnvelope } from './vault/envelopeParser'
 import { enqueueCompactionCandidate } from './vault/maintenanceCoordinator'
-import { getQueryKey } from '@trpc/react-query'
-import { trpc } from './trpc'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
@@ -40,17 +37,12 @@ import { ITEM_TYPES } from '../shared/itemTypes'
 import { decryptBytesWithKey } from './vault/crypto'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
-const METADATA_QUERY_STALE_TIME_MS = 15 * 60 * 1000
-
-export const metadataQueryOptions = {
-  staleTime: METADATA_QUERY_STALE_TIME_MS,
-  retry: false,
-  refetchOnWindowFocus: false,
-  refetchOnReconnect: false,
-} as const
-
 const bootstrapPromiseByScope = new Map<string, Promise<void>>()
 const completedBootstrapScopes = new Set<string>()
+const metadataPromiseByScope = new Map<string, Promise<AccountMetadata>>()
+const metadataSubscribers = new Set<() => void>()
+let cachedMetadata: AccountMetadata = {}
+let cachedMetadataScope = ''
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -71,6 +63,81 @@ type SyncSnapshotMessage = {
 
 function getBootstrapScopeKey(accountId: string): string {
   return `${accountId}:${getApiAuthToken()}`
+}
+
+function getMetadataScopeKey(accountId: string): string {
+  return `${accountId}:${getApiAuthToken()}`
+}
+
+function notifyMetadataSubscribers(): void {
+  for (const subscriber of metadataSubscribers) {
+    subscriber()
+  }
+}
+
+function setCachedMetadataSnapshot(metadata: AccountMetadata, scopeKey: string): void {
+  cachedMetadata = metadata || {}
+  cachedMetadataScope = scopeKey
+  notifyMetadataSubscribers()
+}
+
+export function getCachedMetadata(): AccountMetadata {
+  return cachedMetadata
+}
+
+export function subscribeMetadata(listener: () => void): () => void {
+  metadataSubscribers.add(listener)
+  return () => {
+    metadataSubscribers.delete(listener)
+  }
+}
+
+export function clearMetadataCache(): void {
+  const hadSnapshot = Object.keys(cachedMetadata).length > 0 || cachedMetadataScope.length > 0
+
+  cachedMetadata = {}
+  cachedMetadataScope = ''
+  metadataPromiseByScope.clear()
+
+  if (hadSnapshot) {
+    notifyMetadataSubscribers()
+  }
+}
+
+export function setCachedMetadata(metadata: AccountMetadata): void {
+  setCachedMetadataSnapshot(metadata || {}, getMetadataScopeKey(getAccountId()))
+}
+
+export async function ensureMetadataLoaded(
+  accountId: string,
+  options: { force?: boolean } = {},
+): Promise<AccountMetadata> {
+  if (!hasApiAuthToken()) {
+    clearMetadataCache()
+    return {}
+  }
+
+  const scopeKey = getMetadataScopeKey(accountId)
+  if (!options.force && cachedMetadataScope === scopeKey) {
+    return cachedMetadata
+  }
+
+  const inFlight = metadataPromiseByScope.get(scopeKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const loadPromise = fetchMetadata(accountId)
+    .catch(error => {
+      handleVaultError(error, 'Failed to fetch metadata')
+      return cachedMetadataScope === scopeKey ? cachedMetadata : {}
+    })
+    .finally(() => {
+      metadataPromiseByScope.delete(scopeKey)
+    })
+
+  metadataPromiseByScope.set(scopeKey, loadPromise)
+  return loadPromise
 }
 
 function getOrderedSyncSnapshotMessages(item: VaultItem): SyncSnapshotMessage[] {
@@ -172,7 +239,7 @@ function collectSuccessfulDecryptions(
   return successful
 }
 
-// Fetch and decrypt all items - TanStack Query handles caching
+// Fetch and decrypt all items from local-first state
 export async function decryptVaultItems(items: VaultItem[]): Promise<Item[]> {
   initializeSyncHealthWatchers()
 
@@ -350,7 +417,7 @@ export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[
 
   const accountId = getAccountId()
   if (options.forceMetadataRefetch) {
-    queryClient.removeQueries({ queryKey: getQueryKey(trpc.accounts.getMetadata) })
+    await ensureMetadataLoaded(accountId, { force: true })
   }
 
   await ensureItemsBootstrap(accountId, {
@@ -387,8 +454,9 @@ export function ensureItemsBootstrap(accountId: string, options: EnsureItemsBoot
 }
 
 // Fetch and decrypt metadata
-export async function fetchMetadata(): Promise<AccountMetadata> {
+export async function fetchMetadata(accountId = getAccountId()): Promise<AccountMetadata> {
   const result = await getMetadata()
+  const scopeKey = getMetadataScopeKey(accountId)
 
   const envelope = parseVaultEnvelope(result)
   if (envelope) {
@@ -402,10 +470,14 @@ export async function fetchMetadata(): Promise<AccountMetadata> {
       sharedDecryptionCache.setMetadataBinary(decrypted.automergeBinary)
     }
 
-    return decrypted.materialized
+    const metadata = decrypted.materialized
+    setCachedMetadataSnapshot(metadata, scopeKey)
+    return metadata
   }
 
-  return (result || {}) as AccountMetadata
+  const metadata = (result || {}) as AccountMetadata
+  setCachedMetadataSnapshot(metadata, scopeKey)
+  return metadata
 }
 
 function hydrateAndCacheItem(
@@ -438,11 +510,6 @@ function hydrateAndCacheItem(
   })
 
   return { item: filled, cacheUpdated: true }
-}
-
-// Helper to clear the cache (e.g., on logout)
-export function clearQueryCache() {
-  queryClient.clear()
 }
 
 // Helper to check if we have cached data (for UI purposes)

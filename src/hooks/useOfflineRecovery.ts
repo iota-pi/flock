@@ -1,52 +1,39 @@
-import { useCallback, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
 import {
   type ManualRecoveryEntry,
-  readManualRecoveryCount,
   readManualRecoveryEntries,
   removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId,
 } from '../sync/manualRecoveryStore'
-import { useSyncStore } from '../state/syncStore'
 import { useToastStore } from '../state/toastStore'
 import type { ItemId } from '../shared/itemTypes'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { getAutomergeItem, withAutomergeItemChange } from '../sync/automergeDocStore'
 
 export function useOfflineRecovery() {
-  const setRecoveryCount = useSyncStore(state => state.setRecoveryCount)
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
+  const [recoveryItems, setRecoveryItems] = useState<ManualRecoveryEntry[]>([])
 
-  const fetchManualRecoveryItems = useCallback(async (): Promise<ManualRecoveryEntry[]> => {
-    const items = await readManualRecoveryEntries()
-    setRecoveryCount(items.length)
-    return items
-  }, [setRecoveryCount])
+  const refreshRecoveryItems = useCallback(async (): Promise<ManualRecoveryEntry[]> => {
+    const next = await readManualRecoveryEntries()
+    setRecoveryItems(next)
+    return next
+  }, [])
 
-  const {
-    data: recoveryItems = [],
-    refetch: refetchRecoveryItems,
-  } = useQuery({
-    queryKey: ['manualRecoveryItems'],
-    queryFn: fetchManualRecoveryItems,
-  })
-
-  const refreshRecoveryCount = useCallback(async () => {
-    setRecoveryCount(await readManualRecoveryCount())
-  }, [setRecoveryCount])
+  useEffect(() => {
+    void refreshRecoveryItems()
+  }, [refreshRecoveryItems])
 
   const removeManualRecoveryEntry = useCallback(async (itemId: ItemId) => {
     await removeManualRecoveryEntryByItemId(itemId)
-    await refreshRecoveryCount()
-    await refetchRecoveryItems()
-  }, [refetchRecoveryItems, refreshRecoveryCount])
+    await refreshRecoveryItems()
+  }, [refreshRecoveryItems])
 
   const handleDismissRecoveryItem = useCallback(async (id: string) => {
     await removeManualRecoveryEntryById(id)
-    await refreshRecoveryCount()
-    await refetchRecoveryItems()
-  }, [refetchRecoveryItems, refreshRecoveryCount])
+    await refreshRecoveryItems()
+  }, [refreshRecoveryItems])
 
   const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)

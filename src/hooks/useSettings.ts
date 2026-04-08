@@ -12,13 +12,10 @@ import type { Item } from '../state/items'
 import { useUiStore } from '../state/uiStore'
 import { useToastStore } from '../state/toastStore'
 import { useAuth } from './useAuth'
-import { AccountMetadata } from '../state/metadata'
-import { queryClient } from '../api/queryClient'
-import { getQueryKey } from '@trpc/react-query'
-import { trpc } from '../api/trpc'
 import type { BackupPayloadV1, RestorePayload } from '../types/backup'
 import { clearAutomergeDocStore, getAutomergeItems } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
+import { clearMetadataCache, getCachedMetadata } from '../api/itemReadService'
 
 export type SettingsDialogType = (
   | 'goal'
@@ -59,7 +56,7 @@ export default function useSettings() {
   const handleClearCache = useCallback(
     async () => {
       await clearAutomergeDocStore()
-      queryClient.clear()
+      clearMetadataCache()
       requestAutomergeSync()
       setCacheClearCounter(c => c + 1)
       setMessage({ message: 'Item cache cleared' })
@@ -70,7 +67,7 @@ export default function useSettings() {
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = queryClient.getQueryData<AccountMetadata>(getQueryKey(trpc.accounts.getMetadata)) || {}
+        const currentMetadata = getCachedMetadata()
         const backupPayload: BackupPayloadV1 = {
           version: 1,
           metadata: currentMetadata,

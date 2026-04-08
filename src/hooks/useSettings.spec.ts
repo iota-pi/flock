@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   signOutVault: vi.fn(),
   mutateStoreItems: vi.fn(),
   mutateSetMetadata: vi.fn(),
+  clearMetadataCache: vi.fn(),
+  getCachedMetadata: vi.fn(() => ({ meta: 'value' })),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -54,11 +56,9 @@ vi.mock('../state/syncStore', () => ({
   },
 }))
 
-vi.mock('../api/queryClient', () => ({
-  queryClient: {
-    getQueryData: vi.fn(() => ({ meta: 'value' })),
-    clear: vi.fn(),
-  },
+vi.mock('../api/itemReadService', () => ({
+  clearMetadataCache: mocks.clearMetadataCache,
+  getCachedMetadata: mocks.getCachedMetadata,
 }))
 
 describe('useSettings backup portability', () => {

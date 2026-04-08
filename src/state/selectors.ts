@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
 import {
   ensureItemsBootstrap,
-  fetchMetadata,
-  metadataQueryOptions,
+  ensureMetadataLoaded,
+  getCachedMetadata,
+  subscribeMetadata,
 } from '../api/itemReadService'
 import { mutateSetMetadata } from '../features/items/mutations/itemMutations'
-import { queryClient } from '../api/queryClient'
-import { getQueryKey } from '@trpc/react-query'
-import { trpc } from '../api/trpc'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
@@ -20,6 +17,7 @@ import { getAutomergeItems, subscribeAutomergeItems } from '../sync/automergeDoc
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
+const EMPTY_METADATA = {} as Metadata
 
 function useAutomergeItemsSnapshot(): Item[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
@@ -42,6 +40,25 @@ function useAutomergeItemsSnapshot(): Item[] {
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
 export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state.initializing)
+
+export function useAccountMetadata(): Metadata {
+  const authReady = useAuthReady()
+  const account = useAuthStore(state => state.account)
+
+  useEffect(() => {
+    if (!authReady || !account) {
+      return
+    }
+
+    void ensureMetadataLoaded(account).catch(() => undefined)
+  }, [account, authReady])
+
+  return useSyncExternalStore(
+    subscribeMetadata,
+    () => (authReady ? getCachedMetadata() as Metadata : EMPTY_METADATA),
+    () => EMPTY_METADATA,
+  )
+}
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
@@ -110,19 +127,12 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const authReady = useAuthReady()
-  const { data: metadata = {} as Metadata } = useQuery({
-    queryKey: getQueryKey(trpc.accounts.getMetadata),
-    queryFn: fetchMetadata,
-    enabled: authReady,
-    ...metadataQueryOptions,
-  })
+  const metadata = useAccountMetadata()
 
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      const latestMetadata = queryClient.getQueryData<Metadata>(getQueryKey(trpc.accounts.getMetadata))
-      const baseMetadata = latestMetadata ?? metadata ?? {} as Metadata
+      const baseMetadata = getCachedMetadata() as Metadata
       const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
       const newValue = typeof newValueOrFunc === 'function'
         ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
@@ -130,7 +140,7 @@ export function useMetadata<K extends MetadataKey>(
 
       await mutateSetMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
     },
-    [defaultValue, key, metadata],
+    [defaultValue, key],
   )
   return [value, setValue]
 }

@@ -24,7 +24,6 @@ describe('Prayer flows', () => {
     cy.createPerson({ name: athelasName, prayerFrequency: 'weekly' })
     cy.createPerson({ name: mallornName, prayerFrequency: 'annually' })
     cy.createPerson({ name: oneRingName, prayerFrequency: 'daily' })
-    cy.invalidateQuery('items')
 
     // Verify ordering on prayer page
     cy.dataCy('page-prayer').click({ force: true })
@@ -56,7 +55,6 @@ describe('Prayer flows', () => {
     cy.createPerson({ name: itemA, prayerFrequency: 'daily' })
     cy.createPerson({ name: itemB, prayerFrequency: 'daily' })
     cy.createPerson({ name: itemC, prayerFrequency: 'daily' })
-    cy.invalidateQuery('items')
 
     cy.dataCy('page-prayer').click({ force: true })
     cy.location('pathname').should('equal', '/')

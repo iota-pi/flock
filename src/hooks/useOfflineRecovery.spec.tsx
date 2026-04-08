@@ -1,15 +1,11 @@
-import type { ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useOfflineRecovery } from './useOfflineRecovery'
 
 const mocks = vi.hoisted(() => ({
   readManualRecoveryEntries: vi.fn(),
-  readManualRecoveryCount: vi.fn(),
   removeManualRecoveryEntryById: vi.fn(),
   removeManualRecoveryEntryByItemId: vi.fn(),
-  setRecoveryCount: vi.fn(),
   requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   getAutomergeItem: vi.fn(),
@@ -18,7 +14,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../sync/manualRecoveryStore', () => ({
   readManualRecoveryEntries: mocks.readManualRecoveryEntries,
-  readManualRecoveryCount: mocks.readManualRecoveryCount,
   removeManualRecoveryEntryById: mocks.removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId: mocks.removeManualRecoveryEntryByItemId,
 }))
@@ -32,14 +27,6 @@ vi.mock('../sync/automergeDocStore', () => ({
   withAutomergeItemChange: mocks.withAutomergeItemChange,
 }))
 
-vi.mock('../state/syncStore', () => ({
-  useSyncStore: (selector: (state: { setRecoveryCount: typeof mocks.setRecoveryCount }) => unknown) => (
-    selector({
-      setRecoveryCount: mocks.setRecoveryCount,
-    })
-  ),
-}))
-
 vi.mock('../state/toastStore', () => ({
   useToastStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
     selector({
@@ -47,24 +34,6 @@ vi.mock('../state/toastStore', () => ({
     })
   ),
 }))
-
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  })
-
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    )
-  }
-}
 
 describe('useOfflineRecovery', () => {
   beforeEach(() => {
@@ -78,24 +47,18 @@ describe('useOfflineRecovery', () => {
     ]
     mocks.readManualRecoveryEntries.mockResolvedValue(failedEntries)
 
-    const { result } = renderHook(() => useOfflineRecovery(), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(() => useOfflineRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems).toEqual(failedEntries)
     })
-    expect(mocks.setRecoveryCount).toHaveBeenCalledWith(2)
   })
 
-  it('dismisses a recovery entry and refreshes recovery count', async () => {
+  it('dismisses a recovery entry and refreshes the recovery list', async () => {
     mocks.readManualRecoveryEntries.mockResolvedValue([{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }])
-    mocks.readManualRecoveryCount.mockResolvedValue(0)
     mocks.removeManualRecoveryEntryById.mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useOfflineRecovery(), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(() => useOfflineRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems.length).toBe(1)
@@ -106,18 +69,14 @@ describe('useOfflineRecovery', () => {
     })
 
     expect(mocks.removeManualRecoveryEntryById).toHaveBeenCalledWith('r1')
-    expect(mocks.setRecoveryCount).toHaveBeenCalledWith(0)
   })
 
   it('retries a corrupted item and requests sync', async () => {
     const entry = { id: 'r1', itemId: 'item-corrupted-1', reason: 'failed', createdAt: 1 }
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
-    mocks.readManualRecoveryCount.mockResolvedValue(0)
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useOfflineRecovery(), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(() => useOfflineRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems.length).toBe(1)
@@ -139,7 +98,6 @@ describe('useOfflineRecovery', () => {
   it('force overwrite applies local item snapshot and requests sync', async () => {
     const entry = { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
-    mocks.readManualRecoveryCount.mockResolvedValue(0)
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
     mocks.getAutomergeItem.mockReturnValue({
       id: 'item-1',
@@ -153,9 +111,7 @@ describe('useOfflineRecovery', () => {
       prayerFrequency: 'none',
     })
 
-    const { result } = renderHook(() => useOfflineRecovery(), {
-      wrapper: createWrapper(),
-    })
+    const { result } = renderHook(() => useOfflineRecovery())
 
     await act(async () => {
       await result.current.handleForceOverwriteCorruptedItem('item-1')

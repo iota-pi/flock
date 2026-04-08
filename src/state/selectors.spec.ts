@@ -50,14 +50,10 @@ const itemsFixture: Item[] = [
 ]
 
 vi.mock('../api/itemReadService', () => ({
-  fetchItems: vi.fn(async () => itemsFixture),
-  fetchMetadata: vi.fn(async () => ({})),
   ensureItemsBootstrap: vi.fn(async () => undefined),
-  metadataQueryOptions: {
-    staleTime: 15 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  },
+  ensureMetadataLoaded: vi.fn(async () => ({})),
+  getCachedMetadata: vi.fn(() => ({})),
+  subscribeMetadata: vi.fn(() => () => undefined),
 }))
 
 vi.mock('../sync/automergeDocStore', () => ({
