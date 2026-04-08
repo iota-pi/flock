@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import {
   Box,
   Container,
@@ -6,7 +6,6 @@ import {
   ListItemText,
   MenuItem,
 } from '@mui/material'
-import { useSwipeable } from 'react-swipeable'
 import {
   DirtyItem,
   Item,
@@ -21,6 +20,7 @@ import {
 } from '../../Icons'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
+import SwipeableCarousel from '../../ui/SwipeableCarousel'
 
 interface Props {
   activeIndex: number,
@@ -101,26 +101,6 @@ function PrayerActiveView({
     [activeItem.isNew, activeItemArchived, onItemChange],
   )
 
-  const handleSwiped = useCallback(
-    ({ deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
-      if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
-      if (deltaX < 0) {
-        onNext()
-      } else {
-        onBack()
-      }
-    },
-    [onBack, onNext],
-  )
-
-  const swipeHandlers = useSwipeable({
-    delta: 60,
-    onSwiped: handleSwiped,
-    preventScrollOnSwipe: false,
-    trackMouse: false,
-    trackTouch: true,
-  })
-
   const formSlides = useMemo(
     () => items.map((item, itemIndex) => (
       <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
@@ -161,19 +141,9 @@ function PrayerActiveView({
           onEdit={onOpenEditDrawer}
         />
 
-        <Box {...swipeHandlers} sx={{ flexGrow: 1, overflow: 'hidden', width: '100%' }}>
-          <Box
-            sx={{
-              display: 'flex',
-              height: '100%',
-              transform: `translateX(-${activeIndex * 100}%)`,
-              transition: 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
-              width: '100%',
-            }}
-          >
-            {formSlides}
-          </Box>
-        </Box>
+        <SwipeableCarousel activeIndex={activeIndex} onBack={onBack} onNext={onNext}>
+          {formSlides}
+        </SwipeableCarousel>
 
       </Box>
 

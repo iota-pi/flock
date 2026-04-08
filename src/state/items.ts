@@ -2,8 +2,6 @@ import { generateItemId } from '../utils'
 import type { Frequency } from '../utils/frequencies'
 import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
-import * as Automerge from '@automerge/automerge'
-import { setCachedAutomergeBinary } from '../sync/automergeBinaryCache'
 
 export { ITEM_TYPES }
 export type OldItemType = 'general'
@@ -45,13 +43,6 @@ export interface TopicItem extends BaseItem {
   type: 'topic',
 }
 export type Item = (PersonItem | GroupItem | TopicItem) & {
-}
-
-function seedAutomergeBinary<T extends Item>(item: T): T {
-  const doc = Automerge.from(item as unknown as Record<string, unknown>)
-  const binary = Automerge.save(doc)
-  setCachedAutomergeBinary(item.id, binary)
-  return item
 }
 
 export type DirtyItem<T> = T & { dirty?: boolean }
@@ -101,17 +92,15 @@ export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean, seedGenesis = false): Item {
-  const maybeSeed = <T extends Item>(item: T): T => (seedGenesis ? seedAutomergeBinary(item) : item)
-
+export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
   if (itemType === 'person' || itemType === 'general') {
-    return maybeSeed(getBlankPerson(undefined, isNew))
+    return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
-    return maybeSeed(getBlankGroup(undefined, isNew))
+    return getBlankGroup(undefined, isNew)
   }
   if (itemType === 'topic') {
-    return maybeSeed(getBlankTopic(undefined, isNew))
+    return getBlankTopic(undefined, isNew)
   }
   throw new Error('Unknown item type')
 }
@@ -119,7 +108,7 @@ export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean, 
 export function checkProperties(items: Item[]): { error: boolean, message: string } {
   const ignoreProps: (keyof Item)[] = ['isNew']
   for (const item of items) {
-    const blank = getBlankItem(item.type, undefined, false)
+    const blank = getBlankItem(item.type)
     const filledKeys = Object.keys(item) as (keyof Item)[]
     for (const key of Object.keys(blank) as (keyof Item)[]) {
       if (ignoreProps.includes(key)) {
@@ -182,7 +171,7 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
-  const blank = getBlankItem(item.type, false, false)
+  const blank = getBlankItem(item.type, false)
   const filled = {
     ...blank,
     ...item,
@@ -201,7 +190,7 @@ export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
 
 export function convertItem<T extends Item, S extends Item>(item: T, type: S['type']): S {
   const result = {
-    ...getBlankItem(type, false, false),
+    ...getBlankItem(type, false),
     ...item,
     type,
   } as S

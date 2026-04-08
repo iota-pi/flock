@@ -1,6 +1,5 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Collapse,
   Grid,
   IconButton,
   InputAdornment,
@@ -10,29 +9,22 @@ import {
 import {
   DirtyItem,
   getItemName,
-  GroupItem,
   Item,
 } from '../../../state/items'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useItems } from '../../../state/selectors'
-import FrequencyControls from '../../../components/FrequencyControls'
-import GroupDisplay from '../../groups/components/GroupDisplay'
-import MemberDisplay from '../../groups/components/MemberDisplay'
-import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
-import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
 import { usePrevious } from '../../../utils'
 import {
   DeleteIcon,
-  FrequencyIcon,
-  GroupIcon,
   NotesIcon,
-  PersonIcon,
 } from '../../../components/Icons'
-import { getLastPrayedFor } from '../../../utils/prayer'
-import NotesSection from '../../../components/NotesSection'
 import { ItemFormInputSchema } from '../../../shared/syncSchemas'
+import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
+import ItemFormNotesSection from './ItemFormNotesSection'
+import ItemFormFrequencySection from './ItemFormFrequencySection'
+import ItemFormRelationshipsSection from './ItemFormRelationshipsSection'
 
 
 function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -123,21 +115,6 @@ function ItemFormContent({
   const defaultExpandAccordions = !fromPrayerPage
   const hasDescription = !!item.description
   const isArchivedInPrayer = fromPrayerPage && !!item.archived
-
-  const duplicateAlert = useMemo(
-    () => (
-      <Grid size={{ xs: 12 }} mt={-1}>
-        <Collapse in={duplicates.length > 0}>
-          <DuplicateAlert
-            count={duplicates.length}
-            hasDescription={hasDescription}
-            itemType={item.type}
-          />
-        </Collapse>
-      </Grid>
-    ),
-    [duplicates, hasDescription, item.type],
-  )
 
   const nameInputProps = useMemo(
     () => {
@@ -244,108 +221,36 @@ function ItemFormContent({
     [control, errors.description, handleChange, handleRemoveDescription, showDescription],
   )
 
-  const notesSection = useMemo(
-    () => (
-      <Grid
-        size={{ xs: 12 }}
-        mt={1}
-        sx={isArchivedInPrayer ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
-      >
-        <NotesSection
-          key={item.id}
-          notes={item.notes}
-          onChange={notes => handleChange({ notes })}
-        />
-      </Grid>
-    ),
-    [handleChange, isArchivedInPrayer, item.id, item.notes],
-  )
-
-  const lastPrayer = getLastPrayedFor(item)
-  const memberFrequency = item.type === 'group' ? item.memberPrayerFrequency : undefined
-  const memberTarget = item.type === 'group' ? item.memberPrayerTarget : undefined
-
-  const frequencySection = useMemo(
-    () => (
-      <Grid size={{ xs: 12 }}>
-        <CollapsibleSection
-          content={(
-            <FrequencyControls
-              id={item.id}
-              lastPrayer={lastPrayer}
-              onChange={handleChange}
-              prayerFrequency={item.prayerFrequency}
-              memberPrayerFrequency={memberFrequency}
-              memberPrayerTarget={memberTarget}
-            />
-          )}
-          disabled={isArchivedInPrayer}
-          icon={FrequencyIcon}
-          id="frequency"
-          initialExpanded={defaultExpandAccordions}
-          title="Prayer Frequency"
-        />
-      </Grid>
-    ),
-    [
-      defaultExpandAccordions,
-      handleChange,
-      isArchivedInPrayer,
-      item.id,
-      item.prayerFrequency,
-      memberFrequency,
-      memberTarget,
-      lastPrayer,
-    ],
-  )
-
-  const members = item.type === 'group' ? item.members : undefined
-  const membersSection = useMemo(
-    () =>
-      members !== undefined && (
-        <CollapsibleSection
-          content={(
-            <MemberDisplay
-              group={item as GroupItem}
-              memberIds={members}
-              onChange={group => handleChange<GroupItem>(group)}
-            />
-          )}
-          icon={PersonIcon}
-          id="members"
-          initialExpanded={defaultExpandAccordions}
-          title="Members"
-        />
-      ),
-    [defaultExpandAccordions, handleChange, item, members],
-  )
-
-  const groupsSection = useMemo(
-    () =>
-      item.type === 'person' && (
-        <CollapsibleSection
-          content={<GroupDisplay itemId={item.id} />}
-          icon={GroupIcon}
-          id="groups"
-          initialExpanded={defaultExpandAccordions}
-          title="Groups"
-        />
-      ),
-    [defaultExpandAccordions, item.id, item.type],
-  )
 
   return (
     <Grid container spacing={2}>
-      {!hideHeaderFields && duplicateAlert}
+      {!hideHeaderFields && (
+        <ItemFormDuplicateAlertSection
+          duplicateCount={duplicates.length}
+          hasDescription={hasDescription}
+          itemType={item.type}
+        />
+      )}
       {!hideHeaderFields && nameFields}
       {!hideHeaderFields && descriptionField}
-      {notesSection}
-      {frequencySection}
+      <ItemFormNotesSection
+        disabled={isArchivedInPrayer}
+        itemId={item.id}
+        notes={item.notes}
+        onChange={notes => handleChange({ notes })}
+      />
+      <ItemFormFrequencySection
+        defaultExpandAccordions={defaultExpandAccordions}
+        disabled={isArchivedInPrayer}
+        item={item}
+        onChange={handleChange}
+      />
       {!hideRelationships && (
-        <Grid size={{ xs: 12 }}>
-          {membersSection}
-          {groupsSection}
-        </Grid>
+        <ItemFormRelationshipsSection
+          defaultExpandAccordions={defaultExpandAccordions}
+          item={item}
+          onChange={handleChange}
+        />
       )}
     </Grid>
   )

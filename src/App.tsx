@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
 import { styled, Toolbar, useMediaQuery } from '@mui/material'
 import { Theme } from '@mui/material/styles'
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
-import { useAuthStore } from './state/authStore'
 import MainLayout from './components/layout/MainLayout'
-import { loadVault } from './api/vault'
-import { ensureItemsBootstrap } from './api/itemReadService'
 import ErrorPage from './components/pages/ErrorPage'
-import { startSyncCoordinator, stopSyncCoordinator } from './sync/syncCoordinator'
+import AppProviders from './app/AppProviders'
 
 const Root = styled('div')({
   display: 'flex',
@@ -27,7 +22,6 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
-  const account = useAuthStore(state => state.account)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -58,24 +52,6 @@ function RootLayout() {
     },
     [xs],
   )
-
-  useEffect(() => {
-    void loadVault()
-  }, [])
-
-  useEffect(() => {
-    if (!loggedIn || !account) {
-      stopSyncCoordinator()
-      return
-    }
-
-    void ensureItemsBootstrap(account).catch(() => undefined)
-    startSyncCoordinator({ account })
-
-    return () => {
-      stopSyncCoordinator()
-    }
-  }, [account, loggedIn])
 
   return (
     <Root>
@@ -117,8 +93,8 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
+    <AppProviders>
       <RouterProvider router={router} />
-    </LocalizationProvider>
+    </AppProviders>
   )
 }

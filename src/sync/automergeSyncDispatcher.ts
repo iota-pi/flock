@@ -1,5 +1,3 @@
-import { decryptBytesWithKey, encryptBytesWithKey } from '../api/vault/crypto'
-import { getVaultKey } from '../api/vault'
 import { getAccountId } from '../api/util'
 import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
@@ -18,6 +16,8 @@ import {
   postRealtimeBusEvent,
   setRealtimeBusLocalEditHandler,
 } from './realtimeBus'
+import { decryptSyncMessage, encryptSyncMessage } from './automergeSyncCrypto'
+import { AutomergeSyncTaskQueue } from './automergeSyncTaskQueue'
 
 const SHOULD_THROW_SYNC_ERRORS = (
   typeof window !== 'undefined'
@@ -25,7 +25,7 @@ const SHOULD_THROW_SYNC_ERRORS = (
 )
 
 let activeAccount: string | null = null
-let operationChain: Promise<void> = Promise.resolve()
+let syncQueue = new AutomergeSyncTaskQueue()
 
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
   const pendingBatch: Array<{
@@ -43,7 +43,7 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
       continue
     }
 
-    const encryptedMessage = await encryptBytesWithKey(getVaultKey(), generated.message)
+    const encryptedMessage = await encryptSyncMessage(generated.message)
     pendingBatch.push({
       itemId,
       encryptedMessage,
@@ -91,7 +91,7 @@ async function pullRemoteMessagesBatch(account: string, itemIds: string[]): Prom
         continue
       }
 
-      const decrypted = await decryptBytesWithKey(getVaultKey(), message.encryptedMessage)
+      const decrypted = await decryptSyncMessage(message.encryptedMessage)
       const changed = await receiveAutomergeSyncMessage(itemResult.itemId, decrypted)
       if (changed) {
         updatedItemIds.add(itemResult.itemId)
@@ -132,7 +132,7 @@ function uniqueItemIds(itemIds?: string[]): string[] {
 }
 
 function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
-  const wrapped = operationChain.then(async () => {
+  const wrapped = syncQueue.enqueue(async () => {
     useSyncStore.getState().setIsSyncing(true)
 
     try {
@@ -142,13 +142,9 @@ function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
     }
   })
 
-  operationChain = wrapped
-    .then(() => undefined)
-    .catch(error => {
-      if (SHOULD_THROW_SYNC_ERRORS) {
-        throw error
-      }
-    })
+  if (!SHOULD_THROW_SYNC_ERRORS) {
+    void wrapped.catch(() => undefined)
+  }
 
   return wrapped
 }
@@ -259,7 +255,7 @@ export function startAutomergeSyncDispatcher(account: string): void {
 
   stopAutomergeSyncDispatcher()
   activeAccount = account
-  operationChain = Promise.resolve()
+  syncQueue = new AutomergeSyncTaskQueue()
 
   setRealtimeBusLocalEditHandler(itemId => {
     void enqueueSyncOperation(() => pushItemNow(itemId))
@@ -271,6 +267,6 @@ export function startAutomergeSyncDispatcher(account: string): void {
 export function stopAutomergeSyncDispatcher(): void {
   setRealtimeBusLocalEditHandler(null)
   activeAccount = null
-  operationChain = Promise.resolve()
+  syncQueue.reset()
   useSyncStore.getState().setIsSyncing(false)
 }

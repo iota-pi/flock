@@ -1,7 +1,6 @@
 import env from '../env'
 import type {
   RealtimeEventEnvelope,
-  RealtimeSyncPing,
 } from '../shared/realtime'
 import {
   pullRemoteMessagesNow,
@@ -16,6 +15,9 @@ import {
   subscribeRealtimeBusSyncPing,
 } from '../sync/realtimeBus'
 import { getApiAuthToken } from './runtime'
+import { BrowserLockManager } from './realtime/browserLockManager'
+import { normalizeRealtimeItemIds, parseRealtimePayload } from './realtime/payload'
+import { RealtimeWebSocketTransport } from './realtime/realtimeWebSocketTransport'
 
 type RealtimeCoordinatorOptions = {
   account: string
@@ -28,9 +30,6 @@ type RealtimeCoordinatorOptions = {
 type RealtimeCoordinatorHandle = {
   stop: () => void
 }
-
-const RECONNECT_BASE_DELAY_MS = 1000
-const RECONNECT_MAX_DELAY_MS = 30000
 
 let activeHandle: RealtimeCoordinatorHandle | null = null
 let activeKey = ''
@@ -61,23 +60,6 @@ function writeLastEventId(account: string, eventId: number): void {
   window.localStorage.setItem(getLastEventIdStorageKey(account), String(eventId))
 }
 
-function normalizeItemIds(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const normalized = new Set<string>()
-  for (const candidate of value) {
-    if (typeof candidate !== 'string' || candidate.length === 0) {
-      continue
-    }
-
-    normalized.add(candidate)
-  }
-
-  return Array.from(normalized)
-}
-
 function handleServerEvent(
   event: RealtimeEventEnvelope,
   options: Pick<RealtimeCoordinatorOptions, 'account' | 'onServerEvent' | 'onItemsChanged' | 'onItemEvents'>,
@@ -92,8 +74,8 @@ function handleServerEvent(
       deletedItemIds?: unknown
     }
 
-    const updatedItemIds = normalizeItemIds(data.itemIds)
-    const deletedItemIds = normalizeItemIds(data.deletedItemIds)
+    const updatedItemIds = normalizeRealtimeItemIds(data.itemIds)
+    const deletedItemIds = normalizeRealtimeItemIds(data.deletedItemIds)
 
     if (updatedItemIds.length > 0 || deletedItemIds.length > 0) {
       options.onItemsChanged?.({
@@ -117,29 +99,6 @@ function handleServerEvent(
 
   options.onServerEvent(event)
 }
-
-function parseServerPayload(rawData: string | null | undefined): RealtimeEventEnvelope | RealtimeSyncPing | null {
-  if (!rawData) {
-    return null
-  }
-
-  try {
-    const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
-
-    if ('action' in payload && payload.action === 'sync_ping') {
-      return payload
-    }
-
-    if ('eventType' in payload && 'account' in payload) {
-      return payload
-    }
-
-    return null
-  } catch {
-    return null
-  }
-}
-
 function createWebLockCoordinator(options: RealtimeCoordinatorOptions): RealtimeCoordinatorHandle {
   const account = options.account
   const lockName = `flock-realtime-lock:${account}`
@@ -150,40 +109,15 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
     : () => undefined
 
   let stopped = false
-  let reconnectAttempts = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let socket: WebSocket | null = null
-  let releaseLeadership: (() => void) | null = null
-  const lockAbortController = typeof AbortController !== 'undefined'
-    ? new AbortController()
-    : null
-
-  const clearReconnectTimer = () => {
-    if (!reconnectTimer) {
-      return
-    }
-
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-
-  const closeWebSocket = () => {
-    if (!socket) {
-      return
-    }
-
-    socket.close()
-    socket = null
-  }
 
   const runRemotePull = (itemIds: string[]) => {
-    const normalizedItemIds = normalizeItemIds(itemIds)
+    const normalizedItemIds = normalizeRealtimeItemIds(itemIds)
     if (normalizedItemIds.length === 0) {
       return
     }
 
     void pullRemoteMessagesNow(normalizedItemIds).then(updatedItemIds => {
-      const normalizedUpdatedIds = normalizeItemIds(updatedItemIds)
+      const normalizedUpdatedIds = normalizeRealtimeItemIds(updatedItemIds)
       if (normalizedUpdatedIds.length === 0) {
         return
       }
@@ -195,63 +129,22 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
     }).catch(() => undefined)
   }
 
-  const scheduleReconnect = () => {
-    clearReconnectTimer()
-    if (stopped) {
-      return
-    }
-
-    reconnectAttempts += 1
-    const backoff = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (reconnectAttempts - 1)))
-    const jitter = Math.random() * 0.2 * backoff
-    const delay = Math.floor(backoff + jitter)
-
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      connectWebSocket()
-    }, delay)
-  }
-
-  function connectWebSocket(): void {
-    if (stopped) {
-      return
-    }
-
-    closeWebSocket()
-
-    const token = getApiAuthToken()
-    if (!token || !env.VAULT_WS_ENDPOINT) {
-      scheduleReconnect()
-      return
-    }
-
-    const params = new URLSearchParams({
-      account,
-      token,
-    })
-
-    const lastEventId = readLastEventId(account)
-    if (lastEventId > 0) {
-      params.set('lastEventId', String(lastEventId))
-    }
-
-    const wsEndpoint = env.VAULT_WS_ENDPOINT.replace(/^http/i, 'ws')
-    const nextSocket = new WebSocket(`${wsEndpoint}?${params.toString()}`)
-    socket = nextSocket
-
-    nextSocket.onopen = () => {
-      reconnectAttempts = 0
+  const transport = new RealtimeWebSocketTransport({
+    account,
+    endpoint: env.VAULT_WS_ENDPOINT,
+    getLastEventId: () => readLastEventId(account),
+    getToken: getApiAuthToken,
+    onOpen: () => {
       requestAutomergeSync()
-    }
-
-    nextSocket.onmessage = event => {
-      const payload = parseServerPayload(typeof event.data === 'string' ? event.data : null)
+    },
+    onRawMessage: rawData => {
+      const payload = parseRealtimePayload(rawData)
       if (!payload) {
         return
       }
 
       if ('action' in payload && payload.action === 'sync_ping') {
-        const pingItemIds = normalizeItemIds(payload.itemIds)
+        const pingItemIds = normalizeRealtimeItemIds(payload.itemIds)
         postRealtimeBusEvent({
           type: 'SYNC_PING',
           itemIds: pingItemIds,
@@ -265,58 +158,25 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
       if ('eventType' in payload && 'account' in payload) {
         handleServerEvent(payload, options)
       }
-    }
-
-    nextSocket.onerror = () => {
-      closeWebSocket()
-      scheduleReconnect()
-    }
-
-    nextSocket.onclose = () => {
-      closeWebSocket()
-      scheduleReconnect()
-    }
-  }
+    },
+  })
 
   const stopLeader = () => {
-    clearReconnectTimer()
-    closeWebSocket()
+    transport.stop()
     stopAutomergeSyncDispatcher()
   }
 
   const startLeader = () => {
     startAutomergeSyncDispatcher(account)
-    connectWebSocket()
+    transport.start()
     requestAutomergeSync()
   }
 
-  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
-    void navigator.locks.request(lockName, {
-      signal: lockAbortController?.signal,
-    }, async () => {
-      if (stopped) {
-        return
-      }
-
-      startLeader()
-
-      await new Promise<void>(resolve => {
-        releaseLeadership = () => {
-          if (!releaseLeadership) {
-            return
-          }
-
-          releaseLeadership = null
-          stopLeader()
-          resolve()
-        }
-      })
-    }).catch(() => {
-      stopLeader()
-    })
-  } else {
-    startLeader()
-  }
+  const lockManager = new BrowserLockManager(lockName)
+  lockManager.start({
+    startLeader,
+    stopLeader,
+  })
 
   return {
     stop: () => {
@@ -325,17 +185,7 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
       }
 
       stopped = true
-      clearReconnectTimer()
-
-      if (releaseLeadership) {
-        releaseLeadership()
-      } else {
-        stopLeader()
-      }
-
-      if (lockAbortController) {
-        lockAbortController.abort()
-      }
+      lockManager.stop()
 
       unsubscribeSyncPing()
       stopRealtimeBus()

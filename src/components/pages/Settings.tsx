@@ -1,58 +1,18 @@
-import { ReactNode, Suspense, lazy, useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import {
-  Checkbox,
   Divider,
-  FormControlLabel,
-  List,
-  styled,
   Typography,
 } from '@mui/material'
 import download from 'js-file-download'
 import BasePage from './BasePage'
-import {
-  DeleteIcon,
-  DownloadIcon,
-  FrequencyIcon,
-  EditIcon,
-  MuiIconType,
-  NotificationIcon,
-  PersonIcon,
-  RestoreIcon,
-  SignOutIcon,
-  UploadIcon,
-} from '../Icons'
-import SettingsItem from '../SettingsItem'
+import type { Item } from '../../state/items'
 import useSettings from '../../hooks/useSettings'
 import { useDialogState } from '../../hooks/useDialogState'
-
-const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
-const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
-const OfflineRecoveryDialog = lazy(() => import('../dialogs/OfflineRecoveryDialog'))
-const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
-const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
-const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
 import PageContainer from '../ui/PageContainer'
-
-const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
-  marginRight: 0,
-
-  '& .MuiCheckbox-root': {
-    marginLeft: theme.spacing(1),
-  },
-}))
-
-type SettingsItemConfig = {
-  type: 'item',
-  id: string,
-  title: string,
-  icon?: MuiIconType,
-  onClick?: () => void,
-  value?: ReactNode,
-  disabled?: boolean,
-} | {
-  type: 'divider',
-  key: string,
-}
+import type { RestorePayload } from '../../types/backup'
+import SettingsItemsList from './settings/SettingsItemsList'
+import SettingsDialogs from './settings/SettingsDialogs'
+import type { SettingsActionId } from './settings/settingsConfig'
 
 function SettingsPage() {
   const { actions, values } = useSettings()
@@ -75,129 +35,33 @@ function SettingsPage() {
     [actions],
   )
 
-  const darkOrLightLabel = values.darkMode ? 'Always dark mode' : 'Always light mode'
-  const darkModeLabel = values.darkMode === null ? 'System default' : darkOrLightLabel
+  const actionHandlers: Record<SettingsActionId, () => void> = {
+    signOut: () => {
+      void actions.handleSignOut()
+    },
+    clearCache: () => {
+      void actions.handleClearCache()
+    },
+    toggleDarkMode: actions.handleToggleDarkMode,
+    openGoalDialog: goalDialog.openDialog,
+    openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
+    openSubscriptionDialog: subscriptionDialog.openDialog,
+    exportData: () => {
+      void onExport()
+    },
+    openRestoreDialog: restoreDialog.openDialog,
+    openOfflineRecoveryDialog: offlineRecoveryDialog.openDialog,
+    openImportDialog: importDialog.openDialog,
+  }
 
-  const settingsList: SettingsItemConfig[] = useMemo(() => [
-    {
-      type: 'item',
-      id: 'logout',
-      title: 'Sign out',
-      icon: SignOutIcon,
-      onClick: actions.handleSignOut,
-    },
-    { type: 'divider', key: 'd1' },
-    {
-      type: 'item',
-      id: 'clear-cache',
-      title: 'Clear item cache',
-      icon: DeleteIcon,
-      onClick: actions.handleClearCache,
-      disabled: !values.itemCacheExists,
-    },
-    { type: 'divider', key: 'd2' },
-    {
-      type: 'item',
-      id: 'darkmode',
-      title: 'Use dark mode',
-      onClick: actions.handleToggleDarkMode,
-      value: (
-        <LeftCheckboxLabel
-          control={(
-            <Checkbox
-              checked={values.darkMode || false}
-              indeterminate={values.darkMode === null}
-              size="small"
-            />
-          )}
-          label={darkModeLabel}
-          labelPlacement="start"
-        />
-      ),
-    },
-    { type: 'divider', key: 'd3' },
-    {
-      type: 'item',
-      id: 'prayer-goal',
-      title: 'Daily prayer goal',
-      icon: EditIcon,
-      onClick: goalDialog.openDialog,
-      value: (
-        <Typography
-          color={values.goal < values.naturalGoal ? 'secondary' : 'textPrimary'}
-          fontWeight={500}
-          sx={{ mr: 2 }}
-        >
-          {values.goal}
-        </Typography>
-      ),
-    },
-    {
-      type: 'item',
-      id: 'default-frequency',
-      title: 'Set default prayer frequency for new items',
-      icon: FrequencyIcon,
-      onClick: defaultFrequencyDialog.openDialog,
-    },
-    { type: 'divider', key: 'd4' },
-    {
-      type: 'item',
-      id: 'reminders',
-      title: 'Prayer reminder notifications',
-      icon: NotificationIcon,
-      onClick: subscriptionDialog.openDialog,
-    },
-    { type: 'divider', key: 'd5' },
-    {
-      type: 'item',
-      id: 'export',
-      title: 'Create a backup of your data',
-      icon: DownloadIcon,
-      onClick: onExport,
-    },
-    {
-      type: 'item',
-      id: 'restore',
-      title: 'Restore from a backup',
-      icon: UploadIcon,
-      onClick: restoreDialog.openDialog,
-    },
-    {
-      type: 'item',
-      id: 'offline-recovery',
-      title: 'Offline data recovery',
-      icon: RestoreIcon,
-      onClick: offlineRecoveryDialog.openDialog,
-    },
-    {
-      type: 'item',
-      id: 'import-people',
-      title: 'Import from CSV',
-      icon: PersonIcon,
-      onClick: importDialog.openDialog,
-    },
-    { type: 'divider', key: 'd6' },
-  ], [
-    actions,
-    darkModeLabel,
-    defaultFrequencyDialog.openDialog,
-    goalDialog.openDialog,
-    importDialog.openDialog,
-    offlineRecoveryDialog.openDialog,
-    onExport,
-    restoreDialog.openDialog,
-    subscriptionDialog.openDialog,
-    values,
-  ])
-
-  const handleRestoreConfirm = useCallback(async (payload: Parameters<typeof actions.handleConfirmRestore>[0]) => {
+  const handleRestoreConfirm = useCallback(async (payload: RestorePayload) => {
     const saved = await actions.handleConfirmRestore(payload)
     if (saved) {
       restoreDialog.closeDialog()
     }
   }, [actions, restoreDialog])
 
-  const handleImportConfirm = useCallback(async (items: Parameters<typeof actions.handleConfirmImport>[0]) => {
+  const handleImportConfirm = useCallback(async (items: Item[]) => {
     const saved = await actions.handleConfirmImport(items)
     if (saved) {
       importDialog.closeDialog()
@@ -225,57 +89,26 @@ function SettingsPage() {
 
       <Divider />
 
-      <List disablePadding>
-        {settingsList.map(item => {
-          if (item.type === 'divider') {
-            return <Divider key={item.key} />
-          }
-          return (
-            <SettingsItem
-              key={item.id}
-              id={item.id}
-              title={item.title}
-              icon={item.icon}
-              onClick={item.onClick}
-              value={item.value}
-              disabled={item.disabled}
-            />
-          )
-        })}
-      </List>
+      <SettingsItemsList actionHandlers={actionHandlers} values={values} />
 
-      <Suspense fallback={null}>
-        <GoalDialog
-          naturalGoal={values.naturalGoal}
-          onClose={goalDialog.closeDialog}
-          open={goalDialog.isOpen}
-        />
-        <RestoreBackupDialog
-          onClose={restoreDialog.closeDialog}
-          onConfirm={handleRestoreConfirm}
-          open={restoreDialog.isOpen}
-        />
-        <OfflineRecoveryDialog
-          onClose={offlineRecoveryDialog.closeDialog}
-          open={offlineRecoveryDialog.isOpen}
-        />
-        <ImportPeopleDialog
-          onClose={importDialog.closeDialog}
-          onConfirm={handleImportConfirm}
-          open={importDialog.isOpen}
-        />
-        <SubscriptionDialog
-          onClose={subscriptionDialog.closeDialog}
-          onSave={handleSubscriptionSave}
-          open={subscriptionDialog.isOpen}
-        />
-        <DefaultFrequencyDialog
-          open={defaultFrequencyDialog.isOpen}
-          defaults={values.defaultFrequencies}
-          onClose={defaultFrequencyDialog.closeDialog}
-          onSave={actions.saveDefaultFrequencies}
-        />
-      </Suspense>
+      <SettingsDialogs
+        defaultFrequencies={values.defaultFrequencies}
+        dialogs={{
+          defaultFrequency: defaultFrequencyDialog,
+          goal: goalDialog,
+          import: importDialog,
+          offlineRecovery: offlineRecoveryDialog,
+          restore: restoreDialog,
+          subscription: subscriptionDialog,
+        }}
+        handlers={{
+          onImportConfirm: handleImportConfirm,
+          onRestoreConfirm: handleRestoreConfirm,
+          onSaveDefaultFrequencies: actions.saveDefaultFrequencies,
+          onSubscriptionSave: handleSubscriptionSave,
+        }}
+        naturalGoal={values.naturalGoal}
+      />
     </BasePage>
   )
 }
