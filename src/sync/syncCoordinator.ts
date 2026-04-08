@@ -2,7 +2,7 @@ import { emitAppEvent } from '../app/appEvents'
 import { startDataInvalidationController } from '../api/dataInvalidationController'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
-import { ensureItemsBootstrap } from '../api/itemReadService'
+import { ensureItemsBootstrap, requestMetadataSync } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import {
   requestAutomergeSync,
@@ -37,6 +37,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   const handleOnline = () => {
     requestAutomergeSync()
+    requestMetadataSync(options.account)
   }
 
   const bootstrapItemsIfAuthorized = () => {
@@ -45,6 +46,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     }
 
     void ensureItemsBootstrap(options.account).catch(() => undefined)
+    requestMetadataSync(options.account)
   }
 
   if (typeof window !== 'undefined') {
@@ -117,6 +119,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     clearHiddenDisconnectTimer()
     startRealtimeIfAuthorized()
     requestAutomergeSync()
+    requestMetadataSync(options.account)
   }
 
   if (typeof document !== 'undefined') {
@@ -130,6 +133,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       startRealtimeIfAuthorized()
       bootstrapItemsIfAuthorized()
       requestAutomergeSync()
+      requestMetadataSync(options.account)
     } else {
       stopRealtime()
     }

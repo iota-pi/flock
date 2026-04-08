@@ -4,8 +4,6 @@ import * as Sentry from '@sentry/react'
 import { registerSW } from 'virtual:pwa-register'
 import * as vault from './api/vault'
 import * as mutations from './features/items/mutations/itemMutations'
-import { ensureItemsBootstrap, ensureMetadataLoaded } from './api/itemReadService'
-import { useAuthStore } from './state/authStore'
 import ThemedApp from './ThemedApp'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [

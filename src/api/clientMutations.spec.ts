@@ -10,6 +10,7 @@ import {
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { setMetadata } from './vault/client'
 import { ensureItemsBootstrap } from './itemReadService'
+import { setApiAuthToken } from './runtime'
 
 const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('../state/navigationStore', () => ({
 describe('local-first mutations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setApiAuthToken('')
     vi.mocked(ensureItemsBootstrap).mockResolvedValue()
     vi.mocked(getAutomergeItems).mockReturnValue([])
     vi.mocked(setMetadata).mockResolvedValue()
@@ -119,15 +121,24 @@ describe('local-first mutations', () => {
     })
   })
 
-  it('pushes metadata updates directly to vault client', async () => {
+  it('updates metadata locally and emits a metadata update event', async () => {
     const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(setMetadata).toHaveBeenCalledWith(expect.objectContaining({ prayerGoal: 20 }))
+    expect(setMetadata).not.toHaveBeenCalled()
     expect(emitDomainEvent).toHaveBeenCalledWith({
       type: 'data:updated',
       domain: 'metadata',
       reason: 'automerge:metadata-updated',
     })
+  })
+
+  it('queues metadata sync to vault when auth token is available', async () => {
+    setApiAuthToken('session-token')
+
+    await mutateSetMetadata({ prayerGoal: 20 } as any)
+    await Promise.resolve()
+
+    expect(setMetadata).toHaveBeenCalledWith(expect.objectContaining({ prayerGoal: 20 }))
   })
 })

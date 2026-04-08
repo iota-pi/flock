@@ -2,7 +2,7 @@ import type { ItemId } from '../../../shared/itemTypes'
 import { GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
-import { ensureItemsBootstrap, setCachedMetadata } from '../../../api/itemReadService'
+import { ensureItemsBootstrap, queueMetadataForSync, setCachedMetadata } from '../../../api/itemReadService'
 import { emitDomainEvent } from '../../../events/domainEvents'
 import { useNavigationStore } from '../../../state/navigationStore'
 import {
@@ -11,7 +11,6 @@ import {
   withAutomergeItemChange,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
-import { setMetadata as pushMetadata } from '../../../api/vault/client'
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -57,6 +56,10 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
   return metadata
 }
 
+function normalizeItemForAutomerge(item: Item): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(item)) as Record<string, unknown>
+}
+
 function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
   return allItems
     .filter((item): item is GroupItem => item.type === 'group' && item.members.some(memberId => idsSet.has(memberId)))
@@ -97,12 +100,14 @@ export async function mutateStoreItems(
   await ensureAutomergeStoreReady()
 
   for (const item of current) {
+    const normalizedItem = normalizeItemForAutomerge(item)
+
     await withAutomergeItemChange(item.id, draft => {
       for (const key of Object.keys(draft)) {
         delete draft[key]
       }
 
-      for (const [key, value] of Object.entries(item as unknown as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(normalizedItem)) {
         if (value !== undefined) {
           draft[key] = value
         }
@@ -147,8 +152,8 @@ export async function mutateSetMetadata(
   metadata: AccountMetadata,
 ): Promise<AccountMetadata> {
   const nextMetadata = sanitizeMetadata(metadata)
-  await pushMetadata(nextMetadata as Record<string, unknown>)
   setCachedMetadata(nextMetadata)
+  queueMetadataForSync(nextMetadata)
   emitDomainEvent({ type: 'data:updated', domain: 'metadata', reason: 'automerge:metadata-updated' })
 
   return nextMetadata

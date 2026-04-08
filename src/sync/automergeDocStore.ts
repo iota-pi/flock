@@ -31,6 +31,7 @@ const store = localforage.createInstance({
 
 let loadedAccount: string | null = null
 const entriesByItemId = new Map<string, DocEntry>()
+const cachedItemSnapshotById = new Map<string, Item | null>()
 const allListeners = new Set<() => void>()
 const itemListenersById = new Map<string, Set<(item: Item | null) => void>>()
 let cachedItemsSnapshot: Item[] = []
@@ -141,6 +142,7 @@ function notifyAll(): void {
 
 function notifyChange(itemId: string): void {
   markItemsSnapshotDirty()
+  cachedItemSnapshotById.delete(itemId)
   notifyItem(itemId)
   notifyAll()
 }
@@ -152,6 +154,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   loadedAccount = account
   entriesByItemId.clear()
+  cachedItemSnapshotById.clear()
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
 
@@ -209,16 +212,23 @@ export function getAutomergeItems(): Item[] {
 }
 
 export function getAutomergeItem(itemId: string): Item | null {
+  if (cachedItemSnapshotById.has(itemId)) {
+    return cachedItemSnapshotById.get(itemId) || null
+  }
+
   const entry = entriesByItemId.get(itemId)
   if (!entry) {
+    cachedItemSnapshotById.set(itemId, null)
     return null
   }
 
   const item = materializeItem(itemId, entry.doc)
   if (!item || item.deleted === true) {
+    cachedItemSnapshotById.set(itemId, null)
     return null
   }
 
+  cachedItemSnapshotById.set(itemId, item)
   return item
 }
 
@@ -262,6 +272,7 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
 
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByItemId.clear()
+  cachedItemSnapshotById.clear()
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()

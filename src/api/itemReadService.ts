@@ -1,6 +1,7 @@
 import {
   fetchMany,
   getMetadata,
+  setMetadata as pushMetadata,
   type VaultItem,
 } from './vault/client'
 import * as vault from './vault'
@@ -41,8 +42,12 @@ const bootstrapPromiseByScope = new Map<string, Promise<void>>()
 const completedBootstrapScopes = new Set<string>()
 const metadataPromiseByScope = new Map<string, Promise<AccountMetadata>>()
 const metadataSubscribers = new Set<() => void>()
+const pendingMetadataByScope = new Map<string, AccountMetadata>()
+const metadataSyncInFlightScopes = new Set<string>()
+const metadataSyncRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let cachedMetadata: AccountMetadata = {}
 let cachedMetadataScope = ''
+const METADATA_SYNC_RETRY_DELAY_MS = 5 * 1000
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -81,6 +86,53 @@ function setCachedMetadataSnapshot(metadata: AccountMetadata, scopeKey: string):
   notifyMetadataSubscribers()
 }
 
+function clearMetadataSyncRetry(scopeKey: string): void {
+  const timer = metadataSyncRetryTimers.get(scopeKey)
+  if (!timer) {
+    return
+  }
+
+  clearTimeout(timer)
+  metadataSyncRetryTimers.delete(scopeKey)
+}
+
+async function flushPendingMetadataSync(accountId: string, scopeKey: string): Promise<void> {
+  if (!hasApiAuthToken() || metadataSyncInFlightScopes.has(scopeKey)) {
+    return
+  }
+
+  const pendingMetadata = pendingMetadataByScope.get(scopeKey)
+  if (!pendingMetadata) {
+    clearMetadataSyncRetry(scopeKey)
+    return
+  }
+
+  metadataSyncInFlightScopes.add(scopeKey)
+
+  try {
+    await pushMetadata(pendingMetadata as Record<string, unknown>)
+
+    if (pendingMetadataByScope.get(scopeKey) === pendingMetadata) {
+      pendingMetadataByScope.delete(scopeKey)
+    }
+
+    clearMetadataSyncRetry(scopeKey)
+  } catch (_) {
+    if (!metadataSyncRetryTimers.has(scopeKey)) {
+      metadataSyncRetryTimers.set(scopeKey, setTimeout(() => {
+        metadataSyncRetryTimers.delete(scopeKey)
+        void flushPendingMetadataSync(accountId, scopeKey)
+      }, METADATA_SYNC_RETRY_DELAY_MS))
+    }
+  } finally {
+    metadataSyncInFlightScopes.delete(scopeKey)
+
+    if (pendingMetadataByScope.has(scopeKey) && hasApiAuthToken()) {
+      void flushPendingMetadataSync(accountId, scopeKey)
+    }
+  }
+}
+
 export function getCachedMetadata(): AccountMetadata {
   return cachedMetadata
 }
@@ -98,6 +150,12 @@ export function clearMetadataCache(): void {
   cachedMetadata = {}
   cachedMetadataScope = ''
   metadataPromiseByScope.clear()
+  pendingMetadataByScope.clear()
+  metadataSyncInFlightScopes.clear()
+
+  for (const scopeKey of metadataSyncRetryTimers.keys()) {
+    clearMetadataSyncRetry(scopeKey)
+  }
 
   if (hadSnapshot) {
     notifyMetadataSubscribers()
@@ -106,6 +164,20 @@ export function clearMetadataCache(): void {
 
 export function setCachedMetadata(metadata: AccountMetadata): void {
   setCachedMetadataSnapshot(metadata || {}, getMetadataScopeKey(getAccountId()))
+}
+
+export function queueMetadataForSync(
+  metadata: AccountMetadata,
+  accountId = getAccountId(),
+): void {
+  const scopeKey = getMetadataScopeKey(accountId)
+  pendingMetadataByScope.set(scopeKey, metadata || {})
+  void flushPendingMetadataSync(accountId, scopeKey)
+}
+
+export function requestMetadataSync(accountId = getAccountId()): void {
+  const scopeKey = getMetadataScopeKey(accountId)
+  void flushPendingMetadataSync(accountId, scopeKey)
 }
 
 export async function ensureMetadataLoaded(
@@ -118,6 +190,11 @@ export async function ensureMetadataLoaded(
   }
 
   const scopeKey = getMetadataScopeKey(accountId)
+
+  if (pendingMetadataByScope.has(scopeKey) && cachedMetadataScope === scopeKey) {
+    return cachedMetadata
+  }
+
   if (!options.force && cachedMetadataScope === scopeKey) {
     return cachedMetadata
   }
