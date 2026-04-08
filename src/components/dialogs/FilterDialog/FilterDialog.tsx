@@ -24,18 +24,15 @@ function FilterDialog({
   const setUi = useUiStore(state => state.setUi)
   const filterCriteria = useUiStore(state => state.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
-  const [prevOpen, setPrevOpen] = useState(open)
-  if (open && !prevOpen) {
-    setPrevOpen(true)
+
+  const initializeLocalCriteria = useCallback(() => {
     const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type])
     if (criteria.length > 0) {
       setLocalCriteria(criteria)
     } else {
       setLocalCriteria(DEFAULT_FILTER_CRITERIA)
     }
-  } else if (!open && prevOpen) {
-    setPrevOpen(false)
-  }
+  }, [filterCriteria])
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
@@ -86,6 +83,7 @@ function FilterDialog({
       open={open}
       fullWidth
       maxWidth="sm"
+      TransitionProps={{ onEnter: initializeLocalCriteria }}
     >
       <DialogTitle>
         Filter Conditions

@@ -1,8 +1,6 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useState,
 } from 'react'
 import {
   ListItemIcon,
@@ -10,19 +8,17 @@ import {
   MenuItem,
 } from '@mui/material'
 import {
-  cleanItem,
   convertItem,
   dirtyItem,
   DirtyItem,
   getItemName,
   getItemTypeLabel,
-  isItem,
   isValid,
   Item,
   ITEM_TYPES,
 } from '../../../state/items'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
-import { isSameDay, usePrevious } from '../../../utils'
+import { isSameDay } from '../../../utils'
 import {
   ArchiveIcon,
   getIcon,
@@ -35,6 +31,7 @@ import { mutateDeleteItems, mutateStoreItems } from '../mutations/itemMutations'
 import { useAutomergeItem } from '../../../hooks/useAutomergeItem'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
+import useAutoSaveItem from '../hooks/useAutoSaveItem'
 
 
 export interface Props extends BaseDrawerProps {
@@ -63,7 +60,6 @@ function ItemDrawer({
   stacked,
 }: Props) {
   const automergeItem = useAutomergeItem(item.id)
-  const [disableAutoSave, setDisableAutoSave] = useState(false)
 
   const resolvedItem = useMemo(() => {
     if (item.dirty || item.isNew || !automergeItem) {
@@ -77,37 +73,45 @@ function ItemDrawer({
     } as DirtyItem<Item>
   }, [automergeItem, item])
 
-  const prevItem = usePrevious(item)
+  const persistItem = useCallback(
+    (cleanItemValue: Item) => {
+      void mutateStoreItems(cleanItemValue).catch(error => {
+        console.error(error)
+      })
+    },
+    [],
+  )
+
+  const {
+    disableAutoSaveNow,
+    enableAutoSaveNow,
+    saveItem,
+  } = useAutoSaveItem({
+    item,
+    onPersist: persistItem,
+    open,
+  })
 
   const handleChange = useCallback(
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
     ) => {
-      setDisableAutoSave(false)
+      enableAutoSaveNow()
       if (typeof data === 'function') {
         return onChange(originalItem => dirtyItem(data(originalItem)))
       }
       return onChange(dirtyItem(data))
     },
-    [onChange],
+    [enableAutoSaveNow, onChange],
   )
 
   const handleSave = useCallback(
     (itemToSave: DirtyItem<Item>) => {
-      if ((itemToSave.dirty || itemToSave.isNew) && isValid(itemToSave)) {
-        setDisableAutoSave(true)
-        const clean = cleanItem(itemToSave)
-        if (isItem(clean)) {
-          void mutateStoreItems(clean).catch(error => {
-            console.error(error)
-          })
-        }
-        return clean
-      }
-      return undefined
+      return saveItem(itemToSave)
     },
-    [],
+    [saveItem],
   )
+
   const handleClose = useCallback(
     (disableSave?: boolean) => {
       if (!disableSave) {
@@ -128,10 +132,10 @@ function ItemDrawer({
   )
   const handleCancel = useCallback(
     () => {
-      setDisableAutoSave(true)
+      disableAutoSaveNow()
       onClose()
     },
-    [onClose],
+    [disableAutoSaveNow, onClose],
   )
   const handleDelete = useCallback(
     () => {
@@ -140,39 +144,6 @@ function ItemDrawer({
       onClose()
     },
     [item.id, onClose],
-  )
-
-  const handleUnmount = useCallback(
-    () => {
-      if (!disableAutoSave) {
-        handleSave(item)
-      }
-    },
-    [disableAutoSave, handleSave, item],
-  )
-
-  useEffect(
-    () => {
-      if (open && prevItem && prevItem.id !== item.id) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        handleSave(prevItem)
-      }
-    },
-    [handleSave, item.id, open, prevItem],
-  )
-
-  useEffect(
-    () => {
-      if (item.dirty && !item.isNew) {
-        const timeout = setTimeout(
-          () => handleSave(item),
-          10000,
-        )
-        return () => clearTimeout(timeout)
-      }
-      return undefined
-    },
-    [handleSave, item],
   )
 
   const { archived } = resolvedItem
@@ -281,7 +252,6 @@ function ItemDrawer({
       onBack={onBack}
       onClose={handleClose}
       onExited={onExited}
-      onUnmount={handleUnmount}
       open={open}
       stacked={stacked}
       typeIcon={getIconType(resolvedItem.type)}

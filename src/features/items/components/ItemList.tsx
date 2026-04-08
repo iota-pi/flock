@@ -1,7 +1,6 @@
 import {
   ReactNode,
   useMemo,
-  useState,
 } from 'react'
 import {
   List,
@@ -10,11 +9,14 @@ import {
   Divider,
   SxProps,
 } from '@mui/material'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { GroupItem, Item } from '../../../state/items'
 import { useGroupLookups } from '../hooks/useGroupLookups'
 import { ItemListContextProvider } from './ItemListContext'
-import { ItemListItem, type ItemListExtraElement } from './ItemListItem'
+import { type ItemListExtraElement } from './ItemListItem'
+import {
+  StandardItemList,
+  VirtualizedItemList,
+} from './ItemListStrategies'
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20
@@ -88,21 +90,9 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     wrapText,
   } = props
 
-  const [listNode, setListNode] = useState<HTMLDivElement | null>(null)
   const groupsByMemberId = useGroupLookups()
 
   const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const rowVirtualizer = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => listNode,
-    estimateSize: () => defaultRowHeight,
-    getItemKey: index => items[index]?.id || index,
-    overscan: 5,
-    measureElement: useDynamicHeight
-      ? element => element.getBoundingClientRect().height
-      : undefined,
-  })
 
   const listContextValue = useMemo(
     () => ({
@@ -139,130 +129,46 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     [fullHeight, paddingBottom],
   )
 
-  const renderContent = () => {
-    if (items.length === 0) {
-      return (
-        <ListItem>
-          <ListItemText primary={noItemsText} secondary={noItemsHint} />
-        </ListItem>
-      )
-    }
-
-    if (!fullHeight) {
-      return items.map((_, index) => (
-        <ItemListItem
-          key={items[index].id}
-          index={index}
-          item={items[index]}
-          itemsLength={items.length}
-          style={{}}
-          extraElements={extraElements}
-          filterTags={filterTags}
-          getActionIcon={getActionIcon}
-          getChecked={getChecked}
-          getDescription={getDescription}
-          getForceFade={getForceFade}
-          getHighlighted={getHighlighted}
-          getIcon={getIcon}
-          getTitle={getTitle}
-          groupsByMemberId={groupsByMemberId}
-          onCheck={onCheck}
-          onClick={onClick}
-          onClickAction={onClickAction}
-        />
-      ))
-    }
-
-    const virtualItems = rowVirtualizer.getVirtualItems()
-    const fallbackItems = virtualItems.length === 0
-      ? items.slice(0, Math.min(items.length, FALLBACK_RENDER_COUNT))
-      : []
-
-    return (
-      <div
-        ref={setListNode}
-        style={{
-          height: '100%',
-          width: '100%',
-          overflowY: 'auto',
-        }}
-      >
-        <div
-          style={{
-            height: virtualItems.length > 0 ? rowVirtualizer.getTotalSize() : undefined,
-            position: 'relative',
-            width: '100%',
-          }}
-        >
-          {virtualItems.length > 0
-            ? virtualItems.map(virtualRow => {
-              const item = items[virtualRow.index]
-              if (!item) {
-                return null
-              }
-
-              return (
-                <ItemListItem
-                  key={item.id}
-                  index={virtualRow.index}
-                  item={item}
-                  itemsLength={items.length}
-                  style={{
-                    left: 0,
-                    position: 'absolute',
-                    top: 0,
-                    transform: `translateY(${virtualRow.start}px)`,
-                    width: '100%',
-                  }}
-                  measureElement={useDynamicHeight
-                    ? node => {
-                      if (node) {
-                        rowVirtualizer.measureElement(node)
-                      }
-                    }
-                    : undefined}
-                  extraElements={extraElements}
-                  filterTags={filterTags}
-                  getActionIcon={getActionIcon}
-                  getChecked={getChecked}
-                  getDescription={getDescription}
-                  getForceFade={getForceFade}
-                  getHighlighted={getHighlighted}
-                  getIcon={getIcon}
-                  getTitle={getTitle}
-                  groupsByMemberId={groupsByMemberId}
-                  onCheck={onCheck}
-                  onClick={onClick}
-                  onClickAction={onClickAction}
-                />
-              )
-            })
-            : fallbackItems.map((item, index) => (
-              <ItemListItem
-                key={item.id}
-                index={index}
-                item={item}
-                itemsLength={items.length}
-                style={{}}
-                extraElements={extraElements}
-                filterTags={filterTags}
-                getActionIcon={getActionIcon}
-                getChecked={getChecked}
-                getDescription={getDescription}
-                getForceFade={getForceFade}
-                getHighlighted={getHighlighted}
-                getIcon={getIcon}
-                getTitle={getTitle}
-                groupsByMemberId={groupsByMemberId}
-                onCheck={onCheck}
-                onClick={onClick}
-                onClickAction={onClickAction}
-              />
-            ))}
-        </div>
-      </div>
-    )
+  const listRendererProps = {
+    extraElements,
+    filterTags,
+    getActionIcon,
+    getChecked,
+    getDescription,
+    getForceFade,
+    getHighlighted,
+    getIcon,
+    getTitle,
+    groupsByMemberId,
+    items,
+    onCheck,
+    onClick,
+    onClickAction,
   }
+
+  const useVirtualizedList = fullHeight && items.length > FALLBACK_RENDER_COUNT
+
+  const renderedContent = items.length === 0
+    ? (
+      <ListItem>
+        <ListItemText primary={noItemsText} secondary={noItemsHint} />
+      </ListItem>
+    )
+    : useVirtualizedList
+      ? (
+        <VirtualizedItemList
+          {...listRendererProps}
+          defaultRowHeight={defaultRowHeight}
+          fallbackRenderCount={FALLBACK_RENDER_COUNT}
+          useDynamicHeight={useDynamicHeight}
+        />
+      )
+      : (
+        <StandardItemList
+          {...listRendererProps}
+          fullHeight={fullHeight}
+        />
+      )
 
   return (
     <ItemListContextProvider value={listContextValue}>
@@ -273,7 +179,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       >
         {dividers && items.length === 0 && <Divider />}
 
-        {renderContent()}
+        {renderedContent}
 
         {dividers && <Divider />}
       </List>

@@ -25,11 +25,7 @@ import {
   getLegacyMigrationStorageKey,
 } from './legacyMigrationStorage'
 
-const legacyMigrationPromiseByScope = new Map<string, Promise<void>>()
-const metadataMigrationHydrationPromiseByAccount = new Map<string, Promise<void>>()
-const metadataMigrationCompleteByAccount = new Map<string, boolean>()
-const legacyMigrationHydrationPromiseByAccount = new Map<string, Promise<void>>()
-const legacyMigrationCompleteByAccount = new Map<string, boolean>()
+type MigrationPhase = 'idle' | 'hydrating' | 'running' | 'completed' | 'failed'
 
 type LegacyMigrationOptions = {
   force?: boolean
@@ -44,6 +40,112 @@ type SyncSnapshotMessage = {
     cipher: string
   }
 }
+
+class MigrationManager {
+  private metadataPhaseByAccount = new Map<string, MigrationPhase>()
+  private metadataHydrationPromiseByAccount = new Map<string, Promise<void>>()
+
+  private legacyPhaseByAccount = new Map<string, MigrationPhase>()
+  private legacyHydrationPromiseByAccount = new Map<string, Promise<void>>()
+
+  private migrationPromiseByScope = new Map<string, Promise<void>>()
+
+  getMetadataPhase(accountId: string): MigrationPhase {
+    return this.metadataPhaseByAccount.get(accountId) || 'idle'
+  }
+
+  getLegacyPhase(accountId: string): MigrationPhase {
+    return this.legacyPhaseByAccount.get(accountId) || 'idle'
+  }
+
+  setMetadataPhase(accountId: string, phase: MigrationPhase): void {
+    this.metadataPhaseByAccount.set(accountId, phase)
+  }
+
+  setLegacyPhase(accountId: string, phase: MigrationPhase): void {
+    this.legacyPhaseByAccount.set(accountId, phase)
+  }
+
+  getScopedPromise(scopeKey: string): Promise<void> | undefined {
+    return this.migrationPromiseByScope.get(scopeKey)
+  }
+
+  setScopedPromise(scopeKey: string, promise: Promise<void>): void {
+    this.migrationPromiseByScope.set(scopeKey, promise)
+  }
+
+  clearScopedPromise(scopeKey: string): void {
+    this.migrationPromiseByScope.delete(scopeKey)
+  }
+
+  async hydrateMetadataState(accountId: string): Promise<void> {
+    const phase = this.getMetadataPhase(accountId)
+    if (phase === 'completed') {
+      return
+    }
+
+    const inFlight = this.metadataHydrationPromiseByAccount.get(accountId)
+    if (inFlight) {
+      return inFlight
+    }
+
+    this.setMetadataPhase(accountId, 'hydrating')
+
+    const hydration = syncDB.getItem<unknown>(getLegacyMetadataMigrationStorageKey(accountId))
+      .then(value => {
+        this.setMetadataPhase(accountId, value === true ? 'completed' : 'idle')
+      })
+      .catch(() => {
+        this.setMetadataPhase(accountId, 'failed')
+      })
+      .finally(() => {
+        this.metadataHydrationPromiseByAccount.delete(accountId)
+      })
+
+    this.metadataHydrationPromiseByAccount.set(accountId, hydration)
+    return hydration
+  }
+
+  async hydrateLegacyState(accountId: string): Promise<void> {
+    const phase = this.getLegacyPhase(accountId)
+    if (phase === 'completed') {
+      return
+    }
+
+    const inFlight = this.legacyHydrationPromiseByAccount.get(accountId)
+    if (inFlight) {
+      return inFlight
+    }
+
+    this.setLegacyPhase(accountId, 'hydrating')
+
+    const hydration = syncDB.getItem<unknown>(getLegacyMigrationStorageKey(accountId))
+      .then(value => {
+        this.setLegacyPhase(accountId, value === true ? 'completed' : 'idle')
+      })
+      .catch(() => {
+        this.setLegacyPhase(accountId, 'failed')
+      })
+      .finally(() => {
+        this.legacyHydrationPromiseByAccount.delete(accountId)
+      })
+
+    this.legacyHydrationPromiseByAccount.set(accountId, hydration)
+    return hydration
+  }
+
+  async markMetadataComplete(accountId: string): Promise<void> {
+    this.setMetadataPhase(accountId, 'completed')
+    await syncDB.setItem(getLegacyMetadataMigrationStorageKey(accountId), true)
+  }
+
+  async markLegacyComplete(accountId: string): Promise<void> {
+    this.setLegacyPhase(accountId, 'completed')
+    await syncDB.setItem(getLegacyMigrationStorageKey(accountId), true)
+  }
+}
+
+const migrationManager = new MigrationManager()
 
 function getLegacyMigrationScopeKey(accountId: string): string {
   return `${accountId}:${getApiAuthToken()}`
@@ -62,57 +164,23 @@ function toError(error: unknown): Error {
 }
 
 export async function hydrateMetadataMigrationState(accountId: string): Promise<void> {
-  if (metadataMigrationCompleteByAccount.has(accountId)) {
-    return
-  }
-
-  const inFlight = metadataMigrationHydrationPromiseByAccount.get(accountId)
-  if (inFlight) {
-    return inFlight
-  }
-
-  const hydration = syncDB.getItem<unknown>(getLegacyMetadataMigrationStorageKey(accountId))
-    .then(value => {
-      metadataMigrationCompleteByAccount.set(accountId, value === true)
-    })
-    .finally(() => {
-      metadataMigrationHydrationPromiseByAccount.delete(accountId)
-    })
-
-  metadataMigrationHydrationPromiseByAccount.set(accountId, hydration)
-  return hydration
+  await migrationManager.hydrateMetadataState(accountId)
 }
 
-async function hydrateLegacyMigrationState(accountId: string): Promise<void> {
-  if (legacyMigrationCompleteByAccount.has(accountId)) {
-    return
-  }
-
-  const inFlight = legacyMigrationHydrationPromiseByAccount.get(accountId)
-  if (inFlight) {
-    return inFlight
-  }
-
-  const hydration = syncDB.getItem<unknown>(getLegacyMigrationStorageKey(accountId))
-    .then(value => {
-      legacyMigrationCompleteByAccount.set(accountId, value === true)
-    })
-    .finally(() => {
-      legacyMigrationHydrationPromiseByAccount.delete(accountId)
-    })
-
-  legacyMigrationHydrationPromiseByAccount.set(accountId, hydration)
-  return hydration
+function isMetadataMigrationComplete(accountId: string): boolean {
+  return migrationManager.getMetadataPhase(accountId) === 'completed'
 }
 
-async function markMetadataMigrationComplete(accountId: string): Promise<void> {
-  metadataMigrationCompleteByAccount.set(accountId, true)
-  await syncDB.setItem(getLegacyMetadataMigrationStorageKey(accountId), true)
+function isLegacyMigrationComplete(accountId: string): boolean {
+  return migrationManager.getLegacyPhase(accountId) === 'completed'
 }
 
-async function markLegacyMigrationComplete(accountId: string): Promise<void> {
-  legacyMigrationCompleteByAccount.set(accountId, true)
-  await syncDB.setItem(getLegacyMigrationStorageKey(accountId), true)
+function markLegacyMigrationRunning(accountId: string): void {
+  migrationManager.setLegacyPhase(accountId, 'running')
+}
+
+function markLegacyMigrationFailed(accountId: string): void {
+  migrationManager.setLegacyPhase(accountId, 'failed')
 }
 
 function normalizeMetadataFromServer(payload: unknown): AccountMetadata {
@@ -145,7 +213,7 @@ export async function migrateLegacyMetadataIfNeeded(
 
   const localMetadata = getAutomergeMetadata()
   const hasLocalMetadataDoc = hasAutomergeDocument(ACCOUNT_METADATA_DOCUMENT_ID)
-  const migrationComplete = metadataMigrationCompleteByAccount.get(accountId) === true
+  const migrationComplete = isMetadataMigrationComplete(accountId)
 
   if (!options.force && hasLocalMetadataDoc && (!isMetadataEmpty(localMetadata) || migrationComplete)) {
     return localMetadata
@@ -162,7 +230,7 @@ export async function migrateLegacyMetadataIfNeeded(
     }
 
     await upsertAutomergeMetadataSnapshot(legacyMetadata)
-    await markMetadataMigrationComplete(accountId)
+    await migrationManager.markMetadataComplete(accountId)
     requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
   } catch (error) {
     handleVaultError(toError(error), 'Failed to migrate legacy metadata')
@@ -243,20 +311,20 @@ export async function bootstrapItemsFromSyncMessages(accountId: string): Promise
 
 export async function runLegacyMigration(accountId: string, options: LegacyMigrationOptions = {}): Promise<void> {
   await initializeAutomergeDocStore(accountId)
-  await hydrateLegacyMigrationState(accountId)
+  await migrationManager.hydrateLegacyState(accountId)
 
   const forced = !!(options.force || options.forceFullSync || options.forceMetadataRefetch)
-  const migrationComplete = legacyMigrationCompleteByAccount.get(accountId) === true
-
-  if (!forced && migrationComplete) {
+  if (!forced && isLegacyMigrationComplete(accountId)) {
     return
   }
 
   const scopeKey = getLegacyMigrationScopeKey(accountId)
-  const inFlight = legacyMigrationPromiseByScope.get(scopeKey)
+  const inFlight = migrationManager.getScopedPromise(scopeKey)
   if (inFlight) {
     return inFlight
   }
+
+  markLegacyMigrationRunning(accountId)
 
   const migration = (async () => {
     if (!hasApiAuthToken()) {
@@ -265,15 +333,16 @@ export async function runLegacyMigration(accountId: string, options: LegacyMigra
 
     await bootstrapItemsFromSyncMessages(accountId)
     await migrateLegacyMetadataIfNeeded(accountId, { force: options.forceMetadataRefetch === true })
-    await markLegacyMigrationComplete(accountId)
+    await migrationManager.markLegacyComplete(accountId)
   })()
     .catch(error => {
+      markLegacyMigrationFailed(accountId)
       handleVaultError(toError(error), 'Failed to run legacy migration')
     })
     .finally(() => {
-      legacyMigrationPromiseByScope.delete(scopeKey)
+      migrationManager.clearScopedPromise(scopeKey)
     })
 
-  legacyMigrationPromiseByScope.set(scopeKey, migration)
+  migrationManager.setScopedPromise(scopeKey, migration)
   return migration
 }

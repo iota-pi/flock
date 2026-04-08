@@ -3,32 +3,29 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react'
 import { useLocation } from 'react-router'
 import {
-  cleanItem,
   DirtyItem,
-  isItem,
-  isValid,
   Item,
 } from '../../../state/items'
 import { useItemMap } from '../../../state/selectors'
 import { usePrayerSchedule } from '../../../hooks/usePrayerSchedule'
 import { useToday } from '../../../hooks/useToday'
-import { mutateStoreItems } from '../../../features/items/mutations/itemMutations'
 import { recordPrayerCompletion } from '../../../api/vault'
 import { useDialogState } from '../../../hooks/useDialogState'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { createDebouncedByKey } from '../../../utils/debounceByKey'
 import usePrayerActiveViewPreload from './usePrayerActiveViewPreload'
-
-export type FlowState =
-  | { type: 'overview' }
-  | { type: 'active'; index: number }
-  | { type: 'finished'; prayedCount: number }
+import {
+  type FlowState,
+  PRAYER_FLOW_INITIAL_STATE,
+  prayerFlowReducer,
+} from './prayerFlowReducer'
+import usePrayerSync from './usePrayerSync'
 
 export type PrayerFlowController = {
   allVisiblePrayed: boolean
@@ -75,38 +72,18 @@ export type PrayerFlowController = {
 export default function usePrayerFlow(): PrayerFlowController {
   const location = useLocation()
   const itemMap = useItemMap()
-  const storeItems = mutateStoreItems
+  const { queuePrayedForSync, saveLocalItem } = usePrayerSync()
 
   const today = useToday()
   const prevTodayRef = useRef(today)
 
-  const [flow, setFlow] = useState<FlowState>({ type: 'overview' })
+  const [flowState, dispatchFlow] = useReducer(prayerFlowReducer, PRAYER_FLOW_INITIAL_STATE)
   const [localItems, setLocalItems] = useState<DirtyItem<Item>[]>([])
   const goalDialog = useDialogState('goal')
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
-  const [lastOverlayFlow, setLastOverlayFlow] = useState<FlowState | null>(null)
-  const prayedSyncQueue = useMemo(
-    () => createDebouncedByKey<string, Item>(500, latestItem => {
-      storeItems(latestItem)
-    }),
-    [storeItems],
-  )
+  const flow = flowState.current
 
-  useEffect(
-    () => () => prayedSyncQueue.clear(),
-    [prayedSyncQueue],
-  )
-
-  useEffect(
-    () => {
-      if (flow.type !== 'overview') {
-        setLastOverlayFlow(flow)
-      }
-    },
-    [flow],
-  )
-
-  const overlayFlow = flow.type !== 'overview' ? flow : lastOverlayFlow
+  const overlayFlow = flow.type !== 'overview' ? flow : flowState.lastOverlay
 
   const {
     completed,
@@ -129,7 +106,7 @@ export default function usePrayerFlow(): PrayerFlowController {
     () => {
       const state = location.state as { resetPrayerAt?: number } | null
       if (state?.resetPrayerAt) {
-        setFlow({ type: 'overview' })
+        dispatchFlow({ type: 'show-overview' })
         setIsEditDrawerOpen(false)
       }
     },
@@ -140,7 +117,7 @@ export default function usePrayerFlow(): PrayerFlowController {
     () => {
       if (today.getTime() !== prevTodayRef.current.getTime()) {
         prevTodayRef.current = today
-        setFlow(prev => prev.type === 'overview' ? prev : { type: 'overview' })
+        dispatchFlow({ type: 'show-overview' })
         setLocalItems([])
         setIsEditDrawerOpen(false)
       }
@@ -215,30 +192,6 @@ export default function usePrayerFlow(): PrayerFlowController {
     [flow],
   )
 
-  const saveLocalItem = useCallback(
-    (currentItem: DirtyItem<Item>) => {
-      if ((currentItem.dirty || currentItem.isNew) && isValid(currentItem)) {
-        const clean = cleanItem(currentItem)
-        if (isItem(clean)) {
-          storeItems(clean)
-        }
-      }
-    },
-    [storeItems],
-  )
-
-  const queuePrayedForSync = useCallback(
-    (currentItem: DirtyItem<Item>) => {
-      const clean = cleanItem(currentItem)
-      if (!isItem(clean) || !isValid(clean)) {
-        return
-      }
-
-      prayedSyncQueue.schedule(clean.id, clean)
-    },
-    [prayedSyncQueue],
-  )
-
   const recordPrayedForLocalItem = useCallback(
     (currentItem: DirtyItem<Item>): DirtyItem<Item> => {
       const lastPrayer = getLastPrayedFor(currentItem)
@@ -255,7 +208,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       const items = localItems.length > 0 ? localItems : buildLocalItems(visibleSchedule.length)
       if (!items[fromIndex]) return
       if (items !== localItems) setLocalItems(items)
-      setFlow({ type: 'active', index: fromIndex })
+      dispatchFlow({ type: 'start-at', index: fromIndex })
     },
     [buildLocalItems, localItems, visibleSchedule.length],
   )
@@ -279,12 +232,12 @@ export default function usePrayerFlow(): PrayerFlowController {
       if (nextIndex >= localItems.length) {
         const completedAt = Date.now()
         recordPrayerCompletion(completedAt).catch(() => {})
-        setFlow({
-          type: 'finished',
+        dispatchFlow({
+          type: 'finish',
           prayedCount: completed + (alreadyPrayedToday ? 0 : 1),
         })
       } else {
-        setFlow({ type: 'active', index: nextIndex })
+        dispatchFlow({ type: 'set-active-index', index: nextIndex })
       }
     },
     [completed, flow, localItems, queuePrayedForSync, recordPrayedForLocalItem],
@@ -295,9 +248,9 @@ export default function usePrayerFlow(): PrayerFlowController {
       if (flow.type !== 'active') return
 
       if (flow.index === 0) {
-        setFlow({ type: 'overview' })
+        dispatchFlow({ type: 'show-overview' })
       } else {
-        setFlow({ type: 'active', index: flow.index - 1 })
+        dispatchFlow({ type: 'set-active-index', index: flow.index - 1 })
       }
     },
     [flow],
@@ -305,7 +258,7 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const handleStepClick = useCallback(
     (index: number) => {
-      setFlow({ type: 'active', index })
+      dispatchFlow({ type: 'set-active-index', index })
     },
     [],
   )
@@ -342,7 +295,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       showUntil(newVisibleCount)
       const expandedItems = buildLocalItems(newVisibleCount)
       setLocalItems(expandedItems)
-      setFlow({ type: 'active', index: firstNewIndex })
+      dispatchFlow({ type: 'set-active-index', index: firstNewIndex })
     },
     [buildLocalItems, isPrayedForToday, schedule, showUntil, visibleSchedule.length],
   )
@@ -370,7 +323,9 @@ export default function usePrayerFlow(): PrayerFlowController {
     [flow, itemMap, localItems, queuePrayedForSync, saveLocalItem],
   )
 
-  const handleGoToOverview = useCallback(() => setFlow({ type: 'overview' }), [])
+  const handleGoToOverview = useCallback(() => {
+    dispatchFlow({ type: 'show-overview' })
+  }, [])
   const firstUnprayedIndex = useMemo(
     () => {
       const index = visibleSchedule.findIndex(item => !isPrayedForToday(item))
