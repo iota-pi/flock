@@ -3,7 +3,6 @@ import { GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap, queueMetadataForSync, setCachedMetadata } from '../../../api/itemReadService'
-import { emitDomainEvent } from '../../../events/domainEvents'
 import { useNavigationStore } from '../../../state/navigationStore'
 import {
   getAutomergeItems,
@@ -116,7 +115,6 @@ export async function mutateStoreItems(
   }
 
   requestAutomergeSync(current.map(item => item.id))
-  emitDomainEvent({ type: 'data:updated', domain: 'items', reason: 'automerge:local-change' })
 
   return current
 }
@@ -143,7 +141,6 @@ export async function mutateDeleteItems(
   }
 
   useNavigationStore.getState().pruneItemDrawers(ids)
-  emitDomainEvent({ type: 'data:deleted', domain: 'items', ids })
 
   return ids
 }
@@ -154,7 +151,6 @@ export async function mutateSetMetadata(
   const nextMetadata = sanitizeMetadata(metadata)
   setCachedMetadata(nextMetadata)
   queueMetadataForSync(nextMetadata)
-  emitDomainEvent({ type: 'data:updated', domain: 'metadata', reason: 'automerge:metadata-updated' })
 
   return nextMetadata
 }

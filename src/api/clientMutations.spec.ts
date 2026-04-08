@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from '../features/items/mutations/itemMutations'
-import { emitDomainEvent } from '../events/domainEvents'
 import {
   getAutomergeItems,
   initializeAutomergeDocStore,
@@ -41,10 +40,6 @@ vi.mock('./vault/client', async importOriginal => {
     setMetadata: vi.fn(),
   }
 })
-
-vi.mock('../events/domainEvents', () => ({
-  emitDomainEvent: vi.fn(),
-}))
 
 vi.mock('./itemReadService', async importOriginal => {
   const actual = await importOriginal<typeof import('./itemReadService')>()
@@ -99,7 +94,7 @@ describe('local-first mutations', () => {
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
   })
 
-  it('deletes with group updates and tombstones and emits item delete event', async () => {
+  it('deletes with group updates and tombstones', async () => {
     const group = {
       ...getBlankGroup('g1', false),
       members: ['p1'],
@@ -114,23 +109,13 @@ describe('local-first mutations', () => {
     expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
     expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
-    expect(emitDomainEvent).toHaveBeenCalledWith({
-      type: 'data:deleted',
-      domain: 'items',
-      ids: ['p1'],
-    })
   })
 
-  it('updates metadata locally and emits a metadata update event', async () => {
+  it('updates metadata locally', async () => {
     const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
     expect(setMetadata).not.toHaveBeenCalled()
-    expect(emitDomainEvent).toHaveBeenCalledWith({
-      type: 'data:updated',
-      domain: 'metadata',
-      reason: 'automerge:metadata-updated',
-    })
   })
 
   it('queues metadata sync to vault when auth token is available', async () => {

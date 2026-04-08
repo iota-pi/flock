@@ -1,8 +1,6 @@
-import { emitAppEvent } from '../app/appEvents'
-import { startDataInvalidationController } from '../api/dataInvalidationController'
 import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
-import { ensureItemsBootstrap, requestMetadataSync } from '../api/itemReadService'
+import { ensureItemsBootstrap, ensureMetadataLoaded, requestMetadataSync } from '../api/itemReadService'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import {
   requestAutomergeSync,
@@ -27,8 +25,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
 
   stopSyncCoordinator()
   activeKey = key
-
-  const unsubscribeDataInvalidation = startDataInvalidationController()
 
   initializeSyncHealthWatchers()
 
@@ -68,7 +64,7 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
       account: options.account,
       onServerEvent: event => {
         if (event.eventType === 'metadata.updated') {
-          emitAppEvent({ type: 'data:updated', domain: 'metadata', reason: 'realtime:event' })
+          void ensureMetadataLoaded(options.account, { force: true })
         }
       },
       onSyncPing: itemIds => {
@@ -77,7 +73,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
     })
 
     realtimeStarted = true
-    emitAppEvent({ type: 'data:updated', domain: 'items', reason: 'realtime:start' })
   }
 
   function stopRealtime(): void {
@@ -142,7 +137,6 @@ export function startSyncCoordinator(options: SyncCoordinatorOptions): void {
   requestAutomergeSync()
 
   activeCleanup = () => {
-    unsubscribeDataInvalidation()
     unsubscribeAuthToken()
     clearHiddenDisconnectTimer()
     stopRealtime()

@@ -1,4 +1,3 @@
-import { emitDomainEvent } from '../events/domainEvents'
 import { decryptBytesWithKey, encryptBytesWithKey } from '../api/vault/crypto'
 import { getVaultKey } from '../api/vault'
 import { pullSyncMessages, pushSyncMessage } from '../api/vault/syncClient'
@@ -23,7 +22,6 @@ const SHOULD_THROW_SYNC_ERRORS = (
 let activeAccount: string | null = null
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 let syncing = false
-const pendingItemIds = new Set<string>()
 
 function scheduleImmediateSync(): void {
   queueMicrotask(() => {
@@ -64,32 +62,23 @@ async function pullRemoteMessages(account: string, itemId: string): Promise<void
     return
   }
 
-  let changed = false
   for (const message of response.messages) {
     if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
       continue
     }
 
     const decrypted = await decryptBytesWithKey(getVaultKey(), message.encryptedMessage)
-    const received = await receiveAutomergeSyncMessage(itemId, decrypted)
-    changed = changed || received
+    await receiveAutomergeSyncMessage(itemId, decrypted)
 
     if (typeof message.cursor === 'number' && message.cursor > 0) {
       await writeAutomergeSyncCursor(itemId, message.cursor)
     }
   }
 
-  if (changed) {
-    emitDomainEvent({
-      type: 'data:updated',
-      domain: 'items',
-      reason: 'automerge:sync',
-    })
-  }
 }
 
 async function runSyncCycle(): Promise<void> {
-  if (syncing || !activeAccount || pendingItemIds.size === 0) {
+  if (syncing || !activeAccount) {
     return
   }
 
@@ -98,16 +87,17 @@ async function runSyncCycle(): Promise<void> {
   try {
     await initializeAutomergeDocStore(activeAccount)
 
-    const targetIds = Array.from(pendingItemIds)
+    const targetIds = listAutomergeItemIds()
 
-    pendingItemIds.clear()
+    if (targetIds.length === 0) {
+      return
+    }
 
     for (const itemId of targetIds) {
       try {
         await pushLocalMessages(activeAccount, itemId)
         await pullRemoteMessages(activeAccount, itemId)
       } catch (error) {
-        pendingItemIds.add(itemId)
         if (SHOULD_THROW_SYNC_ERRORS) {
           throw error
         }
@@ -124,18 +114,7 @@ async function runSyncCycle(): Promise<void> {
   }
 }
 
-export function requestAutomergeSync(itemIds?: string[]): void {
-  if (Array.isArray(itemIds) && itemIds.length > 0) {
-    for (const itemId of itemIds) {
-      if (itemId) {
-        pendingItemIds.add(itemId)
-      }
-    }
-  } else {
-    for (const itemId of listAutomergeItemIds()) {
-      pendingItemIds.add(itemId)
-    }
-  }
+export function requestAutomergeSync(_?: string[]): void {
 
   scheduleImmediateSync()
 }
@@ -162,6 +141,5 @@ export function stopAutomergeSyncDispatcher(): void {
   }
 
   activeAccount = null
-  pendingItemIds.clear()
   useSyncStore.getState().setIsSyncing(false)
 }
