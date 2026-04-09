@@ -29,6 +29,35 @@ export function emitAutomergeItemRevision(itemId: string): void {
   }))
 }
 
+export function removeAutomergeItemRevision(itemId: string): void {
+  automergeDocReactiveStore.setState(state => {
+    if (!(itemId in state.itemRevisions)) {
+      return state
+    }
+
+    const nextItemRevisions = { ...state.itemRevisions }
+    delete nextItemRevisions[itemId]
+
+    return {
+      ...state,
+      itemRevisions: nextItemRevisions,
+    }
+  })
+}
+
+export function clearAutomergeItemRevisions(): void {
+  automergeDocReactiveStore.setState(state => {
+    if (Object.keys(state.itemRevisions).length === 0) {
+      return state
+    }
+
+    return {
+      ...state,
+      itemRevisions: {},
+    }
+  })
+}
+
 export function emitAutomergeItemsRevision(): void {
   bumpItemsRevision()
 }

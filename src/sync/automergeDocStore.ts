@@ -11,9 +11,11 @@ import {
   writePersistedAutomergeDoc,
 } from './automergeDocStorage'
 import {
+  clearAutomergeItemRevisions,
   emitAutomergeItemRevision,
   emitAutomergeItemsRevision,
   emitAutomergeMetadataRevision,
+  removeAutomergeItemRevision,
   subscribeAutomergeItemRevision,
   subscribeAutomergeItemsRevision,
   subscribeAutomergeMetadataRevision,
@@ -183,6 +185,7 @@ async function removeDocumentState(documentId: string): Promise<void> {
   entriesByDocumentId.delete(documentId)
   documentSnapshotsById.delete(documentId)
   cachedItemSnapshotById.delete(documentId)
+  removeAutomergeItemRevision(documentId)
 
   try {
     await removeAutomergeWorkerDocument(documentId)
@@ -218,6 +221,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   markItemsSnapshotDirty()
   cachedMetadataSnapshot = {}
   markMetadataSnapshotDirty()
+  clearAutomergeItemRevisions()
 
   const persistedRecords = await listPersistedAutomergeDocs(account)
   const localChangesByDocumentId = new Map(
@@ -474,6 +478,7 @@ export async function clearAutomergeDocStore(): Promise<void> {
   entriesByDocumentId.clear()
   documentSnapshotsById.clear()
   cachedItemSnapshotById.clear()
+  clearAutomergeItemRevisions()
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
