@@ -257,7 +257,6 @@ const workerApi = {
         }
 
         Object.assign(draft as Record<string, unknown>, normalizedSnapshot)
-        pruneUndefinedDeepInPlace(draft)
       })
       : Automerge.from(normalizedSnapshot)
 
