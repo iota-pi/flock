@@ -7,6 +7,7 @@ import type {
   WorkerReceiveMessageInput,
   WorkerReceiveSyncMessageResult,
   WorkerSerializedEntry,
+  WorkerSetBinaryInput,
   WorkerSetCursorInput,
   WorkerSetSnapshotInput,
 } from './automergeDoc.worker'
@@ -15,7 +16,9 @@ type AutomergeDocWorkerApi = {
   reset: () => void
   initialize: (records: PersistedWorkerRecord[]) => WorkerEntrySnapshot[]
   loadPersistedRecord: (record: PersistedWorkerRecord) => WorkerEntrySnapshot | null
+  exportAllBinaries: () => Record<string, string>
   setSnapshot: (input: WorkerSetSnapshotInput) => WorkerEntrySnapshot
+  setBinary: (input: WorkerSetBinaryInput) => WorkerEntrySnapshot
   receiveSyncMessage: (input: WorkerReceiveMessageInput) => WorkerReceiveSyncMessageResult
   createSyncMessage: (documentId: string) => WorkerCreateSyncMessageResult | null
   commitSyncState: (input: WorkerCommitSyncStateInput) => WorkerSerializedEntry | null
@@ -94,8 +97,16 @@ export function loadAutomergeWorkerRecord(record: PersistedWorkerRecord): Promis
   return withWorker(api => api.loadPersistedRecord(record))
 }
 
+export function exportAutomergeWorkerBinaries(): Promise<Record<string, string>> {
+  return withWorker(api => api.exportAllBinaries())
+}
+
 export function setAutomergeWorkerSnapshot(input: WorkerSetSnapshotInput): Promise<WorkerEntrySnapshot> {
   return withWorker(api => api.setSnapshot(input))
+}
+
+export function setAutomergeWorkerBinary(input: WorkerSetBinaryInput): Promise<WorkerEntrySnapshot> {
+  return withWorker(api => api.setBinary(input))
 }
 
 export function receiveAutomergeWorkerSyncMessage(

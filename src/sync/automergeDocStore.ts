@@ -1,6 +1,7 @@
 import type { Item } from '../state/items'
 import { supplyMissingAttributes } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
+import type { ItemId } from '../shared/itemTypes'
 import {
   clearPersistedAutomergeDocs,
   listPersistedAutomergeDocs,
@@ -17,14 +18,17 @@ import {
   subscribeAutomergeItemsRevision,
   subscribeAutomergeMetadataRevision,
 } from './automergeDocReactiveStore'
+import { setCachedAutomergeBinary } from './automergeBinaryCache'
 import {
   commitAutomergeWorkerSyncState,
   createAutomergeWorkerSyncMessage,
+  exportAutomergeWorkerBinaries,
   initializeAutomergeWorkerDocs,
   loadAutomergeWorkerRecord,
   receiveAutomergeWorkerSyncMessage,
   removeAutomergeWorkerDocument,
   resetAutomergeDocWorker,
+  setAutomergeWorkerBinary,
   setAutomergeWorkerCursor,
   setAutomergeWorkerSnapshot,
   type PersistedWorkerRecord,
@@ -123,6 +127,17 @@ function normalizeForAutomerge(input: Record<string, unknown>): Record<string, u
   const normalized = structuredClone(input)
   pruneUndefinedDeepInPlace(normalized)
   return normalized
+}
+
+function decodeBase64ToBytes(value: string): Uint8Array {
+  const decoded = atob(value)
+  const bytes = new Uint8Array(decoded.length)
+
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index)
+  }
+
+  return bytes
 }
 
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
@@ -430,6 +445,74 @@ export async function seedAutomergeItems(items: Item[]): Promise<void> {
   for (const item of items) {
     await upsertAutomergeItemSnapshot(item)
   }
+}
+
+export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
+  if (!loadedAccount) {
+    return {}
+  }
+
+  const documents = await exportAutomergeWorkerBinaries()
+  return documents as Partial<Record<ItemId, string>>
+}
+
+export async function restoreFromBinaries(documents: Partial<Record<ItemId, string>>): Promise<string[]> {
+  if (!loadedAccount) {
+    return []
+  }
+
+  const normalizedEntries = Array.from(new Set(Object.keys(documents || {})))
+    .filter(documentId => (
+      typeof documentId === 'string'
+      && documentId.length > 0
+      && !isMetadataDocumentId(documentId)
+      && typeof documents[documentId] === 'string'
+      && (documents[documentId] as string).length > 0
+    ))
+
+  if (normalizedEntries.length === 0) {
+    return []
+  }
+
+  const restoredItemIds: string[] = []
+
+  for (const itemId of normalizedEntries) {
+    const encodedBinary = documents[itemId] as string
+    const existing = entriesByDocumentId.get(itemId)
+
+    try {
+      const nextEntry = await setAutomergeWorkerBinary({
+        documentId: itemId,
+        binary: encodedBinary,
+        cursor: existing?.cursor,
+        syncState: existing?.syncState,
+      })
+
+      applyWorkerEntry(nextEntry)
+      await persistEntry(loadedAccount, itemId, nextEntry.serialized)
+      cachedItemSnapshotById.delete(itemId)
+      setCachedAutomergeBinary(itemId, decodeBase64ToBytes(encodedBinary))
+      restoredItemIds.push(itemId)
+    } catch (error) {
+      console.error(`Failed to restore binary document for ${itemId}`, error)
+    }
+  }
+
+  if (restoredItemIds.length === 0) {
+    return []
+  }
+
+  markItemsSnapshotDirty()
+
+  for (const itemId of restoredItemIds) {
+    emitAutomergeItemRevision(itemId)
+  }
+  emitAutomergeItemsRevision()
+
+  const { requestAutomergeSync } = await import('./automergeSyncDispatcher')
+  requestAutomergeSync(restoredItemIds)
+
+  return restoredItemIds
 }
 
 async function withAutomergeDocumentChange(

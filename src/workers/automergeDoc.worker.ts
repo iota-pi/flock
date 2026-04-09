@@ -40,6 +40,13 @@ type WorkerSetSnapshotInput = {
   syncState?: string
 }
 
+type WorkerSetBinaryInput = {
+  documentId: string
+  binary: string
+  cursor?: number
+  syncState?: string
+}
+
 type WorkerReceiveMessageInput = {
   documentId: string
   message: Uint8Array
@@ -226,6 +233,20 @@ const workerApi = {
     return loadPersistedRecord(record)
   },
 
+  exportAllBinaries(): Record<string, string> {
+    const documents: Record<string, string> = {}
+
+    for (const [documentId, entry] of entriesByDocumentId) {
+      if (isMetadataDocumentId(documentId)) {
+        continue
+      }
+
+      documents[documentId] = encodeBytesToBase64(Automerge.save(entry.doc))
+    }
+
+    return documents
+  },
+
   setSnapshot({ documentId, snapshot, cursor, syncState }: WorkerSetSnapshotInput): WorkerEntrySnapshot {
     const existing = entriesByDocumentId.get(documentId)
     const normalizedSnapshot = normalizeSnapshot(snapshot)
@@ -242,6 +263,21 @@ const workerApi = {
 
     const nextEntry: WorkerEntry = {
       doc: nextDoc,
+      syncState: existing?.syncState
+        || (typeof syncState === 'string' ? decodeSyncState(syncState) : Automerge.initSyncState()),
+      cursor: existing?.cursor ?? (typeof cursor === 'number' ? Math.max(0, cursor) : 0),
+    }
+
+    entriesByDocumentId.set(documentId, nextEntry)
+    return toEntrySnapshot(documentId, nextEntry)
+  },
+
+  setBinary({ documentId, binary, cursor, syncState }: WorkerSetBinaryInput): WorkerEntrySnapshot {
+    const existing = entriesByDocumentId.get(documentId)
+    const loadedDoc = Automerge.load<Record<string, unknown>>(decodeBase64ToBytes(binary))
+
+    const nextEntry: WorkerEntry = {
+      doc: loadedDoc,
       syncState: existing?.syncState
         || (typeof syncState === 'string' ? decodeSyncState(syncState) : Automerge.initSyncState()),
       cursor: existing?.cursor ?? (typeof cursor === 'number' ? Math.max(0, cursor) : 0),
@@ -321,6 +357,7 @@ export type {
   WorkerReceiveMessageInput,
   WorkerReceiveSyncMessageResult,
   WorkerSerializedEntry,
+  WorkerSetBinaryInput,
   WorkerSetCursorInput,
   WorkerSetSnapshotInput,
 }

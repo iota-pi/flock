@@ -28,7 +28,7 @@ export default function useSettings() {
   const {
     actions: backupActions,
     values: backupValues,
-  } = useBackupAndRestore({ items, setMessage })
+  } = useBackupAndRestore({ setMessage })
   const {
     actions: themeActions,
     values: themeValues,

@@ -4,9 +4,14 @@ import {
   mutateStoreItems,
 } from '../features/items/mutations/itemMutations'
 import { exportData } from '../api/vault'
-import type { BackupPayloadV1, RestorePayload } from '../types/backup'
+import type { BackupPayloadV2, RestorePayload } from '../types/backup'
 import type { Item } from '../state/items'
-import { clearAutomergeDocStore, getAutomergeItems } from '../sync/automergeDocStore'
+import {
+  clearAutomergeDocStore,
+  exportAllBinaries,
+  getAutomergeItems,
+  restoreFromBinaries,
+} from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { clearMetadataCache, getCachedMetadata } from '../api/itemReadService'
 import type { BaseToastMessage } from '../state/toastStore'
@@ -14,7 +19,6 @@ import type { BaseToastMessage } from '../state/toastStore'
 type SetMessage = (payload: BaseToastMessage) => void
 
 type UseBackupAndRestoreOptions = {
-  items: Item[]
   setMessage: SetMessage
 }
 
@@ -22,7 +26,7 @@ type UseBackupAndRestoreResult = {
   actions: {
     handleClearCache: () => Promise<void>
     handleConfirmImport: (items: Item[]) => Promise<boolean>
-    handleConfirmRestore: (payload: Partial<RestorePayload> & Pick<RestorePayload, 'items'>) => Promise<boolean>
+    handleConfirmRestore: (payload: RestorePayload) => Promise<boolean>
     handleExport: () => Promise<string>
   }
   values: {
@@ -31,7 +35,6 @@ type UseBackupAndRestoreResult = {
 }
 
 export default function useBackupAndRestore({
-  items,
   setMessage,
 }: UseBackupAndRestoreOptions): UseBackupAndRestoreResult {
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
@@ -51,10 +54,11 @@ export default function useBackupAndRestore({
     async () => {
       try {
         const currentMetadata = getCachedMetadata()
-        const backupPayload: BackupPayloadV1 = {
-          version: 1,
+        const documents = await exportAllBinaries()
+        const backupPayload: BackupPayloadV2 = {
+          version: 2,
           metadata: currentMetadata,
-          items,
+          documents,
         }
 
         const data = await exportData(backupPayload)
@@ -66,20 +70,17 @@ export default function useBackupAndRestore({
         throw err
       }
     },
-    [items, setMessage],
+    [setMessage],
   )
 
   const handleConfirmRestore = useCallback(
-    async ({
-      items: restoredItems,
-      metadata,
-    }: Partial<RestorePayload> & Pick<RestorePayload, 'items'>) => {
+    async (payload: RestorePayload) => {
       try {
-        if (metadata) {
-          await mutateSetMetadata(metadata)
+        if (payload.metadata) {
+          await mutateSetMetadata(payload.metadata)
         }
 
-        await mutateStoreItems(restoredItems)
+        await restoreFromBinaries(payload.documents)
 
         setMessage({ message: 'Restore successful' })
         return true

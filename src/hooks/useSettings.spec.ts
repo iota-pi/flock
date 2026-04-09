@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   mutateSetMetadata: vi.fn(),
   clearMetadataCache: vi.fn(),
   getCachedMetadata: vi.fn(() => ({ meta: 'value' })),
+  exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
+  restoreFromBinaries: vi.fn(async () => ['i1']),
+  clearAutomergeDocStore: vi.fn(async () => undefined),
+  getAutomergeItems: vi.fn(() => []),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -61,12 +65,19 @@ vi.mock('../api/itemReadService', () => ({
   getCachedMetadata: mocks.getCachedMetadata,
 }))
 
+vi.mock('../sync/automergeDocStore', () => ({
+  clearAutomergeDocStore: mocks.clearAutomergeDocStore,
+  exportAllBinaries: mocks.exportAllBinaries,
+  getAutomergeItems: mocks.getAutomergeItems,
+  restoreFromBinaries: mocks.restoreFromBinaries,
+}))
+
 describe('useSettings backup portability', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('exports metadata and items in a queueless v1 payload', async () => {
+  it('exports metadata and automerge binaries in a v2 payload', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
 
     const { result } = renderHook(() => useSettings())
@@ -78,25 +89,27 @@ describe('useSettings backup portability', () => {
 
     const parsed = JSON.parse(json)
     expect(parsed).toMatchObject({
-      version: 1,
-      items: [{ id: 'i1', type: 'person', name: 'N', archived: false }],
+      version: 2,
+      documents: { i1: 'base64-doc' },
     })
   })
 
-  it('restores metadata and items without queue side effects', async () => {
-    mocks.mutateStoreItems.mockResolvedValue(undefined)
+  it('restores metadata and binaries without queue side effects', async () => {
+    mocks.restoreFromBinaries.mockResolvedValue(['i1'])
     mocks.mutateSetMetadata.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useSettings())
 
     await act(async () => {
       await result.current.actions.handleConfirmRestore({
-        items: [{ id: 'i1', type: 'person', name: 'A', archived: false }],
-        metadata: { darkMode: true },
-      } as any)
+        version: 2,
+        metadata: {},
+        documents: { i1: 'base64-doc' },
+      })
     })
 
     expect(mocks.mutateSetMetadata).toHaveBeenCalledTimes(1)
-    expect(mocks.mutateStoreItems).toHaveBeenCalledTimes(1)
+    expect(mocks.restoreFromBinaries).toHaveBeenCalledTimes(1)
+    expect(mocks.mutateStoreItems).not.toHaveBeenCalled()
   })
 })

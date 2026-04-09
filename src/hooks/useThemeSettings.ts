@@ -7,7 +7,7 @@ type UseThemeSettingsResult = {
     handleToggleDarkMode: () => void
   }
   values: {
-    darkMode: boolean
+    darkMode: boolean | null
   }
 }
 

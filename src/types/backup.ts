@@ -1,15 +1,12 @@
-import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
+import type { ItemId } from '../shared/itemTypes'
 
-export type BackupPayloadV1 = {
-  version: 1
+export type BackupPayloadV2 = {
+  version: 2
   metadata?: AccountMetadata
-  items: Item[]
+  documents: Partial<Record<ItemId, string>>
 }
 
-export type DecryptedBackupPayload = BackupPayloadV1 | Item[]
+export type DecryptedBackupPayload = BackupPayloadV2
 
-export type RestorePayload = {
-  metadata?: AccountMetadata
-  items: Item[]
-}
+export type RestorePayload = BackupPayloadV2
