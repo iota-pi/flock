@@ -1,4 +1,5 @@
 import { getAccountId } from '../api/util'
+import { handleVaultError } from '../api/runtime'
 import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
   commitAutomergeSyncState,
@@ -27,6 +28,26 @@ const SHOULD_THROW_SYNC_ERRORS = (
 
 let activeAccount: string | null = null
 let syncQueue = new AutomergeSyncTaskQueue()
+let lastSyncErrorReportAt = 0
+
+const SYNC_ERROR_REPORT_THROTTLE_MS = 15_000
+
+function normalizeSyncError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function reportSyncError(error: unknown): void {
+  const normalized = normalizeSyncError(error)
+
+  const now = Date.now()
+  if (now - lastSyncErrorReportAt < SYNC_ERROR_REPORT_THROTTLE_MS) {
+    console.error('[Sync] Background sync failed', normalized)
+    return
+  }
+
+  lastSyncErrorReportAt = now
+  handleVaultError(normalized, 'Background sync failed. Local changes will retry on the next sync event.')
+}
 
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
   const dirtyItemIds = filterAutomergeLocallyChangedDocumentIds(itemIds)
@@ -149,7 +170,9 @@ function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
   })
 
   if (!SHOULD_THROW_SYNC_ERRORS) {
-    void wrapped.catch(() => undefined)
+    void wrapped.catch(error => {
+      reportSyncError(error)
+    })
   }
 
   return wrapped
