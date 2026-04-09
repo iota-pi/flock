@@ -1,38 +1,25 @@
-import { useLayoutEffect, useState } from 'react'
+import type { RefObject } from 'react'
+import { useMemo } from 'react'
+import { useResizeObserver } from 'usehooks-ts'
 
 export function useSize(element: HTMLElement | null) {
-  const [size, setSize] = useState<{ width: number, height: number } | undefined>(() => {
-    if (element) {
-      const { width, height } = element.getBoundingClientRect()
-      return { width, height }
-    }
+  const ref = useMemo(() => ({ current: element }) as RefObject<HTMLElement>, [element])
+  const observed = useResizeObserver({ ref })
+
+  if (!element) {
     return undefined
-  })
+  }
 
-  useLayoutEffect(() => {
-    if (!element) return
+  if (typeof observed.width === 'number' && typeof observed.height === 'number') {
+    return {
+      width: observed.width,
+      height: observed.height,
+    }
+  }
 
-    // Observe resizing
-    const resizeObserver = new ResizeObserver(entries => {
-      entries.forEach(entry => {
-        // Use getBoundingClientRect to ensure consistency with initial measurement and border-box sizing
-        const { width, height } = entry.target.getBoundingClientRect()
-        setSize({ width, height })
-      })
-    })
-
-    resizeObserver.observe(element)
-
-    // Check if size changed since render (e.g. layout shift)
-    const rect = element.getBoundingClientRect()
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSize(prev => {
-      if (prev && prev.width === rect.width && prev.height === rect.height) return prev
-      return { width: rect.width, height: rect.height }
-    })
-
-    return () => resizeObserver.disconnect()
-  }, [element])
-
-  return size
+  const rect = element.getBoundingClientRect()
+  return {
+    width: rect.width,
+    height: rect.height,
+  }
 }

@@ -38,7 +38,7 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
   }> = []
 
   for (const itemId of itemIds) {
-    const generated = createAutomergeSyncMessage(itemId)
+    const generated = await createAutomergeSyncMessage(itemId)
     if (!generated || !generated.message) {
       continue
     }

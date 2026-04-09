@@ -1,3 +1,5 @@
+import { WebSocket as PartyWebSocket } from 'partysocket'
+
 type RealtimeWebSocketTransportOptions = {
   account: string
   endpoint?: string
@@ -9,11 +11,10 @@ type RealtimeWebSocketTransportOptions = {
 
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
+const RECONNECT_GROWTH_FACTOR = 2
 
 export class RealtimeWebSocketTransport {
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private socket: WebSocket | null = null
+  private socket: PartyWebSocket | null = null
   private stopped = false
 
   constructor(private readonly options: RealtimeWebSocketTransportOptions) {}
@@ -25,17 +26,7 @@ export class RealtimeWebSocketTransport {
 
   stop(): void {
     this.stopped = true
-    this.clearReconnectTimer()
     this.closeWebSocket()
-  }
-
-  private clearReconnectTimer(): void {
-    if (!this.reconnectTimer) {
-      return
-    }
-
-    clearTimeout(this.reconnectTimer)
-    this.reconnectTimer = null
   }
 
   private closeWebSocket(): void {
@@ -43,38 +34,14 @@ export class RealtimeWebSocketTransport {
       return
     }
 
-    this.socket.close()
+    this.socket.close(1000, 'Realtime transport stopped')
     this.socket = null
   }
 
-  private scheduleReconnect(): void {
-    this.clearReconnectTimer()
-    if (this.stopped) {
-      return
-    }
-
-    this.reconnectAttempts += 1
-    const backoff = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * (2 ** (this.reconnectAttempts - 1)))
-    const jitter = Math.random() * 0.2 * backoff
-    const delay = Math.floor(backoff + jitter)
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      this.connect()
-    }, delay)
-  }
-
-  private connect(): void {
-    if (this.stopped) {
-      return
-    }
-
-    this.closeWebSocket()
-
+  private buildWebSocketUrl(): string {
     const token = this.options.getToken()
     if (!token || !this.options.endpoint) {
-      this.scheduleReconnect()
-      return
+      throw new Error('Missing realtime websocket token or endpoint')
     }
 
     const params = new URLSearchParams({
@@ -88,26 +55,49 @@ export class RealtimeWebSocketTransport {
     }
 
     const wsEndpoint = this.options.endpoint.replace(/^http/i, 'ws')
-    const nextSocket = new WebSocket(`${wsEndpoint}?${params.toString()}`)
+    return `${wsEndpoint}?${params.toString()}`
+  }
+
+  private connect(): void {
+    if (this.stopped) {
+      return
+    }
+
+    this.closeWebSocket()
+
+    const nextSocket = new PartyWebSocket(
+      () => this.buildWebSocketUrl(),
+      [],
+      {
+        minReconnectionDelay: RECONNECT_BASE_DELAY_MS,
+        maxReconnectionDelay: RECONNECT_MAX_DELAY_MS,
+        reconnectionDelayGrowFactor: RECONNECT_GROWTH_FACTOR,
+        maxRetries: Infinity,
+      },
+    )
+
     this.socket = nextSocket
 
     nextSocket.onopen = () => {
-      this.reconnectAttempts = 0
+      if (this.stopped) {
+        return
+      }
+
       this.options.onOpen()
     }
 
     nextSocket.onmessage = event => {
+      if (this.stopped) {
+        return
+      }
+
       this.options.onRawMessage(typeof event.data === 'string' ? event.data : null)
     }
 
-    nextSocket.onerror = () => {
-      this.closeWebSocket()
-      this.scheduleReconnect()
-    }
-
     nextSocket.onclose = () => {
-      this.closeWebSocket()
-      this.scheduleReconnect()
+      if (this.stopped && this.socket === nextSocket) {
+        this.socket = null
+      }
     }
   }
 }

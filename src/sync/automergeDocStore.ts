@@ -1,8 +1,6 @@
-import * as Automerge from '@automerge/automerge'
 import type { Item } from '../state/items'
 import { supplyMissingAttributes } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { fromBytes, toBytes } from '../api/vault/crypto'
 import {
   clearPersistedAutomergeDocs,
   listPersistedAutomergeDocs,
@@ -19,19 +17,33 @@ import {
   subscribeAutomergeItemsRevision,
   subscribeAutomergeMetadataRevision,
 } from './automergeDocReactiveStore'
+import {
+  commitAutomergeWorkerSyncState,
+  createAutomergeWorkerSyncMessage,
+  initializeAutomergeWorkerDocs,
+  loadAutomergeWorkerRecord,
+  receiveAutomergeWorkerSyncMessage,
+  removeAutomergeWorkerDocument,
+  resetAutomergeDocWorker,
+  setAutomergeWorkerCursor,
+  setAutomergeWorkerSnapshot,
+  type PersistedWorkerRecord,
+  type WorkerEntrySnapshot,
+  type WorkerSerializedEntry,
+} from '../workers/automergeDocWorkerManager'
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
-type SyncState = ReturnType<typeof Automerge.initSyncState>
+export type SyncStateToken = string
 
 type DocEntry = {
-  doc: Automerge.Doc<Record<string, unknown>>
-  syncState: SyncState
+  syncState: SyncStateToken
   cursor: number
 }
 
 let loadedAccount: string | null = null
 const entriesByDocumentId = new Map<string, DocEntry>()
+const documentSnapshotsById = new Map<string, Record<string, unknown>>()
 const cachedItemSnapshotById = new Map<string, Item | null>()
 let cachedItemsSnapshot: Item[] = []
 let cachedItemsSnapshotDirty = true
@@ -58,20 +70,9 @@ function getInitialDocumentSnapshot(documentId: string): Record<string, unknown>
   return { id: documentId }
 }
 
-function decodeBytes(base64: string): Uint8Array {
-  const bytes = toBytes(base64)
-  return new Uint8Array(bytes)
-}
-
-function encodeBytes(bytes: Uint8Array): string {
-  const buffer = new ArrayBuffer(bytes.byteLength)
-  new Uint8Array(buffer).set(bytes)
-  return fromBytes(buffer)
-}
-
-function materializeItem(itemId: string, doc: Automerge.Doc<Record<string, unknown>>): Item | null {
+function materializeItem(itemId: string, snapshot: Record<string, unknown>): Item | null {
   const candidate = {
-    ...(doc as unknown as Record<string, unknown>),
+    ...snapshot,
   }
 
   if (typeof candidate.id !== 'string') {
@@ -124,17 +125,46 @@ function normalizeForAutomerge(input: Record<string, unknown>): Record<string, u
   return normalized
 }
 
-async function persistEntry(account: string, itemId: string, entry: DocEntry): Promise<void> {
+function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
+  return {
+    itemId: value.itemId,
+    doc: value.doc,
+    syncState: value.syncState,
+    cursor: value.cursor,
+  }
+}
+
+async function persistEntry(account: string, itemId: string, serialized: WorkerSerializedEntry): Promise<void> {
   const persisted: PersistedDocRecord = {
     account,
     itemId,
-    doc: encodeBytes(Automerge.save(entry.doc)),
-    syncState: encodeBytes(Automerge.encodeSyncState(entry.syncState)),
-    cursor: entry.cursor,
+    doc: serialized.doc,
+    syncState: serialized.syncState,
+    cursor: serialized.cursor,
     updatedAt: Date.now(),
   }
 
   await writePersistedAutomergeDoc(account, itemId, persisted)
+}
+
+function applyWorkerEntry(entry: WorkerEntrySnapshot): void {
+  entriesByDocumentId.set(entry.documentId, {
+    cursor: entry.serialized.cursor,
+    syncState: entry.serialized.syncState,
+  })
+  documentSnapshotsById.set(entry.documentId, entry.snapshot)
+}
+
+async function removeDocumentState(documentId: string): Promise<void> {
+  entriesByDocumentId.delete(documentId)
+  documentSnapshotsById.delete(documentId)
+  cachedItemSnapshotById.delete(documentId)
+
+  try {
+    await removeAutomergeWorkerDocument(documentId)
+  } catch {
+    // keep local state coherent even if worker unload fails
+  }
 }
 
 function notifyChange(documentId: string): void {
@@ -158,6 +188,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   loadedAccount = account
   entriesByDocumentId.clear()
+  documentSnapshotsById.clear()
   cachedItemSnapshotById.clear()
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
@@ -165,21 +196,16 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   markMetadataSnapshotDirty()
 
   const persistedRecords = await listPersistedAutomergeDocs(account)
-  for (const value of persistedRecords) {
-    try {
-      const docBinary = decodeBytes(value.doc)
-      const encodedSyncState = decodeBytes(value.syncState)
-      const doc = Automerge.load<Record<string, unknown>>(docBinary)
-      const syncState = Automerge.decodeSyncState(encodedSyncState)
+  try {
+    const initializedEntries = await initializeAutomergeWorkerDocs(
+      persistedRecords.map(toPersistedWorkerRecord),
+    )
 
-      entriesByDocumentId.set(value.itemId, {
-        doc,
-        syncState,
-        cursor: typeof value.cursor === 'number' ? value.cursor : 0,
-      })
-    } catch {
-      // Ignore invalid records to keep local store robust.
+    for (const entry of initializedEntries) {
+      applyWorkerEntry(entry)
     }
+  } catch (error) {
+    console.error('Failed to initialize automerge document worker state', error)
   }
 
   emitAutomergeItemsRevision()
@@ -206,23 +232,20 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
   const stored = await readPersistedAutomergeDoc(loadedAccount, documentId)
 
   if (!stored || typeof stored !== 'object') {
-    entriesByDocumentId.delete(documentId)
+    await removeDocumentState(documentId)
     return
   }
 
   try {
-    const docBinary = decodeBytes(stored.doc)
-    const encodedSyncState = decodeBytes(stored.syncState)
-    const doc = Automerge.load<Record<string, unknown>>(docBinary)
-    const syncState = Automerge.decodeSyncState(encodedSyncState)
+    const loaded = await loadAutomergeWorkerRecord(toPersistedWorkerRecord(stored))
+    if (!loaded) {
+      await removeDocumentState(documentId)
+      return
+    }
 
-    entriesByDocumentId.set(documentId, {
-      doc,
-      syncState,
-      cursor: typeof stored.cursor === 'number' ? stored.cursor : 0,
-    })
+    applyWorkerEntry(loaded)
   } catch {
-    entriesByDocumentId.delete(documentId)
+    await removeDocumentState(documentId)
   }
 }
 
@@ -267,12 +290,17 @@ export function getAutomergeItems(): Item[] {
 
   const items: Item[] = []
 
-  for (const [itemId, entry] of entriesByDocumentId) {
+  for (const [itemId] of entriesByDocumentId) {
     if (isMetadataDocumentId(itemId)) {
       continue
     }
 
-    const item = materializeItem(itemId, entry.doc)
+    const snapshot = documentSnapshotsById.get(itemId)
+    if (!snapshot) {
+      continue
+    }
+
+    const item = materializeItem(itemId, snapshot)
     if (!item || item.deleted === true) {
       continue
     }
@@ -294,13 +322,13 @@ export function getAutomergeItem(itemId: string): Item | null {
     return cachedItemSnapshotById.get(itemId) || null
   }
 
-  const entry = entriesByDocumentId.get(itemId)
-  if (!entry) {
+  const snapshot = documentSnapshotsById.get(itemId)
+  if (!snapshot) {
     cachedItemSnapshotById.set(itemId, null)
     return null
   }
 
-  const item = materializeItem(itemId, entry.doc)
+  const item = materializeItem(itemId, snapshot)
   if (!item || item.deleted === true) {
     cachedItemSnapshotById.set(itemId, null)
     return null
@@ -315,19 +343,19 @@ export function getAutomergeMetadata(): AccountMetadata {
     return cachedMetadataSnapshot
   }
 
-  const entry = entriesByDocumentId.get(ACCOUNT_METADATA_DOCUMENT_ID)
-  if (!entry) {
+  const snapshot = documentSnapshotsById.get(ACCOUNT_METADATA_DOCUMENT_ID)
+  if (!snapshot) {
     cachedMetadataSnapshot = {}
     cachedMetadataSnapshotDirty = false
     return cachedMetadataSnapshot
   }
 
-  const snapshot = {
-    ...(entry.doc as unknown as Record<string, unknown>),
+  const normalized = {
+    ...snapshot,
   }
-  delete snapshot.id
+  delete normalized.id
 
-  cachedMetadataSnapshot = snapshot as AccountMetadata
+  cachedMetadataSnapshot = normalized as AccountMetadata
   cachedMetadataSnapshotDirty = false
   return cachedMetadataSnapshot
 }
@@ -341,26 +369,17 @@ async function upsertAutomergeDocumentSnapshot(documentId: string, snapshot: Rec
     return
   }
 
-  const normalizedSnapshot = normalizeDocumentSnapshot(snapshot)
   const existing = entriesByDocumentId.get(documentId)
-  const nextDoc = existing
-    ? Automerge.change(existing.doc, draft => {
-      for (const key of Object.keys(draft)) {
-        delete (draft as Record<string, unknown>)[key]
-      }
-      Object.assign(draft as Record<string, unknown>, normalizedSnapshot)
-      pruneUndefinedDeepInPlace(draft)
-    })
-    : Automerge.from(normalizedSnapshot)
+  const normalizedSnapshot = normalizeDocumentSnapshot(snapshot)
+  const nextEntry = await setAutomergeWorkerSnapshot({
+    documentId,
+    snapshot: normalizedSnapshot,
+    cursor: existing?.cursor,
+    syncState: existing?.syncState,
+  })
 
-  const nextEntry: DocEntry = {
-    doc: nextDoc,
-    syncState: existing?.syncState || Automerge.initSyncState(),
-    cursor: existing?.cursor || 0,
-  }
-
-  entriesByDocumentId.set(documentId, nextEntry)
-  await persistEntry(loadedAccount, documentId, nextEntry)
+  applyWorkerEntry(nextEntry)
+  await persistEntry(loadedAccount, documentId, nextEntry.serialized)
   notifyChange(documentId)
 }
 
@@ -380,20 +399,29 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
     return
   }
 
-  entriesByDocumentId.delete(itemId)
+  await removeDocumentState(itemId)
   await removePersistedAutomergeDoc(loadedAccount, itemId)
   notifyChange(itemId)
 }
 
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByDocumentId.clear()
+  documentSnapshotsById.clear()
   cachedItemSnapshotById.clear()
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
   cachedMetadataSnapshot = {}
   markMetadataSnapshotDirty()
+
   await clearPersistedAutomergeDocs()
+
+  try {
+    await resetAutomergeDocWorker()
+  } catch {
+    // reset failure should not block local clearing
+  }
+
   emitAutomergeItemsRevision()
   emitAutomergeMetadataRevision()
 }
@@ -412,23 +440,10 @@ async function withAutomergeDocumentChange(
     return
   }
 
-  const existing = entriesByDocumentId.get(documentId)
-  const baseDoc = existing?.doc || Automerge.from<Record<string, unknown>>(getInitialDocumentSnapshot(documentId))
-
-  const nextDoc = Automerge.change(baseDoc, draft => {
-    mutate(draft as Record<string, unknown>)
-    pruneUndefinedDeepInPlace(draft)
-  })
-
-  const nextEntry: DocEntry = {
-    doc: nextDoc,
-    syncState: existing?.syncState || Automerge.initSyncState(),
-    cursor: existing?.cursor || 0,
-  }
-
-  entriesByDocumentId.set(documentId, nextEntry)
-  await persistEntry(loadedAccount, documentId, nextEntry)
-  notifyChange(documentId)
+  const existingSnapshot = documentSnapshotsById.get(documentId) || getInitialDocumentSnapshot(documentId)
+  const draft = structuredClone(existingSnapshot)
+  mutate(draft)
+  await upsertAutomergeDocumentSnapshot(documentId, draft)
 }
 
 export async function withAutomergeItemChange(
@@ -458,35 +473,64 @@ export async function writeAutomergeSyncCursor(itemId: string, cursor: number): 
     return
   }
 
-  existing.cursor = Math.max(existing.cursor, cursor)
-  await persistEntry(loadedAccount, itemId, existing)
+  const persisted = await setAutomergeWorkerCursor({
+    documentId: itemId,
+    cursor: Math.max(existing.cursor, cursor),
+  })
+
+  if (!persisted) {
+    return
+  }
+
+  entriesByDocumentId.set(itemId, {
+    cursor: persisted.cursor,
+    syncState: persisted.syncState,
+  })
+  await persistEntry(loadedAccount, itemId, persisted)
 }
 
-export function createAutomergeSyncMessage(itemId: string): { message: Uint8Array | null; nextSyncState: SyncState } | null {
-  const entry = entriesByDocumentId.get(itemId)
-  if (!entry) {
+export async function createAutomergeSyncMessage(
+  itemId: string,
+): Promise<{ message: Uint8Array | null; nextSyncState: SyncStateToken } | null> {
+  if (!entriesByDocumentId.has(itemId)) {
     return null
   }
 
-  const [nextSyncState, message] = Automerge.generateSyncMessage(entry.doc, entry.syncState)
+  const generated = await createAutomergeWorkerSyncMessage(itemId)
+  if (!generated) {
+    return null
+  }
+
   return {
-    message,
-    nextSyncState,
+    message: generated.message,
+    nextSyncState: generated.nextSyncState,
   }
 }
 
-export async function commitAutomergeSyncState(itemId: string, syncState: SyncState): Promise<void> {
+export async function commitAutomergeSyncState(itemId: string, syncState: SyncStateToken): Promise<void> {
   if (!loadedAccount) {
     return
   }
 
-  const entry = entriesByDocumentId.get(itemId)
-  if (!entry) {
+  const existing = entriesByDocumentId.get(itemId)
+  if (!existing) {
     return
   }
 
-  entry.syncState = syncState
-  await persistEntry(loadedAccount, itemId, entry)
+  const persisted = await commitAutomergeWorkerSyncState({
+    documentId: itemId,
+    syncState,
+  })
+
+  if (!persisted) {
+    return
+  }
+
+  entriesByDocumentId.set(itemId, {
+    cursor: persisted.cursor,
+    syncState: persisted.syncState,
+  })
+  await persistEntry(loadedAccount, itemId, persisted)
 }
 
 export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8Array): Promise<boolean> {
@@ -495,21 +539,21 @@ export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8
   }
 
   const existing = entriesByDocumentId.get(itemId)
-  const baseDoc = existing?.doc || Automerge.from<Record<string, unknown>>(getInitialDocumentSnapshot(itemId))
-  const baseSyncState = existing?.syncState || Automerge.initSyncState()
+  const nextEntry = await receiveAutomergeWorkerSyncMessage({
+    documentId: itemId,
+    message,
+    cursor: existing?.cursor,
+    syncState: existing?.syncState,
+  })
 
-  const [nextDoc, nextSyncState] = Automerge.receiveSyncMessage(baseDoc, baseSyncState, message)
+  applyWorkerEntry(nextEntry)
+  await persistEntry(loadedAccount, itemId, nextEntry.serialized)
 
-  const nextEntry: DocEntry = {
-    doc: nextDoc,
-    syncState: nextSyncState,
-    cursor: existing?.cursor || 0,
+  if (nextEntry.changed) {
+    notifyChange(itemId)
   }
 
-  entriesByDocumentId.set(itemId, nextEntry)
-  await persistEntry(loadedAccount, itemId, nextEntry)
-  notifyChange(itemId)
-  return true
+  return nextEntry.changed
 }
 
 export function subscribeAutomergeItems(listener: () => void): () => void {
