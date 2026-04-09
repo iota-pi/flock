@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
-  mutateSetMetadata,
-  mutateStoreItems,
+  setMetadata,
+  storeItems,
 } from '../features/items/mutations/itemMutations'
 import { exportData } from '../api/vault'
 import type { BackupPayloadV2, RestorePayload } from '../types/backup'
@@ -77,7 +77,7 @@ export default function useBackupAndRestore({
     async (payload: RestorePayload) => {
       try {
         if (payload.metadata) {
-          await mutateSetMetadata(payload.metadata)
+          await setMetadata(payload.metadata)
         }
 
         await restoreFromBinaries(payload.documents)
@@ -96,7 +96,7 @@ export default function useBackupAndRestore({
   const handleConfirmImport = useCallback(
     async (imported: Item[]) => {
       try {
-        await mutateStoreItems(imported)
+        await storeItems(imported)
         setMessage({ message: 'Import successful' })
         return true
       } catch (err) {

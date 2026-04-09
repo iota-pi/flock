@@ -9,7 +9,7 @@ import {
   getCachedMetadata,
   subscribeMetadata,
 } from '../api/itemReadService'
-import { mutateSetMetadata } from '../features/items/mutations/itemMutations'
+import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
@@ -138,7 +138,7 @@ export function useMetadata<K extends MetadataKey>(
         ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
         : newValueOrFunc
 
-      await mutateSetMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
+      await setMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
     },
     [defaultValue, key],
   )

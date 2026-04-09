@@ -27,7 +27,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { mutateDeleteItems, mutateStoreItems } from '../mutations/itemMutations'
+import { deleteItems, storeItems } from '../mutations/itemMutations'
 import { useAutomergeItem } from '../../../hooks/useAutomergeItem'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
@@ -75,7 +75,7 @@ function ItemDrawer({
 
   const persistItem = useCallback(
     (cleanItemValue: Item) => {
-      void mutateStoreItems(cleanItemValue).catch(error => {
+      void storeItems(cleanItemValue).catch(error => {
         console.error(error)
       })
     },
@@ -139,7 +139,7 @@ function ItemDrawer({
   )
   const handleDelete = useCallback(
     () => {
-      mutateDeleteItems(item.id)
+      deleteItems(item.id)
         .catch(error => console.error(error))
       onClose()
     },

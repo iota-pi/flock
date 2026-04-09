@@ -9,7 +9,7 @@ import {
 } from '@mui/material'
 import { GroupItem, Item } from '../../state/items'
 import Search from '../Search'
-import { mutateStoreItems } from '../../features/items/mutations/itemMutations'
+import { storeItems } from '../../features/items/mutations/itemMutations'
 
 export interface Props {
   items: Item[],
@@ -73,7 +73,7 @@ function GroupDialog({
         })
       }
 
-      void mutateStoreItems(updated)
+      void storeItems(updated)
         .then(() => {
           onClose()
         })

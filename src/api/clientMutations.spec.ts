@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { mutateDeleteItems, mutateSetMetadata, mutateStoreItems } from '../features/items/mutations/itemMutations'
+import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import {
   ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
@@ -62,7 +62,7 @@ describe('local-first mutations', () => {
   it('stores single-item snapshots and requests sync', async () => {
     const item = getBlankPerson('p1')
 
-    const result = await mutateStoreItems(item)
+    const result = await storeItems(item)
 
     expect(result[0].id).toBe('p1')
     expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
@@ -71,7 +71,7 @@ describe('local-first mutations', () => {
   })
 
   it('rejects invalid item payloads before storing', async () => {
-    await expect(mutateStoreItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
+    await expect(storeItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
     expect(withAutomergeItemChange).not.toHaveBeenCalled()
   })
 
@@ -79,7 +79,7 @@ describe('local-first mutations', () => {
     const first = getBlankPerson('p1')
     const second = getBlankPerson('p2')
 
-    await mutateStoreItems([first, second])
+    await storeItems([first, second])
 
     expect(withAutomergeItemChange).toHaveBeenCalledTimes(2)
     expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
@@ -95,7 +95,7 @@ describe('local-first mutations', () => {
     const person = getBlankPerson('p1', false)
     vi.mocked(getAutomergeItems).mockReturnValue([group, person])
 
-    await mutateDeleteItems('p1')
+    await deleteItems('p1')
 
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
     expect(withAutomergeItemChange).toHaveBeenCalledWith('g1', expect.any(Function))
@@ -105,7 +105,7 @@ describe('local-first mutations', () => {
   })
 
   it('updates metadata locally', async () => {
-    const result = await mutateSetMetadata({ prayerGoal: 20 } as any)
+    const result = await setMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
     expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)

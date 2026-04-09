@@ -94,7 +94,7 @@ async function ensureAutomergeStoreReady(): Promise<void> {
   await initializeAutomergeDocStore(getAccountId())
 }
 
-export async function mutateStoreItems(
+export async function storeItems(
   items: Item | Item[],
 ): Promise<Item[]> {
   const current = normalizeItemsInput(items)
@@ -121,7 +121,7 @@ export async function mutateStoreItems(
   return current
 }
 
-export async function mutateDeleteItems(
+export async function deleteItems(
   itemIds: ItemId | ItemId[],
   options?: {
     allItems?: Item[]
@@ -139,7 +139,7 @@ export async function mutateDeleteItems(
   const updates = buildDeletionUpdates(allItems, ids)
 
   if (updates.length > 0) {
-    await mutateStoreItems(updates)
+    await storeItems(updates)
   }
 
   useNavigationStore.getState().pruneItemDrawers(ids)
@@ -147,10 +147,11 @@ export async function mutateDeleteItems(
   return ids
 }
 
-export async function mutateSetMetadata(
+export async function setMetadata(
   metadata: AccountMetadata,
 ): Promise<AccountMetadata> {
   const nextMetadata = sanitizeMetadata(metadata)
+  console.info('Updating metadata...', nextMetadata)
 
   await ensureAutomergeStoreReady()
 

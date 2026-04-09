@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
-import { mutateStoreItems } from '../../../features/items/mutations/itemMutations'
+import { storeItems } from '../../../features/items/mutations/itemMutations'
 import {
   cleanItem,
   DirtyItem,
@@ -15,7 +15,6 @@ type PrayerSyncController = {
 }
 
 export default function usePrayerSync(): PrayerSyncController {
-  const storeItems = mutateStoreItems
   const prayedSyncQueue = useMemo(
     () => createDebouncedByKey<string, Item>(500, latestItem => {
       storeItems(latestItem)

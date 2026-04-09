@@ -4,7 +4,7 @@ import type { GroupItem } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItems } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
-import { mutateStoreItems } from '../../items/mutations/itemMutations'
+import { storeItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 
@@ -33,7 +33,7 @@ function GroupDisplay({
         members: [...group.members, itemId],
       }
 
-      void mutateStoreItems(newGroup).catch(error => {
+      void storeItems(newGroup).catch(error => {
         console.error(error)
       })
     },
@@ -46,7 +46,7 @@ function GroupDisplay({
         members: group.members.filter(m => m !== itemId),
       }
 
-      void mutateStoreItems(newGroup).catch(error => {
+      void storeItems(newGroup).catch(error => {
         console.error(error)
       })
     },

@@ -8,7 +8,7 @@ import {
   Grid,
 } from '@mui/material'
 import { Item } from '../../state/items'
-import { mutateStoreItems } from '../../features/items/mutations/itemMutations'
+import { storeItems } from '../../features/items/mutations/itemMutations'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
@@ -38,7 +38,7 @@ function FrequencyDialog({
         })
       }
 
-      void mutateStoreItems(updatedItems)
+      void storeItems(updatedItems)
         .then(() => {
           onClose()
         })
