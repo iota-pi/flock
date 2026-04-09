@@ -96,7 +96,6 @@ export class SyncCoordinatorService {
 
       clearHiddenDisconnectTimer()
       startRealtimeIfAuthorized()
-      requestAutomergeSync()
     }
 
     if (typeof document !== 'undefined') {
