@@ -52,7 +52,6 @@ flock/
 │       ├── api/       # Fastify server bootstrap
 │       ├── trpc/      # tRPC routers, schemas, context
 │       ├── drivers/   # Database drivers (DynamoDB)
-│       ├── migrations/
 │       └── notifier/  # Notification services
 ├── cypress/           # End-to-end tests
 ├── public/            # Static assets

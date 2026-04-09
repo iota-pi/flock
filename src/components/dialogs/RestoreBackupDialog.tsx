@@ -133,12 +133,6 @@ function RestoreBackupDialog({
         let items = normalized.items
         setRestoredPayload(normalized)
 
-        // Run migrations on restored items to ensure they match current schema
-        if (items.length > 0) {
-          const { runAllMigrationsInMemory } = await import('../../state/migrations/utils')
-          items = await runAllMigrationsInMemory(items)
-        }
-
         const changed = getChangedItems(items, existingItems)
         setImportedItems(items)
         setSelectedIds(new Set(changed.map(i => i.id)))
