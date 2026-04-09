@@ -55,28 +55,28 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
     return
   }
 
-  const pendingBatch: Array<{
+  type PendingSyncEntry = {
     itemId: string
     encryptedMessage: {
       iv: string
       cipher: string
     }
     nextSyncState: Parameters<typeof commitAutomergeSyncState>[1]
-  }> = []
+  }
 
-  for (const itemId of dirtyItemIds) {
+  const pendingBatch = (await Promise.all(dirtyItemIds.map(async itemId => {
     const generated = await createAutomergeSyncMessage(itemId)
     if (!generated || !generated.message) {
-      continue
+      return null
     }
 
     const encryptedMessage = await encryptSyncMessage(generated.message)
-    pendingBatch.push({
+    return {
       itemId,
       encryptedMessage,
       nextSyncState: generated.nextSyncState,
-    })
-  }
+    } satisfies PendingSyncEntry
+  }))).filter((entry): entry is PendingSyncEntry => entry !== null)
 
   if (pendingBatch.length === 0) {
     return
