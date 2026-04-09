@@ -9,6 +9,7 @@ export type PersistedDocRecord = {
   doc: string
   syncState: string
   cursor: number
+  hasLocalChanges?: boolean
   updatedAt: number
 }
 

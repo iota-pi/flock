@@ -8,6 +8,7 @@ import {
   getAutomergeMetadata,
   initializeAutomergeDocStore,
   listAutomergeDocumentIds,
+  listAutomergeItemIds,
   subscribeAutomergeMetadata,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
@@ -83,9 +84,19 @@ export async function ensureItemsBootstrap(
 ): Promise<void> {
   await initializeAutomergeDocStore(accountId)
 
-  if (await shouldLazyLoadLegacyMigrator(accountId, options)) {
+  const knownDocumentIds = listAutomergeDocumentIds()
+  const knownItemIds = listAutomergeItemIds()
+  const shouldRecoverMissingItems = knownDocumentIds.length > 0 && knownItemIds.length === 0
+  const shouldRunLegacyMigration = shouldRecoverMissingItems || await shouldLazyLoadLegacyMigrator(accountId, options)
+
+  if (shouldRunLegacyMigration) {
     const { runLegacyMigration } = await import('../sync/legacyMigrator')
-    await runLegacyMigration(accountId, options)
+    await runLegacyMigration(
+      accountId,
+      shouldRecoverMissingItems
+        ? { ...options, force: true }
+        : options,
+    )
   }
 
   requestSyncForKnownDocuments()

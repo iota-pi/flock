@@ -43,6 +43,7 @@ export type SyncStateToken = string
 type DocEntry = {
   syncState: SyncStateToken
   cursor: number
+  hasLocalChanges: boolean
 }
 
 let loadedAccount: string | null = null
@@ -149,23 +150,31 @@ function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerReco
   }
 }
 
-async function persistEntry(account: string, itemId: string, serialized: WorkerSerializedEntry): Promise<void> {
+async function persistEntry(
+  account: string,
+  itemId: string,
+  serialized: WorkerSerializedEntry,
+  hasLocalChanges: boolean,
+): Promise<void> {
   const persisted: PersistedDocRecord = {
     account,
     itemId,
     doc: serialized.doc,
     syncState: serialized.syncState,
     cursor: serialized.cursor,
+    hasLocalChanges,
     updatedAt: Date.now(),
   }
 
   await writePersistedAutomergeDoc(account, itemId, persisted)
 }
 
-function applyWorkerEntry(entry: WorkerEntrySnapshot): void {
+function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChanges?: boolean }): void {
+  const existing = entriesByDocumentId.get(entry.documentId)
   entriesByDocumentId.set(entry.documentId, {
     cursor: entry.serialized.cursor,
     syncState: entry.serialized.syncState,
+    hasLocalChanges: options?.hasLocalChanges ?? existing?.hasLocalChanges ?? false,
   })
   documentSnapshotsById.set(entry.documentId, entry.snapshot)
 }
@@ -211,13 +220,19 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   markMetadataSnapshotDirty()
 
   const persistedRecords = await listPersistedAutomergeDocs(account)
+  const localChangesByDocumentId = new Map(
+    persistedRecords.map(record => [record.itemId, record.hasLocalChanges === true]),
+  )
+
   try {
     const initializedEntries = await initializeAutomergeWorkerDocs(
       persistedRecords.map(toPersistedWorkerRecord),
     )
 
     for (const entry of initializedEntries) {
-      applyWorkerEntry(entry)
+      applyWorkerEntry(entry, {
+        hasLocalChanges: localChangesByDocumentId.get(entry.documentId) === true,
+      })
     }
   } catch (error) {
     console.error('Failed to initialize automerge document worker state', error)
@@ -229,6 +244,25 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
 export function listAutomergeDocumentIds(): string[] {
   return Array.from(entriesByDocumentId.keys())
+}
+
+export function filterAutomergeLocallyChangedDocumentIds(itemIds: string[]): string[] {
+  const filtered: string[] = []
+  const seen = new Set<string>()
+
+  for (const itemId of itemIds) {
+    if (seen.has(itemId)) {
+      continue
+    }
+
+    seen.add(itemId)
+
+    if (entriesByDocumentId.get(itemId)?.hasLocalChanges === true) {
+      filtered.push(itemId)
+    }
+  }
+
+  return filtered
 }
 
 export function hasAutomergeDocument(documentId: string): boolean {
@@ -258,7 +292,9 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
       return
     }
 
-    applyWorkerEntry(loaded)
+    applyWorkerEntry(loaded, {
+      hasLocalChanges: stored.hasLocalChanges === true,
+    })
   } catch {
     await removeDocumentState(documentId)
   }
@@ -379,12 +415,18 @@ function normalizeDocumentSnapshot(input: Record<string, unknown>): Record<strin
   return normalizeForAutomerge(input)
 }
 
-async function upsertAutomergeDocumentSnapshot(documentId: string, snapshot: Record<string, unknown>): Promise<void> {
+async function upsertAutomergeDocumentSnapshot(
+  documentId: string,
+  snapshot: Record<string, unknown>,
+  options: { markLocalChange?: boolean } = {},
+): Promise<void> {
   if (!loadedAccount) {
     return
   }
 
   const existing = entriesByDocumentId.get(documentId)
+  const markLocalChange = options.markLocalChange !== false
+  const nextHasLocalChanges = markLocalChange || existing?.hasLocalChanges === true
   const normalizedSnapshot = normalizeDocumentSnapshot(snapshot)
   const nextEntry = await setAutomergeWorkerSnapshot({
     documentId,
@@ -393,19 +435,28 @@ async function upsertAutomergeDocumentSnapshot(documentId: string, snapshot: Rec
     syncState: existing?.syncState,
   })
 
-  applyWorkerEntry(nextEntry)
-  await persistEntry(loadedAccount, documentId, nextEntry.serialized)
+  applyWorkerEntry(nextEntry, {
+    hasLocalChanges: nextHasLocalChanges,
+  })
+  await persistEntry(loadedAccount, documentId, nextEntry.serialized, nextHasLocalChanges)
   notifyChange(documentId)
 }
 
-export async function upsertAutomergeItemSnapshot(item: Item): Promise<void> {
-  await upsertAutomergeDocumentSnapshot(item.id, item as unknown as Record<string, unknown>)
+export async function upsertAutomergeItemSnapshot(
+  item: Item,
+  options?: { markLocalChange?: boolean },
+): Promise<void> {
+  await upsertAutomergeDocumentSnapshot(item.id, item as unknown as Record<string, unknown>, options)
 }
 
-export async function upsertAutomergeMetadataSnapshot(metadata: AccountMetadata): Promise<void> {
+export async function upsertAutomergeMetadataSnapshot(
+  metadata: AccountMetadata,
+  options?: { markLocalChange?: boolean },
+): Promise<void> {
   await upsertAutomergeDocumentSnapshot(
     ACCOUNT_METADATA_DOCUMENT_ID,
     (metadata || {}) as unknown as Record<string, unknown>,
+    options,
   )
 }
 
@@ -488,8 +539,10 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
         syncState: existing?.syncState,
       })
 
-      applyWorkerEntry(nextEntry)
-      await persistEntry(loadedAccount, itemId, nextEntry.serialized)
+      applyWorkerEntry(nextEntry, {
+        hasLocalChanges: true,
+      })
+      await persistEntry(loadedAccount, itemId, nextEntry.serialized, true)
       cachedItemSnapshotById.delete(itemId)
       setCachedAutomergeBinary(itemId, decodeBase64ToBytes(encodedBinary))
       restoredItemIds.push(itemId)
@@ -568,14 +621,16 @@ export async function writeAutomergeSyncCursor(itemId: string, cursor: number): 
   entriesByDocumentId.set(itemId, {
     cursor: persisted.cursor,
     syncState: persisted.syncState,
+    hasLocalChanges: existing.hasLocalChanges,
   })
-  await persistEntry(loadedAccount, itemId, persisted)
+  await persistEntry(loadedAccount, itemId, persisted, existing.hasLocalChanges)
 }
 
 export async function createAutomergeSyncMessage(
   itemId: string,
 ): Promise<{ message: Uint8Array | null; nextSyncState: SyncStateToken } | null> {
-  if (!entriesByDocumentId.has(itemId)) {
+  const existing = entriesByDocumentId.get(itemId)
+  if (!existing || !existing.hasLocalChanges) {
     return null
   }
 
@@ -612,8 +667,9 @@ export async function commitAutomergeSyncState(itemId: string, syncState: SyncSt
   entriesByDocumentId.set(itemId, {
     cursor: persisted.cursor,
     syncState: persisted.syncState,
+    hasLocalChanges: false,
   })
-  await persistEntry(loadedAccount, itemId, persisted)
+  await persistEntry(loadedAccount, itemId, persisted, false)
 }
 
 export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8Array): Promise<boolean> {
@@ -622,6 +678,7 @@ export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8
   }
 
   const existing = entriesByDocumentId.get(itemId)
+  const nextHasLocalChanges = existing?.hasLocalChanges === true
   const nextEntry = await receiveAutomergeWorkerSyncMessage({
     documentId: itemId,
     message,
@@ -629,8 +686,10 @@ export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8
     syncState: existing?.syncState,
   })
 
-  applyWorkerEntry(nextEntry)
-  await persistEntry(loadedAccount, itemId, nextEntry.serialized)
+  applyWorkerEntry(nextEntry, {
+    hasLocalChanges: nextHasLocalChanges,
+  })
+  await persistEntry(loadedAccount, itemId, nextEntry.serialized, nextHasLocalChanges)
 
   if (nextEntry.changed) {
     notifyChange(itemId)

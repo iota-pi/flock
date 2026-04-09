@@ -8,6 +8,7 @@ import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { trpcClient } from '../api/trpcClient'
 import { decryptBytesWithKey } from '../api/vault/crypto'
 import { fetchMany, type VaultItem } from '../api/vault/client'
+import { pullSyncBatch } from '../api/vault/syncClient'
 import * as vault from '../api/vault'
 import type { AccountMetadata } from '../state/metadata'
 import {
@@ -15,6 +16,7 @@ import {
   getAutomergeMetadata,
   hasAutomergeDocument,
   initializeAutomergeDocStore,
+  readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   upsertAutomergeMetadataSnapshot,
   writeAutomergeSyncCursor,
@@ -229,7 +231,7 @@ export async function migrateLegacyMetadataIfNeeded(
       return localMetadata
     }
 
-    await upsertAutomergeMetadataSnapshot(legacyMetadata)
+    await upsertAutomergeMetadataSnapshot(legacyMetadata, { markLocalChange: false })
     await migrationManager.markMetadataComplete(accountId)
     requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
   } catch (error) {
@@ -253,6 +255,64 @@ function getOrderedSyncSnapshotMessages(item: VaultItem): SyncSnapshotMessage[] 
 
   validMessages.sort((left, right) => left.cursor - right.cursor)
   return validMessages
+}
+
+async function pullMissingItemSyncMessages(accountId: string, itemIds: string[]): Promise<void> {
+  const uniqueIds = Array.from(new Set(itemIds.filter(itemId => typeof itemId === 'string' && itemId.length > 0)))
+  if (uniqueIds.length === 0) {
+    return
+  }
+
+  const response = await pullSyncBatch({
+    account: accountId,
+    cursors: uniqueIds.map(itemId => ({
+      itemId,
+      cursor: readAutomergeSyncCursor(itemId),
+    })),
+  }).catch(error => {
+    handleVaultError(toError(error), 'Failed to pull missing sync messages during bootstrap')
+    return null
+  })
+
+  if (!response?.success) {
+    return
+  }
+
+  for (const itemResult of response.results || []) {
+    if (!itemResult || typeof itemResult.itemId !== 'string' || itemResult.itemId.length === 0) {
+      continue
+    }
+
+    let highestCursor = readAutomergeSyncCursor(itemResult.itemId)
+
+    for (const message of itemResult.messages || []) {
+      if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
+        continue
+      }
+
+      try {
+        const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
+        const changed = await receiveAutomergeSyncMessage(itemResult.itemId, decryptedMessage)
+        if (changed) {
+          highestCursor = Math.max(highestCursor, message.cursor)
+        }
+      } catch (error) {
+        reportDecryptionFailure({
+          source: 'main-thread',
+          itemId: itemResult.itemId,
+          error,
+        })
+      }
+    }
+
+    if (typeof itemResult.nextCursor === 'number' && itemResult.nextCursor > highestCursor) {
+      highestCursor = itemResult.nextCursor
+    }
+
+    if (highestCursor > 0) {
+      await writeAutomergeSyncCursor(itemResult.itemId, highestCursor)
+    }
+  }
 }
 
 export async function bootstrapItemsFromSyncMessages(accountId: string): Promise<void> {
@@ -302,6 +362,11 @@ export async function bootstrapItemsFromSyncMessages(accountId: string): Promise
     if (highestCursor > 0) {
       await writeAutomergeSyncCursor(item.item, highestCursor)
     }
+  }
+
+  const missingItemIds = itemIds.filter(itemId => !hasAutomergeDocument(itemId))
+  if (missingItemIds.length > 0) {
+    await pullMissingItemSyncMessages(accountId, missingItemIds)
   }
 
   if (itemIds.length > 0) {

@@ -3,6 +3,7 @@ import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
   commitAutomergeSyncState,
   createAutomergeSyncMessage,
+  filterAutomergeLocallyChangedDocumentIds,
   initializeAutomergeDocStore,
   listAutomergeDocumentIds,
   readAutomergeSyncCursor,
@@ -28,6 +29,11 @@ let activeAccount: string | null = null
 let syncQueue = new AutomergeSyncTaskQueue()
 
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
+  const dirtyItemIds = filterAutomergeLocallyChangedDocumentIds(itemIds)
+  if (dirtyItemIds.length === 0) {
+    return
+  }
+
   const pendingBatch: Array<{
     itemId: string
     encryptedMessage: {
@@ -37,7 +43,7 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
     nextSyncState: Parameters<typeof commitAutomergeSyncState>[1]
   }> = []
 
-  for (const itemId of itemIds) {
+  for (const itemId of dirtyItemIds) {
     const generated = await createAutomergeSyncMessage(itemId)
     if (!generated || !generated.message) {
       continue
@@ -228,15 +234,21 @@ function postLocalEditEvents(itemIds: string[]): void {
 }
 
 export function requestAutomergeSync(itemIds?: string[]): void {
+  const hasExplicitItemIds = Array.isArray(itemIds) && itemIds.length > 0
   const normalizedIds = uniqueItemIds(itemIds)
 
-  if (normalizedIds.length > 0) {
+  if (hasExplicitItemIds && normalizedIds.length > 0) {
+    const dirtyIds = filterAutomergeLocallyChangedDocumentIds(normalizedIds)
+    if (dirtyIds.length === 0) {
+      return
+    }
+
     if (hasActiveRealtimeBus()) {
-      postLocalEditEvents(normalizedIds)
+      postLocalEditEvents(dirtyIds)
     }
 
     if (activeAccount) {
-      void enqueueSyncOperation(() => pushItemIdsNow(normalizedIds))
+      void enqueueSyncOperation(() => pushItemIdsNow(dirtyIds))
     }
 
     if (!activeAccount && !hasActiveRealtimeBus() && SHOULD_THROW_SYNC_ERRORS) {
@@ -245,7 +257,7 @@ export function requestAutomergeSync(itemIds?: string[]): void {
     return
   }
 
-  void enqueueSyncOperation(() => runFullSync())
+  void enqueueSyncOperation(() => runFullSync(normalizedIds))
 }
 
 export function startAutomergeSyncDispatcher(account: string): void {
