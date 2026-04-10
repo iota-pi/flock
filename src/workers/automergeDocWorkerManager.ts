@@ -1,5 +1,6 @@
 import * as Comlink from 'comlink'
 import type { Remote } from 'comlink'
+import * as Sentry from '@sentry/react'
 import { listPersistedAutomergeDocs, type PersistedDocRecord } from '../sync/automergeDocStorage'
 import type {
   WorkerApplyDocumentPatchesInput,
@@ -35,6 +36,7 @@ type AutomergeDocWorkerApi = {
 let worker: Worker | null = null
 let workerApi: Remote<AutomergeDocWorkerApi> | null = null
 let activeAccount: string | null = null
+let rehydrateCacheProvider: (() => PersistedWorkerRecord[]) | null = null
 
 function decodeBase64ToBytes(value: string): Uint8Array {
   const decoded = atob(value)
@@ -49,8 +51,16 @@ function asUint8Array(value: Uint8Array | string): Uint8Array {
   return typeof value === 'string' ? decodeBase64ToBytes(value) : value
 }
 
+function isolateTransferView(value: Uint8Array): Uint8Array {
+  if (value.byteOffset === 0 && value.byteLength === value.buffer.byteLength) {
+    return value
+  }
+
+  return value.slice()
+}
+
 function cloneTransferBytes(value: Uint8Array): Uint8Array {
-  return new Uint8Array(value)
+  return isolateTransferView(new Uint8Array(value))
 }
 
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
@@ -78,8 +88,14 @@ function collectRecordTransferables(records: PersistedWorkerRecord[]): Transfera
   const transferables: Transferable[] = []
 
   for (const record of records) {
-    transferables.push(record.doc.buffer as ArrayBuffer)
-    transferables.push(record.syncState.buffer as ArrayBuffer)
+    const transferDoc = isolateTransferView(record.doc)
+    const transferSyncState = isolateTransferView(record.syncState)
+
+    record.doc = transferDoc
+    record.syncState = transferSyncState
+
+    transferables.push(transferDoc.buffer as ArrayBuffer)
+    transferables.push(transferSyncState.buffer as ArrayBuffer)
   }
 
   return transferables
@@ -92,7 +108,27 @@ function disposeWorker(): void {
 }
 
 function resetWorker(reason: string, error?: unknown): void {
+  Sentry.captureMessage(reason, {
+    level: 'error',
+    tags: {
+      area: 'automerge-worker-manager',
+    },
+    extra: {
+      hasError: !!error,
+    },
+  })
+
   if (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-worker-manager',
+        stage: 'reset-worker',
+      },
+      extra: {
+        reason,
+      },
+    })
+
     console.error(reason, error)
   } else {
     console.error(reason)
@@ -138,7 +174,22 @@ async function rehydrateWorker(): Promise<boolean> {
     disposeWorker()
     const api = getWorkerApi()
     const persisted = await listPersistedAutomergeDocs(account)
-    const records = toTransferRecords(persisted.map(toPersistedWorkerRecord))
+    const recordsByItemId = new Map<string, PersistedWorkerRecord>()
+
+    for (const record of persisted.map(toPersistedWorkerRecord)) {
+      recordsByItemId.set(record.itemId, record)
+    }
+
+    const inMemoryRecords = rehydrateCacheProvider?.() || []
+    for (const inMemoryRecord of inMemoryRecords) {
+      if (!inMemoryRecord || typeof inMemoryRecord.itemId !== 'string' || inMemoryRecord.itemId.length === 0) {
+        continue
+      }
+
+      recordsByItemId.set(inMemoryRecord.itemId, inMemoryRecord)
+    }
+
+    const records = toTransferRecords(Array.from(recordsByItemId.values()))
     const transferables = collectRecordTransferables(records)
 
     await api.initialize(Comlink.transfer(records, transferables))
@@ -184,6 +235,12 @@ export async function resetAutomergeDocWorker(): Promise<void> {
   }
 }
 
+export function setAutomergeWorkerRehydrateProvider(
+  provider: (() => PersistedWorkerRecord[]) | null,
+): void {
+  rehydrateCacheProvider = provider
+}
+
 export function initializeAutomergeWorkerDocs(account: string, records: PersistedWorkerRecord[]): Promise<WorkerEntrySnapshot[]> {
   activeAccount = account
   const transferRecords = toTransferRecords(records)
@@ -193,9 +250,15 @@ export function initializeAutomergeWorkerDocs(account: string, records: Persiste
 
 export function loadAutomergeWorkerRecord(record: PersistedWorkerRecord): Promise<WorkerEntrySnapshot | null> {
   const transferRecord = toTransferRecord(record)
+  const transferDoc = isolateTransferView(transferRecord.doc)
+  const transferSyncState = isolateTransferView(transferRecord.syncState)
+
+  transferRecord.doc = transferDoc
+  transferRecord.syncState = transferSyncState
+
   const transferables: Transferable[] = [
-    transferRecord.doc.buffer as ArrayBuffer,
-    transferRecord.syncState.buffer as ArrayBuffer,
+    transferDoc.buffer as ArrayBuffer,
+    transferSyncState.buffer as ArrayBuffer,
   ]
 
   return withWorker(api => api.loadPersistedRecord(Comlink.transfer(transferRecord, transferables)))
@@ -203,9 +266,15 @@ export function loadAutomergeWorkerRecord(record: PersistedWorkerRecord): Promis
 
 export function mergeAutomergeWorkerRecord(record: PersistedWorkerRecord): Promise<WorkerEntrySnapshot | null> {
   const transferRecord = toTransferRecord(record)
+  const transferDoc = isolateTransferView(transferRecord.doc)
+  const transferSyncState = isolateTransferView(transferRecord.syncState)
+
+  transferRecord.doc = transferDoc
+  transferRecord.syncState = transferSyncState
+
   const transferables: Transferable[] = [
-    transferRecord.doc.buffer as ArrayBuffer,
-    transferRecord.syncState.buffer as ArrayBuffer,
+    transferDoc.buffer as ArrayBuffer,
+    transferSyncState.buffer as ArrayBuffer,
   ]
 
   return withWorker(api => api.mergePersistedRecord(Comlink.transfer(transferRecord, transferables)))
@@ -225,7 +294,9 @@ export function setAutomergeWorkerSnapshot(input: WorkerSetSnapshotInput): Promi
 
   const transferables: Transferable[] = []
   if (payload.syncState instanceof Uint8Array) {
-    transferables.push(payload.syncState.buffer as ArrayBuffer)
+    const transferSyncState = isolateTransferView(payload.syncState)
+    payload.syncState = transferSyncState
+    transferables.push(transferSyncState.buffer as ArrayBuffer)
   }
 
   const transferredPayload = transferables.length > 0
@@ -248,9 +319,14 @@ export function setAutomergeWorkerBinary(input: WorkerSetBinaryInput): Promise<W
       : input.syncState,
   }
 
-  const transferables: Transferable[] = [payload.binary.buffer as ArrayBuffer]
+  const transferBinary = isolateTransferView(payload.binary)
+  payload.binary = transferBinary
+
+  const transferables: Transferable[] = [transferBinary.buffer as ArrayBuffer]
   if (payload.syncState instanceof Uint8Array) {
-    transferables.push(payload.syncState.buffer as ArrayBuffer)
+    const transferSyncState = isolateTransferView(payload.syncState)
+    payload.syncState = transferSyncState
+    transferables.push(transferSyncState.buffer as ArrayBuffer)
   }
 
   return withWorker(api => api.setBinary(Comlink.transfer(payload, transferables)))
@@ -267,9 +343,14 @@ export function receiveAutomergeWorkerSyncMessage(
       : input.syncState,
   }
 
-  const transferables: Transferable[] = [payload.message.buffer as ArrayBuffer]
+  const transferMessage = isolateTransferView(payload.message)
+  payload.message = transferMessage
+
+  const transferables: Transferable[] = [transferMessage.buffer as ArrayBuffer]
   if (payload.syncState instanceof Uint8Array) {
-    transferables.push(payload.syncState.buffer as ArrayBuffer)
+    const transferSyncState = isolateTransferView(payload.syncState)
+    payload.syncState = transferSyncState
+    transferables.push(transferSyncState.buffer as ArrayBuffer)
   }
 
   return withWorker(api => api.receiveSyncMessage(Comlink.transfer(payload, transferables)))
@@ -284,7 +365,10 @@ export function commitAutomergeWorkerSyncState(input: WorkerCommitSyncStateInput
     ...input,
     syncState: cloneTransferBytes(input.syncState),
   }
-  const transferables: Transferable[] = [payload.syncState.buffer as ArrayBuffer]
+  const transferSyncState = isolateTransferView(payload.syncState)
+  payload.syncState = transferSyncState
+
+  const transferables: Transferable[] = [transferSyncState.buffer as ArrayBuffer]
   return withWorker(api => api.commitSyncState(Comlink.transfer(payload, transferables)))
 }
 

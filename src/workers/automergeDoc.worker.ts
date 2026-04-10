@@ -87,6 +87,9 @@ type WorkerEntry = {
 }
 
 const entriesByDocumentId = new Map<string, WorkerEntry>()
+const COMPACTION_HISTORY_THRESHOLD = 400
+const COMPACTION_DOC_BYTES_THRESHOLD = 750_000
+const COMPACTION_MIN_HISTORY_FOR_SIZE_CHECK = 40
 
 function addTransferable(transferables: Transferable[], bytes: Uint8Array | null | undefined): void {
   if (!bytes) {
@@ -122,32 +125,65 @@ function getInitialDocumentSnapshot(documentId: string): Record<string, unknown>
   return { id: documentId }
 }
 
+const MAX_PRUNE_DEPTH = 20
+
 function pruneUndefinedDeepInPlace(value: unknown): void {
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (value[index] === undefined) {
-        value[index] = null
-        continue
-      }
+  const visited = new WeakSet<object>()
+  const stack: Array<{ node: unknown; depth: number }> = [{ node: value, depth: 0 }]
 
-      pruneUndefinedDeepInPlace(value[index])
-    }
-    return
-  }
-
-  if (!value || typeof value !== 'object') {
-    return
-  }
-
-  const target = value as Record<string, unknown>
-  for (const key of Object.keys(target)) {
-    const nested = target[key]
-    if (nested === undefined) {
-      delete target[key]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
       continue
     }
 
-    pruneUndefinedDeepInPlace(nested)
+    const { node, depth } = current
+
+    if (depth > MAX_PRUNE_DEPTH) {
+      throw new Error(`Input exceeds maximum nesting depth of ${MAX_PRUNE_DEPTH}`)
+    }
+
+    if (!node || typeof node !== 'object') {
+      continue
+    }
+
+    if (visited.has(node as object)) {
+      continue
+    }
+    visited.add(node as object)
+
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index += 1) {
+        if (node[index] === undefined) {
+          node[index] = null
+          continue
+        }
+
+        if (node[index] && typeof node[index] === 'object') {
+          stack.push({
+            node: node[index],
+            depth: depth + 1,
+          })
+        }
+      }
+      continue
+    }
+
+    const target = node as Record<string, unknown>
+    for (const key of Object.keys(target)) {
+      const nested = target[key]
+      if (nested === undefined) {
+        delete target[key]
+        continue
+      }
+
+      if (nested && typeof nested === 'object') {
+        stack.push({
+          node: nested,
+          depth: depth + 1,
+        })
+      }
+    }
   }
 }
 
@@ -410,6 +446,34 @@ function headsEqual(
   return true
 }
 
+function shouldCompactEntry(entry: WorkerEntry): boolean {
+  const historyLength = Automerge.getHistory(entry.doc).length
+  if (historyLength >= COMPACTION_HISTORY_THRESHOLD) {
+    return true
+  }
+
+  if (historyLength < COMPACTION_MIN_HISTORY_FOR_SIZE_CHECK) {
+    return false
+  }
+
+  const serializedDoc = Automerge.save(entry.doc)
+  return serializedDoc.byteLength >= COMPACTION_DOC_BYTES_THRESHOLD
+}
+
+function compactEntryIfNeeded(entry: WorkerEntry): WorkerEntry {
+  if (!shouldCompactEntry(entry)) {
+    return entry
+  }
+
+  const snapshot = normalizeSnapshot(extractSnapshot(entry.doc))
+
+  return {
+    doc: Automerge.from(snapshot),
+    syncState: Automerge.initSyncState(),
+    cursor: entry.cursor,
+  }
+}
+
 function toEntrySnapshot(documentId: string, entry: WorkerEntry): WorkerEntrySnapshot {
   return {
     documentId,
@@ -445,8 +509,10 @@ function loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot
     return null
   }
 
-  entriesByDocumentId.set(record.itemId, parsed)
-  return toEntrySnapshot(record.itemId, parsed)
+  const compactedEntry = compactEntryIfNeeded(parsed)
+
+  entriesByDocumentId.set(record.itemId, compactedEntry)
+  return toEntrySnapshot(record.itemId, compactedEntry)
 }
 
 function mergePersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
@@ -464,8 +530,10 @@ function mergePersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapsho
     }
     : parsed
 
-  entriesByDocumentId.set(record.itemId, mergedEntry)
-  return toEntrySnapshot(record.itemId, mergedEntry)
+  const compactedEntry = compactEntryIfNeeded(mergedEntry)
+
+  entriesByDocumentId.set(record.itemId, compactedEntry)
+  return toEntrySnapshot(record.itemId, compactedEntry)
 }
 
 const workerApi = {
@@ -551,8 +619,10 @@ const workerApi = {
       cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
-    entriesByDocumentId.set(documentId, nextEntry)
-    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    const compactedEntry = compactEntryIfNeeded(nextEntry)
+
+    entriesByDocumentId.set(documentId, compactedEntry)
+    const nextSnapshot = toEntrySnapshot(documentId, compactedEntry)
     return transferWorkerValue(nextSnapshot, [
       nextSnapshot.serialized.doc,
       nextSnapshot.serialized.syncState,
@@ -588,9 +658,11 @@ const workerApi = {
       cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
-    entriesByDocumentId.set(documentId, nextEntry)
+    const compactedEntry = compactEntryIfNeeded(nextEntry)
 
-    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    entriesByDocumentId.set(documentId, compactedEntry)
+
+    const nextSnapshot = toEntrySnapshot(documentId, compactedEntry)
     return transferWorkerValue(nextSnapshot, [
       nextSnapshot.serialized.doc,
       nextSnapshot.serialized.syncState,
@@ -608,8 +680,10 @@ const workerApi = {
       cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
-    entriesByDocumentId.set(documentId, nextEntry)
-    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    const compactedEntry = compactEntryIfNeeded(nextEntry)
+
+    entriesByDocumentId.set(documentId, compactedEntry)
+    const nextSnapshot = toEntrySnapshot(documentId, compactedEntry)
     return transferWorkerValue(nextSnapshot, [
       nextSnapshot.serialized.doc,
       nextSnapshot.serialized.syncState,
@@ -630,10 +704,12 @@ const workerApi = {
       cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
-    entriesByDocumentId.set(documentId, nextEntry)
+    const compactedEntry = compactEntryIfNeeded(nextEntry)
+
+    entriesByDocumentId.set(documentId, compactedEntry)
 
     const result = {
-      ...toEntrySnapshot(documentId, nextEntry),
+      ...toEntrySnapshot(documentId, compactedEntry),
       changed: !headsEqual(baseDoc, nextDoc),
     }
 

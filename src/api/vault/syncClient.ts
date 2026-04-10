@@ -98,10 +98,6 @@ export async function pushSyncBatch(input: PushSyncBatchInput): Promise<PushSync
     }),
   })
 
-  if (!response.ok) {
-    throw new Error(`Sync push failed with status ${response.status}`)
-  }
-
   return response.json() as Promise<PushSyncBatchResponse>
 }
 
@@ -139,10 +135,6 @@ export async function pullSyncBatch(input: PullSyncBatchInput): Promise<PullSync
       cursors: input.cursors,
     }),
   })
-
-  if (!response.ok) {
-    throw new Error(`Sync pull failed with status ${response.status}`)
-  }
 
   return response.json() as Promise<PullSyncBatchResponse>
 }

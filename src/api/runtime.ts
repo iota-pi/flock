@@ -5,6 +5,18 @@ let authToken = ''
 let onSessionExpired: (() => void) | null = null
 const authTokenListeners = new Set<(token: string) => void>()
 
+export class ApiHttpError extends Error {
+  readonly status: number
+  readonly url: string
+
+  constructor(params: { status: number; url: string; message?: string }) {
+    super(params.message || `Request failed with status ${params.status}`)
+    this.name = 'ApiHttpError'
+    this.status = params.status
+    this.url = params.url
+  }
+}
+
 function isCypressRuntime(): boolean {
   return typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
 }
@@ -32,6 +44,12 @@ export async function trackedRequest<T>(factory: () => Promise<T>): Promise<T> {
 export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit) {
   return trackedRequest(async () => {
     const headers = new Headers(init?.headers)
+    const requestUrl = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url
+
     if (authToken) {
       headers.set('Authorization', `Basic ${authToken}`)
     }
@@ -46,19 +64,19 @@ export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit)
     }
 
     if (!response.ok) {
-      finishRequest('A request to the server failed. Please retry later.')
+      const error = new ApiHttpError({
+        status: response.status,
+        url: requestUrl,
+        message: `Server request failed (${response.status}) for ${requestUrl}`,
+      })
 
       if (isCypressRuntime()) {
-        const requestUrl = typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url
-
         setTimeout(() => {
-          throw new Error(`Server request failed (${response.status}) for ${requestUrl}`)
+          throw error
         }, 0)
       }
+
+      throw error
     }
 
     return response

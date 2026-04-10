@@ -24,6 +24,7 @@ describe('AutomergeSyncTaskQueue', () => {
       maxRetries: 3,
       initialRetryDelayMs: 100,
       maxRetryDelayMs: 100,
+      connectivityProbe: async () => true,
     })
 
     await vi.advanceTimersByTimeAsync(200)

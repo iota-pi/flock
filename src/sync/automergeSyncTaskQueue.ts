@@ -1,15 +1,19 @@
 type RetryPredicate = (error: unknown, attempt: number) => boolean
+type ConnectivityProbe = () => Promise<boolean>
 
 type RetryOptions = {
   shouldRetry?: RetryPredicate
   maxRetries?: number
   initialRetryDelayMs?: number
   maxRetryDelayMs?: number
+  connectivityProbe?: ConnectivityProbe
 }
 
 const DEFAULT_MAX_RETRIES = 4
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 500
 const DEFAULT_MAX_RETRY_DELAY_MS = 15_000
+const DEFAULT_CONNECTIVITY_PROBE_TIMEOUT_MS = 4_000
+const DEFAULT_CONNECTIVITY_PROBE_URL = 'https://www.gstatic.com/generate_204'
 
 export class AutomergeSyncTaskQueue {
   private tail: Promise<void> = Promise.resolve()
@@ -50,17 +54,18 @@ export class AutomergeSyncTaskQueue {
         }
 
         const delay = Math.min(maxDelay, initialDelay * (2 ** (attempt - 1)))
-        await this.waitForRetryWindow(delay)
+        await this.waitForRetryWindow(delay, options.connectivityProbe)
       }
     }
   }
 
-  private waitForRetryWindow(delayMs: number): Promise<void> {
+  private async waitForRetryWindow(delayMs: number, connectivityProbe?: ConnectivityProbe): Promise<void> {
     if (delayMs <= 0) {
-      return Promise.resolve()
+      await this.waitForConnectivityProbe(connectivityProbe)
+      return
     }
 
-    return new Promise(resolve => {
+    await new Promise<void>(resolve => {
       let settled = false
       let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -88,6 +93,58 @@ export class AutomergeSyncTaskQueue {
         window.addEventListener('online', complete, { once: true })
       }
     })
+
+    await this.waitForConnectivityProbe(connectivityProbe)
+  }
+
+  private async waitForConnectivityProbe(connectivityProbe?: ConnectivityProbe): Promise<void> {
+    const probe = connectivityProbe || this.defaultConnectivityProbe
+
+    while (true) {
+      const reachable = await probe().catch(() => false)
+      if (reachable) {
+        return
+      }
+
+      await new Promise<void>(resolve => {
+        setTimeout(resolve, 1_000)
+      })
+    }
+  }
+
+  private async defaultConnectivityProbe(): Promise<boolean> {
+    if (typeof fetch === 'undefined') {
+      return true
+    }
+
+    const abortController = typeof AbortController !== 'undefined'
+      ? new AbortController()
+      : null
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    try {
+      if (abortController) {
+        timeoutId = setTimeout(() => {
+          abortController.abort()
+        }, DEFAULT_CONNECTIVITY_PROBE_TIMEOUT_MS)
+      }
+
+      await fetch(DEFAULT_CONNECTIVITY_PROBE_URL, {
+        method: 'GET',
+        cache: 'no-store',
+        mode: 'no-cors',
+        signal: abortController?.signal,
+      })
+
+      return true
+    } catch {
+      return false
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
   }
 }
 

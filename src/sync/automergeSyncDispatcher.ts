@@ -1,5 +1,5 @@
 import { getAccountId } from '../api/util'
-import { getApiAuthToken, handleVaultError } from '../api/runtime'
+import { ApiHttpError, getApiAuthToken, handleVaultError } from '../api/runtime'
 import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
   commitAutomergeSyncState,
@@ -22,8 +22,10 @@ import { decryptSyncMessage, encryptSyncMessage } from './automergeSyncCrypto'
 import { AutomergeSyncTaskQueue } from './automergeSyncTaskQueue'
 import {
   BACKGROUND_SYNC_PUSH_TAG,
+  listBackgroundSyncPushBatches,
   consumeBackgroundSyncPushCommits,
   enqueueBackgroundSyncPushBatch,
+  removeBackgroundSyncPushBatches,
 } from './backgroundSyncPushQueue'
 
 const SHOULD_THROW_SYNC_ERRORS = (
@@ -35,6 +37,7 @@ let activeAccount: string | null = null
 let syncQueue = new AutomergeSyncTaskQueue()
 let lastSyncErrorReportAt = 0
 let lastBackgroundSyncRegistrationAt = 0
+let removeVisibilitySyncListener: (() => void) | null = null
 
 const SYNC_ERROR_REPORT_THROTTLE_MS = 15_000
 const BACKGROUND_SYNC_REGISTER_THROTTLE_MS = 10_000
@@ -80,17 +83,6 @@ function encodeBytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
-function extractHttpStatusCode(error: unknown): number | null {
-  const normalized = normalizeSyncError(error)
-  const match = normalized.message.match(/status\s+(\d{3})/i)
-  if (!match) {
-    return null
-  }
-
-  const parsed = Number(match[1])
-  return Number.isInteger(parsed) ? parsed : null
-}
-
 function isOfflineOrNetworkError(error: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return true
@@ -112,9 +104,8 @@ function isRetryableSyncError(error: unknown): boolean {
     return true
   }
 
-  const statusCode = extractHttpStatusCode(error)
-  if (statusCode !== null) {
-    return RETRYABLE_HTTP_STATUS_CODES.has(statusCode)
+  if (error instanceof ApiHttpError) {
+    return RETRYABLE_HTTP_STATUS_CODES.has(error.status)
   }
 
   const message = normalizeSyncError(error).message.toLowerCase()
@@ -160,6 +151,48 @@ async function flushBackgroundSyncPushCommits(account: string): Promise<void> {
   await Promise.all(commits.map(async commit => {
     await commitAutomergeSyncState(commit.itemId, decodeBase64ToBytes(commit.nextSyncState))
   }))
+}
+
+async function flushQueuedBackgroundPushBatches(account: string): Promise<void> {
+  const pendingBatches = await listBackgroundSyncPushBatches()
+  if (pendingBatches.length === 0) {
+    return
+  }
+
+  const accountBatches = pendingBatches.filter(batch => batch.account === account)
+  if (accountBatches.length === 0) {
+    return
+  }
+
+  const processedBatchIds: string[] = []
+
+  for (const batch of accountBatches) {
+    try {
+      await pushSyncBatch({
+        account: batch.account,
+        messages: batch.messages.map(message => ({
+          itemId: message.itemId,
+          encryptedMessage: message.encryptedMessage,
+        })),
+      })
+
+      processedBatchIds.push(batch.id)
+
+      await Promise.all(batch.messages.map(async message => {
+        await commitAutomergeSyncState(message.itemId, decodeBase64ToBytes(message.nextSyncState))
+      }))
+    } catch (error) {
+      if (isRetryableSyncError(error)) {
+        break
+      }
+
+      processedBatchIds.push(batch.id)
+    }
+  }
+
+  if (processedBatchIds.length > 0) {
+    await removeBackgroundSyncPushBatches(processedBatchIds)
+  }
 }
 
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
@@ -327,6 +360,37 @@ function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
   return wrapped
 }
 
+function installVisibilitySyncFallback(): void {
+  if (removeVisibilitySyncListener || typeof document === 'undefined') {
+    return
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState !== 'visible' || !activeAccount) {
+      return
+    }
+
+    void enqueueSyncOperation(() => withActiveAccount(async account => {
+      await flushQueuedBackgroundPushBatches(account)
+      await flushBackgroundSyncPushCommits(account)
+    }))
+  }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  removeVisibilitySyncListener = () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
+}
+
+function uninstallVisibilitySyncFallback(): void {
+  if (!removeVisibilitySyncListener) {
+    return
+  }
+
+  removeVisibilitySyncListener()
+  removeVisibilitySyncListener = null
+}
+
 async function withActiveAccount<T>(action: (account: string) => Promise<T>): Promise<T | undefined> {
   const account = activeAccount
   if (!account) {
@@ -339,6 +403,7 @@ async function withActiveAccount<T>(action: (account: string) => Promise<T>): Pr
 
 async function pushItemNow(itemId: string): Promise<void> {
   await withActiveAccount(async account => {
+    await flushQueuedBackgroundPushBatches(account)
     await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, [itemId])
   })
@@ -351,6 +416,7 @@ export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[
   }
 
   const result = await enqueueSyncOperation(() => withActiveAccount(async account => {
+    await flushQueuedBackgroundPushBatches(account)
     await flushBackgroundSyncPushCommits(account)
     return pullRemoteMessagesBatch(account, normalizedIds)
   }))
@@ -365,6 +431,7 @@ async function runFullSync(itemIds?: string[]): Promise<void> {
   }
 
   await withActiveAccount(async account => {
+    await flushQueuedBackgroundPushBatches(account)
     await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, normalizedIds)
     await pullRemoteMessagesBatch(account, normalizedIds)
@@ -377,6 +444,7 @@ async function pushItemIdsNow(itemIds: string[]): Promise<void> {
   }
 
   await withActiveAccount(async account => {
+    await flushQueuedBackgroundPushBatches(account)
     await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, itemIds)
   })
@@ -444,6 +512,7 @@ export function startAutomergeSyncDispatcher(account: string): void {
   stopAutomergeSyncDispatcher()
   activeAccount = account
   syncQueue = new AutomergeSyncTaskQueue()
+  installVisibilitySyncFallback()
 
   setRealtimeBusLocalEditHandler(itemId => {
     void enqueueSyncOperation(() => pushItemNow(itemId))
@@ -455,6 +524,7 @@ export function startAutomergeSyncDispatcher(account: string): void {
 export function stopAutomergeSyncDispatcher(): void {
   setRealtimeBusLocalEditHandler(null)
   activeAccount = null
+  uninstallVisibilitySyncFallback()
   syncQueue.reset()
   useSyncStore.getState().setIsSyncing(false)
 }

@@ -1,5 +1,7 @@
 import type { Item } from '../state/items'
+import * as Sentry from '@sentry/react'
 import { supplyMissingAttributes } from '../state/items'
+import { createStore } from 'zustand/vanilla'
 import type { AccountMetadata } from '../state/metadata'
 import type { ItemId } from '../shared/itemTypes'
 import {
@@ -21,6 +23,7 @@ import {
   receiveAutomergeWorkerSyncMessage,
   removeAutomergeWorkerDocument,
   resetAutomergeDocWorker,
+  setAutomergeWorkerRehydrateProvider,
   setAutomergeWorkerBinary,
   setAutomergeWorkerCursor,
   setAutomergeWorkerSnapshot,
@@ -49,10 +52,19 @@ let cachedItemsSnapshotDirty = true
 let cachedItemIdsSnapshot: string[] = []
 let cachedMetadataSnapshot: AccountMetadata = {}
 let cachedMetadataSnapshotDirty = true
+const cachedSerializedByDocumentId = new Map<string, WorkerSerializedEntry>()
 
-const itemListeners = new Set<() => void>()
-const metadataListeners = new Set<() => void>()
-const itemListenersById = new Map<string, Set<() => void>>()
+type ReactivityState = {
+  itemsRevision: number
+  metadataRevision: number
+  itemRevisionById: Record<string, number>
+}
+
+const reactivityStore = createStore<ReactivityState>(() => ({
+  itemsRevision: 0,
+  metadataRevision: 0,
+  itemRevisionById: {},
+}))
 
 function markItemsSnapshotDirty(): void {
   cachedItemsSnapshotDirty = true
@@ -61,6 +73,28 @@ function markItemsSnapshotDirty(): void {
 function markMetadataSnapshotDirty(): void {
   cachedMetadataSnapshotDirty = true
 }
+
+function getRehydrateCacheRecords(): PersistedWorkerRecord[] {
+  const records: PersistedWorkerRecord[] = []
+
+  for (const [documentId, entry] of entriesByDocumentId) {
+    const serialized = cachedSerializedByDocumentId.get(documentId)
+    if (!serialized) {
+      continue
+    }
+
+    records.push({
+      itemId: documentId,
+      doc: new Uint8Array(serialized.doc),
+      syncState: new Uint8Array(serialized.syncState),
+      cursor: entry.cursor,
+    })
+  }
+
+  return records
+}
+
+setAutomergeWorkerRehydrateProvider(() => getRehydrateCacheRecords())
 
 function encodeBytesToBase64(bytes: Uint8Array): string {
   let binary = ''
@@ -93,14 +127,6 @@ function isMetadataDocumentId(documentId: string): boolean {
   return documentId === ACCOUNT_METADATA_DOCUMENT_ID
 }
 
-function getInitialDocumentSnapshot(documentId: string): Record<string, unknown> {
-  if (isMetadataDocumentId(documentId)) {
-    return {}
-  }
-
-  return { id: documentId }
-}
-
 function materializeItem(itemId: string, snapshot: Record<string, unknown>): Item | null {
   const candidate = {
     ...snapshot,
@@ -116,37 +142,79 @@ function materializeItem(itemId: string, snapshot: Record<string, unknown>): Ite
 
   try {
     return supplyMissingAttributes(candidate as unknown as Item)
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-doc-store',
+        stage: 'materialize-item',
+      },
+      extra: {
+        itemId,
+      },
+    })
     return null
   }
 }
 
+const MAX_PRUNE_DEPTH = 20
+
 function pruneUndefinedDeepInPlace(value: unknown): void {
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (value[index] === undefined) {
-        value[index] = null
-        continue
-      }
+  const visited = new WeakSet<object>()
+  const stack: Array<{ node: unknown; depth: number }> = [{ node: value, depth: 0 }]
 
-      pruneUndefinedDeepInPlace(value[index])
-    }
-    return
-  }
-
-  if (!value || typeof value !== 'object') {
-    return
-  }
-
-  const target = value as Record<string, unknown>
-  for (const key of Object.keys(target)) {
-    const nested = target[key]
-    if (nested === undefined) {
-      delete target[key]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
       continue
     }
 
-    pruneUndefinedDeepInPlace(nested)
+    const { node, depth } = current
+
+    if (depth > MAX_PRUNE_DEPTH) {
+      throw new Error(`Input exceeds maximum nesting depth of ${MAX_PRUNE_DEPTH}`)
+    }
+
+    if (!node || typeof node !== 'object') {
+      continue
+    }
+
+    if (visited.has(node as object)) {
+      continue
+    }
+    visited.add(node as object)
+
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index += 1) {
+        if (node[index] === undefined) {
+          node[index] = null
+          continue
+        }
+
+        if (node[index] && typeof node[index] === 'object') {
+          stack.push({
+            node: node[index],
+            depth: depth + 1,
+          })
+        }
+      }
+      continue
+    }
+
+    const target = node as Record<string, unknown>
+    for (const key of Object.keys(target)) {
+      const nested = target[key]
+      if (nested === undefined) {
+        delete target[key]
+        continue
+      }
+
+      if (nested && typeof nested === 'object') {
+        stack.push({
+          node: nested,
+          depth: depth + 1,
+        })
+      }
+    }
   }
 }
 
@@ -209,129 +277,6 @@ function normalizeWorkerDocumentPatches(patches: WorkerDocumentPatch[]): WorkerD
   return normalizedPatches
 }
 
-function isArrayIndex(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-}
-
-function createPathContainer(nextSegment: string | number): unknown {
-  return typeof nextSegment === 'number' ? [] : {}
-}
-
-function resolvePatchParent(
-  root: Record<string, unknown>,
-  path: Array<string | number>,
-  removeOnly: boolean,
-): { parent: Record<string, unknown> | unknown[]; key: string | number } | null {
-  if (path.length === 0) {
-    return null
-  }
-
-  let current: unknown = root
-
-  for (let index = 0; index < path.length - 1; index += 1) {
-    const segment = path[index]
-    const nextSegment = path[index + 1]
-
-    if (Array.isArray(current)) {
-      if (!isArrayIndex(segment)) {
-        return null
-      }
-
-      let next = current[segment]
-      if ((!next || typeof next !== 'object') && !removeOnly) {
-        next = createPathContainer(nextSegment)
-        current[segment] = next
-      }
-
-      if (!next || typeof next !== 'object') {
-        return null
-      }
-
-      current = next
-      continue
-    }
-
-    if (!current || typeof current !== 'object') {
-      return null
-    }
-
-    const target = current as Record<string, unknown>
-    const key = typeof segment === 'string' ? segment : String(segment)
-    let next = target[key]
-    if ((!next || typeof next !== 'object') && !removeOnly) {
-      next = createPathContainer(nextSegment)
-      target[key] = next
-    }
-
-    if (!next || typeof next !== 'object') {
-      return null
-    }
-
-    current = next
-  }
-
-  if (!Array.isArray(current) && (!current || typeof current !== 'object')) {
-    return null
-  }
-
-  return {
-    parent: current as Record<string, unknown> | unknown[],
-    key: path[path.length - 1],
-  }
-}
-
-function applyPatchesToSnapshot(
-  snapshot: Record<string, unknown>,
-  patches: WorkerDocumentPatch[],
-): Record<string, unknown> {
-  const nextSnapshot = structuredClone(snapshot)
-
-  for (const patch of patches) {
-    const target = resolvePatchParent(nextSnapshot, patch.path, patch.op === 'remove')
-    if (!target) {
-      continue
-    }
-
-    const { parent, key } = target
-
-    if (Array.isArray(parent)) {
-      if (!isArrayIndex(key)) {
-        continue
-      }
-
-      if (patch.op === 'remove') {
-        if (key < parent.length) {
-          parent.splice(key, 1)
-        }
-        continue
-      }
-
-      if (patch.op === 'add') {
-        if (key >= parent.length) {
-          parent.push(normalizePatchValue(patch.value))
-        } else {
-          parent.splice(key, 0, normalizePatchValue(patch.value))
-        }
-        continue
-      }
-
-      parent[key] = normalizePatchValue(patch.value)
-      continue
-    }
-
-    const objectKey = typeof key === 'string' ? key : String(key)
-
-    if (patch.op === 'remove') {
-      delete parent[objectKey]
-      continue
-    }
-
-    parent[objectKey] = normalizePatchValue(patch.value)
-  }
-
-  return nextSnapshot
-}
-
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
   return {
     itemId: value.itemId,
@@ -378,6 +323,12 @@ function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChange
     hasLocalChanges: options?.hasLocalChanges ?? existing?.hasLocalChanges ?? false,
   })
 
+  cachedSerializedByDocumentId.set(entry.documentId, {
+    doc: new Uint8Array(entry.serialized.doc),
+    syncState: new Uint8Array(entry.serialized.syncState),
+    cursor: entry.serialized.cursor,
+  })
+
   if (isMetadataDocumentId(entry.documentId)) {
     const normalized = {
       ...entry.snapshot,
@@ -391,15 +342,10 @@ function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChange
 }
 
 function notifyAllItemListeners(): void {
-  for (const listener of itemListeners) {
-    listener()
-  }
-
-  for (const [, listeners] of itemListenersById) {
-    for (const listener of listeners) {
-      listener()
-    }
-  }
+  reactivityStore.setState(state => ({
+    ...state,
+    itemsRevision: state.itemsRevision + 1,
+  }))
 }
 
 function notifyItemListeners(itemIds: string[]): void {
@@ -410,32 +356,35 @@ function notifyItemListeners(itemIds: string[]): void {
 
   markItemsSnapshotDirty()
 
-  for (const listener of itemListeners) {
-    listener()
-  }
-
-  for (const itemId of uniqueItemIds) {
-    const listeners = itemListenersById.get(itemId)
-    if (!listeners || listeners.size === 0) {
-      continue
+  reactivityStore.setState(state => {
+    const nextItemRevisionById = {
+      ...state.itemRevisionById,
     }
 
-    for (const listener of listeners) {
-      listener()
+    for (const itemId of uniqueItemIds) {
+      nextItemRevisionById[itemId] = (nextItemRevisionById[itemId] || 0) + 1
     }
-  }
+
+    return {
+      ...state,
+      itemsRevision: state.itemsRevision + 1,
+      itemRevisionById: nextItemRevisionById,
+    }
+  })
 }
 
 function notifyMetadataListeners(): void {
   markMetadataSnapshotDirty()
 
-  for (const listener of metadataListeners) {
-    listener()
-  }
+  reactivityStore.setState(state => ({
+    ...state,
+    metadataRevision: state.metadataRevision + 1,
+  }))
 }
 
 async function removeDocumentState(documentId: string): Promise<void> {
   entriesByDocumentId.delete(documentId)
+  cachedSerializedByDocumentId.delete(documentId)
 
   if (isMetadataDocumentId(documentId)) {
     cachedMetadataSnapshot = {}
@@ -445,8 +394,16 @@ async function removeDocumentState(documentId: string): Promise<void> {
 
   try {
     await removeAutomergeWorkerDocument(documentId)
-  } catch {
-    // keep local state coherent even if worker unload fails
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-doc-store',
+        stage: 'remove-document-state',
+      },
+      extra: {
+        documentId,
+      },
+    })
   }
 }
 
@@ -467,6 +424,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   loadedAccount = account
   entriesByDocumentId.clear()
   cachedItemSnapshotById.clear()
+  cachedSerializedByDocumentId.clear()
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
   cachedItemIdsSnapshot = []
@@ -490,6 +448,16 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
       })
     }
   } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-doc-store',
+        stage: 'initialize-worker-docs',
+      },
+      extra: {
+        account,
+      },
+    })
+
     console.error('Failed to initialize automerge document worker state', error)
   }
 
@@ -566,7 +534,17 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
     if (loadedAccount) {
       await persistEntry(loadedAccount, documentId, merged.serialized, nextHasLocalChanges)
     }
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-doc-store',
+        stage: 'refresh-document-from-storage',
+      },
+      extra: {
+        documentId,
+      },
+    })
+
     await removeDocumentState(documentId)
   }
 }
@@ -707,6 +685,7 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByDocumentId.clear()
   cachedItemSnapshotById.clear()
+  cachedSerializedByDocumentId.clear()
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
@@ -718,8 +697,13 @@ export async function clearAutomergeDocStore(): Promise<void> {
 
   try {
     await resetAutomergeDocWorker()
-  } catch {
-    // reset failure should not block local clearing
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: {
+        area: 'automerge-doc-store',
+        stage: 'clear-store-reset-worker',
+      },
+    })
   }
 
   notifyAllItemListeners()
@@ -816,67 +800,21 @@ async function applyAutomergeDocumentPatches(
     return
   }
 
-  const existingSnapshot = isMetadataDocumentId(documentId)
-    ? (cachedMetadataSnapshot as Record<string, unknown>)
-    : (cachedItemSnapshotById.get(documentId) as unknown as Record<string, unknown>) || getInitialDocumentSnapshot(documentId)
-
-  const nextSnapshot = applyPatchesToSnapshot(existingSnapshot, workerPatches)
-  const normalizedSnapshot = normalizeDocumentSnapshot(nextSnapshot)
   const existingEntry = entriesByDocumentId.get(documentId)
 
-  if (isMetadataDocumentId(documentId)) {
-    const normalizedMetadata = {
-      ...normalizedSnapshot,
-    }
-    delete normalizedMetadata.id
-    cachedMetadataSnapshot = normalizedMetadata as AccountMetadata
-  } else {
-    setCachedItemFromSnapshot(documentId, normalizedSnapshot)
-  }
+  const nextEntry = await applyAutomergeWorkerPatches({
+    action: 'APPLY_DOCUMENT_PATCHES',
+    documentId,
+    patches: workerPatches,
+    cursor: existingEntry?.cursor,
+    syncState: existingEntry?.syncState,
+  })
 
-  if (existingEntry) {
-    entriesByDocumentId.set(documentId, {
-      cursor: existingEntry.cursor,
-      syncState: existingEntry.syncState,
-      hasLocalChanges: true,
-    })
-  }
-
+  applyWorkerEntry(nextEntry, {
+    hasLocalChanges: true,
+  })
+  await persistEntry(loadedAccount, documentId, nextEntry.serialized, true)
   notifyChange(documentId)
-
-  try {
-    const nextEntry = await applyAutomergeWorkerPatches({
-      action: 'APPLY_DOCUMENT_PATCHES',
-      documentId,
-      patches: workerPatches,
-      cursor: existingEntry?.cursor,
-      syncState: existingEntry?.syncState,
-    })
-
-    applyWorkerEntry(nextEntry, {
-      hasLocalChanges: true,
-    })
-    await persistEntry(loadedAccount, documentId, nextEntry.serialized, true)
-  } catch (error) {
-    if (isMetadataDocumentId(documentId)) {
-      const rollbackMetadata = {
-        ...(existingSnapshot || {}),
-      }
-      delete rollbackMetadata.id
-      cachedMetadataSnapshot = rollbackMetadata as AccountMetadata
-    } else {
-      setCachedItemFromSnapshot(documentId, existingSnapshot || getInitialDocumentSnapshot(documentId))
-    }
-
-    if (existingEntry) {
-      entriesByDocumentId.set(documentId, existingEntry)
-    } else {
-      entriesByDocumentId.delete(documentId)
-    }
-
-    notifyChange(documentId)
-    throw error
-  }
 }
 
 export async function applyAutomergeItemPatches(
@@ -1005,38 +943,28 @@ export async function receiveAutomergeSyncMessage(
 }
 
 export function subscribeAutomergeItems(listener: () => void): () => void {
-  itemListeners.add(listener)
-
-  return () => {
-    itemListeners.delete(listener)
-  }
+  return reactivityStore.subscribe((state, previousState) => {
+    if (state.itemsRevision !== previousState.itemsRevision) {
+      listener()
+    }
+  })
 }
 
 export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  const existingListeners = itemListenersById.get(itemId)
-  if (existingListeners) {
-    existingListeners.add(listener)
-  } else {
-    itemListenersById.set(itemId, new Set([listener]))
-  }
+  return reactivityStore.subscribe((state, previousState) => {
+    const nextSignal = `${state.itemsRevision}:${state.itemRevisionById[itemId] || 0}`
+    const previousSignal = `${previousState.itemsRevision}:${previousState.itemRevisionById[itemId] || 0}`
 
-  return () => {
-    const listeners = itemListenersById.get(itemId)
-    if (!listeners) {
-      return
+    if (nextSignal !== previousSignal) {
+      listener()
     }
-
-    listeners.delete(listener)
-    if (listeners.size === 0) {
-      itemListenersById.delete(itemId)
-    }
-  }
+  })
 }
 
 export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  metadataListeners.add(listener)
-
-  return () => {
-    metadataListeners.delete(listener)
-  }
+  return reactivityStore.subscribe((state, previousState) => {
+    if (state.metadataRevision !== previousState.metadataRevision) {
+      listener()
+    }
+  })
 }
