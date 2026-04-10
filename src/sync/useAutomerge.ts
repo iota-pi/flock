@@ -1,15 +1,15 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
+import { useDocument } from '@automerge/automerge-repo-react-hooks'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
-  getAutomergeItem,
   getAutomergeItemIds,
   getAutomergeItems,
   getAutomergeMetadata,
-  subscribeAutomergeItem,
   subscribeAutomergeItems,
   subscribeAutomergeMetadata,
 } from './automergeDocStore'
+import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 
 const EMPTY_ITEMS: Item[] = []
 const EMPTY_ITEM_IDS: string[] = []
@@ -33,21 +33,11 @@ export function useAutomergeItemIds(): string[] {
 }
 
 export function useAutomergeItem(itemId: string): Item | null {
-  const subscribe = useCallback(
-    (listener: () => void) => subscribeAutomergeItem(itemId, listener),
-    [itemId],
-  )
+  const [item] = useDocument<Item>(toAutomergeUrlFromItemId(itemId), {
+    suspense: false,
+  })
 
-  const getSnapshot = useCallback(
-    () => getAutomergeItem(itemId),
-    [itemId],
-  )
-
-  return useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    () => EMPTY_ITEM,
-  )
+  return item || EMPTY_ITEM
 }
 
 export function useAutomergeMetadataSnapshot(): AccountMetadata {

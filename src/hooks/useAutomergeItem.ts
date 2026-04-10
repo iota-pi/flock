@@ -1,20 +1,11 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useDocument } from '@automerge/automerge-repo-react-hooks'
 import type { Item } from '../state/items'
-import { getAutomergeItem, subscribeAutomergeItem } from '../sync/automergeDocStore'
+import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 
 export function useAutomergeItem(itemId: string): Item | null {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => subscribeAutomergeItem(itemId, onStoreChange),
-    [itemId],
-  )
-  const getSnapshot = useCallback(
-    () => getAutomergeItem(itemId),
-    [itemId],
-  )
+  const [item] = useDocument<Item>(toAutomergeUrlFromItemId(itemId), {
+    suspense: false,
+  })
 
-  return useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getSnapshot,
-  )
+  return item || null
 }

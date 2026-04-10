@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from './items'
+import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import {
   useAuthReady,
   useItem,
@@ -56,12 +57,17 @@ vi.mock('../api/itemReadService', () => ({
   subscribeMetadata: vi.fn(() => () => undefined),
 }))
 
+vi.mock('@automerge/automerge-repo-react-hooks', () => ({
+  useDocument: vi.fn((documentId: string) => {
+    const item = itemsFixture.find(candidate => toAutomergeUrlFromItemId(candidate.id) === documentId)
+    return [item, vi.fn()]
+  }),
+}))
+
 vi.mock('../sync/automergeDocStore', () => ({
   getAutomergeItems: vi.fn(() => itemsFixture),
   getAutomergeItemIds: vi.fn(() => itemsFixture.map(item => item.id)),
-  getAutomergeItem: vi.fn((itemId: string) => itemsFixture.find(item => item.id === itemId) || null),
   subscribeAutomergeItems: vi.fn(() => () => undefined),
-  subscribeAutomergeItem: vi.fn(() => () => undefined),
 }))
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({

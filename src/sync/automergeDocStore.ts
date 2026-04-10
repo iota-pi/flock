@@ -1,800 +1,764 @@
+import * as Automerge from '@automerge/automerge'
+import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
-import * as Sentry from '@sentry/react'
-import { ERROR_ITEM_TYPE, ITEM_TYPES, supplyMissingAttributes } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import type { ItemId, ItemType } from '../shared/itemTypes'
+import { getAutomergeRepo, getVaultNetworkAdapter, setVaultNetworkAccount } from './automergeRepo'
 import {
-  clearPersistedAutomergeDocs,
-} from './automergeDocStorage'
-import { createAutomergeReactivity } from './automergeReactivity'
-import {
-  initializeAutomergeOrchestratorState,
-  persistAutomergeEntry,
-  refreshDocumentFromStorage as refreshDocumentFromStorageOrchestrator,
-  removePersistedAutomergeEntry,
-} from './automergeOrchestrator'
-import {
-  normalizeForAutomerge,
-  normalizeWorkerDocumentPatches,
-} from './automergeUtils'
-import { setCachedAutomergeBinary } from './automergeBinaryCache'
-import {
-  applyAutomergeWorkerPatches,
-  commitAutomergeWorkerSyncState,
-  createAutomergeWorkerSyncMessage,
-  exportAutomergeWorkerBinaries,
-  receiveAutomergeWorkerSyncMessage,
-  removeAutomergeWorkerDocument,
-  resetAutomergeDocWorker,
-  setAutomergeWorkerRehydrateProvider,
-  setAutomergeWorkerBinary,
-  setAutomergeWorkerCursor,
-  setAutomergeWorkerSnapshot,
-  type WorkerDocumentPatch,
-  type WorkerRehydrateRecord,
-  type WorkerEntrySnapshot,
-  type WorkerSerializedEntry,
-} from '../workers/automergeDocWorkerManager'
+  clearAutomergeItemIdMappings,
+  registerAutomergeItemIds,
+  toAutomergeUrlFromItemId,
+} from './automergeRepoIds'
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
 export type SyncStateToken = Uint8Array
-export type AutomergeDocumentPatch = WorkerDocumentPatch
 
-type DocEntry = {
-  syncState: SyncStateToken
+export type AutomergeDocumentPatch = {
+  op: 'add' | 'replace' | 'remove'
+  path: Array<string | number>
+  value?: unknown
+}
+
+type RepoDoc = Record<string, unknown>
+
+type RepoDocHandle = {
+  isReady: () => boolean
+  isUnavailable: () => boolean
+  whenReady: (awaitStates?: string[]) => Promise<void>
+  doc: () => RepoDoc
+  change: (callback: (doc: RepoDoc) => void) => void
+  on: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
+  off: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
+}
+
+type ReceiveSyncResult = {
+  changed: boolean
   cursor: number
-  hasLocalChanges: boolean
+  serialized: {
+    doc: Uint8Array
+    syncState: Uint8Array
+    cursor: number
+  }
 }
 
+type UpsertMetadataOptions = {
+  markLocalChange?: boolean
+}
+
+type EnsureHandleOptions = {
+  createIfMissing?: boolean
+  initialValue?: RepoDoc
+}
+
+const itemById = new Map<string, Item>()
+const itemListeners = new Set<() => void>()
+const itemScopedListeners = new Map<string, Set<() => void>>()
+const metadataListeners = new Set<() => void>()
+const handleByDocumentId = new Map<string, RepoDocHandle>()
+const unbindByDocumentId = new Map<string, () => void>()
+const syncCursorByItemId = new Map<string, number>()
+const localChangeByDocumentId = new Set<string>()
+
+let metadataSnapshot: AccountMetadata = {}
 let loadedAccount: string | null = null
-const entriesByDocumentId = new Map<string, DocEntry>()
-let cachedItemSnapshotById = new Map<string, Item>()
-let cachedMetadataSnapshot: AccountMetadata = {}
-const cachedSerializedByDocumentId = new Map<string, WorkerSerializedEntry>()
+let knownIdsUnsubscribe: (() => void) | null = null
 
-type MemoizedMapProjection<T> = {
-  mapRef: Map<string, Item> | null
-  size: number
-  value: T
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-const memoizedItemsProjection: MemoizedMapProjection<Item[]> = {
-  mapRef: null,
-  size: -1,
-  value: [],
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
 }
 
-const memoizedItemIdsProjection: MemoizedMapProjection<string[]> = {
-  mapRef: null,
-  size: -1,
-  value: [],
-}
-
-const reactivity = createAutomergeReactivity()
-
-function memoizeMapValues(map: Map<string, Item>): Item[] {
-  if (memoizedItemsProjection.mapRef === map && memoizedItemsProjection.size === map.size) {
-    return memoizedItemsProjection.value
+function normalizeItemId(raw: unknown): string | null {
+  if (typeof raw !== 'string') {
+    return null
   }
 
-  const values = Array.from(map.values())
-  memoizedItemsProjection.mapRef = map
-  memoizedItemsProjection.size = map.size
-  memoizedItemsProjection.value = values
-  return values
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
-function memoizeMapKeys(map: Map<string, Item>): string[] {
-  if (memoizedItemIdsProjection.mapRef === map && memoizedItemIdsProjection.size === map.size) {
-    return memoizedItemIdsProjection.value
+function notifyItemListeners(itemId?: string): void {
+  for (const listener of itemListeners) {
+    listener()
   }
 
-  const keys = Array.from(map.keys())
-  memoizedItemIdsProjection.mapRef = map
-  memoizedItemIdsProjection.size = map.size
-  memoizedItemIdsProjection.value = keys
-  return keys
-}
-
-function getRehydrateCacheRecords(): WorkerRehydrateRecord[] {
-  const records: WorkerRehydrateRecord[] = []
-
-  for (const [documentId, entry] of entriesByDocumentId) {
-    if (!entry.hasLocalChanges) {
-      continue
-    }
-
-    const serialized = cachedSerializedByDocumentId.get(documentId)
-    if (!serialized) {
-      continue
-    }
-
-    records.push({
-      hasLocalChanges: true,
-      record: {
-        itemId: documentId,
-        doc: new Uint8Array(serialized.doc),
-        syncState: new Uint8Array(serialized.syncState),
-        cursor: entry.cursor,
-      },
-    })
-  }
-
-  return records
-}
-
-setAutomergeWorkerRehydrateProvider(() => getRehydrateCacheRecords())
-
-function encodeBytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize)
-    binary += String.fromCharCode(...chunk)
-  }
-
-  return btoa(binary)
-}
-
-function decodeBase64ToBytes(value: string): Uint8Array {
-  const decoded = atob(value)
-  const bytes = new Uint8Array(decoded.length)
-
-  for (let index = 0; index < decoded.length; index += 1) {
-    bytes[index] = decoded.charCodeAt(index)
-  }
-
-  return bytes
-}
-
-function isMetadataDocumentId(documentId: string): boolean {
-  return documentId === ACCOUNT_METADATA_DOCUMENT_ID
-}
-
-function setCachedItemSnapshot(documentId: string, item: Item): void {
-  const next = new Map(cachedItemSnapshotById)
-  next.set(documentId, item)
-  cachedItemSnapshotById = next
-}
-
-function removeCachedItemSnapshot(documentId: string): void {
-  if (!cachedItemSnapshotById.has(documentId)) {
+  if (!itemId) {
     return
   }
 
-  const next = new Map(cachedItemSnapshotById)
-  next.delete(documentId)
-  cachedItemSnapshotById = next
-}
-
-function clearCachedItemSnapshots(): void {
-  cachedItemSnapshotById = new Map()
-}
-
-function inferOriginalType(snapshot: Record<string, unknown>): ItemType | undefined {
-  if (typeof snapshot.type !== 'string') {
-    return undefined
-  }
-
-  return (ITEM_TYPES as readonly string[]).includes(snapshot.type)
-    ? snapshot.type as ItemType
-    : undefined
-}
-
-function createErrorItem(
-  itemId: string,
-  snapshot: Record<string, unknown>,
-  error: unknown,
-): Item {
-  return {
-    archived: typeof snapshot.archived === 'boolean' ? snapshot.archived : false,
-    created: typeof snapshot.created === 'number' ? snapshot.created : Date.now(),
-    deleted: typeof snapshot.deleted === 'boolean' ? snapshot.deleted : undefined,
-    description: 'Item unavailable due to data error. Use hard-delete to remove it from local storage.',
-    id: itemId,
-    name: typeof snapshot.name === 'string' && snapshot.name.trim().length > 0
-      ? snapshot.name
-      : 'Item unavailable due to data error',
-    notes: [],
-    prayedFor: [],
-    prayerFrequency: 'none',
-    rawSnapshot: normalizeForAutomerge(snapshot),
-    errorMessage: error instanceof Error ? error.message : String(error),
-    originalType: inferOriginalType(snapshot),
-    type: ERROR_ITEM_TYPE,
-  }
-}
-
-function materializeItem(itemId: string, snapshot: Record<string, unknown>): Item {
-  const candidate = {
-    ...snapshot,
-  }
-
-  if (typeof candidate.id !== 'string') {
-    candidate.id = itemId
-  }
-
-  if (typeof candidate.type !== 'string' || !(ITEM_TYPES as readonly string[]).includes(candidate.type)) {
-    return createErrorItem(itemId, snapshot, new Error('Unsupported or missing item type'))
-  }
-
-  try {
-    return supplyMissingAttributes(candidate as unknown as Item)
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: {
-        area: 'automerge-doc-store',
-        stage: 'materialize-item',
-      },
-      extra: {
-        itemId,
-      },
-    })
-    return createErrorItem(itemId, snapshot, error)
-  }
-}
-
-
-function setCachedItemFromSnapshot(documentId: string, snapshot: Record<string, unknown>): void {
-  const item = materializeItem(documentId, snapshot)
-  if (item.deleted === true) {
-    removeCachedItemSnapshot(documentId)
+  const scoped = itemScopedListeners.get(itemId)
+  if (!scoped) {
     return
   }
 
-  setCachedItemSnapshot(documentId, item)
-}
-
-function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChanges?: boolean }): void {
-  const existing = entriesByDocumentId.get(entry.documentId)
-  entriesByDocumentId.set(entry.documentId, {
-    cursor: entry.serialized.cursor,
-    syncState: entry.serialized.syncState,
-    hasLocalChanges: options?.hasLocalChanges ?? existing?.hasLocalChanges ?? false,
-  })
-
-  cachedSerializedByDocumentId.set(entry.documentId, {
-    doc: new Uint8Array(entry.serialized.doc),
-    syncState: new Uint8Array(entry.serialized.syncState),
-    cursor: entry.serialized.cursor,
-  })
-
-  if (isMetadataDocumentId(entry.documentId)) {
-    const normalized = {
-      ...entry.snapshot,
-    }
-    delete normalized.id
-    cachedMetadataSnapshot = normalized as AccountMetadata
-    return
+  for (const listener of scoped) {
+    listener()
   }
-
-  setCachedItemFromSnapshot(entry.documentId, entry.snapshot)
-}
-
-function notifyAllItemListeners(): void {
-  reactivity.notifyAllItemListeners()
-}
-
-function notifyItemListeners(itemIds: string[]): void {
-  reactivity.notifyItemListeners(itemIds)
 }
 
 function notifyMetadataListeners(): void {
-  reactivity.notifyMetadataListeners()
-}
-
-async function removeDocumentState(documentId: string): Promise<void> {
-  entriesByDocumentId.delete(documentId)
-  cachedSerializedByDocumentId.delete(documentId)
-
-  if (isMetadataDocumentId(documentId)) {
-    cachedMetadataSnapshot = {}
-  } else {
-    removeCachedItemSnapshot(documentId)
-  }
-
-  try {
-    await removeAutomergeWorkerDocument(documentId)
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: {
-        area: 'automerge-doc-store',
-        stage: 'remove-document-state',
-      },
-      extra: {
-        documentId,
-      },
-    })
+  for (const listener of metadataListeners) {
+    listener()
   }
 }
 
-function notifyChange(documentId: string): void {
-  if (isMetadataDocumentId(documentId)) {
+function normalizeMetadataSnapshot(value: unknown): AccountMetadata {
+  if (!isPlainObject(value)) {
+    return {}
+  }
+
+  return deepClone(value) as AccountMetadata
+}
+
+function materializeItemSnapshot(itemId: string, doc: RepoDoc): void {
+  const normalized = deepClone(doc) as Partial<Item>
+  if (typeof normalized.id !== 'string' || normalized.id.length === 0) {
+    normalized.id = itemId
+  }
+
+  if (typeof normalized.type !== 'string') {
+    return
+  }
+
+  itemById.set(itemId, normalized as Item)
+  notifyItemListeners(itemId)
+}
+
+function materializeDocumentSnapshot(documentId: string, doc: RepoDoc): void {
+  if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
+    metadataSnapshot = normalizeMetadataSnapshot(doc)
     notifyMetadataListeners()
     return
   }
 
-  notifyItemListeners([documentId])
+  materializeItemSnapshot(documentId, doc)
 }
 
-export async function initializeAutomergeDocStore(account: string): Promise<void> {
-  if (loadedAccount === account) {
+function removeItemSnapshot(itemId: string): void {
+  if (!itemById.delete(itemId)) {
     return
   }
 
-  loadedAccount = null
-  entriesByDocumentId.clear()
-  clearCachedItemSnapshots()
-  cachedSerializedByDocumentId.clear()
-  cachedMetadataSnapshot = {}
-
-  await initializeAutomergeOrchestratorState({
-    account,
-    applyWorkerEntry,
-  })
-
-  loadedAccount = account
-
-  notifyAllItemListeners()
-  notifyMetadataListeners()
+  notifyItemListeners(itemId)
 }
 
-export function listAutomergeDocumentIds(): string[] {
-  return Array.from(entriesByDocumentId.keys())
-}
-
-export function filterAutomergeLocallyChangedDocumentIds(itemIds: string[]): string[] {
-  const filtered: string[] = []
-  const seen = new Set<string>()
-
-  for (const itemId of itemIds) {
-    if (seen.has(itemId)) {
-      continue
-    }
-
-    seen.add(itemId)
-
-    if (entriesByDocumentId.get(itemId)?.hasLocalChanges === true) {
-      filtered.push(itemId)
-    }
+function detachHandle(documentId: string): void {
+  const unbind = unbindByDocumentId.get(documentId)
+  if (unbind) {
+    unbind()
+    unbindByDocumentId.delete(documentId)
   }
 
-  return filtered
+  handleByDocumentId.delete(documentId)
 }
 
-export function hasAutomergeDocument(documentId: string): boolean {
-  return entriesByDocumentId.has(documentId)
-}
-
-export function listAutomergeItemIds(): string[] {
-  return listAutomergeDocumentIds().filter(documentId => !isMetadataDocumentId(documentId))
-}
-
-async function refreshDocumentFromStorage(documentId: string): Promise<void> {
-  try {
-    await refreshDocumentFromStorageOrchestrator({
-      documentId,
-      loadedAccount,
-      hasLocalChanges: (targetDocumentId: string) => entriesByDocumentId.get(targetDocumentId)?.hasLocalChanges === true,
-      applyWorkerEntry,
-      persistEntry: persistAutomergeEntry,
-      removeDocumentState,
-    })
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: {
-        area: 'automerge-doc-store',
-        stage: 'refresh-document-from-storage',
-      },
-      extra: {
-        documentId,
-      },
-    })
-
-    await removeDocumentState(documentId)
-  }
-}
-
-export function invalidateCachedItems(itemIds: string[]): void {
-  const uniqueItemIds = Array.from(new Set(itemIds.filter(itemId => typeof itemId === 'string' && itemId.length > 0)))
-  if (uniqueItemIds.length === 0) {
+function bindHandle(documentId: string, handle: RepoDocHandle): void {
+  if (unbindByDocumentId.has(documentId)) {
     return
   }
 
-  const staleItemIds = uniqueItemIds.filter(itemId => entriesByDocumentId.get(itemId)?.hasLocalChanges !== true)
-  if (staleItemIds.length === 0) {
-    return
-  }
-
-  void Promise.allSettled(staleItemIds.map(async itemId => {
-    await refreshDocumentFromStorage(itemId)
-    return itemId
-  })).then(results => {
-    const refreshedItemIds = results
-      .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
-      .map(result => result.value)
-
-    if (refreshedItemIds.length === 0) {
+  const onChange = (payload?: { doc?: RepoDoc }) => {
+    if (payload?.doc && isPlainObject(payload.doc)) {
+      materializeDocumentSnapshot(documentId, payload.doc)
       return
     }
 
-    const itemIdsToNotify = refreshedItemIds.filter(itemId => !isMetadataDocumentId(itemId))
-    if (itemIdsToNotify.length > 0) {
-      notifyItemListeners(itemIdsToNotify)
+    if (!handle.isReady()) {
+      return
     }
 
-    if (refreshedItemIds.some(itemId => isMetadataDocumentId(itemId))) {
+    materializeDocumentSnapshot(documentId, handle.doc())
+  }
+
+  const onDelete = () => {
+    if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
+      metadataSnapshot = {}
       notifyMetadataListeners()
+      return
     }
+
+    removeItemSnapshot(documentId)
+  }
+
+  handle.on('change', onChange)
+  handle.on('delete', onDelete)
+
+  unbindByDocumentId.set(documentId, () => {
+    handle.off('change', onChange)
+    handle.off('delete', onDelete)
   })
 }
 
-export function getAutomergeItems(): Item[] {
-  return memoizeMapValues(cachedItemSnapshotById)
-}
-
-export function getAutomergeItemIds(): string[] {
-  return memoizeMapKeys(cachedItemSnapshotById)
-}
-
-export function getAutomergeItem(itemId: string): Item | null {
-  if (isMetadataDocumentId(itemId)) {
+function getPatchParent(root: RepoDoc, path: Array<string | number>): { parent: Record<string | number, unknown>; key: string | number } | null {
+  if (path.length === 0) {
     return null
   }
 
-  return cachedItemSnapshotById.get(itemId) || null
+  let current: Record<string | number, unknown> = root
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const key = path[index]
+    const nextKey = path[index + 1]
+    const existing = current[key]
+
+    if (existing && typeof existing === 'object') {
+      current = existing as Record<string | number, unknown>
+      continue
+    }
+
+    const replacement = typeof nextKey === 'number' ? [] : {}
+    current[key] = replacement
+    current = replacement as Record<string | number, unknown>
+  }
+
+  return {
+    parent: current,
+    key: path[path.length - 1],
+  }
 }
 
-export function getAutomergeMetadata(): AccountMetadata {
-  return cachedMetadataSnapshot
+function clonePatchValue(value: unknown): unknown {
+  if (!isPlainObject(value) && !Array.isArray(value)) {
+    return value
+  }
+
+  return deepClone(value)
 }
 
-function normalizeDocumentSnapshot(input: Record<string, unknown>): Record<string, unknown> {
-  return normalizeForAutomerge(input)
-}
-
-async function upsertAutomergeDocumentSnapshot(
-  documentId: string,
-  snapshot: Record<string, unknown>,
-  options: { markLocalChange?: boolean } = {},
-): Promise<void> {
-  if (!loadedAccount) {
+function applyPatch(document: RepoDoc, patch: AutomergeDocumentPatch): void {
+  const target = getPatchParent(document, patch.path)
+  if (!target) {
     return
   }
 
-  const existing = entriesByDocumentId.get(documentId)
-  const markLocalChange = options.markLocalChange !== false
-  const nextHasLocalChanges = markLocalChange || existing?.hasLocalChanges === true
-  const normalizedSnapshot = normalizeDocumentSnapshot(snapshot)
-  const nextEntry = await setAutomergeWorkerSnapshot({
-    documentId,
-    snapshot: normalizedSnapshot,
-    cursor: existing?.cursor,
-    syncState: existing?.syncState,
+  const { parent, key } = target
+
+  if (patch.op === 'remove') {
+    if (Array.isArray(parent) && typeof key === 'number') {
+      parent.splice(key, 1)
+      return
+    }
+
+    delete parent[key]
+    return
+  }
+
+  parent[key] = clonePatchValue(patch.value)
+}
+
+async function ensureDocumentHandle(
+  documentId: string,
+  options: EnsureHandleOptions = {},
+): Promise<RepoDocHandle> {
+  const existing = handleByDocumentId.get(documentId)
+  if (existing) {
+    return existing
+  }
+
+  const repo = getAutomergeRepo()
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
+
+  let handle = await repo.find<RepoDoc>(documentUrl, {
+    allowableStates: ['ready', 'unavailable'],
+  }) as unknown as RepoDocHandle
+
+  if (handle.isUnavailable() && options.createIfMissing) {
+    const initialValue = options.initialValue || (documentId === ACCOUNT_METADATA_DOCUMENT_ID
+      ? {}
+      : { id: documentId })
+
+    const binary = Automerge.save(Automerge.from(initialValue))
+    handle = repo.import<RepoDoc>(binary, {
+      docId: interpretAsDocumentId(documentUrl),
+    }) as unknown as RepoDocHandle
+  }
+
+  handleByDocumentId.set(documentId, handle)
+  bindHandle(documentId, handle)
+
+  if (!handle.isReady()) {
+    await handle.whenReady(['ready', 'unavailable'])
+  }
+
+  if (handle.isReady()) {
+    materializeDocumentSnapshot(documentId, handle.doc())
+  }
+
+  return handle
+}
+
+async function observeKnownItemIds(itemIds: string[]): Promise<void> {
+  const nextIds = new Set(itemIds)
+
+  for (const knownId of Array.from(handleByDocumentId.keys())) {
+    if (knownId === ACCOUNT_METADATA_DOCUMENT_ID) {
+      continue
+    }
+
+    if (nextIds.has(knownId)) {
+      continue
+    }
+
+    detachHandle(knownId)
+    removeItemSnapshot(knownId)
+  }
+
+  await Promise.all(itemIds.map(async itemId => {
+    await ensureDocumentHandle(itemId)
+  }))
+}
+
+function ensureKnownIdsSubscription(): void {
+  if (knownIdsUnsubscribe) {
+    return
+  }
+
+  const adapter = getVaultNetworkAdapter()
+  knownIdsUnsubscribe = adapter.subscribeKnownItemIds(itemIds => {
+    const normalizedItemIds = itemIds.filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
+    registerAutomergeItemIds([ACCOUNT_METADATA_DOCUMENT_ID, ...normalizedItemIds])
+    void observeKnownItemIds(normalizedItemIds)
+  })
+}
+
+function normalizeDocumentIds(itemIds?: string[]): string[] {
+  const source = Array.isArray(itemIds) && itemIds.length > 0
+    ? itemIds
+    : listAutomergeDocumentIds()
+
+  const deduped = new Set<string>()
+  for (const rawId of source) {
+    const itemId = normalizeItemId(rawId)
+    if (!itemId) {
+      continue
+    }
+
+    deduped.add(itemId)
+  }
+
+  return Array.from(deduped)
+}
+
+function setLocalChange(documentId: string, changed: boolean): void {
+  if (changed) {
+    localChangeByDocumentId.add(documentId)
+    return
+  }
+
+  localChangeByDocumentId.delete(documentId)
+}
+
+function encodeBytesToBase64(bytes: Uint8Array): string {
+  if (typeof btoa === 'function') {
+    let binary = ''
+    const chunkSize = 0x8000
+
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.subarray(offset, offset + chunkSize)
+      binary += String.fromCharCode(...chunk)
+    }
+
+    return btoa(binary)
+  }
+
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64')
+  }
+
+  throw new Error('No base64 encoder available')
+}
+
+function decodeBase64ToBytes(value: string): Uint8Array {
+  if (typeof atob === 'function') {
+    const decoded = atob(value)
+    const bytes = new Uint8Array(decoded.length)
+
+    for (let index = 0; index < decoded.length; index += 1) {
+      bytes[index] = decoded.charCodeAt(index)
+    }
+
+    return bytes
+  }
+
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(value, 'base64'))
+  }
+
+  throw new Error('No base64 decoder available')
+}
+
+export async function initializeAutomergeDocStore(account: string): Promise<void> {
+  const nextAccount = normalizeItemId(account)
+  if (!nextAccount) {
+    return
+  }
+
+  if (loadedAccount !== nextAccount) {
+    loadedAccount = nextAccount
+    setVaultNetworkAccount(nextAccount)
+  }
+
+  ensureKnownIdsSubscription()
+
+  getVaultNetworkAdapter().registerKnownItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
+  registerAutomergeItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
+  await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
+    createIfMissing: true,
+    initialValue: {},
   })
 
-  applyWorkerEntry(nextEntry, {
-    hasLocalChanges: nextHasLocalChanges,
-  })
-  await persistAutomergeEntry(loadedAccount, documentId, nextEntry.serialized, nextHasLocalChanges)
-  notifyChange(documentId)
+  const knownItemIds = getVaultNetworkAdapter().getKnownItemIds()
+  if (knownItemIds.length > 0) {
+    await observeKnownItemIds(knownItemIds)
+  }
+}
+
+export function listAutomergeDocumentIds(): string[] {
+  const itemIds = listAutomergeItemIds()
+  return [
+    ACCOUNT_METADATA_DOCUMENT_ID,
+    ...itemIds,
+  ]
+}
+
+export function filterAutomergeLocallyChangedDocumentIds(itemIds: string[]): string[] {
+  const normalized = normalizeDocumentIds(itemIds)
+  const dirty = normalized.filter(itemId => localChangeByDocumentId.has(itemId))
+  return dirty.length > 0 ? dirty : normalized
+}
+
+export function hasAutomergeDocument(documentId: string): boolean {
+  if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
+    return true
+  }
+
+  return itemById.has(documentId)
+    || getVaultNetworkAdapter().getKnownItemIds().includes(documentId)
+}
+
+export function listAutomergeItemIds(): string[] {
+  const ids = new Set<string>([
+    ...getVaultNetworkAdapter().getKnownItemIds(),
+    ...Array.from(itemById.keys()),
+  ])
+
+  return Array.from(ids).filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
+}
+
+export function invalidateCachedItems(itemIds: string[]): void {
+  getVaultNetworkAdapter().syncItemIds(itemIds)
+}
+
+export function getAutomergeItems(): Item[] {
+  return Array.from(itemById.values())
+}
+
+export function getAutomergeItemIds(): string[] {
+  return listAutomergeItemIds()
+}
+
+export function getAutomergeItem(itemId: string): Item | null {
+  return itemById.get(itemId) || null
+}
+
+export function getAutomergeMetadata(): AccountMetadata {
+  return metadataSnapshot
 }
 
 export async function seedAutomergeDocument(
-  item: Item,
-  options?: { markLocalChange?: boolean },
+  documentId: string,
+  binary: Uint8Array,
 ): Promise<void> {
-  await upsertAutomergeDocumentSnapshot(item.id, item as unknown as Record<string, unknown>, options)
+  const repo = getAutomergeRepo()
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
+
+  const handle = repo.import<RepoDoc>(binary, {
+    docId: interpretAsDocumentId(documentUrl),
+  }) as unknown as RepoDocHandle
+
+  handleByDocumentId.set(documentId, handle)
+  bindHandle(documentId, handle)
+
+  if (!handle.isReady()) {
+    await handle.whenReady(['ready', 'unavailable'])
+  }
+
+  if (handle.isReady()) {
+    materializeDocumentSnapshot(documentId, handle.doc())
+  }
+
+  if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
+    registerAutomergeItemIds([documentId])
+    getVaultNetworkAdapter().registerKnownItemIds([documentId])
+  }
 }
 
 export async function upsertAutomergeMetadataSnapshot(
   metadata: AccountMetadata,
-  options?: { markLocalChange?: boolean },
+  options: UpsertMetadataOptions = {},
 ): Promise<void> {
-  await upsertAutomergeDocumentSnapshot(
-    ACCOUNT_METADATA_DOCUMENT_ID,
-    (metadata || {}) as unknown as Record<string, unknown>,
-    options,
-  )
+  const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
+    createIfMissing: true,
+    initialValue: {},
+  })
+
+  const nextMetadata = deepClone(metadata || {})
+  handle.change(doc => {
+    for (const key of Object.keys(doc)) {
+      if (!(key in nextMetadata) || nextMetadata[key as keyof AccountMetadata] === undefined) {
+        delete doc[key]
+      }
+    }
+
+    for (const [key, value] of Object.entries(nextMetadata)) {
+      if (value !== undefined) {
+        doc[key] = value
+      }
+    }
+  })
+
+  setLocalChange(ACCOUNT_METADATA_DOCUMENT_ID, options.markLocalChange !== false)
 }
 
 export async function removeAutomergeItem(itemId: string): Promise<void> {
-  if (!loadedAccount) {
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId) {
     return
   }
 
-  await removeDocumentState(itemId)
-  await removePersistedAutomergeEntry(loadedAccount, itemId)
-  notifyChange(itemId)
+  detachHandle(normalizedItemId)
+  removeItemSnapshot(normalizedItemId)
+  localChangeByDocumentId.delete(normalizedItemId)
+  syncCursorByItemId.delete(normalizedItemId)
+
+  getVaultNetworkAdapter().removeKnownItemIds([normalizedItemId])
+
+  try {
+    getAutomergeRepo().delete(toAutomergeUrlFromItemId(normalizedItemId))
+  } catch {
+    // Ignore missing local handles.
+  }
 }
 
 export async function clearAutomergeDocStore(): Promise<void> {
-  entriesByDocumentId.clear()
-  clearCachedItemSnapshots()
-  cachedSerializedByDocumentId.clear()
-  loadedAccount = null
-  cachedMetadataSnapshot = {}
+  const documentIds = listAutomergeDocumentIds()
 
-  await clearPersistedAutomergeDocs()
+  for (const documentId of documentIds) {
+    try {
+      getAutomergeRepo().delete(toAutomergeUrlFromItemId(documentId))
+    } catch {
+      // Ignore missing local handles.
+    }
 
-  try {
-    await resetAutomergeDocWorker()
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: {
-        area: 'automerge-doc-store',
-        stage: 'clear-store-reset-worker',
-      },
-    })
+    if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
+      detachHandle(documentId)
+    }
   }
 
-  notifyAllItemListeners()
+  detachHandle(ACCOUNT_METADATA_DOCUMENT_ID)
+
+  itemById.clear()
+  metadataSnapshot = {}
+  syncCursorByItemId.clear()
+  localChangeByDocumentId.clear()
+
+  getVaultNetworkAdapter().clearKnownItemIds()
+  clearAutomergeItemIdMappings()
+
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      indexedDB.deleteDatabase('flock-automerge-db')
+    } catch {
+      // Ignore IndexedDB delete failures in constrained environments.
+    }
+  }
+
+  notifyItemListeners()
   notifyMetadataListeners()
 }
 
 export async function seedAutomergeItems(items: Item[]): Promise<void> {
-  for (const item of items) {
-    await seedAutomergeDocument(item)
-  }
+  await Promise.all(items.map(async item => {
+    const normalized = deepClone(item) as unknown as RepoDoc
+    const binary = Automerge.save(Automerge.from(normalized))
+    await seedAutomergeDocument(item.id, binary)
+  }))
 }
 
 export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
-  if (!loadedAccount) {
-    return {}
+  const exported: Partial<Record<ItemId, string>> = {}
+
+  for (const documentId of listAutomergeDocumentIds()) {
+    const handle = await ensureDocumentHandle(documentId)
+    if (!handle.isReady()) {
+      continue
+    }
+
+    const binary = Automerge.save(handle.doc())
+    exported[documentId as ItemId] = encodeBytesToBase64(binary)
   }
 
-  const documents = await exportAutomergeWorkerBinaries()
-  const encoded: Partial<Record<ItemId, string>> = {}
-
-  for (const [itemId, binary] of Object.entries(documents)) {
-    encoded[itemId as ItemId] = encodeBytesToBase64(binary)
-  }
-
-  return encoded
+  return exported
 }
 
 export async function restoreFromBinaries(documents: Partial<Record<ItemId, string>>): Promise<string[]> {
-  if (!loadedAccount) {
-    return []
-  }
-
-  const normalizedEntries = Array.from(new Set(Object.keys(documents || {})))
-    .filter(documentId => (
-      typeof documentId === 'string'
-      && documentId.length > 0
-      && !isMetadataDocumentId(documentId)
-      && typeof documents[documentId] === 'string'
-      && (documents[documentId] as string).length > 0
-    ))
-
-  if (normalizedEntries.length === 0) {
-    return []
-  }
-
   const restoredItemIds: string[] = []
 
-  for (const itemId of normalizedEntries) {
-    const encodedBinary = documents[itemId] as string
-    const existing = entriesByDocumentId.get(itemId)
+  for (const [documentId, encodedBinary] of Object.entries(documents)) {
+    if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) {
+      continue
+    }
 
-    try {
-      const binary = decodeBase64ToBytes(encodedBinary)
-      const nextEntry = await setAutomergeWorkerBinary({
-        documentId: itemId,
-        binary,
-        cursor: existing?.cursor,
-        syncState: existing?.syncState,
-      })
+    await seedAutomergeDocument(documentId, decodeBase64ToBytes(encodedBinary))
 
-      applyWorkerEntry(nextEntry, {
-        hasLocalChanges: true,
-      })
-      await persistAutomergeEntry(loadedAccount, itemId, nextEntry.serialized, true)
-      setCachedAutomergeBinary(itemId, binary)
-      restoredItemIds.push(itemId)
-    } catch (error) {
-      console.error(`Failed to restore binary document for ${itemId}`, error)
+    if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
+      restoredItemIds.push(documentId)
     }
   }
 
-  if (restoredItemIds.length === 0) {
-    return []
+  if (restoredItemIds.length > 0) {
+    getVaultNetworkAdapter().syncItemIds(restoredItemIds)
   }
-
-  notifyItemListeners(restoredItemIds)
-
-  const { requestAutomergeSync } = await import('./automergeSyncDispatcher')
-  requestAutomergeSync(restoredItemIds)
 
   return restoredItemIds
 }
 
-async function applyAutomergeDocumentPatches(
-  documentId: string,
-  patches: WorkerDocumentPatch[],
-): Promise<void> {
-  if (!loadedAccount) {
-    return
-  }
-
-  const workerPatches = normalizeWorkerDocumentPatches(patches)
-  if (workerPatches.length === 0) {
-    return
-  }
-
-  const existingEntry = entriesByDocumentId.get(documentId)
-
-  const nextEntry = await applyAutomergeWorkerPatches({
-    action: 'APPLY_DOCUMENT_PATCHES',
-    documentId,
-    patches: workerPatches,
-    cursor: existingEntry?.cursor,
-    syncState: existingEntry?.syncState,
-  })
-
-  applyWorkerEntry(nextEntry, {
-    hasLocalChanges: true,
-  })
-  await persistAutomergeEntry(loadedAccount, documentId, nextEntry.serialized, true)
-  notifyChange(documentId)
-}
-
 export async function applyAutomergeItemPatches(
   itemId: string,
-  patches: WorkerDocumentPatch[],
+  patches: AutomergeDocumentPatch[],
 ): Promise<void> {
-  await applyAutomergeDocumentPatches(itemId, patches)
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId || patches.length === 0) {
+    return
+  }
+
+  registerAutomergeItemIds([normalizedItemId])
+  getVaultNetworkAdapter().registerKnownItemIds([normalizedItemId])
+
+  const handle = await ensureDocumentHandle(normalizedItemId, {
+    createIfMissing: true,
+    initialValue: {
+      id: normalizedItemId,
+    },
+  })
+
+  handle.change(doc => {
+    for (const patch of patches) {
+      applyPatch(doc, patch)
+    }
+
+    if (typeof doc.id !== 'string' || doc.id.length === 0) {
+      doc.id = normalizedItemId
+    }
+  })
+
+  setLocalChange(normalizedItemId, true)
 }
 
 export async function applyAutomergeMetadataPatches(
-  patches: WorkerDocumentPatch[],
+  patches: AutomergeDocumentPatch[],
 ): Promise<void> {
-  await applyAutomergeDocumentPatches(ACCOUNT_METADATA_DOCUMENT_ID, patches)
+  if (patches.length === 0) {
+    return
+  }
+
+  const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
+    createIfMissing: true,
+    initialValue: {},
+  })
+
+  handle.change(doc => {
+    for (const patch of patches) {
+      applyPatch(doc, patch)
+    }
+  })
+
+  setLocalChange(ACCOUNT_METADATA_DOCUMENT_ID, true)
 }
 
 export function readAutomergeSyncCursor(itemId: string): number {
-  return entriesByDocumentId.get(itemId)?.cursor || 0
+  return syncCursorByItemId.get(itemId) || 0
 }
 
 export async function writeAutomergeSyncCursor(itemId: string, cursor: number): Promise<void> {
-  if (!loadedAccount) {
+  if (!Number.isFinite(cursor)) {
     return
   }
 
-  const existing = entriesByDocumentId.get(itemId)
-  if (!existing) {
-    return
-  }
-
-  const persisted = await setAutomergeWorkerCursor({
-    documentId: itemId,
-    cursor: Math.max(existing.cursor, cursor),
-  })
-
-  if (!persisted) {
-    return
-  }
-
-  entriesByDocumentId.set(itemId, {
-    cursor: persisted.cursor,
-    syncState: persisted.syncState,
-    hasLocalChanges: existing.hasLocalChanges,
-  })
-  cachedSerializedByDocumentId.set(itemId, {
-    doc: new Uint8Array(persisted.doc),
-    syncState: new Uint8Array(persisted.syncState),
-    cursor: persisted.cursor,
-  })
-
-  await persistAutomergeEntry(loadedAccount, itemId, persisted, existing.hasLocalChanges)
+  syncCursorByItemId.set(itemId, Math.max(0, Math.floor(cursor)))
 }
 
 export async function createAutomergeSyncMessage(
   itemId: string,
 ): Promise<{ message: Uint8Array | null; nextSyncState: SyncStateToken } | null> {
-  const existing = entriesByDocumentId.get(itemId)
-  if (!existing || !existing.hasLocalChanges) {
-    return null
-  }
-
-  const generated = await createAutomergeWorkerSyncMessage(itemId)
-  if (!generated) {
+  if (!localChangeByDocumentId.has(itemId)) {
     return null
   }
 
   return {
-    message: generated.message,
-    nextSyncState: generated.nextSyncState,
+    message: null,
+    nextSyncState: new Uint8Array(),
   }
 }
 
-export async function commitAutomergeSyncState(itemId: string, syncState: SyncStateToken): Promise<void> {
-  if (!loadedAccount) {
-    return
-  }
-
-  const existing = entriesByDocumentId.get(itemId)
-  if (!existing) {
-    return
-  }
-
-  const persisted = await commitAutomergeWorkerSyncState({
-    documentId: itemId,
-    syncState,
-  })
-
-  if (!persisted) {
-    return
-  }
-
-  entriesByDocumentId.set(itemId, {
-    cursor: persisted.cursor,
-    syncState: persisted.syncState,
-    hasLocalChanges: false,
-  })
-  cachedSerializedByDocumentId.set(itemId, {
-    doc: new Uint8Array(persisted.doc),
-    syncState: new Uint8Array(persisted.syncState),
-    cursor: persisted.cursor,
-  })
-
-  await persistAutomergeEntry(loadedAccount, itemId, persisted, false)
+export async function commitAutomergeSyncState(itemId: string, _: SyncStateToken): Promise<void> {
+  setLocalChange(itemId, false)
 }
 
 export async function receiveAutomergeSyncMessage(
   itemId: string,
-  message: Uint8Array,
+  _message: Uint8Array,
   cursor?: number,
-): Promise<{ changed: boolean; cursor: number; serialized: WorkerSerializedEntry }> {
-  if (!loadedAccount) {
-    return {
-      changed: false,
-      cursor: 0,
-      serialized: {
-        doc: new Uint8Array(),
-        syncState: new Uint8Array(),
-        cursor: 0,
-      },
-    }
-  }
+): Promise<ReceiveSyncResult> {
+  const nextCursor = Number.isFinite(cursor) ? Math.max(0, Math.floor(cursor as number)) : readAutomergeSyncCursor(itemId)
+  syncCursorByItemId.set(itemId, nextCursor)
 
-  const existing = entriesByDocumentId.get(itemId)
-  const nextHasLocalChanges = existing?.hasLocalChanges === true
-  const nextEntry = await receiveAutomergeWorkerSyncMessage({
-    documentId: itemId,
-    message,
-    cursor,
-    syncState: existing?.syncState,
-  })
-
-  applyWorkerEntry(nextEntry, {
-    hasLocalChanges: nextHasLocalChanges,
-  })
-
-  // Persist doc + sync state + cursor together as a single write payload.
-  await persistAutomergeEntry(loadedAccount, itemId, nextEntry.serialized, nextHasLocalChanges)
-
-  if (nextEntry.changed) {
-    notifyChange(itemId)
-  }
+  getVaultNetworkAdapter().registerKnownItemIds([itemId])
+  getVaultNetworkAdapter().syncItemIds([itemId])
 
   return {
-    changed: nextEntry.changed,
-    cursor: nextEntry.serialized.cursor,
-    serialized: nextEntry.serialized,
+    changed: false,
+    cursor: nextCursor,
+    serialized: {
+      doc: new Uint8Array(),
+      syncState: new Uint8Array(),
+      cursor: nextCursor,
+    },
   }
 }
 
 export function subscribeAutomergeItems(listener: () => void): () => void {
-  return reactivity.subscribeAutomergeItems(listener)
+  itemListeners.add(listener)
+  return () => {
+    itemListeners.delete(listener)
+  }
 }
 
 export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  return reactivity.subscribeAutomergeItem(itemId, listener)
+  const scoped = itemScopedListeners.get(itemId) || new Set<() => void>()
+  scoped.add(listener)
+  itemScopedListeners.set(itemId, scoped)
+
+  return () => {
+    const listeners = itemScopedListeners.get(itemId)
+    if (!listeners) {
+      return
+    }
+
+    listeners.delete(listener)
+    if (listeners.size === 0) {
+      itemScopedListeners.delete(itemId)
+    }
+  }
 }
 
 export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  return reactivity.subscribeAutomergeMetadata(listener)
+  metadataListeners.add(listener)
+  return () => {
+    metadataListeners.delete(listener)
+  }
 }

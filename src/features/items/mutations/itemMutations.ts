@@ -1,9 +1,13 @@
 import type { ItemId } from '../../../shared/itemTypes'
+import * as Automerge from '@automerge/automerge'
+import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import { ERROR_ITEM_TYPE, GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { getAutomergeRepo } from '../../../sync/automergeRepo'
+import { toAutomergeUrlFromItemId } from '../../../sync/automergeRepoIds'
 import {
   ACCOUNT_METADATA_DOCUMENT_ID,
   applyAutomergeItemPatches,
@@ -186,6 +190,60 @@ async function ensureAutomergeStoreReady(): Promise<void> {
   await initializeAutomergeDocStore(getAccountId())
 }
 
+async function upsertRepoItemSnapshot(item: Item): Promise<void> {
+  const repo = getAutomergeRepo()
+  const docUrl = toAutomergeUrlFromItemId(item.id)
+
+  let handle = await repo.find<Record<string, unknown>>(docUrl, {
+    allowableStates: ['ready', 'unavailable'],
+  })
+
+  if (handle.isUnavailable()) {
+    const initialDoc = Automerge.from(normalizeItemForAutomerge(item))
+    const binary = Automerge.save(initialDoc)
+    handle = repo.import<Record<string, unknown>>(binary, {
+      docId: interpretAsDocumentId(docUrl),
+    })
+
+    if (!handle.isReady()) {
+      await handle.whenReady(['ready'])
+    }
+    return
+  }
+
+  if (!handle.isReady()) {
+    await handle.whenReady(['ready'])
+  }
+
+  const normalizedItem = normalizeItemForAutomerge(item)
+  handle.change(doc => {
+    const draft = doc as Record<string, unknown>
+
+    for (const key of Object.keys(draft)) {
+      if (!(key in normalizedItem) || normalizedItem[key] === undefined) {
+        delete draft[key]
+      }
+    }
+
+    for (const [key, value] of Object.entries(normalizedItem)) {
+      if (value !== undefined) {
+        draft[key] = value
+      }
+    }
+  })
+}
+
+function removeRepoItemDocument(itemId: string): void {
+  const repo = getAutomergeRepo()
+  const docUrl = toAutomergeUrlFromItemId(itemId)
+
+  try {
+    repo.delete(docUrl)
+  } catch (error) {
+    console.error('[itemMutations] Failed to delete repo document', error)
+  }
+}
+
 export async function storeItems(
   items: Item | Item[],
 ): Promise<Item[]> {
@@ -207,6 +265,15 @@ export async function storeItems(
   }
 
   if (changedIds.length > 0) {
+    await Promise.allSettled(changedIds.map(async itemId => {
+      const changedItem = current.find(item => item.id === itemId)
+      if (!changedItem) {
+        return
+      }
+
+      await upsertRepoItemSnapshot(changedItem)
+    }))
+
     requestAutomergeSync(changedIds)
   }
 
@@ -245,6 +312,7 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
 
   for (const itemId of ids) {
     await removeAutomergeItem(itemId)
+    removeRepoItemDocument(itemId)
   }
 
   useNavigationStore.getState().pruneItemDrawers(ids)

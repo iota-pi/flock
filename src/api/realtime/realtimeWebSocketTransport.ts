@@ -29,6 +29,18 @@ export class RealtimeWebSocketTransport {
     this.closeWebSocket()
   }
 
+  sendRaw(payload: unknown): void {
+    if (!this.socket || this.socket.readyState !== 1) {
+      return
+    }
+
+    const body = typeof payload === 'string'
+      ? payload
+      : JSON.stringify(payload)
+
+    this.socket.send(body)
+  }
+
   private closeWebSocket(): void {
     if (!this.socket) {
       return

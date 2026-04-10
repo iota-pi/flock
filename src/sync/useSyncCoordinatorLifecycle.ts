@@ -1,7 +1,11 @@
 import { useEffect } from 'react'
 import { ensureItemsBootstrap } from '../api/itemReadService'
 import { useSyncStore } from '../state/syncStore'
-import { startSyncCoordinator, stopSyncCoordinator } from './syncCoordinator'
+import {
+  requestAutomergeSync,
+  startAutomergeSyncDispatcher,
+  stopAutomergeSyncDispatcher,
+} from './automergeSyncDispatcher'
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -20,7 +24,7 @@ export default function useSyncCoordinatorLifecycle(
       const { clearFatalError, setFatalError } = useSyncStore.getState()
 
       if (!enabled || !account) {
-        stopSyncCoordinator()
+        stopAutomergeSyncDispatcher()
         clearFatalError()
         return
       }
@@ -35,20 +39,21 @@ export default function useSyncCoordinatorLifecycle(
             return
           }
 
-          startSyncCoordinator({ account })
+          startAutomergeSyncDispatcher(account)
+          requestAutomergeSync()
         } catch (error) {
           if (cancelled) {
             return
           }
 
-          stopSyncCoordinator()
+          stopAutomergeSyncDispatcher()
           setFatalError(getErrorMessage(error))
         }
       })()
 
       return () => {
         cancelled = true
-        stopSyncCoordinator()
+        stopAutomergeSyncDispatcher()
       }
     },
     [account, enabled],

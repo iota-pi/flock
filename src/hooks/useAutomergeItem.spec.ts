@@ -1,14 +1,13 @@
-import { act, renderHook } from '@testing-library/react'
+import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from '../state/items'
+import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import { useAutomergeItem } from './useAutomergeItem'
 
-const getAutomergeItemSpy = vi.hoisted(() => vi.fn())
-const subscribeAutomergeItemSpy = vi.hoisted(() => vi.fn())
+const useDocumentSpy = vi.hoisted(() => vi.fn())
 
-vi.mock('../sync/automergeDocStore', () => ({
-  getAutomergeItem: getAutomergeItemSpy,
-  subscribeAutomergeItem: subscribeAutomergeItemSpy,
+vi.mock('@automerge/automerge-repo-react-hooks', () => ({
+  useDocument: useDocumentSpy,
 }))
 
 function createItem(id: string, name: string): Item {
@@ -22,39 +21,22 @@ function createItem(id: string, name: string): Item {
 describe('useAutomergeItem', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getAutomergeItemSpy.mockReturnValue(null)
+    useDocumentSpy.mockReturnValue([undefined, vi.fn()])
   })
 
-  it('does not resubscribe when rerendered with the same item id', () => {
-    const unsubscribe = vi.fn()
-    subscribeAutomergeItemSpy.mockReturnValue(unsubscribe)
-    getAutomergeItemSpy.mockReturnValue(createItem('item-1', 'Alice'))
+  it('passes automerge url to useDocument', () => {
+    useDocumentSpy.mockReturnValue([createItem('item-1', 'Alice'), vi.fn()])
 
-    const { rerender, unmount } = renderHook(
-      ({ itemId }: { itemId: string }) => useAutomergeItem(itemId),
-      {
-        initialProps: { itemId: 'item-1' },
-      },
-    )
+    const { result } = renderHook(() => useAutomergeItem('item-1'))
 
-    expect(subscribeAutomergeItemSpy).toHaveBeenCalledTimes(1)
-    expect(subscribeAutomergeItemSpy).toHaveBeenCalledWith('item-1', expect.any(Function))
-
-    rerender({ itemId: 'item-1' })
-
-    expect(subscribeAutomergeItemSpy).toHaveBeenCalledTimes(1)
-
-    unmount()
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(useDocumentSpy).toHaveBeenCalledWith(toAutomergeUrlFromItemId('item-1'), { suspense: false })
+    expect(result.current?.name).toBe('Alice')
   })
 
-  it('resubscribes when the item id changes', () => {
-    const unsubscribeItem1 = vi.fn()
-    const unsubscribeItem2 = vi.fn()
-
-    subscribeAutomergeItemSpy
-      .mockReturnValueOnce(unsubscribeItem1)
-      .mockReturnValueOnce(unsubscribeItem2)
+  it('rerenders with updated item snapshots', () => {
+    useDocumentSpy
+      .mockReturnValueOnce([createItem('item-1', 'Alice'), vi.fn()])
+      .mockReturnValueOnce([createItem('item-2', 'Bob'), vi.fn()])
 
     const { rerender, unmount } = renderHook(
       ({ itemId }: { itemId: string }) => useAutomergeItem(itemId),
@@ -65,35 +47,16 @@ describe('useAutomergeItem', () => {
 
     rerender({ itemId: 'item-2' })
 
-    expect(subscribeAutomergeItemSpy).toHaveBeenCalledTimes(2)
-    expect(subscribeAutomergeItemSpy).toHaveBeenNthCalledWith(1, 'item-1', expect.any(Function))
-    expect(subscribeAutomergeItemSpy).toHaveBeenNthCalledWith(2, 'item-2', expect.any(Function))
-    expect(unsubscribeItem1).toHaveBeenCalledTimes(1)
+    expect(useDocumentSpy).toHaveBeenNthCalledWith(1, toAutomergeUrlFromItemId('item-1'), { suspense: false })
+    expect(useDocumentSpy).toHaveBeenNthCalledWith(2, toAutomergeUrlFromItemId('item-2'), { suspense: false })
 
     unmount()
-    expect(unsubscribeItem2).toHaveBeenCalledTimes(1)
   })
 
-  it('refreshes snapshot when the store notifies a change', () => {
-    let onStoreChange: (() => void) | undefined
-    let currentItem: Item | null = createItem('item-1', 'Alice')
-
-    subscribeAutomergeItemSpy.mockImplementation((_: string, listener: () => void) => {
-      onStoreChange = listener
-      return () => undefined
-    })
-
-    getAutomergeItemSpy.mockImplementation(() => currentItem)
+  it('returns null when document is unavailable', () => {
+    useDocumentSpy.mockReturnValue([undefined, vi.fn()])
 
     const { result } = renderHook(() => useAutomergeItem('item-1'))
-
-    expect(result.current?.name).toBe('Alice')
-
-    act(() => {
-      currentItem = createItem('item-1', 'Bob')
-      onStoreChange?.()
-    })
-
-    expect(result.current?.name).toBe('Bob')
+    expect(result.current).toBeNull()
   })
 })

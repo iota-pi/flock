@@ -16,6 +16,27 @@ const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
 }))
 
+const repoMocks = vi.hoisted(() => {
+  const importedHandle = {
+    isUnavailable: () => false,
+    isReady: () => true,
+    whenReady: vi.fn(async () => undefined),
+    change: vi.fn(),
+  }
+
+  return {
+    find: vi.fn(async () => ({
+      isUnavailable: () => true,
+      isReady: () => true,
+      whenReady: vi.fn(async () => undefined),
+      change: vi.fn(),
+    })),
+    import: vi.fn(() => importedHandle),
+    delete: vi.fn(),
+    importedHandle,
+  }
+})
+
 vi.mock('../sync/automergeDocStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../sync/automergeDocStore')>()
   return {
@@ -31,6 +52,10 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({
   requestAutomergeSync: vi.fn(),
+}))
+
+vi.mock('../sync/automergeRepo', () => ({
+  getAutomergeRepo: () => repoMocks,
 }))
 
 vi.mock('./util', () => ({
