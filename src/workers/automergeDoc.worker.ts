@@ -141,6 +141,96 @@ function normalizeSnapshot(input: Record<string, unknown>): Record<string, unkno
   return normalized
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function clonePatchValue(value: unknown): unknown {
+  if (Array.isArray(value) || isPlainObject(value)) {
+    return structuredClone(value)
+  }
+
+  return value
+}
+
+function syncDraftArray(target: unknown[], source: unknown[]): void {
+  const sharedLength = Math.min(target.length, source.length)
+
+  for (let index = 0; index < sharedLength; index += 1) {
+    const sourceValue = source[index]
+    const targetValue = target[index]
+
+    if (Array.isArray(sourceValue)) {
+      if (Array.isArray(targetValue)) {
+        syncDraftArray(targetValue, sourceValue)
+      } else {
+        target[index] = structuredClone(sourceValue)
+      }
+      continue
+    }
+
+    if (isPlainObject(sourceValue)) {
+      if (isPlainObject(targetValue)) {
+        syncDraftObject(targetValue, sourceValue)
+      } else {
+        target[index] = structuredClone(sourceValue)
+      }
+      continue
+    }
+
+    if (!Object.is(targetValue, sourceValue)) {
+      target[index] = sourceValue
+    }
+  }
+
+  if (target.length > source.length) {
+    target.splice(source.length)
+  }
+
+  for (let index = sharedLength; index < source.length; index += 1) {
+    target.push(clonePatchValue(source[index]))
+  }
+}
+
+function syncDraftObject(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const key of Object.keys(target)) {
+    if (!(key in source)) {
+      delete target[key]
+    }
+  }
+
+  for (const [key, sourceValue] of Object.entries(source)) {
+    const targetValue = target[key]
+
+    if (Array.isArray(sourceValue)) {
+      if (Array.isArray(targetValue)) {
+        syncDraftArray(targetValue, sourceValue)
+      } else {
+        target[key] = structuredClone(sourceValue)
+      }
+      continue
+    }
+
+    if (isPlainObject(sourceValue)) {
+      if (isPlainObject(targetValue)) {
+        syncDraftObject(targetValue, sourceValue)
+      } else {
+        target[key] = structuredClone(sourceValue)
+      }
+      continue
+    }
+
+    if (!Object.is(targetValue, sourceValue)) {
+      target[key] = sourceValue
+    }
+  }
+}
+
 function serializeEntry(entry: WorkerEntry): WorkerSerializedEntry {
   return {
     doc: Automerge.save(entry.doc),
@@ -271,11 +361,7 @@ const workerApi = {
     const normalizedSnapshot = normalizeSnapshot(snapshot)
     const nextDoc = existing
       ? Automerge.change(existing.doc, draft => {
-        for (const key of Object.keys(draft)) {
-          delete (draft as Record<string, unknown>)[key]
-        }
-
-        Object.assign(draft as Record<string, unknown>, normalizedSnapshot)
+        syncDraftObject(draft as Record<string, unknown>, normalizedSnapshot)
       })
       : Automerge.from(normalizedSnapshot)
 

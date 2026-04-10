@@ -45,6 +45,10 @@ function asUint8Array(value: Uint8Array | string): Uint8Array {
   return typeof value === 'string' ? decodeBase64ToBytes(value) : value
 }
 
+function cloneTransferBytes(value: Uint8Array): Uint8Array {
+  return new Uint8Array(value)
+}
+
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
   return {
     itemId: value.itemId,
@@ -52,6 +56,18 @@ function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerReco
     syncState: asUint8Array(value.syncState),
     cursor: value.cursor,
   }
+}
+
+function toTransferRecord(record: PersistedWorkerRecord): PersistedWorkerRecord {
+  return {
+    ...record,
+    doc: cloneTransferBytes(record.doc),
+    syncState: cloneTransferBytes(record.syncState),
+  }
+}
+
+function toTransferRecords(records: PersistedWorkerRecord[]): PersistedWorkerRecord[] {
+  return records.map(record => toTransferRecord(record))
 }
 
 function collectRecordTransferables(records: PersistedWorkerRecord[]): Transferable[] {
@@ -118,7 +134,7 @@ async function rehydrateWorker(): Promise<boolean> {
     disposeWorker()
     const api = getWorkerApi()
     const persisted = await listPersistedAutomergeDocs(account)
-    const records = persisted.map(toPersistedWorkerRecord)
+    const records = toTransferRecords(persisted.map(toPersistedWorkerRecord))
     const transferables = collectRecordTransferables(records)
 
     await api.initialize(Comlink.transfer(records, transferables))
@@ -166,17 +182,19 @@ export async function resetAutomergeDocWorker(): Promise<void> {
 
 export function initializeAutomergeWorkerDocs(account: string, records: PersistedWorkerRecord[]): Promise<WorkerEntrySnapshot[]> {
   activeAccount = account
-  const transferables = collectRecordTransferables(records)
-  return withWorker(api => api.initialize(Comlink.transfer(records, transferables)))
+  const transferRecords = toTransferRecords(records)
+  const transferables = collectRecordTransferables(transferRecords)
+  return withWorker(api => api.initialize(Comlink.transfer(transferRecords, transferables)))
 }
 
 export function loadAutomergeWorkerRecord(record: PersistedWorkerRecord): Promise<WorkerEntrySnapshot | null> {
+  const transferRecord = toTransferRecord(record)
   const transferables: Transferable[] = [
-    record.doc.buffer as ArrayBuffer,
-    record.syncState.buffer as ArrayBuffer,
+    transferRecord.doc.buffer as ArrayBuffer,
+    transferRecord.syncState.buffer as ArrayBuffer,
   ]
 
-  return withWorker(api => api.loadPersistedRecord(Comlink.transfer(record, transferables)))
+  return withWorker(api => api.loadPersistedRecord(Comlink.transfer(transferRecord, transferables)))
 }
 
 export function exportAutomergeWorkerBinaries(): Promise<Record<string, Uint8Array>> {
@@ -184,33 +202,59 @@ export function exportAutomergeWorkerBinaries(): Promise<Record<string, Uint8Arr
 }
 
 export function setAutomergeWorkerSnapshot(input: WorkerSetSnapshotInput): Promise<WorkerEntrySnapshot> {
+  const payload: WorkerSetSnapshotInput = input.syncState instanceof Uint8Array
+    ? {
+      ...input,
+      syncState: cloneTransferBytes(input.syncState),
+    }
+    : input
+
   const transferables: Transferable[] = []
-  if (input.syncState instanceof Uint8Array) {
-    transferables.push(input.syncState.buffer as ArrayBuffer)
+  if (payload.syncState instanceof Uint8Array) {
+    transferables.push(payload.syncState.buffer as ArrayBuffer)
   }
 
-  const payload = transferables.length > 0 ? Comlink.transfer(input, transferables) : input
-  return withWorker(api => api.setSnapshot(payload))
+  const transferredPayload = transferables.length > 0
+    ? Comlink.transfer(payload, transferables)
+    : payload
+
+  return withWorker(api => api.setSnapshot(transferredPayload))
 }
 
 export function setAutomergeWorkerBinary(input: WorkerSetBinaryInput): Promise<WorkerEntrySnapshot> {
-  const transferables: Transferable[] = [input.binary.buffer as ArrayBuffer]
-  if (input.syncState instanceof Uint8Array) {
-    transferables.push(input.syncState.buffer as ArrayBuffer)
+  const payload: WorkerSetBinaryInput = {
+    ...input,
+    binary: cloneTransferBytes(input.binary),
+    syncState: input.syncState instanceof Uint8Array
+      ? cloneTransferBytes(input.syncState)
+      : input.syncState,
   }
 
-  return withWorker(api => api.setBinary(Comlink.transfer(input, transferables)))
+  const transferables: Transferable[] = [payload.binary.buffer as ArrayBuffer]
+  if (payload.syncState instanceof Uint8Array) {
+    transferables.push(payload.syncState.buffer as ArrayBuffer)
+  }
+
+  return withWorker(api => api.setBinary(Comlink.transfer(payload, transferables)))
 }
 
 export function receiveAutomergeWorkerSyncMessage(
   input: WorkerReceiveMessageInput,
 ): Promise<WorkerReceiveSyncMessageResult> {
-  const transferables: Transferable[] = [input.message.buffer as ArrayBuffer]
-  if (input.syncState instanceof Uint8Array) {
-    transferables.push(input.syncState.buffer as ArrayBuffer)
+  const payload: WorkerReceiveMessageInput = {
+    ...input,
+    message: cloneTransferBytes(input.message),
+    syncState: input.syncState instanceof Uint8Array
+      ? cloneTransferBytes(input.syncState)
+      : input.syncState,
   }
 
-  return withWorker(api => api.receiveSyncMessage(Comlink.transfer(input, transferables)))
+  const transferables: Transferable[] = [payload.message.buffer as ArrayBuffer]
+  if (payload.syncState instanceof Uint8Array) {
+    transferables.push(payload.syncState.buffer as ArrayBuffer)
+  }
+
+  return withWorker(api => api.receiveSyncMessage(Comlink.transfer(payload, transferables)))
 }
 
 export function createAutomergeWorkerSyncMessage(documentId: string): Promise<WorkerCreateSyncMessageResult | null> {
@@ -218,8 +262,12 @@ export function createAutomergeWorkerSyncMessage(documentId: string): Promise<Wo
 }
 
 export function commitAutomergeWorkerSyncState(input: WorkerCommitSyncStateInput): Promise<WorkerSerializedEntry | null> {
-  const transferables: Transferable[] = [input.syncState.buffer as ArrayBuffer]
-  return withWorker(api => api.commitSyncState(Comlink.transfer(input, transferables)))
+  const payload: WorkerCommitSyncStateInput = {
+    ...input,
+    syncState: cloneTransferBytes(input.syncState),
+  }
+  const transferables: Transferable[] = [payload.syncState.buffer as ArrayBuffer]
+  return withWorker(api => api.commitSyncState(Comlink.transfer(payload, transferables)))
 }
 
 export function setAutomergeWorkerCursor(input: WorkerSetCursorInput): Promise<WorkerSerializedEntry | null> {

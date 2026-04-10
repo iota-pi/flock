@@ -240,9 +240,8 @@ function notifyItemListeners(itemIds: string[]): void {
       continue
     }
 
-    const nextItem = getAutomergeItem(itemId)
     for (const listener of listeners) {
-      listener(nextItem)
+      listener()
     }
   }
 }
