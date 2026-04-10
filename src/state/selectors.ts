@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
-import {
-  ensureItemsBootstrap,
-  ensureMetadataLoaded,
-} from '../api/itemReadService'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
@@ -19,16 +15,7 @@ const EMPTY_METADATA = {} as Metadata
 
 function useAutomergeItemsSnapshot(): Item[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const account = useAuthStore(state => state.account)
   const itemsSnapshot = useAutomergeItems()
-
-  useEffect(() => {
-    if (!authReady || !account) {
-      return
-    }
-
-    void ensureItemsBootstrap(account).catch(() => undefined)
-  }, [account, authReady])
 
   return authReady ? itemsSnapshot : EMPTY_ARRAY
 }
@@ -38,16 +25,7 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 
 export function useAccountMetadata(): Metadata {
   const authReady = useAuthReady()
-  const account = useAuthStore(state => state.account)
   const metadata = useAutomergeMetadataSnapshot()
-
-  useEffect(() => {
-    if (!authReady || !account) {
-      return
-    }
-
-    void ensureMetadataLoaded(account).catch(() => undefined)
-  }, [account, authReady])
 
   return authReady ? metadata as Metadata : EMPTY_METADATA
 }
@@ -86,16 +64,7 @@ export const useItemMap = () => {
 
 export const useItem = (id: ItemId) => {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const account = useAuthStore(state => state.account)
   const item = useAutomergeItem(id)
-
-  useEffect(() => {
-    if (!authReady || !account) {
-      return
-    }
-
-    void ensureItemsBootstrap(account).catch(() => undefined)
-  }, [account, authReady])
 
   if (!authReady) {
     return undefined
@@ -137,15 +106,21 @@ export function useMetadata<K extends MetadataKey>(
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      const baseMetadata = metadata as Metadata
-      const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
-      const newValue = typeof newValueOrFunc === 'function'
-        ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
-        : newValueOrFunc
+      await setMetadata(previousMetadata => {
+        const previousValue = previousMetadata[key] === undefined
+          ? defaultValue
+          : previousMetadata[key]
+        const newValue = typeof newValueOrFunc === 'function'
+          ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
+          : newValueOrFunc
 
-      await setMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
+        return {
+          ...previousMetadata,
+          [key]: newValue,
+        } as Metadata
+      })
     },
-    [defaultValue, key, metadata],
+    [defaultValue, key],
   )
   return [value, setValue]
 }

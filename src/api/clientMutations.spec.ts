@@ -4,6 +4,7 @@ import { deleteItems, setMetadata, storeItems } from '../features/items/mutation
 import {
   ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
+  getAutomergeMetadata,
   initializeAutomergeDocStore,
   applyAutomergeItemPatches,
   applyAutomergeMetadataPatches,
@@ -11,6 +12,8 @@ import {
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { ensureItemsBootstrap } from './itemReadService'
 import { setApiAuthToken } from './runtime'
+
+const metadataState: Record<string, unknown> = {}
 
 const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
@@ -81,6 +84,25 @@ vi.mock('../state/navigationStore', () => ({
 describe('local-first mutations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    for (const key of Object.keys(metadataState)) {
+      delete metadataState[key]
+    }
+
+    vi.mocked(getAutomergeMetadata).mockImplementation(() => ({
+      ...metadataState,
+    } as any))
+    vi.mocked(applyAutomergeMetadataPatches).mockImplementation(async patches => {
+      for (const patch of patches) {
+        const key = String(patch.path[0])
+
+        if (patch.op === 'remove') {
+          delete metadataState[key]
+        } else {
+          metadataState[key] = patch.value
+        }
+      }
+    })
+
     setApiAuthToken('')
     vi.mocked(ensureItemsBootstrap).mockResolvedValue()
     vi.mocked(getAutomergeItems).mockReturnValue([])
@@ -137,5 +159,21 @@ describe('local-first mutations', () => {
     expect(result.prayerGoal).toBe(20)
     expect(applyAutomergeMetadataPatches).toHaveBeenCalledTimes(1)
     expect(requestAutomergeSync).toHaveBeenCalledWith([ACCOUNT_METADATA_DOCUMENT_ID])
+  })
+
+  it('serializes functional metadata updates to avoid stale overwrites', async () => {
+    await Promise.all([
+      setMetadata(previous => ({
+        ...previous,
+        prayerGoal: 25,
+      } as any)),
+      setMetadata(previous => ({
+        ...previous,
+        sortCriteria: [{ type: 'name', reverse: false }],
+      } as any)),
+    ])
+
+    expect(metadataState.prayerGoal).toBe(25)
+    expect(metadataState.sortCriteria).toEqual([{ type: 'name', reverse: false }])
   })
 })

@@ -244,6 +244,18 @@ function removeRepoItemDocument(itemId: string): void {
   }
 }
 
+let metadataUpdateQueue: Promise<void> = Promise.resolve()
+
+function enqueueMetadataUpdate(task: () => Promise<AccountMetadata>): Promise<AccountMetadata> {
+  const operation = metadataUpdateQueue.then(task)
+  metadataUpdateQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  )
+
+  return operation
+}
+
 export async function storeItems(
   items: Item | Item[],
 ): Promise<Item[]> {
@@ -320,23 +332,34 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
 }
 
 export async function setMetadata(
-  metadata: AccountMetadata,
+  metadata: AccountMetadata | ((previous: AccountMetadata) => AccountMetadata),
 ): Promise<AccountMetadata> {
-  const nextMetadata = sanitizeMetadata(metadata)
+  return enqueueMetadataUpdate(async () => {
+    await ensureAutomergeStoreReady()
 
-  await ensureAutomergeStoreReady()
+    const currentMetadata = getAutomergeMetadata() as AccountMetadata
+    const nextMetadata = sanitizeMetadata(
+      typeof metadata === 'function'
+        ? (metadata as (previous: AccountMetadata) => AccountMetadata)({
+          ...currentMetadata,
+        })
+        : metadata,
+    )
 
-  const currentMetadata = getAutomergeMetadata() as Record<string, unknown>
-  const normalizedMetadata = normalizeMetadataForAutomerge(nextMetadata)
-  const patches = buildTopLevelDocumentPatches(currentMetadata, normalizedMetadata)
+    const normalizedMetadata = normalizeMetadataForAutomerge(nextMetadata)
+    const patches = buildTopLevelDocumentPatches(
+      currentMetadata as Record<string, unknown>,
+      normalizedMetadata,
+    )
 
-  if (patches.length === 0) {
+    if (patches.length === 0) {
+      return nextMetadata
+    }
+
+    await applyAutomergeMetadataPatches(patches)
+
+    requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
+
     return nextMetadata
-  }
-
-  await applyAutomergeMetadataPatches(patches)
-
-  requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
-
-  return nextMetadata
+  })
 }

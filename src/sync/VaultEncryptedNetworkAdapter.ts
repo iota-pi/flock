@@ -60,6 +60,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private pullRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private pendingPullItemIds = new Set<string>()
   private readonly knownItemIds = new Set<string>()
+  private knownItemIdsSnapshot: string[] = []
+  private knownItemIdsVersion = 0
   private readonly knownItemIdsListeners = new Set<KnownItemIdsListener>()
 
   constructor() {
@@ -99,7 +101,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   getKnownItemIds(): string[] {
-    return Array.from(this.knownItemIds)
+    return [...this.knownItemIdsSnapshot]
+  }
+
+  getKnownItemIdsState(): { version: number; itemIds: readonly string[] } {
+    return {
+      version: this.knownItemIdsVersion,
+      itemIds: this.knownItemIdsSnapshot,
+    }
   }
 
   subscribeKnownItemIds(listener: KnownItemIdsListener): () => void {
@@ -314,7 +323,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   private notifyKnownItemIdsChanged(): void {
-    const itemIds = this.getKnownItemIds()
+    this.knownItemIdsVersion += 1
+    this.knownItemIdsSnapshot = Array.from(this.knownItemIds)
+
+    const itemIds = this.knownItemIdsSnapshot
     for (const listener of this.knownItemIdsListeners) {
       listener(itemIds)
     }

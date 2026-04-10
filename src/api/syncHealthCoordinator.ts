@@ -16,22 +16,41 @@ export type DecryptionFailedEvent = {
 
 const recoveryInFlightItemIds = new Set<ItemId>()
 const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
+const recoveryCooldownCleanupTimeoutByItemId = new Map<ItemId, ReturnType<typeof setTimeout>>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 let syncHealthWatchersInitialized = false
 
-function pruneExpiredRecoveryCooldownEntries(now: number): void {
-  for (const [itemId, cooldownUntil] of recoveryCooldownUntilByItemId.entries()) {
-    if (cooldownUntil <= now) {
-      recoveryCooldownUntilByItemId.delete(itemId)
-    }
+function clearRecoveryCooldown(itemId: ItemId): void {
+  const timeoutId = recoveryCooldownCleanupTimeoutByItemId.get(itemId)
+  if (timeoutId !== undefined) {
+    clearTimeout(timeoutId)
+    recoveryCooldownCleanupTimeoutByItemId.delete(itemId)
   }
+
+  recoveryCooldownUntilByItemId.delete(itemId)
+}
+
+function setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
+  clearRecoveryCooldown(itemId)
+  recoveryCooldownUntilByItemId.set(itemId, cooldownUntil)
+
+  const delayMs = Math.max(0, cooldownUntil - Date.now())
+  const timeoutId = setTimeout(() => {
+    recoveryCooldownCleanupTimeoutByItemId.delete(itemId)
+    recoveryCooldownUntilByItemId.delete(itemId)
+  }, delayMs)
+
+  recoveryCooldownCleanupTimeoutByItemId.set(itemId, timeoutId)
 }
 
 function getRecoveryCooldownUntil(itemId: ItemId): number {
-  const now = Date.now()
-  pruneExpiredRecoveryCooldownEntries(now)
+  const cooldownUntil = recoveryCooldownUntilByItemId.get(itemId) || 0
+  if (cooldownUntil <= Date.now()) {
+    clearRecoveryCooldown(itemId)
+    return 0
+  }
 
-  return recoveryCooldownUntilByItemId.get(itemId) || 0
+  return cooldownUntil
 }
 
 async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
@@ -67,7 +86,7 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
       : 'Automated recovery is unavailable for this revision'
 
     await triggerManualRecoveryUI(itemId, branchHint)
-    recoveryCooldownUntilByItemId.set(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+    setRecoveryCooldown(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
   } finally {
     recoveryInFlightItemIds.delete(itemId)
   }
@@ -86,7 +105,7 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
 
   for (const itemId of uniqueItemIds) {
     await removeManualRecoveryEntryByItemId(itemId)
-    recoveryCooldownUntilByItemId.delete(itemId)
+    clearRecoveryCooldown(itemId)
     recoveryInFlightItemIds.delete(itemId)
   }
 

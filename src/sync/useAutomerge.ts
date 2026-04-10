@@ -10,6 +10,9 @@ import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 const EMPTY_ITEM_IDS: string[] = []
 const EMPTY_METADATA: AccountMetadata = {}
 const EMPTY_ITEM: Item | null = null
+const INITIAL_KNOWN_ITEM_IDS_VERSION = -1
+
+let cachedKnownItemIdsVersion = INITIAL_KNOWN_ITEM_IDS_VERSION
 let cachedKnownItemIdsSnapshot: string[] = EMPTY_ITEM_IDS
 
 function subscribeKnownItemIds(onStoreChange: () => void): () => void {
@@ -19,18 +22,18 @@ function subscribeKnownItemIds(onStoreChange: () => void): () => void {
 }
 
 function getKnownItemIdsSnapshot(): string[] {
-  const nextSnapshot = getVaultNetworkAdapter()
-    .getKnownItemIds()
-    .filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
+  const adapter = getVaultNetworkAdapter()
+  const { version, itemIds } = adapter.getKnownItemIdsState()
 
-  if (cachedKnownItemIdsSnapshot.length === nextSnapshot.length) {
-    const hasChanged = cachedKnownItemIdsSnapshot.some((itemId, index) => itemId !== nextSnapshot[index])
-    if (!hasChanged) {
-      return cachedKnownItemIdsSnapshot
-    }
+  if (cachedKnownItemIdsVersion === version) {
+    return cachedKnownItemIdsSnapshot
   }
 
-  cachedKnownItemIdsSnapshot = nextSnapshot
+  const nextSnapshot = itemIds
+    .filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
+
+  cachedKnownItemIdsVersion = version
+  cachedKnownItemIdsSnapshot = nextSnapshot.length > 0 ? nextSnapshot : EMPTY_ITEM_IDS
   return cachedKnownItemIdsSnapshot
 }
 

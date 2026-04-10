@@ -79,6 +79,10 @@ vi.mock('@automerge/automerge-repo-react-hooks', () => ({
 vi.mock('../sync/automergeRepo', () => ({
   getVaultNetworkAdapter: () => ({
     getKnownItemIds: () => itemsFixture.map(item => item.id),
+    getKnownItemIdsState: () => ({
+      version: 1,
+      itemIds: itemsFixture.map(item => item.id),
+    }),
     subscribeKnownItemIds: (listener: (itemIds: string[]) => void) => {
       listener(itemsFixture.map(item => item.id))
       return () => undefined
