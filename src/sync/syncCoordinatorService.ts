@@ -1,7 +1,11 @@
-import { startRealtimeCoordinator, stopRealtimeCoordinator } from '../api/realtimeCoordinator'
+import {
+  setRealtimeCoordinatorTransportPaused,
+  startRealtimeCoordinator,
+  stopRealtimeCoordinator,
+} from '../api/realtimeCoordinator'
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
-import { requestAutomergeSync } from './automergeSyncDispatcher'
+import { pullRemoteMessagesNow, requestAutomergeSync } from './automergeSyncDispatcher'
 import { initializeAutomergeDocStore } from './automergeDocStore'
 
 type SyncCoordinatorOptions = {
@@ -31,13 +35,60 @@ export class SyncCoordinatorService {
       requestAutomergeSync()
     }
 
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const payload = event.data as {
+        type?: string
+        account?: string
+        itemIds?: unknown
+      }
+
+      if (payload?.type !== 'FLOCK_BACKGROUND_SYNC_PUSHED' || payload.account !== options.account) {
+        return
+      }
+
+      const itemIds = Array.isArray(payload.itemIds)
+        ? payload.itemIds.filter((itemId): itemId is string => typeof itemId === 'string' && itemId.length > 0)
+        : undefined
+
+      void pullRemoteMessagesNow(itemIds).catch(() => undefined)
+    }
+
     if (typeof window !== 'undefined') {
       window.addEventListener('online', handleOnline)
     }
 
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
+    }
+
     let realtimeStarted = false
+    const isDocumentHidden = (): boolean => {
+      return typeof document !== 'undefined' && document.visibilityState === 'hidden'
+    }
+
+    const pauseRealtimeTransport = (): void => {
+      if (!realtimeStarted) {
+        return
+      }
+
+      setRealtimeCoordinatorTransportPaused(true)
+    }
+
+    const resumeRealtimeTransport = (): void => {
+      if (!realtimeStarted) {
+        return
+      }
+
+      setRealtimeCoordinatorTransportPaused(false)
+    }
+
     const startRealtimeIfAuthorized = (): void => {
       if (realtimeStarted) {
+        if (isDocumentHidden()) {
+          pauseRealtimeTransport()
+        } else {
+          resumeRealtimeTransport()
+        }
         return
       }
 
@@ -56,6 +107,10 @@ export class SyncCoordinatorService {
       })
 
       realtimeStarted = true
+
+      if (isDocumentHidden()) {
+        pauseRealtimeTransport()
+      }
     }
 
     const stopRealtime = (): void => {
@@ -88,7 +143,7 @@ export class SyncCoordinatorService {
         hiddenDisconnectTimer = setTimeout(() => {
           hiddenDisconnectTimer = null
           if (document.visibilityState === 'hidden') {
-            stopRealtime()
+            pauseRealtimeTransport()
           }
         }, this.hiddenDisconnectDelayMs)
         return
@@ -96,6 +151,7 @@ export class SyncCoordinatorService {
 
       clearHiddenDisconnectTimer()
       startRealtimeIfAuthorized()
+      resumeRealtimeTransport()
     }
 
     if (typeof document !== 'undefined') {
@@ -125,6 +181,10 @@ export class SyncCoordinatorService {
 
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', handleOnline)
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
       }
     }
   }

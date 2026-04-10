@@ -29,6 +29,7 @@ type RealtimeCoordinatorOptions = {
 
 type RealtimeCoordinatorHandle = {
   stop: () => void
+  setTransportPaused: (paused: boolean) => void
 }
 
 let activeHandle: RealtimeCoordinatorHandle | null = null
@@ -109,6 +110,8 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
     : () => undefined
 
   let stopped = false
+  let isLeader = false
+  let transportPaused = false
 
   const runRemotePull = (itemIds: string[]) => {
     const normalizedItemIds = normalizeRealtimeItemIds(itemIds)
@@ -162,13 +165,17 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
   })
 
   const stopLeader = () => {
+    isLeader = false
     transport.stop()
     stopAutomergeSyncDispatcher()
   }
 
   const startLeader = () => {
+    isLeader = true
     startAutomergeSyncDispatcher(account)
-    transport.start()
+    if (!transportPaused) {
+      transport.start()
+    }
     requestAutomergeSync()
   }
 
@@ -189,6 +196,21 @@ function createWebLockCoordinator(options: RealtimeCoordinatorOptions): Realtime
 
       unsubscribeSyncPing()
       stopRealtimeBus()
+    },
+    setTransportPaused: (paused: boolean) => {
+      transportPaused = paused
+
+      if (!isLeader) {
+        return
+      }
+
+      if (transportPaused) {
+        transport.stop()
+        return
+      }
+
+      transport.start()
+      requestAutomergeSync()
     },
   }
 }
@@ -217,4 +239,8 @@ export function stopRealtimeCoordinator(): void {
   activeHandle.stop()
   activeHandle = null
   activeKey = ''
+}
+
+export function setRealtimeCoordinatorTransportPaused(paused: boolean): void {
+  activeHandle?.setTransportPaused(paused)
 }

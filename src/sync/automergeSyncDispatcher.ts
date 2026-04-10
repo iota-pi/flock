@@ -1,5 +1,5 @@
 import { getAccountId } from '../api/util'
-import { handleVaultError } from '../api/runtime'
+import { getApiAuthToken, handleVaultError } from '../api/runtime'
 import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
 import {
   commitAutomergeSyncState,
@@ -20,6 +20,11 @@ import {
 } from './realtimeBus'
 import { decryptSyncMessage, encryptSyncMessage } from './automergeSyncCrypto'
 import { AutomergeSyncTaskQueue } from './automergeSyncTaskQueue'
+import {
+  BACKGROUND_SYNC_PUSH_TAG,
+  consumeBackgroundSyncPushCommits,
+  enqueueBackgroundSyncPushBatch,
+} from './backgroundSyncPushQueue'
 
 const SHOULD_THROW_SYNC_ERRORS = (
   typeof window !== 'undefined'
@@ -29,8 +34,11 @@ const SHOULD_THROW_SYNC_ERRORS = (
 let activeAccount: string | null = null
 let syncQueue = new AutomergeSyncTaskQueue()
 let lastSyncErrorReportAt = 0
+let lastBackgroundSyncRegistrationAt = 0
 
 const SYNC_ERROR_REPORT_THROTTLE_MS = 15_000
+const BACKGROUND_SYNC_REGISTER_THROTTLE_MS = 10_000
+const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 
 function normalizeSyncError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
@@ -49,6 +57,111 @@ function reportSyncError(error: unknown): void {
   handleVaultError(normalized, 'Background sync failed. Local changes will retry on the next sync event.')
 }
 
+function decodeBase64ToBytes(value: string): Uint8Array {
+  const decoded = atob(value)
+  const bytes = new Uint8Array(decoded.length)
+
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index)
+  }
+
+  return bytes
+}
+
+function encodeBytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  return btoa(binary)
+}
+
+function extractHttpStatusCode(error: unknown): number | null {
+  const normalized = normalizeSyncError(error)
+  const match = normalized.message.match(/status\s+(\d{3})/i)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number(match[1])
+  return Number.isInteger(parsed) ? parsed : null
+}
+
+function isOfflineOrNetworkError(error: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return true
+  }
+
+  const normalized = normalizeSyncError(error)
+  const message = normalized.message.toLowerCase()
+  return (
+    message.includes('failed to fetch')
+    || message.includes('networkerror')
+    || message.includes('network request failed')
+    || message.includes('network connection was lost')
+    || message.includes('load failed')
+  )
+}
+
+function isRetryableSyncError(error: unknown): boolean {
+  if (isOfflineOrNetworkError(error)) {
+    return true
+  }
+
+  const statusCode = extractHttpStatusCode(error)
+  if (statusCode !== null) {
+    return RETRYABLE_HTTP_STATUS_CODES.has(statusCode)
+  }
+
+  const message = normalizeSyncError(error).message.toLowerCase()
+  return (
+    message.includes('timeout')
+    || message.includes('temporarily unavailable')
+    || message.includes('service unavailable')
+    || message.includes('gateway timeout')
+  )
+}
+
+async function registerBackgroundSyncPush(): Promise<void> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  const now = Date.now()
+  if (now - lastBackgroundSyncRegistrationAt < BACKGROUND_SYNC_REGISTER_THROTTLE_MS) {
+    return
+  }
+
+  const registration = await navigator.serviceWorker.ready
+  const syncRegistration = registration as ServiceWorkerRegistration & {
+    sync?: {
+      register: (tag: string) => Promise<void>
+    }
+  }
+
+  if (!syncRegistration.sync?.register) {
+    return
+  }
+
+  await syncRegistration.sync.register(BACKGROUND_SYNC_PUSH_TAG)
+  lastBackgroundSyncRegistrationAt = now
+}
+
+async function flushBackgroundSyncPushCommits(account: string): Promise<void> {
+  const commits = await consumeBackgroundSyncPushCommits(account)
+  if (commits.length === 0) {
+    return
+  }
+
+  await Promise.all(commits.map(async commit => {
+    await commitAutomergeSyncState(commit.itemId, decodeBase64ToBytes(commit.nextSyncState))
+  }))
+}
+
 async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promise<void> {
   const dirtyItemIds = filterAutomergeLocallyChangedDocumentIds(itemIds)
   if (dirtyItemIds.length === 0) {
@@ -62,6 +175,7 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
       cipher: string
     }
     nextSyncState: Parameters<typeof commitAutomergeSyncState>[1]
+    nextSyncStateEncoded: string
   }
 
   const pendingBatch = (await Promise.all(dirtyItemIds.map(async itemId => {
@@ -75,6 +189,7 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
       itemId,
       encryptedMessage,
       nextSyncState: generated.nextSyncState,
+      nextSyncStateEncoded: encodeBytesToBase64(generated.nextSyncState),
     } satisfies PendingSyncEntry
   }))).filter((entry): entry is PendingSyncEntry => entry !== null)
 
@@ -82,13 +197,34 @@ async function pushLocalMessagesBatch(account: string, itemIds: string[]): Promi
     return
   }
 
-  await pushSyncBatch({
-    account,
-    messages: pendingBatch.map(entry => ({
-      itemId: entry.itemId,
-      encryptedMessage: entry.encryptedMessage,
-    })),
-  })
+  try {
+    await pushSyncBatch({
+      account,
+      messages: pendingBatch.map(entry => ({
+        itemId: entry.itemId,
+        encryptedMessage: entry.encryptedMessage,
+      })),
+    })
+  } catch (error) {
+    if (isRetryableSyncError(error)) {
+      const authToken = getApiAuthToken()
+      if (authToken) {
+        await enqueueBackgroundSyncPushBatch({
+          account,
+          authToken,
+          messages: pendingBatch.map(entry => ({
+            itemId: entry.itemId,
+            encryptedMessage: entry.encryptedMessage,
+            nextSyncState: entry.nextSyncStateEncoded,
+          })),
+        })
+
+        await registerBackgroundSyncPush().catch(() => undefined)
+      }
+    }
+
+    throw error
+  }
 
   await Promise.all(pendingBatch.map(entry => (
     commitAutomergeSyncState(entry.itemId, entry.nextSyncState)
@@ -164,15 +300,23 @@ function uniqueItemIds(itemIds?: string[]): string[] {
 }
 
 function enqueueSyncOperation<T>(operation: () => Promise<T>): Promise<T> {
-  const wrapped = syncQueue.enqueue(async () => {
-    useSyncStore.getState().setIsSyncing(true)
+  const wrapped = syncQueue.enqueue(
+    async () => {
+      useSyncStore.getState().setIsSyncing(true)
 
-    try {
-      return await operation()
-    } finally {
-      useSyncStore.getState().setIsSyncing(false)
-    }
-  })
+      try {
+        return await operation()
+      } finally {
+        useSyncStore.getState().setIsSyncing(false)
+      }
+    },
+    {
+      shouldRetry: error => !SHOULD_THROW_SYNC_ERRORS && isRetryableSyncError(error),
+      maxRetries: 5,
+      initialRetryDelayMs: 400,
+      maxRetryDelayMs: 20_000,
+    },
+  )
 
   if (!SHOULD_THROW_SYNC_ERRORS) {
     void wrapped.catch(error => {
@@ -195,6 +339,7 @@ async function withActiveAccount<T>(action: (account: string) => Promise<T>): Pr
 
 async function pushItemNow(itemId: string): Promise<void> {
   await withActiveAccount(async account => {
+    await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, [itemId])
   })
 }
@@ -206,6 +351,7 @@ export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[
   }
 
   const result = await enqueueSyncOperation(() => withActiveAccount(async account => {
+    await flushBackgroundSyncPushCommits(account)
     return pullRemoteMessagesBatch(account, normalizedIds)
   }))
 
@@ -219,6 +365,7 @@ async function runFullSync(itemIds?: string[]): Promise<void> {
   }
 
   await withActiveAccount(async account => {
+    await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, normalizedIds)
     await pullRemoteMessagesBatch(account, normalizedIds)
   })
@@ -230,6 +377,7 @@ async function pushItemIdsNow(itemIds: string[]): Promise<void> {
   }
 
   await withActiveAccount(async account => {
+    await flushBackgroundSyncPushCommits(account)
     await pushLocalMessagesBatch(account, itemIds)
   })
 }

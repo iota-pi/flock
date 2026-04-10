@@ -58,7 +58,10 @@ vi.mock('../api/itemReadService', () => ({
 
 vi.mock('../sync/automergeDocStore', () => ({
   getAutomergeItems: vi.fn(() => itemsFixture),
+  getAutomergeItemIds: vi.fn(() => itemsFixture.map(item => item.id)),
+  getAutomergeItem: vi.fn((itemId: string) => itemsFixture.find(item => item.id === itemId) || null),
   subscribeAutomergeItems: vi.fn(() => () => undefined),
+  subscribeAutomergeItem: vi.fn(() => () => undefined),
 }))
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({

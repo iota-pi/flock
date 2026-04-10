@@ -124,9 +124,9 @@ function getInitialDocumentSnapshot(documentId: string): Record<string, unknown>
 
 function pruneUndefinedDeepInPlace(value: unknown): void {
   if (Array.isArray(value)) {
-    for (let index = value.length - 1; index >= 0; index -= 1) {
+    for (let index = 0; index < value.length; index += 1) {
       if (value[index] === undefined) {
-        value.splice(index, 1)
+        value[index] = null
         continue
       }
 
@@ -422,26 +422,50 @@ function decodeSyncState(syncState: Uint8Array): SyncState {
   return Automerge.decodeSyncState(syncState)
 }
 
-function loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
+function parsePersistedRecord(record: PersistedWorkerRecord): WorkerEntry | null {
   if (!record || typeof record.itemId !== 'string' || record.itemId.length === 0) {
     return null
   }
 
   try {
-    const doc = Automerge.load<Record<string, unknown>>(record.doc)
-    const syncState = decodeSyncState(record.syncState)
-    const entry: WorkerEntry = {
-      doc,
-      syncState,
+    return {
+      doc: Automerge.load<Record<string, unknown>>(record.doc),
+      syncState: decodeSyncState(record.syncState),
       cursor: typeof record.cursor === 'number' ? record.cursor : 0,
     }
-
-    entriesByDocumentId.set(record.itemId, entry)
-    return toEntrySnapshot(record.itemId, entry)
   } catch {
+    return null
+  }
+}
+
+function loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
+  const parsed = parsePersistedRecord(record)
+  if (!parsed) {
     entriesByDocumentId.delete(record.itemId)
     return null
   }
+
+  entriesByDocumentId.set(record.itemId, parsed)
+  return toEntrySnapshot(record.itemId, parsed)
+}
+
+function mergePersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
+  const parsed = parsePersistedRecord(record)
+  if (!parsed) {
+    return null
+  }
+
+  const existing = entriesByDocumentId.get(record.itemId)
+  const mergedEntry: WorkerEntry = existing
+    ? {
+      doc: Automerge.merge(existing.doc, parsed.doc),
+      syncState: existing.syncState,
+      cursor: Math.max(existing.cursor, parsed.cursor),
+    }
+    : parsed
+
+  entriesByDocumentId.set(record.itemId, mergedEntry)
+  return toEntrySnapshot(record.itemId, mergedEntry)
 }
 
 const workerApi = {
@@ -475,6 +499,18 @@ const workerApi = {
     return transferWorkerValue(loaded, [
       loaded.serialized.doc,
       loaded.serialized.syncState,
+    ])
+  },
+
+  mergePersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
+    const merged = mergePersistedRecord(record)
+    if (!merged) {
+      return null
+    }
+
+    return transferWorkerValue(merged, [
+      merged.serialized.doc,
+      merged.serialized.syncState,
     ])
   },
 

@@ -1,5 +1,13 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching'
+import env from './env'
+import {
+  appendBackgroundSyncPushCommits,
+  BACKGROUND_SYNC_PUSH_TAG,
+  listBackgroundSyncPushBatches,
+  removeBackgroundSyncPushBatches,
+  type BackgroundSyncPushBatch,
+} from './sync/backgroundSyncPushQueue'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -11,6 +19,128 @@ type PushPayload = {
   icon?: string
   badge?: string
   url?: string
+}
+
+type SyncEventLike = ExtendableEvent & {
+  tag?: string
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
+}
+
+async function pushBackgroundSyncBatch(batch: BackgroundSyncPushBatch): Promise<'success' | 'drop' | 'retry'> {
+  if (!env.VAULT_ENDPOINT) {
+    return 'drop'
+  }
+
+  try {
+    const response = await fetch(`${env.VAULT_ENDPOINT}/sync/push`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${batch.authToken}`,
+      },
+      body: JSON.stringify({
+        account: batch.account,
+        messages: batch.messages.map(message => ({
+          itemId: message.itemId,
+          encryptedMessage: message.encryptedMessage,
+        })),
+      }),
+    })
+
+    if (response.ok) {
+      return 'success'
+    }
+
+    return isRetryableHttpStatus(response.status) ? 'retry' : 'drop'
+  } catch {
+    return 'retry'
+  }
+}
+
+async function notifyClientsOfBackgroundSyncPushes(itemIdsByAccount: Map<string, Set<string>>): Promise<void> {
+  if (itemIdsByAccount.size === 0) {
+    return
+  }
+
+  const clientList = await self.clients.matchAll({
+    includeUncontrolled: true,
+    type: 'window',
+  })
+
+  for (const [account, itemIds] of itemIdsByAccount) {
+    const payload = {
+      type: 'FLOCK_BACKGROUND_SYNC_PUSHED',
+      account,
+      itemIds: Array.from(itemIds),
+    }
+
+    for (const client of clientList) {
+      client.postMessage(payload)
+    }
+  }
+}
+
+async function handleBackgroundSyncPush(): Promise<void> {
+  const pendingBatches = await listBackgroundSyncPushBatches()
+  if (pendingBatches.length === 0) {
+    return
+  }
+
+  const processedBatchIds: string[] = []
+  const commits: Array<{ account: string; itemId: string; nextSyncState: string; committedAt: number }> = []
+  const itemIdsByAccount = new Map<string, Set<string>>()
+
+  let shouldRetry = false
+
+  for (const batch of pendingBatches) {
+    const outcome = await pushBackgroundSyncBatch(batch)
+
+    if (outcome === 'success') {
+      processedBatchIds.push(batch.id)
+
+      for (const message of batch.messages) {
+        commits.push({
+          account: batch.account,
+          itemId: message.itemId,
+          nextSyncState: message.nextSyncState,
+          committedAt: Date.now(),
+        })
+
+        const existingIds = itemIdsByAccount.get(batch.account)
+        if (existingIds) {
+          existingIds.add(message.itemId)
+        } else {
+          itemIdsByAccount.set(batch.account, new Set([message.itemId]))
+        }
+      }
+
+      continue
+    }
+
+    if (outcome === 'drop') {
+      processedBatchIds.push(batch.id)
+      continue
+    }
+
+    shouldRetry = true
+    break
+  }
+
+  if (processedBatchIds.length > 0) {
+    await removeBackgroundSyncPushBatches(processedBatchIds)
+  }
+
+  if (commits.length > 0) {
+    await appendBackgroundSyncPushCommits(commits)
+    await notifyClientsOfBackgroundSyncPushes(itemIdsByAccount)
+  }
+
+  if (shouldRetry) {
+    throw new Error('Background sync push will retry')
+  }
 }
 
 self.addEventListener('push', event => {
@@ -93,4 +223,13 @@ self.addEventListener('notificationclick', event => {
       return self.clients.openWindow(targetUrl)
     }),
   )
+})
+
+self.addEventListener('sync', event => {
+  const syncEvent = event as SyncEventLike
+  if (syncEvent.tag !== BACKGROUND_SYNC_PUSH_TAG) {
+    return
+  }
+
+  syncEvent.waitUntil(handleBackgroundSyncPush())
 })

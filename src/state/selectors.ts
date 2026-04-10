@@ -13,7 +13,7 @@ import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
-import { useAutomergeItems } from '../sync/useAutomerge'
+import { useAutomergeItem, useAutomergeItems } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -90,14 +90,27 @@ export const useItemMap = () => {
 }
 
 export const useItem = (id: ItemId) => {
-  const items = useAutomergeItemsSnapshot()
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const account = useAuthStore(state => state.account)
+  const item = useAutomergeItem(id)
 
-  return useMemo(
-    () => items
-      .filter(item => !(item as Item & { deleted?: boolean }).deleted)
-      .find(item => item.id === id),
-    [id, items],
-  )
+  useEffect(() => {
+    if (!authReady || !account) {
+      return
+    }
+
+    void ensureItemsBootstrap(account).catch(() => undefined)
+  }, [account, authReady])
+
+  if (!authReady) {
+    return undefined
+  }
+
+  if (!item || (item as Item & { deleted?: boolean }).deleted) {
+    return undefined
+  }
+
+  return item
 }
 
 export function useItemsById() {

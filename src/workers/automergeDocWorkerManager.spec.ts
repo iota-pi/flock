@@ -22,6 +22,7 @@ type WorkerApi = {
   reset: ReturnType<typeof vi.fn>
   initialize: ReturnType<typeof vi.fn>
   loadPersistedRecord: ReturnType<typeof vi.fn>
+  mergePersistedRecord: ReturnType<typeof vi.fn>
   exportAllBinaries: ReturnType<typeof vi.fn>
   setSnapshot: ReturnType<typeof vi.fn>
   applyDocumentPatches: ReturnType<typeof vi.fn>
@@ -57,6 +58,7 @@ function createWorkerApi(overrides: Partial<WorkerApi> = {}): WorkerApi {
     reset: vi.fn(),
     initialize: vi.fn().mockResolvedValue([]),
     loadPersistedRecord: vi.fn().mockResolvedValue(null),
+    mergePersistedRecord: vi.fn().mockResolvedValue(null),
     exportAllBinaries: vi.fn().mockResolvedValue({}),
     setSnapshot: vi.fn(),
     applyDocumentPatches: vi.fn(),

@@ -20,6 +20,7 @@ import {
 import TagDisplay from '../../../components/TagDisplay'
 import { getIcon as getItemIcon } from '../../../components/Icons'
 import { getItemName, type GroupItem, isItem, type Item } from '../../../state/items'
+import { useAutomergeItem } from '../../../sync/useAutomerge'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -124,52 +125,55 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     wrapText,
   } = useItemListContext()
 
+  const liveItem = useAutomergeItem(item.id) as T | null
+  const currentItem = liveItem || item
+
   const handleClick = useCallback(
-    () => onClick?.(item),
-    [item, onClick],
+    () => onClick?.(currentItem),
+    [currentItem, onClick],
   )
 
   const handleClickAction = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation()
       if (onClickAction) {
-        return onClickAction(item)
+        return onClickAction(currentItem)
       }
       if (onClick) {
-        return onClick(item)
+        return onClick(currentItem)
       }
       return undefined
     },
-    [item, onClick, onClickAction],
+    [currentItem, onClick, onClickAction],
   )
 
   const handleCheck = useCallback(
     (event: MouseEvent) => {
       if (onCheck) {
         event.stopPropagation()
-        onCheck(item)
+        onCheck(currentItem)
       }
     },
-    [item, onCheck],
+    [currentItem, onCheck],
   )
 
   const actionIcon = useMemo(
-    () => getActionIcon?.(item),
-    [getActionIcon, item],
+    () => getActionIcon?.(currentItem),
+    [currentItem, getActionIcon],
   )
-  const checked = useMemo(() => getChecked?.(item), [getChecked, item])
+  const checked = useMemo(() => getChecked?.(currentItem), [currentItem, getChecked])
   const icon = useMemo(
-    () => getIcon?.(item) || (isItem(item) ? getItemIcon(item.type) : undefined),
-    [getIcon, item],
+    () => getIcon?.(currentItem) || (isItem(currentItem) ? getItemIcon(currentItem.type) : undefined),
+    [currentItem, getIcon],
   )
   const title = useMemo(
-    () => getTitle?.(item) || (isItem(item) ? getItemName(item) : undefined),
-    [getTitle, item],
+    () => getTitle?.(currentItem) || (isItem(currentItem) ? getItemName(currentItem) : undefined),
+    [currentItem, getTitle],
   )
   const description = useMemo(
     () => {
-      const defaultDescription = isItem(item) ? item.description : ''
-      const base = getDescription ? getDescription(item) : defaultDescription
+      const defaultDescription = isItem(currentItem) ? currentItem.description : ''
+      const base = getDescription ? getDescription(currentItem) : defaultDescription
       const clipped = base.slice(0, 100)
       if (clipped.length < base.length) {
         const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '))
@@ -177,11 +181,11 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
       }
       return base
     },
-    [getDescription, item],
+    [currentItem, getDescription],
   )
   const groups = useMemo(
-    () => groupsByMemberId?.get(item.id) || [],
-    [groupsByMemberId, item.id],
+    () => groupsByMemberId?.get(currentItem.id) || [],
+    [currentItem.id, groupsByMemberId],
   )
   const tags = useMemo(
     () => {
@@ -200,17 +204,17 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
 
   const faded = useMemo(
     () => {
-      if (isItem(item) && item.archived && fadeArchived) {
+      if (isItem(currentItem) && currentItem.archived && fadeArchived) {
         return true
       }
-      if (getForceFade && getForceFade(item)) {
+      if (getForceFade && getForceFade(currentItem)) {
         return true
       }
       return false
     },
-    [fadeArchived, getForceFade, item],
+    [currentItem, fadeArchived, getForceFade],
   )
-  const highlighted = useMemo(() => getHighlighted?.(item), [getHighlighted, item])
+  const highlighted = useMemo(() => getHighlighted?.(currentItem), [currentItem, getHighlighted])
 
   const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon
   const checkbox = checkboxes && onCheck && (
@@ -221,7 +225,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        slotProps={{ input: { 'aria-labelledby': `${item.id}-text` } }}
+        slotProps={{ input: { 'aria-labelledby': `${currentItem.id}-text` } }}
       />
     </CheckboxHolder>
   )
@@ -276,7 +280,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
             <StyledListItemText
               faded={faded}
               wrapText={wrapText}
-              id={`${item.id}-text`}
+              id={`${currentItem.id}-text`}
               primary={title}
               secondary={description || undefined}
             />
@@ -284,7 +288,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
 
           <Box flexGrow={1} />
 
-          {showTags && isItem(item) && (
+          {showTags && isItem(currentItem) && (
             <TagDisplay
               tags={tags}
               linkedIds={groupIds}

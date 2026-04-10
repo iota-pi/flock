@@ -20,6 +20,7 @@ type AutomergeDocWorkerApi = {
   reset: () => void
   initialize: (records: PersistedWorkerRecord[]) => WorkerEntrySnapshot[]
   loadPersistedRecord: (record: PersistedWorkerRecord) => WorkerEntrySnapshot | null
+  mergePersistedRecord: (record: PersistedWorkerRecord) => WorkerEntrySnapshot | null
   exportAllBinaries: () => Record<string, Uint8Array>
   setSnapshot: (input: WorkerSetSnapshotInput) => WorkerEntrySnapshot
   applyDocumentPatches: (input: WorkerApplyDocumentPatchesInput) => WorkerEntrySnapshot
@@ -198,6 +199,16 @@ export function loadAutomergeWorkerRecord(record: PersistedWorkerRecord): Promis
   ]
 
   return withWorker(api => api.loadPersistedRecord(Comlink.transfer(transferRecord, transferables)))
+}
+
+export function mergeAutomergeWorkerRecord(record: PersistedWorkerRecord): Promise<WorkerEntrySnapshot | null> {
+  const transferRecord = toTransferRecord(record)
+  const transferables: Transferable[] = [
+    transferRecord.doc.buffer as ArrayBuffer,
+    transferRecord.syncState.buffer as ArrayBuffer,
+  ]
+
+  return withWorker(api => api.mergePersistedRecord(Comlink.transfer(transferRecord, transferables)))
 }
 
 export function exportAutomergeWorkerBinaries(): Promise<Record<string, Uint8Array>> {

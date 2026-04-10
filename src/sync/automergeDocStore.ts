@@ -17,7 +17,7 @@ import {
   createAutomergeWorkerSyncMessage,
   exportAutomergeWorkerBinaries,
   initializeAutomergeWorkerDocs,
-  loadAutomergeWorkerRecord,
+  mergeAutomergeWorkerRecord,
   receiveAutomergeWorkerSyncMessage,
   removeAutomergeWorkerDocument,
   resetAutomergeDocWorker,
@@ -46,6 +46,7 @@ const entriesByDocumentId = new Map<string, DocEntry>()
 const cachedItemSnapshotById = new Map<string, Item>()
 let cachedItemsSnapshot: Item[] = []
 let cachedItemsSnapshotDirty = true
+let cachedItemIdsSnapshot: string[] = []
 let cachedMetadataSnapshot: AccountMetadata = {}
 let cachedMetadataSnapshotDirty = true
 
@@ -122,9 +123,9 @@ function materializeItem(itemId: string, snapshot: Record<string, unknown>): Ite
 
 function pruneUndefinedDeepInPlace(value: unknown): void {
   if (Array.isArray(value)) {
-    for (let index = value.length - 1; index >= 0; index -= 1) {
+    for (let index = 0; index < value.length; index += 1) {
       if (value[index] === undefined) {
-        value.splice(index, 1)
+        value[index] = null
         continue
       }
 
@@ -468,6 +469,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   cachedItemSnapshotById.clear()
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
+  cachedItemIdsSnapshot = []
   cachedMetadataSnapshot = {}
   markMetadataSnapshotDirty()
 
@@ -543,8 +545,8 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
   }
 
   try {
-    const loaded = await loadAutomergeWorkerRecord(toPersistedWorkerRecord(stored))
-    if (!loaded) {
+    const merged = await mergeAutomergeWorkerRecord(toPersistedWorkerRecord(stored))
+    if (!merged) {
       await removeDocumentState(documentId)
       return
     }
@@ -554,9 +556,16 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
       return
     }
 
-    applyWorkerEntry(loaded, {
-      hasLocalChanges: stored.hasLocalChanges === true,
+    const nextHasLocalChanges = stored.hasLocalChanges === true
+      || entriesByDocumentId.get(documentId)?.hasLocalChanges === true
+
+    applyWorkerEntry(merged, {
+      hasLocalChanges: nextHasLocalChanges,
     })
+
+    if (loadedAccount) {
+      await persistEntry(loadedAccount, documentId, merged.serialized, nextHasLocalChanges)
+    }
   } catch {
     await removeDocumentState(documentId)
   }
@@ -604,6 +613,19 @@ export function getAutomergeItems(): Item[] {
   cachedItemsSnapshot = Array.from(cachedItemSnapshotById.values())
   cachedItemsSnapshotDirty = false
   return cachedItemsSnapshot
+}
+
+export function getAutomergeItemIds(): string[] {
+  const nextIds = Array.from(cachedItemSnapshotById.keys())
+  if (
+    nextIds.length === cachedItemIdsSnapshot.length
+    && nextIds.every((itemId, index) => itemId === cachedItemIdsSnapshot[index])
+  ) {
+    return cachedItemIdsSnapshot
+  }
+
+  cachedItemIdsSnapshot = nextIds
+  return cachedItemIdsSnapshot
 }
 
 export function getAutomergeItem(itemId: string): Item | null {
@@ -688,6 +710,7 @@ export async function clearAutomergeDocStore(): Promise<void> {
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
+  cachedItemIdsSnapshot = []
   cachedMetadataSnapshot = {}
   markMetadataSnapshotDirty()
 
