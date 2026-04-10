@@ -92,7 +92,9 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
 
   const groupsByMemberId = useGroupLookups()
 
-  const useDynamicHeight = fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact)
+  const useDynamicHeight = Boolean(
+    fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact),
+  )
 
   const listContextValue = useMemo(
     () => ({
