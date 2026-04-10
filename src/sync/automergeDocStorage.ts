@@ -6,8 +6,8 @@ const DOC_RECORD_PREFIX = 'doc:'
 export type PersistedDocRecord = {
   account: string
   itemId: string
-  doc: string
-  syncState: string
+  doc: Uint8Array | string
+  syncState: Uint8Array | string
   cursor: number
   hasLocalChanges?: boolean
   updatedAt: number

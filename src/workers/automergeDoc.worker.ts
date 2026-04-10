@@ -1,5 +1,5 @@
 import * as Automerge from '@automerge/automerge'
-import { expose } from 'comlink'
+import { expose, transfer } from 'comlink'
 
 const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
@@ -7,14 +7,14 @@ type SyncState = ReturnType<typeof Automerge.initSyncState>
 
 type PersistedWorkerRecord = {
   itemId: string
-  doc: string
-  syncState: string
+  doc: Uint8Array
+  syncState: Uint8Array
   cursor?: number
 }
 
 type WorkerSerializedEntry = {
-  doc: string
-  syncState: string
+  doc: Uint8Array
+  syncState: Uint8Array
   cursor: number
 }
 
@@ -30,33 +30,33 @@ type WorkerReceiveSyncMessageResult = WorkerEntrySnapshot & {
 
 type WorkerCreateSyncMessageResult = {
   message: Uint8Array | null
-  nextSyncState: string
+  nextSyncState: Uint8Array
 }
 
 type WorkerSetSnapshotInput = {
   documentId: string
   snapshot: Record<string, unknown>
   cursor?: number
-  syncState?: string
+  syncState?: Uint8Array
 }
 
 type WorkerSetBinaryInput = {
   documentId: string
-  binary: string
+  binary: Uint8Array
   cursor?: number
-  syncState?: string
+  syncState?: Uint8Array
 }
 
 type WorkerReceiveMessageInput = {
   documentId: string
   message: Uint8Array
   cursor?: number
-  syncState?: string
+  syncState?: Uint8Array
 }
 
 type WorkerCommitSyncStateInput = {
   documentId: string
-  syncState: string
+  syncState: Uint8Array
 }
 
 type WorkerSetCursorInput = {
@@ -72,25 +72,26 @@ type WorkerEntry = {
 
 const entriesByDocumentId = new Map<string, WorkerEntry>()
 
-function decodeBase64ToBytes(value: string): Uint8Array {
-  const decoded = atob(value)
-  const bytes = new Uint8Array(decoded.length)
-  for (let index = 0; index < decoded.length; index += 1) {
-    bytes[index] = decoded.charCodeAt(index)
+function addTransferable(transferables: Transferable[], bytes: Uint8Array | null | undefined): void {
+  if (!bytes) {
+    return
   }
-  return bytes
+
+  transferables.push(bytes.buffer as ArrayBuffer)
 }
 
-function encodeBytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
+function transferWorkerValue<T>(value: T, bytes: Array<Uint8Array | null | undefined>): T {
+  const transferables: Transferable[] = []
 
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize)
-    binary += String.fromCharCode(...chunk)
+  for (const candidate of bytes) {
+    addTransferable(transferables, candidate)
   }
 
-  return btoa(binary)
+  if (transferables.length === 0) {
+    return value
+  }
+
+  return transfer(value, transferables)
 }
 
 function isMetadataDocumentId(documentId: string): boolean {
@@ -142,8 +143,8 @@ function normalizeSnapshot(input: Record<string, unknown>): Record<string, unkno
 
 function serializeEntry(entry: WorkerEntry): WorkerSerializedEntry {
   return {
-    doc: encodeBytesToBase64(Automerge.save(entry.doc)),
-    syncState: encodeBytesToBase64(Automerge.encodeSyncState(entry.syncState)),
+    doc: Automerge.save(entry.doc),
+    syncState: Automerge.encodeSyncState(entry.syncState),
     cursor: entry.cursor,
   }
 }
@@ -184,8 +185,8 @@ function toEntrySnapshot(documentId: string, entry: WorkerEntry): WorkerEntrySna
   }
 }
 
-function decodeSyncState(syncState: string): SyncState {
-  return Automerge.decodeSyncState(decodeBase64ToBytes(syncState))
+function decodeSyncState(syncState: Uint8Array): SyncState {
+  return Automerge.decodeSyncState(syncState)
 }
 
 function loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
@@ -194,7 +195,7 @@ function loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot
   }
 
   try {
-    const doc = Automerge.load<Record<string, unknown>>(decodeBase64ToBytes(record.doc))
+    const doc = Automerge.load<Record<string, unknown>>(record.doc)
     const syncState = decodeSyncState(record.syncState)
     const entry: WorkerEntry = {
       doc,
@@ -226,25 +227,43 @@ const workerApi = {
       }
     }
 
-    return snapshots
+    return transferWorkerValue(
+      snapshots,
+      snapshots.flatMap(snapshot => [snapshot.serialized.doc, snapshot.serialized.syncState]),
+    )
   },
 
   loadPersistedRecord(record: PersistedWorkerRecord): WorkerEntrySnapshot | null {
-    return loadPersistedRecord(record)
+    const loaded = loadPersistedRecord(record)
+    if (!loaded) {
+      return null
+    }
+
+    return transferWorkerValue(loaded, [
+      loaded.serialized.doc,
+      loaded.serialized.syncState,
+    ])
   },
 
-  exportAllBinaries(): Record<string, string> {
-    const documents: Record<string, string> = {}
+  exportAllBinaries(): Record<string, Uint8Array> {
+    const documents: Record<string, Uint8Array> = {}
+    const transferables: Transferable[] = []
 
     for (const [documentId, entry] of entriesByDocumentId) {
       if (isMetadataDocumentId(documentId)) {
         continue
       }
 
-      documents[documentId] = encodeBytesToBase64(Automerge.save(entry.doc))
+      const binary = Automerge.save(entry.doc)
+      documents[documentId] = binary
+      transferables.push(binary.buffer as ArrayBuffer)
     }
 
-    return documents
+    if (transferables.length === 0) {
+      return documents
+    }
+
+    return transfer(documents, transferables)
   },
 
   setSnapshot({ documentId, snapshot, cursor, syncState }: WorkerSetSnapshotInput): WorkerEntrySnapshot {
@@ -263,49 +282,62 @@ const workerApi = {
     const nextEntry: WorkerEntry = {
       doc: nextDoc,
       syncState: existing?.syncState
-        || (typeof syncState === 'string' ? decodeSyncState(syncState) : Automerge.initSyncState()),
-      cursor: existing?.cursor ?? (typeof cursor === 'number' ? Math.max(0, cursor) : 0),
+        || (syncState instanceof Uint8Array ? decodeSyncState(syncState) : Automerge.initSyncState()),
+      cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
     entriesByDocumentId.set(documentId, nextEntry)
-    return toEntrySnapshot(documentId, nextEntry)
+    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    return transferWorkerValue(nextSnapshot, [
+      nextSnapshot.serialized.doc,
+      nextSnapshot.serialized.syncState,
+    ])
   },
 
   setBinary({ documentId, binary, cursor, syncState }: WorkerSetBinaryInput): WorkerEntrySnapshot {
     const existing = entriesByDocumentId.get(documentId)
-    const loadedDoc = Automerge.load<Record<string, unknown>>(decodeBase64ToBytes(binary))
+    const loadedDoc = Automerge.load<Record<string, unknown>>(binary)
 
     const nextEntry: WorkerEntry = {
       doc: loadedDoc,
       syncState: existing?.syncState
-        || (typeof syncState === 'string' ? decodeSyncState(syncState) : Automerge.initSyncState()),
-      cursor: existing?.cursor ?? (typeof cursor === 'number' ? Math.max(0, cursor) : 0),
+        || (syncState instanceof Uint8Array ? decodeSyncState(syncState) : Automerge.initSyncState()),
+      cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
     entriesByDocumentId.set(documentId, nextEntry)
-    return toEntrySnapshot(documentId, nextEntry)
+    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    return transferWorkerValue(nextSnapshot, [
+      nextSnapshot.serialized.doc,
+      nextSnapshot.serialized.syncState,
+    ])
   },
 
   receiveSyncMessage({ documentId, message, cursor, syncState }: WorkerReceiveMessageInput): WorkerReceiveSyncMessageResult {
     const existing = entriesByDocumentId.get(documentId)
     const baseDoc = existing?.doc || Automerge.from<Record<string, unknown>>(getInitialDocumentSnapshot(documentId))
     const baseSyncState = existing?.syncState
-      || (typeof syncState === 'string' ? decodeSyncState(syncState) : Automerge.initSyncState())
+      || (syncState instanceof Uint8Array ? decodeSyncState(syncState) : Automerge.initSyncState())
 
     const [nextDoc, nextSyncState] = Automerge.receiveSyncMessage(baseDoc, baseSyncState, message)
 
     const nextEntry: WorkerEntry = {
       doc: nextDoc,
       syncState: nextSyncState,
-      cursor: existing?.cursor ?? (typeof cursor === 'number' ? Math.max(0, cursor) : 0),
+      cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
     }
 
     entriesByDocumentId.set(documentId, nextEntry)
 
-    return {
+    const result = {
       ...toEntrySnapshot(documentId, nextEntry),
       changed: !headsEqual(baseDoc, nextDoc),
     }
+
+    return transferWorkerValue(result, [
+      result.serialized.doc,
+      result.serialized.syncState,
+    ])
   },
 
   createSyncMessage(documentId: string): WorkerCreateSyncMessageResult | null {
@@ -315,10 +347,15 @@ const workerApi = {
     }
 
     const [nextSyncState, message] = Automerge.generateSyncMessage(entry.doc, entry.syncState)
-    return {
+    const result = {
       message,
-      nextSyncState: encodeBytesToBase64(Automerge.encodeSyncState(nextSyncState)),
+      nextSyncState: Automerge.encodeSyncState(nextSyncState),
     }
+
+    return transferWorkerValue(result, [
+      result.message,
+      result.nextSyncState,
+    ])
   },
 
   commitSyncState({ documentId, syncState }: WorkerCommitSyncStateInput): WorkerSerializedEntry | null {
@@ -328,7 +365,8 @@ const workerApi = {
     }
 
     entry.syncState = decodeSyncState(syncState)
-    return serializeEntry(entry)
+    const serialized = serializeEntry(entry)
+    return transferWorkerValue(serialized, [serialized.doc, serialized.syncState])
   },
 
   setCursor({ documentId, cursor }: WorkerSetCursorInput): WorkerSerializedEntry | null {
@@ -338,7 +376,8 @@ const workerApi = {
     }
 
     entry.cursor = Math.max(entry.cursor, cursor)
-    return serializeEntry(entry)
+    const serialized = serializeEntry(entry)
+    return transferWorkerValue(serialized, [serialized.doc, serialized.syncState])
   },
 
   removeDocument(documentId: string): void {

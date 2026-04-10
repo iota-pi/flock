@@ -10,16 +10,6 @@ import {
   type PersistedDocRecord,
   writePersistedAutomergeDoc,
 } from './automergeDocStorage'
-import {
-  clearAutomergeItemRevisions,
-  emitAutomergeItemRevision,
-  emitAutomergeItemsRevision,
-  emitAutomergeMetadataRevision,
-  removeAutomergeItemRevision,
-  subscribeAutomergeItemRevision,
-  subscribeAutomergeItemsRevision,
-  subscribeAutomergeMetadataRevision,
-} from './automergeDocReactiveStore'
 import { setCachedAutomergeBinary } from './automergeBinaryCache'
 import {
   commitAutomergeWorkerSyncState,
@@ -40,7 +30,7 @@ import {
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
-export type SyncStateToken = string
+export type SyncStateToken = Uint8Array
 
 type DocEntry = {
   syncState: SyncStateToken
@@ -50,12 +40,15 @@ type DocEntry = {
 
 let loadedAccount: string | null = null
 const entriesByDocumentId = new Map<string, DocEntry>()
-const documentSnapshotsById = new Map<string, Record<string, unknown>>()
-const cachedItemSnapshotById = new Map<string, Item | null>()
+const cachedItemSnapshotById = new Map<string, Item>()
 let cachedItemsSnapshot: Item[] = []
 let cachedItemsSnapshotDirty = true
 let cachedMetadataSnapshot: AccountMetadata = {}
 let cachedMetadataSnapshotDirty = true
+
+const itemListeners = new Set<() => void>()
+const metadataListeners = new Set<() => void>()
+const itemListenersById = new Map<string, Set<(item: Item | null) => void>>()
 
 function markItemsSnapshotDirty(): void {
   cachedItemsSnapshotDirty = true
@@ -63,6 +56,33 @@ function markItemsSnapshotDirty(): void {
 
 function markMetadataSnapshotDirty(): void {
   cachedMetadataSnapshotDirty = true
+}
+
+function encodeBytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  return btoa(binary)
+}
+
+function decodeBase64ToBytes(value: string): Uint8Array {
+  const decoded = atob(value)
+  const bytes = new Uint8Array(decoded.length)
+
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index)
+  }
+
+  return bytes
+}
+
+function asUint8Array(value: Uint8Array | string): Uint8Array {
+  return typeof value === 'string' ? decodeBase64ToBytes(value) : value
 }
 
 function isMetadataDocumentId(documentId: string): boolean {
@@ -132,22 +152,11 @@ function normalizeForAutomerge(input: Record<string, unknown>): Record<string, u
   return normalized
 }
 
-function decodeBase64ToBytes(value: string): Uint8Array {
-  const decoded = atob(value)
-  const bytes = new Uint8Array(decoded.length)
-
-  for (let index = 0; index < decoded.length; index += 1) {
-    bytes[index] = decoded.charCodeAt(index)
-  }
-
-  return bytes
-}
-
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
   return {
     itemId: value.itemId,
-    doc: value.doc,
-    syncState: value.syncState,
+    doc: asUint8Array(value.doc),
+    syncState: asUint8Array(value.syncState),
     cursor: value.cursor,
   }
 }
@@ -171,6 +180,16 @@ async function persistEntry(
   await writePersistedAutomergeDoc(account, itemId, persisted)
 }
 
+function setCachedItemFromSnapshot(documentId: string, snapshot: Record<string, unknown>): void {
+  const item = materializeItem(documentId, snapshot)
+  if (!item || item.deleted === true) {
+    cachedItemSnapshotById.delete(documentId)
+    return
+  }
+
+  cachedItemSnapshotById.set(documentId, item)
+}
+
 function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChanges?: boolean }): void {
   const existing = entriesByDocumentId.get(entry.documentId)
   entriesByDocumentId.set(entry.documentId, {
@@ -178,14 +197,73 @@ function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChange
     syncState: entry.serialized.syncState,
     hasLocalChanges: options?.hasLocalChanges ?? existing?.hasLocalChanges ?? false,
   })
-  documentSnapshotsById.set(entry.documentId, entry.snapshot)
+
+  if (isMetadataDocumentId(entry.documentId)) {
+    const normalized = {
+      ...entry.snapshot,
+    }
+    delete normalized.id
+    cachedMetadataSnapshot = normalized as AccountMetadata
+    return
+  }
+
+  setCachedItemFromSnapshot(entry.documentId, entry.snapshot)
+}
+
+function notifyAllItemListeners(): void {
+  for (const listener of itemListeners) {
+    listener()
+  }
+
+  for (const [itemId, listeners] of itemListenersById) {
+    const nextItem = getAutomergeItem(itemId)
+    for (const listener of listeners) {
+      listener(nextItem)
+    }
+  }
+}
+
+function notifyItemListeners(itemIds: string[]): void {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(itemId => typeof itemId === 'string' && itemId.length > 0)))
+  if (uniqueItemIds.length === 0) {
+    return
+  }
+
+  markItemsSnapshotDirty()
+
+  for (const listener of itemListeners) {
+    listener()
+  }
+
+  for (const itemId of uniqueItemIds) {
+    const listeners = itemListenersById.get(itemId)
+    if (!listeners || listeners.size === 0) {
+      continue
+    }
+
+    const nextItem = getAutomergeItem(itemId)
+    for (const listener of listeners) {
+      listener(nextItem)
+    }
+  }
+}
+
+function notifyMetadataListeners(): void {
+  markMetadataSnapshotDirty()
+
+  for (const listener of metadataListeners) {
+    listener()
+  }
 }
 
 async function removeDocumentState(documentId: string): Promise<void> {
   entriesByDocumentId.delete(documentId)
-  documentSnapshotsById.delete(documentId)
-  cachedItemSnapshotById.delete(documentId)
-  removeAutomergeItemRevision(documentId)
+
+  if (isMetadataDocumentId(documentId)) {
+    cachedMetadataSnapshot = {}
+  } else {
+    cachedItemSnapshotById.delete(documentId)
+  }
 
   try {
     await removeAutomergeWorkerDocument(documentId)
@@ -195,17 +273,12 @@ async function removeDocumentState(documentId: string): Promise<void> {
 }
 
 function notifyChange(documentId: string): void {
-  cachedItemSnapshotById.delete(documentId)
-
   if (isMetadataDocumentId(documentId)) {
-    markMetadataSnapshotDirty()
-    emitAutomergeMetadataRevision()
+    notifyMetadataListeners()
     return
   }
 
-  markItemsSnapshotDirty()
-  emitAutomergeItemRevision(documentId)
-  emitAutomergeItemsRevision()
+  notifyItemListeners([documentId])
 }
 
 export async function initializeAutomergeDocStore(account: string): Promise<void> {
@@ -215,13 +288,11 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   loadedAccount = account
   entriesByDocumentId.clear()
-  documentSnapshotsById.clear()
   cachedItemSnapshotById.clear()
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
   cachedMetadataSnapshot = {}
   markMetadataSnapshotDirty()
-  clearAutomergeItemRevisions()
 
   const persistedRecords = await listPersistedAutomergeDocs(account)
   const localChangesByDocumentId = new Map(
@@ -230,6 +301,7 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   try {
     const initializedEntries = await initializeAutomergeWorkerDocs(
+      account,
       persistedRecords.map(toPersistedWorkerRecord),
     )
 
@@ -242,8 +314,8 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     console.error('Failed to initialize automerge document worker state', error)
   }
 
-  emitAutomergeItemsRevision()
-  emitAutomergeMetadataRevision()
+  notifyAllItemListeners()
+  notifyMetadataListeners()
 }
 
 export function listAutomergeDocumentIds(): string[] {
@@ -310,30 +382,14 @@ export function invalidateCachedItems(itemIds: string[]): void {
     return
   }
 
-  for (const itemId of uniqueItemIds) {
-    cachedItemSnapshotById.delete(itemId)
-  }
-
-  markItemsSnapshotDirty()
-  const hasMetadataItem = uniqueItemIds.some(itemId => isMetadataDocumentId(itemId))
-  if (hasMetadataItem) {
-    markMetadataSnapshotDirty()
-  }
-
   void Promise.all(uniqueItemIds.map(itemId => refreshDocumentFromStorage(itemId))).finally(() => {
-    let hasAnyItemUpdate = false
-
-    for (const itemId of uniqueItemIds) {
-      if (isMetadataDocumentId(itemId)) {
-        emitAutomergeMetadataRevision()
-      } else {
-        hasAnyItemUpdate = true
-        emitAutomergeItemRevision(itemId)
-      }
+    const itemIdsToNotify = uniqueItemIds.filter(itemId => !isMetadataDocumentId(itemId))
+    if (itemIdsToNotify.length > 0) {
+      notifyItemListeners(itemIdsToNotify)
     }
 
-    if (hasAnyItemUpdate) {
-      emitAutomergeItemsRevision()
+    if (uniqueItemIds.some(itemId => isMetadataDocumentId(itemId))) {
+      notifyMetadataListeners()
     }
   })
 }
@@ -343,27 +399,7 @@ export function getAutomergeItems(): Item[] {
     return cachedItemsSnapshot
   }
 
-  const items: Item[] = []
-
-  for (const [itemId] of entriesByDocumentId) {
-    if (isMetadataDocumentId(itemId)) {
-      continue
-    }
-
-    const snapshot = documentSnapshotsById.get(itemId)
-    if (!snapshot) {
-      continue
-    }
-
-    const item = materializeItem(itemId, snapshot)
-    if (!item || item.deleted === true) {
-      continue
-    }
-
-    items.push(item)
-  }
-
-  cachedItemsSnapshot = items
+  cachedItemsSnapshot = Array.from(cachedItemSnapshotById.values())
   cachedItemsSnapshotDirty = false
   return cachedItemsSnapshot
 }
@@ -373,24 +409,7 @@ export function getAutomergeItem(itemId: string): Item | null {
     return null
   }
 
-  if (cachedItemSnapshotById.has(itemId)) {
-    return cachedItemSnapshotById.get(itemId) || null
-  }
-
-  const snapshot = documentSnapshotsById.get(itemId)
-  if (!snapshot) {
-    cachedItemSnapshotById.set(itemId, null)
-    return null
-  }
-
-  const item = materializeItem(itemId, snapshot)
-  if (!item || item.deleted === true) {
-    cachedItemSnapshotById.set(itemId, null)
-    return null
-  }
-
-  cachedItemSnapshotById.set(itemId, item)
-  return item
+  return cachedItemSnapshotById.get(itemId) || null
 }
 
 export function getAutomergeMetadata(): AccountMetadata {
@@ -398,19 +417,6 @@ export function getAutomergeMetadata(): AccountMetadata {
     return cachedMetadataSnapshot
   }
 
-  const snapshot = documentSnapshotsById.get(ACCOUNT_METADATA_DOCUMENT_ID)
-  if (!snapshot) {
-    cachedMetadataSnapshot = {}
-    cachedMetadataSnapshotDirty = false
-    return cachedMetadataSnapshot
-  }
-
-  const normalized = {
-    ...snapshot,
-  }
-  delete normalized.id
-
-  cachedMetadataSnapshot = normalized as AccountMetadata
   cachedMetadataSnapshotDirty = false
   return cachedMetadataSnapshot
 }
@@ -476,9 +482,7 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
 
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByDocumentId.clear()
-  documentSnapshotsById.clear()
   cachedItemSnapshotById.clear()
-  clearAutomergeItemRevisions()
   loadedAccount = null
   cachedItemsSnapshot = []
   markItemsSnapshotDirty()
@@ -493,8 +497,8 @@ export async function clearAutomergeDocStore(): Promise<void> {
     // reset failure should not block local clearing
   }
 
-  emitAutomergeItemsRevision()
-  emitAutomergeMetadataRevision()
+  notifyAllItemListeners()
+  notifyMetadataListeners()
 }
 
 export async function seedAutomergeItems(items: Item[]): Promise<void> {
@@ -509,7 +513,13 @@ export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string
   }
 
   const documents = await exportAutomergeWorkerBinaries()
-  return documents as Partial<Record<ItemId, string>>
+  const encoded: Partial<Record<ItemId, string>> = {}
+
+  for (const [itemId, binary] of Object.entries(documents)) {
+    encoded[itemId as ItemId] = encodeBytesToBase64(binary)
+  }
+
+  return encoded
 }
 
 export async function restoreFromBinaries(documents: Partial<Record<ItemId, string>>): Promise<string[]> {
@@ -537,9 +547,10 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
     const existing = entriesByDocumentId.get(itemId)
 
     try {
+      const binary = decodeBase64ToBytes(encodedBinary)
       const nextEntry = await setAutomergeWorkerBinary({
         documentId: itemId,
-        binary: encodedBinary,
+        binary,
         cursor: existing?.cursor,
         syncState: existing?.syncState,
       })
@@ -548,8 +559,7 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
         hasLocalChanges: true,
       })
       await persistEntry(loadedAccount, itemId, nextEntry.serialized, true)
-      cachedItemSnapshotById.delete(itemId)
-      setCachedAutomergeBinary(itemId, decodeBase64ToBytes(encodedBinary))
+      setCachedAutomergeBinary(itemId, binary)
       restoredItemIds.push(itemId)
     } catch (error) {
       console.error(`Failed to restore binary document for ${itemId}`, error)
@@ -560,12 +570,7 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
     return []
   }
 
-  markItemsSnapshotDirty()
-
-  for (const itemId of restoredItemIds) {
-    emitAutomergeItemRevision(itemId)
-  }
-  emitAutomergeItemsRevision()
+  notifyItemListeners(restoredItemIds)
 
   const { requestAutomergeSync } = await import('./automergeSyncDispatcher')
   requestAutomergeSync(restoredItemIds)
@@ -581,7 +586,10 @@ async function withAutomergeDocumentChange(
     return
   }
 
-  const existingSnapshot = documentSnapshotsById.get(documentId) || getInitialDocumentSnapshot(documentId)
+  const existingSnapshot = isMetadataDocumentId(documentId)
+    ? (cachedMetadataSnapshot as Record<string, unknown>)
+    : (cachedItemSnapshotById.get(documentId) as unknown as Record<string, unknown>) || getInitialDocumentSnapshot(documentId)
+
   const draft = structuredClone(existingSnapshot)
   mutate(draft)
   await upsertAutomergeDocumentSnapshot(documentId, draft)
@@ -677,9 +685,13 @@ export async function commitAutomergeSyncState(itemId: string, syncState: SyncSt
   await persistEntry(loadedAccount, itemId, persisted, false)
 }
 
-export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8Array): Promise<boolean> {
+export async function receiveAutomergeSyncMessage(
+  itemId: string,
+  message: Uint8Array,
+  cursor?: number,
+): Promise<{ changed: boolean; cursor: number }> {
   if (!loadedAccount) {
-    return false
+    return { changed: false, cursor: 0 }
   }
 
   const existing = entriesByDocumentId.get(itemId)
@@ -687,32 +699,60 @@ export async function receiveAutomergeSyncMessage(itemId: string, message: Uint8
   const nextEntry = await receiveAutomergeWorkerSyncMessage({
     documentId: itemId,
     message,
-    cursor: existing?.cursor,
+    cursor,
     syncState: existing?.syncState,
   })
 
   applyWorkerEntry(nextEntry, {
     hasLocalChanges: nextHasLocalChanges,
   })
+
+  // Persist doc + sync state + cursor together as a single write payload.
   await persistEntry(loadedAccount, itemId, nextEntry.serialized, nextHasLocalChanges)
 
   if (nextEntry.changed) {
     notifyChange(itemId)
   }
 
-  return nextEntry.changed
+  return {
+    changed: nextEntry.changed,
+    cursor: nextEntry.serialized.cursor,
+  }
 }
 
 export function subscribeAutomergeItems(listener: () => void): () => void {
-  return subscribeAutomergeItemsRevision(listener)
+  itemListeners.add(listener)
+
+  return () => {
+    itemListeners.delete(listener)
+  }
 }
 
 export function subscribeAutomergeItem(itemId: string, listener: (item: Item | null) => void): () => void {
-  return subscribeAutomergeItemRevision(itemId, () => {
-    listener(getAutomergeItem(itemId))
-  })
+  const existingListeners = itemListenersById.get(itemId)
+  if (existingListeners) {
+    existingListeners.add(listener)
+  } else {
+    itemListenersById.set(itemId, new Set([listener]))
+  }
+
+  return () => {
+    const listeners = itemListenersById.get(itemId)
+    if (!listeners) {
+      return
+    }
+
+    listeners.delete(listener)
+    if (listeners.size === 0) {
+      itemListenersById.delete(itemId)
+    }
+  }
 }
 
 export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  return subscribeAutomergeMetadataRevision(listener)
+  metadataListeners.add(listener)
+
+  return () => {
+    metadataListeners.delete(listener)
+  }
 }

@@ -13,7 +13,7 @@ import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
-import { getAutomergeItems, subscribeAutomergeItems } from '../sync/automergeDocStore'
+import { useAutomergeItems } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -22,6 +22,7 @@ const EMPTY_METADATA = {} as Metadata
 function useAutomergeItemsSnapshot(): Item[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
   const account = useAuthStore(state => state.account)
+  const itemsSnapshot = useAutomergeItems()
 
   useEffect(() => {
     if (!authReady || !account) {
@@ -31,11 +32,7 @@ function useAutomergeItemsSnapshot(): Item[] {
     void ensureItemsBootstrap(account).catch(() => undefined)
   }, [account, authReady])
 
-  return useSyncExternalStore(
-    subscribeAutomergeItems,
-    () => (authReady ? getAutomergeItems() : EMPTY_ARRAY),
-    () => EMPTY_ARRAY,
-  )
+  return authReady ? itemsSnapshot : EMPTY_ARRAY
 }
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
