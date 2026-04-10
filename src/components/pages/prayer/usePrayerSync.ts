@@ -19,7 +19,7 @@ export default function usePrayerSync(): PrayerSyncController {
     () => createDebouncedByKey<string, Item>(500, latestItem => {
       storeItems(latestItem)
     }),
-    [storeItems],
+    [],
   )
 
   useEffect(
@@ -36,7 +36,7 @@ export default function usePrayerSync(): PrayerSyncController {
         }
       }
     },
-    [storeItems],
+    [],
   )
 
   const queuePrayedForSync = useCallback(

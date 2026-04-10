@@ -69,7 +69,7 @@ function SelectedActions() {
       const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }))
       storeItems(newItems)
     },
-    [selectedItems, storeItems],
+    [selectedItems],
   )
   const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived])
   const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived])
@@ -81,7 +81,7 @@ function SelectedActions() {
         .catch(error => console.error(error))
       setShowConfirm(false)
     },
-    [deleteItems, selectedItems],
+    [selectedItems],
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
