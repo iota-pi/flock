@@ -5,8 +5,8 @@
 **Core Principle**: Data privacy is paramount. It uses **client-side encryption**. The server **NEVER** sees plaintext data. Even the user must possess their password (and account ID) to decrypt their own data.
 
 ## Tech Stack
-- **Frontend**: React 19, TypeScript, Material UI (MUI v5), Zustand (Auth/UI state), TanStack Query (Server data/Caching).
-- **Network & Sync**: tRPC, native `fetch` (via `trackedFetch`), Offline Queue with Automerge (CRDT) for conflict resolution. *(Note: Axios has been removed).*
+- **Frontend**: React 19, TypeScript, Material UI (MUI v7), Zustand.
+- **Network & Sync**: tRPC + native `fetch` clients, local-first Automerge sync (worker-backed), batch push/pull transport.
 - **Backend**: Fastify + tRPC (Vault API), Zod, TypeScript, AWS Lambda.
 - **Database**: DynamoDB (Single-table design via drivers).
 - **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages, AWS Backup.
@@ -19,36 +19,39 @@
 - **Backend Entry**: `src/vault/index.ts` (Lambda environment), `src/vault/api/runServer.ts` (Local dev).
 
 ### Key Directories
-- `src/api/`: Client-side API clients, encryption wrappers (`Vault.ts`), tRPC clients (`trpcClient.ts`), offline queue management (`offlineQueue.ts`), and session management (`runtime.ts`).
+- `src/api/`: Client-side API clients, runtime/session state, realtime coordination, and encrypted Vault client modules under `src/api/vault/`.
+- `src/sync/`: Local Automerge store, sync dispatcher, sync coordinator, migration/bootstrap, recovery/session helpers.
+- `src/workers/`: Worker implementations and managers (`automergeDoc.worker.ts`, `automergeDocWorkerManager.ts`, `item.worker.ts`).
 - `src/vault/`: Backend implementation.
     - `src/vault/trpc/`: tRPC routers, schemas, and shared procedure middleware.
+    - `src/vault/services/`: API service layer including sync/realtime behavior.
     - `src/vault/drivers/`: Database drivers (DynamoDB logic).
-- `src/state/`: Zustand stores (`authStore.ts`, `uiStore.ts`) and item models/migrations. (Item migrations run on the client in `src/state/migrations`; server migrations live in `src/vault/migrations`).
+- `src/state/`: Zustand stores and domain models/migrations. (Client migrations: `src/state/migrations`; server migrations: `src/vault/migrations`).
 - `src/components/`: React UI components. Dialogs and drawers are organized under `src/components/dialogs/` and `src/components/drawers/`.
-- `src/workers/`: Web workers, including `decryption.worker.ts` for handling offline queue conflict resolution via Automerge.
 - `sst.config.ts`: Infrastructure-as-Code (SST v3) configuration.
 - `docker-compose.yml`: Local development service orchestration (DynamoDB, API).
 
 ### Data Flow
-1. **Read**: TanStack Query caches encrypted items/metadata (`src/api/queries.ts`).
-2. **Write & Offline**: Mutations optimistically update the query cache and are routed through the offline queue (`src/api/offlineQueue.ts`). The offline queue uses Automerge serialization to handle branch conflicts.
-3. **Storage**: Encrypted data persists in DynamoDB.
-4. **State**: Zustand handles UI and Authentication state only.
+1. **Read**: Item/metadata reads come from local Automerge snapshots (`src/sync/automergeDocStore.ts`, hooks in `src/sync/useAutomerge.ts`).
+2. **Write**: Local mutations update Automerge docs immediately on the client.
+3. **Push**: Sync dispatcher pushes only docs marked with local changes (`hasLocalChanges`).
+4. **Pull/Merge**: Remote updates are pulled in batches and merged into Automerge docs.
+5. **Realtime**: WebSocket `sync_ping` and cross-tab bus events coordinate targeted pulls and leader sync behavior.
 
 ## Critical Rules & Guidelines
 
 1. **Security First**:
     - **NEVER** add server-side decryption.
     - **NEVER** log secrets or plaintext data.
-    - **Client-Side Only**: Plaintext data remains on the client. Clear query cache and local storage via `signOutVault` when changing auth flows.
+    - **Client-Side Only**: Plaintext data remains on the client. Preserve sign-out cleanup behavior (`signOutVault`) when changing auth flows.
 
 2. **Encryption Implementation**:
-    - Use `src/api/Vault.ts` (or `src/api/vault/` module) helpers: `encryptObject`, `decryptObject`, `encryptObjectAsAutomerge`.
+    - Use helpers in `src/api/vault/crypto.ts` and related vault client modules for encryption/decryption primitives.
 
 3. **Integration Changes**:
     - Updates typically require changes in both:
-        - Client: `src/api/Vault.ts` / `src/api/trpcClient.ts`
-        - Server: `src/vault/trpc/routers/*`
+        - Client: `src/api/vault/*`, sync modules under `src/sync/*`
+        - Server: `src/vault/trpc/routers/*` and/or `src/vault/services/*`
     - Shared API contract types live in tRPC router outputs and `src/vault/types.ts`.
 
 4. **Package Management**:
@@ -78,6 +81,7 @@
 - **Unit Tests**: `yarn test run` (Vitest).
     - Coverage: `yarn coverage`
 - **End-to-End**: `yarn e2e` (Cypress run) or `npx cypress open` for interactive mode. Requires dev server running.
+- **Focused sync/worker tests**: prefer running specific specs first (for example worker manager or sync dispatcher specs) before full suite runs.
 - **Pre-commit**: Ensure `lint`, `build`, and `test run` pass. For API work, ensure Docker services are up before testing.
 
 ### Build & Deployment
