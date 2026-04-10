@@ -292,9 +292,13 @@ async function pullMissingItemSyncMessages(accountId: string, itemIds: string[])
 
       try {
         const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
-        const changed = await receiveAutomergeSyncMessage(itemResult.itemId, decryptedMessage)
-        if (changed) {
-          highestCursor = Math.max(highestCursor, message.cursor)
+        const received = await receiveAutomergeSyncMessage(
+          itemResult.itemId,
+          decryptedMessage,
+          message.cursor,
+        )
+        if (received.changed) {
+          highestCursor = Math.max(highestCursor, received.cursor)
         }
       } catch (error) {
         reportDecryptionFailure({
@@ -346,9 +350,9 @@ export async function bootstrapItemsFromSyncMessages(accountId: string): Promise
     for (const message of orderedMessages) {
       try {
         const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
-        const changed = await receiveAutomergeSyncMessage(item.item, decryptedMessage)
-        if (changed) {
-          highestCursor = Math.max(highestCursor, message.cursor)
+        const received = await receiveAutomergeSyncMessage(item.item, decryptedMessage, message.cursor)
+        if (received.changed) {
+          highestCursor = Math.max(highestCursor, received.cursor)
         }
       } catch (error) {
         reportDecryptionFailure({

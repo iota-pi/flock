@@ -119,13 +119,18 @@ async function pullRemoteMessagesBatch(account: string, itemIds: string[]): Prom
       }
 
       const decrypted = await decryptSyncMessage(message.encryptedMessage)
-      const changed = await receiveAutomergeSyncMessage(itemResult.itemId, decrypted)
-      if (changed) {
+      const received = await receiveAutomergeSyncMessage(
+        itemResult.itemId,
+        decrypted,
+        typeof message.cursor === 'number' ? message.cursor : undefined,
+      )
+
+      if (received.changed) {
         updatedItemIds.add(itemResult.itemId)
       }
 
-      if (typeof message.cursor === 'number' && message.cursor > highestCursor) {
-        highestCursor = message.cursor
+      if (received.cursor > highestCursor) {
+        highestCursor = received.cursor
       }
     }
 
