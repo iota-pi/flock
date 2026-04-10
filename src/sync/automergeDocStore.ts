@@ -12,6 +12,7 @@ import {
 } from './automergeDocStorage'
 import { setCachedAutomergeBinary } from './automergeBinaryCache'
 import {
+  applyAutomergeWorkerPatches,
   commitAutomergeWorkerSyncState,
   createAutomergeWorkerSyncMessage,
   exportAutomergeWorkerBinaries,
@@ -23,6 +24,7 @@ import {
   setAutomergeWorkerBinary,
   setAutomergeWorkerCursor,
   setAutomergeWorkerSnapshot,
+  type WorkerDocumentPatch,
   type PersistedWorkerRecord,
   type WorkerEntrySnapshot,
   type WorkerSerializedEntry,
@@ -31,6 +33,7 @@ import {
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
 export type SyncStateToken = Uint8Array
+export type AutomergeDocumentPatch = WorkerDocumentPatch
 
 type DocEntry = {
   syncState: SyncStateToken
@@ -150,6 +153,182 @@ function normalizeForAutomerge(input: Record<string, unknown>): Record<string, u
   const normalized = structuredClone(input)
   pruneUndefinedDeepInPlace(normalized)
   return normalized
+}
+
+function isPatchPathSegment(value: unknown): value is string | number {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isInteger(value))
+}
+
+function normalizePatchValue(value: unknown): unknown {
+  if (Array.isArray(value) || (value && typeof value === 'object')) {
+    const cloned = structuredClone(value)
+    pruneUndefinedDeepInPlace(cloned)
+    return cloned
+  }
+
+  return value
+}
+
+function normalizeWorkerDocumentPatches(patches: WorkerDocumentPatch[]): WorkerDocumentPatch[] {
+  const normalizedPatches: WorkerDocumentPatch[] = []
+
+  for (const patch of patches) {
+    const path = patch && Array.isArray(patch.path) ? patch.path : []
+    if (path.length === 0 || path.some(segment => !isPatchPathSegment(segment))) {
+      continue
+    }
+
+    if (patch.op === 'remove') {
+      normalizedPatches.push({
+        op: 'remove',
+        path,
+      })
+      continue
+    }
+
+    if (patch.op !== 'add' && patch.op !== 'replace') {
+      continue
+    }
+
+    if (patch.value === undefined) {
+      normalizedPatches.push({
+        op: 'remove',
+        path,
+      })
+      continue
+    }
+
+    normalizedPatches.push({
+      op: patch.op,
+      path,
+      value: normalizePatchValue(patch.value),
+    })
+  }
+
+  return normalizedPatches
+}
+
+function isArrayIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function createPathContainer(nextSegment: string | number): unknown {
+  return typeof nextSegment === 'number' ? [] : {}
+}
+
+function resolvePatchParent(
+  root: Record<string, unknown>,
+  path: Array<string | number>,
+  removeOnly: boolean,
+): { parent: Record<string, unknown> | unknown[]; key: string | number } | null {
+  if (path.length === 0) {
+    return null
+  }
+
+  let current: unknown = root
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const segment = path[index]
+    const nextSegment = path[index + 1]
+
+    if (Array.isArray(current)) {
+      if (!isArrayIndex(segment)) {
+        return null
+      }
+
+      let next = current[segment]
+      if ((!next || typeof next !== 'object') && !removeOnly) {
+        next = createPathContainer(nextSegment)
+        current[segment] = next
+      }
+
+      if (!next || typeof next !== 'object') {
+        return null
+      }
+
+      current = next
+      continue
+    }
+
+    if (!current || typeof current !== 'object') {
+      return null
+    }
+
+    const target = current as Record<string, unknown>
+    const key = typeof segment === 'string' ? segment : String(segment)
+    let next = target[key]
+    if ((!next || typeof next !== 'object') && !removeOnly) {
+      next = createPathContainer(nextSegment)
+      target[key] = next
+    }
+
+    if (!next || typeof next !== 'object') {
+      return null
+    }
+
+    current = next
+  }
+
+  if (!Array.isArray(current) && (!current || typeof current !== 'object')) {
+    return null
+  }
+
+  return {
+    parent: current as Record<string, unknown> | unknown[],
+    key: path[path.length - 1],
+  }
+}
+
+function applyPatchesToSnapshot(
+  snapshot: Record<string, unknown>,
+  patches: WorkerDocumentPatch[],
+): Record<string, unknown> {
+  const nextSnapshot = structuredClone(snapshot)
+
+  for (const patch of patches) {
+    const target = resolvePatchParent(nextSnapshot, patch.path, patch.op === 'remove')
+    if (!target) {
+      continue
+    }
+
+    const { parent, key } = target
+
+    if (Array.isArray(parent)) {
+      if (!isArrayIndex(key)) {
+        continue
+      }
+
+      if (patch.op === 'remove') {
+        if (key < parent.length) {
+          parent.splice(key, 1)
+        }
+        continue
+      }
+
+      if (patch.op === 'add') {
+        if (key >= parent.length) {
+          parent.push(normalizePatchValue(patch.value))
+        } else {
+          parent.splice(key, 0, normalizePatchValue(patch.value))
+        }
+        continue
+      }
+
+      parent[key] = normalizePatchValue(patch.value)
+      continue
+    }
+
+    const objectKey = typeof key === 'string' ? key : String(key)
+
+    if (patch.op === 'remove') {
+      delete parent[objectKey]
+      continue
+    }
+
+    parent[objectKey] = normalizePatchValue(patch.value)
+  }
+
+  return nextSnapshot
 }
 
 function toPersistedWorkerRecord(value: PersistedDocRecord): PersistedWorkerRecord {
@@ -475,7 +654,7 @@ async function upsertAutomergeDocumentSnapshot(
   notifyChange(documentId)
 }
 
-export async function upsertAutomergeItemSnapshot(
+export async function seedAutomergeDocument(
   item: Item,
   options?: { markLocalChange?: boolean },
 ): Promise<void> {
@@ -526,7 +705,7 @@ export async function clearAutomergeDocStore(): Promise<void> {
 
 export async function seedAutomergeItems(items: Item[]): Promise<void> {
   for (const item of items) {
-    await upsertAutomergeItemSnapshot(item)
+    await seedAutomergeDocument(item)
   }
 }
 
@@ -601,11 +780,16 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
   return restoredItemIds
 }
 
-async function withAutomergeDocumentChange(
+async function applyAutomergeDocumentPatches(
   documentId: string,
-  mutate: (draft: Record<string, unknown>) => void,
+  patches: WorkerDocumentPatch[],
 ): Promise<void> {
   if (!loadedAccount) {
+    return
+  }
+
+  const workerPatches = normalizeWorkerDocumentPatches(patches)
+  if (workerPatches.length === 0) {
     return
   }
 
@@ -613,22 +797,76 @@ async function withAutomergeDocumentChange(
     ? (cachedMetadataSnapshot as Record<string, unknown>)
     : (cachedItemSnapshotById.get(documentId) as unknown as Record<string, unknown>) || getInitialDocumentSnapshot(documentId)
 
-  const draft = structuredClone(existingSnapshot)
-  mutate(draft)
-  await upsertAutomergeDocumentSnapshot(documentId, draft)
+  const nextSnapshot = applyPatchesToSnapshot(existingSnapshot, workerPatches)
+  const normalizedSnapshot = normalizeDocumentSnapshot(nextSnapshot)
+  const existingEntry = entriesByDocumentId.get(documentId)
+
+  if (isMetadataDocumentId(documentId)) {
+    const normalizedMetadata = {
+      ...normalizedSnapshot,
+    }
+    delete normalizedMetadata.id
+    cachedMetadataSnapshot = normalizedMetadata as AccountMetadata
+  } else {
+    setCachedItemFromSnapshot(documentId, normalizedSnapshot)
+  }
+
+  if (existingEntry) {
+    entriesByDocumentId.set(documentId, {
+      cursor: existingEntry.cursor,
+      syncState: existingEntry.syncState,
+      hasLocalChanges: true,
+    })
+  }
+
+  notifyChange(documentId)
+
+  try {
+    const nextEntry = await applyAutomergeWorkerPatches({
+      action: 'APPLY_DOCUMENT_PATCHES',
+      documentId,
+      patches: workerPatches,
+      cursor: existingEntry?.cursor,
+      syncState: existingEntry?.syncState,
+    })
+
+    applyWorkerEntry(nextEntry, {
+      hasLocalChanges: true,
+    })
+    await persistEntry(loadedAccount, documentId, nextEntry.serialized, true)
+  } catch (error) {
+    if (isMetadataDocumentId(documentId)) {
+      const rollbackMetadata = {
+        ...(existingSnapshot || {}),
+      }
+      delete rollbackMetadata.id
+      cachedMetadataSnapshot = rollbackMetadata as AccountMetadata
+    } else {
+      setCachedItemFromSnapshot(documentId, existingSnapshot || getInitialDocumentSnapshot(documentId))
+    }
+
+    if (existingEntry) {
+      entriesByDocumentId.set(documentId, existingEntry)
+    } else {
+      entriesByDocumentId.delete(documentId)
+    }
+
+    notifyChange(documentId)
+    throw error
+  }
 }
 
-export async function withAutomergeItemChange(
+export async function applyAutomergeItemPatches(
   itemId: string,
-  mutate: (draft: Record<string, unknown>) => void,
+  patches: WorkerDocumentPatch[],
 ): Promise<void> {
-  await withAutomergeDocumentChange(itemId, mutate)
+  await applyAutomergeDocumentPatches(itemId, patches)
 }
 
-export async function withAutomergeMetadataChange(
-  mutate: (draft: Record<string, unknown>) => void,
+export async function applyAutomergeMetadataPatches(
+  patches: WorkerDocumentPatch[],
 ): Promise<void> {
-  await withAutomergeDocumentChange(ACCOUNT_METADATA_DOCUMENT_ID, mutate)
+  await applyAutomergeDocumentPatches(ACCOUNT_METADATA_DOCUMENT_ID, patches)
 }
 
 export function readAutomergeSyncCursor(itemId: string): number {

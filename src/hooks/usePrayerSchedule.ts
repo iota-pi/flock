@@ -4,7 +4,7 @@ import { useItemMap, useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStringMemo } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { withAutomergeItemChange } from '../sync/automergeDocStore'
+import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function usePrayerSchedule() {
@@ -61,10 +61,13 @@ export function usePrayerSchedule() {
         prayedFor = [...prayedFor, new Date().getTime()]
       }
 
-      void withAutomergeItemChange(item.id, draft => {
-        Object.assign(draft, item as unknown as Record<string, unknown>)
-        draft.prayedFor = prayedFor
-      })
+      void applyAutomergeItemPatches(item.id, [
+        {
+          op: 'replace',
+          path: ['prayedFor'],
+          value: prayedFor,
+        },
+      ])
       requestAutomergeSync([item.id])
     },
     [isPrayedForToday],

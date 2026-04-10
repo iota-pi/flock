@@ -5,8 +5,8 @@ import {
   ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
   initializeAutomergeDocStore,
-  withAutomergeItemChange,
-  withAutomergeMetadataChange,
+  applyAutomergeItemPatches,
+  applyAutomergeMetadataPatches,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { ensureItemsBootstrap } from './itemReadService'
@@ -21,9 +21,11 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
   return {
     ...actual,
     getAutomergeItems: vi.fn(() => []),
+    getAutomergeItem: vi.fn(() => null),
+    getAutomergeMetadata: vi.fn(() => ({})),
     initializeAutomergeDocStore: vi.fn(),
-    withAutomergeItemChange: vi.fn(async () => undefined),
-    withAutomergeMetadataChange: vi.fn(async () => undefined),
+    applyAutomergeItemPatches: vi.fn(async () => undefined),
+    applyAutomergeMetadataPatches: vi.fn(async () => undefined),
   }
 })
 
@@ -66,13 +68,13 @@ describe('local-first mutations', () => {
 
     expect(result[0].id).toBe('p1')
     expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
-    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
+    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 
   it('rejects invalid item payloads before storing', async () => {
     await expect(storeItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
-    expect(withAutomergeItemChange).not.toHaveBeenCalled()
+    expect(applyAutomergeItemPatches).not.toHaveBeenCalled()
   })
 
   it('stores batch updates and requests sync for all ids', async () => {
@@ -81,9 +83,9 @@ describe('local-first mutations', () => {
 
     await storeItems([first, second])
 
-    expect(withAutomergeItemChange).toHaveBeenCalledTimes(2)
-    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
-    expect(withAutomergeItemChange).toHaveBeenCalledWith('p2', expect.any(Function))
+    expect(applyAutomergeItemPatches).toHaveBeenCalledTimes(2)
+    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
+    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p2', expect.any(Array))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
   })
 
@@ -98,8 +100,8 @@ describe('local-first mutations', () => {
     await deleteItems('p1')
 
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
-    expect(withAutomergeItemChange).toHaveBeenCalledWith('g1', expect.any(Function))
-    expect(withAutomergeItemChange).toHaveBeenCalledWith('p1', expect.any(Function))
+    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('g1', expect.any(Array))
+    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
     expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
   })
@@ -108,7 +110,7 @@ describe('local-first mutations', () => {
     const result = await setMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)
+    expect(applyAutomergeMetadataPatches).toHaveBeenCalledTimes(1)
     expect(requestAutomergeSync).toHaveBeenCalledWith([ACCOUNT_METADATA_DOCUMENT_ID])
   })
 })

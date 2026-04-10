@@ -2,9 +2,11 @@ import * as Comlink from 'comlink'
 import type { Remote } from 'comlink'
 import { listPersistedAutomergeDocs, type PersistedDocRecord } from '../sync/automergeDocStorage'
 import type {
+  WorkerApplyDocumentPatchesInput,
   PersistedWorkerRecord,
   WorkerCommitSyncStateInput,
   WorkerCreateSyncMessageResult,
+  WorkerDocumentPatch,
   WorkerEntrySnapshot,
   WorkerReceiveMessageInput,
   WorkerReceiveSyncMessageResult,
@@ -20,6 +22,7 @@ type AutomergeDocWorkerApi = {
   loadPersistedRecord: (record: PersistedWorkerRecord) => WorkerEntrySnapshot | null
   exportAllBinaries: () => Record<string, Uint8Array>
   setSnapshot: (input: WorkerSetSnapshotInput) => WorkerEntrySnapshot
+  applyDocumentPatches: (input: WorkerApplyDocumentPatchesInput) => WorkerEntrySnapshot
   setBinary: (input: WorkerSetBinaryInput) => WorkerEntrySnapshot
   receiveSyncMessage: (input: WorkerReceiveMessageInput) => WorkerReceiveSyncMessageResult
   createSyncMessage: (documentId: string) => WorkerCreateSyncMessageResult | null
@@ -221,6 +224,10 @@ export function setAutomergeWorkerSnapshot(input: WorkerSetSnapshotInput): Promi
   return withWorker(api => api.setSnapshot(transferredPayload))
 }
 
+export function applyAutomergeWorkerPatches(input: WorkerApplyDocumentPatchesInput): Promise<WorkerEntrySnapshot> {
+  return withWorker(api => api.applyDocumentPatches(input))
+}
+
 export function setAutomergeWorkerBinary(input: WorkerSetBinaryInput): Promise<WorkerEntrySnapshot> {
   const payload: WorkerSetBinaryInput = {
     ...input,
@@ -282,6 +289,8 @@ export function removeAutomergeWorkerDocument(documentId: string): Promise<void>
 
 export type {
   PersistedWorkerRecord,
+  WorkerApplyDocumentPatchesInput,
+  WorkerDocumentPatch,
   WorkerEntrySnapshot,
   WorkerSerializedEntry,
 }

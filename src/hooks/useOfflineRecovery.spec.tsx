@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   getAutomergeItem: vi.fn(),
-  withAutomergeItemChange: vi.fn(async () => undefined),
+  applyAutomergeItemPatches: vi.fn(async () => undefined),
 }))
 
 vi.mock('../sync/manualRecoveryStore', () => ({
@@ -24,7 +24,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 
 vi.mock('../sync/automergeDocStore', () => ({
   getAutomergeItem: mocks.getAutomergeItem,
-  withAutomergeItemChange: mocks.withAutomergeItemChange,
+  applyAutomergeItemPatches: mocks.applyAutomergeItemPatches,
 }))
 
 vi.mock('../state/toastStore', () => ({
@@ -117,7 +117,7 @@ describe('useOfflineRecovery', () => {
       await result.current.handleForceOverwriteCorruptedItem('item-1')
     })
 
-    expect(mocks.withAutomergeItemChange).toHaveBeenCalledWith('item-1', expect.any(Function))
+    expect(mocks.applyAutomergeItemPatches).toHaveBeenCalledWith('item-1', expect.any(Array))
     expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-1'])
   })
 })

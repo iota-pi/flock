@@ -64,6 +64,22 @@ type WorkerSetCursorInput = {
   cursor: number
 }
 
+type WorkerDocumentPatchOperation = 'add' | 'replace' | 'remove'
+
+type WorkerDocumentPatch = {
+  op: WorkerDocumentPatchOperation
+  path: Array<string | number>
+  value?: unknown
+}
+
+type WorkerApplyDocumentPatchesInput = {
+  action: 'APPLY_DOCUMENT_PATCHES'
+  documentId: string
+  patches: WorkerDocumentPatch[]
+  cursor?: number
+  syncState?: Uint8Array
+}
+
 type WorkerEntry = {
   doc: Automerge.Doc<Record<string, unknown>>
   syncState: SyncState
@@ -156,6 +172,133 @@ function clonePatchValue(value: unknown): unknown {
   }
 
   return value
+}
+
+function isArrayIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function createPathContainer(nextSegment: string | number): unknown {
+  return typeof nextSegment === 'number' ? [] : {}
+}
+
+function resolvePatchParent(
+  root: Record<string, unknown>,
+  path: Array<string | number>,
+  removeOnly: boolean,
+): { parent: Record<string, unknown> | unknown[]; key: string | number } | null {
+  if (path.length === 0) {
+    return null
+  }
+
+  let current: unknown = root
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const segment = path[index]
+    const nextSegment = path[index + 1]
+
+    if (Array.isArray(current)) {
+      if (!isArrayIndex(segment)) {
+        return null
+      }
+
+      let next = current[segment]
+      if ((!next || typeof next !== 'object') && !removeOnly) {
+        next = createPathContainer(nextSegment)
+        current[segment] = next
+      }
+
+      if (!next || typeof next !== 'object') {
+        return null
+      }
+
+      current = next
+      continue
+    }
+
+    if (!isPlainObject(current)) {
+      return null
+    }
+
+    const key = typeof segment === 'string' ? segment : String(segment)
+    let next = current[key]
+    if ((!next || typeof next !== 'object') && !removeOnly) {
+      next = createPathContainer(nextSegment)
+      current[key] = next
+    }
+
+    if (!next || typeof next !== 'object') {
+      return null
+    }
+
+    current = next
+  }
+
+  if (!Array.isArray(current) && !isPlainObject(current)) {
+    return null
+  }
+
+  return {
+    parent: current,
+    key: path[path.length - 1],
+  }
+}
+
+function applyDocumentPatchesToDraft(
+  draft: Record<string, unknown>,
+  patches: WorkerDocumentPatch[],
+): void {
+  for (const patch of patches) {
+    if (!patch || !Array.isArray(patch.path) || patch.path.length === 0) {
+      continue
+    }
+
+    if (patch.op !== 'add' && patch.op !== 'replace' && patch.op !== 'remove') {
+      continue
+    }
+
+    const target = resolvePatchParent(draft, patch.path, patch.op === 'remove')
+    if (!target) {
+      continue
+    }
+
+    const { parent, key } = target
+
+    if (Array.isArray(parent)) {
+      if (!isArrayIndex(key)) {
+        continue
+      }
+
+      if (patch.op === 'remove') {
+        if (key < parent.length) {
+          parent.splice(key, 1)
+        }
+        continue
+      }
+
+      const nextValue = clonePatchValue(patch.value)
+      if (patch.op === 'add') {
+        if (key >= parent.length) {
+          parent.push(nextValue)
+        } else {
+          parent.splice(key, 0, nextValue)
+        }
+        continue
+      }
+
+      parent[key] = nextValue
+      continue
+    }
+
+    const objectKey = typeof key === 'string' ? key : String(key)
+
+    if (patch.op === 'remove') {
+      delete parent[objectKey]
+      continue
+    }
+
+    parent[objectKey] = clonePatchValue(patch.value)
+  }
 }
 
 function syncDraftArray(target: unknown[], source: unknown[]): void {
@@ -380,6 +523,44 @@ const workerApi = {
     ])
   },
 
+  applyDocumentPatches({
+    action,
+    documentId,
+    patches,
+    cursor,
+    syncState,
+  }: WorkerApplyDocumentPatchesInput): WorkerEntrySnapshot {
+    if (action !== 'APPLY_DOCUMENT_PATCHES') {
+      throw new Error(`Unsupported worker action: ${String(action)}`)
+    }
+
+    const existing = entriesByDocumentId.get(documentId)
+    const baseDoc = existing?.doc || Automerge.from<Record<string, unknown>>(getInitialDocumentSnapshot(documentId))
+    const baseSyncState = existing?.syncState
+      || (syncState instanceof Uint8Array ? decodeSyncState(syncState) : Automerge.initSyncState())
+
+    const hasPatches = Array.isArray(patches) && patches.length > 0
+    const nextDoc = hasPatches
+      ? Automerge.change(baseDoc, draft => {
+        applyDocumentPatchesToDraft(draft as Record<string, unknown>, patches)
+      })
+      : baseDoc
+
+    const nextEntry: WorkerEntry = {
+      doc: nextDoc,
+      syncState: baseSyncState,
+      cursor: Math.max(existing?.cursor ?? 0, typeof cursor === 'number' ? Math.max(0, cursor) : 0),
+    }
+
+    entriesByDocumentId.set(documentId, nextEntry)
+
+    const nextSnapshot = toEntrySnapshot(documentId, nextEntry)
+    return transferWorkerValue(nextSnapshot, [
+      nextSnapshot.serialized.doc,
+      nextSnapshot.serialized.syncState,
+    ])
+  },
+
   setBinary({ documentId, binary, cursor, syncState }: WorkerSetBinaryInput): WorkerEntrySnapshot {
     const existing = entriesByDocumentId.get(documentId)
     const loadedDoc = Automerge.load<Record<string, unknown>>(binary)
@@ -477,6 +658,8 @@ export type {
   PersistedWorkerRecord,
   WorkerCommitSyncStateInput,
   WorkerCreateSyncMessageResult,
+  WorkerDocumentPatch,
+  WorkerApplyDocumentPatchesInput,
   WorkerEntrySnapshot,
   WorkerReceiveMessageInput,
   WorkerReceiveSyncMessageResult,

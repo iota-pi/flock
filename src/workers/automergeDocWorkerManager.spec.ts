@@ -24,6 +24,7 @@ type WorkerApi = {
   loadPersistedRecord: ReturnType<typeof vi.fn>
   exportAllBinaries: ReturnType<typeof vi.fn>
   setSnapshot: ReturnType<typeof vi.fn>
+  applyDocumentPatches: ReturnType<typeof vi.fn>
   setBinary: ReturnType<typeof vi.fn>
   receiveSyncMessage: ReturnType<typeof vi.fn>
   createSyncMessage: ReturnType<typeof vi.fn>
@@ -58,6 +59,7 @@ function createWorkerApi(overrides: Partial<WorkerApi> = {}): WorkerApi {
     loadPersistedRecord: vi.fn().mockResolvedValue(null),
     exportAllBinaries: vi.fn().mockResolvedValue({}),
     setSnapshot: vi.fn(),
+    applyDocumentPatches: vi.fn(),
     setBinary: vi.fn(),
     receiveSyncMessage: vi.fn(),
     createSyncMessage: vi.fn().mockResolvedValue(null),
