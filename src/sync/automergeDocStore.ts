@@ -349,6 +349,10 @@ export function listAutomergeItemIds(): string[] {
 }
 
 async function refreshDocumentFromStorage(documentId: string): Promise<void> {
+  if (entriesByDocumentId.get(documentId)?.hasLocalChanges === true) {
+    return
+  }
+
   if (!loadedAccount) {
     return
   }
@@ -367,6 +371,11 @@ async function refreshDocumentFromStorage(documentId: string): Promise<void> {
       return
     }
 
+    // Do not let stale persistence reads overwrite fresher in-memory local edits.
+    if (entriesByDocumentId.get(documentId)?.hasLocalChanges === true) {
+      return
+    }
+
     applyWorkerEntry(loaded, {
       hasLocalChanges: stored.hasLocalChanges === true,
     })
@@ -381,13 +390,29 @@ export function invalidateCachedItems(itemIds: string[]): void {
     return
   }
 
-  void Promise.all(uniqueItemIds.map(itemId => refreshDocumentFromStorage(itemId))).finally(() => {
-    const itemIdsToNotify = uniqueItemIds.filter(itemId => !isMetadataDocumentId(itemId))
+  const staleItemIds = uniqueItemIds.filter(itemId => entriesByDocumentId.get(itemId)?.hasLocalChanges !== true)
+  if (staleItemIds.length === 0) {
+    return
+  }
+
+  void Promise.allSettled(staleItemIds.map(async itemId => {
+    await refreshDocumentFromStorage(itemId)
+    return itemId
+  })).then(results => {
+    const refreshedItemIds = results
+      .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+      .map(result => result.value)
+
+    if (refreshedItemIds.length === 0) {
+      return
+    }
+
+    const itemIdsToNotify = refreshedItemIds.filter(itemId => !isMetadataDocumentId(itemId))
     if (itemIdsToNotify.length > 0) {
       notifyItemListeners(itemIdsToNotify)
     }
 
-    if (uniqueItemIds.some(itemId => isMetadataDocumentId(itemId))) {
+    if (refreshedItemIds.some(itemId => isMetadataDocumentId(itemId))) {
       notifyMetadataListeners()
     }
   })
