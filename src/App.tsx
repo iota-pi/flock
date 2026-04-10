@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
 import {
+  Alert,
   Box,
   Button,
   Container,
@@ -31,6 +32,8 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
+  const syncWarning = useSyncStore(state => state.syncWarning)
+  const clearSyncWarning = useSyncStore(state => state.clearSyncWarning)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -82,6 +85,16 @@ function RootLayout() {
       <Content>
         {loggedIn && (
           <Toolbar />
+        )}
+
+        {syncWarning && (
+          <Alert
+            severity="warning"
+            onClose={clearSyncWarning}
+            sx={{ m: 2, mb: 0 }}
+          >
+            {syncWarning}
+          </Alert>
         )}
 
         <MainLayout>

@@ -1,3 +1,5 @@
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+
 export const BACKGROUND_SYNC_PUSH_TAG = 'flock-sync-push'
 
 export type BackgroundSyncPushMessage = {
@@ -24,6 +26,24 @@ export type BackgroundSyncPushCommit = {
   committedAt: number
 }
 
+type BackgroundSyncPushQueueSchema = DBSchema & {
+  kv: {
+    key: string
+    value: unknown
+  }
+}
+
+export class BackgroundSyncQueueInitializationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message)
+    this.name = 'BackgroundSyncQueueInitializationError'
+
+    if (options && 'cause' in options) {
+      ;(this as Error & { cause?: unknown }).cause = options.cause
+    }
+  }
+}
+
 const DB_NAME = 'FlockBackgroundSyncDB'
 const DB_VERSION = 1
 const STORE_NAME = 'kv'
@@ -31,81 +51,51 @@ const STORE_NAME = 'kv'
 const PENDING_PUSH_BATCHES_KEY = 'pending_push_batches_v1'
 const PENDING_PUSH_COMMITS_KEY = 'pending_push_commits_v1'
 
-const memoryFallbackStore = new Map<string, unknown>()
+let dbPromise: Promise<IDBPDatabase<BackgroundSyncPushQueueSchema>> | null = null
+let initializationError: BackgroundSyncQueueInitializationError | null = null
 
-function hasIndexedDb(): boolean {
-  return typeof indexedDB !== 'undefined'
+function createInitializationError(cause?: unknown): BackgroundSyncQueueInitializationError {
+  return new BackgroundSyncQueueInitializationError(
+    'Background sync queue persistence is unavailable (IndexedDB could not be initialized).',
+    { cause },
+  )
 }
 
-function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => {
-      resolve(request.result)
-    }
-
-    request.onerror = () => {
-      reject(request.error || new Error('IndexedDB request failed'))
-    }
-  })
-}
-
-function transactionToPromise(transaction: IDBTransaction): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => {
-      resolve()
-    }
-
-    transaction.onerror = () => {
-      reject(transaction.error || new Error('IndexedDB transaction failed'))
-    }
-
-    transaction.onabort = () => {
-      reject(transaction.error || new Error('IndexedDB transaction was aborted'))
-    }
-  })
-}
-
-function openBackgroundSyncDb(): Promise<IDBDatabase | null> {
-  if (!hasIndexedDb()) {
-    return Promise.resolve(null)
+async function getBackgroundSyncQueueDb(): Promise<IDBPDatabase<BackgroundSyncPushQueueSchema>> {
+  if (initializationError) {
+    throw initializationError
   }
 
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
+  if (typeof indexedDB === 'undefined') {
+    initializationError = createInitializationError(new Error('IndexedDB is not available in this environment'))
+    throw initializationError
+  }
 
-    request.onupgradeneeded = () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        database.createObjectStore(STORE_NAME)
-      }
-    }
+  if (!dbPromise) {
+    dbPromise = openDB<BackgroundSyncPushQueueSchema>(DB_NAME, DB_VERSION, {
+      upgrade(database) {
+        if (!database.objectStoreNames.contains(STORE_NAME)) {
+          database.createObjectStore(STORE_NAME)
+        }
+      },
+    }).catch(error => {
+      initializationError = createInitializationError(error)
+      dbPromise = null
+      throw initializationError
+    })
+  }
 
-    request.onsuccess = () => {
-      resolve(request.result)
-    }
+  return dbPromise
+}
 
-    request.onerror = () => {
-      reject(request.error || new Error('Failed to open IndexedDB'))
-    }
-  }).catch(() => null)
+export async function initializeBackgroundSyncPushQueue(): Promise<void> {
+  await getBackgroundSyncQueueDb()
 }
 
 async function readStoreValue<T>(key: string, fallback: T): Promise<T> {
-  const database = await openBackgroundSyncDb()
-  if (!database) {
-    const memoryValue = memoryFallbackStore.get(key)
-    return (memoryValue === undefined ? fallback : memoryValue) as T
-  }
-
-  try {
-    const transaction = database.transaction(STORE_NAME, 'readonly')
-    const request = transaction.objectStore(STORE_NAME).get(key)
-    const value = await requestToPromise(request)
-    await transactionToPromise(transaction)
-    return (value === undefined ? fallback : value) as T
-  } finally {
-    database.close()
-  }
+  const database = await getBackgroundSyncQueueDb()
+  const value = await database.get(STORE_NAME, key)
+  return (value === undefined ? fallback : value) as T
 }
 
 async function modifyStoreValue<T>(
@@ -113,66 +103,13 @@ async function modifyStoreValue<T>(
   fallback: T,
   modifier: (current: T) => T,
 ): Promise<T> {
-  const database = await openBackgroundSyncDb()
-  if (!database) {
-    const memoryValue = memoryFallbackStore.get(key)
-    const current = (memoryValue === undefined ? fallback : memoryValue) as T
-    const nextValue = modifier(current)
-    memoryFallbackStore.set(key, nextValue)
-    return nextValue
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    let nextValue = fallback
-
-    const closeDatabase = () => {
-      database.close()
-    }
-
-    const transaction = database.transaction(STORE_NAME, 'readwrite')
-    const store = transaction.objectStore(STORE_NAME)
-    const request = store.get(key)
-
-    request.onerror = () => {
-      closeDatabase()
-      reject(request.error || new Error('IndexedDB request failed'))
-    }
-
-    request.onsuccess = () => {
-      const currentValue = (request.result === undefined ? fallback : request.result) as T
-
-      try {
-        nextValue = modifier(currentValue)
-      } catch (error) {
-        closeDatabase()
-        reject(error)
-        transaction.abort()
-        return
-      }
-
-      const writeRequest = store.put(nextValue, key)
-      writeRequest.onerror = () => {
-        closeDatabase()
-        reject(writeRequest.error || new Error('IndexedDB write failed'))
-        transaction.abort()
-      }
-    }
-
-    transaction.oncomplete = () => {
-      closeDatabase()
-      resolve(nextValue)
-    }
-
-    transaction.onerror = () => {
-      closeDatabase()
-      reject(transaction.error || new Error('IndexedDB transaction failed'))
-    }
-
-    transaction.onabort = () => {
-      closeDatabase()
-      reject(transaction.error || new Error('IndexedDB transaction was aborted'))
-    }
-  })
+  const database = await getBackgroundSyncQueueDb()
+  const transaction = database.transaction(STORE_NAME, 'readwrite')
+  const currentValue = ((await transaction.store.get(key)) ?? fallback) as T
+  const nextValue = modifier(currentValue)
+  await transaction.store.put(nextValue, key)
+  await transaction.done
+  return nextValue
 }
 
 function createBatchId(): string {

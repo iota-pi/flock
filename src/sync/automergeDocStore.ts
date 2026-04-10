@@ -51,25 +51,19 @@ type EnsureHandleOptions = {
   initialValue?: RepoDoc
 }
 
-const itemById = new Map<string, Item>()
-const itemListeners = new Set<() => void>()
-const itemScopedListeners = new Map<string, Set<() => void>>()
-const metadataListeners = new Set<() => void>()
 const handleByDocumentId = new Map<string, RepoDocHandle>()
-const unbindByDocumentId = new Map<string, () => void>()
 const syncCursorByItemId = new Map<string, number>()
 const localChangeByDocumentId = new Set<string>()
 
-let metadataSnapshot: AccountMetadata = {}
 let loadedAccount: string | null = null
 let knownIdsUnsubscribe: (() => void) | null = null
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
+function cloneValue<T>(value: T): T {
+  return structuredClone(value)
 }
 
-function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeItemId(raw: unknown): string | null {
@@ -81,173 +75,36 @@ function normalizeItemId(raw: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function notifyItemListeners(itemId?: string): void {
-  for (const listener of itemListeners) {
-    listener()
-  }
-
-  if (!itemId) {
-    return
-  }
-
-  const scoped = itemScopedListeners.get(itemId)
-  if (!scoped) {
-    return
-  }
-
-  for (const listener of scoped) {
-    listener()
-  }
-}
-
-function notifyMetadataListeners(): void {
-  for (const listener of metadataListeners) {
-    listener()
-  }
-}
-
-function normalizeMetadataSnapshot(value: unknown): AccountMetadata {
-  if (!isPlainObject(value)) {
-    return {}
-  }
-
-  return deepClone(value) as AccountMetadata
-}
-
-function materializeItemSnapshot(itemId: string, doc: RepoDoc): void {
-  const normalized = deepClone(doc) as Partial<Item>
-  if (typeof normalized.id !== 'string' || normalized.id.length === 0) {
-    normalized.id = itemId
-  }
-
-  if (typeof normalized.type !== 'string') {
-    return
-  }
-
-  itemById.set(itemId, normalized as Item)
-  notifyItemListeners(itemId)
-}
-
-function materializeDocumentSnapshot(documentId: string, doc: RepoDoc): void {
-  if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
-    metadataSnapshot = normalizeMetadataSnapshot(doc)
-    notifyMetadataListeners()
-    return
-  }
-
-  materializeItemSnapshot(documentId, doc)
-}
-
-function removeItemSnapshot(itemId: string): void {
-  if (!itemById.delete(itemId)) {
-    return
-  }
-
-  notifyItemListeners(itemId)
-}
-
-function detachHandle(documentId: string): void {
-  const unbind = unbindByDocumentId.get(documentId)
-  if (unbind) {
-    unbind()
-    unbindByDocumentId.delete(documentId)
-  }
-
+async function evictDocumentHandle(documentId: string): Promise<void> {
   handleByDocumentId.delete(documentId)
+
+  try {
+    await getAutomergeRepo().removeFromCache(interpretAsDocumentId(toAutomergeUrlFromItemId(documentId)))
+  } catch {
+    // Ignore cache-eviction failures for handles that were never loaded.
+  }
 }
 
-function bindHandle(documentId: string, handle: RepoDocHandle): void {
-  if (unbindByDocumentId.has(documentId)) {
+function setLocalChange(documentId: string, changed: boolean): void {
+  if (changed) {
+    localChangeByDocumentId.add(documentId)
     return
   }
 
-  const onChange = (payload?: { doc?: RepoDoc }) => {
-    if (payload?.doc && isPlainObject(payload.doc)) {
-      materializeDocumentSnapshot(documentId, payload.doc)
-      return
-    }
-
-    if (!handle.isReady()) {
-      return
-    }
-
-    materializeDocumentSnapshot(documentId, handle.doc())
-  }
-
-  const onDelete = () => {
-    if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
-      metadataSnapshot = {}
-      notifyMetadataListeners()
-      return
-    }
-
-    removeItemSnapshot(documentId)
-  }
-
-  handle.on('change', onChange)
-  handle.on('delete', onDelete)
-
-  unbindByDocumentId.set(documentId, () => {
-    handle.off('change', onChange)
-    handle.off('delete', onDelete)
-  })
+  localChangeByDocumentId.delete(documentId)
 }
 
-function getPatchParent(root: RepoDoc, path: Array<string | number>): { parent: Record<string | number, unknown>; key: string | number } | null {
-  if (path.length === 0) {
+function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
+  if (!handle.isReady()) {
     return null
   }
 
-  let current: Record<string | number, unknown> = root
-
-  for (let index = 0; index < path.length - 1; index += 1) {
-    const key = path[index]
-    const nextKey = path[index + 1]
-    const existing = current[key]
-
-    if (existing && typeof existing === 'object') {
-      current = existing as Record<string | number, unknown>
-      continue
-    }
-
-    const replacement = typeof nextKey === 'number' ? [] : {}
-    current[key] = replacement
-    current = replacement as Record<string | number, unknown>
+  try {
+    const doc = handle.doc()
+    return isPlainObject(doc) ? cloneValue(doc) : null
+  } catch {
+    return null
   }
-
-  return {
-    parent: current,
-    key: path[path.length - 1],
-  }
-}
-
-function clonePatchValue(value: unknown): unknown {
-  if (!isPlainObject(value) && !Array.isArray(value)) {
-    return value
-  }
-
-  return deepClone(value)
-}
-
-function applyPatch(document: RepoDoc, patch: AutomergeDocumentPatch): void {
-  const target = getPatchParent(document, patch.path)
-  if (!target) {
-    return
-  }
-
-  const { parent, key } = target
-
-  if (patch.op === 'remove') {
-    if (Array.isArray(parent) && typeof key === 'number') {
-      parent.splice(key, 1)
-      return
-    }
-
-    delete parent[key]
-    return
-  }
-
-  parent[key] = clonePatchValue(patch.value)
 }
 
 async function ensureDocumentHandle(
@@ -278,14 +135,9 @@ async function ensureDocumentHandle(
   }
 
   handleByDocumentId.set(documentId, handle)
-  bindHandle(documentId, handle)
 
   if (!handle.isReady()) {
     await handle.whenReady(['ready', 'unavailable'])
-  }
-
-  if (handle.isReady()) {
-    materializeDocumentSnapshot(documentId, handle.doc())
   }
 
   return handle
@@ -303,8 +155,7 @@ async function observeKnownItemIds(itemIds: string[]): Promise<void> {
       continue
     }
 
-    detachHandle(knownId)
-    removeItemSnapshot(knownId)
+    await evictDocumentHandle(knownId)
   }
 
   await Promise.all(itemIds.map(async itemId => {
@@ -343,23 +194,11 @@ function normalizeDocumentIds(itemIds?: string[]): string[] {
   return Array.from(deduped)
 }
 
-function setLocalChange(documentId: string, changed: boolean): void {
-  if (changed) {
-    localChangeByDocumentId.add(documentId)
-    return
-  }
-
-  localChangeByDocumentId.delete(documentId)
-}
-
 function encodeBytesToBase64(bytes: Uint8Array): string {
   if (typeof btoa === 'function') {
     let binary = ''
-    const chunkSize = 0x8000
-
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      const chunk = bytes.subarray(offset, offset + chunkSize)
-      binary += String.fromCharCode(...chunk)
+    for (let index = 0; index < bytes.length; index += 1) {
+      binary += String.fromCharCode(bytes[index])
     }
 
     return btoa(binary)
@@ -389,6 +228,63 @@ function decodeBase64ToBytes(value: string): Uint8Array {
   }
 
   throw new Error('No base64 decoder available')
+}
+
+function getPatchParent(root: RepoDoc, path: Array<string | number>): { parent: Record<string | number, unknown>; key: string | number } | null {
+  if (path.length === 0) {
+    return null
+  }
+
+  let current: Record<string | number, unknown> = root
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const key = path[index]
+    const nextKey = path[index + 1]
+    const existing = current[key]
+
+    if (existing && typeof existing === 'object') {
+      current = existing as Record<string | number, unknown>
+      continue
+    }
+
+    const replacement = typeof nextKey === 'number' ? [] : {}
+    current[key] = replacement
+    current = replacement as Record<string | number, unknown>
+  }
+
+  return {
+    parent: current,
+    key: path[path.length - 1],
+  }
+}
+
+function clonePatchValue(value: unknown): unknown {
+  if (!isPlainObject(value) && !Array.isArray(value)) {
+    return value
+  }
+
+  return cloneValue(value)
+}
+
+function applyPatch(document: RepoDoc, patch: AutomergeDocumentPatch): void {
+  const target = getPatchParent(document, patch.path)
+  if (!target) {
+    return
+  }
+
+  const { parent, key } = target
+
+  if (patch.op === 'remove') {
+    if (Array.isArray(parent) && typeof key === 'number') {
+      delete parent[key]
+      return
+    }
+
+    delete parent[key]
+    return
+  }
+
+  parent[key] = clonePatchValue(patch.value)
 }
 
 export async function initializeAutomergeDocStore(account: string): Promise<void> {
@@ -436,14 +332,14 @@ export function hasAutomergeDocument(documentId: string): boolean {
     return true
   }
 
-  return itemById.has(documentId)
+  return handleByDocumentId.has(documentId)
     || getVaultNetworkAdapter().getKnownItemIds().includes(documentId)
 }
 
 export function listAutomergeItemIds(): string[] {
   const ids = new Set<string>([
     ...getVaultNetworkAdapter().getKnownItemIds(),
-    ...Array.from(itemById.keys()),
+    ...Array.from(handleByDocumentId.keys()).filter(documentId => documentId !== ACCOUNT_METADATA_DOCUMENT_ID),
   ])
 
   return Array.from(ids).filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
@@ -454,19 +350,53 @@ export function invalidateCachedItems(itemIds: string[]): void {
 }
 
 export function getAutomergeItems(): Item[] {
-  return Array.from(itemById.values())
-}
+  const items: Item[] = []
 
-export function getAutomergeItemIds(): string[] {
-  return listAutomergeItemIds()
+  for (const itemId of listAutomergeItemIds()) {
+    const item = getAutomergeItem(itemId)
+    if (item) {
+      items.push(item)
+    }
+  }
+
+  return items
 }
 
 export function getAutomergeItem(itemId: string): Item | null {
-  return itemById.get(itemId) || null
+  const handle = handleByDocumentId.get(itemId)
+  if (!handle) {
+    return null
+  }
+
+  const snapshot = snapshotFromHandle(handle)
+  if (!snapshot) {
+    return null
+  }
+
+  const item = snapshot as Partial<Item>
+  if (typeof item.id !== 'string' || item.id.length === 0) {
+    item.id = itemId
+  }
+
+  if (typeof item.type !== 'string' || item.type.length === 0) {
+    return null
+  }
+
+  return item as Item
 }
 
 export function getAutomergeMetadata(): AccountMetadata {
-  return metadataSnapshot
+  const handle = handleByDocumentId.get(ACCOUNT_METADATA_DOCUMENT_ID)
+  if (!handle) {
+    return {}
+  }
+
+  const snapshot = snapshotFromHandle(handle)
+  if (!snapshot || !isPlainObject(snapshot)) {
+    return {}
+  }
+
+  return snapshot as AccountMetadata
 }
 
 export async function seedAutomergeDocument(
@@ -481,14 +411,9 @@ export async function seedAutomergeDocument(
   }) as unknown as RepoDocHandle
 
   handleByDocumentId.set(documentId, handle)
-  bindHandle(documentId, handle)
 
   if (!handle.isReady()) {
     await handle.whenReady(['ready', 'unavailable'])
-  }
-
-  if (handle.isReady()) {
-    materializeDocumentSnapshot(documentId, handle.doc())
   }
 
   if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
@@ -506,7 +431,7 @@ export async function upsertAutomergeMetadataSnapshot(
     initialValue: {},
   })
 
-  const nextMetadata = deepClone(metadata || {})
+  const nextMetadata = cloneValue(metadata || {})
   handle.change(doc => {
     for (const key of Object.keys(doc)) {
       if (!(key in nextMetadata) || nextMetadata[key as keyof AccountMetadata] === undefined) {
@@ -515,9 +440,7 @@ export async function upsertAutomergeMetadataSnapshot(
     }
 
     for (const [key, value] of Object.entries(nextMetadata)) {
-      if (value !== undefined) {
-        doc[key] = value
-      }
+      doc[key] = value
     }
   })
 
@@ -530,12 +453,12 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
     return
   }
 
-  detachHandle(normalizedItemId)
-  removeItemSnapshot(normalizedItemId)
   localChangeByDocumentId.delete(normalizedItemId)
   syncCursorByItemId.delete(normalizedItemId)
 
   getVaultNetworkAdapter().removeKnownItemIds([normalizedItemId])
+
+  await evictDocumentHandle(normalizedItemId)
 
   try {
     getAutomergeRepo().delete(toAutomergeUrlFromItemId(normalizedItemId))
@@ -554,15 +477,9 @@ export async function clearAutomergeDocStore(): Promise<void> {
       // Ignore missing local handles.
     }
 
-    if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
-      detachHandle(documentId)
-    }
+    await evictDocumentHandle(documentId)
   }
 
-  detachHandle(ACCOUNT_METADATA_DOCUMENT_ID)
-
-  itemById.clear()
-  metadataSnapshot = {}
   syncCursorByItemId.clear()
   localChangeByDocumentId.clear()
 
@@ -576,14 +493,11 @@ export async function clearAutomergeDocStore(): Promise<void> {
       // Ignore IndexedDB delete failures in constrained environments.
     }
   }
-
-  notifyItemListeners()
-  notifyMetadataListeners()
 }
 
 export async function seedAutomergeItems(items: Item[]): Promise<void> {
   await Promise.all(items.map(async item => {
-    const normalized = deepClone(item) as unknown as RepoDoc
+    const normalized = cloneValue(item) as unknown as RepoDoc
     const binary = Automerge.save(Automerge.from(normalized))
     await seedAutomergeDocument(item.id, binary)
   }))
@@ -714,7 +628,9 @@ export async function receiveAutomergeSyncMessage(
   _message: Uint8Array,
   cursor?: number,
 ): Promise<ReceiveSyncResult> {
-  const nextCursor = Number.isFinite(cursor) ? Math.max(0, Math.floor(cursor as number)) : readAutomergeSyncCursor(itemId)
+  const nextCursor = Number.isFinite(cursor)
+    ? Math.max(0, Math.floor(cursor as number))
+    : readAutomergeSyncCursor(itemId)
   syncCursorByItemId.set(itemId, nextCursor)
 
   getVaultNetworkAdapter().registerKnownItemIds([itemId])
@@ -732,33 +648,117 @@ export async function receiveAutomergeSyncMessage(
 }
 
 export function subscribeAutomergeItems(listener: () => void): () => void {
-  itemListeners.add(listener)
+  const adapter = getVaultNetworkAdapter()
+  const unbindByItemId = new Map<string, () => void>()
+  let disposed = false
+
+  const attachItemHandle = async (itemId: string): Promise<void> => {
+    if (disposed || unbindByItemId.has(itemId)) {
+      return
+    }
+
+    const handle = await ensureDocumentHandle(itemId).catch(() => null)
+    if (disposed || !handle) {
+      return
+    }
+
+    const onChange = () => {
+      listener()
+    }
+
+    handle.on('change', onChange)
+    handle.on('delete', onChange)
+    unbindByItemId.set(itemId, () => {
+      handle.off('change', onChange)
+      handle.off('delete', onChange)
+    })
+  }
+
+  const unsubscribeKnownIds = adapter.subscribeKnownItemIds(itemIds => {
+    const normalized = itemIds.filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
+    const nextIds = new Set(normalized)
+
+    for (const [existingItemId, unbind] of unbindByItemId) {
+      if (nextIds.has(existingItemId)) {
+        continue
+      }
+
+      unbind()
+      unbindByItemId.delete(existingItemId)
+    }
+
+    for (const itemId of normalized) {
+      void attachItemHandle(itemId)
+    }
+
+    listener()
+  })
+
   return () => {
-    itemListeners.delete(listener)
+    disposed = true
+    unsubscribeKnownIds()
+
+    for (const unbind of unbindByItemId.values()) {
+      unbind()
+    }
+
+    unbindByItemId.clear()
   }
 }
 
 export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  const scoped = itemScopedListeners.get(itemId) || new Set<() => void>()
-  scoped.add(listener)
-  itemScopedListeners.set(itemId, scoped)
+  let disposed = false
+  let unbind = () => undefined
 
-  return () => {
-    const listeners = itemScopedListeners.get(itemId)
-    if (!listeners) {
+  void ensureDocumentHandle(itemId).then(handle => {
+    if (disposed) {
       return
     }
 
-    listeners.delete(listener)
-    if (listeners.size === 0) {
-      itemScopedListeners.delete(itemId)
+    const onChange = () => {
+      listener()
     }
+
+    handle.on('change', onChange)
+    handle.on('delete', onChange)
+    unbind = () => {
+      handle.off('change', onChange)
+      handle.off('delete', onChange)
+    }
+  }).catch(() => undefined)
+
+  return () => {
+    disposed = true
+    unbind()
   }
 }
 
 export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  metadataListeners.add(listener)
+  let disposed = false
+  let unbind = () => undefined
+
+  void ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
+    createIfMissing: true,
+    initialValue: {},
+  }).then(handle => {
+    if (disposed) {
+      return
+    }
+
+    const onChange = () => {
+      listener()
+    }
+
+    handle.on('change', onChange)
+    handle.on('delete', onChange)
+    unbind = () => {
+      handle.off('change', onChange)
+      handle.off('delete', onChange)
+    }
+  }).catch(() => undefined)
+
   return () => {
-    metadataListeners.delete(listener)
+    disposed = true
+    unbind()
   }
 }

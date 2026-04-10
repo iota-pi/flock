@@ -62,9 +62,32 @@ vi.mock('@automerge/automerge-repo-react-hooks', () => ({
     const item = itemsFixture.find(candidate => toAutomergeUrlFromItemId(candidate.id) === documentId)
     return [item, vi.fn()]
   }),
+  useDocuments: vi.fn((documentIds: string[]) => {
+    const documents = new Map<string, Item>()
+
+    for (const documentId of documentIds) {
+      const item = itemsFixture.find(candidate => toAutomergeUrlFromItemId(candidate.id) === documentId)
+      if (item) {
+        documents.set(documentId, item)
+      }
+    }
+
+    return [documents, vi.fn()]
+  }),
+}))
+
+vi.mock('../sync/automergeRepo', () => ({
+  getVaultNetworkAdapter: () => ({
+    getKnownItemIds: () => itemsFixture.map(item => item.id),
+    subscribeKnownItemIds: (listener: (itemIds: string[]) => void) => {
+      listener(itemsFixture.map(item => item.id))
+      return () => undefined
+    },
+  }),
 }))
 
 vi.mock('../sync/automergeDocStore', () => ({
+  ACCOUNT_METADATA_DOCUMENT_ID: 'meta',
   getAutomergeItems: vi.fn(() => itemsFixture),
   getAutomergeItemIds: vi.fn(() => itemsFixture.map(item => item.id)),
   subscribeAutomergeItems: vi.fn(() => () => undefined),

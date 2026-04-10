@@ -12,7 +12,7 @@ import { getApiAuthToken } from '../api/runtime'
 import type { RealtimeEventEnvelope } from '../shared/realtime'
 import { parseRealtimePayload } from '../api/realtime/payload'
 import { RealtimeWebSocketTransport } from '../api/realtime/realtimeWebSocketTransport'
-import { pullSyncBatch, pushSyncBatch } from '../api/vault/syncClient'
+import { pullSyncBatch } from '../api/vault/syncClient'
 import { decryptSyncMessage, encryptSyncMessage } from './automergeSyncCrypto'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 
@@ -203,40 +203,38 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
+    const accountAtSend = this.account
+    const transportAtSend = this.transport
     const itemId = toVaultItemIdFromAutomergeId(documentId)
 
     this.sendQueue = this.sendQueue
       .then(async () => {
-        if (!this.account) {
+        if (!accountAtSend) {
+          return
+        }
+
+        if (!this.connected || this.account !== accountAtSend) {
+          this.emit('close')
           return
         }
 
         const encryptedMessage = await encryptSyncMessage(message.data as Uint8Array)
 
-        // Keep the websocket lifecycle in sync with existing realtime transport.
-        this.transport?.sendRaw({
+        if (!transportAtSend) {
+          this.emit('close')
+          return
+        }
+
+        transportAtSend.sendRaw({
           action: 'repo_sync_push',
-          account: this.account,
+          account: accountAtSend,
           itemId,
           encryptedMessage,
         })
-
-        const response = await pushSyncBatch({
-          account: this.account,
-          messages: [{
-            itemId,
-            encryptedMessage,
-          }],
-        })
-
-        const pushed = response.results.find(result => result.itemId === itemId)
-        if (pushed && Number.isFinite(pushed.cursor)) {
-          const previous = this.cursorByItemId.get(itemId) || 0
-          this.cursorByItemId.set(itemId, Math.max(previous, pushed.cursor))
-        }
       })
       .catch(error => {
         console.error('[VaultEncryptedNetworkAdapter] Failed to push sync message', error)
+        this.emit('close')
       })
   }
 

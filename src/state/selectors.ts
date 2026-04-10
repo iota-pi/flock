@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
@@ -6,14 +6,12 @@ import type { ItemId } from '../shared/itemTypes'
 import {
   ensureItemsBootstrap,
   ensureMetadataLoaded,
-  getCachedMetadata,
-  subscribeMetadata,
 } from '../api/itemReadService'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
-import { useAutomergeItem, useAutomergeItems } from '../sync/useAutomerge'
+import { useAutomergeItem, useAutomergeItems, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -41,6 +39,7 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 export function useAccountMetadata(): Metadata {
   const authReady = useAuthReady()
   const account = useAuthStore(state => state.account)
+  const metadata = useAutomergeMetadataSnapshot()
 
   useEffect(() => {
     if (!authReady || !account) {
@@ -50,11 +49,7 @@ export function useAccountMetadata(): Metadata {
     void ensureMetadataLoaded(account).catch(() => undefined)
   }, [account, authReady])
 
-  return useSyncExternalStore(
-    subscribeMetadata,
-    () => (authReady ? getCachedMetadata() as Metadata : EMPTY_METADATA),
-    () => EMPTY_METADATA,
-  )
+  return authReady ? metadata as Metadata : EMPTY_METADATA
 }
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
@@ -142,7 +137,7 @@ export function useMetadata<K extends MetadataKey>(
   const value = metadata[key] === undefined ? defaultValue : metadata[key]
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
-      const baseMetadata = getCachedMetadata() as Metadata
+      const baseMetadata = metadata as Metadata
       const previousValue = baseMetadata[key] === undefined ? defaultValue : baseMetadata[key]
       const newValue = typeof newValueOrFunc === 'function'
         ? (newValueOrFunc as (prev: Metadata[K]) => Metadata[K])(previousValue as Metadata[K])
@@ -150,7 +145,7 @@ export function useMetadata<K extends MetadataKey>(
 
       await setMetadata({ ...baseMetadata, [key]: newValue } as Metadata)
     },
-    [defaultValue, key],
+    [defaultValue, key, metadata],
   )
   return [value, setValue]
 }
