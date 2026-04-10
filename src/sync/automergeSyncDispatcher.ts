@@ -9,7 +9,6 @@ import {
   listAutomergeDocumentIds,
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
-  writeAutomergeSyncCursor,
 } from './automergeDocStore'
 import { useSyncStore } from '../state/syncStore'
 import {
@@ -88,15 +87,7 @@ function isOfflineOrNetworkError(error: unknown): boolean {
     return true
   }
 
-  const normalized = normalizeSyncError(error)
-  const message = normalized.message.toLowerCase()
-  return (
-    message.includes('failed to fetch')
-    || message.includes('networkerror')
-    || message.includes('network request failed')
-    || message.includes('network connection was lost')
-    || message.includes('load failed')
-  )
+  return error instanceof TypeError
 }
 
 function isRetryableSyncError(error: unknown): boolean {
@@ -280,8 +271,6 @@ async function pullRemoteMessagesBatch(account: string, itemIds: string[]): Prom
       continue
     }
 
-    let highestCursor = readAutomergeSyncCursor(itemResult.itemId)
-
     for (const message of itemResult.messages || []) {
       if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
         continue
@@ -297,18 +286,6 @@ async function pullRemoteMessagesBatch(account: string, itemIds: string[]): Prom
       if (received.changed) {
         updatedItemIds.add(itemResult.itemId)
       }
-
-      if (received.cursor > highestCursor) {
-        highestCursor = received.cursor
-      }
-    }
-
-    if (typeof itemResult.nextCursor === 'number' && itemResult.nextCursor > highestCursor) {
-      highestCursor = itemResult.nextCursor
-    }
-
-    if (highestCursor > 0) {
-      await writeAutomergeSyncCursor(itemResult.itemId, highestCursor)
     }
   }
 

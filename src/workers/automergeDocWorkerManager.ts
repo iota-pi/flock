@@ -37,6 +37,7 @@ let worker: Worker | null = null
 let workerApi: Remote<AutomergeDocWorkerApi> | null = null
 let activeAccount: string | null = null
 let rehydrateCacheProvider: (() => PersistedWorkerRecord[]) | null = null
+let activeRehydration: Promise<boolean> | null = null
 
 function decodeBase64ToBytes(value: string): Uint8Array {
   const decoded = atob(value)
@@ -165,39 +166,49 @@ function isWorkerContextLostError(error: unknown): boolean {
 }
 
 async function rehydrateWorker(): Promise<boolean> {
+  if (activeRehydration) {
+    return activeRehydration
+  }
+
   const account = activeAccount
   if (!account) {
     return false
   }
 
-  try {
-    disposeWorker()
-    const api = getWorkerApi()
-    const persisted = await listPersistedAutomergeDocs(account)
-    const recordsByItemId = new Map<string, PersistedWorkerRecord>()
+  activeRehydration = (async () => {
+    try {
+      disposeWorker()
+      const api = getWorkerApi()
+      const persisted = await listPersistedAutomergeDocs(account)
+      const recordsByItemId = new Map<string, PersistedWorkerRecord>()
 
-    for (const record of persisted.map(toPersistedWorkerRecord)) {
-      recordsByItemId.set(record.itemId, record)
-    }
-
-    const inMemoryRecords = rehydrateCacheProvider?.() || []
-    for (const inMemoryRecord of inMemoryRecords) {
-      if (!inMemoryRecord || typeof inMemoryRecord.itemId !== 'string' || inMemoryRecord.itemId.length === 0) {
-        continue
+      for (const record of persisted.map(toPersistedWorkerRecord)) {
+        recordsByItemId.set(record.itemId, record)
       }
 
-      recordsByItemId.set(inMemoryRecord.itemId, inMemoryRecord)
+      const inMemoryRecords = rehydrateCacheProvider?.() || []
+      for (const inMemoryRecord of inMemoryRecords) {
+        if (!inMemoryRecord || typeof inMemoryRecord.itemId !== 'string' || inMemoryRecord.itemId.length === 0) {
+          continue
+        }
+
+        recordsByItemId.set(inMemoryRecord.itemId, inMemoryRecord)
+      }
+
+      const records = toTransferRecords(Array.from(recordsByItemId.values()))
+      const transferables = collectRecordTransferables(records)
+
+      await api.initialize(Comlink.transfer(records, transferables))
+      return true
+    } catch (error) {
+      resetWorker('Failed to rehydrate automerge document worker after context loss', error)
+      return false
+    } finally {
+      activeRehydration = null
     }
+  })()
 
-    const records = toTransferRecords(Array.from(recordsByItemId.values()))
-    const transferables = collectRecordTransferables(records)
-
-    await api.initialize(Comlink.transfer(records, transferables))
-    return true
-  } catch (error) {
-    resetWorker('Failed to rehydrate automerge document worker after context loss', error)
-    return false
-  }
+  return activeRehydration
 }
 
 async function withWorker<T>(run: (api: Remote<AutomergeDocWorkerApi>) => Promise<T>): Promise<T> {

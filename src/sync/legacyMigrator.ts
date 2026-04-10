@@ -19,7 +19,6 @@ import {
   readAutomergeSyncCursor,
   receiveAutomergeSyncMessage,
   upsertAutomergeMetadataSnapshot,
-  writeAutomergeSyncCursor,
 } from './automergeDocStore'
 import { requestAutomergeSync } from './automergeSyncDispatcher'
 import {
@@ -283,8 +282,6 @@ async function pullMissingItemSyncMessages(accountId: string, itemIds: string[])
       continue
     }
 
-    let highestCursor = readAutomergeSyncCursor(itemResult.itemId)
-
     for (const message of itemResult.messages || []) {
       if (!message?.encryptedMessage?.iv || !message?.encryptedMessage?.cipher) {
         continue
@@ -292,14 +289,11 @@ async function pullMissingItemSyncMessages(accountId: string, itemIds: string[])
 
       try {
         const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
-        const received = await receiveAutomergeSyncMessage(
+        await receiveAutomergeSyncMessage(
           itemResult.itemId,
           decryptedMessage,
           message.cursor,
         )
-        if (received.changed) {
-          highestCursor = Math.max(highestCursor, received.cursor)
-        }
       } catch (error) {
         reportDecryptionFailure({
           source: 'main-thread',
@@ -307,14 +301,6 @@ async function pullMissingItemSyncMessages(accountId: string, itemIds: string[])
           error,
         })
       }
-    }
-
-    if (typeof itemResult.nextCursor === 'number' && itemResult.nextCursor > highestCursor) {
-      highestCursor = itemResult.nextCursor
-    }
-
-    if (highestCursor > 0) {
-      await writeAutomergeSyncCursor(itemResult.itemId, highestCursor)
     }
   }
 }
@@ -346,14 +332,10 @@ export async function bootstrapItemsFromSyncMessages(accountId: string): Promise
       continue
     }
 
-    let highestCursor = 0
     for (const message of orderedMessages) {
       try {
         const decryptedMessage = await decryptBytesWithKey(vault.getVaultKey(), message.encryptedMessage)
-        const received = await receiveAutomergeSyncMessage(item.item, decryptedMessage, message.cursor)
-        if (received.changed) {
-          highestCursor = Math.max(highestCursor, received.cursor)
-        }
+        await receiveAutomergeSyncMessage(item.item, decryptedMessage, message.cursor)
       } catch (error) {
         reportDecryptionFailure({
           source: 'main-thread',
@@ -361,10 +343,6 @@ export async function bootstrapItemsFromSyncMessages(accountId: string): Promise
           error,
         })
       }
-    }
-
-    if (highestCursor > 0) {
-      await writeAutomergeSyncCursor(item.item, highestCursor)
     }
   }
 

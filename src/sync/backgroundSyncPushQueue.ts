@@ -108,20 +108,71 @@ async function readStoreValue<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
-async function writeStoreValue<T>(key: string, value: T): Promise<void> {
+async function modifyStoreValue<T>(
+  key: string,
+  fallback: T,
+  modifier: (current: T) => T,
+): Promise<T> {
   const database = await openBackgroundSyncDb()
   if (!database) {
-    memoryFallbackStore.set(key, value)
-    return
+    const memoryValue = memoryFallbackStore.get(key)
+    const current = (memoryValue === undefined ? fallback : memoryValue) as T
+    const nextValue = modifier(current)
+    memoryFallbackStore.set(key, nextValue)
+    return nextValue
   }
 
-  try {
+  return new Promise<T>((resolve, reject) => {
+    let nextValue = fallback
+
+    const closeDatabase = () => {
+      database.close()
+    }
+
     const transaction = database.transaction(STORE_NAME, 'readwrite')
-    transaction.objectStore(STORE_NAME).put(value, key)
-    await transactionToPromise(transaction)
-  } finally {
-    database.close()
-  }
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(key)
+
+    request.onerror = () => {
+      closeDatabase()
+      reject(request.error || new Error('IndexedDB request failed'))
+    }
+
+    request.onsuccess = () => {
+      const currentValue = (request.result === undefined ? fallback : request.result) as T
+
+      try {
+        nextValue = modifier(currentValue)
+      } catch (error) {
+        closeDatabase()
+        reject(error)
+        transaction.abort()
+        return
+      }
+
+      const writeRequest = store.put(nextValue, key)
+      writeRequest.onerror = () => {
+        closeDatabase()
+        reject(writeRequest.error || new Error('IndexedDB write failed'))
+        transaction.abort()
+      }
+    }
+
+    transaction.oncomplete = () => {
+      closeDatabase()
+      resolve(nextValue)
+    }
+
+    transaction.onerror = () => {
+      closeDatabase()
+      reject(transaction.error || new Error('IndexedDB transaction failed'))
+    }
+
+    transaction.onabort = () => {
+      closeDatabase()
+      reject(transaction.error || new Error('IndexedDB transaction was aborted'))
+    }
+  })
 }
 
 function createBatchId(): string {
@@ -285,18 +336,26 @@ export async function enqueueBackgroundSyncPushBatch(input: {
     createdAt: Date.now(),
   }
 
-  const existing = await listBackgroundSyncPushBatches()
-  const nextSignature = getBatchSignature(batch)
+  let nextBatchId: string | null = null
 
-  const duplicate = existing.find(existingBatch => getBatchSignature(existingBatch) === nextSignature)
-  if (duplicate) {
-    return duplicate.id
-  }
+  await modifyStoreValue<unknown[]>(PENDING_PUSH_BATCHES_KEY, [], current => {
+    const existing = Array.isArray(current)
+      ? current.map(normalizeBatch).filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
+      : []
 
-  existing.push(batch)
-  await writeStoreValue(PENDING_PUSH_BATCHES_KEY, existing)
+    const nextSignature = getBatchSignature(batch)
+    const duplicate = existing.find(existingBatch => getBatchSignature(existingBatch) === nextSignature)
+    if (duplicate) {
+      nextBatchId = duplicate.id
+      return existing
+    }
 
-  return batch.id
+    existing.push(batch)
+    nextBatchId = batch.id
+    return existing
+  })
+
+  return nextBatchId
 }
 
 export async function removeBackgroundSyncPushBatches(batchIds: string[]): Promise<void> {
@@ -308,14 +367,13 @@ export async function removeBackgroundSyncPushBatches(batchIds: string[]): Promi
     return
   }
 
-  const existing = await listBackgroundSyncPushBatches()
-  const filtered = existing.filter(batch => !normalizedIds.has(batch.id))
+  await modifyStoreValue<unknown[]>(PENDING_PUSH_BATCHES_KEY, [], current => {
+    const existing = Array.isArray(current)
+      ? current.map(normalizeBatch).filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
+      : []
 
-  if (filtered.length === existing.length) {
-    return
-  }
-
-  await writeStoreValue(PENDING_PUSH_BATCHES_KEY, filtered)
+    return existing.filter(batch => !normalizedIds.has(batch.id))
+  })
 }
 
 export async function appendBackgroundSyncPushCommits(commits: BackgroundSyncPushCommit[]): Promise<void> {
@@ -327,25 +385,26 @@ export async function appendBackgroundSyncPushCommits(commits: BackgroundSyncPus
     return
   }
 
-  const existingRaw = await readStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [])
-  const existingCommits = Array.isArray(existingRaw)
-    ? existingRaw.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
-    : []
+  await modifyStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [], current => {
+    const existingCommits = Array.isArray(current)
+      ? current.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
+      : []
 
-  const byAccountAndItemId = new Map<string, BackgroundSyncPushCommit>()
+    const byAccountAndItemId = new Map<string, BackgroundSyncPushCommit>()
 
-  for (const commit of existingCommits) {
-    byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, commit)
-  }
+    for (const commit of existingCommits) {
+      byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, commit)
+    }
 
-  for (const commit of normalizedCommits) {
-    byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, {
-      ...commit,
-      committedAt: Date.now(),
-    })
-  }
+    for (const commit of normalizedCommits) {
+      byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, {
+        ...commit,
+        committedAt: Date.now(),
+      })
+    }
 
-  await writeStoreValue(PENDING_PUSH_COMMITS_KEY, Array.from(byAccountAndItemId.values()))
+    return Array.from(byAccountAndItemId.values())
+  })
 }
 
 export async function consumeBackgroundSyncPushCommits(account: string): Promise<BackgroundSyncPushCommit[]> {
@@ -353,30 +412,33 @@ export async function consumeBackgroundSyncPushCommits(account: string): Promise
     return []
   }
 
-  const existingRaw = await readStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [])
-  const existingCommits = Array.isArray(existingRaw)
-    ? existingRaw.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
-    : []
-
-  if (existingCommits.length === 0) {
-    return []
-  }
-
   const matched: BackgroundSyncPushCommit[] = []
-  const remaining: BackgroundSyncPushCommit[] = []
 
-  for (const commit of existingCommits) {
-    if (commit.account === account) {
-      matched.push(commit)
-    } else {
-      remaining.push(commit)
+  await modifyStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [], current => {
+    const existingCommits = Array.isArray(current)
+      ? current.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
+      : []
+
+    if (existingCommits.length === 0) {
+      return existingCommits
     }
-  }
+
+    const remaining: BackgroundSyncPushCommit[] = []
+
+    for (const commit of existingCommits) {
+      if (commit.account === account) {
+        matched.push(commit)
+      } else {
+        remaining.push(commit)
+      }
+    }
+
+    return remaining
+  })
 
   if (matched.length === 0) {
     return []
   }
 
-  await writeStoreValue(PENDING_PUSH_COMMITS_KEY, remaining)
   return matched
 }

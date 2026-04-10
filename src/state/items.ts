@@ -1,4 +1,5 @@
 import { generateItemId } from '../utils'
+import { z } from 'zod'
 import type { Frequency } from '../utils/frequencies'
 import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
@@ -46,6 +47,91 @@ export type Item = (PersonItem | GroupItem | TopicItem) & {
 }
 
 export type DirtyItem<T> = T & { dirty?: boolean }
+
+const FREQUENCY_VALUES = [
+  'daily',
+  'biweekly',
+  'weekly',
+  'fortnightly',
+  'monthly',
+  'quarterly',
+  'annually',
+  'none',
+] as const
+
+const frequencySchema = z.union([
+  z.number(),
+  z.enum(FREQUENCY_VALUES),
+])
+
+const noteSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  archived: z.boolean(),
+  time: z.number(),
+})
+
+const baseItemSchema = z.object({
+  archived: z.boolean(),
+  created: z.number(),
+  deleted: z.boolean().optional(),
+  description: z.string(),
+  id: z.string(),
+  isNew: z.literal(true).optional(),
+  name: z.string(),
+  notes: z.array(noteSchema),
+  prayedFor: z.array(z.number()),
+  prayerFrequency: frequencySchema,
+  type: z.enum(ITEM_TYPES),
+})
+
+const personItemSchema = baseItemSchema.extend({
+  memberPrayerFrequency: z.undefined().optional(),
+  members: z.undefined().optional(),
+  type: z.literal('person'),
+})
+
+const groupItemSchema = baseItemSchema.extend({
+  memberPrayerFrequency: frequencySchema,
+  memberPrayerTarget: z.enum(['one', 'all']),
+  members: z.array(z.string()),
+  type: z.literal('group'),
+})
+
+const topicItemSchema = baseItemSchema.extend({
+  memberPrayerFrequency: z.undefined().optional(),
+  members: z.undefined().optional(),
+  type: z.literal('topic'),
+})
+
+const itemSchema = z.discriminatedUnion('type', [
+  personItemSchema,
+  groupItemSchema,
+  topicItemSchema,
+])
+
+function hasPath(value: unknown, path: (string | number)[]): boolean {
+  let current: unknown = value
+
+  for (const segment of path) {
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current) || segment < 0 || segment >= current.length) {
+        return false
+      }
+
+      current = current[segment]
+      continue
+    }
+
+    if (!current || typeof current !== 'object' || !(segment in current)) {
+      return false
+    }
+
+    current = (current as Record<string, unknown>)[segment]
+  }
+
+  return true
+}
 
 export function isItem(item: Item): item is Item {
   return (ITEM_TYPES as readonly Item['type'][]).includes(item.type)
@@ -106,23 +192,38 @@ export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean):
 }
 
 export function checkProperties(items: Item[]): { error: boolean, message: string } {
-  const ignoreProps: (keyof Item)[] = ['isNew']
-  for (const item of items) {
-    const blank = getBlankItem(item.type)
-    const filledKeys = Object.keys(item) as (keyof Item)[]
-    for (const key of Object.keys(blank) as (keyof Item)[]) {
-      if (ignoreProps.includes(key)) {
-        continue
-      }
+  for (const [index, item] of items.entries()) {
+    const result = itemSchema.safeParse(item)
+    if (result.success) {
+      continue
+    }
 
-      if (!filledKeys.includes(key)) {
-        return {
-          error: true,
-          message: `Item ${item.id} is missing key "${key}"`,
-        }
+    const issue = result.error.issues[0]
+    const keyPath = issue.path.join('.')
+    const id = typeof item?.id === 'string' && item.id.length > 0
+      ? item.id
+      : `at index ${index}`
+    const isMissingKey = issue.code === 'invalid_type'
+      && keyPath.length > 0
+      && !hasPath(item, issue.path as (string | number)[])
+
+    if (isMissingKey) {
+      return {
+        error: true,
+        message: `Item ${id} is missing key "${keyPath}"`,
       }
     }
+
+    const suffix = keyPath.length > 0
+      ? ` at "${keyPath}"`
+      : ''
+
+    return {
+      error: true,
+      message: `Item ${id} failed schema validation${suffix}: ${issue.message}`,
+    }
   }
+
   return {
     error: false,
     message: 'Success',
