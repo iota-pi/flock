@@ -46,6 +46,20 @@ describe('items helpers', () => {
     expect(full.id).toBe('x')
   })
 
+  it('supplyMissingAttributes keeps defaults for undefined values', () => {
+    const partial = {
+      id: 'x',
+      type: 'person',
+      notes: undefined,
+      prayedFor: undefined,
+    } as unknown as Item
+
+    const full = supplyMissingAttributes(partial)
+
+    expect(full.notes).toEqual([])
+    expect(full.prayedFor).toEqual([])
+  })
+
   it('convertItem changes type and preserves id', () => {
     const person = getBlankPerson('person-1', false)
     person.name = 'Alice'

@@ -6,11 +6,12 @@ import {
 } from './automergeRepo'
 
 const SHOULD_THROW_SYNC_ERRORS = (
-  typeof window !== 'undefined'
-  && !!(window as Window & { Cypress?: unknown }).Cypress
+  import.meta.env.MODE === 'test'
 )
 
-let activeAccount: string | null = null
+function getActiveAccount(): string | null {
+  return useSyncStore.getState().activeAccount
+}
 
 function normalizeItemIds(itemIds?: string[]): string[] {
   const source = Array.isArray(itemIds) && itemIds.length > 0
@@ -48,7 +49,7 @@ async function runSync(itemIds?: string[]): Promise<string[]> {
 }
 
 export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[]> {
-  if (!activeAccount) {
+  if (!getActiveAccount()) {
     return []
   }
 
@@ -56,7 +57,7 @@ export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[
 }
 
 export function requestAutomergeSync(itemIds?: string[]): void {
-  if (!activeAccount) {
+  if (!getActiveAccount()) {
     const normalized = normalizeItemIds(itemIds)
     if (normalized.length > 0) {
       getVaultNetworkAdapter().registerKnownItemIds(normalized)
@@ -76,8 +77,10 @@ export function startAutomergeSyncDispatcher(account: string): void {
     return
   }
 
+  const { activeAccount, setActiveAccount } = useSyncStore.getState()
+
   if (activeAccount !== account) {
-    activeAccount = account
+    setActiveAccount(account)
     setVaultNetworkAccount(account)
   }
 
@@ -86,7 +89,7 @@ export function startAutomergeSyncDispatcher(account: string): void {
 }
 
 export function stopAutomergeSyncDispatcher(): void {
-  activeAccount = null
+  useSyncStore.getState().setActiveAccount(null)
   setVaultNetworkAccount(null)
   useSyncStore.getState().setIsSyncing(false)
 }

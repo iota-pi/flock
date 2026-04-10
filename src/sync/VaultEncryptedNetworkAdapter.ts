@@ -55,7 +55,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private readonly readyPromise: Promise<void>
   private readonly cursorByItemId = new Map<string, number>()
   private sendQueue: Promise<void> = Promise.resolve()
+  private sendQueueBlocked = false
   private isPulling = false
+  private pullRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private pendingPullItemIds = new Set<string>()
   private readonly knownItemIds = new Set<string>()
   private readonly knownItemIdsListeners = new Set<KnownItemIdsListener>()
@@ -76,6 +78,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.account = nextAccount
     this.cursorByItemId.clear()
     this.pendingPullItemIds.clear()
+    this.clearPullRetryTimeout()
+    this.resetSendQueue()
     this.knownItemIds.clear()
     this.notifyKnownItemIdsChanged()
 
@@ -151,6 +155,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.knownItemIds.clear()
     this.pendingPullItemIds.clear()
+    this.clearPullRetryTimeout()
     this.cursorByItemId.clear()
     this.notifyKnownItemIdsChanged()
   }
@@ -176,6 +181,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
     this.connected = true
+    this.resetSendQueue()
 
     if (!this.ready) {
       this.ready = true
@@ -191,6 +197,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   send(message: Message): void {
     if (!this.connected || !this.account || message.targetId !== VAULT_PEER_ID) {
+      return
+    }
+
+    if (this.sendQueueBlocked) {
       return
     }
 
@@ -234,6 +244,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       })
       .catch(error => {
         console.error('[VaultEncryptedNetworkAdapter] Failed to push sync message', error)
+        this.sendQueueBlocked = true
         this.emit('close')
       })
   }
@@ -241,13 +252,17 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   disconnect(): void {
     this.connected = false
     this.pendingPullItemIds.clear()
+    this.clearPullRetryTimeout()
     this.cursorByItemId.clear()
     this.transport?.stop()
     this.transport = null
+    this.resetSendQueue()
     this.emit('close')
   }
 
   private reconnectTransport(): void {
+    this.clearPullRetryTimeout()
+    this.resetSendQueue()
     this.transport?.stop()
     this.transport = null
 
@@ -261,6 +276,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       getLastEventId: () => 0,
       getToken: () => getApiAuthToken(),
       onOpen: () => {
+        this.resetSendQueue()
         this.syncItemIds()
       },
       onRawMessage: rawData => {
@@ -313,6 +329,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.pendingPullItemIds.add(itemId)
     }
 
+    if (itemIds.length > 0) {
+      this.clearPullRetryTimeout()
+    }
+
     if (this.isPulling) {
       return
     }
@@ -321,9 +341,34 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     void this.flushPullQueue().finally(() => {
       this.isPulling = false
       if (this.pendingPullItemIds.size > 0) {
-        setTimeout(() => this.enqueuePull([]), RETRY_PULL_DELAY_MS)
+        this.schedulePullRetry()
       }
     })
+  }
+
+  private schedulePullRetry(): void {
+    if (this.pullRetryTimeoutId !== null) {
+      return
+    }
+
+    this.pullRetryTimeoutId = setTimeout(() => {
+      this.pullRetryTimeoutId = null
+      this.enqueuePull([])
+    }, RETRY_PULL_DELAY_MS)
+  }
+
+  private clearPullRetryTimeout(): void {
+    if (this.pullRetryTimeoutId === null) {
+      return
+    }
+
+    clearTimeout(this.pullRetryTimeoutId)
+    this.pullRetryTimeoutId = null
+  }
+
+  private resetSendQueue(): void {
+    this.sendQueue = Promise.resolve()
+    this.sendQueueBlocked = false
   }
 
   private async flushPullQueue(): Promise<void> {

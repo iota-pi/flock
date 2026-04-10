@@ -19,7 +19,18 @@ const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 let syncHealthWatchersInitialized = false
 
+function pruneExpiredRecoveryCooldownEntries(now: number): void {
+  for (const [itemId, cooldownUntil] of recoveryCooldownUntilByItemId.entries()) {
+    if (cooldownUntil <= now) {
+      recoveryCooldownUntilByItemId.delete(itemId)
+    }
+  }
+}
+
 function getRecoveryCooldownUntil(itemId: ItemId): number {
+  const now = Date.now()
+  pruneExpiredRecoveryCooldownEntries(now)
+
   return recoveryCooldownUntilByItemId.get(itemId) || 0
 }
 
@@ -75,6 +86,8 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
 
   for (const itemId of uniqueItemIds) {
     await removeManualRecoveryEntryByItemId(itemId)
+    recoveryCooldownUntilByItemId.delete(itemId)
+    recoveryInFlightItemIds.delete(itemId)
   }
 
   const nextCount = await readManualRecoveryCount()

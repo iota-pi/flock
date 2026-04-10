@@ -145,6 +145,47 @@ function hasPath(value: unknown, path: (string | number)[]): boolean {
   return true
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function deepMergeDefined<T>(base: T, override: unknown): T {
+  if (override === undefined) {
+    return base
+  }
+
+  if (Array.isArray(base)) {
+    return (Array.isArray(override) ? override : base) as T
+  }
+
+  if (!isPlainObject(base) || !isPlainObject(override)) {
+    return override as T
+  }
+
+  const merged: Record<string, unknown> = { ...base }
+
+  for (const [key, value] of Object.entries(override)) {
+    if (value === undefined) {
+      continue
+    }
+
+    const current = merged[key]
+    if (isPlainObject(current) && isPlainObject(value)) {
+      merged[key] = deepMergeDefined(current, value)
+      continue
+    }
+
+    if (Array.isArray(current) && Array.isArray(value)) {
+      merged[key] = value
+      continue
+    }
+
+    merged[key] = value
+  }
+
+  return merged as T
+}
+
 export function isItem(item: Item): item is StandardItem {
   return (ITEM_TYPES as readonly string[]).includes(item.type)
 }
@@ -293,12 +334,9 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
   }
 
   const blank = getBlankItem(item.type, false)
-  const filled = {
-    ...blank,
-    ...item,
-  }
+  const filled = deepMergeDefined(blank, item)
 
-  return filled
+  return filled as T
 }
 
 export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {

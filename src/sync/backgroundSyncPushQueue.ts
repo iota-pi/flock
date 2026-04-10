@@ -26,10 +26,30 @@ export type BackgroundSyncPushCommit = {
   committedAt: number
 }
 
+type BackgroundSyncPushCommitRecord = BackgroundSyncPushCommit & {
+  key: string
+}
+
 type BackgroundSyncPushQueueSchema = DBSchema & {
   kv: {
     key: string
     value: unknown
+  }
+  pendingPushBatches: {
+    key: string
+    value: BackgroundSyncPushBatch
+    indexes: {
+      'by-account': string
+      'by-created-at': number
+    }
+  }
+  pendingPushCommits: {
+    key: string
+    value: BackgroundSyncPushCommitRecord
+    indexes: {
+      'by-account': string
+      'by-committed-at': number
+    }
   }
 }
 
@@ -45,14 +65,23 @@ export class BackgroundSyncQueueInitializationError extends Error {
 }
 
 const DB_NAME = 'FlockBackgroundSyncDB'
-const DB_VERSION = 1
-const STORE_NAME = 'kv'
+const DB_VERSION = 2
+const LEGACY_STORE_NAME = 'kv'
+const BATCH_STORE_NAME = 'pendingPushBatches'
+const COMMIT_STORE_NAME = 'pendingPushCommits'
 
-const PENDING_PUSH_BATCHES_KEY = 'pending_push_batches_v1'
-const PENDING_PUSH_COMMITS_KEY = 'pending_push_commits_v1'
+const BATCH_ACCOUNT_INDEX = 'by-account'
+const BATCH_CREATED_AT_INDEX = 'by-created-at'
+const COMMIT_ACCOUNT_INDEX = 'by-account'
+const COMMIT_COMMITTED_AT_INDEX = 'by-committed-at'
+
+const LEGACY_PENDING_PUSH_BATCHES_KEY = 'pending_push_batches_v1'
+const LEGACY_PENDING_PUSH_COMMITS_KEY = 'pending_push_commits_v1'
 
 let dbPromise: Promise<IDBPDatabase<BackgroundSyncPushQueueSchema>> | null = null
 let initializationError: BackgroundSyncQueueInitializationError | null = null
+let hasMigratedLegacyQueueState = false
+let legacyMigrationPromise: Promise<void> | null = null
 
 function createInitializationError(cause?: unknown): BackgroundSyncQueueInitializationError {
   return new BackgroundSyncQueueInitializationError(
@@ -74,8 +103,24 @@ async function getBackgroundSyncQueueDb(): Promise<IDBPDatabase<BackgroundSyncPu
   if (!dbPromise) {
     dbPromise = openDB<BackgroundSyncPushQueueSchema>(DB_NAME, DB_VERSION, {
       upgrade(database) {
-        if (!database.objectStoreNames.contains(STORE_NAME)) {
-          database.createObjectStore(STORE_NAME)
+        if (!database.objectStoreNames.contains(BATCH_STORE_NAME)) {
+          const batches = database.createObjectStore(BATCH_STORE_NAME, {
+            keyPath: 'id',
+          })
+          batches.createIndex(BATCH_ACCOUNT_INDEX, 'account')
+          batches.createIndex(BATCH_CREATED_AT_INDEX, 'createdAt')
+        }
+
+        if (!database.objectStoreNames.contains(COMMIT_STORE_NAME)) {
+          const commits = database.createObjectStore(COMMIT_STORE_NAME, {
+            keyPath: 'key',
+          })
+          commits.createIndex(COMMIT_ACCOUNT_INDEX, 'account')
+          commits.createIndex(COMMIT_COMMITTED_AT_INDEX, 'committedAt')
+        }
+
+        if (!database.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+          database.createObjectStore(LEGACY_STORE_NAME)
         }
       },
     }).catch(error => {
@@ -85,31 +130,13 @@ async function getBackgroundSyncQueueDb(): Promise<IDBPDatabase<BackgroundSyncPu
     })
   }
 
-  return dbPromise
+  const database = await dbPromise
+  await ensureLegacyQueueStateMigrated(database)
+  return database
 }
 
 export async function initializeBackgroundSyncPushQueue(): Promise<void> {
   await getBackgroundSyncQueueDb()
-}
-
-async function readStoreValue<T>(key: string, fallback: T): Promise<T> {
-  const database = await getBackgroundSyncQueueDb()
-  const value = await database.get(STORE_NAME, key)
-  return (value === undefined ? fallback : value) as T
-}
-
-async function modifyStoreValue<T>(
-  key: string,
-  fallback: T,
-  modifier: (current: T) => T,
-): Promise<T> {
-  const database = await getBackgroundSyncQueueDb()
-  const transaction = database.transaction(STORE_NAME, 'readwrite')
-  const currentValue = ((await transaction.store.get(key)) ?? fallback) as T
-  const nextValue = modifier(currentValue)
-  await transaction.store.put(nextValue, key)
-  await transaction.done
-  return nextValue
 }
 
 function createBatchId(): string {
@@ -214,6 +241,111 @@ function normalizeCommit(candidate: unknown): BackgroundSyncPushCommit | null {
   }
 }
 
+function normalizeCommitRecord(candidate: unknown): BackgroundSyncPushCommitRecord | null {
+  if (!candidate || typeof candidate !== 'object') {
+    return null
+  }
+
+  const value = candidate as Partial<BackgroundSyncPushCommitRecord>
+  if (typeof value.key !== 'string' || value.key.length === 0) {
+    return null
+  }
+
+  const commit = normalizeCommit(value)
+  if (!commit) {
+    return null
+  }
+
+  return {
+    key: value.key,
+    ...commit,
+  }
+}
+
+function createCommitKey(account: string, itemId: string): string {
+  return `${account}:${itemId}`
+}
+
+function toCommitRecord(commit: BackgroundSyncPushCommit): BackgroundSyncPushCommitRecord {
+  return {
+    key: createCommitKey(commit.account, commit.itemId),
+    ...commit,
+  }
+}
+
+function normalizeLegacyBatches(value: unknown): BackgroundSyncPushBatch[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(normalizeBatch)
+    .filter((batch): batch is BackgroundSyncPushBatch => batch !== null)
+}
+
+function normalizeLegacyCommits(value: unknown): BackgroundSyncPushCommit[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(normalizeCommit)
+    .filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
+}
+
+async function migrateLegacyQueueState(database: IDBPDatabase<BackgroundSyncPushQueueSchema>): Promise<void> {
+  if (!database.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+    return
+  }
+
+  const legacyBatches = normalizeLegacyBatches(
+    await database.get(LEGACY_STORE_NAME, LEGACY_PENDING_PUSH_BATCHES_KEY),
+  )
+  const legacyCommits = normalizeLegacyCommits(
+    await database.get(LEGACY_STORE_NAME, LEGACY_PENDING_PUSH_COMMITS_KEY),
+  )
+
+  if (legacyBatches.length === 0 && legacyCommits.length === 0) {
+    return
+  }
+
+  const transaction = database.transaction(
+    [BATCH_STORE_NAME, COMMIT_STORE_NAME, LEGACY_STORE_NAME],
+    'readwrite',
+  )
+
+  for (const batch of legacyBatches) {
+    await transaction.objectStore(BATCH_STORE_NAME).put(batch)
+  }
+
+  for (const commit of legacyCommits) {
+    await transaction.objectStore(COMMIT_STORE_NAME).put(toCommitRecord(commit))
+  }
+
+  await transaction.objectStore(LEGACY_STORE_NAME).delete(LEGACY_PENDING_PUSH_BATCHES_KEY)
+  await transaction.objectStore(LEGACY_STORE_NAME).delete(LEGACY_PENDING_PUSH_COMMITS_KEY)
+  await transaction.done
+}
+
+async function ensureLegacyQueueStateMigrated(database: IDBPDatabase<BackgroundSyncPushQueueSchema>): Promise<void> {
+  if (hasMigratedLegacyQueueState) {
+    return
+  }
+
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = migrateLegacyQueueState(database)
+      .then(() => {
+        hasMigratedLegacyQueueState = true
+      })
+      .catch(error => {
+        legacyMigrationPromise = null
+        throw createInitializationError(error)
+      })
+  }
+
+  await legacyMigrationPromise
+}
+
 function getBatchSignature(batch: {
   account: string
   messages: BackgroundSyncPushMessage[]
@@ -234,14 +366,20 @@ function getBatchSignature(batch: {
 }
 
 export async function listBackgroundSyncPushBatches(): Promise<BackgroundSyncPushBatch[]> {
-  const raw = await readStoreValue<unknown[]>(PENDING_PUSH_BATCHES_KEY, [])
-  if (!Array.isArray(raw)) {
-    return []
-  }
+  const database = await getBackgroundSyncQueueDb()
+  const raw = await database.getAllFromIndex(BATCH_STORE_NAME, BATCH_CREATED_AT_INDEX)
 
-  return raw
+  const batches = raw
     .map(normalizeBatch)
     .filter((batch): batch is BackgroundSyncPushBatch => batch !== null)
+
+  return batches.sort((left, right) => {
+    if (left.createdAt === right.createdAt) {
+      return left.id.localeCompare(right.id)
+    }
+
+    return left.createdAt - right.createdAt
+  })
 }
 
 export async function enqueueBackgroundSyncPushBatch(input: {
@@ -273,26 +411,25 @@ export async function enqueueBackgroundSyncPushBatch(input: {
     createdAt: Date.now(),
   }
 
-  let nextBatchId: string | null = null
+  const database = await getBackgroundSyncQueueDb()
+  const transaction = database.transaction(BATCH_STORE_NAME, 'readwrite')
 
-  await modifyStoreValue<unknown[]>(PENDING_PUSH_BATCHES_KEY, [], current => {
-    const existing = Array.isArray(current)
-      ? current.map(normalizeBatch).filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
-      : []
+  const existingForAccount = await transaction.store.index(BATCH_ACCOUNT_INDEX).getAll(input.account)
+  const existing = existingForAccount
+    .map(normalizeBatch)
+    .filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
 
-    const nextSignature = getBatchSignature(batch)
-    const duplicate = existing.find(existingBatch => getBatchSignature(existingBatch) === nextSignature)
-    if (duplicate) {
-      nextBatchId = duplicate.id
-      return existing
-    }
+  const nextSignature = getBatchSignature(batch)
+  const duplicate = existing.find(existingBatch => getBatchSignature(existingBatch) === nextSignature)
 
-    existing.push(batch)
-    nextBatchId = batch.id
-    return existing
-  })
+  if (duplicate) {
+    await transaction.done
+    return duplicate.id
+  }
 
-  return nextBatchId
+  await transaction.store.put(batch)
+  await transaction.done
+  return batch.id
 }
 
 export async function removeBackgroundSyncPushBatches(batchIds: string[]): Promise<void> {
@@ -304,13 +441,14 @@ export async function removeBackgroundSyncPushBatches(batchIds: string[]): Promi
     return
   }
 
-  await modifyStoreValue<unknown[]>(PENDING_PUSH_BATCHES_KEY, [], current => {
-    const existing = Array.isArray(current)
-      ? current.map(normalizeBatch).filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
-      : []
+  const database = await getBackgroundSyncQueueDb()
+  const transaction = database.transaction(BATCH_STORE_NAME, 'readwrite')
 
-    return existing.filter(batch => !normalizedIds.has(batch.id))
-  })
+  for (const batchId of normalizedIds) {
+    await transaction.store.delete(batchId)
+  }
+
+  await transaction.done
 }
 
 export async function appendBackgroundSyncPushCommits(commits: BackgroundSyncPushCommit[]): Promise<void> {
@@ -322,26 +460,18 @@ export async function appendBackgroundSyncPushCommits(commits: BackgroundSyncPus
     return
   }
 
-  await modifyStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [], current => {
-    const existingCommits = Array.isArray(current)
-      ? current.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
-      : []
+  const database = await getBackgroundSyncQueueDb()
+  const transaction = database.transaction(COMMIT_STORE_NAME, 'readwrite')
 
-    const byAccountAndItemId = new Map<string, BackgroundSyncPushCommit>()
+  for (const commit of normalizedCommits) {
+    await transaction.store.put({
+      key: createCommitKey(commit.account, commit.itemId),
+      ...commit,
+      committedAt: Date.now(),
+    })
+  }
 
-    for (const commit of existingCommits) {
-      byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, commit)
-    }
-
-    for (const commit of normalizedCommits) {
-      byAccountAndItemId.set(`${commit.account}:${commit.itemId}`, {
-        ...commit,
-        committedAt: Date.now(),
-      })
-    }
-
-    return Array.from(byAccountAndItemId.values())
-  })
+  await transaction.done
 }
 
 export async function consumeBackgroundSyncPushCommits(account: string): Promise<BackgroundSyncPushCommit[]> {
@@ -349,33 +479,31 @@ export async function consumeBackgroundSyncPushCommits(account: string): Promise
     return []
   }
 
-  const matched: BackgroundSyncPushCommit[] = []
+  const database = await getBackgroundSyncQueueDb()
+  const transaction = database.transaction(COMMIT_STORE_NAME, 'readwrite')
+  const accountIndex = transaction.store.index(COMMIT_ACCOUNT_INDEX)
 
-  await modifyStoreValue<unknown[]>(PENDING_PUSH_COMMITS_KEY, [], current => {
-    const existingCommits = Array.isArray(current)
-      ? current.map(normalizeCommit).filter((commit): commit is BackgroundSyncPushCommit => commit !== null)
-      : []
+  const matchedRecords = (await accountIndex.getAll(account))
+    .map(normalizeCommitRecord)
+    .filter((commit): commit is BackgroundSyncPushCommitRecord => commit !== null)
 
-    if (existingCommits.length === 0) {
-      return existingCommits
-    }
-
-    const remaining: BackgroundSyncPushCommit[] = []
-
-    for (const commit of existingCommits) {
-      if (commit.account === account) {
-        matched.push(commit)
-      } else {
-        remaining.push(commit)
-      }
-    }
-
-    return remaining
-  })
-
-  if (matched.length === 0) {
+  if (matchedRecords.length === 0) {
+    await transaction.done
     return []
   }
 
-  return matched
+  for (const commit of matchedRecords) {
+    await transaction.store.delete(commit.key)
+  }
+
+  await transaction.done
+
+  const commits = matchedRecords.map(({ key: _key, ...commit }) => commit)
+  return commits.sort((left, right) => {
+    if (left.committedAt === right.committedAt) {
+      return left.itemId.localeCompare(right.itemId)
+    }
+
+    return left.committedAt - right.committedAt
+  })
 }
