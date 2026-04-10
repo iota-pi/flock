@@ -1,64 +1,12 @@
 import { generateItemId } from '../utils'
 import { z } from 'zod'
-import type { Frequency } from '../utils/frequencies'
+import { has, mergeWith } from 'lodash-es'
 import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
 
 export { ITEM_TYPES }
 export type OldItemType = 'general'
 export const ERROR_ITEM_TYPE = 'error'
-
-export interface Note {
-  id: string
-  text: string
-  archived: boolean
-  time: number
-}
-
-export interface BaseItem {
-  archived: boolean,
-  created: number,
-  deleted?: boolean,
-  description: string,
-  id: ItemId,
-  isNew?: true,
-  name: string,
-  notes: Note[],
-  prayedFor: number[],
-  prayerFrequency: Frequency,
-  type: ItemType | typeof ERROR_ITEM_TYPE,
-}
-export interface PersonItem extends BaseItem {
-  memberPrayerFrequency?: undefined,
-  members?: undefined,
-  type: 'person',
-}
-export interface GroupItem extends BaseItem {
-  memberPrayerFrequency: Frequency,
-  memberPrayerTarget: 'one' | 'all',
-  members: ItemId[],
-  type: 'group',
-}
-export interface TopicItem extends BaseItem {
-  memberPrayerFrequency?: undefined,
-  members?: undefined,
-  type: 'topic',
-}
-export interface ErrorItem extends BaseItem {
-  errorMessage?: string,
-  memberPrayerFrequency?: undefined,
-  members?: undefined,
-  originalType?: ItemType,
-  rawSnapshot?: Record<string, unknown>,
-  type: typeof ERROR_ITEM_TYPE,
-}
-
-export type StandardItem = PersonItem | GroupItem | TopicItem
-
-export type Item = (StandardItem | ErrorItem) & {
-}
-
-export type DirtyItem<T> = T & { dirty?: boolean }
 
 const FREQUENCY_VALUES = [
   'daily',
@@ -122,68 +70,59 @@ const itemSchema = z.discriminatedUnion('type', [
   topicItemSchema,
 ])
 
-function hasPath(value: unknown, path: (string | number)[]): boolean {
-  let current: unknown = value
+export type Note = z.infer<typeof noteSchema>
 
-  for (const segment of path) {
-    if (typeof segment === 'number') {
-      if (!Array.isArray(current) || segment < 0 || segment >= current.length) {
-        return false
-      }
+type StandardBaseItem = z.infer<typeof baseItemSchema>
 
-      current = current[segment]
-      continue
-    }
-
-    if (!current || typeof current !== 'object' || !(segment in current)) {
-      return false
-    }
-
-    current = (current as Record<string, unknown>)[segment]
-  }
-
-  return true
+export type BaseItem = Omit<StandardBaseItem, 'id' | 'type'> & {
+  id: ItemId
+  type: ItemType | typeof ERROR_ITEM_TYPE
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
+export type PersonItem = Omit<z.infer<typeof personItemSchema>, 'id'> & {
+  id: ItemId
 }
 
-function deepMergeDefined<T>(base: T, override: unknown): T {
-  if (override === undefined) {
-    return base
+export type GroupItem = Omit<z.infer<typeof groupItemSchema>, 'id' | 'members'> & {
+  id: ItemId
+  members: ItemId[]
+}
+
+export type TopicItem = Omit<z.infer<typeof topicItemSchema>, 'id'> & {
+  id: ItemId
+}
+
+export type ErrorItem = Omit<BaseItem, 'type'> & {
+  errorMessage?: string
+  memberPrayerFrequency?: undefined
+  members?: undefined
+  originalType?: ItemType
+  rawSnapshot?: Record<string, unknown>
+  type: typeof ERROR_ITEM_TYPE
+}
+
+export type StandardItem = PersonItem | GroupItem | TopicItem
+
+export type Item = StandardItem | ErrorItem
+
+export type DirtyItem<T> = T & { dirty?: boolean }
+
+function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
+  if (!candidate || typeof candidate !== 'object') {
+    return defaults
   }
 
-  if (Array.isArray(base)) {
-    return (Array.isArray(override) ? override : base) as T
-  }
-
-  if (!isPlainObject(base) || !isPlainObject(override)) {
-    return override as T
-  }
-
-  const merged: Record<string, unknown> = { ...base }
-
-  for (const [key, value] of Object.entries(override)) {
-    if (value === undefined) {
-      continue
+  return mergeWith({}, defaults, candidate, (currentValue, nextValue) => {
+    if (nextValue === undefined) {
+      return currentValue
     }
 
-    const current = merged[key]
-    if (isPlainObject(current) && isPlainObject(value)) {
-      merged[key] = deepMergeDefined(current, value)
-      continue
+    if (Array.isArray(nextValue)) {
+      return nextValue
     }
 
-    if (Array.isArray(current) && Array.isArray(value)) {
-      merged[key] = value
-      continue
-    }
-
-    merged[key] = value
-  }
-
-  return merged as T
+    return undefined
+  }) as T
 }
 
 export function isItem(item: Item): item is StandardItem {
@@ -258,7 +197,7 @@ export function checkProperties(items: Item[]): { error: boolean, message: strin
       : `at index ${index}`
     const isMissingKey = issue.code === 'invalid_type'
       && keyPath.length > 0
-      && !hasPath(item, issue.path as (string | number)[])
+      && !has(item, issue.path as Array<string | number>)
 
     if (isMissingKey) {
       return {
@@ -334,7 +273,7 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
   }
 
   const blank = getBlankItem(item.type, false)
-  const filled = deepMergeDefined(blank, item)
+  const filled = mergeItemWithDefaults(blank, item)
 
   return filled as T
 }
