@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
-import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
+import { DeleteIcon } from '../../components/Icons'
+import { ERROR_ITEM_TYPE, getBlankItem, getItemTypeLabel, Item } from '../../state/items'
+import type { ItemType } from '../../shared/itemTypes'
 import ItemList from '../../features/items/components/ItemList'
 import {
   useIsActive,
@@ -15,20 +17,28 @@ import { useUiStore } from '../../state/uiStore'
 import { useNavigationStore } from '../../state/navigationStore'
 import { processItemsWithWorker } from '../../workers/itemWorkerManager'
 import { useStableDeepValue } from '../../hooks/useStableDeepValue'
+import { hardDeleteItems } from '../../features/items/mutations/itemMutations'
 
-export interface Props<T extends Item> {
-  itemType: T['type'],
+export interface Props {
+  itemType: ItemType,
 }
 
-function ItemPage<T extends Item>({
+function ItemPage({
   itemType,
-}: Props<T>) {
+}: Props) {
   const replaceActive = useNavigationStore(state => state.replaceActive)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
   const isActive = useIsActive()
   const itemsInitialLoading = useItemsInitialLoading()
-  const rawItems = useItems<T>(itemType)
+  const allItems = useItems()
+  const rawItems = useMemo(
+    () => allItems.filter(item => (
+      item.type === itemType
+      || (item.type === ERROR_ITEM_TYPE && item.originalType === itemType)
+    )),
+    [allItems, itemType],
+  )
   const selected = useNavigationStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
@@ -36,8 +46,8 @@ function ItemPage<T extends Item>({
   const [sortCriteria] = useSortCriteria()
 
   const [showArchived, setShowArchived] = useState(false)
-  const [items, setItems] = useState<T[]>(() => (
-    showArchived ? rawItems : rawItems.filter(i => !i.archived) as T[]
+  const [items, setItems] = useState<Item[]>(() => (
+    showArchived ? rawItems : rawItems.filter(i => !i.archived)
   ))
   const [totalApplicable, setTotalApplicable] = useState(() => (
     showArchived ? rawItems.length : rawItems.filter(i => !i.archived).length
@@ -62,7 +72,7 @@ function ItemPage<T extends Item>({
           return
         }
 
-        setItems(result.results as T[])
+        setItems(result.results)
         setTotalApplicable(result.totalApplicable)
         setArchivedCount(result.archivedCount)
       })
@@ -72,7 +82,7 @@ function ItemPage<T extends Item>({
         }
 
         const fallbackItems = showArchived ? rawItems : rawItems.filter(i => !i.archived)
-        setItems(fallbackItems as T[])
+        setItems(fallbackItems)
         setTotalApplicable(fallbackItems.length)
         setArchivedCount(rawItems.filter(i => i.archived).length)
       })
@@ -90,7 +100,11 @@ function ItemPage<T extends Item>({
   const hiddenItemCount = totalApplicable - items.length
 
   const handleClickItem = useCallback(
-    (item: T) => {
+    (item: Item) => {
+      if (item.type === ERROR_ITEM_TYPE) {
+        return
+      }
+
       replaceActive({ item: item.id })
     },
     [replaceActive],
@@ -107,7 +121,7 @@ function ItemPage<T extends Item>({
     [defaultFrequencies, itemType, replaceActive],
   )
   const handleCheck = useCallback(
-    (item: T) => toggleSelected(item.id),
+    (item: Item) => toggleSelected(item.id),
     [toggleSelected],
   )
   const allSelected = useMemo(
@@ -122,15 +136,20 @@ function ItemPage<T extends Item>({
     [allSelected, items, setSelected],
   )
 
-  const getChecked = useCallback((item: T) => selected.includes(item.id), [selected])
+  const getChecked = useCallback((item: Item) => selected.includes(item.id), [selected])
   const getDescription = useCallback(
-    (item: T) => {
+    (item: Item) => {
       if (item.type === 'group') {
         const n = item.members.length
         const s = n !== 1 ? 's' : ''
         const description = item.description ? ` — ${item.description}` : ''
         return `${n} member${s}${description}`
       }
+
+      if (item.type === ERROR_ITEM_TYPE) {
+        return 'Item unavailable due to data error. Use hard-delete to remove it.'
+      }
+
       return item.description
     },
     [],
@@ -138,6 +157,24 @@ function ItemPage<T extends Item>({
   const getHighlighted = useCallback(
     (item: Item) => isActive(item.id),
     [isActive],
+  )
+
+  const getActionIcon = useCallback(
+    (item: Item) => (item.type === ERROR_ITEM_TYPE ? <DeleteIcon /> : undefined),
+    [],
+  )
+
+  const handleClickAction = useCallback(
+    (item: Item) => {
+      if (item.type !== ERROR_ITEM_TYPE) {
+        return
+      }
+
+      void hardDeleteItems(item.id).catch(error => {
+        console.error(error)
+      })
+    },
+    [],
   )
 
   const pluralLabel = getItemTypeLabel(itemType, true)
@@ -212,7 +249,9 @@ function ItemPage<T extends Item>({
         checkboxes
         disablePadding
         extraElements={extras}
+        getActionIcon={getActionIcon}
         getChecked={getChecked}
+        onClickAction={handleClickAction}
         getDescription={getDescription}
         getHighlighted={getHighlighted}
         items={items}

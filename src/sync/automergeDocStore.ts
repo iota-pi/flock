@@ -1,8 +1,8 @@
 import type { Item } from '../state/items'
 import * as Sentry from '@sentry/react'
-import { supplyMissingAttributes } from '../state/items'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, supplyMissingAttributes } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import type { ItemId } from '../shared/itemTypes'
+import type { ItemId, ItemType } from '../shared/itemTypes'
 import {
   clearPersistedAutomergeDocs,
 } from './automergeDocStorage'
@@ -31,7 +31,7 @@ import {
   setAutomergeWorkerCursor,
   setAutomergeWorkerSnapshot,
   type WorkerDocumentPatch,
-  type PersistedWorkerRecord,
+  type WorkerRehydrateRecord,
   type WorkerEntrySnapshot,
   type WorkerSerializedEntry,
 } from '../workers/automergeDocWorkerManager'
@@ -49,41 +49,75 @@ type DocEntry = {
 
 let loadedAccount: string | null = null
 const entriesByDocumentId = new Map<string, DocEntry>()
-const cachedItemSnapshotById = new Map<string, Item>()
-let cachedItemsSnapshot: Item[] = []
-let cachedItemsSnapshotDirty = true
-let cachedItemIdsSnapshot: string[] = []
+let cachedItemSnapshotById = new Map<string, Item>()
 let cachedMetadataSnapshot: AccountMetadata = {}
-let cachedMetadataSnapshotDirty = true
 const cachedSerializedByDocumentId = new Map<string, WorkerSerializedEntry>()
 
-function markItemsSnapshotDirty(): void {
-  cachedItemsSnapshotDirty = true
+type MemoizedMapProjection<T> = {
+  mapRef: Map<string, Item> | null
+  size: number
+  value: T
 }
 
-function markMetadataSnapshotDirty(): void {
-  cachedMetadataSnapshotDirty = true
+const memoizedItemsProjection: MemoizedMapProjection<Item[]> = {
+  mapRef: null,
+  size: -1,
+  value: [],
 }
 
-const reactivity = createAutomergeReactivity({
-  markItemsSnapshotDirty,
-  markMetadataSnapshotDirty,
-})
+const memoizedItemIdsProjection: MemoizedMapProjection<string[]> = {
+  mapRef: null,
+  size: -1,
+  value: [],
+}
 
-function getRehydrateCacheRecords(): PersistedWorkerRecord[] {
-  const records: PersistedWorkerRecord[] = []
+const reactivity = createAutomergeReactivity()
+
+function memoizeMapValues(map: Map<string, Item>): Item[] {
+  if (memoizedItemsProjection.mapRef === map && memoizedItemsProjection.size === map.size) {
+    return memoizedItemsProjection.value
+  }
+
+  const values = Array.from(map.values())
+  memoizedItemsProjection.mapRef = map
+  memoizedItemsProjection.size = map.size
+  memoizedItemsProjection.value = values
+  return values
+}
+
+function memoizeMapKeys(map: Map<string, Item>): string[] {
+  if (memoizedItemIdsProjection.mapRef === map && memoizedItemIdsProjection.size === map.size) {
+    return memoizedItemIdsProjection.value
+  }
+
+  const keys = Array.from(map.keys())
+  memoizedItemIdsProjection.mapRef = map
+  memoizedItemIdsProjection.size = map.size
+  memoizedItemIdsProjection.value = keys
+  return keys
+}
+
+function getRehydrateCacheRecords(): WorkerRehydrateRecord[] {
+  const records: WorkerRehydrateRecord[] = []
 
   for (const [documentId, entry] of entriesByDocumentId) {
+    if (!entry.hasLocalChanges) {
+      continue
+    }
+
     const serialized = cachedSerializedByDocumentId.get(documentId)
     if (!serialized) {
       continue
     }
 
     records.push({
-      itemId: documentId,
-      doc: new Uint8Array(serialized.doc),
-      syncState: new Uint8Array(serialized.syncState),
-      cursor: entry.cursor,
+      hasLocalChanges: true,
+      record: {
+        itemId: documentId,
+        doc: new Uint8Array(serialized.doc),
+        syncState: new Uint8Array(serialized.syncState),
+        cursor: entry.cursor,
+      },
     })
   }
 
@@ -119,7 +153,61 @@ function isMetadataDocumentId(documentId: string): boolean {
   return documentId === ACCOUNT_METADATA_DOCUMENT_ID
 }
 
-function materializeItem(itemId: string, snapshot: Record<string, unknown>): Item | null {
+function setCachedItemSnapshot(documentId: string, item: Item): void {
+  const next = new Map(cachedItemSnapshotById)
+  next.set(documentId, item)
+  cachedItemSnapshotById = next
+}
+
+function removeCachedItemSnapshot(documentId: string): void {
+  if (!cachedItemSnapshotById.has(documentId)) {
+    return
+  }
+
+  const next = new Map(cachedItemSnapshotById)
+  next.delete(documentId)
+  cachedItemSnapshotById = next
+}
+
+function clearCachedItemSnapshots(): void {
+  cachedItemSnapshotById = new Map()
+}
+
+function inferOriginalType(snapshot: Record<string, unknown>): ItemType | undefined {
+  if (typeof snapshot.type !== 'string') {
+    return undefined
+  }
+
+  return (ITEM_TYPES as readonly string[]).includes(snapshot.type)
+    ? snapshot.type as ItemType
+    : undefined
+}
+
+function createErrorItem(
+  itemId: string,
+  snapshot: Record<string, unknown>,
+  error: unknown,
+): Item {
+  return {
+    archived: typeof snapshot.archived === 'boolean' ? snapshot.archived : false,
+    created: typeof snapshot.created === 'number' ? snapshot.created : Date.now(),
+    deleted: typeof snapshot.deleted === 'boolean' ? snapshot.deleted : undefined,
+    description: 'Item unavailable due to data error. Use hard-delete to remove it from local storage.',
+    id: itemId,
+    name: typeof snapshot.name === 'string' && snapshot.name.trim().length > 0
+      ? snapshot.name
+      : 'Item unavailable due to data error',
+    notes: [],
+    prayedFor: [],
+    prayerFrequency: 'none',
+    rawSnapshot: normalizeForAutomerge(snapshot),
+    errorMessage: error instanceof Error ? error.message : String(error),
+    originalType: inferOriginalType(snapshot),
+    type: ERROR_ITEM_TYPE,
+  }
+}
+
+function materializeItem(itemId: string, snapshot: Record<string, unknown>): Item {
   const candidate = {
     ...snapshot,
   }
@@ -128,8 +216,8 @@ function materializeItem(itemId: string, snapshot: Record<string, unknown>): Ite
     candidate.id = itemId
   }
 
-  if (typeof candidate.type !== 'string') {
-    return null
+  if (typeof candidate.type !== 'string' || !(ITEM_TYPES as readonly string[]).includes(candidate.type)) {
+    return createErrorItem(itemId, snapshot, new Error('Unsupported or missing item type'))
   }
 
   try {
@@ -144,19 +232,19 @@ function materializeItem(itemId: string, snapshot: Record<string, unknown>): Ite
         itemId,
       },
     })
-    return null
+    return createErrorItem(itemId, snapshot, error)
   }
 }
 
 
 function setCachedItemFromSnapshot(documentId: string, snapshot: Record<string, unknown>): void {
   const item = materializeItem(documentId, snapshot)
-  if (!item || item.deleted === true) {
-    cachedItemSnapshotById.delete(documentId)
+  if (item.deleted === true) {
+    removeCachedItemSnapshot(documentId)
     return
   }
 
-  cachedItemSnapshotById.set(documentId, item)
+  setCachedItemSnapshot(documentId, item)
 }
 
 function applyWorkerEntry(entry: WorkerEntrySnapshot, options?: { hasLocalChanges?: boolean }): void {
@@ -204,7 +292,7 @@ async function removeDocumentState(documentId: string): Promise<void> {
   if (isMetadataDocumentId(documentId)) {
     cachedMetadataSnapshot = {}
   } else {
-    cachedItemSnapshotById.delete(documentId)
+    removeCachedItemSnapshot(documentId)
   }
 
   try {
@@ -236,34 +324,18 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     return
   }
 
-  loadedAccount = account
+  loadedAccount = null
   entriesByDocumentId.clear()
-  cachedItemSnapshotById.clear()
+  clearCachedItemSnapshots()
   cachedSerializedByDocumentId.clear()
-  cachedItemsSnapshot = []
-  markItemsSnapshotDirty()
-  cachedItemIdsSnapshot = []
   cachedMetadataSnapshot = {}
-  markMetadataSnapshotDirty()
 
-  try {
-    await initializeAutomergeOrchestratorState({
-      account,
-      applyWorkerEntry,
-    })
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: {
-        area: 'automerge-doc-store',
-        stage: 'initialize-worker-docs',
-      },
-      extra: {
-        account,
-      },
-    })
+  await initializeAutomergeOrchestratorState({
+    account,
+    applyWorkerEntry,
+  })
 
-    console.error('Failed to initialize automerge document worker state', error)
-  }
+  loadedAccount = account
 
   notifyAllItemListeners()
   notifyMetadataListeners()
@@ -360,26 +432,11 @@ export function invalidateCachedItems(itemIds: string[]): void {
 }
 
 export function getAutomergeItems(): Item[] {
-  if (!cachedItemsSnapshotDirty) {
-    return cachedItemsSnapshot
-  }
-
-  cachedItemsSnapshot = Array.from(cachedItemSnapshotById.values())
-  cachedItemsSnapshotDirty = false
-  return cachedItemsSnapshot
+  return memoizeMapValues(cachedItemSnapshotById)
 }
 
 export function getAutomergeItemIds(): string[] {
-  const nextIds = Array.from(cachedItemSnapshotById.keys())
-  if (
-    nextIds.length === cachedItemIdsSnapshot.length
-    && nextIds.every((itemId, index) => itemId === cachedItemIdsSnapshot[index])
-  ) {
-    return cachedItemIdsSnapshot
-  }
-
-  cachedItemIdsSnapshot = nextIds
-  return cachedItemIdsSnapshot
+  return memoizeMapKeys(cachedItemSnapshotById)
 }
 
 export function getAutomergeItem(itemId: string): Item | null {
@@ -391,11 +448,6 @@ export function getAutomergeItem(itemId: string): Item | null {
 }
 
 export function getAutomergeMetadata(): AccountMetadata {
-  if (!cachedMetadataSnapshotDirty) {
-    return cachedMetadataSnapshot
-  }
-
-  cachedMetadataSnapshotDirty = false
   return cachedMetadataSnapshot
 }
 
@@ -460,14 +512,10 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
 
 export async function clearAutomergeDocStore(): Promise<void> {
   entriesByDocumentId.clear()
-  cachedItemSnapshotById.clear()
+  clearCachedItemSnapshots()
   cachedSerializedByDocumentId.clear()
   loadedAccount = null
-  cachedItemsSnapshot = []
-  markItemsSnapshotDirty()
-  cachedItemIdsSnapshot = []
   cachedMetadataSnapshot = {}
-  markMetadataSnapshotDirty()
 
   await clearPersistedAutomergeDocs()
 

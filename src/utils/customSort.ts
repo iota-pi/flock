@@ -1,4 +1,4 @@
-import { compareIds, getItemName, Item, ITEM_TYPES } from '../state/items'
+import { compareIds, ERROR_ITEM_TYPE, getItemName, Item, ITEM_TYPES } from '../state/items'
 import { getLastPrayedFor } from './prayer'
 
 export type CriterionName = (
@@ -41,7 +41,8 @@ export const AUTOMATIC_CRITERIA: SortCriterion[] = [
   { type: 'type', reverse: false },
 ]
 
-const typeOrderByName = new Map(ITEM_TYPES.map((itemType, index) => [itemType, index]))
+const typeSortOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
+const typeOrderByName = new Map(typeSortOrder.map((itemType, index) => [itemType, index]))
 
 const criterionComparators: Record<CriterionName, (a: Item, b: Item) => number> = {
   archived: (a, b) => +a.archived - +b.archived,

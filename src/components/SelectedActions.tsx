@@ -18,9 +18,9 @@ import {
   UnarchiveIcon,
 } from './Icons'
 import { useItemsById } from '../state/selectors'
-import { Item } from '../state/items'
+import { ERROR_ITEM_TYPE, Item } from '../state/items'
 import { usePrevious } from '../utils'
-import { deleteItems, storeItems } from '../features/items/mutations/itemMutations'
+import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useNavigationStore } from '../state/navigationStore'
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
@@ -55,6 +55,14 @@ function SelectedActions() {
 
   const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
   const prevSelectedItems = usePrevious(selectedItems) || []
+  const selectedStandardItems = useMemo(
+    () => selectedItems.filter(item => item.type !== ERROR_ITEM_TYPE),
+    [selectedItems],
+  )
+  const selectedErrorItems = useMemo(
+    () => selectedItems.filter(item => item.type === ERROR_ITEM_TYPE),
+    [selectedItems],
+  )
 
   const [showConfirm, setShowConfirm] = useState(false)
   const [showGroup, setShowGroup] = useState(false)
@@ -66,22 +74,35 @@ function SelectedActions() {
   const handleHideFrequency = useCallback(() => setShowFrequency(false), [])
   const handleSetArchived = useCallback(
     (archived: boolean) => {
-      const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }))
-      storeItems(newItems)
+      if (selectedStandardItems.length === 0) {
+        return
+      }
+
+      const newItems: Item[] = selectedStandardItems.map(item => ({ ...item, archived }))
+      void storeItems(newItems)
     },
-    [selectedItems],
+    [selectedStandardItems],
   )
   const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived])
   const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived])
   const handleInitialDelete = useCallback(() => setShowConfirm(true), [])
   const handleConfirmDelete = useCallback(
     () => {
-      const ids = selectedItems.map(item => item.id)
-      deleteItems(ids)
-        .catch(error => console.error(error))
+      const standardIds = selectedStandardItems.map(item => item.id)
+      const errorIds = selectedErrorItems.map(item => item.id)
+
+      const tasks: Promise<unknown>[] = []
+      if (standardIds.length > 0) {
+        tasks.push(deleteItems(standardIds))
+      }
+      if (errorIds.length > 0) {
+        tasks.push(hardDeleteItems(errorIds))
+      }
+
+      void Promise.all(tasks).catch(error => console.error(error))
       setShowConfirm(false)
     },
-    [selectedItems],
+    [selectedErrorItems, selectedStandardItems],
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
@@ -91,11 +112,13 @@ function SelectedActions() {
 
   const open = selectedItems.length > 0
   const workingItems = open ? selectedItems : prevSelectedItems
+  const workingStandardItems = workingItems.filter(item => item.type !== ERROR_ITEM_TYPE)
+  const hasWorkingErrorItems = workingItems.some(item => item.type === ERROR_ITEM_TYPE)
 
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
-      if (workingItems.find(item => item.type === 'person')) {
+      if (workingStandardItems.find(item => item.type === 'person')) {
         result.push({
           id: 'group',
           icon: GroupIcon,
@@ -103,33 +126,36 @@ function SelectedActions() {
           onClick: handleShowGroup,
         })
       }
-      result.push({
-        id: 'frequency',
-        icon: FrequencyIcon,
-        label: 'Set Prayer Frequency',
-        onClick: handleShowFrequency,
-      })
-      if (workingItems.find(item => !item.archived)) {
+      if (workingStandardItems.length > 0) {
         result.push({
-          id: 'archive',
-          icon: ArchiveIcon,
-          label: 'Archive',
-          onClick: handleArchive,
+          id: 'frequency',
+          icon: FrequencyIcon,
+          label: 'Set Prayer Frequency',
+          onClick: handleShowFrequency,
         })
-      }
-      if (workingItems.find(item => item.archived)) {
-        result.push({
-          id: 'unarchive',
-          icon: UnarchiveIcon,
-          label: 'Unarchive',
-          onClick: handleUnarchive,
-        })
+
+        if (workingStandardItems.find(item => !item.archived)) {
+          result.push({
+            id: 'archive',
+            icon: ArchiveIcon,
+            label: 'Archive',
+            onClick: handleArchive,
+          })
+        }
+        if (workingStandardItems.find(item => item.archived)) {
+          result.push({
+            id: 'unarchive',
+            icon: UnarchiveIcon,
+            label: 'Unarchive',
+            onClick: handleUnarchive,
+          })
+        }
       }
       result.push(
         {
           id: 'delete',
           icon: DeleteIcon,
-          label: 'Delete',
+          label: hasWorkingErrorItems && workingStandardItems.length === 0 ? 'Hard Delete' : 'Delete',
           onClick: handleInitialDelete,
         },
         {
@@ -149,7 +175,9 @@ function SelectedActions() {
       handleShowFrequency,
       handleShowGroup,
       handleUnarchive,
+      hasWorkingErrorItems,
       workingItems,
+      workingStandardItems,
     ],
   )
 
@@ -201,13 +229,13 @@ function SelectedActions() {
         </ConfirmationDialog>
 
         <GroupDialog
-          items={selectedItems}
+          items={selectedStandardItems}
           onClose={handleHideGroup}
           open={showGroup}
         />
 
         <FrequencyDialog
-          items={selectedItems}
+          items={selectedStandardItems}
           onClose={handleHideFrequency}
           open={showFrequency}
         />

@@ -7,7 +7,7 @@ import {
   Theme,
   Typography,
 } from '@mui/material'
-import { isItem, getItemTypeLabel } from '../../state/items'
+import { getItemTypeLabel } from '../../state/items'
 import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
@@ -61,7 +61,7 @@ export default function OptionComponent({
   )
   const clippedDescription = useMemo(
     () => {
-      if (item && isItem(item)) {
+      if (item && typeof item.description === 'string') {
         const base = item.description
         const clipped = base.slice(0, 100)
         if (clipped.length < base.length) {

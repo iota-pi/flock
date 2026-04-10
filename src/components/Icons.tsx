@@ -83,10 +83,11 @@ export {
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {
-  const iconTypeMap: Record<typeof itemType, MuiIconType> = {
+  const iconTypeMap: Record<Item['type'], MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
     topic: TopicIcon,
+    error: WarningIcon,
   }
   return iconTypeMap[itemType]
 }

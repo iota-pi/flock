@@ -163,16 +163,16 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
   )
   const checked = useMemo(() => getChecked?.(currentItem), [currentItem, getChecked])
   const icon = useMemo(
-    () => getIcon?.(currentItem) || (isItem(currentItem) ? getItemIcon(currentItem.type) : undefined),
+    () => getIcon?.(currentItem) || getItemIcon(currentItem.type),
     [currentItem, getIcon],
   )
   const title = useMemo(
-    () => getTitle?.(currentItem) || (isItem(currentItem) ? getItemName(currentItem) : undefined),
+    () => getTitle?.(currentItem) || getItemName(currentItem),
     [currentItem, getTitle],
   )
   const description = useMemo(
     () => {
-      const defaultDescription = isItem(currentItem) ? currentItem.description : ''
+      const defaultDescription = currentItem.description
       const base = getDescription ? getDescription(currentItem) : defaultDescription
       const clipped = base.slice(0, 100)
       if (clipped.length < base.length) {

@@ -1,5 +1,6 @@
 import { Collapse, Grid } from '@mui/material'
-import type { Item } from '../../../state/items'
+import { ERROR_ITEM_TYPE, type Item } from '../../../state/items'
+import type { ItemType } from '../../../shared/itemTypes'
 import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
 
 type ItemFormDuplicateAlertSectionProps = {
@@ -13,13 +14,16 @@ export default function ItemFormDuplicateAlertSection({
   hasDescription,
   itemType,
 }: ItemFormDuplicateAlertSectionProps) {
+  const showDuplicateAlert = itemType !== ERROR_ITEM_TYPE
+  const normalizedType: ItemType = showDuplicateAlert ? itemType : 'person'
+
   return (
     <Grid size={{ xs: 12 }} mt={-1}>
-      <Collapse in={duplicateCount > 0}>
+      <Collapse in={showDuplicateAlert && duplicateCount > 0}>
         <DuplicateAlert
           count={duplicateCount}
           hasDescription={hasDescription}
-          itemType={itemType}
+          itemType={normalizedType}
         />
       </Collapse>
     </Grid>

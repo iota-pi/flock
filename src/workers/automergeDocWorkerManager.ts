@@ -36,7 +36,12 @@ type AutomergeDocWorkerApi = {
 let worker: Worker | null = null
 let workerApi: Remote<AutomergeDocWorkerApi> | null = null
 let activeAccount: string | null = null
-let rehydrateCacheProvider: (() => PersistedWorkerRecord[]) | null = null
+export type WorkerRehydrateRecord = {
+  record: PersistedWorkerRecord
+  hasLocalChanges?: boolean
+}
+
+let rehydrateCacheProvider: (() => WorkerRehydrateRecord[]) | null = null
 let activeRehydration: Promise<boolean> | null = null
 
 function decodeBase64ToBytes(value: string): Uint8Array {
@@ -187,8 +192,19 @@ async function rehydrateWorker(): Promise<boolean> {
       }
 
       const inMemoryRecords = rehydrateCacheProvider?.() || []
-      for (const inMemoryRecord of inMemoryRecords) {
+      for (const inMemoryEntry of inMemoryRecords) {
+        if (!inMemoryEntry || typeof inMemoryEntry !== 'object') {
+          continue
+        }
+
+        const inMemoryRecord = inMemoryEntry.record
         if (!inMemoryRecord || typeof inMemoryRecord.itemId !== 'string' || inMemoryRecord.itemId.length === 0) {
+          continue
+        }
+
+        const hasPersistedRecord = recordsByItemId.has(inMemoryRecord.itemId)
+        const shouldUseInMemory = !hasPersistedRecord || inMemoryEntry.hasLocalChanges === true
+        if (!shouldUseInMemory) {
           continue
         }
 
@@ -247,7 +263,7 @@ export async function resetAutomergeDocWorker(): Promise<void> {
 }
 
 export function setAutomergeWorkerRehydrateProvider(
-  provider: (() => PersistedWorkerRecord[]) | null,
+  provider: (() => WorkerRehydrateRecord[]) | null,
 ): void {
   rehydrateCacheProvider = provider
 }

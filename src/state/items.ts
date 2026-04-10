@@ -6,6 +6,7 @@ import type { ItemId, ItemType } from '../shared/itemTypes'
 
 export { ITEM_TYPES }
 export type OldItemType = 'general'
+export const ERROR_ITEM_TYPE = 'error'
 
 export interface Note {
   id: string
@@ -25,7 +26,7 @@ export interface BaseItem {
   notes: Note[],
   prayedFor: number[],
   prayerFrequency: Frequency,
-  type: ItemType,
+  type: ItemType | typeof ERROR_ITEM_TYPE,
 }
 export interface PersonItem extends BaseItem {
   memberPrayerFrequency?: undefined,
@@ -43,7 +44,18 @@ export interface TopicItem extends BaseItem {
   members?: undefined,
   type: 'topic',
 }
-export type Item = (PersonItem | GroupItem | TopicItem) & {
+export interface ErrorItem extends BaseItem {
+  errorMessage?: string,
+  memberPrayerFrequency?: undefined,
+  members?: undefined,
+  originalType?: ItemType,
+  rawSnapshot?: Record<string, unknown>,
+  type: typeof ERROR_ITEM_TYPE,
+}
+
+export type StandardItem = PersonItem | GroupItem | TopicItem
+
+export type Item = (StandardItem | ErrorItem) & {
 }
 
 export type DirtyItem<T> = T & { dirty?: boolean }
@@ -133,8 +145,8 @@ function hasPath(value: unknown, path: (string | number)[]): boolean {
   return true
 }
 
-export function isItem(item: Item): item is Item {
-  return (ITEM_TYPES as readonly Item['type'][]).includes(item.type)
+export function isItem(item: Item): item is StandardItem {
+  return (ITEM_TYPES as readonly string[]).includes(item.type)
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
@@ -178,7 +190,7 @@ export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
+export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): StandardItem {
   if (itemType === 'person' || itemType === 'general') {
     return getBlankPerson(undefined, isNew)
   }
@@ -230,7 +242,7 @@ export function checkProperties(items: Item[]): { error: boolean, message: strin
   }
 }
 
-export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
+export function getItemTypeLabel(itemType: Item['type'], plural?: boolean): string {
   if (itemType === 'person') {
     return plural ? 'People' : 'Person'
   }
@@ -239,6 +251,9 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   }
   if (itemType === 'topic') {
     return plural ? 'Topics' : 'Topic'
+  }
+  if (itemType === ERROR_ITEM_TYPE) {
+    return plural ? 'Corrupted Items' : 'Corrupted Item'
   }
   return plural ? 'Items' : 'Item'
 }
@@ -262,7 +277,8 @@ export function compareItems(a: Item, b: Item) {
   if (a.archived !== b.archived) {
     return +a.archived - +b.archived
   } else if (a.type !== b.type) {
-    return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type)
+    const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
+    return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
   }
   return compareNames(a, b) || compareIds(a, b)
 }
@@ -272,6 +288,10 @@ export function filterArchived<T extends Item>(items: T[]): T[] {
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
+  if (item.type === ERROR_ITEM_TYPE) {
+    return item
+  }
+
   const blank = getBlankItem(item.type, false)
   const filled = {
     ...blank,
@@ -289,7 +309,7 @@ export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
   return { ...item, dirty: undefined, isNew: undefined }
 }
 
-export function convertItem<T extends Item, S extends Item>(item: T, type: S['type']): S {
+export function convertItem<T extends Item, S extends StandardItem>(item: T, type: S['type']): S {
   const result = {
     ...getBlankItem(type, false),
     ...item,
@@ -299,6 +319,10 @@ export function convertItem<T extends Item, S extends Item>(item: T, type: S['ty
 }
 
 export function isValid<T extends Item>(item: T) {
+  if (item.type === ERROR_ITEM_TYPE) {
+    return false
+  }
+
   return !!getItemName(item).trim()
 }
 

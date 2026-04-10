@@ -1,11 +1,20 @@
 import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
-import { styled, Toolbar, useMediaQuery } from '@mui/material'
+import {
+  Box,
+  Button,
+  Container,
+  styled,
+  Toolbar,
+  Typography,
+  useMediaQuery,
+} from '@mui/material'
 import { Theme } from '@mui/material/styles'
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
+import { useSyncStore } from './state/syncStore'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
 import AppProviders from './app/AppProviders'
@@ -92,6 +101,36 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
+  const fatalError = useSyncStore(state => state.fatalError)
+
+  if (fatalError) {
+    return (
+      <AppProviders>
+        <Root>
+          <Container maxWidth="sm">
+            <Typography variant="h4" gutterBottom>
+              Fatal Error
+            </Typography>
+
+            <Typography color="error" sx={{ mt: 1 }}>
+              {fatalError}
+            </Typography>
+
+            <Box sx={{ mt: 3 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => window.location.reload()}
+              >
+                Reload Page
+              </Button>
+            </Box>
+          </Container>
+        </Root>
+      </AppProviders>
+    )
+  }
+
   return (
     <AppProviders>
       <RouterProvider router={router} />

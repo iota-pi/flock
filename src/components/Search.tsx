@@ -23,6 +23,7 @@ import {
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
 import {
+  ERROR_ITEM_TYPE,
   getBlankItem,
   getItemName,
   Item,
@@ -253,7 +254,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       if (reason === 'selectOption') {
         const option = value[value.length - 1]
         if (option.create) {
-          if (onCreate) {
+          if (onCreate && option.type !== ERROR_ITEM_TYPE) {
             onCreate({
               ...getBlankItem(option.type),
               ...option.default,

@@ -1,15 +1,4 @@
-import { createStore } from 'zustand/vanilla'
-
-type ReactivityState = {
-  itemsRevision: number
-  metadataRevision: number
-  itemRevisionById: Record<string, number>
-}
-
-type CreateAutomergeReactivityInput = {
-  markItemsSnapshotDirty: () => void
-  markMetadataSnapshotDirty: () => void
-}
+type Listener = () => void
 
 export type AutomergeReactivity = {
   notifyAllItemListeners: () => void
@@ -20,20 +9,31 @@ export type AutomergeReactivity = {
   subscribeAutomergeMetadata: (listener: () => void) => () => void
 }
 
-export function createAutomergeReactivity(
-  input: CreateAutomergeReactivityInput,
-): AutomergeReactivity {
-  const store = createStore<ReactivityState>(() => ({
-    itemsRevision: 0,
-    metadataRevision: 0,
-    itemRevisionById: {},
-  }))
+function emitListeners(listeners: Set<Listener> | undefined): void {
+  if (!listeners || listeners.size === 0) {
+    return
+  }
+
+  for (const listener of Array.from(listeners)) {
+    listener()
+  }
+}
+
+export function createAutomergeReactivity(): AutomergeReactivity {
+  const itemListenersById = new Map<string, Set<Listener>>()
+  const itemsListeners = new Set<Listener>()
+  const metadataListeners = new Set<Listener>()
+
+  function emitItem(itemId: string): void {
+    emitListeners(itemListenersById.get(itemId))
+  }
 
   function notifyAllItemListeners(): void {
-    store.setState(state => ({
-      ...state,
-      itemsRevision: state.itemsRevision + 1,
-    }))
+    emitListeners(itemsListeners)
+
+    for (const listeners of itemListenersById.values()) {
+      emitListeners(listeners)
+    }
   }
 
   function notifyItemListeners(itemIds: string[]): void {
@@ -42,59 +42,49 @@ export function createAutomergeReactivity(
       return
     }
 
-    input.markItemsSnapshotDirty()
+    for (const itemId of uniqueItemIds) {
+      emitItem(itemId)
+    }
 
-    store.setState(state => {
-      const nextItemRevisionById = {
-        ...state.itemRevisionById,
-      }
-
-      for (const itemId of uniqueItemIds) {
-        nextItemRevisionById[itemId] = (nextItemRevisionById[itemId] || 0) + 1
-      }
-
-      return {
-        ...state,
-        itemsRevision: state.itemsRevision + 1,
-        itemRevisionById: nextItemRevisionById,
-      }
-    })
+    emitListeners(itemsListeners)
   }
 
   function notifyMetadataListeners(): void {
-    input.markMetadataSnapshotDirty()
-
-    store.setState(state => ({
-      ...state,
-      metadataRevision: state.metadataRevision + 1,
-    }))
+    emitListeners(metadataListeners)
   }
 
   function subscribeAutomergeItems(listener: () => void): () => void {
-    return store.subscribe((state, previousState) => {
-      if (state.itemsRevision !== previousState.itemsRevision) {
-        listener()
-      }
-    })
+    itemsListeners.add(listener)
+
+    return () => {
+      itemsListeners.delete(listener)
+    }
   }
 
   function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-    return store.subscribe((state, previousState) => {
-      const nextSignal = state.itemRevisionById[itemId] || 0
-      const previousSignal = previousState.itemRevisionById[itemId] || 0
+    const listeners = itemListenersById.get(itemId) || new Set<Listener>()
+    itemListenersById.set(itemId, listeners)
+    listeners.add(listener)
 
-      if (nextSignal !== previousSignal) {
-        listener()
+    return () => {
+      const existing = itemListenersById.get(itemId)
+      if (!existing) {
+        return
       }
-    })
+
+      existing.delete(listener)
+      if (existing.size === 0) {
+        itemListenersById.delete(itemId)
+      }
+    }
   }
 
   function subscribeAutomergeMetadata(listener: () => void): () => void {
-    return store.subscribe((state, previousState) => {
-      if (state.metadataRevision !== previousState.metadataRevision) {
-        listener()
-      }
-    })
+    metadataListeners.add(listener)
+
+    return () => {
+      metadataListeners.delete(listener)
+    }
   }
 
   return {

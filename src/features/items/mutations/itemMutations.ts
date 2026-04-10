@@ -1,5 +1,5 @@
 import type { ItemId } from '../../../shared/itemTypes'
-import { GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
+import { ERROR_ITEM_TYPE, GroupItem, ITEM_TYPES, type Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
@@ -13,6 +13,7 @@ import {
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
+  removeAutomergeItem,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
 
@@ -28,7 +29,7 @@ function normalizeItemsInput(items: Item | Item[]): Item[] {
       throw new Error('Invalid item: missing id')
     }
 
-    if (!ITEM_TYPES.includes(item.type)) {
+    if (item.type === ERROR_ITEM_TYPE || !ITEM_TYPES.includes(item.type)) {
       throw new Error(`Invalid item: unsupported type ${String(item.type)}`)
     }
 
@@ -235,6 +236,18 @@ export async function deleteItems(
 
   useNavigationStore.getState().pruneItemDrawers(ids)
 
+  return ids
+}
+
+export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
+  const ids = normalizeItemIds(itemIds)
+  await ensureAutomergeStoreReady()
+
+  for (const itemId of ids) {
+    await removeAutomergeItem(itemId)
+  }
+
+  useNavigationStore.getState().pruneItemDrawers(ids)
   return ids
 }
 

@@ -6,7 +6,6 @@ import {
 import { getApiAuthToken, subscribeApiAuthToken } from '../api/runtime'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import { pullRemoteMessagesNow, requestAutomergeSync } from './automergeSyncDispatcher'
-import { initializeAutomergeDocStore } from './automergeDocStore'
 
 type SyncCoordinatorOptions = {
   account: string
@@ -28,8 +27,6 @@ export class SyncCoordinatorService {
     this.activeKey = key
 
     initializeSyncHealthWatchers()
-
-    void initializeAutomergeDocStore(options.account)
 
     const handleOnline = () => {
       requestAutomergeSync()
@@ -62,24 +59,27 @@ export class SyncCoordinatorService {
     }
 
     let realtimeStarted = false
+    let isTransportPaused = false
     const isDocumentHidden = (): boolean => {
       return typeof document !== 'undefined' && document.visibilityState === 'hidden'
     }
 
     const pauseRealtimeTransport = (): void => {
-      if (!realtimeStarted) {
+      if (!realtimeStarted || isTransportPaused) {
         return
       }
 
       setRealtimeCoordinatorTransportPaused(true)
+      isTransportPaused = true
     }
 
     const resumeRealtimeTransport = (): void => {
-      if (!realtimeStarted) {
+      if (!realtimeStarted || !isTransportPaused) {
         return
       }
 
       setRealtimeCoordinatorTransportPaused(false)
+      isTransportPaused = false
     }
 
     const startRealtimeIfAuthorized = (): void => {
@@ -107,6 +107,7 @@ export class SyncCoordinatorService {
       })
 
       realtimeStarted = true
+      isTransportPaused = false
 
       if (isDocumentHidden()) {
         pauseRealtimeTransport()
@@ -120,6 +121,7 @@ export class SyncCoordinatorService {
 
       stopRealtimeCoordinator()
       realtimeStarted = false
+      isTransportPaused = false
     }
 
     let hiddenDisconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -151,7 +153,9 @@ export class SyncCoordinatorService {
 
       clearHiddenDisconnectTimer()
       startRealtimeIfAuthorized()
-      resumeRealtimeTransport()
+      if (isTransportPaused) {
+        resumeRealtimeTransport()
+      }
     }
 
     if (typeof document !== 'undefined') {
