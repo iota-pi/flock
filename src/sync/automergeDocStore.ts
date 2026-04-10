@@ -48,7 +48,7 @@ let cachedMetadataSnapshotDirty = true
 
 const itemListeners = new Set<() => void>()
 const metadataListeners = new Set<() => void>()
-const itemListenersById = new Map<string, Set<(item: Item | null) => void>>()
+const itemListenersById = new Map<string, Set<() => void>>()
 
 function markItemsSnapshotDirty(): void {
   cachedItemsSnapshotDirty = true
@@ -215,10 +215,9 @@ function notifyAllItemListeners(): void {
     listener()
   }
 
-  for (const [itemId, listeners] of itemListenersById) {
-    const nextItem = getAutomergeItem(itemId)
+  for (const [, listeners] of itemListenersById) {
     for (const listener of listeners) {
-      listener(nextItem)
+      listener()
     }
   }
 }
@@ -728,7 +727,7 @@ export function subscribeAutomergeItems(listener: () => void): () => void {
   }
 }
 
-export function subscribeAutomergeItem(itemId: string, listener: (item: Item | null) => void): () => void {
+export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
   const existingListeners = itemListenersById.get(itemId)
   if (existingListeners) {
     existingListeners.add(listener)
