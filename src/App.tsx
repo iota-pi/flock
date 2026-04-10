@@ -100,35 +100,37 @@ const router = createBrowserRouter([
   }
 ])
 
+function FatalError({ fatalError }: { fatalError: string }) {
+  return (
+    <Root>
+      <Container maxWidth="sm">
+        <Typography variant="h4" gutterBottom>
+          Fatal Error
+        </Typography>
+
+        <Typography color="error" sx={{ mt: 1 }}>
+          {fatalError}
+        </Typography>
+
+        <Box sx={{ mt: 3 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => window.location.reload()}
+          >
+            Reload Page
+          </Button>
+        </Box>
+      </Container>
+    </Root>
+  )
+}
+
 export default function App() {
   const fatalError = useSyncStore(state => state.fatalError)
 
   if (fatalError) {
-    return (
-      <AppProviders>
-        <Root>
-          <Container maxWidth="sm">
-            <Typography variant="h4" gutterBottom>
-              Fatal Error
-            </Typography>
-
-            <Typography color="error" sx={{ mt: 1 }}>
-              {fatalError}
-            </Typography>
-
-            <Box sx={{ mt: 3 }}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => window.location.reload()}
-              >
-                Reload Page
-              </Button>
-            </Box>
-          </Container>
-        </Root>
-      </AppProviders>
-    )
+    return <FatalError fatalError={fatalError} />
   }
 
   return (
