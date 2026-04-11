@@ -14,44 +14,70 @@ export type DecryptionFailedEvent = {
   error: unknown
 }
 
-const recoveryInFlightItemIds = new Set<ItemId>()
-const recoveryCooldownUntilByItemId = new Map<ItemId, number>()
-const recoveryCooldownCleanupTimeoutByItemId = new Map<ItemId, ReturnType<typeof setTimeout>>()
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
 let syncHealthWatchersInitialized = false
 
-function clearRecoveryCooldown(itemId: ItemId): void {
-  const timeoutId = recoveryCooldownCleanupTimeoutByItemId.get(itemId)
-  if (timeoutId !== undefined) {
-    clearTimeout(timeoutId)
-    recoveryCooldownCleanupTimeoutByItemId.delete(itemId)
+class SyncHealthState {
+  private inFlightItemIds = new Set<ItemId>()
+  private cooldownUntilByItemId = new Map<ItemId, number>()
+  private cooldownCleanupTimeoutByItemId = new Map<ItemId, ReturnType<typeof setTimeout>>()
+
+  clearRecoveryCooldown(itemId: ItemId): void {
+    const timeoutId = this.cooldownCleanupTimeoutByItemId.get(itemId)
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
+      this.cooldownCleanupTimeoutByItemId.delete(itemId)
+    }
+
+    this.cooldownUntilByItemId.delete(itemId)
   }
 
-  recoveryCooldownUntilByItemId.delete(itemId)
-}
+  setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
+    this.clearRecoveryCooldown(itemId)
+    this.cooldownUntilByItemId.set(itemId, cooldownUntil)
 
-function setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
-  clearRecoveryCooldown(itemId)
-  recoveryCooldownUntilByItemId.set(itemId, cooldownUntil)
+    const delayMs = Math.max(0, cooldownUntil - Date.now())
+    const timeoutId = setTimeout(() => {
+      this.cooldownCleanupTimeoutByItemId.delete(itemId)
+      this.cooldownUntilByItemId.delete(itemId)
+    }, delayMs)
 
-  const delayMs = Math.max(0, cooldownUntil - Date.now())
-  const timeoutId = setTimeout(() => {
-    recoveryCooldownCleanupTimeoutByItemId.delete(itemId)
-    recoveryCooldownUntilByItemId.delete(itemId)
-  }, delayMs)
-
-  recoveryCooldownCleanupTimeoutByItemId.set(itemId, timeoutId)
-}
-
-function getRecoveryCooldownUntil(itemId: ItemId): number {
-  const cooldownUntil = recoveryCooldownUntilByItemId.get(itemId) || 0
-  if (cooldownUntil <= Date.now()) {
-    clearRecoveryCooldown(itemId)
-    return 0
+    this.cooldownCleanupTimeoutByItemId.set(itemId, timeoutId)
   }
 
-  return cooldownUntil
+  getRecoveryCooldownUntil(itemId: ItemId): number {
+    const cooldownUntil = this.cooldownUntilByItemId.get(itemId) || 0
+    if (cooldownUntil <= Date.now()) {
+      this.clearRecoveryCooldown(itemId)
+      return 0
+    }
+
+    return cooldownUntil
+  }
+
+  isInFlight(itemId: ItemId): boolean {
+    return this.inFlightItemIds.has(itemId)
+  }
+
+  setInFlight(itemId: ItemId, value: boolean): void {
+    if (value) {
+      this.inFlightItemIds.add(itemId)
+    } else {
+      this.inFlightItemIds.delete(itemId)
+    }
+  }
+
+  reset(): void {
+    this.inFlightItemIds.clear()
+    this.cooldownUntilByItemId.clear()
+    for (const timeoutId of this.cooldownCleanupTimeoutByItemId.values()) {
+      clearTimeout(timeoutId)
+    }
+    this.cooldownCleanupTimeoutByItemId.clear()
+  }
 }
+
+const tracker = new SyncHealthState()
 
 async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
   await upsertManualRecoveryEntry({ itemId, reason })
@@ -74,11 +100,11 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
 
 async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
   const now = Date.now()
-  if (recoveryInFlightItemIds.has(itemId) || getRecoveryCooldownUntil(itemId) > now) {
+  if (tracker.isInFlight(itemId) || tracker.getRecoveryCooldownUntil(itemId) > now) {
     return
   }
 
-  recoveryInFlightItemIds.add(itemId)
+  tracker.setInFlight(itemId, true)
 
   try {
     const branchHint = failedBranches && failedBranches.length > 0
@@ -86,9 +112,9 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
       : 'Automated recovery is unavailable for this revision'
 
     await triggerManualRecoveryUI(itemId, branchHint)
-    setRecoveryCooldown(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
+    tracker.setRecoveryCooldown(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
   } finally {
-    recoveryInFlightItemIds.delete(itemId)
+    tracker.setInFlight(itemId, false)
   }
 }
 
@@ -105,8 +131,8 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
 
   for (const itemId of uniqueItemIds) {
     await removeManualRecoveryEntryByItemId(itemId)
-    clearRecoveryCooldown(itemId)
-    recoveryInFlightItemIds.delete(itemId)
+    tracker.clearRecoveryCooldown(itemId)
+    tracker.setInFlight(itemId, false)
   }
 
   const nextCount = await readManualRecoveryCount()

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSyncStore } from '../state/syncStore'
+import { useAuthStore, getInitialAuthState } from '../state/authStore'
 
 const mocks = vi.hoisted(() => ({
   listAutomergeDocumentIds: vi.fn(() => ['doc-1']),
@@ -29,11 +30,11 @@ import {
 
 function resetSyncState(): void {
   useSyncStore.setState({
-    activeAccount: null,
     fatalError: null,
     isSyncing: false,
     syncWarning: null,
   })
+  useAuthStore.setState(getInitialAuthState())
 }
 
 describe('automergeSyncDispatcher', () => {
@@ -47,18 +48,18 @@ describe('automergeSyncDispatcher', () => {
     expect(mocks.registerKnownItemIds).toHaveBeenCalledWith(['doc-1'])
   })
 
-  it('tracks active account in sync store', async () => {
+  it('tracks active account in auth store internally logic but tests setVaultNetworkAccount', async () => {
+    useAuthStore.setState({ account: 'acct-1' })
     startAutomergeSyncDispatcher('acct-1')
 
-    expect(useSyncStore.getState().activeAccount).toBe('acct-1')
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith('acct-1')
 
-    await pullRemoteMessagesNow(['doc-1'])
+    await pullRemoteMessagesNow(undefined, ['doc-1'])
     expect(mocks.syncItemIds).toHaveBeenCalledWith(['doc-1'])
 
+    useAuthStore.setState({ account: '' })
     stopAutomergeSyncDispatcher()
 
-    expect(useSyncStore.getState().activeAccount).toBeNull()
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith(null)
   })
 })

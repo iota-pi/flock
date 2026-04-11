@@ -7,29 +7,6 @@ import {
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
 
-const DISPATCHER_STOP_GRACE_MS = 750
-let pendingDispatcherStopTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-function cancelScheduledDispatcherStop(): void {
-  if (pendingDispatcherStopTimeoutId === null) {
-    return
-  }
-
-  clearTimeout(pendingDispatcherStopTimeoutId)
-  pendingDispatcherStopTimeoutId = null
-}
-
-function scheduleDispatcherStop(): void {
-  if (pendingDispatcherStopTimeoutId !== null) {
-    return
-  }
-
-  pendingDispatcherStopTimeoutId = setTimeout(() => {
-    pendingDispatcherStopTimeoutId = null
-    stopAutomergeSyncDispatcher()
-  }, DISPATCHER_STOP_GRACE_MS)
-}
-
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message
@@ -45,10 +22,9 @@ export default function useSyncCoordinatorLifecycle(
   useEffect(
     () => {
       const { clearFatalError, setFatalError } = useSyncStore.getState()
-      cancelScheduledDispatcherStop()
+      stopAutomergeSyncDispatcher()
 
       if (!enabled || !account) {
-        stopAutomergeSyncDispatcher()
         clearFatalError()
         return
       }
@@ -77,7 +53,7 @@ export default function useSyncCoordinatorLifecycle(
 
       return () => {
         cancelled = true
-        scheduleDispatcherStop()
+        stopAutomergeSyncDispatcher()
       }
     },
     [account, enabled],

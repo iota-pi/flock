@@ -183,7 +183,9 @@ export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean):
   throw new Error('Unknown item type')
 }
 
-export function checkProperties(items: Item[]): { error: boolean, message: string } {
+export function checkProperties(items: Item[]): { error: boolean, errors: Array<{ id: string, message: string }> } {
+  const errors: Array<{ id: string, message: string }> = []
+
   for (const [index, item] of items.entries()) {
     const result = itemSchema.safeParse(item)
     if (result.success) {
@@ -200,25 +202,26 @@ export function checkProperties(items: Item[]): { error: boolean, message: strin
       && !has(item, issue.path as Array<string | number>)
 
     if (isMissingKey) {
-      return {
-        error: true,
+      errors.push({
+        id,
         message: `Item ${id} is missing key "${keyPath}"`,
-      }
+      })
+      continue
     }
 
     const suffix = keyPath.length > 0
       ? ` at "${keyPath}"`
       : ''
 
-    return {
-      error: true,
+    errors.push({
+      id,
       message: `Item ${id} failed schema validation${suffix}: ${issue.message}`,
-    }
+    })
   }
 
   return {
-    error: false,
-    message: 'Success',
+    error: errors.length > 0,
+    errors,
   }
 }
 

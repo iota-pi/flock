@@ -1,4 +1,5 @@
 import { useSyncStore } from '../state/syncStore'
+import { useAuthStore } from '../state/authStore'
 import { listAutomergeDocumentIds } from './automergeDocStore'
 import {
   getVaultNetworkAdapter,
@@ -10,7 +11,7 @@ const SHOULD_THROW_SYNC_ERRORS = (
 )
 
 function getActiveAccount(): string | null {
-  return useSyncStore.getState().activeAccount
+  return useAuthStore.getState().account || null
 }
 
 function normalizeItemIds(itemIds?: string[]): string[] {
@@ -30,7 +31,7 @@ function normalizeItemIds(itemIds?: string[]): string[] {
   return Array.from(deduped)
 }
 
-async function runSync(itemIds?: string[]): Promise<string[]> {
+async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return []
@@ -48,17 +49,20 @@ async function runSync(itemIds?: string[]): Promise<string[]> {
   }
 }
 
-export async function pullRemoteMessagesNow(itemIds?: string[]): Promise<string[]> {
-  if (!getActiveAccount()) {
+export async function pullRemoteMessagesNow(account?: string | null, itemIds?: string[]): Promise<string[]> {
+  const activeAccount = account || getActiveAccount()
+  if (!activeAccount) {
     return []
   }
 
-  return runSync(itemIds)
+  return runSync(activeAccount, itemIds)
 }
 
-export function requestAutomergeSync(itemIds?: string[]): void {
-  if (!getActiveAccount()) {
-    const normalized = normalizeItemIds(itemIds)
+export function requestAutomergeSync(itemIds?: string[] | string): void {
+  const account = getActiveAccount()
+  const normalized = normalizeItemIds(typeof itemIds === 'string' ? [itemIds] : itemIds)
+
+  if (!account) {
     if (normalized.length > 0) {
       getVaultNetworkAdapter().registerKnownItemIds(normalized)
     }
@@ -69,7 +73,7 @@ export function requestAutomergeSync(itemIds?: string[]): void {
     return
   }
 
-  void runSync(itemIds)
+  void runSync(account, normalized)
 }
 
 export function startAutomergeSyncDispatcher(account: string): void {
@@ -77,19 +81,13 @@ export function startAutomergeSyncDispatcher(account: string): void {
     return
   }
 
-  const { activeAccount, setActiveAccount } = useSyncStore.getState()
-
-  if (activeAccount !== account) {
-    setActiveAccount(account)
-    setVaultNetworkAccount(account)
-  }
+  setVaultNetworkAccount(account)
 
   const adapter = getVaultNetworkAdapter()
   adapter.syncItemIds()
 }
 
 export function stopAutomergeSyncDispatcher(): void {
-  useSyncStore.getState().setActiveAccount(null)
   setVaultNetworkAccount(null)
   useSyncStore.getState().setIsSyncing(false)
 }

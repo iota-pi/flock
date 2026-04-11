@@ -16,6 +16,7 @@ import {
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { getVaultNetworkAdapter } from '../sync/automergeRepo'
+import { checkProperties } from '../state/items'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -174,7 +175,14 @@ export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[
     forceMetadataRefetch: options.forceMetadataRefetch,
   })
 
-  return sortItems(getAutomergeItems(), DEFAULT_CRITERIA)
+  const items = getAutomergeItems()
+  const { error, errors } = checkProperties(items)
+  
+  if (error) {
+    console.error('[fetchItems] Validation errors detected on load:', errors)
+  }
+
+  return sortItems(items, DEFAULT_CRITERIA)
 }
 
 export async function fetchMetadata(accountId = getAccountId()): Promise<AccountMetadata> {

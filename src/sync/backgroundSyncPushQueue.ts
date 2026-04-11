@@ -59,7 +59,7 @@ export class BackgroundSyncQueueInitializationError extends Error {
     this.name = 'BackgroundSyncQueueInitializationError'
 
     if (options && 'cause' in options) {
-      ;(this as Error & { cause?: unknown }).cause = options.cause
+      ; (this as Error & { cause?: unknown }).cause = options.cause
     }
   }
 }
@@ -137,14 +137,6 @@ async function getBackgroundSyncQueueDb(): Promise<IDBPDatabase<BackgroundSyncPu
 
 export async function initializeBackgroundSyncPushQueue(): Promise<void> {
   await getBackgroundSyncQueueDb()
-}
-
-function createBatchId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function normalizeMessage(candidate: unknown): BackgroundSyncPushMessage | null {
@@ -403,8 +395,10 @@ export async function enqueueBackgroundSyncPushBatch(input: {
     return null
   }
 
+  const signature = getBatchSignature({ account: input.account, messages })
+
   const batch: BackgroundSyncPushBatch = {
-    id: createBatchId(),
+    id: signature,
     account: input.account,
     authToken: input.authToken,
     messages,
@@ -414,17 +408,10 @@ export async function enqueueBackgroundSyncPushBatch(input: {
   const database = await getBackgroundSyncQueueDb()
   const transaction = database.transaction(BATCH_STORE_NAME, 'readwrite')
 
-  const existingForAccount = await transaction.store.index(BATCH_ACCOUNT_INDEX).getAll(input.account)
-  const existing = existingForAccount
-    .map(normalizeBatch)
-    .filter((entry): entry is BackgroundSyncPushBatch => entry !== null)
-
-  const nextSignature = getBatchSignature(batch)
-  const duplicate = existing.find(existingBatch => getBatchSignature(existingBatch) === nextSignature)
-
-  if (duplicate) {
+  const existing = await transaction.store.get(signature)
+  if (existing) {
     await transaction.done
-    return duplicate.id
+    return existing.id
   }
 
   await transaction.store.put(batch)
