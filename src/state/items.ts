@@ -249,7 +249,7 @@ export function getItemName(
 }
 
 export function compareNames(a: BaseItem, b: BaseItem) {
-  return +(a.name > b.name) - +(a.name < b.name)
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
 export function compareIds(a: Item, b: Item) {
@@ -267,7 +267,7 @@ export function compareItems(a: Item, b: Item) {
 }
 
 export function filterArchived<T extends Item>(items: T[]): T[] {
-  return items.filter(item => !item.archived)
+  return items.filter(item => item.archived !== true)
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
