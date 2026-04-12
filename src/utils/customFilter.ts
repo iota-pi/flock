@@ -176,15 +176,9 @@ export function filterItems<T extends Item>(
     }
   })
 
-  const filteredItems = items.filter(item => {
-    for (const predicate of compiledCriteria) {
-      const result = predicate(item)
-      if (!result) {
-        return false
-      }
-    }
-    return true
-  })
+  const filteredItems = items.filter(item => (
+    compiledCriteria.every(predicate => predicate(item))
+  ))
   return filteredItems.length < items.length ? filteredItems : items
 }
 
