@@ -5,7 +5,7 @@ import {
   formatDate,
   formatTime,
   isSameDay,
-  useStringMemo,
+  useStableArray,
 } from './index'
 
 describe('utils/index', () => {
@@ -68,12 +68,12 @@ describe('utils/index', () => {
     })
   })
 
-  describe('useStringMemo', () => {
-    it('returns same reference for array with same strings', () => {
+  describe('useStableArray', () => {
+    it('returns same reference for array with same shallow contents', () => {
       const list1 = ['a', 'b']
       const list2 = ['a', 'b']
 
-      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+      const { result, rerender } = renderHook(({ list }) => useStableArray(list), {
         initialProps: { list: list1 }
       })
 
@@ -88,7 +88,7 @@ describe('utils/index', () => {
       const list1 = ['a']
       const list2 = ['a', 'b']
 
-      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+      const { result, rerender } = renderHook(({ list }) => useStableArray(list), {
         initialProps: { list: list1 }
       })
 

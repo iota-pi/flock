@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToday } from './useToday'
 import { useItemMap, useItems, useMetadata } from '../state/selectors'
-import { isSameDay, useStringMemo } from '../utils'
+import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
 import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
@@ -31,7 +31,7 @@ export function usePrayerSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [items, today],
   )
-  const scheduleIds = useStringMemo(rawPrayerSchedule)
+  const scheduleIds = useStableArray(rawPrayerSchedule)
 
   const schedule = useMemo(
     () => scheduleIds.map(id => itemMap[id]),

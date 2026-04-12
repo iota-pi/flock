@@ -46,10 +46,26 @@ export function usePrevious<T>(value: T): T | undefined {
   return ref.current
 }
 
-export function useStringMemo<T>(state: T[]): T[] {
-  // Join strings if the array reference changes
-  const key = useMemo(() => state.join('~'), [state])
-  // Only change the returned array reference if the key changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => state, [key])
+/* eslint-disable react-hooks/refs */
+export function useStableArray<T>(array: T[]): T[] {
+  const ref = useRef<T[]>(array)
+
+  const current = ref.current
+  let isSame = current.length === array.length
+
+  if (isSame) {
+    for (let i = 0; i < array.length; i++) {
+      if (current[i] !== array[i]) {
+        isSame = false
+        break
+      }
+    }
+  }
+
+  if (!isSame) {
+    ref.current = array
+  }
+
+  return ref.current
 }
+/* eslint-enable react-hooks/refs */
