@@ -183,6 +183,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       metadata,
       salt,
       session,
+      iterations,
     }: VaultAccountWithAuth & { authToken: string },
   ): Promise<boolean> {
     let success = true
@@ -199,6 +200,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         reminderTime: '08:00',
         reminderTimezone: 'UTC',
         salt,
+        iterations,
         session,
         // This session is just a placeholder, so set it as expired
         sessionExpiry: 0,
@@ -248,7 +250,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error(`Could not find account ${account}`)
   }
 
-  async getAccountSalt({ account }: BaseData): Promise<string> {
+  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number }> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
@@ -256,13 +258,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       },
     ))
     if (response?.Item) {
-      const salt = (response.Item as VaultAccountWithAuth).salt
-      if (typeof salt === 'string') {
-        return salt
-      }
-      // Backwards compatibility: account ID used to be used as salt
-      // NB: could remove this if we run an upgrade script
-      return account
+      const dbAccount = response.Item as VaultAccountWithAuth
+      const salt = dbAccount.salt
+      const iterations = dbAccount.iterations
+
+      const returnedSalt = typeof salt === 'string' ? salt : account
+      return { salt: returnedSalt, iterations }
     }
     throw new Error(`Could not find account ${account}`)
   }

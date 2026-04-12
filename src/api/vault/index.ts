@@ -14,7 +14,7 @@ import {
   createAccount,
   deletePushSubscription as deletePushSubscriptionClient,
   getReminderSettings,
-  getSalt,
+  getSecurityParams,
   getSession,
   recordPrayerCompletion as recordPrayerCompletionClient,
   updateReminderSettings as updateReminderSettingsClient,
@@ -30,7 +30,7 @@ import {
   type CryptoResult,
 } from './crypto'
 
-export { createAccount, getSalt, getReminderSettings }
+export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
 
 export interface VaultImportExportData {
@@ -139,11 +139,13 @@ export async function initialiseVault({
 export async function loginVault({
   password,
   salt,
+  iterations,
 }: {
   password: string,
   salt: string,
+  iterations?: number,
 }) {
-  await initialiseVault({ password, salt })
+  await initialiseVault({ password, salt, iterations })
   await establishSessionFromKeyHash(keyHash)
   await storeVault()
 }

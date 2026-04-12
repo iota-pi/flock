@@ -1,6 +1,6 @@
 export {
   createAccount,
-  getSalt,
+  getSecurityParams,
   getSession,
   recordPrayerCompletion,
 } from './AccountClient'

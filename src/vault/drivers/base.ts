@@ -51,8 +51,9 @@ export interface VaultAccount extends BaseData {
   reminderTime?: string,
   reminderTimezone?: string,
   lastPrayerCompletedAt?: number,
-  // Salt is not in AuthData since it is only used client-side for logins
+  // Salt and iterations are not in AuthData since they are only used client-side for logins
   salt: string,
+  iterations: number,
 }
 
 export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
@@ -85,7 +86,7 @@ export default abstract class BaseDriver<T = unknown> {
   // Retrieve account data; `isLogin` optional as in `checkSession`.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
-  abstract getAccountSalt(data: BaseData): Promise<string>
+  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number }>
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update

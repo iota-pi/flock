@@ -9,16 +9,17 @@ import type {
 export async function createAccount(
   { salt, authToken }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
-  return trpcClient.accounts.createAccount.mutate({ salt, authToken })
+  return trpcClient.accounts.createAccount.mutate({
+    salt,
+    authToken,
+    iterations: 100000,
+  })
 }
 
-export async function getSalt(): Promise<string> {
-  const response = await trpcClient.accounts.getSalt.query({ account: getAccountId() })
-  assertSuccess(response, 'getSalt')
-  if (!response.salt) {
-    throw new Error('Vault client getSalt: missing salt')
-  }
-  return response.salt
+export async function getSecurityParams(): Promise<{ salt: string, iterations?: number }> {
+  const account = getAccountId()
+  const response = await trpcClient.accounts.getSecurityParams.query({ account })
+  return { salt: response.salt, iterations: response.iterations }
 }
 
 export async function getSession(authToken: string): Promise<string> {

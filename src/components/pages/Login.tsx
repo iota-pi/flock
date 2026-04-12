@@ -16,7 +16,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { ROUTES } from './routes'
 import { useUiStore } from '../../state/uiStore'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
-import { getSalt, loginVault } from '../../api/vault'
+import { getSecurityParams, loginVault } from '../../api/vault'
 import { useAuth } from '../../hooks/useAuth'
 import { useAuthStore } from '../../state/authStore'
 
@@ -87,10 +87,12 @@ function LoginPage() {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      const salt = await getSalt().catch(() => '')
-      if (salt.length) {
+      const securityParams = await getSecurityParams().catch(
+        (): { salt: string, iterations?: number } => ({ salt: '', iterations: undefined })
+      )
+      if (securityParams.salt.length) {
         try {
-          await loginVault({ password, salt })
+          await loginVault({ password, salt: securityParams.salt, iterations: securityParams.iterations })
           updateAuth({ loggedIn: true })
           navigate(ROUTES.prayer.path)
         } catch (error) {
