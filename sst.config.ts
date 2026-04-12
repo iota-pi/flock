@@ -31,7 +31,7 @@ export default $config({
     // DynamoDB Tables
     // -----------------------------------------------------------------
     const accountsTable = new sst.aws.Dynamo('FlockAccounts', {
-      // deletionProtection: true,
+      deletionProtection: true,
       fields: {
         account: 'string',
       },
@@ -44,7 +44,7 @@ export default $config({
     })
 
     const itemsTable = new sst.aws.Dynamo('FlockItems', {
-      // deletionProtection: true,
+      deletionProtection: true,
       fields: {
         account: 'string',
         item: 'string',
@@ -59,23 +59,6 @@ export default $config({
           args.name = `FlockItems_${stage}`
           args.ttl = {
             attributeName: 'ttl',
-            enabled: true,
-          }
-        },
-      },
-    })
-
-    const itemHistoryTable = new sst.aws.Dynamo('FlockItemHistory', {
-      fields: {
-        account: 'string',
-        historyKey: 'string',
-      },
-      primaryIndex: { hashKey: 'account', rangeKey: 'historyKey' },
-      transform: {
-        table: args => {
-          args.name = `FlockItemHistory_${stage}`
-          args.ttl = {
-            attributeName: 'expiresAt',
             enabled: true,
           }
         },
@@ -151,7 +134,6 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        ITEM_HISTORY_TABLE: itemHistoryTable.name,
         REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
@@ -162,7 +144,6 @@ export default $config({
       link: [
         accountsTable,
         itemsTable,
-        itemHistoryTable,
         replayLogTable,
         realtimeConnectionsTable,
         idempotencyTable,
@@ -332,9 +313,8 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
-        ITEM_HISTORY_TABLE: itemHistoryTable.name,
       },
-      link: [accountsTable, itemsTable, itemHistoryTable],
+      link: [accountsTable, itemsTable],
     })
 
     // -----------------------------------------------------------------
@@ -463,7 +443,7 @@ export default $config({
           iamRoleArn: backupRole.arn,
           name: `flock_dynamo_backup_selection_${stage}`,
           planId: backupPlan.id,
-          resources: [accountsTable.arn, itemsTable.arn, itemHistoryTable.arn],
+          resources: [accountsTable.arn, itemsTable.arn],
         },
       )
     }

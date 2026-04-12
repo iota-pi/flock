@@ -25,15 +25,11 @@ import {
   generateAccountId,
 } from '../util'
 import BaseDriver, {
-  ArchiveAndReplaceInput,
-  ArchiveAndSetManyInput,
   AuthData,
   BaseData,
   CachedVaultItem,
   IdempotencyWriteContext,
   VaultAccountWithAuth,
-  VaultItemHistoryPage,
-  VaultItemHistory,
   VaultItem,
   VaultKey,
 } from './base'
@@ -44,7 +40,6 @@ import type { ItemId } from '../../shared/itemTypes'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-export const ITEM_HISTORY_TABLE = process.env.ITEM_HISTORY_TABLE || 'FlockItemHistory'
 export const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE || 'FlockIdempotency'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
 
@@ -749,163 +744,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return uniqueIds
       .map(itemId => itemsById.get(itemId))
       .filter((item): item is VaultItem => !!item)
-  }
-
-  async putHistory(data: VaultItemHistory): Promise<void> {
-    try {
-      await this.client.send(new PutCommand({
-        TableName: ITEM_HISTORY_TABLE,
-        Item: data,
-      }))
-    } catch (error) {
-      if (shouldIgnoreHistoryError(error)) {
-        return
-      }
-      throw error
-    }
-  }
-
-  async fetchHistory(account: string, itemId: ItemId, limit = 20, cursor?: string): Promise<VaultItemHistoryPage> {
-    const cursorHistoryKey = cursor || undefined
-    let response
-    try {
-      response = await this.client.send(new QueryCommand({
-        TableName: ITEM_HISTORY_TABLE,
-        KeyConditionExpression: 'account = :accountid AND begins_with(historyKey, :historyPrefix)',
-        ExpressionAttributeValues: {
-          ':accountid': account,
-          ':historyPrefix': `${itemId}#`,
-        },
-        ScanIndexForward: false,
-        Limit: limit,
-        ExclusiveStartKey: cursorHistoryKey
-          ? {
-            account,
-            historyKey: cursorHistoryKey,
-          }
-          : undefined,
-      }))
-    } catch (error) {
-      if (shouldIgnoreHistoryError(error)) {
-        return {
-          history: [],
-          nextCursor: null,
-        }
-      }
-      throw error
-    }
-
-    const rows = response.Items as VaultItemHistory[] | undefined
-    if (!rows || rows.length === 0) {
-      return {
-        history: [],
-        nextCursor: null,
-      }
-    }
-
-    const history = rows
-      .map(row => row.itemData)
-      .filter((item): item is VaultItem => !!item)
-
-    const nextCursor = typeof response.LastEvaluatedKey?.historyKey === 'string'
-      ? response.LastEvaluatedKey.historyKey
-      : null
-
-    return {
-      history,
-      nextCursor,
-    }
-  }
-
-  async archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void> {
-    const replacementWritable = input.replacement as WritableVaultItem
-    const replacementItem = this._stripTransientFields(replacementWritable)
-    const replacementPut = getItemPutParams(replacementItem, replacementWritable._expectedParentVersionId)
-
-    const transactItems = [
-      ...(input.idempotency ? [getIdempotencyTransactWrite(input.idempotency)] : []),
-      {
-        Put: {
-          TableName: ITEM_HISTORY_TABLE,
-          Item: input.history,
-        },
-      },
-      {
-        Put: replacementPut,
-      },
-    ]
-
-    try {
-      await this.client.send(new TransactWriteCommand({
-        TransactItems: transactItems,
-      }))
-    } catch (error) {
-      if (input.idempotency && isIdempotencyConditionFailure(error, 0)) {
-        return
-      }
-
-      if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
-        throw new VersionConflictError('Version conflict: The item has been modified by another client.')
-      }
-      throw error
-    }
-  }
-
-  async archiveAndSetManyTransaction(input: ArchiveAndSetManyInput): Promise<void> {
-    const historyWrites = input.historyEntries.map(entry => ({
-      Put: {
-        TableName: ITEM_HISTORY_TABLE,
-        Item: entry,
-      },
-    }))
-
-    const replacementWrites = input.replacements.map(rawItem => {
-      const item = rawItem as WritableVaultItem
-      const persisted = this._stripTransientFields(item)
-      const putParams = getItemPutParams(persisted, item._expectedParentVersionId)
-      return {
-        Put: putParams,
-      }
-    })
-
-    const baseItems = [...historyWrites, ...replacementWrites]
-    const transactItems = input.idempotency
-      ? [getIdempotencyTransactWrite(input.idempotency), ...baseItems]
-      : baseItems
-    if (transactItems.length === 0) {
-      return
-    }
-
-    const chunks = this._chunkTransactItems(transactItems)
-    for (const chunk of chunks) {
-      try {
-        await this.client.send(new TransactWriteCommand({
-          TransactItems: chunk,
-        }))
-      } catch (error) {
-        if (input.idempotency && isIdempotencyConditionFailure(error, 0)) {
-          return
-        }
-
-        if (isTransactionCanceled(error) || isConditionalCheckFailure(error)) {
-          const conflictIds = chunk
-            .map(entry => {
-              if (entry?.Put?.TableName === ITEM_TABLE_NAME) {
-                return (entry.Put.Item as VaultItem | undefined)?.item
-              }
-              return undefined
-            })
-            .filter((id): id is string => typeof id === 'string')
-
-          if (conflictIds.length > 0) {
-            throw new TransactionConflictsError(conflictIds)
-          }
-
-          throw new VersionConflictError('Version conflict: The item has been modified by another client.')
-        }
-        throw error
-      }
-    }
   }
 
   async fetchAll(

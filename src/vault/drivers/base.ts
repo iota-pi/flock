@@ -61,34 +61,10 @@ export interface VaultItem extends VaultKey, VaultData {
   ttl?: number,
 }
 
-export interface VaultItemHistory {
-  account: string,
-  historyKey: string,
-  itemData: VaultItem,
-  expiresAt: number,
-}
-
-export interface VaultItemHistoryPage {
-  history: VaultItem[]
-  nextCursor: string | null
-}
-
 export interface IdempotencyWriteContext {
   account: string
   idempotencyKey: string
   expiresAt: number
-}
-
-export interface ArchiveAndReplaceInput {
-  history: VaultItemHistory,
-  replacement: VaultItem,
-  idempotency?: IdempotencyWriteContext,
-}
-
-export interface ArchiveAndSetManyInput {
-  historyEntries: VaultItemHistory[],
-  replacements: VaultItem[],
-  idempotency?: IdempotencyWriteContext,
 }
 
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
@@ -142,11 +118,6 @@ export default abstract class BaseDriver<T = unknown> {
   abstract fetchAll(
     { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
   ): Promise<CachedVaultItem[]>
-
-  abstract putHistory(data: VaultItemHistory): Promise<void>
-  abstract fetchHistory(account: string, itemId: ItemId, limit?: number, cursor?: string): Promise<VaultItemHistoryPage>
-  abstract archiveAndReplaceTransaction(input: ArchiveAndReplaceInput): Promise<void>
-  abstract archiveAndSetManyTransaction(input: ArchiveAndSetManyInput): Promise<void>
 
   abstract delete(key: VaultKey): Promise<void>
 
