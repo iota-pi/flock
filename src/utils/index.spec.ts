@@ -6,7 +6,6 @@ import {
   formatTime,
   isSameDay,
   useStringMemo,
-  capitalise,
 } from './index'
 
 describe('utils/index', () => {
@@ -66,21 +65,6 @@ describe('utils/index', () => {
       const d1 = new Date('2024-01-01T10:00:00')
       const d2 = new Date('2024-01-02T10:00:00')
       expect(isSameDay(d1, d2)).toBe(false)
-    })
-  })
-
-  describe('capitalise', () => {
-    it('capitalises first letter', () => {
-      expect(capitalise('hello')).toBe('Hello')
-      expect(capitalise('world')).toBe('World')
-    })
-
-    it('handles empty string', () => {
-      expect(capitalise('')).toBe('')
-    })
-
-    it('keeps already capitalised string', () => {
-      expect(capitalise('Hello')).toBe('Hello')
     })
   })
 

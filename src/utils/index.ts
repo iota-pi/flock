@@ -55,7 +55,3 @@ export function useStringMemo<T>(state: T[]): T[] {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => state, [key])
 }
-
-export function capitalise(name: string) {
-  return name.charAt(0).toLocaleUpperCase() + name.slice(1)
-}

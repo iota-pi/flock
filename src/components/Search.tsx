@@ -33,7 +33,6 @@ import { useItems, useItemsInitialLoading, useMetadata, useSortCriteria } from '
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import { sortItems } from '../utils/customSort'
-import { capitalise } from '../utils'
 import {
   ALL_SEARCHABLE_TYPES,
   AnySearchable,
@@ -45,6 +44,7 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
+import { upperFirst } from 'lodash-es'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
@@ -213,7 +213,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'person',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             dividerBefore: true,
             id: 'add-person',
@@ -223,7 +223,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'group',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             id: 'add-group',
             type: 'group',
@@ -232,7 +232,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'topic',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             id: 'add-topic',
             type: 'topic',
