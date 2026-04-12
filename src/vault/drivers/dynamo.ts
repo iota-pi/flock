@@ -40,7 +40,6 @@ export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
 
 export const MAX_ITEM_SIZE = 50000
-export const MAX_ITEMS_FETCH = 5000
 export const MAX_BATCH_GET_ITEMS = 100
 export const MAX_BATCH_GET_RETRIES = 5
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
@@ -268,28 +267,28 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error(`Could not find account ${account}`)
   }
 
-  async getNewAccountId(attempts = 10): Promise<string> {
-    const account = generateAccountId()
+  async getNewAccountId(maxAttempts = 10): Promise<string> {
+    let attempts = 0
 
-    try {
-      const response = await this.client.send(new GetCommand(
-        {
+    while (attempts < maxAttempts) {
+      attempts += 1
+      const account = generateAccountId()
+
+      try {
+        const response = await this.client.send(new GetCommand({
           TableName: ACCOUNT_TABLE_NAME,
           Key: { account },
-        },
-      ))
-      if (!response?.Item) {
-        return account
-      }
-    } catch (error) {
-      if (attempts === 0) {
-        throw error
+        }))
+        if (!response?.Item) {
+          return account
+        }
+      } catch (error) {
+        if (attempts === maxAttempts) {
+          throw error
+        }
       }
     }
 
-    if (attempts > 0) {
-      return this.getNewAccountId(attempts - 1)
-    }
     throw new Error('Could not generate new account ID')
   }
 
@@ -315,93 +314,74 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       expectedMetadataParentVersionId?: string,
     },
   ): Promise<void> {
-    const promises: Promise<unknown>[] = []
+    const updateExpressions: string[] = []
+    const expressionAttributeValues: Record<string, unknown> = {}
+    const expressionAttributeNames: Record<string, string> = {}
+    const conditionExpressions: string[] = []
 
     if (session) {
-      promises.push(
-        this.client.send(new UpdateCommand(
-          {
-            TableName: ACCOUNT_TABLE_NAME,
-            Key: { account },
-            UpdateExpression: 'SET #session=:session, sessionExpiry=:expiry',
-            ExpressionAttributeValues: {
-              ':session': session,
-              ':expiry': Date.now() + SESSION_EXPIRY_MS,
-            },
-            ExpressionAttributeNames: {
-              '#session': 'session',
-            },
-          },
-        ))
-      )
+      updateExpressions.push('#session=:session', 'sessionExpiry=:expiry')
+      expressionAttributeValues[':session'] = session
+      expressionAttributeValues[':expiry'] = Date.now() + SESSION_EXPIRY_MS
+      expressionAttributeNames['#session'] = 'session'
     }
 
     if (metadata && Object.keys(metadata).length > 0) {
-      const params: UpdateCommandInput = {
-        TableName: ACCOUNT_TABLE_NAME,
-        Key: { account },
-        UpdateExpression: 'SET metadata=:metadata',
-        ExpressionAttributeValues: {
-          ':metadata': metadata,
-        },
-      }
+      updateExpressions.push('metadata=:metadata')
+      expressionAttributeValues[':metadata'] = metadata
 
       if (typeof expectedMetadataParentVersionId === 'string' && expectedMetadataParentVersionId.length > 0) {
-        params.ConditionExpression = 'metadata.branches[0].versionId = :expectedParentVersionId'
-        params.ExpressionAttributeValues![':expectedParentVersionId'] = expectedMetadataParentVersionId
+        conditionExpressions.push('metadata.branches[0].versionId = :expectedParentVersionId')
+        expressionAttributeValues[':expectedParentVersionId'] = expectedMetadataParentVersionId
       } else {
         const incomingBranches = (metadata as { branches?: unknown }).branches
         if (Array.isArray(incomingBranches) && incomingBranches.length > 0) {
-          params.ConditionExpression = 'attribute_not_exists(metadata.branches)'
+          conditionExpressions.push('attribute_not_exists(metadata.branches)')
         }
       }
-
-      promises.push(
-        this.client.send(new UpdateCommand(params))
-      )
     }
-
-    const accountSettingsUpdates: string[] = []
-    const accountSettingsValues: Record<string, unknown> = {}
 
     if (pushSubscriptions) {
-      accountSettingsUpdates.push('pushSubscriptions = :pushSubscriptions')
-      accountSettingsValues[':pushSubscriptions'] = pushSubscriptions
+      updateExpressions.push('pushSubscriptions = :pushSubscriptions')
+      expressionAttributeValues[':pushSubscriptions'] = pushSubscriptions
     }
     if (typeof reminderEnabled === 'boolean') {
-      accountSettingsUpdates.push('reminderEnabled = :reminderEnabled')
-      accountSettingsValues[':reminderEnabled'] = reminderEnabled
+      updateExpressions.push('reminderEnabled = :reminderEnabled')
+      expressionAttributeValues[':reminderEnabled'] = reminderEnabled
     }
     if (typeof reminderTime === 'string') {
-      accountSettingsUpdates.push('reminderTime = :reminderTime')
-      accountSettingsValues[':reminderTime'] = reminderTime
+      updateExpressions.push('reminderTime = :reminderTime')
+      expressionAttributeValues[':reminderTime'] = reminderTime
     }
     if (typeof reminderTimezone === 'string') {
-      accountSettingsUpdates.push('reminderTimezone = :reminderTimezone')
-      accountSettingsValues[':reminderTimezone'] = reminderTimezone
+      updateExpressions.push('reminderTimezone = :reminderTimezone')
+      expressionAttributeValues[':reminderTimezone'] = reminderTimezone
     }
     if (typeof lastPrayerCompletedAt === 'number') {
-      accountSettingsUpdates.push('lastPrayerCompletedAt = :lastPrayerCompletedAt')
-      accountSettingsValues[':lastPrayerCompletedAt'] = lastPrayerCompletedAt
+      updateExpressions.push('lastPrayerCompletedAt = :lastPrayerCompletedAt')
+      expressionAttributeValues[':lastPrayerCompletedAt'] = lastPrayerCompletedAt
     }
 
-    if (accountSettingsUpdates.length > 0) {
-      promises.push(
-        this.client.send(new UpdateCommand({
-          TableName: ACCOUNT_TABLE_NAME,
-          Key: { account },
-          UpdateExpression: `SET ${accountSettingsUpdates.join(', ')}`,
-          ExpressionAttributeValues: accountSettingsValues,
-        }))
-      )
+    if (updateExpressions.length === 0) {
+      return
     }
 
-    const results = await Promise.allSettled(promises)
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        throw result.reason
-      }
+    const params: UpdateCommandInput = {
+      TableName: ACCOUNT_TABLE_NAME,
+      Key: { account },
+      UpdateExpression: `SET ${updateExpressions.join(', ')}`,
+      ExpressionAttributeValues: expressionAttributeValues,
     }
+
+    if (Object.keys(expressionAttributeNames).length > 0) {
+      params.ExpressionAttributeNames = expressionAttributeNames
+    }
+
+    if (conditionExpressions.length > 0) {
+      params.ConditionExpression = conditionExpressions.join(' AND ')
+    }
+
+    await this.client.send(new UpdateCommand(params))
   }
 
   async extendSession({ account }: BaseData): Promise<void> {
@@ -569,7 +549,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const isDeltaSync = typeof cacheTime === 'number'
     let useDeltaIndex = isDeltaSync
 
-    while (items.length < MAX_ITEMS_FETCH) {
+    while (true) {
       let queryInput: QueryCommandInput
       if (useDeltaIndex) {
         queryInput = {
