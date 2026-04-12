@@ -31,7 +31,7 @@ export default $config({
     // DynamoDB Tables
     // -----------------------------------------------------------------
     const accountsTable = new sst.aws.Dynamo('FlockAccounts', {
-      deletionProtection: true,
+      deletionProtection: isProd,
       fields: {
         account: 'string',
       },
@@ -44,7 +44,7 @@ export default $config({
     })
 
     const itemsTable = new sst.aws.Dynamo('FlockItems', {
-      deletionProtection: true,
+      deletionProtection: isProd,
       fields: {
         account: 'string',
         item: 'string',
