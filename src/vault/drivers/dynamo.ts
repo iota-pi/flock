@@ -19,6 +19,7 @@ import {
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { randomBytes } from 'crypto'
+import { chunk } from 'lodash-es'
 import {
   almostConstantTimeEqual,
   generateAccountId,
@@ -127,14 +128,21 @@ function validateItem(item: VaultItem) {
 function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): PutCommandInput {
   validateItem(item)
 
+  const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseItem = { ...item } as any
+  if (modifiedAt !== undefined) {
+    baseItem.modifiedAt = modifiedAt
+  }
+
   const isTombstone = item.metadata.deleted === true
   const persistedItem: VaultItem = isTombstone
     ? {
-      ...item,
+      ...baseItem,
       ttl: Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS,
     }
     : {
-      ...item,
+      ...baseItem,
       ttl: undefined,
     }
 
@@ -165,14 +173,6 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   }
 
   return params
-}
-
-function chunkKeys<T>(items: T[], chunkSize: number): T[][] {
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize))
-  }
-  return chunks
 }
 
 function isConditionalCheckFailure(error: unknown): boolean {
@@ -704,7 +704,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     // DynamoDB BatchGet rejects duplicate keys in one request.
     // Keep ordering stable via uniqueIds and rehydrate from a map.
     const uniqueIds = Array.from(new Set(ids))
-    const keyChunks = chunkKeys(uniqueIds, MAX_BATCH_GET_ITEMS)
+    const keyChunks = chunk(uniqueIds, MAX_BATCH_GET_ITEMS)
     const itemsById = new Map<ItemId, VaultItem>()
 
     for (const keyChunk of keyChunks) {
@@ -931,11 +931,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         queryInput = {
           TableName: ITEM_TABLE_NAME,
           IndexName: 'AccountModifiedIndex',
-          KeyConditionExpression: 'account = :accountid AND #metadata.#modified > :cacheTime',
+          KeyConditionExpression: 'account = :accountid AND modifiedAt > :cacheTime',
           ExpressionAttributeNames: {
             '#itemKey': 'item',
-            '#metadata': 'metadata',
-            '#modified': 'modified',
           },
           ExpressionAttributeValues: {
             ':accountid': account,
