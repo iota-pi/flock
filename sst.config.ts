@@ -48,8 +48,12 @@ export default $config({
       fields: {
         account: 'string',
         item: 'string',
+        modifiedAt: 'number',
       },
       primaryIndex: { hashKey: 'account', rangeKey: 'item' },
+      globalIndexes: {
+        AccountModifiedIndex: { hashKey: 'account', rangeKey: 'modifiedAt' },
+      },
       transform: {
         table: (args, opts) => {
           args.name = `FlockItems_${stage}`
@@ -259,8 +263,8 @@ export default $config({
       name: '$default',
       autoDeploy: true,
       defaultRouteSettings: {
-        throttlingBurstLimit: 50,
-        throttlingRateLimit: 20,
+        throttlingBurstLimit: 1000,
+        throttlingRateLimit: 500,
       },
     })
 

@@ -1,7 +1,5 @@
 import {
   ConditionalCheckFailedException,
-  CreateTableCommand,
-  CreateTableCommandInput,
   DynamoDBClient,
   DynamoDBClientConfig,
   TransactionCanceledException,
@@ -269,89 +267,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       throw new Error('Cannot use client before initialisation')
     }
     return this.internalClient
-  }
-
-  async init(_: T | undefined = undefined) {
-    const isResourceInUseError = (err: unknown) => {
-      if (!err || typeof err !== 'object') {
-        return false
-      }
-
-      const typed = err as {
-        name?: unknown
-        code?: unknown
-        __type?: unknown
-      }
-
-      return typed.name === 'ResourceInUseException'
-        || typed.code === 'ResourceInUseException'
-        || (typeof typed.__type === 'string' && typed.__type.includes('ResourceInUseException'))
-    }
-
-    const tablesToEnsure: Pick<CreateTableCommandInput, 'TableName' | 'KeySchema' | 'AttributeDefinitions'>[] = [
-      {
-        TableName: ITEM_TABLE_NAME,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-          { AttributeName: 'item', KeyType: 'RANGE' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-          { AttributeName: 'item', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: IDEMPOTENCY_TABLE_NAME,
-        KeySchema: [
-          { AttributeName: 'idempotencyKey', KeyType: 'HASH' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'idempotencyKey', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: ACCOUNT_TABLE_NAME,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: ITEM_HISTORY_TABLE,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-          { AttributeName: 'historyKey', KeyType: 'RANGE' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-          { AttributeName: 'historyKey', AttributeType: 'S' },
-        ],
-      },
-    ]
-
-    for (const table of tablesToEnsure) {
-      try {
-        console.info(`Create table: ${table.TableName}`)
-        await this.client.send(new CreateTableCommand(
-          {
-            TableName: table.TableName,
-            KeySchema: table.KeySchema,
-            AttributeDefinitions: table.AttributeDefinitions,
-            BillingMode: 'PAY_PER_REQUEST',
-          },
-        ))
-        console.info(`Table created: ${table.TableName}`)
-      } catch (err: unknown) {
-        if (!isResourceInUseError(err)) {
-          throw err
-        }
-        console.info('Already exists, skipping.')
-      }
-    }
-
-    return this
   }
 
   connect(_options?: T): DynamoDriver {
