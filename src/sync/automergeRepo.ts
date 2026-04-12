@@ -3,26 +3,32 @@ import { BroadcastChannelNetworkAdapter } from '@automerge/automerge-repo-networ
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 
-const vaultNetworkAdapter = new VaultEncryptedNetworkAdapter()
-
-const repo = new Repo({
-  storage: new IndexedDBStorageAdapter('flock-automerge-db'),
-  network: [
-    new BroadcastChannelNetworkAdapter({
-      channelName: 'flock-automerge-broadcast',
-    }),
-    vaultNetworkAdapter,
-  ],
-})
+let vaultNetworkAdapter: VaultEncryptedNetworkAdapter | null = null
+let repo: Repo | null = null
 
 export function getAutomergeRepo(): Repo {
+  if (!repo) {
+    vaultNetworkAdapter = new VaultEncryptedNetworkAdapter()
+    repo = new Repo({
+      storage: new IndexedDBStorageAdapter('flock-automerge-db'),
+      network: [
+        new BroadcastChannelNetworkAdapter({
+          channelName: 'flock-automerge-broadcast',
+        }),
+        vaultNetworkAdapter,
+      ],
+    })
+  }
   return repo
 }
 
 export function getVaultNetworkAdapter(): VaultEncryptedNetworkAdapter {
-  return vaultNetworkAdapter
+  if (!vaultNetworkAdapter) {
+    getAutomergeRepo()
+  }
+  return vaultNetworkAdapter!
 }
 
 export function setVaultNetworkAccount(account: string | null): void {
-  vaultNetworkAdapter.setAccount(account)
+  getVaultNetworkAdapter().setAccount(account)
 }
