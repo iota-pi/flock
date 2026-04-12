@@ -20,7 +20,7 @@ export default function AppProviders({ children }: AppProvidersProps) {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <RepoContext.Provider value={getAutomergeRepo()}>
+      <RepoContext.Provider value={getAutomergeRepo(loggedIn ? account : null)}>
         <AppInitializer />
         {children}
       </RepoContext.Provider>
