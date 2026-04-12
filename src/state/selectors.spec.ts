@@ -103,7 +103,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 
 describe('state selectors', () => {
   beforeEach(() => {
-    useAuthStore.getState().setAccount({
+    useAuthStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,

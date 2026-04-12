@@ -17,12 +17,12 @@ const initialAuthState: AccountState = {
 }
 
 type AuthStore = AccountState & {
-  setAccount: (payload: Partial<AccountState>) => void,
+  updateAuth: (payload: Partial<AccountState>) => void,
 }
 
 export const useAuthStore = create<AuthStore>(set => ({
   ...initialAuthState,
-  setAccount: payload => {
+  updateAuth: payload => {
     set(previous => ({
       ...previous,
       ...payload,

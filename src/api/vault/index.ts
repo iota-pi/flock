@@ -149,11 +149,11 @@ export async function loginVault({
 }
 
 export async function loadVault() {
-  const { setAccount } = useAuthStore.getState()
+  const { updateAuth } = useAuthStore.getState()
   const stored = readStoredMetadata()
 
   if (stored?.account) {
-    setAccount({ account: stored.account })
+    updateAuth({ account: stored.account })
   }
 
   if (stored?.key) {
@@ -161,10 +161,10 @@ export async function loadVault() {
     const nextKeyHash = await hashVaultKey(getKey())
     await establishSessionFromKeyHash(nextKeyHash)
     setApiSessionExpiredHandler(handleSessionExpired)
-    setAccount({ loggedIn: true })
+    updateAuth({ loggedIn: true })
   }
 
-  setAccount({ initializing: false })
+  updateAuth({ initializing: false })
 }
 
 export async function storeVault() {
@@ -172,7 +172,7 @@ export async function storeVault() {
 }
 
 export async function signOutVault() {
-  const { setAccount } = useAuthStore.getState()
+  const { updateAuth } = useAuthStore.getState()
   key = null
   keyHash = ''
   session = ''
@@ -180,7 +180,7 @@ export async function signOutVault() {
 
   clearMetadataCache()
 
-  setAccount({ account: '', loggedIn: false })
+  updateAuth({ account: '', loggedIn: false })
 
   const localStorageKeys = Object.keys(localStorage)
   for (const localStorageKey of localStorageKeys) {

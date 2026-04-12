@@ -3,22 +3,24 @@ type DecodedAutomergeBranch = {
   cipher: Uint8Array
 }
 
-function isHex(value: string): boolean {
-  return value.length > 0 && value.length % 2 === 0 && /^[0-9a-f]+$/i.test(value)
-}
-
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2)
   for (let index = 0; index < hex.length; index += 2) {
-    bytes[index / 2] = parseInt(hex.slice(index, index + 2), 16)
+    const val = parseInt(hex.slice(index, index + 2), 16)
+    if (Number.isNaN(val)) {
+      throw new Error('Invalid hex')
+    }
+    bytes[index / 2] = val
   }
   return bytes
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join('')
+  const hex = new Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) {
+    hex[i] = bytes[i].toString(16).padStart(2, '0')
+  }
+  return hex.join('')
 }
 
 function decodeBase64ToBytes(base64Value: string): Uint8Array | null {
@@ -56,14 +58,16 @@ export function decodeEncryptedAutomergeDoc(encryptedDoc: string): DecodedAutome
 
   // Current format: ivHex(16 bytes -> 32 chars) + cipherHex
   if (encryptedDoc.length > 32) {
-    const ivHex = encryptedDoc.slice(0, 32)
-    const cipherHex = encryptedDoc.slice(32)
-    if (isHex(ivHex) && isHex(cipherHex)) {
+    try {
+      const ivHex = encryptedDoc.slice(0, 32)
+      const cipherHex = encryptedDoc.slice(32)
       const iv = hexToBytes(ivHex)
       const cipher = hexToBytes(cipherHex)
       if (iv.byteLength === 16 && cipher.byteLength > 0) {
         return { iv, cipher }
       }
+    } catch (_) {
+      // Fallback to legacy base64 format on invalid hex error
     }
   }
 

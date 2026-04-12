@@ -68,7 +68,7 @@ function CreateAccountPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
   const [newAccount, setNewAccount] = useState('')
-  const setAccount = useAuthStore(state => state.setAccount)
+  const updateAuth = useAuthStore(state => state.updateAuth)
 
   const {
     register,
@@ -107,7 +107,7 @@ function CreateAccountPage() {
         })
         const { account } = await createAccount({ salt, authToken })
         if (account.length > 0) {
-          setAccount({ account })
+          updateAuth({ account })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
         } else {
@@ -119,7 +119,7 @@ function CreateAccountPage() {
       }
       setWaiting(false)
     },
-    [password, setAccount],
+    [password, updateAuth],
   )
 
   const handleCloseCreatedAccountDialog = useCallback(

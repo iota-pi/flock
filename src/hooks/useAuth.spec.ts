@@ -5,7 +5,7 @@ import { useAuth } from './useAuth'
 
 describe('useAuth', () => {
   beforeEach(() => {
-    useAuthStore.getState().setAccount({
+    useAuthStore.getState().updateAuth({
       account: '',
       loggedIn: false,
       initializing: true,
@@ -13,7 +13,7 @@ describe('useAuth', () => {
   })
 
   it('returns auth values from the Zustand store', () => {
-    useAuthStore.getState().setAccount({
+    useAuthStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,
@@ -32,7 +32,7 @@ describe('useAuth', () => {
     const { result } = renderHook(() => useAuth())
 
     act(() => {
-      useAuthStore.getState().setAccount({ account: 'acct-2', loggedIn: true, initializing: false })
+      useAuthStore.getState().updateAuth({ account: 'acct-2', loggedIn: true, initializing: false })
     })
 
     expect(result.current.account).toBe('acct-2')

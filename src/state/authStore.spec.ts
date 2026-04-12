@@ -20,13 +20,13 @@ describe('authStore', () => {
   })
 
   it('resets auth state cleanly on logout-style payload', () => {
-    useAuthStore.getState().setAccount({
+    useAuthStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,
     })
 
-    useAuthStore.getState().setAccount({
+    useAuthStore.getState().updateAuth({
       account: '',
       loggedIn: false,
     })
@@ -40,9 +40,9 @@ describe('authStore', () => {
 
   it('handles token-refresh-like concurrent updates without clobbering state', async () => {
     await Promise.all([
-      Promise.resolve().then(() => useAuthStore.getState().setAccount({ account: 'acct-1' })),
-      Promise.resolve().then(() => useAuthStore.getState().setAccount({ loggedIn: true })),
-      Promise.resolve().then(() => useAuthStore.getState().setAccount({ initializing: false })),
+      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ account: 'acct-1' })),
+      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ loggedIn: true })),
+      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ initializing: false })),
     ])
 
     expect(useAuthStore.getState()).toMatchObject({

@@ -194,7 +194,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.notifyKnownItemIdsChanged()
   }
 
-  syncItemIds(itemIds?: string[]): void {
+  async syncItemIds(itemIds?: string[]): Promise<void> {
     const normalized = Array.isArray(itemIds) && itemIds.length > 0
       ? normalizeItemIds(itemIds)
       : this.getKnownItemIds()
@@ -204,7 +204,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
 
     this.registerKnownItemIds(normalized)
-    this.pullQueueManager.enqueuePull(normalized)
+    await this.pullQueueManager.enqueuePull(normalized)
   }
 
   whenReady(): Promise<void> {

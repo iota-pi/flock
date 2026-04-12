@@ -15,7 +15,7 @@ function getActiveAccount(): string | null {
 }
 
 function normalizeItemIds(itemIds?: string[]): string[] {
-  const source = Array.isArray(itemIds) && itemIds.length > 0
+  const source = Array.isArray(itemIds)
     ? itemIds
     : listAutomergeDocumentIds()
 
@@ -41,7 +41,7 @@ async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
 
   useSyncStore.getState().setIsSyncing(true)
   try {
-    adapter.syncItemIds(normalized)
+    await adapter.syncItemIds(normalized)
 
     return normalized
   } finally {

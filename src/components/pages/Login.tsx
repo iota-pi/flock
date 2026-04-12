@@ -63,7 +63,7 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const { account: createdAccountId } = useAuth()
-  const setAccount = useAuthStore(state => state.setAccount)
+  const updateAuth = useAuthStore(state => state.updateAuth)
   const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
 
   useEffect(
@@ -86,27 +86,27 @@ function LoginPage() {
     async () => {
       setLoading(true)
       setError('')
-      setAccount({ account: accountInput })
+      updateAuth({ account: accountInput })
       const salt = await getSalt().catch(() => '')
       if (salt.length) {
         try {
           await loginVault({ password, salt })
-          setAccount({ loggedIn: true })
+          updateAuth({ loggedIn: true })
           navigate(ROUTES.prayer.path)
         } catch (error) {
           console.error('Error during vault initialization:', error)
-          setAccount({ account: '' })
+          updateAuth({ account: '' })
           setError('Login failed.')
         } finally {
           setLoading(false)
         }
       } else {
-        setAccount({ account: '' })
+        updateAuth({ account: '' })
         setError('Could not find matching account ID and password.')
         setLoading(false)
       }
     },
-    [accountInput, navigate, password, setAccount],
+    [accountInput, navigate, password, updateAuth],
   )
   const handleClickCreate = useCallback(
     () => {

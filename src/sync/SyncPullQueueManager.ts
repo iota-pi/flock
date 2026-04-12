@@ -35,7 +35,7 @@ export class SyncPullQueueManager {
     }
   }
 
-  enqueuePull(itemIds: string[]): void {
+  async enqueuePull(itemIds: string[]): Promise<void> {
     for (const itemId of itemIds) {
       if (itemId.length > 0) {
         this.pendingPullItemIds.add(itemId)
@@ -51,12 +51,14 @@ export class SyncPullQueueManager {
     }
 
     this.isPulling = true
-    void this.flushPullQueue().finally(() => {
+    try {
+      await this.flushPullQueue()
+    } finally {
       this.isPulling = false
       if (this.pendingPullItemIds.size > 0) {
         this.schedulePullRetry()
       }
-    })
+    }
   }
 
   private schedulePullRetry(): void {
