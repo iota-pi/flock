@@ -2,7 +2,6 @@ import {
   ConditionalCheckFailedException,
   DynamoDBClient,
   DynamoDBClientConfig,
-  TransactionCanceledException,
 } from '@aws-sdk/client-dynamodb'
 import {
   BatchGetCommand,
@@ -14,7 +13,6 @@ import {
   QueryCommand,
   QueryCommandInput,
   QueryCommandOutput,
-  TransactWriteCommand,
   UpdateCommand,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
@@ -28,7 +26,6 @@ import BaseDriver, {
   AuthData,
   BaseData,
   CachedVaultItem,
-  IdempotencyWriteContext,
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
@@ -40,58 +37,17 @@ import type { ItemId } from '../../shared/itemTypes'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-export const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE || 'FlockIdempotency'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
 
 export const MAX_ITEM_SIZE = 50000
 export const MAX_ITEMS_FETCH = 5000
-export const MAX_TRANSACTION_ITEMS = 100
 export const MAX_BATCH_GET_ITEMS = 100
-export const MAX_TRANSACTION_BYTES = 3_500_000
 export const MAX_BATCH_GET_RETRIES = 5
 export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type WritableVaultItem = VaultItem & {
   _expectedParentVersionId?: string
-}
-
-export class TransactionConflictsError extends Error {
-  conflictedIds: ItemId[]
-
-  constructor(conflictedIds: ItemId[]) {
-    super('Transaction conflicts')
-    this.name = 'TransactionConflictsError'
-    this.conflictedIds = conflictedIds
-  }
-}
-
-function getScopedIdempotencyKey(account: string, idempotencyKey: string): string {
-  return `${account}:${idempotencyKey}`
-}
-
-function getIdempotencyTransactWrite(idempotency: IdempotencyWriteContext) {
-  return {
-    Put: {
-      TableName: IDEMPOTENCY_TABLE_NAME,
-      Item: {
-        idempotencyKey: getScopedIdempotencyKey(idempotency.account, idempotency.idempotencyKey),
-        account: idempotency.account,
-        expiresAt: idempotency.expiresAt,
-        createdAt: Date.now(),
-      },
-      ConditionExpression: 'attribute_not_exists(idempotencyKey)',
-    },
-  }
-}
-
-function isIdempotencyConditionFailure(error: unknown, idempotencyIndex: number): boolean {
-  const reasons = getTransactionCancellationReasons(error)
-  if (reasons.length === 0) {
-    return false
-  }
-
-  return reasons[idempotencyIndex]?.Code === 'ConditionalCheckFailed'
 }
 
 /**
@@ -186,62 +142,12 @@ function isConditionalCheckFailure(error: unknown): boolean {
   )
 }
 
-function isTransactionCanceled(error: unknown): boolean {
-  if (error instanceof TransactionCanceledException) {
-    return true
-  }
-
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  return (
-    error.name === 'TransactionCanceledException'
-    || error.message.includes('TransactionCanceledException')
-  )
-}
-
-function getTransactionCancellationReasons(error: unknown): Array<{ Code?: string }> {
-  if (!error || typeof error !== 'object') {
-    return []
-  }
-
-  const typed = error as {
-    CancellationReasons?: Array<{ Code?: string }>
-    cancellationReasons?: Array<{ Code?: string }>
-  }
-
-  return typed.CancellationReasons || typed.cancellationReasons || []
-}
-
 function isMissingDeltaIndexError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false
   }
 
   return error.name === 'ValidationException' || error.message.includes('ValidationException')
-}
-
-function isHistoryTableMissing(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  return (
-    error.name === 'ResourceNotFoundException'
-    || error.message.includes('Requested resource not found')
-    || error.message.includes('Cannot do operations on a non-existent table')
-  )
-}
-
-function shouldIgnoreHistoryError(error: unknown): boolean {
-  if (isHistoryTableMissing(error)) {
-    return true
-  }
-
-  // History is additive safety data; non-production environments should
-  // not block primary item writes due table drift.
-  return process.env.NODE_ENV !== 'production'
 }
 
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
@@ -568,106 +474,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  /**
-  * setMany: batch set with conditional branch parent enforcement.
-   */
-  async setMany(items: VaultItem[]): Promise<void> {
-    if (items.length === 0) {
-      return
-    }
-
-    const transactItems: Array<{ Put: PutCommandInput }> = []
-
-    for (const rawItem of items) {
-      const item = rawItem as WritableVaultItem
-      const itemToPersist = this._stripTransientFields(item)
-      const putParams = getItemPutParams(itemToPersist, item._expectedParentVersionId)
-      transactItems.push({ Put: putParams })
-    }
-
-    // Execute in chunks
-    const chunks = this._chunkTransactItems(transactItems)
-    for (const chunk of chunks) {
-      try {
-        await this.client.send(new TransactWriteCommand({
-          TransactItems: chunk,
-        }))
-      } catch (error) {
-        if (isTransactionCanceled(error)) {
-          const reasons = getTransactionCancellationReasons(error)
-
-          const conflictedIds = reasons
-            .map((reason, index) => {
-              const item = chunk[index]
-              if (reason?.Code === 'ConditionalCheckFailed') {
-                if (item?.Put) return (item.Put.Item as VaultItem)?.item
-              }
-              return undefined
-            })
-            .filter((id): id is string => typeof id === 'string')
-
-          if (conflictedIds.length > 0) {
-            throw new TransactionConflictsError(conflictedIds)
-          }
-
-          // Some local Dynamo variants omit cancellation reasons.
-          // Treat transaction cancellation as a conflict for these writes.
-          const chunkIds = chunk
-            .map(transaction => {
-              if (transaction?.Put) {
-                return (transaction.Put.Item as VaultItem)?.item
-              }
-              return undefined
-            })
-            .filter((id): id is string => typeof id === 'string')
-
-          throw new TransactionConflictsError(chunkIds)
-        }
-        throw error
-      }
-    }
-  }
-
-  private _stripTransientFields(item: WritableVaultItem): VaultItem {
-    const persisted = { ...item }
-    delete persisted._expectedParentVersionId
-    return persisted
-  }
-
-  /**
-   * Chunk mixed Put/Update operations for transaction write
-   */
-  private _chunkTransactItems(
-    items: Array<{ Put: PutCommandInput }>,
-  ): Array<Array<{ Put: PutCommandInput }>> {
-    const chunks: Array<Array<{ Put: PutCommandInput }>> = []
-    let currentChunk: Array<{ Put: PutCommandInput }> = []
-    let currentChunkByteSize = 0
-
-    for (const item of items) {
-      const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8')
-      const shouldSplitChunk = currentChunk.length > 0 && (
-        currentChunk.length === MAX_TRANSACTION_ITEMS
-        || currentChunkByteSize + itemBytes >= MAX_TRANSACTION_BYTES
-      )
-
-      if (shouldSplitChunk) {
-        chunks.push(currentChunk)
-        currentChunk = []
-        currentChunkByteSize = 0
-      }
-
-      currentChunk.push(item)
-      currentChunkByteSize += itemBytes
-    }
-
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk)
-    }
-
-    return chunks
-  }
-
   async get({ account, item }: VaultKey) {
     const response = await this.client.send(new GetCommand(
       {
@@ -830,28 +636,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       TableName: ITEM_TABLE_NAME,
       Key: { account, item },
     }))
-  }
-
-  async claimIdempotencyKey(account: string, idempotencyKey: string, expiresAt: number): Promise<boolean> {
-    const scopedIdempotencyKey = getScopedIdempotencyKey(account, idempotencyKey)
-    try {
-      await this.client.send(new PutCommand({
-        TableName: IDEMPOTENCY_TABLE_NAME,
-        Item: {
-          idempotencyKey: scopedIdempotencyKey,
-          account,
-          expiresAt,
-          createdAt: Date.now(),
-        },
-        ConditionExpression: 'attribute_not_exists(idempotencyKey)',
-      }))
-      return true
-    } catch (error) {
-      if (isConditionalCheckFailure(error)) {
-        return false
-      }
-      throw error
-    }
   }
 }
 

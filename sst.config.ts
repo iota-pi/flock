@@ -104,22 +104,6 @@ export default $config({
       },
     })
 
-    const idempotencyTable = new sst.aws.Dynamo('FlockIdempotency', {
-      fields: {
-        idempotencyKey: 'string',
-      },
-      primaryIndex: { hashKey: 'idempotencyKey' },
-      transform: {
-        table: args => {
-          args.name = `FlockIdempotency_${stage}`
-          args.ttl = {
-            attributeName: 'expiresAt',
-            enabled: true,
-          }
-        },
-      },
-    })
-
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
@@ -138,15 +122,13 @@ export default $config({
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
         REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
-        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '0',
-        IDEMPOTENCY_TABLE: idempotencyTable.name,
+        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '1',
       },
       link: [
         accountsTable,
         itemsTable,
         replayLogTable,
         realtimeConnectionsTable,
-        idempotencyTable,
       ],
     })
 
@@ -161,7 +143,7 @@ export default $config({
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
         REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
-        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '0',
+        REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '1',
       },
       link: [accountsTable, replayLogTable, realtimeConnectionsTable],
     })

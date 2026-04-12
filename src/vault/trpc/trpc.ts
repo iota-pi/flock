@@ -1,5 +1,4 @@
 import { initTRPC, TRPCError } from '@trpc/server'
-import { middlewareMarker } from '@trpc/server/unstable-core-do-not-import'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
 import { AccountInputSchema } from './schemas'
@@ -8,8 +7,6 @@ type TrpcContext = {
   authToken: string,
   vault: BaseDriver,
 }
-
-const IDEMPOTENCY_TTL_SECONDS = 5 * 60
 
 function getTokenFromAuthorizationHeader(authorizationHeader?: string): string {
   if (!authorizationHeader) {
@@ -64,55 +61,3 @@ export const protectedProcedure = t.procedure
       },
     })
   })
-
-export const idempotentMutationMiddleware = t.middleware(async ({ ctx, input, type, next }) => {
-  if (type !== 'mutation') {
-    return next()
-  }
-
-  if (!input || typeof input !== 'object') {
-    return next()
-  }
-
-  const typedInput = input as {
-    account?: unknown
-    idempotencyKey?: unknown
-    item?: unknown
-    items?: unknown
-    branches?: unknown
-    resolutions?: unknown
-  }
-
-  const usesTransactionalItemIdempotency = (
-    (typeof typedInput.item === 'string' && Array.isArray(typedInput.branches))
-    || Array.isArray(typedInput.items)
-    || Array.isArray(typedInput.resolutions)
-  )
-  if (usesTransactionalItemIdempotency) {
-    return next()
-  }
-
-  if (typeof typedInput.idempotencyKey !== 'string' || typedInput.idempotencyKey.length === 0) {
-    return next()
-  }
-
-  if (typeof typedInput.account !== 'string' || typedInput.account.length === 0) {
-    return next()
-  }
-
-  const expiresAt = Math.floor(Date.now() / 1000) + IDEMPOTENCY_TTL_SECONDS
-  const claimed = await ctx.vault.claimIdempotencyKey(typedInput.account, typedInput.idempotencyKey, expiresAt)
-  if (!claimed) {
-    return {
-      marker: middlewareMarker,
-      ok: true,
-      data: {
-        success: true,
-      },
-    }
-  }
-
-  return next()
-})
-
-export const idempotentProtectedProcedure = protectedProcedure.use(idempotentMutationMiddleware)

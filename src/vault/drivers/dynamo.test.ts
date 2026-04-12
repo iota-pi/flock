@@ -1,4 +1,4 @@
-import DynamoDriver, { getConnectionParams, TransactionConflictsError } from './dynamo'
+import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -91,60 +91,6 @@ describe('DynamoDriver', function () {
 
     const result = await driver.get({ account, item })
     expect(result.branches?.[0]?.versionId).toBe('v2')
-  })
-
-  it('setMany writes multiple items atomically and enforces version checks', async () => {
-    const account = generateAccountId()
-    const firstItem = generateItemId()
-    const secondItem = generateItemId()
-    const type: ItemType = 'person'
-    const modified = new Date().getTime()
-    const firstVersionId = `${Date.now()}-first`
-    const secondVersionId = `${Date.now()}-second`
-
-    await driver.setMany([
-      {
-        account,
-        item: firstItem,
-        metadata: { type, iv: 'there', modified },
-        branches: [{ encryptedAutomergeDoc: 'cipher-1', versionId: firstVersionId, parentIds: [] }],
-      },
-      {
-        account,
-        item: secondItem,
-        metadata: { type, iv: 'there', modified },
-        branches: [{ encryptedAutomergeDoc: 'cipher-2', versionId: secondVersionId, parentIds: [] }],
-      },
-    ])
-
-    const first = await driver.get({ account, item: firstItem })
-    const second = await driver.get({ account, item: secondItem })
-    expect(first.branches?.[0]?.encryptedAutomergeDoc).toBe('cipher-1')
-    expect(second.branches?.[0]?.encryptedAutomergeDoc).toBe('cipher-2')
-
-    await expect(
-      driver.setMany([
-        {
-          account,
-          item: firstItem,
-          metadata: { type, iv: 'there', modified },
-          branches: [{ encryptedAutomergeDoc: 'new-cipher-1', versionId: `${Date.now()}-new-1`, parentIds: [firstVersionId] }],
-          _expectedParentVersionId: 'branch-missing',
-        },
-        {
-          account,
-          item: secondItem,
-          metadata: { type, iv: 'there', modified },
-          branches: [{ encryptedAutomergeDoc: 'new-cipher-2', versionId: `${Date.now()}-new-2`, parentIds: [secondVersionId] }],
-          _expectedParentVersionId: 'branch-missing',
-        },
-      ] as unknown as Parameters<typeof driver.setMany>[0]),
-    ).rejects.toBeInstanceOf(TransactionConflictsError)
-
-    const unchangedFirst = await driver.get({ account, item: firstItem })
-    const unchangedSecond = await driver.get({ account, item: secondItem })
-    expect(unchangedFirst.branches?.[0]?.encryptedAutomergeDoc).toBe('cipher-1')
-    expect(unchangedSecond.branches?.[0]?.encryptedAutomergeDoc).toBe('cipher-2')
   })
 
   it('set injects ttl for tombstones', async () => {

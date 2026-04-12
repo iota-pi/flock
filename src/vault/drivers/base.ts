@@ -61,12 +61,6 @@ export interface VaultItem extends VaultKey, VaultData {
   ttl?: number,
 }
 
-export interface IdempotencyWriteContext {
-  account: string
-  idempotencyKey: string
-  expiresAt: number
-}
-
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
 
 export function asItemType(type: string): ItemType {
@@ -112,7 +106,6 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
-  abstract setMany(items: VaultItem[]): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchMany(opts: { account: string, ids: ItemId[] }): Promise<VaultItem[]>
   abstract fetchAll(
@@ -120,12 +113,6 @@ export default abstract class BaseDriver<T = unknown> {
   ): Promise<CachedVaultItem[]>
 
   abstract delete(key: VaultKey): Promise<void>
-
-  abstract claimIdempotencyKey(
-    account: string,
-    idempotencyKey: string,
-    expiresAt: number,
-  ): Promise<boolean>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account
