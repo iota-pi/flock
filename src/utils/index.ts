@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
 
-export type MostlyRequired<T> = { [K in keyof Required<T>]: T[K] }
-
 export const APP_NAME = 'Flock'
 
 export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | undefined> {

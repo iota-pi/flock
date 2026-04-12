@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto'
 
 export function almostConstantTimeEqual(attempt: string, real: string) {
   if (attempt.length !== real.length) {
