@@ -22,12 +22,7 @@ type AuthStore = AccountState & {
 
 export const useAuthStore = create<AuthStore>(set => ({
   ...initialAuthState,
-  updateAuth: payload => {
-    set(previous => ({
-      ...previous,
-      ...payload,
-    }))
-  },
+  updateAuth: payload => set(payload),
 }))
 
 export function getInitialAuthState(): AccountState {
