@@ -58,6 +58,8 @@ export async function pullRemoteMessagesNow(account?: string | null, itemIds?: s
   return runSync(activeAccount, itemIds)
 }
 
+let syncQueue: Promise<unknown> = Promise.resolve()
+
 export function requestAutomergeSync(itemIds?: string[] | string): void {
   const account = getActiveAccount()
   const normalized = normalizeItemIds(typeof itemIds === 'string' ? [itemIds] : itemIds)
@@ -73,7 +75,11 @@ export function requestAutomergeSync(itemIds?: string[] | string): void {
     return
   }
 
-  void runSync(account, normalized)
+  syncQueue = syncQueue
+    .then(() => runSync(account, normalized))
+    .catch(error => {
+      console.error('Background sync failed:', error)
+    })
 }
 
 export function startAutomergeSyncDispatcher(account: string): void {
