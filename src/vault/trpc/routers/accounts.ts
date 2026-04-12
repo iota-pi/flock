@@ -10,7 +10,7 @@ import {
   PushSubscriptionDeleteBodySchema,
   ReminderSettingsBodySchema,
   UpdateMetadataBodySchema,
-} from '../schemas'
+} from '../../../shared/schemas/trpc'
 import { hashString } from '../../api/util'
 import { publishRealtimeEvent } from '../../realtime/hub'
 
