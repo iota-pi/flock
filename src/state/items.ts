@@ -47,7 +47,6 @@ export type ErrorItem = Omit<BaseItem, 'type'> & {
 export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
-type OldItemType = 'general'
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -114,14 +113,14 @@ function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): StandardItem {
+export function getBlankItem(itemType: ItemType, isNew?: boolean): StandardItem {
   if (itemType === 'person') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
     return getBlankGroup(undefined, isNew)
   }
-  if (itemType === 'topic' || itemType === 'general') {
+  if (itemType === 'topic') {
     return getBlankTopic(undefined, isNew)
   }
   throw new Error('Unknown item type')
@@ -206,10 +205,13 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
     return item
   }
 
-  const blank = getBlankItem(item.type, false)
-  const filled = mergeItemWithDefaults(blank, item)
-
-  return filled as T
+  try {
+    const blank = getBlankItem(item.type, false)
+    const filled = mergeItemWithDefaults(blank, item)
+    return filled as T
+  } catch (e) {
+    return item
+  }
 }
 
 export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
