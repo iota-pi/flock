@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { useDocument, useDocuments } from '@automerge/automerge-repo-react-hooks'
 import type { AutomergeUrl } from '@automerge/automerge-repo/slim'
+import { createStore } from 'zustand/vanilla'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
@@ -12,29 +13,46 @@ const EMPTY_METADATA: AccountMetadata = {}
 const EMPTY_ITEM: Item | null = null
 const INITIAL_KNOWN_ITEM_IDS_VERSION = -1
 
-let cachedKnownItemIdsVersion = INITIAL_KNOWN_ITEM_IDS_VERSION
-let cachedKnownItemIdsSnapshot: string[] = EMPTY_ITEM_IDS
-
-function subscribeKnownItemIds(onStoreChange: () => void): () => void {
-  return getVaultNetworkAdapter().subscribeKnownItemIds(() => {
-    onStoreChange()
-  })
+type KnownItemIdsSnapshotState = {
+  version: number
+  itemIds: string[]
 }
 
-function getKnownItemIdsSnapshot(): string[] {
+const knownItemIdsSnapshotStore = createStore<KnownItemIdsSnapshotState>(() => ({
+  version: INITIAL_KNOWN_ITEM_IDS_VERSION,
+  itemIds: EMPTY_ITEM_IDS,
+}))
+
+function refreshKnownItemIdsSnapshot(): void {
   const adapter = getVaultNetworkAdapter()
   const { version, itemIds } = adapter.getKnownItemIdsState()
+  const current = knownItemIdsSnapshotStore.getState()
 
-  if (cachedKnownItemIdsVersion === version) {
-    return cachedKnownItemIdsSnapshot
+  if (current.version === version) {
+    return
   }
 
   const nextSnapshot = itemIds
     .filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
 
-  cachedKnownItemIdsVersion = version
-  cachedKnownItemIdsSnapshot = nextSnapshot.length > 0 ? nextSnapshot : EMPTY_ITEM_IDS
-  return cachedKnownItemIdsSnapshot
+  knownItemIdsSnapshotStore.setState({
+    version,
+    itemIds: nextSnapshot.length > 0 ? nextSnapshot : EMPTY_ITEM_IDS,
+  })
+}
+
+function subscribeKnownItemIds(onStoreChange: () => void): () => void {
+  refreshKnownItemIdsSnapshot()
+
+  return getVaultNetworkAdapter().subscribeKnownItemIds(() => {
+    refreshKnownItemIdsSnapshot()
+    onStoreChange()
+  })
+}
+
+function getKnownItemIdsSnapshot(): string[] {
+  refreshKnownItemIdsSnapshot()
+  return knownItemIdsSnapshotStore.getState().itemIds
 }
 
 export function useAutomergeItems(): Item[] {
