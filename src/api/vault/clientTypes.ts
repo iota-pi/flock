@@ -16,10 +16,6 @@ export type AccountCreationResponse = {
   account: string
 }
 
-export type LoginBody = {
-  authToken: string
-}
-
 export type CachedVaultItem = VaultEnvelope & {
   ttl?: number
 }
@@ -35,12 +31,6 @@ export type VaultItem = VaultEnvelope & {
     }
     createdAt?: number
   }>
-}
-
-export type FetchManyResponse<TItem> = {
-  success: boolean
-  items: TItem[]
-  serverTime: number
 }
 
 export type ReminderSettingsResponse = {

@@ -3,7 +3,7 @@ import type {
   RealtimeSyncPing,
 } from '../../shared/realtime'
 
-export function normalizeRealtimeItemIds(value: unknown): string[] {
+function normalizeRealtimeItemIds(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return []
   }

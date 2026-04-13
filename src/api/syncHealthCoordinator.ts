@@ -9,7 +9,7 @@ import {
 import { normalizeSyncError } from '../shared/syncErrors'
 import { useToastStore } from '../state/toastStore'
 
-export type DecryptionFailedEvent = {
+type DecryptionFailedEvent = {
   source: 'worker' | 'main-thread'
   itemId?: string
   error: unknown

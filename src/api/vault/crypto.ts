@@ -6,7 +6,7 @@ export interface CryptoResult {
   cipher: string,
 }
 
-export function fromBytes(array: ArrayBuffer): string {
+function fromBytes(array: ArrayBuffer): string {
   const byteArray = Array.from(new Uint8Array(array))
   const asString = byteArray.map(b => String.fromCharCode(b)).join('')
   return btoa(asString)

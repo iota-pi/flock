@@ -13,15 +13,3 @@ export {
   getReminderSettings,
   updateReminderSettings,
 } from './NotificationClient'
-
-export type {
-  AccountCreationResponse,
-  CachedVaultItem,
-  CreateAccountBody,
-  FetchManyResponse,
-  ItemId,
-  LoginBody,
-  ReminderSettingsResponse,
-  VaultEnvelope,
-  VaultItem,
-} from './clientTypes'

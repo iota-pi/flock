@@ -29,7 +29,7 @@ function finishRequest(error?: string) {
   useUiStore.getState().finishRequest(error)
 }
 
-export async function trackedRequest<T>(factory: () => Promise<T>): Promise<T> {
+async function trackedRequest<T>(factory: () => Promise<T>): Promise<T> {
   startRequest()
   try {
     const result = await factory()
