@@ -148,6 +148,48 @@ function isMissingDeltaIndexError(error: unknown): boolean {
   return error.name === 'ValidationException' || error.message.includes('ValidationException')
 }
 
+function isRetryableAwsError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const typed = error as {
+    name?: unknown
+    code?: unknown
+    message?: unknown
+    retryable?: unknown
+    $metadata?: {
+      httpStatusCode?: unknown
+    }
+  }
+
+  if (typed.retryable === true) {
+    return true
+  }
+
+  const httpStatusCode = typed.$metadata?.httpStatusCode
+  if (typeof httpStatusCode === 'number' && (httpStatusCode === 429 || httpStatusCode >= 500)) {
+    return true
+  }
+
+  const name = String(typed.name || typed.code || '')
+  const message = String(typed.message || '')
+  const retryableTokens = [
+    'ProvisionedThroughputExceededException',
+    'ThrottlingException',
+    'Throttling',
+    'RequestLimitExceeded',
+    'InternalServerError',
+    'ServiceUnavailable',
+    'TimeoutError',
+    'NetworkingError',
+    'ECONNRESET',
+    'ETIMEDOUT',
+  ]
+
+  return retryableTokens.some(token => name.includes(token) || message.includes(token))
+}
+
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
 
@@ -556,13 +598,26 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       let retryCount = 0
 
       while (remainingKeys.length > 0) {
-        const response = await this.client.send(new BatchGetCommand({
-          RequestItems: {
-            [ITEM_TABLE_NAME]: {
-              Keys: remainingKeys,
+        let response
+        try {
+          response = await this.client.send(new BatchGetCommand({
+            RequestItems: {
+              [ITEM_TABLE_NAME]: {
+                Keys: remainingKeys,
+              },
             },
-          },
-        }))
+          }))
+        } catch (error) {
+          retryCount += 1
+          if (!isRetryableAwsError(error) || retryCount > MAX_BATCH_GET_RETRIES) {
+            throw error
+          }
+
+          // Treat retriable transport/service failures as fully unprocessed chunks.
+          const backoffMs = Math.min(1000, 50 * (2 ** (retryCount - 1))) + Math.floor(Math.random() * 25)
+          await new Promise(resolve => setTimeout(resolve, backoffMs))
+          continue
+        }
 
         const fetchedItems = response.Responses?.[ITEM_TABLE_NAME] as VaultItem[] | undefined
         if (fetchedItems) {

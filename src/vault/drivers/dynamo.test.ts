@@ -165,6 +165,7 @@ describe('DynamoDriver', function () {
   const authToken = 'an_example_auth_token_for_testing'
   const metadata = {}
   const salt = 'an_example_salt_for_testing'
+  const iterations = 100_000
   const session = 'an_example_session_token_for_testing'
 
   it('createAccount works as expected', async () => {
@@ -174,6 +175,7 @@ describe('DynamoDriver', function () {
       authToken,
       metadata,
       salt,
+      iterations,
       session,
     })
     expect(success).toBe(true)
@@ -186,6 +188,7 @@ describe('DynamoDriver', function () {
       authToken,
       metadata,
       salt,
+      iterations,
       session,
     })
 
@@ -207,6 +210,7 @@ describe('DynamoDriver', function () {
       authToken,
       metadata,
       salt,
+      iterations,
       session,
     })
 
@@ -234,7 +238,7 @@ describe('DynamoDriver', function () {
 
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
-    const params = { account, authToken, metadata, salt, session }
+    const params = { account, authToken, metadata, salt, iterations, session }
     const result1 = await driver.createAccount(params)
     expect(result1).toBe(true)
     const result2 = await driver.createAccount(params)
@@ -250,6 +254,7 @@ describe('DynamoDriver', function () {
       authToken,
       metadata,
       salt,
+      iterations,
       session,
     })
 
