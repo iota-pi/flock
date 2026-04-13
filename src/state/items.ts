@@ -1,15 +1,9 @@
-import { generateItemId } from '../utils'
 import { z } from 'zod'
 import { mergeWith } from 'lodash-es'
-import { ITEM_TYPES } from '../shared/itemTypes'
-import type { ItemId, ItemType } from '../shared/itemTypes'
-
-export { ITEM_TYPES }
-export const ERROR_ITEM_TYPE = 'error'
-
+import { generateItemId } from '../utils'
+import { ITEM_TYPES, ItemId, ItemType } from '../shared/itemTypes'
 import {
   baseItemSchema,
-  frequencySchema,
   groupItemSchema,
   itemSchema,
   noteSchema,
@@ -17,12 +11,7 @@ import {
   topicItemSchema,
 } from '../shared/schemas/items'
 
-export {
-  groupItemSchema,
-  noteSchema,
-  personItemSchema,
-  topicItemSchema,
-}
+export const ERROR_ITEM_TYPE = 'error'
 
 export type Note = z.infer<typeof noteSchema>
 

@@ -1,4 +1,5 @@
-import { compareIds, ERROR_ITEM_TYPE, getItemName, Item, ITEM_TYPES } from '../state/items'
+import { compareIds, ERROR_ITEM_TYPE, getItemName, Item } from '../state/items'
+import { ITEM_TYPES } from '../shared/itemTypes'
 import { getLastPrayedFor } from './prayer'
 
 export type CriterionName = (

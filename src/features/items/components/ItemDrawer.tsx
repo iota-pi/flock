@@ -15,7 +15,6 @@ import {
   getItemTypeLabel,
   isValid,
   Item,
-  ITEM_TYPES,
 } from '../../../state/items'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
 import { isSameDay } from '../../../utils'
@@ -32,6 +31,7 @@ import { useAutomergeItem } from 'src/sync/useAutomerge'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 import useAutoSaveItem from '../hooks/useAutoSaveItem'
+import { ITEM_TYPES } from 'src/shared/itemTypes'
 
 
 interface Props extends BaseDrawerProps {
