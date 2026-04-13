@@ -29,7 +29,10 @@ export function parseRealtimePayload(rawData: string | null | undefined): Realti
     const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
 
     if ('action' in payload && payload.action === 'sync_ping') {
-      return payload
+      return {
+        ...payload,
+        itemIds: normalizeRealtimeItemIds(payload.itemIds),
+      }
     }
 
     if ('eventType' in payload && 'account' in payload) {
