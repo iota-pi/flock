@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react'
+import { subscribeRealtimeBusSyncPing } from '../sync/realtimeBus'
 import type { ItemId } from '../shared/itemTypes'
 import {
   readManualRecoveryCount,
@@ -148,6 +149,12 @@ export function initializeSyncHealthWatchers(): void {
   if (syncHealthWatchersInitialized) {
     return
   }
+
+  subscribeRealtimeBusSyncPing(itemIds => {
+    if (itemIds && itemIds.length > 0) {
+      clearManualRecoveryForItems(itemIds).catch(console.error)
+    }
+  })
 
   syncHealthWatchersInitialized = true
 }

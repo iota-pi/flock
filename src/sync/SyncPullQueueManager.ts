@@ -1,5 +1,6 @@
 import { pullSyncBatch } from '../api/vault/syncClient'
 import { decryptSyncMessage } from './automergeSyncCrypto'
+import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 
@@ -103,10 +104,18 @@ export class SyncPullQueueManager {
         for (const entry of result.messages || []) {
           if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) continue
 
-          const decrypted = await decryptSyncMessage(entry.encryptedMessage)
-          const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+          try {
+            const decrypted = await decryptSyncMessage(entry.encryptedMessage)
+            const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
-          this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
+            this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
+          } catch (error) {
+            reportDecryptionFailure({
+              source: 'main-thread',
+              itemId: itemId,
+              error
+            })
+          }
 
           if (Number.isFinite(entry.cursor)) {
             highestCursor = Math.max(highestCursor, entry.cursor)

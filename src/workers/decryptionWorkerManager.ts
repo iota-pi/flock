@@ -1,4 +1,5 @@
 import { type Remote, wrap } from 'comlink'
+import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 
 type DecryptionWorkerApi = {
   mergeObjects: (input: {
@@ -22,6 +23,12 @@ function getDecryptionWorkerApi(): Remote<DecryptionWorkerApi> {
 
   decryptionWorker.onerror = event => {
     const error = new Error(event.message || 'Worker merge failed')
+    
+    reportDecryptionFailure({
+      source: 'worker',
+      error,
+    })
+
     console.error(error)
     decryptionWorker = null
     decryptionWorkerApi = null

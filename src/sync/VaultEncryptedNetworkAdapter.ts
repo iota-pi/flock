@@ -9,6 +9,7 @@ import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 import { encryptSyncMessage } from './automergeSyncCrypto'
 import { SyncTransportService } from './SyncTransportService'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -83,6 +84,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
 
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
+      clearManualRecoveryForItems([itemId]).catch(console.error)
+
       this.emit('message', {
         type: 'sync',
         senderId: VAULT_PEER_ID,

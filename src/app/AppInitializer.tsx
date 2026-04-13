@@ -5,6 +5,7 @@ import { useLoggedIn } from '../state/selectors'
 import { useSyncStore } from '../state/syncStore'
 import { initializeBackgroundSyncPushQueue } from '../sync/backgroundSyncPushQueue'
 import useSyncCoordinatorLifecycle from '../sync/useSyncCoordinatorLifecycle'
+import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 
 export default function AppInitializer() {
   const loggedIn = useLoggedIn()
@@ -14,6 +15,8 @@ export default function AppInitializer() {
   const clearSyncWarning = useSyncStore(state => state.clearSyncWarning)
 
   useEffect(() => {
+    initializeSyncHealthWatchers()
+
     void loadVault().catch(error => {
       const message = error instanceof Error && error.message.trim().length > 0
         ? error.message

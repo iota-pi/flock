@@ -1,12 +1,8 @@
-import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { sortItems, DEFAULT_CRITERIA } from '../utils/customSort'
-import { getAccountId } from './util'
 import { hasApiAuthToken } from './runtime'
 import { trpcClient } from './trpcClient'
 import { fetchMany } from './vault/client'
 import {
-  getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
   listAutomergeDocumentIds,
@@ -15,7 +11,6 @@ import {
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { getVaultNetworkAdapter } from '../sync/automergeRepo'
-import { checkProperties } from '../state/items'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
