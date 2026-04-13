@@ -51,6 +51,10 @@ type WritableVaultItem = VaultItem & {
   _expectedParentVersionId?: string
 }
 
+type PersistedVaultItem = VaultItem & {
+  modifiedAt?: number
+}
+
 /**
  * Validates a VaultItem supports both legacy cipher and new branches format
  * - Legacy: must have cipher and iv
@@ -81,22 +85,15 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const baseItem = { ...item } as any
-  if (modifiedAt !== undefined) {
-    baseItem.modifiedAt = modifiedAt
-  }
 
   const isTombstone = item.metadata.deleted === true
-  const persistedItem: VaultItem = isTombstone
-    ? {
-      ...baseItem,
-      ttl: Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS,
-    }
-    : {
-      ...baseItem,
-      ttl: undefined,
-    }
+  const persistedItem: PersistedVaultItem = {
+    ...item,
+    ...(modifiedAt !== undefined ? { modifiedAt } : {}),
+    ttl: isTombstone
+      ? Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS
+      : undefined,
+  }
 
   const params: PutCommandInput = {
     TableName: ITEM_TABLE_NAME,

@@ -12,10 +12,12 @@ type RealtimeWebSocketTransportOptions = {
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
 const RECONNECT_GROWTH_FACTOR = 2
+const HEARTBEAT_INTERVAL_MS = 60_000
 
 export class RealtimeWebSocketTransport {
   private socket: PartyWebSocket | null = null
   private stopped = false
+  private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
 
   constructor(private readonly options: RealtimeWebSocketTransportOptions) {}
 
@@ -42,12 +44,36 @@ export class RealtimeWebSocketTransport {
   }
 
   private closeWebSocket(): void {
+    this.stopHeartbeat()
+
     if (!this.socket) {
       return
     }
 
     this.socket.close(1000, 'Realtime transport stopped')
     this.socket = null
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.sendRaw({ action: 'ping' })
+
+    this.heartbeatIntervalId = setInterval(() => {
+      if (this.stopped) {
+        return
+      }
+
+      this.sendRaw({ action: 'ping' })
+    }, HEARTBEAT_INTERVAL_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatIntervalId === null) {
+      return
+    }
+
+    clearInterval(this.heartbeatIntervalId)
+    this.heartbeatIntervalId = null
   }
 
   private buildWebSocketUrl(): string {
@@ -95,6 +121,7 @@ export class RealtimeWebSocketTransport {
         return
       }
 
+      this.startHeartbeat()
       this.options.onOpen()
     }
 
@@ -107,6 +134,10 @@ export class RealtimeWebSocketTransport {
     }
 
     nextSocket.onclose = () => {
+      if (this.socket === nextSocket) {
+        this.stopHeartbeat()
+      }
+
       if (this.stopped && this.socket === nextSocket) {
         this.socket = null
       }

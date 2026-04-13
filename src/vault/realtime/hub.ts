@@ -210,6 +210,26 @@ export async function registerRealtimeConnection(params: {
   inMemoryConnections.set(params.account, existing)
 }
 
+export async function touchRealtimeConnection(connectionId: string): Promise<void> {
+  if (!connectionId) {
+    return
+  }
+
+  await docClient.send(new UpdateCommand({
+    TableName: REALTIME_CONNECTIONS_TABLE,
+    Key: {
+      connectionId,
+    },
+    UpdateExpression: 'SET #expiresAt = :expiresAt',
+    ExpressionAttributeNames: {
+      '#expiresAt': 'expiresAt',
+    },
+    ExpressionAttributeValues: {
+      ':expiresAt': getConnectionExpirySeconds(),
+    },
+  })).catch(() => {})
+}
+
 export async function unregisterRealtimeConnection(params: {
   account?: string
   connectionId: string

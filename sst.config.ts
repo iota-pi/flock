@@ -172,6 +172,7 @@ export default $config({
       environment: {
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
+        REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
       },
       link: [realtimeConnectionsTable],
     })

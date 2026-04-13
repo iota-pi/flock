@@ -2,10 +2,12 @@ import {
   registerRealtimeConnection,
   unregisterRealtimeConnection,
   replayEventsToConnection,
+  touchRealtimeConnection,
 } from './hub'
 import getDriver from '../drivers'
 
 type WebsocketEvent = {
+  body?: string
   headers?: Record<string, string | undefined>
   queryStringParameters?: Record<string, string | undefined>
   requestContext: {
@@ -84,6 +86,26 @@ export async function websocketDisconnectHandler(event: WebsocketEvent) {
   return { statusCode: 200, body: 'Disconnected' }
 }
 
-export async function websocketDefaultHandler() {
+export async function websocketDefaultHandler(event: WebsocketEvent) {
+  const connectionId = event.requestContext.connectionId || ''
+  if (!connectionId) {
+    return { statusCode: 200, body: 'OK' }
+  }
+
+  let action = ''
+  if (event.body) {
+    try {
+      const payload = JSON.parse(event.body) as { action?: unknown }
+      action = typeof payload.action === 'string' ? payload.action : ''
+    } catch {
+      action = ''
+    }
+  }
+
+  if (action === 'ping') {
+    await touchRealtimeConnection(connectionId)
+    return { statusCode: 200, body: 'PONG' }
+  }
+
   return { statusCode: 200, body: 'OK' }
 }
