@@ -14,17 +14,6 @@ export function formatDate(date: Date) {
   return date.toLocaleDateString()
 }
 
-export function formatTime(date: Date) {
-  const hours = (date.getHours() % 12) || 12
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  const amPm = date.getHours() < 12 ? 'am' : 'pm'
-  return `${hours}:${minutes}${amPm}`
-}
-
-export function formatDateAndTime(date: Date) {
-  return `${formatDate(date)} ${formatTime(date)}`
-}
-
 export function isSameDay(d1: Date, d2: Date) {
   return formatDate(d1) === formatDate(d2)
 }
