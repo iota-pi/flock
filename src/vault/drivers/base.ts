@@ -73,6 +73,7 @@ export function asItemType(type: string): ItemType {
 }
 
 export default abstract class BaseDriver<T = unknown> {
+  abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
 
   // Create a new account record. Includes `authToken` and may include a
