@@ -201,32 +201,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ],
       },
       {
-        TableName: IDEMPOTENCY_TABLE_NAME,
-        KeySchema: [
-          { AttributeName: 'idempotencyKey', KeyType: 'HASH' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'idempotencyKey', AttributeType: 'S' },
-        ],
-      },
-      {
         TableName: ACCOUNT_TABLE_NAME,
         KeySchema: [
           { AttributeName: 'account', KeyType: 'HASH' },
         ],
         AttributeDefinitions: [
           { AttributeName: 'account', AttributeType: 'S' },
-        ],
-      },
-      {
-        TableName: ITEM_HISTORY_TABLE,
-        KeySchema: [
-          { AttributeName: 'account', KeyType: 'HASH' },
-          { AttributeName: 'historyKey', KeyType: 'RANGE' },
-        ],
-        AttributeDefinitions: [
-          { AttributeName: 'account', AttributeType: 'S' },
-          { AttributeName: 'historyKey', AttributeType: 'S' },
         ],
       },
     ]
