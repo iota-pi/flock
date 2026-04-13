@@ -2,6 +2,7 @@ import { pullSyncBatch } from '../api/vault/httpSyncTransport'
 import { decryptSyncMessage } from './automergeSyncCrypto'
 import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 
 const RETRY_PULL_DELAY_MS = 750
@@ -87,6 +88,8 @@ export class SyncPullQueueManager {
 
     if (queued.length === 0) return
 
+    const successfullyPulledItemIds = new Set<string>()
+
     try {
       const response = await pullSyncBatch({
         account: this.account,
@@ -109,6 +112,7 @@ export class SyncPullQueueManager {
             const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
             this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
+            successfullyPulledItemIds.add(itemId)
           } catch (error) {
             reportDecryptionFailure({
               source: 'main-thread',
@@ -136,6 +140,14 @@ export class SyncPullQueueManager {
         this.pendingPullItemIds.add(itemId)
       }
       throw error
+    } finally {
+      if (successfullyPulledItemIds.size > 0) {
+        try {
+          publishRealtimeBusSyncPing(Array.from(successfullyPulledItemIds))
+        } catch (error) {
+          console.error('[SyncPullQueueManager] publishRealtimeBusSyncPing failed', error)
+        }
+      }
     }
   }
 }
