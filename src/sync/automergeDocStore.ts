@@ -12,8 +12,6 @@ import {
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
-type SyncStateToken = Uint8Array
-
 export type AutomergeDocumentPatch = {
   op: 'add' | 'replace' | 'remove'
   path: Array<string | number>
@@ -30,16 +28,6 @@ type RepoDocHandle = {
   change: (callback: (doc: RepoDoc) => void) => void
   on: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
   off: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
-}
-
-type ReceiveSyncResult = {
-  changed: boolean
-  cursor: number
-  serialized: {
-    doc: Uint8Array
-    syncState: Uint8Array
-    cursor: number
-  }
 }
 
 type UpsertMetadataOptions = {
@@ -176,24 +164,6 @@ function ensureKnownIdsSubscription(): void {
   })
 }
 
-function normalizeDocumentIds(itemIds?: string[]): string[] {
-  const source = Array.isArray(itemIds) && itemIds.length > 0
-    ? itemIds
-    : listAutomergeDocumentIds()
-
-  const deduped = new Set<string>()
-  for (const rawId of source) {
-    const itemId = normalizeItemId(rawId)
-    if (!itemId) {
-      continue
-    }
-
-    deduped.add(itemId)
-  }
-
-  return Array.from(deduped)
-}
-
 function encodeBytesToBase64(bytes: Uint8Array): string {
   if (typeof btoa === 'function') {
     let binary = ''
@@ -321,21 +291,6 @@ export function listAutomergeDocumentIds(): string[] {
   ]
 }
 
-export function filterAutomergeLocallyChangedDocumentIds(itemIds: string[]): string[] {
-  const normalized = normalizeDocumentIds(itemIds)
-  const dirty = normalized.filter(itemId => localChangeByDocumentId.has(itemId))
-  return dirty.length > 0 ? dirty : normalized
-}
-
-export function hasAutomergeDocument(documentId: string): boolean {
-  if (documentId === ACCOUNT_METADATA_DOCUMENT_ID) {
-    return true
-  }
-
-  return handleByDocumentId.has(documentId)
-    || getVaultNetworkAdapter().getKnownItemIds().includes(documentId)
-}
-
 export function listAutomergeItemIds(): string[] {
   const ids = new Set<string>([
     ...getVaultNetworkAdapter().getKnownItemIds(),
@@ -343,10 +298,6 @@ export function listAutomergeItemIds(): string[] {
   ])
 
   return Array.from(ids).filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
-}
-
-export function invalidateCachedItems(itemIds: string[]): void {
-  getVaultNetworkAdapter().syncItemIds(itemIds)
 }
 
 export function getAutomergeItems(): Item[] {
@@ -495,14 +446,6 @@ export async function clearAutomergeDocStore(): Promise<void> {
   }
 }
 
-export async function seedAutomergeItems(items: Item[]): Promise<void> {
-  await Promise.all(items.map(async item => {
-    const normalized = cloneValue(item) as unknown as RepoDoc
-    const binary = Automerge.save(Automerge.from(normalized))
-    await seedAutomergeDocument(item.id, binary)
-  }))
-}
-
 export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
   const exported: Partial<Record<ItemId, string>> = {}
 
@@ -592,173 +535,4 @@ export async function applyAutomergeMetadataPatches(
   })
 
   setLocalChange(ACCOUNT_METADATA_DOCUMENT_ID, true)
-}
-
-export function readAutomergeSyncCursor(itemId: string): number {
-  return syncCursorByItemId.get(itemId) || 0
-}
-
-export async function writeAutomergeSyncCursor(itemId: string, cursor: number): Promise<void> {
-  if (!Number.isFinite(cursor)) {
-    return
-  }
-
-  syncCursorByItemId.set(itemId, Math.max(0, Math.floor(cursor)))
-}
-
-export async function createAutomergeSyncMessage(
-  itemId: string,
-): Promise<{ message: Uint8Array | null; nextSyncState: SyncStateToken } | null> {
-  if (!localChangeByDocumentId.has(itemId)) {
-    return null
-  }
-
-  return {
-    message: null,
-    nextSyncState: new Uint8Array(),
-  }
-}
-
-export async function commitAutomergeSyncState(itemId: string, _: SyncStateToken): Promise<void> {
-  setLocalChange(itemId, false)
-}
-
-export async function receiveAutomergeSyncMessage(
-  itemId: string,
-  _message: Uint8Array,
-  cursor?: number,
-): Promise<ReceiveSyncResult> {
-  const nextCursor = Number.isFinite(cursor)
-    ? Math.max(0, Math.floor(cursor as number))
-    : readAutomergeSyncCursor(itemId)
-  syncCursorByItemId.set(itemId, nextCursor)
-
-  getVaultNetworkAdapter().registerKnownItemIds([itemId])
-  getVaultNetworkAdapter().syncItemIds([itemId])
-
-  return {
-    changed: false,
-    cursor: nextCursor,
-    serialized: {
-      doc: new Uint8Array(),
-      syncState: new Uint8Array(),
-      cursor: nextCursor,
-    },
-  }
-}
-
-export function subscribeAutomergeItems(listener: () => void): () => void {
-  const adapter = getVaultNetworkAdapter()
-  const unbindByItemId = new Map<string, () => void>()
-  let disposed = false
-
-  const attachItemHandle = async (itemId: string): Promise<void> => {
-    if (disposed || unbindByItemId.has(itemId)) {
-      return
-    }
-
-    const handle = await ensureDocumentHandle(itemId).catch(() => null)
-    if (disposed || !handle) {
-      return
-    }
-
-    const onChange = () => {
-      listener()
-    }
-
-    handle.on('change', onChange)
-    handle.on('delete', onChange)
-    unbindByItemId.set(itemId, () => {
-      handle.off('change', onChange)
-      handle.off('delete', onChange)
-    })
-  }
-
-  const unsubscribeKnownIds = adapter.subscribeKnownItemIds(itemIds => {
-    const normalized = itemIds.filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
-    const nextIds = new Set(normalized)
-
-    for (const [existingItemId, unbind] of unbindByItemId) {
-      if (nextIds.has(existingItemId)) {
-        continue
-      }
-
-      unbind()
-      unbindByItemId.delete(existingItemId)
-    }
-
-    for (const itemId of normalized) {
-      void attachItemHandle(itemId)
-    }
-
-    listener()
-  })
-
-  return () => {
-    disposed = true
-    unsubscribeKnownIds()
-
-    for (const unbind of unbindByItemId.values()) {
-      unbind()
-    }
-
-    unbindByItemId.clear()
-  }
-}
-
-export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  let disposed = false
-  let unbind = () => undefined
-
-  void ensureDocumentHandle(itemId).then(handle => {
-    if (disposed) {
-      return
-    }
-
-    const onChange = () => {
-      listener()
-    }
-
-    handle.on('change', onChange)
-    handle.on('delete', onChange)
-    unbind = () => {
-      handle.off('change', onChange)
-      handle.off('delete', onChange)
-    }
-  }).catch(() => undefined)
-
-  return () => {
-    disposed = true
-    unbind()
-  }
-}
-
-export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  let disposed = false
-  let unbind = () => undefined
-
-  void ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
-    createIfMissing: true,
-    initialValue: {},
-  }).then(handle => {
-    if (disposed) {
-      return
-    }
-
-    const onChange = () => {
-      listener()
-    }
-
-    handle.on('change', onChange)
-    handle.on('delete', onChange)
-    unbind = () => {
-      handle.off('change', onChange)
-      handle.off('delete', onChange)
-    }
-  }).catch(() => undefined)
-
-  return () => {
-    disposed = true
-    unbind()
-  }
 }
