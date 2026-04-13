@@ -6,7 +6,7 @@ import { DrawerData, useNavigationStore } from '../../state/navigationStore'
 import { useLoggedIn } from '../../state/selectors'
 import { generateItemId, usePrevious } from '../../utils'
 import { usePage } from '../pages'
-import { useAutomergeItem } from '../../hooks/useAutomergeItem'
+import { useAutomergeItem } from 'src/sync/useAutomerge'
 
 const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))

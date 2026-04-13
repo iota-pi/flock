@@ -28,7 +28,7 @@ import {
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
 import { deleteItems, storeItems } from '../mutations/itemMutations'
-import { useAutomergeItem } from '../../../hooks/useAutomergeItem'
+import { useAutomergeItem } from 'src/sync/useAutomerge'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 import useAutoSaveItem from '../hooks/useAutoSaveItem'

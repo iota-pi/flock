@@ -17,10 +17,10 @@ import {
   type ListItemTextProps,
   styled,
 } from '@mui/material'
-import TagDisplay from '../../../components/TagDisplay'
-import { getIcon as getItemIcon } from '../../../components/Icons'
-import { getItemName, type GroupItem, isItem, type Item } from '../../../state/items'
-import { useAutomergeItem } from '../../../sync/useAutomerge'
+import TagDisplay from 'src/components/TagDisplay'
+import { getIcon as getItemIcon } from 'src/components/Icons'
+import { getItemName, type GroupItem, isItem, type Item } from 'src/state/items'
+import { useAutomergeItem } from 'src/sync/useAutomerge'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
