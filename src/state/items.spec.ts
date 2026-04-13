@@ -80,7 +80,7 @@ describe('items helpers', () => {
     const bad = [{ id: '1', type: 'person' } as any]
     const res = checkProperties(bad)
     expect(res.error).toBe(true)
-    expect(res.errors[0].message).toContain('missing key')
+    expect(res.errors[0].message).toContain('failed schema validation')
     // good case
     const good = [supplyMissingAttributes({ id: '2', type: 'person' } as any)]
     const res2 = checkProperties(good)

@@ -1,6 +1,6 @@
 import { generateItemId } from '../utils'
 import { z } from 'zod'
-import { has, mergeWith } from 'lodash-es'
+import { mergeWith } from 'lodash-es'
 import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
 
@@ -152,25 +152,12 @@ export function checkProperties(items: Item[]): { error: boolean, errors: Array<
     const id = typeof item?.id === 'string' && item.id.length > 0
       ? item.id
       : `at index ${index}`
-    const isMissingKey = issue.code === 'invalid_type'
-      && keyPath.length > 0
-      && !has(item, issue.path as Array<string | number>)
-
-    if (isMissingKey) {
-      errors.push({
-        id,
-        message: `Item ${id} is missing key "${keyPath}"`,
-      })
-      continue
-    }
-
-    const suffix = keyPath.length > 0
-      ? ` at "${keyPath}"`
-      : ''
+    const suffix = keyPath.length > 0 ? ` at "${keyPath}"` : ''
+    const readable = z.prettifyError(result.error).replace(/\n+/g, '; ')
 
     errors.push({
       id,
-      message: `Item ${id} failed schema validation${suffix}: ${issue.message}`,
+      message: `Item ${id} failed schema validation${suffix}: ${readable}`,
     })
   }
 
