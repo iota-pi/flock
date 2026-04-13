@@ -9,6 +9,23 @@ import {
 const SHOULD_THROW_SYNC_ERRORS = (
   import.meta.env.MODE === 'test'
 )
+const SYNC_QUEUE_TIMEOUT_MS = 30_000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(message))
+    }, timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
+    }
+  })
+}
 
 function getActiveAccount(): string | null {
   return useAuthStore.getState().account || null
@@ -41,7 +58,11 @@ async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
 
   useSyncStore.getState().setIsSyncing(true)
   try {
-    await adapter.syncItemIds(normalized)
+    await withTimeout(
+      adapter.syncItemIds(normalized),
+      SYNC_QUEUE_TIMEOUT_MS,
+      `[automergeSyncDispatcher] Sync timed out after ${SYNC_QUEUE_TIMEOUT_MS}ms`,
+    )
 
     return normalized
   } finally {

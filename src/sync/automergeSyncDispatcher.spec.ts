@@ -62,4 +62,29 @@ describe('automergeSyncDispatcher', () => {
 
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith(null)
   })
+
+  it('unblocks queued sync requests when a sync call times out', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.useFakeTimers()
+    useAuthStore.setState({ account: 'acct-1' })
+
+    mocks.syncItemIds
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+      .mockResolvedValueOnce(undefined)
+
+    requestAutomergeSync(['doc-1'])
+    requestAutomergeSync(['doc-2'])
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mocks.syncItemIds).toHaveBeenCalledTimes(2)
+    expect(mocks.syncItemIds).toHaveBeenNthCalledWith(1, ['doc-1'])
+    expect(mocks.syncItemIds).toHaveBeenNthCalledWith(2, ['doc-2'])
+
+    vi.useRealTimers()
+    errorSpy.mockRestore()
+  })
 })
