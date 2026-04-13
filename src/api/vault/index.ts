@@ -3,7 +3,7 @@ import { useAuthStore } from '../../state/authStore'
 import {
   clearActiveSessionToken,
   setActiveSessionToken,
-} from '../../sync/sessionTokenStore'
+} from '../../sync/workerAuthStore'
 import { clearAutomergeDocStore } from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'

@@ -8,6 +8,7 @@ import {
   removeBackgroundSyncPushBatches,
   type BackgroundSyncPushBatch,
 } from './sync/backgroundSyncPushQueue'
+import { getActiveSessionToken } from './sync/workerAuthStore'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -33,13 +34,21 @@ async function pushBackgroundSyncBatch(batch: BackgroundSyncPushBatch): Promise<
   if (!env.VAULT_ENDPOINT) {
     return 'drop'
   }
+  // Grab the freshest token from IndexedDB. Fallback to the batch token for legacy payloads.
+  const freshToken = await getActiveSessionToken()
+  const activeToken = freshToken || batch.authToken
+
+  // If no token exists at all, the user logged out completely. Drop the sync payload.
+  if (!activeToken) {
+    return 'drop'
+  }
 
   try {
     const response = await fetch(`${env.VAULT_ENDPOINT}/sync/push`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Basic ${batch.authToken}`,
+        Authorization: `Basic ${activeToken}`,
       },
       body: JSON.stringify({
         account: batch.account,
