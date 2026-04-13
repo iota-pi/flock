@@ -10,10 +10,10 @@ import {
   clearAutomergeDocStore,
   exportAllBinaries,
   getAutomergeItems,
+  getAutomergeMetadata,
   restoreFromBinaries,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
-import { clearMetadataCache, getCachedMetadata } from '../api/itemReadService'
 import type { BaseToastMessage } from '../state/toastStore'
 
 type SetMessage = (payload: BaseToastMessage) => void
@@ -42,7 +42,6 @@ export default function useBackupAndRestore({
   const handleClearCache = useCallback(
     async () => {
       await clearAutomergeDocStore()
-      clearMetadataCache()
       requestAutomergeSync()
       setCacheClearCounter(c => c + 1)
       setMessage({ message: 'Item cache cleared' })
@@ -53,7 +52,7 @@ export default function useBackupAndRestore({
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = getCachedMetadata()
+        const currentMetadata = getAutomergeMetadata()
         const documents = await exportAllBinaries()
         const backupPayload: BackupPayloadV2 = {
           version: 2,

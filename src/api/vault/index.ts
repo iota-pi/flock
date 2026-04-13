@@ -8,7 +8,6 @@ import { clearAutomergeDocStore } from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
-import { clearMetadataCache } from '../itemReadService'
 import {
   addPushSubscription as addPushSubscriptionClient,
   createAccount,
@@ -179,8 +178,6 @@ export async function signOutVault() {
   keyHash = ''
   session = ''
   setApiAuthToken('')
-
-  clearMetadataCache()
 
   updateAuth({ account: '', loggedIn: false })
 

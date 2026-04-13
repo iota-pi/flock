@@ -11,7 +11,6 @@ import {
   initializeAutomergeDocStore,
   listAutomergeDocumentIds,
   listAutomergeItemIds,
-  subscribeAutomergeMetadata,
   upsertAutomergeMetadataSnapshot,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
@@ -89,30 +88,6 @@ function requestSyncForKnownDocuments(): void {
   requestAutomergeSync(knownDocumentIds)
 }
 
-export function getCachedMetadata(): AccountMetadata {
-  return getAutomergeMetadata()
-}
-
-export function subscribeMetadata(listener: () => void): () => void {
-  return subscribeAutomergeMetadata(listener)
-}
-
-export function clearMetadataCache(): void {
-  // Compatibility no-op: metadata is read directly from local Automerge snapshots.
-}
-
-export async function ensureMetadataLoaded(
-  accountId: string,
-  options: { force?: boolean } = {},
-): Promise<AccountMetadata> {
-  await ensureItemsBootstrap(accountId, {
-    force: options.force,
-    forceMetadataRefetch: options.force,
-  })
-
-  return getAutomergeMetadata()
-}
-
 export async function ensureItemsBootstrap(
   accountId: string,
   options: EnsureItemsBootstrapOptions = {},
@@ -164,32 +139,4 @@ export async function ensureItemsBootstrap(
       inFlightBootstrapByAccount.delete(accountId)
     }
   })
-}
-
-export async function fetchItems(options: FetchItemsOptions = {}): Promise<Item[]> {
-  const accountId = getAccountId()
-
-  await ensureItemsBootstrap(accountId, {
-    force: options.forceFullSync,
-    forceFullSync: options.forceFullSync,
-    forceMetadataRefetch: options.forceMetadataRefetch,
-  })
-
-  const items = getAutomergeItems()
-  const { error, errors } = checkProperties(items)
-  
-  if (error) {
-    console.error('[fetchItems] Validation errors detected on load:', errors)
-  }
-
-  return sortItems(items, DEFAULT_CRITERIA)
-}
-
-export async function fetchMetadata(accountId = getAccountId()): Promise<AccountMetadata> {
-  await ensureItemsBootstrap(accountId)
-  return getAutomergeMetadata()
-}
-
-export function hasItemsInCache(): boolean {
-  return getAutomergeItems().length > 0
 }
