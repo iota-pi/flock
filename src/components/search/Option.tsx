@@ -13,18 +13,18 @@ import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
 import { getName, isSearchableStandardItem } from './utils'
 
-export const AutocompleteOption = styled('div')(({ theme }) => ({
+const AutocompleteOption = styled('div')(({ theme }) => ({
   alignItems: 'center',
   display: 'flex',
   minWidth: 0,
   padding: theme.spacing(1.75, 0),
 }))
-export const OptionIconHolder = styled('div')(({ theme }) => ({
+const OptionIconHolder = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   paddingRight: theme.spacing(2),
 }))
-export const OptionName = styled(InlineText)({
+const OptionName = styled(InlineText)({
   flexGrow: 1,
   minWidth: 0,
 })

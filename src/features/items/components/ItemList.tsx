@@ -20,7 +20,7 @@ import {
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20
-export interface BaseProps<T extends Item> {
+interface BaseProps<T extends Item> {
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
   compact?: boolean,
@@ -46,7 +46,7 @@ export interface BaseProps<T extends Item> {
   showTags?: boolean,
   wrapText?: boolean,
 }
-export interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
+interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   className?: string,
   defaultRowHeight?: number,
   fullHeight?: boolean,

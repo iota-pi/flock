@@ -1,7 +1,7 @@
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
 import { setLastSyncServerTime } from '../../sync/syncServerTimeStore'
-import { FetchItemsInputSchema } from '../../shared/syncSchemas'
+import { FetchItemsInputSchema } from '../../shared/schemas/trpc'
 import { assertSuccess } from './clientUtils'
 import type {
   CachedVaultItem,

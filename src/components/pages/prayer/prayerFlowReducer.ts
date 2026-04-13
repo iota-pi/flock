@@ -3,12 +3,12 @@ export type FlowState =
   | { type: 'active'; index: number }
   | { type: 'finished'; prayedCount: number }
 
-export type PrayerFlowState = {
+type PrayerFlowState = {
   current: FlowState
   lastOverlay: FlowState | null
 }
 
-export type PrayerFlowAction =
+type PrayerFlowAction =
   | { type: 'show-overview' }
   | { type: 'start-at'; index: number }
   | { type: 'set-active-index'; index: number }

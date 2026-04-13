@@ -6,9 +6,9 @@ export interface BaseToastMessage {
   message: string
 }
 
-export type ToastMessage = Required<BaseToastMessage>
+type ToastMessage = Required<BaseToastMessage>
 
-export interface ToastStore {
+interface ToastStore {
   message: ToastMessage | null
   setMessage: (payload: BaseToastMessage) => void
   clearMessage: () => void

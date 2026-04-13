@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import type { AccountMetadata } from 'src/state/metadata'
 import type { MuiIconType } from '../Icons'
-import type { InternalPageId, PageId, AnyPageId } from './routes'
+import type { InternalPageId, PageId } from './routes'
 
-export type { InternalPageId, PageId, AnyPageId }
+export type { InternalPageId, PageId }
 
 export interface BasePageConfig {
   path: string
@@ -25,10 +25,6 @@ export interface MenuRouteConfig extends BasePageConfig {
   noPlaceholderDrawer?: boolean
   metadataControl?: (metadata: AccountMetadata) => boolean
   requiresAuth: true
-}
-
-export interface InternalPage extends InternalRouteConfig {
-  id: InternalPageId
 }
 
 export interface Page extends MenuRouteConfig {

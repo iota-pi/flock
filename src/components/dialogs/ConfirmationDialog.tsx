@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@mui/material'
 
-export interface Props {
+interface Props {
   cancel?: string,
   confirm?: string,
   confirmColour?: ButtonProps['color'],

@@ -13,7 +13,7 @@ export interface SortCriterion {
   type: CriterionName,
   reverse: boolean,
 }
-export interface CriterionDisplay {
+interface CriterionDisplay {
   name: string,
   normal: string,
   reverse: string,

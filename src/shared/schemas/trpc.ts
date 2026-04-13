@@ -1,15 +1,8 @@
 import { z } from 'zod'
 
-export const ItemTypeSchema = z.enum(['person', 'group', 'topic'])
-
-export const WebPushSubscriptionKeysSchema = z.object({
+const WebPushSubscriptionKeysSchema = z.object({
   p256dh: z.string(),
   auth: z.string(),
-})
-
-export const WebPushSubscriptionSchema = z.object({
-  endpoint: z.string().min(1),
-  keys: WebPushSubscriptionKeysSchema,
 })
 
 export const CreateAccountBodySchema = z.object({
@@ -23,9 +16,9 @@ export const LoginBodySchema = z.object({
   authToken: z.string().min(1),
 })
 
-export const AccountInputSchema = z.object({
+export const AccountInputSchema = z.looseObject({
   account: z.string().min(1),
-}).passthrough()
+})
 
 export const UpdateMetadataBodySchema = z.object({
   account: z.string().min(1),

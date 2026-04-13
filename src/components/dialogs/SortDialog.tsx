@@ -20,7 +20,7 @@ import {
 import { RemoveIcon } from '../Icons'
 import { useSortCriteria } from '../../state/selectors'
 
-export interface Props {
+interface Props {
   onClose: () => void,
   open: boolean,
 }

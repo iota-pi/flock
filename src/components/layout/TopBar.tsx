@@ -44,7 +44,7 @@ export interface MenuItemData {
   onClick: () => void,
 }
 
-export interface Props {
+interface Props {
   allSelected: boolean,
   filterable?: boolean,
   menuItems: MenuItemData[],

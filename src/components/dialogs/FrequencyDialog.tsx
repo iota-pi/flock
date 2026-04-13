@@ -14,7 +14,7 @@ import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
 
 
-export interface Props {
+interface Props {
   items: Item[],
   onClose: () => void,
   open: boolean,

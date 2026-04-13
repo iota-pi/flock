@@ -16,8 +16,3 @@ export type RealtimeSyncPing = {
   action: 'sync_ping'
   itemIds: string[]
 }
-
-export type RealtimeBusEvent =
-  | { type: 'LOCAL_EDIT'; itemId: string }
-  | { type: 'REMOTE_UPDATED'; itemIds: string[] }
-  | { type: 'SYNC_PING'; itemIds: string[] }

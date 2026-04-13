@@ -13,14 +13,14 @@ const StyledChip = styled(Chip)(({ theme }) => ({
   },
 }))
 
-export interface Props {
+interface Props {
   tags: string[],
   linkedIds?: ItemId[],
   max?: number,
   vertical?: boolean,
 }
 
-export interface TagChipProps {
+interface TagChipProps {
   tag: string,
   linkedId?: ItemId,
 }

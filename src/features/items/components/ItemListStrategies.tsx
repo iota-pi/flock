@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { GroupItem, Item } from '../../../state/items'
 import { ItemListItem, type ItemListExtraElement } from './ItemListItem'
 
-export type ItemListRendererProps<T extends Item> = {
+type ItemListRendererProps<T extends Item> = {
   extraElements?: ItemListExtraElement[]
   filterTags?: (tag: string) => boolean
   getActionIcon?: (item: T) => ReactNode

@@ -2,7 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 
 export const BACKGROUND_SYNC_PUSH_TAG = 'flock-sync-push'
 
-export type BackgroundSyncPushMessage = {
+type BackgroundSyncPushMessage = {
   itemId: string
   encryptedMessage: {
     iv: string
@@ -19,7 +19,7 @@ export type BackgroundSyncPushBatch = {
   createdAt: number
 }
 
-export type BackgroundSyncPushCommit = {
+type BackgroundSyncPushCommit = {
   account: string
   itemId: string
   nextSyncState: string
@@ -53,7 +53,7 @@ type BackgroundSyncPushQueueSchema = DBSchema & {
   }
 }
 
-export class BackgroundSyncQueueInitializationError extends Error {
+class BackgroundSyncQueueInitializationError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message)
     this.name = 'BackgroundSyncQueueInitializationError'

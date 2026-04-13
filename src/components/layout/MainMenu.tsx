@@ -108,22 +108,16 @@ const MenuItemText = styled(
   },
 }))
 
-export interface Props {
+interface Props {
   minimised?: boolean,
   onClick: () => void,
   onMinimise: () => void,
   open: boolean,
 }
 
-export interface UserInterface {
-  id: string,
-  name: string,
-  icon: ReactNode,
-}
-
 type MenuActionId = 'minimise'
 
-export interface MainMenuItemProps {
+interface MainMenuItemProps {
   dividerBefore?: boolean,
   icon: MuiIconType,
   id: PageId | MenuActionId,

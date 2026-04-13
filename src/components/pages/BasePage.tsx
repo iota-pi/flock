@@ -40,7 +40,6 @@ interface NoTopBarProps {
 }
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps)
 type Props = PropsWithChildren<CombinedProps>
-export type { Props as BasePageProps }
 
 
 const ContentWithScroll = styled('div')(({ theme }) => ({

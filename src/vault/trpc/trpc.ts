@@ -1,7 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type BaseDriver from '../drivers/base'
-import { AccountInputSchema } from './schemas'
+import { AccountInputSchema } from 'src/shared/schemas/trpc'
 
 type TrpcContext = {
   authToken: string,

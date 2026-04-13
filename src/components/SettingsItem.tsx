@@ -2,7 +2,7 @@ import { memo, ReactNode } from 'react'
 import { Box, IconButton, ListItemButton, Typography } from '@mui/material'
 import type { MuiIconType } from './Icons'
 
-export interface SettingsItemProps {
+interface SettingsItemProps {
   disabled?: boolean,
   icon?: MuiIconType,
   id: string,

@@ -19,7 +19,7 @@ import { processItemsWithWorker } from '../../workers/itemWorkerManager'
 import { useStableDeepValue } from '../../hooks/useStableDeepValue'
 import { hardDeleteItems } from '../../features/items/mutations/itemMutations'
 
-export interface Props {
+interface Props {
   itemType: ItemType,
 }
 

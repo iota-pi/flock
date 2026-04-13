@@ -84,4 +84,3 @@ export const ROUTES = {
 
 export type InternalPageId = keyof typeof PUBLIC_ROUTES
 export type PageId = keyof typeof PROTECTED_ROUTES
-export type AnyPageId = InternalPageId | PageId

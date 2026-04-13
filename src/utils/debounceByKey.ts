@@ -2,7 +2,7 @@ import { debounce } from 'lodash-es'
 
 type DebouncedFunction<TValue> = ((value: TValue) => void) & { cancel: () => void }
 
-export type DebouncedByKey<TKey, TValue> = {
+type DebouncedByKey<TKey, TValue> = {
   schedule: (key: TKey, value: TValue) => void
   clear: () => void
   clearKey: (key: TKey) => void

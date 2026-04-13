@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
 import { useToastStore } from './toastStore'
 
-export interface RequestData {
+interface RequestData {
   active: number,
 }
 
@@ -14,11 +14,11 @@ export interface UIState {
   justCreatedAccount: boolean,
 }
 
-export type SetUiPayload = Omit<Partial<UIState>, 'requests'> & {
+type SetUiPayload = Omit<Partial<UIState>, 'requests'> & {
   requests?: Partial<UIState['requests']>,
 }
 
-export interface UiStore extends UIState {
+interface UiStore extends UIState {
   setUi: (payload: SetUiPayload) => void,
   startRequest: () => void,
   finishRequest: (error?: string) => void,

@@ -12,7 +12,7 @@ import {
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
 
-export type SyncStateToken = Uint8Array
+type SyncStateToken = Uint8Array
 
 export type AutomergeDocumentPatch = {
   op: 'add' | 'replace' | 'remove'

@@ -20,7 +20,7 @@ import {
   DeleteIcon,
   NotesIcon,
 } from '../../../components/Icons'
-import { ItemFormInputSchema } from '../../../shared/syncSchemas'
+import { ItemFormInputSchema } from '../../../shared/schemas/trpc'
 import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
 import ItemFormNotesSection from './ItemFormNotesSection'
 import ItemFormFrequencySection from './ItemFormFrequencySection'
@@ -34,7 +34,7 @@ function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
 type ItemFormFields = z.input<typeof ItemFormInputSchema>
 type ItemFormParsed = z.output<typeof ItemFormInputSchema>
 
-export interface ItemFormContentProps {
+interface ItemFormContentProps {
   item: DirtyItem<Item>,
   handleChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
   autoFocusName?: boolean,

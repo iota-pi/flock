@@ -11,7 +11,7 @@ import { GroupItem, Item } from '../../state/items'
 import Search from '../Search'
 import { storeItems } from '../../features/items/mutations/itemMutations'
 
-export interface Props {
+interface Props {
   items: Item[],
   onClose: () => void,
   open: boolean,

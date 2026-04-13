@@ -54,7 +54,7 @@ const PreSearchContent = styled(
   },
 }))
 
-export interface Props {
+interface Props {
   minimisedMenu: boolean,
   onToggleMenu: () => void,
 }

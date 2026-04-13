@@ -34,7 +34,7 @@ import ItemViewTopBar from './ItemViewTopBar'
 import useAutoSaveItem from '../hooks/useAutoSaveItem'
 
 
-export interface Props extends BaseDrawerProps {
+interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
   item: DirtyItem<Item>,
   onChange: (

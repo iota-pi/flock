@@ -46,7 +46,7 @@ const StyledLinearProgress = styled(LinearProgress)<{ strength: number }>(({ str
   }
 })
 
-export interface PasswordMeterProps {
+interface PasswordMeterProps {
   score: number
 }
 

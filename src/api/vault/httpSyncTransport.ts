@@ -3,9 +3,9 @@ import { trackedFetch } from '../runtime'
 import { getAccountId } from '../util'
 import type { CryptoResult } from './crypto'
 
-export type SyncMessageEnvelope = CryptoResult
+type SyncMessageEnvelope = CryptoResult
 
-export type PullSyncBatchInput = {
+type PullSyncBatchInput = {
   account?: string
   cursors: Array<{
     itemId: string
@@ -13,7 +13,7 @@ export type PullSyncBatchInput = {
   }>
 }
 
-export type PullSyncBatchResponse = {
+type PullSyncBatchResponse = {
   success: boolean
   results: PullSyncMessagesResponse[]
 }

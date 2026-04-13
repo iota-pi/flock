@@ -13,7 +13,7 @@ import {
 import { useMetadata } from '../../state/selectors'
 import { ResetIcon, SaveIcon, WarningIcon } from '../Icons'
 
-export interface Props {
+interface Props {
   naturalGoal: number,
   onClose: () => void,
   open: boolean,

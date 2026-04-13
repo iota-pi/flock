@@ -40,10 +40,3 @@ export type TombstoneItemEnvelope = {
     deleted: true,
   },
 }
-
-/**
- * ItemEnvelope: Union container for active storage envelopes.
- * - Standard: Automerge CRDT payload in non-empty `branches`.
- * - Tombstone: deleted marker without encrypted payload.
- */
-export type ItemEnvelope = StandardItemEnvelope | TombstoneItemEnvelope

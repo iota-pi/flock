@@ -40,7 +40,7 @@ type SettingsDividerConfig = {
   key: string
 }
 
-export type SettingsConfigEntry = SettingsItemConfig | SettingsDividerConfig
+type SettingsConfigEntry = SettingsItemConfig | SettingsDividerConfig
 
 export const settingsConfig: SettingsConfigEntry[] = [
   {

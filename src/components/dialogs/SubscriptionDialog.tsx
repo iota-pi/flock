@@ -14,7 +14,7 @@ import { ChangeEvent, useCallback, useEffect, useState } from 'react'
 import { checkSubscription } from '../../utils/pushNotifications'
 import { RemoveIcon } from '../Icons'
 
-export interface Props {
+interface Props {
   onClose: () => void,
   onSave: (hours: number[] | null) => Promise<void>,
   open: boolean,

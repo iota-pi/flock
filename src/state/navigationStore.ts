@@ -9,18 +9,18 @@ export interface DrawerData {
   newItem?: Item
 }
 
-export type PushActiveOptions = 'newItem'
+type PushActiveOptions = 'newItem'
 
-export type PushActiveData = (
+type PushActiveData = (
   Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, PushActiveOptions>>
 )
 
-export interface NavigationState {
+interface NavigationState {
   drawers: DrawerData[]
   selected: ItemId[]
 }
 
-export interface NavigationStore extends NavigationState {
+interface NavigationStore extends NavigationState {
   setSelected: (selected: ItemId[]) => void
   toggleSelected: (itemId: ItemId) => void
   replaceActive: (payload: Partial<Omit<DrawerData, 'id'>>) => void

@@ -23,7 +23,7 @@ const IconHolder = styled('div')(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }))
 
-export interface Props {
+interface Props {
   className?: string,
   frequency: Frequency,
   fullWidth?: boolean,

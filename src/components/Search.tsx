@@ -69,7 +69,7 @@ function ThemedPaper({ children, ...props }: PaperProps) {
   )
 }
 
-export interface Props<T> {
+interface Props<T> {
   autoFocus?: boolean,
   dataCy?: string,
   forceDarkTheme?: boolean,

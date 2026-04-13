@@ -20,7 +20,7 @@ const StyledContainer = styled(Container)(({ theme }) => ({
   paddingBottom: theme.spacing(2),
 }))
 
-export interface BaseProps {
+interface BaseProps {
   canSend?: boolean,
   itemIsNew?: boolean,
   itemName?: string,
@@ -28,7 +28,7 @@ export interface BaseProps {
   promptSave?: boolean,
 }
 
-export interface PropsWithSave extends BaseProps {
+interface PropsWithSave extends BaseProps {
   canSave: boolean,
   disableAutoCloseOnSave?: boolean,
   onCancel: () => void,
@@ -38,7 +38,7 @@ export interface PropsWithSave extends BaseProps {
   onSkip?: undefined,
 }
 
-export interface PropsWithDone extends BaseProps {
+interface PropsWithDone extends BaseProps {
   canSave?: undefined,
   disableAutoCloseOnSave?: undefined,
   onCancel?: undefined,
@@ -48,7 +48,7 @@ export interface PropsWithDone extends BaseProps {
   onSkip?: () => void,
 }
 
-export interface PropsWithNext extends BaseProps {
+interface PropsWithNext extends BaseProps {
   canSave?: undefined,
   disableAutoCloseOnSave?: undefined,
   onCancel?: undefined,

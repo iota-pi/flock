@@ -47,7 +47,7 @@ const StyledAccordionDetails = styled(AccordionDetails)(({ theme }) => ({
   padding: theme.spacing(2),
 }))
 
-export interface Props {
+interface Props {
   icon?: MuiIconType,
   id: string,
   initialExpanded?: boolean,

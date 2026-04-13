@@ -8,7 +8,7 @@ import { storeItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 
-export interface Props {
+interface Props {
   editable?: boolean,
   itemId: ItemId,
 }

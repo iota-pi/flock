@@ -3,7 +3,6 @@ import { useToastStore } from '../state/toastStore'
 
 let authToken = ''
 let onSessionExpired: (() => void) | null = null
-const authTokenListeners = new Set<(token: string) => void>()
 
 export class ApiHttpError extends Error {
   readonly status: number
@@ -85,18 +84,6 @@ export async function trackedFetch(input: RequestInfo | URL, init?: RequestInit)
 
 export function setApiAuthToken(nextAuthToken: string) {
   authToken = nextAuthToken
-
-  for (const listener of authTokenListeners) {
-    listener(authToken)
-  }
-}
-
-export function subscribeApiAuthToken(listener: (token: string) => void): () => void {
-  authTokenListeners.add(listener)
-
-  return () => {
-    authTokenListeners.delete(listener)
-  }
 }
 
 export function setApiSessionExpiredHandler(handler: () => void) {

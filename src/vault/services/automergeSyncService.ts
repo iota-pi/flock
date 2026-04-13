@@ -198,5 +198,3 @@ export const pullAutomergeSyncBatch = automergeSyncService.pullAutomergeSyncBatc
 export const pullAutomergeSyncMessages = automergeSyncService.pullAutomergeSyncMessages
 export const pushAutomergeSyncBatch = automergeSyncService.pushAutomergeSyncBatch
 export const pushAutomergeSyncMessage = automergeSyncService.pushAutomergeSyncMessage
-
-export type { StoredSyncMessage }

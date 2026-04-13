@@ -1,12 +1,12 @@
 import { create } from 'zustand'
 
-export interface SyncState {
+interface SyncState {
   isSyncing: boolean
   fatalError: string | null
   syncWarning: string | null
 }
 
-export interface SyncStore extends SyncState {
+interface SyncStore extends SyncState {
   setIsSyncing: (status: boolean) => void
   setFatalError: (message: string) => void
   clearFatalError: () => void

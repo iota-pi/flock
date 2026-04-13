@@ -36,7 +36,7 @@ const ActionIconComponent = styled(ListItemIcon)(({ theme }) => ({
   minWidth: theme.spacing(5),
 }))
 
-export interface BulkAction {
+interface BulkAction {
   classes?: string[],
   dividerBefore?: boolean,
   icon: MuiIconType,

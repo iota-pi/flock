@@ -12,14 +12,14 @@ export class VersionConflictError extends Error {
   }
 }
 
-export class StaleCompactedBranchError extends Error {
+class StaleCompactedBranchError extends Error {
   constructor(message = 'STALE_COMPACTED_BRANCH') {
     super(message)
     this.name = 'StaleCompactedBranchError'
   }
 }
 
-export function hasVersionConflictSignature(text: string): boolean {
+function hasVersionConflictSignature(text: string): boolean {
   const normalized = text.toLowerCase()
   return normalized.includes('version conflict') || normalized.includes('conditionalcheckfailed')
 }
@@ -44,7 +44,7 @@ function extractErrorText(error: unknown): string {
   return values.join(' | ')
 }
 
-export function isVersionConflictError(error: unknown): boolean {
+function isVersionConflictError(error: unknown): boolean {
   if (error instanceof VersionConflictError) {
     return true
   }
@@ -52,28 +52,12 @@ export function isVersionConflictError(error: unknown): boolean {
   return hasVersionConflictSignature(extractErrorText(error))
 }
 
-export function isStaleCompactedBranchError(error: unknown): boolean {
+function isStaleCompactedBranchError(error: unknown): boolean {
   if (error instanceof StaleCompactedBranchError) {
     return true
   }
 
   return extractErrorText(error).includes('STALE_COMPACTED_BRANCH')
-}
-
-export function getErrorStatusCode(error: unknown): number | undefined {
-  const maybeTrpcError = error as { data?: { httpStatus?: unknown }, status?: unknown }
-  if (typeof maybeTrpcError?.data?.httpStatus === 'number') {
-    return maybeTrpcError.data.httpStatus
-  }
-  if (typeof maybeTrpcError?.status === 'number') {
-    return maybeTrpcError.status
-  }
-  return undefined
-}
-
-export function getErrorReason(error: unknown): string {
-  const text = extractErrorText(error).trim()
-  return text || 'Client error'
 }
 
 export function normalizeSyncError(error: unknown): Error {

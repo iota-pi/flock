@@ -67,7 +67,7 @@ const EMPTY_RESTORE_PAYLOAD: RestorePayload = {
   documents: {},
 }
 
-export interface Props {
+interface Props {
   onClose: () => void,
   onConfirm: (payload: RestorePayload) => Promise<void> | void,
   open: boolean,

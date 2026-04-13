@@ -12,7 +12,7 @@ import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 
 
-export interface Props {
+interface Props {
   editable?: boolean,
   group: GroupItem,
   memberIds: ItemId[],

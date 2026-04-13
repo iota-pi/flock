@@ -69,7 +69,7 @@ export interface ItemListExtraElement {
   index: number
 }
 
-export interface ItemListItemProps<T extends Item> {
+interface ItemListItemProps<T extends Item> {
   index: number
   style: CSSProperties
   item: T

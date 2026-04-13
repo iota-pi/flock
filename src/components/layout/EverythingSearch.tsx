@@ -8,7 +8,7 @@ import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'
 
-export interface Props {
+interface Props {
   label: string,
   noItemsText?: string,
   onSelect?: (item?: Item | string) => void,

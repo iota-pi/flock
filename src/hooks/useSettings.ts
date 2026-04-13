@@ -11,15 +11,6 @@ import useBackupAndRestore from './useBackupAndRestore'
 import useThemeSettings from './useThemeSettings'
 import useSubscriptionSettings from './useSubscriptionSettings'
 
-export type SettingsDialogType = (
-  | 'goal'
-  | 'subscription'
-  | 'restore'
-  | 'offlineRecovery'
-  | 'import'
-  | 'defaultFrequency'
-)
-
 export default function useSettings() {
   const { account } = useAuth()
   const setMessage = useToastStore(state => state.setMessage)

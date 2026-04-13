@@ -17,7 +17,7 @@ export interface Defaults {
   group?: Frequency,
 }
 
-export interface Props {
+interface Props {
   open: boolean,
   defaults: Defaults,
   onClose: () => void,

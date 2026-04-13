@@ -2,9 +2,9 @@ import { create } from 'zustand'
 import { syncDB } from '../api/db'
 import { ACTIVE_SESSION_TOKEN_KEY } from '../sync/sessionTokenStore'
 
-export type AccountId = string
+type AccountId = string
 
-export interface AccountState {
+interface AccountState {
   account: AccountId,
   loggedIn: boolean,
   initializing: boolean,

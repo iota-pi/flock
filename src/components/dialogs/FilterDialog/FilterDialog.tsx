@@ -12,7 +12,7 @@ import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPL
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from '../../../utils/customFilter'
 
-export interface Props {
+interface Props {
   onClose: () => void,
   open: boolean,
 }

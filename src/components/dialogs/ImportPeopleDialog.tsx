@@ -16,7 +16,7 @@ import { UploadIcon } from '../Icons'
 import { importPeopleWithAutomergeSeed } from '../../utils/importUtils'
 
 
-export interface Props {
+interface Props {
   onClose: () => void,
   onConfirm: (items: Item[]) => void,
   open: boolean,

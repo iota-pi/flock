@@ -5,7 +5,6 @@ import { ITEM_TYPES } from '../shared/itemTypes'
 import type { ItemId, ItemType } from '../shared/itemTypes'
 
 export { ITEM_TYPES }
-export type OldItemType = 'general'
 export const ERROR_ITEM_TYPE = 'error'
 
 import {
@@ -19,10 +18,7 @@ import {
 } from '../shared/schemas/items'
 
 export {
-  baseItemSchema,
-  frequencySchema,
   groupItemSchema,
-  itemSchema,
   noteSchema,
   personItemSchema,
   topicItemSchema,
@@ -62,6 +58,7 @@ export type ErrorItem = Omit<BaseItem, 'type'> & {
 export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
+type OldItemType = 'general'
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 
@@ -120,7 +117,7 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
-export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
+function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
@@ -129,13 +126,13 @@ export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
 }
 
 export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): StandardItem {
-  if (itemType === 'person' || itemType === 'general') {
+  if (itemType === 'person') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
     return getBlankGroup(undefined, isNew)
   }
-  if (itemType === 'topic') {
+  if (itemType === 'topic' || itemType === 'general') {
     return getBlankTopic(undefined, isNew)
   }
   throw new Error('Unknown item type')
@@ -206,7 +203,7 @@ export function getItemName(
   return (item.name || '').trim()
 }
 
-export function compareNames(a: BaseItem, b: BaseItem) {
+function compareNames(a: BaseItem, b: BaseItem) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 

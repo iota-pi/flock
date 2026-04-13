@@ -11,7 +11,7 @@ import {
 } from '@mui/material'
 import { useOfflineRecovery } from '../../hooks/useOfflineRecovery'
 
-export interface Props {
+interface Props {
   onClose: () => void
   open: boolean
 }

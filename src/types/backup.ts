@@ -7,6 +7,4 @@ export type BackupPayloadV2 = {
   documents: Partial<Record<ItemId, string>>
 }
 
-export type DecryptedBackupPayload = BackupPayloadV2
-
 export type RestorePayload = BackupPayloadV2

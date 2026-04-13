@@ -3,10 +3,10 @@ import { getItemName, Item } from '../state/items'
 import { Frequency, frequencyToDays } from './frequencies'
 import { getLastPrayedFor } from './prayer'
 
-export type FilterFieldType = (
+type FilterFieldType = (
   'string' | 'number' | 'boolean' | 'date' | 'frequency'
 )
-export type FilterBaseOperatorName = (
+type FilterBaseOperatorName = (
   'is' |
   'contains' |
   'greater'
@@ -19,7 +19,7 @@ export type FilterOperatorName = (
   'before' |
   'after'
 )
-export interface FilterOperator {
+interface FilterOperator {
   baseOperator: FilterBaseOperatorName,
   inverse: boolean,
   name: string,
@@ -42,7 +42,7 @@ export type FilterCriterionType = (
   | 'name'
   | 'prayerFrequency'
 )
-export interface FilterCriterionDisplayData {
+interface FilterCriterionDisplayData {
   name: string,
   dataType: FilterFieldType,
   operators: FilterOperatorName[],
@@ -83,7 +83,7 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     operators: ['is', 'isnot', 'greater', 'lessthan'],
   },
 }
-export const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
+const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
   'name',
   'description',
   'prayerFrequency',
