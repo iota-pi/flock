@@ -6,7 +6,7 @@ import {
   type BinaryDocumentId,
 } from '@automerge/automerge-repo/slim'
 
-export const AUTOMERGE_URL_PREFIX = 'automerge:'
+const AUTOMERGE_URL_PREFIX = 'automerge:'
 
 const documentIdByItemId = new Map<string, string>()
 const itemIdByDocumentId = new Map<string, string>()

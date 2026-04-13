@@ -3,7 +3,6 @@ import {
   isDefined,
   generateItemId,
   formatDate,
-  formatTime,
   isSameDay,
   useStableArray,
 } from './index'
@@ -41,16 +40,6 @@ describe('utils/index', () => {
       // Just check it returns a string and contains parts of the date
       const result = formatDate(d)
       expect(typeof result).toBe('string')
-    })
-  })
-
-  describe('formatTime', () => {
-    it('formats time correctly', () => {
-      const d = new Date('2024-01-01T13:05:00') // 1:05pm
-      expect(formatTime(d)).toBe('1:05pm')
-
-      const d2 = new Date('2024-01-01T00:30:00') // 12:30am
-      expect(formatTime(d2)).toBe('12:30am')
     })
   })
 

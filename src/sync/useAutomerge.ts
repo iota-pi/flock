@@ -56,7 +56,7 @@ export function useAutomergeItems(): Item[] {
   )
 }
 
-export function useAutomergeItemIds(): string[] {
+function useAutomergeItemIds(): string[] {
   return useSyncExternalStore(
     subscribeKnownItemIds,
     getKnownItemIdsSnapshot,

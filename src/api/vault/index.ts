@@ -181,13 +181,6 @@ export async function signOutVault() {
 
   updateAuth({ account: '', loggedIn: false })
 
-  const localStorageKeys = Object.keys(localStorage)
-  for (const localStorageKey of localStorageKeys) {
-    if (localStorageKey.startsWith('lastSyncServerTime_')) {
-      localStorage.removeItem(localStorageKey)
-    }
-  }
-
   clearStoredMetadata()
   await clearActiveSessionToken()
   await clearAutomergeDocStore()

@@ -36,7 +36,7 @@ export const CRITERIA_DISPLAY = Object.entries(CRITERIA_DISPLAY_MAP).filter(
 export const DEFAULT_CRITERIA: SortCriterion[] = [
   { type: 'name', reverse: false },
 ]
-export const AUTOMATIC_CRITERIA: SortCriterion[] = [
+const AUTOMATIC_CRITERIA: SortCriterion[] = [
   { type: 'archived', reverse: false },
   { type: 'type', reverse: false },
 ]

@@ -41,11 +41,11 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
 
-export const MAX_ITEM_SIZE = 50000
-export const MAX_BATCH_GET_ITEMS = 100
-export const MAX_BATCH_GET_RETRIES = 5
-export const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
-export const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
+const MAX_ITEM_SIZE = 50000
+const MAX_BATCH_GET_ITEMS = 100
+const MAX_BATCH_GET_RETRIES = 5
+const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
+const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type WritableVaultItem = VaultItem & {
   _expectedParentVersionId?: string

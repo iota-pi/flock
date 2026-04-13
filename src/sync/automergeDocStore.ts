@@ -350,7 +350,7 @@ export function getAutomergeMetadata(): AccountMetadata {
   return snapshot as AccountMetadata
 }
 
-export async function seedAutomergeDocument(
+async function seedAutomergeDocument(
   documentId: string,
   binary: Uint8Array,
 ): Promise<void> {

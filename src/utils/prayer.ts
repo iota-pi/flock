@@ -159,7 +159,3 @@ export function getNaturalPrayerGoal(items: Item[]) {
 
   return Math.ceil(sum)
 }
-
-export function filterNoTarget(items: Item[]) {
-  return items.filter(item => item.prayerFrequency !== 'none')
-}

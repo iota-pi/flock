@@ -19,7 +19,7 @@ export const dark = createTheme({
     mode: 'dark',
   },
 })
-export const light = createTheme({
+const light = createTheme({
   palette: {
     primary: {
       main: teal[700],
@@ -36,7 +36,7 @@ export const light = createTheme({
   },
 })
 
-export function getDefaultDarkMode(): boolean {
+function getDefaultDarkMode(): boolean {
   if (window.matchMedia) {
     return window.matchMedia('(prefers-color-scheme: dark)').matches
   }

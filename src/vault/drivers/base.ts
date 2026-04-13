@@ -64,14 +64,6 @@ export interface VaultItem extends VaultKey, VaultData {
 
 export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
 
-export function asItemType(type: string): ItemType {
-  const allowedTypes: ItemType[] = ['person', 'group', 'topic']
-  if (allowedTypes.includes(type as ItemType)) {
-    return type as ItemType
-  }
-  throw new Error(`Item type ${type} is not valid`)
-}
-
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>

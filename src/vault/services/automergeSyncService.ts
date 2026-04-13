@@ -60,7 +60,7 @@ function filterMessagesAfterCursor(messages: StoredSyncMessage[], fromCursor: nu
   )
 }
 
-export function createAutomergeSyncService({
+function createAutomergeSyncService({
   createCursor: createCursorInput = createCursor,
   now = Date.now,
   publishSyncPing: publishSyncPingInput,

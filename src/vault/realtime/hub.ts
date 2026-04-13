@@ -281,7 +281,7 @@ export async function publishSyncPing(account: string, itemIds: string[]): Promi
   await broadcastPayloadToApiGatewayConnections(account, payload)
 }
 
-export async function getRealtimeEventsSince(
+async function getRealtimeEventsSince(
   account: string,
   lastEventId?: number,
 ): Promise<RealtimeEventEnvelope[]> {
