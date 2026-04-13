@@ -48,8 +48,15 @@ export default $config({
       fields: {
         account: 'string',
         item: 'string',
+        modifiedAt: 'number',
       },
       primaryIndex: { hashKey: 'account', rangeKey: 'item' },
+      globalIndexes: {
+        AccountModifiedIndex: {
+          hashKey: 'account',
+          rangeKey: 'modifiedAt',
+        },
+      },
       transform: {
         table: (args, opts) => {
           args.name = `FlockItems_${stage}`
