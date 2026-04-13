@@ -1,6 +1,4 @@
 import { create } from 'zustand'
-import { syncDB } from '../api/db'
-import { ACTIVE_SESSION_TOKEN_KEY } from '../sync/sessionTokenStore'
 
 type AccountId = string
 
@@ -27,8 +25,4 @@ export const useAuthStore = create<AuthStore>(set => ({
 
 export function getInitialAuthState(): AccountState {
   return initialAuthState
-}
-
-export async function clearPersistedAuthSyncState(): Promise<void> {
-  await syncDB.removeItem(ACTIVE_SESSION_TOKEN_KEY)
 }

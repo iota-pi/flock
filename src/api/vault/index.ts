@@ -1,5 +1,5 @@
 import type { WebPushSubscription } from '../../vault/types'
-import { clearPersistedAuthSyncState, useAuthStore } from '../../state/authStore'
+import { useAuthStore } from '../../state/authStore'
 import {
   clearActiveSessionToken,
   setActiveSessionToken,
@@ -192,7 +192,6 @@ export async function signOutVault() {
   await clearActiveSessionToken()
   await clearAutomergeDocStore()
   await clearManualRecoveryEntries()
-  await clearPersistedAuthSyncState()
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
