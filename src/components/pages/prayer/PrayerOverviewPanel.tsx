@@ -47,18 +47,20 @@ function PrayerOverviewPanel({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, width: '50%' }}>
-      <PrayerOverviewHeader
-        completed={completed}
-        goal={goal}
-        naturalGoal={naturalGoal}
-        onEditGoal={onEditGoal}
-        onStart={onStart}
-        startDisabled={startDisabled}
-        startLabel={startLabel}
-        visibleScheduleLength={visibleSchedule.length}
-      />
+      <div>
+        <PrayerOverviewHeader
+          completed={completed}
+          goal={goal}
+          naturalGoal={naturalGoal}
+          onEditGoal={onEditGoal}
+          onStart={onStart}
+          startDisabled={startDisabled}
+          startLabel={startLabel}
+          visibleScheduleLength={visibleSchedule.length}
+        />
+      </div>
 
-      <Box {...overviewSwipeHandlers} sx={{ flexGrow: 1, minHeight: 0 }}>
+      <Box {...overviewSwipeHandlers} sx={{ flexGrow: 1, minHeight: 0, overflow: 'hidden' }}>
         <ItemList
           checkboxes
           checkboxSide="right"
