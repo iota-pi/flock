@@ -20,7 +20,6 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, type GroupItem, isItem, type Item } from 'src/state/items'
-import { useAutomergeItem } from 'src/sync/useAutomerge'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -125,8 +124,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     wrapText,
   } = useItemListContext()
 
-  const liveItem = useAutomergeItem(item.id) as T | null
-  const currentItem = liveItem || item
+  const currentItem = item
 
   const handleClick = useCallback(
     () => onClick?.(currentItem),

@@ -4,6 +4,7 @@ import { useAuthStore, getInitialAuthState } from '../state/authStore'
 
 const mocks = vi.hoisted(() => ({
   listAutomergeDocumentIds: vi.fn(() => ['doc-1']),
+  resolvePendingAutomergeHandles: vi.fn(),
   registerKnownItemIds: vi.fn(),
   syncItemIds: vi.fn(),
   setVaultNetworkAccount: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./automergeDocStore', () => ({
   listAutomergeDocumentIds: mocks.listAutomergeDocumentIds,
+  resolvePendingAutomergeHandles: mocks.resolvePendingAutomergeHandles,
 }))
 
 vi.mock('./automergeRepo', () => ({

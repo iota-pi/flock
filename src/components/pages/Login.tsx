@@ -1,5 +1,5 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import {
   Alert,
   Box,
@@ -14,6 +14,7 @@ import {
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import { ROUTES } from './routes'
+import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useUiStore } from '../../state/uiStore'
 import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
 import { getSecurityParams, loginVault } from '../../api/vault'
@@ -56,6 +57,7 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 function LoginPage() {
   const setUi = useUiStore(state => state.setUi)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
@@ -97,7 +99,14 @@ function LoginPage() {
         try {
           await loginVault({ password, salt: securityParams.salt, iterations: securityParams.iterations })
           updateAuth({ loggedIn: true })
-          navigate(ROUTES.prayer.path)
+
+          const nextRoute = resolveRedirectRoute(
+            location.state as RedirectRouteState | null,
+            ROUTES.prayer.path,
+            location.pathname,
+          )
+
+          navigate(nextRoute)
         } catch (error) {
           console.error('Error during vault initialization:', error)
           updateAuth({ account: '' })
@@ -111,7 +120,7 @@ function LoginPage() {
         setLoading(false)
       }
     },
-    [accountInput, navigate, password, updateAuth],
+    [accountInput, location.state, navigate, password, updateAuth],
   )
   const handleClickCreate = useCallback(
     () => {

@@ -32,13 +32,52 @@ type EnsureHandleOptions = {
   awaitReady?: boolean
 }
 
+type HandleSubscription = {
+  handle: RepoDocHandle
+  onChange: () => void
+  onDelete: () => void
+}
+
 const handleByDocumentId = new Map<string, RepoDocHandle>()
 const inFlightHandleByDocumentId = new Map<string, Promise<RepoDocHandle>>()
+const handleSubscriptionByDocumentId = new Map<string, HandleSubscription>()
 const syncCursorByItemId = new Map<string, number>()
 const localChangeByDocumentId = new Set<string>()
+const automergeSnapshotListeners = new Set<() => void>()
 
 let loadedAccount: string | null = null
 let knownIdsUnsubscribe: (() => void) | null = null
+let automergeSnapshotVersion = 0
+let automergeSnapshotNotifyQueued = false
+
+function flushAutomergeSnapshotChanged(): void {
+  automergeSnapshotNotifyQueued = false
+  automergeSnapshotVersion += 1
+  for (const listener of Array.from(automergeSnapshotListeners)) {
+    listener()
+  }
+}
+
+function notifyAutomergeSnapshotChanged(): void {
+  if (automergeSnapshotNotifyQueued) {
+    return
+  }
+
+  automergeSnapshotNotifyQueued = true
+  queueMicrotask(flushAutomergeSnapshotChanged)
+}
+
+export function subscribeAutomergeSnapshots(listener: () => void): () => void {
+  automergeSnapshotListeners.add(listener)
+
+  return () => {
+    automergeSnapshotListeners.delete(listener)
+  }
+}
+
+export function getAutomergeSnapshotVersion(): number {
+  return automergeSnapshotVersion
+}
 
 function cloneValue<T>(value: T): T {
   return structuredClone(value)
@@ -57,14 +96,93 @@ function normalizeItemId(raw: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function removeHandleSubscription(documentId: string): void {
+  const existing = handleSubscriptionByDocumentId.get(documentId)
+  if (!existing) {
+    return
+  }
+
+  existing.handle.off('change', existing.onChange)
+  existing.handle.off('delete', existing.onDelete)
+  handleSubscriptionByDocumentId.delete(documentId)
+}
+
+function ensureHandleSubscription(documentId: string, handle: RepoDocHandle): void {
+  const existing = handleSubscriptionByDocumentId.get(documentId)
+  if (existing?.handle === handle) {
+    return
+  }
+
+  if (existing) {
+    removeHandleSubscription(documentId)
+  }
+
+  const onChange = () => {
+    notifyAutomergeSnapshotChanged()
+  }
+
+  const onDelete = () => {
+    handleByDocumentId.delete(documentId)
+    syncCursorByItemId.delete(documentId)
+    localChangeByDocumentId.delete(documentId)
+    removeHandleSubscription(documentId)
+    if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
+      getVaultNetworkAdapter().removeKnownItemIds([documentId])
+    }
+    notifyAutomergeSnapshotChanged()
+  }
+
+  handle.on('change', onChange)
+  handle.on('delete', onDelete)
+  handleSubscriptionByDocumentId.set(documentId, {
+    handle,
+    onChange,
+    onDelete,
+  })
+}
+
+function tryResolveNonReadyHandle(handle: RepoDocHandle): void {
+  if (handle.isReady() || handle.isUnavailable()) {
+    return
+  }
+
+  try {
+    handle.doneLoading()
+  } catch {
+    // Ignore and keep the handle in its current state.
+  }
+}
+
+export function resolvePendingAutomergeHandles(): void {
+  const repoHandles = Object.values(getAutomergeRepo().handles || {}) as Array<RepoDocHandle & {
+    isDeleted?: () => boolean
+    isUnloaded?: () => boolean
+  }>
+
+  for (const handle of repoHandles) {
+    if (handle.isReady() || handle.isUnavailable()) {
+      continue
+    }
+
+    if (handle.isDeleted?.() || handle.isUnloaded?.()) {
+      continue
+    }
+
+    tryResolveNonReadyHandle(handle)
+  }
+}
+
 async function evictDocumentHandle(documentId: string): Promise<void> {
   handleByDocumentId.delete(documentId)
+  removeHandleSubscription(documentId)
 
   try {
     await getAutomergeRepo().removeFromCache(interpretAsDocumentId(toAutomergeUrlFromItemId(documentId)))
   } catch {
     // Ignore cache-eviction failures for handles that were never loaded.
   }
+
+  notifyAutomergeSnapshotChanged()
 }
 
 function setLocalChange(documentId: string, changed: boolean): void {
@@ -95,6 +213,12 @@ async function ensureDocumentHandle(
 ): Promise<RepoDocHandle> {
   const existing = handleByDocumentId.get(documentId)
   if (existing) {
+    if (options.awaitReady === false) {
+      tryResolveNonReadyHandle(existing)
+    }
+
+    ensureHandleSubscription(documentId, existing)
+
     if (options.awaitReady !== false && !existing.isReady() && !existing.isUnavailable()) {
       await existing.whenReady(['ready', 'unavailable'])
     }
@@ -108,12 +232,17 @@ async function ensureDocumentHandle(
 
   const refreshedExisting = handleByDocumentId.get(documentId)
   if (refreshedExisting) {
+    ensureHandleSubscription(documentId, refreshedExisting)
     return refreshedExisting
   }
 
   const inFlight = inFlightHandleByDocumentId.get(documentId)
   if (inFlight) {
     const inFlightHandle = await inFlight
+
+    if (options.awaitReady === false) {
+      tryResolveNonReadyHandle(inFlightHandle)
+    }
 
     if (options.awaitReady !== false && !inFlightHandle.isReady() && !inFlightHandle.isUnavailable()) {
       await inFlightHandle.whenReady(['ready', 'unavailable'])
@@ -123,6 +252,7 @@ async function ensureDocumentHandle(
       handleByDocumentId.delete(documentId)
       inFlightHandleByDocumentId.delete(documentId)
     } else {
+      ensureHandleSubscription(documentId, inFlightHandle)
       return inFlightHandle
     }
   }
@@ -134,6 +264,10 @@ async function ensureDocumentHandle(
 
     const progress = repo.findWithProgress<RepoDoc>(documentUrl)
     let handle = progress.handle as RepoDocHandle
+
+    if (options.awaitReady === false) {
+      tryResolveNonReadyHandle(handle)
+    }
 
     if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
       await handle.whenReady(['ready', 'unavailable'])
@@ -160,12 +294,18 @@ async function ensureDocumentHandle(
         docId: resolvedDocumentId,
       }) as RepoDocHandle
 
+      if (options.awaitReady === false) {
+        tryResolveNonReadyHandle(handle)
+      }
+
       if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
         await handle.whenReady(['ready', 'unavailable'])
       }
     }
 
     handleByDocumentId.set(documentId, handle)
+    ensureHandleSubscription(documentId, handle)
+    notifyAutomergeSnapshotChanged()
     return handle
   })()
 
@@ -211,6 +351,7 @@ function ensureKnownIdsSubscription(): void {
   knownIdsUnsubscribe = adapter.subscribeKnownItemIds(itemIds => {
     const normalizedItemIds = itemIds.filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
     registerAutomergeItemIds([ACCOUNT_METADATA_DOCUMENT_ID, ...normalizedItemIds])
+    notifyAutomergeSnapshotChanged()
     void observeKnownItemIds(normalizedItemIds)
   })
 }
@@ -319,6 +460,8 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     setVaultNetworkAccount(nextAccount)
   }
 
+  resolvePendingAutomergeHandles()
+
   ensureKnownIdsSubscription()
 
   getVaultNetworkAdapter().registerKnownItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
@@ -415,6 +558,8 @@ async function seedAutomergeDocument(
   }) as unknown as RepoDocHandle
 
   handleByDocumentId.set(documentId, handle)
+  ensureHandleSubscription(documentId, handle)
+  notifyAutomergeSnapshotChanged()
 
   if (!handle.isReady() && !handle.isUnavailable()) {
     try {
@@ -494,6 +639,8 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
   } catch {
     // Ignore missing local handles.
   }
+
+  notifyAutomergeSnapshotChanged()
 }
 
 export async function clearAutomergeDocStore(): Promise<void> {
@@ -509,6 +656,10 @@ export async function clearAutomergeDocStore(): Promise<void> {
     await evictDocumentHandle(documentId)
   }
 
+  for (const documentId of Array.from(handleSubscriptionByDocumentId.keys())) {
+    removeHandleSubscription(documentId)
+  }
+
   syncCursorByItemId.clear()
   localChangeByDocumentId.clear()
 
@@ -522,6 +673,8 @@ export async function clearAutomergeDocStore(): Promise<void> {
       // Ignore IndexedDB delete failures in constrained environments.
     }
   }
+
+  notifyAutomergeSnapshotChanged()
 }
 
 export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
@@ -579,7 +732,16 @@ export async function applyAutomergeItemPatches(
     initialValue: {
       id: normalizedItemId,
     },
+    awaitReady: false,
   })
+
+  if (handle.isUnavailable()) {
+    return
+  }
+
+  if (!handle.isReady()) {
+    return
+  }
 
   handle.change(doc => {
     for (const patch of patches) {

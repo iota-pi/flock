@@ -194,9 +194,7 @@ async function upsertRepoItemSnapshot(item: Item): Promise<void> {
   const repo = getAutomergeRepo()
   const docUrl = toAutomergeUrlFromItemId(item.id)
 
-  let handle = await repo.find<Record<string, unknown>>(docUrl, {
-    allowableStates: ['ready', 'unavailable'],
-  })
+  let handle = repo.findWithProgress<Record<string, unknown>>(docUrl).handle
 
   if (handle.isUnavailable()) {
     // `removeFromCache` may throw on unavailable handles; delete clears handle cache entry.
@@ -207,15 +205,12 @@ async function upsertRepoItemSnapshot(item: Item): Promise<void> {
     handle = repo.import<Record<string, unknown>>(binary, {
       docId: interpretAsDocumentId(docUrl),
     })
-
-    if (!handle.isReady()) {
-      await handle.whenReady(['ready', 'unavailable'])
-    }
     return
   }
 
   if (!handle.isReady()) {
-    await handle.whenReady(['ready'])
+    // Best-effort mirror to repo handle; avoid blocking mutations on long readiness waits.
+    return
   }
 
   const normalizedItem = normalizeItemForAutomerge(item)

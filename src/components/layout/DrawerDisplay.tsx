@@ -91,7 +91,11 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const existingItem = useAutomergeItem(drawer.item || generateItemId())
+  const lookupItemId = useMemo(
+    () => drawer.item || drawer.newItem?.id || generateItemId(),
+    [drawer.item, drawer.newItem?.id],
+  )
+  const existingItem = useAutomergeItem(lookupItemId)
   const item = existingItem || drawer.newItem
 
   const [localItem, setLocalItem] = useState<Item | undefined>(item)
@@ -110,12 +114,9 @@ function IndividualDrawer({
     [],
   )
 
-  // Update localItem when item changes
-  const [prevItem, setPrevItem] = useState(item)
-  if (item !== prevItem) {
-    setPrevItem(item)
+  useEffect(() => {
     setLocalItem(item)
-  }
+  }, [item])
 
   if (localItem) {
     return (

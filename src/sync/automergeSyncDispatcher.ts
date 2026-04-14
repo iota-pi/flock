@@ -1,6 +1,6 @@
 import { useSyncStore } from '../state/syncStore'
 import { useAuthStore } from '../state/authStore'
-import { listAutomergeDocumentIds } from './automergeDocStore'
+import { listAutomergeDocumentIds, resolvePendingAutomergeHandles } from './automergeDocStore'
 import {
   getVaultNetworkAdapter,
   setVaultNetworkAccount,
@@ -58,6 +58,8 @@ async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
 
   useSyncStore.getState().setIsSyncing(true)
   try {
+    resolvePendingAutomergeHandles()
+
     await withTimeout(
       adapter.syncItemIds(normalized),
       SYNC_QUEUE_TIMEOUT_MS,

@@ -1,7 +1,6 @@
 import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from './items'
-import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import {
   useAuthReady,
   useItem,
@@ -57,44 +56,12 @@ vi.mock('../api/itemReadService', () => ({
   subscribeMetadata: vi.fn(() => () => undefined),
 }))
 
-vi.mock('@automerge/automerge-repo-react-hooks', () => ({
-  useDocument: vi.fn((documentId: string) => {
-    const item = itemsFixture.find(candidate => toAutomergeUrlFromItemId(candidate.id) === documentId)
-    return [item, vi.fn()]
-  }),
-  useDocuments: vi.fn((documentIds: string[]) => {
-    const documents = new Map<string, Item>()
-
-    for (const documentId of documentIds) {
-      const item = itemsFixture.find(candidate => toAutomergeUrlFromItemId(candidate.id) === documentId)
-      if (item) {
-        documents.set(documentId, item)
-      }
-    }
-
-    return [documents, vi.fn()]
-  }),
-}))
-
-vi.mock('../sync/automergeRepo', () => ({
-  getVaultNetworkAdapter: () => ({
-    getKnownItemIds: () => itemsFixture.map(item => item.id),
-    getKnownItemIdsState: () => ({
-      version: 1,
-      itemIds: itemsFixture.map(item => item.id),
-    }),
-    subscribeKnownItemIds: (listener: (itemIds: string[]) => void) => {
-      listener(itemsFixture.map(item => item.id))
-      return () => undefined
-    },
-  }),
-}))
-
 vi.mock('../sync/automergeDocStore', () => ({
-  ACCOUNT_METADATA_DOCUMENT_ID: 'meta',
   getAutomergeItems: vi.fn(() => itemsFixture),
-  getAutomergeItemIds: vi.fn(() => itemsFixture.map(item => item.id)),
-  subscribeAutomergeItems: vi.fn(() => () => undefined),
+  getAutomergeItem: vi.fn((itemId: string) => itemsFixture.find(item => item.id === itemId) || null),
+  getAutomergeMetadata: vi.fn(() => ({})),
+  getAutomergeSnapshotVersion: vi.fn(() => 1),
+  subscribeAutomergeSnapshots: vi.fn(() => () => undefined),
 }))
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({
