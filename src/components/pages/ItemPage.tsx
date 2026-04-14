@@ -5,7 +5,6 @@ import { ERROR_ITEM_TYPE, getBlankItem, getItemTypeLabel, Item } from '../../sta
 import type { ItemType } from '../../shared/itemTypes'
 import ItemList from '../../features/items/components/ItemList'
 import {
-  useIsActive,
   useItems,
   useItemsInitialLoading,
   usePracticalFilterCount,
@@ -29,7 +28,6 @@ function ItemPage({
   const replaceActive = useNavigationStore(state => state.replaceActive)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
-  const isActive = useIsActive()
   const itemsInitialLoading = useItemsInitialLoading()
   const allItems = useItems()
   const rawItems = useMemo(
@@ -154,11 +152,6 @@ function ItemPage({
     },
     [],
   )
-  const getHighlighted = useCallback(
-    (item: Item) => isActive(item.id),
-    [isActive],
-  )
-
   const getActionIcon = useCallback(
     (item: Item) => (item.type === ERROR_ITEM_TYPE ? <DeleteIcon /> : undefined),
     [],
@@ -253,7 +246,6 @@ function ItemPage({
         getChecked={getChecked}
         onClickAction={handleClickAction}
         getDescription={getDescription}
-        getHighlighted={getHighlighted}
         items={items}
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
         maxTags={3}

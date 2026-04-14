@@ -20,6 +20,7 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, type GroupItem, isItem, type Item } from 'src/state/items'
+import { useNavigationStore } from 'src/state/navigationStore'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -125,6 +126,12 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
   } = useItemListContext()
 
   const currentItem = item
+  const highlightedByDrawer = useNavigationStore(
+    useCallback(
+      state => state.drawers.some(drawer => drawer.item === currentItem.id),
+      [currentItem.id],
+    ),
+  )
 
   const handleClick = useCallback(
     () => onClick?.(currentItem),
@@ -212,7 +219,10 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     },
     [currentItem, fadeArchived, getForceFade],
   )
-  const highlighted = useMemo(() => getHighlighted?.(currentItem), [currentItem, getHighlighted])
+  const highlighted = useMemo(
+    () => getHighlighted?.(currentItem) ?? highlightedByDrawer,
+    [currentItem, getHighlighted, highlightedByDrawer],
+  )
 
   const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon
   const checkbox = checkboxes && onCheck && (

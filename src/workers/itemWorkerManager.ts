@@ -27,6 +27,8 @@ type ProcessItemsResult = {
   archivedCount: number
 }
 
+const WORKER_MIN_ITEM_COUNT = 120
+
 let worker: Worker | null = null
 let workerApi: Remote<ItemWorkerApi> | null = null
 
@@ -114,6 +116,10 @@ async function withWorkerFallback<T>(
 }
 
 export async function processItemsWithWorker(input: ProcessItemsInput): Promise<ProcessItemsResult> {
+  if (input.items.length < WORKER_MIN_ITEM_COUNT) {
+    return processItemsSynchronously(input)
+  }
+
   return withWorkerFallback(
     async api => api.processItems(input),
     () => processItemsSynchronously(input),
