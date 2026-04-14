@@ -18,11 +18,15 @@ function SyncNowButton() {
   const handleForceSync = useCallback(
     async () => {
       const account = getAccountId()
-      await ensureItemsBootstrap(account, {
-        force: true,
-        forceFullSync: true,
-        forceMetadataRefetch: true,
-      })
+      try {
+        await ensureItemsBootstrap(account, {
+          force: true,
+          forceFullSync: true,
+          forceMetadataRefetch: true,
+        })
+      } catch (error) {
+        console.error('[SyncNowButton] force sync failed', error)
+      }
     },
     [],
   )

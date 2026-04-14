@@ -88,7 +88,10 @@ function LoginPage() {
       setError('')
       updateAuth({ account: accountInput })
       const securityParams = await getSecurityParams().catch(
-        (): { salt: string, iterations?: number } => ({ salt: '', iterations: undefined })
+        (err): { salt: string, iterations?: number } => {
+          console.error('[Login] getSecurityParams failed', err)
+          return { salt: '', iterations: undefined }
+        }
       )
       if (securityParams.salt.length) {
         try {

@@ -1,5 +1,5 @@
 import * as Automerge from '@automerge/automerge'
-import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
@@ -20,15 +20,7 @@ export type AutomergeDocumentPatch = {
 
 type RepoDoc = Record<string, unknown>
 
-type RepoDocHandle = {
-  isReady: () => boolean
-  isUnavailable: () => boolean
-  whenReady: (awaitStates?: string[]) => Promise<void>
-  doc: () => RepoDoc
-  change: (callback: (doc: RepoDoc) => void) => void
-  on: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
-  off: (event: 'change' | 'delete', listener: (payload?: { doc?: RepoDoc }) => void) => void
-}
+type RepoDocHandle = DocHandle<RepoDoc>
 
 type UpsertMetadataOptions = {
   markLocalChange?: boolean
@@ -37,9 +29,11 @@ type UpsertMetadataOptions = {
 type EnsureHandleOptions = {
   createIfMissing?: boolean
   initialValue?: RepoDoc
+  awaitReady?: boolean
 }
 
 const handleByDocumentId = new Map<string, RepoDocHandle>()
+const inFlightHandleByDocumentId = new Map<string, Promise<RepoDocHandle>>()
 const syncCursorByItemId = new Map<string, number>()
 const localChangeByDocumentId = new Set<string>()
 
@@ -101,34 +95,87 @@ async function ensureDocumentHandle(
 ): Promise<RepoDocHandle> {
   const existing = handleByDocumentId.get(documentId)
   if (existing) {
-    return existing
+    if (options.awaitReady !== false && !existing.isReady() && !existing.isUnavailable()) {
+      await existing.whenReady(['ready', 'unavailable'])
+    }
+
+    if (options.createIfMissing && existing.isUnavailable()) {
+      handleByDocumentId.delete(documentId)
+    } else {
+      return existing
+    }
   }
 
-  const repo = getAutomergeRepo()
-  const documentUrl = toAutomergeUrlFromItemId(documentId)
-
-  let handle = await repo.find<RepoDoc>(documentUrl, {
-    allowableStates: ['ready', 'unavailable'],
-  }) as unknown as RepoDocHandle
-
-  if (handle.isUnavailable() && options.createIfMissing) {
-    const initialValue = options.initialValue || (documentId === ACCOUNT_METADATA_DOCUMENT_ID
-      ? {}
-      : { id: documentId })
-
-    const binary = Automerge.save(Automerge.from(initialValue))
-    handle = repo.import<RepoDoc>(binary, {
-      docId: interpretAsDocumentId(documentUrl),
-    }) as unknown as RepoDocHandle
+  const refreshedExisting = handleByDocumentId.get(documentId)
+  if (refreshedExisting) {
+    return refreshedExisting
   }
 
-  handleByDocumentId.set(documentId, handle)
+  const inFlight = inFlightHandleByDocumentId.get(documentId)
+  if (inFlight) {
+    const inFlightHandle = await inFlight
 
-  if (!handle.isReady()) {
-    await handle.whenReady(['ready', 'unavailable'])
+    if (options.awaitReady !== false && !inFlightHandle.isReady() && !inFlightHandle.isUnavailable()) {
+      await inFlightHandle.whenReady(['ready', 'unavailable'])
+    }
+
+    if (options.createIfMissing && inFlightHandle.isUnavailable()) {
+      handleByDocumentId.delete(documentId)
+      inFlightHandleByDocumentId.delete(documentId)
+    } else {
+      return inFlightHandle
+    }
   }
 
-  return handle
+  const operation = (async () => {
+    const repo = getAutomergeRepo()
+    const documentUrl = toAutomergeUrlFromItemId(documentId)
+    const resolvedDocumentId = interpretAsDocumentId(documentUrl)
+
+    const progress = repo.findWithProgress<RepoDoc>(documentUrl)
+    let handle = progress.handle as RepoDocHandle
+
+    if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
+      await handle.whenReady(['ready', 'unavailable'])
+    }
+
+    if (handle.isUnavailable() && options.createIfMissing) {
+      // `removeFromCache` can throw for unavailable handles in current automerge-repo.
+      // Deleting clears the cached unavailable handle so import can recreate this doc id.
+      try {
+        repo.delete(resolvedDocumentId)
+      } catch (error) {
+        console.error('[automerge] failed to clear unavailable handle before import', {
+          documentId,
+          error,
+        })
+      }
+
+      const initialValue = options.initialValue || (documentId === ACCOUNT_METADATA_DOCUMENT_ID
+        ? {}
+        : { id: documentId })
+
+      const binary = Automerge.save(Automerge.from(initialValue))
+      handle = repo.import<RepoDoc>(binary, {
+        docId: resolvedDocumentId,
+      }) as RepoDocHandle
+
+      if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
+        await handle.whenReady(['ready', 'unavailable'])
+      }
+    }
+
+    handleByDocumentId.set(documentId, handle)
+    return handle
+  })()
+
+  inFlightHandleByDocumentId.set(documentId, operation)
+
+  try {
+    return await operation
+  } finally {
+    inFlightHandleByDocumentId.delete(documentId)
+  }
 }
 
 async function observeKnownItemIds(itemIds: string[]): Promise<void> {
@@ -147,7 +194,11 @@ async function observeKnownItemIds(itemIds: string[]): Promise<void> {
   }
 
   await Promise.all(itemIds.map(async itemId => {
-    await ensureDocumentHandle(itemId)
+    try {
+      await ensureDocumentHandle(itemId, { awaitReady: false })
+    } catch (error) {
+      console.error('[automerge] failed to observe known item id handle', { itemId, error })
+    }
   }))
 }
 
@@ -272,9 +323,11 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
 
   getVaultNetworkAdapter().registerKnownItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
   registerAutomergeItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
+
   await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
     createIfMissing: true,
     initialValue: {},
+    awaitReady: false,
   })
 
   const knownItemIds = getVaultNetworkAdapter().getKnownItemIds()
@@ -363,7 +416,15 @@ async function seedAutomergeDocument(
 
   handleByDocumentId.set(documentId, handle)
 
-  if (!handle.isReady()) {
+  if (!handle.isReady() && !handle.isUnavailable()) {
+    try {
+      handle.doneLoading()
+    } catch {
+      // Ignore doneLoading errors and fall back to whenReady.
+    }
+  }
+
+  if (!handle.isReady() && !handle.isUnavailable()) {
     await handle.whenReady(['ready', 'unavailable'])
   }
 
@@ -373,6 +434,18 @@ async function seedAutomergeDocument(
   }
 }
 
+export async function hydrateAutomergeDocumentBinary(
+  documentId: string,
+  binary: Uint8Array,
+): Promise<void> {
+  const normalizedDocumentId = normalizeItemId(documentId)
+  if (!normalizedDocumentId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
+    return
+  }
+
+  await seedAutomergeDocument(normalizedDocumentId, binary)
+}
+
 export async function upsertAutomergeMetadataSnapshot(
   metadata: AccountMetadata,
   options: UpsertMetadataOptions = {},
@@ -380,7 +453,12 @@ export async function upsertAutomergeMetadataSnapshot(
   const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
     createIfMissing: true,
     initialValue: {},
+    awaitReady: false,
   })
+
+  if (!handle.isReady()) {
+    return
+  }
 
   const nextMetadata = cloneValue(metadata || {})
   handle.change(doc => {
@@ -526,7 +604,12 @@ export async function applyAutomergeMetadataPatches(
   const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
     createIfMissing: true,
     initialValue: {},
+    awaitReady: false,
   })
+
+  if (!handle.isReady()) {
+    return
+  }
 
   handle.change(doc => {
     for (const patch of patches) {

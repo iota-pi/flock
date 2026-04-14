@@ -7,13 +7,27 @@ export interface CryptoResult {
 }
 
 function fromBytes(array: ArrayBuffer): string {
-  const byteArray = Array.from(new Uint8Array(array))
-  const asString = byteArray.map(b => String.fromCharCode(b)).join('')
-  return btoa(asString)
+  const bytes = new Uint8Array(array)
+  const chunkSize = 0x8000
+  const chunks: string[] = []
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize)
+    chunks.push(String.fromCharCode(...chunk))
+  }
+
+  return btoa(chunks.join(''))
 }
 
 export function toBytes(str: string): ArrayBuffer {
-  return new Uint8Array(atob(str).split('').map(c => c.charCodeAt(0))).buffer
+  const decoded = atob(str)
+  const bytes = new Uint8Array(decoded.length)
+
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index)
+  }
+
+  return bytes.buffer
 }
 
 export function generateSalt(): string {

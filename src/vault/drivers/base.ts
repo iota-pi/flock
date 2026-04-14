@@ -44,8 +44,14 @@ export interface AuthData extends BaseData {
   session: string,
 }
 
+export interface VaultSessionRecord {
+  token: string,
+  expiry: number,
+}
+
 export interface VaultAccount extends BaseData {
   metadata: Record<string, unknown>,
+  sessions?: VaultSessionRecord[],
   pushSubscriptions?: WebPushSubscription[],
   reminderEnabled?: boolean,
   reminderTime?: string,
@@ -88,6 +94,7 @@ export default abstract class BaseDriver<T = unknown> {
     metadata?: Record<string, unknown>,
     expectedMetadataParentVersionId?: string,
     session?: string,
+    sessions?: VaultSessionRecord[],
     pushSubscriptions?: WebPushSubscription[],
     reminderEnabled?: boolean,
     reminderTime?: string,

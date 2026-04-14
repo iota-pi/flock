@@ -14,6 +14,9 @@ import {
 import { hashString } from '../../api/util'
 import { publishRealtimeEvent } from '../../realtime/hub'
 
+const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
+const MAX_ACTIVE_SESSIONS = 8
+
 export const accountsRouter = router({
   createAccount: publicProcedure
     .input(CreateAccountBodySchema)
@@ -39,9 +42,10 @@ export const accountsRouter = router({
   login: publicProcedure
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
+      const loginAuthTokenHash = hashString(input.authToken)
       const valid = await ctx.vault.checkSession({
         account: input.account,
-        session: hashString(input.authToken),
+        session: loginAuthTokenHash,
         isLogin: true,
       })
 
@@ -49,10 +53,32 @@ export const accountsRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 
+      const accountData = await ctx.vault.getAccount({
+        account: input.account,
+        session: loginAuthTokenHash,
+        isLogin: true,
+      })
+
       const session = randomBytes(16).toString('base64')
+      const now = Date.now()
+      const existingSessions = Array.isArray(accountData.sessions)
+        ? accountData.sessions
+          .filter(entry => typeof entry?.token === 'string' && typeof entry?.expiry === 'number' && entry.expiry > now)
+          .map(entry => ({ token: entry.token, expiry: entry.expiry }))
+        : []
+
+      const nextSessions = [
+        ...existingSessions.filter(entry => entry.token !== session),
+        {
+          token: session,
+          expiry: now + SESSION_EXPIRY_MS,
+        },
+      ].slice(-MAX_ACTIVE_SESSIONS)
+
       await ctx.vault.updateAccountData({
         account: input.account,
         session,
+        sessions: nextSessions,
       })
 
       return {

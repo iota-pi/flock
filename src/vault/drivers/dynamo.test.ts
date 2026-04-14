@@ -236,6 +236,34 @@ describe('DynamoDriver', function () {
     ).toMatchObject({ success: false })
   })
 
+  it('checkSession accepts multiple active sessions', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata,
+      salt,
+      iterations,
+      session,
+    })
+
+    const sessionA = 'session-A'
+    const sessionB = 'session-B'
+    const expiry = Date.now() + 60_000
+
+    await driver.updateAccountData({
+      account,
+      session: sessionB,
+      sessions: [
+        { token: sessionA, expiry },
+        { token: sessionB, expiry },
+      ],
+    })
+
+    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
+    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+  })
+
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
     const params = { account, authToken, metadata, salt, iterations, session }

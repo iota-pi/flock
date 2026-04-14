@@ -73,6 +73,12 @@ describe('accountsRouter security contracts', () => {
     expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
       account: 'acct-1',
       session: result.session,
+      sessions: [
+        {
+          token: result.session,
+          expiry: expect.any(Number),
+        },
+      ],
     })
     expect(ctx.vault.updateAccountData).not.toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.anything() }),

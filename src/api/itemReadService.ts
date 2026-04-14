@@ -1,9 +1,13 @@
 import type { AccountMetadata } from '../state/metadata'
+import * as Automerge from '@automerge/automerge'
 import { hasApiAuthToken } from './runtime'
 import { trpcClient } from './trpcClient'
 import { fetchMany } from './vault/client'
+import { decryptObject, getVaultKey } from './vault'
+import type { CachedVaultItem, VaultItem } from './vault/clientTypes'
 import {
   getAutomergeMetadata,
+  hydrateAutomergeDocumentBinary,
   initializeAutomergeDocStore,
   listAutomergeDocumentIds,
   listAutomergeItemIds,
@@ -11,6 +15,7 @@ import {
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { getVaultNetworkAdapter } from '../sync/automergeRepo'
+import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -54,6 +59,99 @@ function normalizeItemIds(value: unknown): string[] {
   return Array.from(deduped)
 }
 
+type FetchedVaultEnvelope = CachedVaultItem | VaultItem
+
+function normalizeFetchedVaultEnvelopes(value: unknown): FetchedVaultEnvelope[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const envelopes: FetchedVaultEnvelope[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const itemId = (entry as { item?: unknown }).item
+    if (typeof itemId !== 'string' || itemId.length === 0) {
+      continue
+    }
+
+    envelopes.push(entry as FetchedVaultEnvelope)
+  }
+
+  return envelopes
+}
+
+async function decryptAutomergeBranchBinary(encryptedAutomergeDoc: string): Promise<Uint8Array> {
+  const decoded = decodeEncryptedAutomergeDoc(encryptedAutomergeDoc)
+
+  const iv = new Uint8Array(decoded.iv.byteLength)
+  iv.set(decoded.iv)
+
+  const cipher = new Uint8Array(decoded.cipher.byteLength)
+  cipher.set(decoded.cipher)
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    getVaultKey(),
+    cipher,
+  )
+
+  return new Uint8Array(plaintext)
+}
+
+async function hydrateFetchedItemEnvelope(item: FetchedVaultEnvelope): Promise<void> {
+  if (item.metadata?.deleted === true) {
+    return
+  }
+
+  let binary: Uint8Array | null = null
+
+  if (Array.isArray(item.branches) && item.branches.length > 0) {
+    for (const branch of item.branches) {
+      if (!branch || typeof branch.encryptedAutomergeDoc !== 'string' || branch.encryptedAutomergeDoc.length === 0) {
+        continue
+      }
+
+      try {
+        binary = await decryptAutomergeBranchBinary(branch.encryptedAutomergeDoc)
+        break
+      } catch {
+        // Continue trying remaining branches.
+      }
+    }
+  }
+
+  if (!binary && typeof item.cipher === 'string' && item.cipher.length > 0 && typeof item.metadata?.iv === 'string' && item.metadata.iv.length > 0) {
+    const decrypted = await decryptObject({ iv: item.metadata.iv, cipher: item.cipher }).catch(() => null)
+    if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
+      const snapshot = { ...(decrypted as Record<string, unknown>) }
+      if (typeof snapshot.id !== 'string' || snapshot.id.length === 0) {
+        snapshot.id = item.item
+      }
+      binary = Automerge.save(Automerge.from(snapshot))
+    }
+  }
+
+  if (binary) {
+    await hydrateAutomergeDocumentBinary(item.item, binary)
+  }
+}
+
+async function hydrateFetchedItemsLocally(items: FetchedVaultEnvelope[]): Promise<void> {
+  await Promise.allSettled(items.map(async item => {
+    try {
+      await hydrateFetchedItemEnvelope(item)
+    } catch (error) {
+      console.error('[itemReadService] failed to hydrate fetched item envelope', {
+        itemId: item.item,
+        error,
+      })
+    }
+  }))
+}
+
 async function hydrateMetadataIfNeeded(accountId: string, force = false): Promise<void> {
   const localMetadata = getAutomergeMetadata()
   if (!force && hasMetadataSnapshot(localMetadata)) {
@@ -69,9 +167,13 @@ async function hydrateMetadataIfNeeded(accountId: string, force = false): Promis
     return
   }
 
-  await upsertAutomergeMetadataSnapshot(response.metadata, {
-    markLocalChange: false,
-  })
+  try {
+    await upsertAutomergeMetadataSnapshot(response.metadata, {
+      markLocalChange: false,
+    })
+  } catch (error) {
+    console.error('[itemReadService] metadata hydration skipped due to automerge readiness issue', error)
+  }
 }
 
 function requestSyncForKnownDocuments(): void {
@@ -87,15 +189,7 @@ export async function ensureItemsBootstrap(
   accountId: string,
   options: EnsureItemsBootstrapOptions = {},
 ): Promise<void> {
-  await initializeAutomergeDocStore(accountId)
-
   const shouldForce = !!(options.force || options.forceFullSync || options.forceMetadataRefetch)
-  const knownItemIds = listAutomergeItemIds()
-
-  if (!shouldForce && bootstrappedAccounts.has(accountId) && knownItemIds.length > 0) {
-    requestSyncForKnownDocuments()
-    return
-  }
 
   if (!shouldForce) {
     const inFlight = inFlightBootstrapByAccount.get(accountId)
@@ -105,9 +199,23 @@ export async function ensureItemsBootstrap(
   }
 
   const bootstrap = (async () => {
+    await initializeAutomergeDocStore(accountId)
+
+    const knownItemIds = listAutomergeItemIds()
+    if (!shouldForce && bootstrappedAccounts.has(accountId) && knownItemIds.length > 0) {
+      requestSyncForKnownDocuments()
+      return
+    }
+
     if (hasApiAuthToken()) {
       const response = await fetchMany({ cacheTime: null }).catch(() => ({ items: [] as Array<{ item: string }> }))
-      const fetchedItemIds = normalizeItemIds(response.items)
+      const fetchedItems = normalizeFetchedVaultEnvelopes(response.items)
+      const fetchedItemIds = normalizeItemIds(fetchedItems)
+
+      if (fetchedItems.length > 0) {
+        await hydrateFetchedItemsLocally(fetchedItems)
+      }
+
       if (fetchedItemIds.length > 0) {
         getVaultNetworkAdapter().registerKnownItemIds(fetchedItemIds)
         requestAutomergeSync(fetchedItemIds)

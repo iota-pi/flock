@@ -21,20 +21,21 @@ const mocks = vi.hoisted(() => ({
 
 const repoMocks = vi.hoisted(() => {
   const importedHandle = {
-    isUnavailable: () => false,
+    state: 'ready',
     isReady: () => true,
     whenReady: vi.fn(async () => undefined),
     change: vi.fn(),
   }
 
   return {
-    find: vi.fn(async () => ({
-      isUnavailable: () => true,
+    find: vi.fn(() => ({
+      state: 'unavailable',
       isReady: () => true,
       whenReady: vi.fn(async () => undefined),
       change: vi.fn(),
     })),
     import: vi.fn(() => importedHandle),
+    removeFromCache: vi.fn(async () => undefined),
     delete: vi.fn(),
     importedHandle,
   }

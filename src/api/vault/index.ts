@@ -4,7 +4,10 @@ import {
   clearActiveSessionToken,
   setActiveSessionToken,
 } from '../../sync/workerAuthStore'
-import { clearAutomergeDocStore } from '../../sync/automergeDocStore'
+import {
+  clearAutomergeDocStore,
+  initializeAutomergeDocStore,
+} from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
@@ -54,6 +57,7 @@ let key: CryptoKey | null = null
 let keyHash = ''
 let session = ''
 let isHandlingSessionExpiry = false
+let loadVaultInFlight: Promise<void> | null = null
 
 function getKey() {
   if (!key) {
@@ -146,26 +150,46 @@ export async function loginVault({
 }) {
   await initialiseVault({ password, salt, iterations })
   await establishSessionFromKeyHash(keyHash)
+  void initializeAutomergeDocStore(getAccountId()).catch(err => {
+    console.error('[vault] initializeAutomergeDocStore failed (background):', err)
+  })
   await storeVault()
 }
 
 export async function loadVault() {
-  const { updateAuth } = useAuthStore.getState()
-  const stored = readStoredMetadata()
-
-  if (stored?.account) {
-    updateAuth({ account: stored.account })
+  if (loadVaultInFlight) {
+    return loadVaultInFlight
   }
 
-  if (stored?.key) {
-    key = await importVaultKey(stored.key)
-    const nextKeyHash = await hashVaultKey(getKey())
-    await establishSessionFromKeyHash(nextKeyHash)
-    setApiSessionExpiredHandler(handleSessionExpired)
-    updateAuth({ loggedIn: true })
-  }
+  loadVaultInFlight = (async () => {
+    const { updateAuth } = useAuthStore.getState()
+    const stored = readStoredMetadata()
 
-  updateAuth({ initializing: false })
+    try {
+      if (stored?.account) {
+        updateAuth({ account: stored.account })
+      }
+
+      if (stored?.key) {
+        key = await importVaultKey(stored.key)
+        const nextKeyHash = await hashVaultKey(getKey())
+        await establishSessionFromKeyHash(nextKeyHash)
+        if (stored.account) {
+          void initializeAutomergeDocStore(stored.account).catch(err => {
+            console.error('[vault] loadVault: initializeAutomergeDocStore failed (background):', err)
+          })
+        }
+        setApiSessionExpiredHandler(handleSessionExpired)
+        updateAuth({ loggedIn: true })
+      }
+    } finally {
+      updateAuth({ initializing: false })
+    }
+  })().finally(() => {
+    loadVaultInFlight = null
+  })
+
+  return loadVaultInFlight
 }
 
 export async function storeVault() {

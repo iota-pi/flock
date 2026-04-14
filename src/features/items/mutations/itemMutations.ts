@@ -199,6 +199,9 @@ async function upsertRepoItemSnapshot(item: Item): Promise<void> {
   })
 
   if (handle.isUnavailable()) {
+    // `removeFromCache` may throw on unavailable handles; delete clears handle cache entry.
+    repo.delete(interpretAsDocumentId(docUrl))
+
     const initialDoc = Automerge.from(normalizeItemForAutomerge(item))
     const binary = Automerge.save(initialDoc)
     handle = repo.import<Record<string, unknown>>(binary, {
@@ -206,7 +209,7 @@ async function upsertRepoItemSnapshot(item: Item): Promise<void> {
     })
 
     if (!handle.isReady()) {
-      await handle.whenReady(['ready'])
+      await handle.whenReady(['ready', 'unavailable'])
     }
     return
   }

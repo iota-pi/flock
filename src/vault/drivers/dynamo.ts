@@ -31,6 +31,7 @@ import BaseDriver, {
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
+  VaultSessionRecord,
 } from './base'
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
@@ -46,6 +47,7 @@ const MAX_BATCH_GET_ITEMS = 100
 const MAX_BATCH_GET_RETRIES = 5
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
+const MAX_ACTIVE_SESSIONS = 8
 
 type WritableVaultItem = VaultItem & {
   _expectedParentVersionId?: string
@@ -190,6 +192,35 @@ function isRetryableAwsError(error: unknown): boolean {
   return retryableTokens.some(token => name.includes(token) || message.includes(token))
 }
 
+function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const deduped = new Map<string, VaultSessionRecord>()
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const token = (entry as { token?: unknown }).token
+    const expiry = (entry as { expiry?: unknown }).expiry
+    if (typeof token !== 'string' || token.length === 0) {
+      continue
+    }
+
+    if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry <= now) {
+      continue
+    }
+
+    deduped.set(token, { token, expiry })
+  }
+
+  return Array.from(deduped.values())
+    .sort((left, right) => left.expiry - right.expiry)
+    .slice(-MAX_ACTIVE_SESSIONS)
+}
+
 export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClientConfig> extends BaseDriver<T> {
   private internalClient: DynamoDBDocumentClient | undefined
 
@@ -329,6 +360,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       {
         TableName: ACCOUNT_TABLE_NAME,
         Key: { account },
+        ConsistentRead: true,
       },
     ))
     if (response?.Item) {
@@ -342,6 +374,14 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
 
       const now = Date.now()
+      const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
+      if (activeSessions.some(active => almostConstantTimeEqual(session, active.token))) {
+        return {
+          ...(response.Item as VaultAccountWithAuth),
+          sessions: activeSessions,
+        }
+      }
+
       const sessionExpiry = response.Item.sessionExpiry as number | undefined
       if (sessionExpiry && sessionExpiry < now) {
         throw new ExpiredSessionError('Invalid session token')
@@ -405,6 +445,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       reminderEnabled,
       reminderTime,
       session,
+      sessions,
       reminderTimezone,
       lastPrayerCompletedAt,
       expectedMetadataParentVersionId,
@@ -414,6 +455,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       reminderEnabled?: boolean,
       reminderTime?: string,
       session?: string,
+      sessions?: VaultSessionRecord[],
       reminderTimezone?: string,
       lastPrayerCompletedAt?: number,
       expectedMetadataParentVersionId?: string,
@@ -429,6 +471,11 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       expressionAttributeValues[':session'] = session
       expressionAttributeValues[':expiry'] = Date.now() + SESSION_EXPIRY_MS
       expressionAttributeNames['#session'] = 'session'
+    }
+
+    if (sessions) {
+      updateExpressions.push('sessions = :sessions')
+      expressionAttributeValues[':sessions'] = normalizeSessionRecords(sessions)
     }
 
     if (metadata && Object.keys(metadata).length > 0) {

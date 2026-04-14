@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import * as Sentry from '@sentry/react'
 import { ensureItemsBootstrap } from '../api/itemReadService'
 import { useSyncStore } from '../state/syncStore'
 import {
@@ -25,7 +26,10 @@ export default function useSyncCoordinatorLifecycle(
       stopAutomergeSyncDispatcher()
 
       if (!enabled || !account) {
-        clearFatalError()
+        // Clear only when fully logged out so initialization errors are not masked.
+        if (!account) {
+          clearFatalError()
+        }
         return
       }
 
@@ -33,12 +37,12 @@ export default function useSyncCoordinatorLifecycle(
 
       void (async () => {
         try {
-          clearFatalError()
           await ensureItemsBootstrap(account)
           if (cancelled) {
             return
           }
 
+          clearFatalError()
           startAutomergeSyncDispatcher(account)
           requestAutomergeSync()
         } catch (error) {
@@ -47,6 +51,8 @@ export default function useSyncCoordinatorLifecycle(
           }
 
           stopAutomergeSyncDispatcher()
+          console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
+          Sentry.captureException(error)
           setFatalError(getErrorMessage(error))
         }
       })()
