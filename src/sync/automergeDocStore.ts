@@ -201,7 +201,7 @@ function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
 
   try {
     const doc = handle.doc()
-    return isPlainObject(doc) ? cloneValue(doc) : null
+    return isPlainObject(doc) ? (doc as RepoDoc) : null
   } catch {
     return null
   }
@@ -521,15 +521,15 @@ export function getAutomergeItem(itemId: string): Item | null {
   }
 
   const item = snapshot as Partial<Item>
-  if (typeof item.id !== 'string' || item.id.length === 0) {
-    item.id = itemId
-  }
+  const normalizedItem = (typeof item.id === 'string' && item.id.length > 0)
+    ? item
+    : { ...item, id: itemId }
 
-  if (typeof item.type !== 'string' || item.type.length === 0) {
+  if (typeof normalizedItem.type !== 'string' || normalizedItem.type.length === 0) {
     return null
   }
 
-  return item as Item
+  return normalizedItem as Item
 }
 
 export function getAutomergeMetadata(): AccountMetadata {
