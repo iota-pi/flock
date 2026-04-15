@@ -11,6 +11,7 @@ import {
   getIcon,
   MoreOptionsIcon,
 } from '../../../components/Icons'
+import DelayedRender from '../../../components/ui/DelayedRender'
 
 interface Props {
   item: Pick<Item, 'type' | 'name' | 'description'>,
@@ -54,16 +55,18 @@ function ItemViewTopBar({
       >
         <MoreOptionsIcon />
       </IconButton>
-      <Menu
-        anchorEl={menuAnchorEl}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        onClick={() => setMenuAnchorEl(null)}
-        onClose={() => setMenuAnchorEl(null)}
-        open={menuOpen}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        {menuItems}
-      </Menu>
+      <DelayedRender delayMs={menuOpen ? 0 : 100}>
+        <Menu
+          anchorEl={menuAnchorEl}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          onClick={() => setMenuAnchorEl(null)}
+          onClose={() => setMenuAnchorEl(null)}
+          open={menuOpen}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          {menuItems}
+        </Menu>
+      </DelayedRender>
     </>
   )
 
