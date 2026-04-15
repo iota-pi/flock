@@ -4,9 +4,10 @@ import { useSearchParams } from 'react-router'
 export function useDialogState(dialogId: string, paramName = 'dialog') {
   const [searchParams, setSearchParams] = useSearchParams()
   const isOpen = searchParams.get(paramName) === dialogId
+  const searchParamMatches = searchParams.get(paramName) === dialogId
 
   const openDialog = useCallback(() => {
-    if (searchParams.get(paramName) === dialogId) {
+    if (searchParamMatches) {
       return
     }
 
@@ -15,10 +16,10 @@ export function useDialogState(dialogId: string, paramName = 'dialog') {
       next.set(paramName, dialogId)
       return next
     })
-  }, [dialogId, paramName, searchParams, setSearchParams])
+  }, [dialogId, paramName, searchParamMatches, setSearchParams])
 
   const closeDialog = useCallback(() => {
-    if (searchParams.get(paramName) !== dialogId) {
+    if (!searchParamMatches) {
       return
     }
 
@@ -27,16 +28,16 @@ export function useDialogState(dialogId: string, paramName = 'dialog') {
       next.delete(paramName)
       return next
     })
-  }, [dialogId, paramName, searchParams, setSearchParams])
+  }, [dialogId, paramName, searchParamMatches, setSearchParams])
 
   const toggleDialog = useCallback(() => {
-    if (searchParams.get(paramName) === dialogId) {
+    if (searchParamMatches) {
       closeDialog()
       return
     }
 
     openDialog()
-  }, [closeDialog, dialogId, openDialog, paramName, searchParams])
+  }, [closeDialog, dialogId, openDialog, paramName, searchParamMatches])
 
   return {
     isOpen,

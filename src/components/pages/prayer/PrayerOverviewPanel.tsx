@@ -3,6 +3,7 @@ import { useSwipeable } from 'react-swipeable'
 import type { Item } from '../../../state/items'
 import ItemList from '../../../features/items/components/ItemList'
 import PrayerOverviewHeader from './PrayerOverviewHeader'
+import { memo } from 'react'
 
 type Props = {
   completed: number,
@@ -18,7 +19,7 @@ type Props = {
   isPrayedForToday: (item: Item) => boolean,
 }
 
-function PrayerOverviewPanel({
+const PrayerOverviewPanel = memo(function PrayerOverviewPanel({
   completed,
   goal,
   naturalGoal,
@@ -76,6 +77,6 @@ function PrayerOverviewPanel({
       </Box>
     </Box>
   )
-}
+})
 
 export default PrayerOverviewPanel

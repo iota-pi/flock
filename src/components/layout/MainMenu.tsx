@@ -1,4 +1,4 @@
-import { memo, ReactNode, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import {
   Badge,
@@ -129,7 +129,7 @@ interface MainMenuItemProps {
 }
 
 
-function MainMenuItem({
+const MainMenuItem = memo(function MainMenuItem({
   dividerBefore,
   icon: Icon,
   id,
@@ -174,7 +174,7 @@ function MainMenuItem({
       </StyledListItemButton>
     </>
   )
-}
+})
 
 
 function MainMenu({
@@ -187,14 +187,49 @@ function MainMenu({
   const navigate = useNavigate()
   const metadata = useAccountMetadata()
   const page = usePage()
+  const previousPageIdRef = useRef<PageId | undefined>(page?.id)
+  const currentPageIdRef = useRef<PageId | undefined>(page?.id)
+
+  const pagePathById = useMemo(
+    () => new Map<PageId, string>(pages.map(menuPage => [menuPage.id, menuPage.path])),
+    [],
+  )
+
+  useEffect(
+    () => {
+      currentPageIdRef.current = page?.id
+    },
+    [page?.id],
+  )
+
+  useEffect(
+    () => {
+      const previousPageId = previousPageIdRef.current
+      const currentPageId = page?.id
+
+      previousPageIdRef.current = currentPageId
+
+      if (!previousPageId || !currentPageId || previousPageId === currentPageId) {
+        return
+      }
+
+      if (useNavigationStore.getState().selected.length > 0) {
+        setSelected([])
+      }
+    },
+    [page?.id, setSelected],
+  )
 
   const handleClick = useCallback(
     (pageId?: PageId) => {
-      if (pageId && page?.id !== pageId) {
-        const newPage = pages.find(p => p.id === pageId)!
-        navigate(newPage.path)
-        setSelected([])
-      } else if (pageId === 'prayer' && page?.id === 'prayer') {
+      const currentPageId = currentPageIdRef.current
+
+      if (pageId && currentPageId !== pageId) {
+        const nextPath = pagePathById.get(pageId)
+        if (nextPath) {
+          navigate(nextPath)
+        }
+      } else if (pageId === 'prayer' && currentPageId === 'prayer') {
         navigate('/', {
           replace: true,
           state: {
@@ -204,7 +239,7 @@ function MainMenu({
       }
       onClick()
     },
-    [page?.id, navigate, onClick, setSelected],
+    [navigate, onClick, pagePathById],
   )
 
   const pagesToShow = useMemo(

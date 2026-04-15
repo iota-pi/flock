@@ -9,17 +9,17 @@ import {
 import {
   DirtyItem,
   Item,
-} from '../../../state/items'
-import ItemDrawer from '../../../features/items/components/ItemDrawer'
-import ItemFormContent from '../../../features/items/components/ItemFormContent'
-import ItemViewTopBar from '../../../features/items/components/ItemViewTopBar'
+} from 'src/state/items'
+import ItemDrawer from 'src/features/items/components/ItemDrawer'
+import ItemFormContent from 'src/features/items/components/ItemFormContent'
+import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {
   ArchiveIcon,
   PrayerIcon,
   UnarchiveIcon,
 } from '../../Icons'
-import { isSameDay } from '../../../utils'
-import { getLastPrayedFor } from '../../../utils/prayer'
+import { isSameDay } from 'src/utils'
+import { getLastPrayedFor } from 'src/utils/prayer'
 import SwipeableCarousel from '../../ui/SwipeableCarousel'
 
 interface Props {

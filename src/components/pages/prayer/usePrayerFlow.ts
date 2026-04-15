@@ -79,7 +79,11 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const [flowState, dispatchFlow] = useReducer(prayerFlowReducer, PRAYER_FLOW_INITIAL_STATE)
   const [localItems, setLocalItems] = useState<DirtyItem<Item>[]>([])
-  const goalDialog = useDialogState('goal')
+  const {
+    closeDialog: closeGoalDialog,
+    isOpen: isGoalDialogOpen,
+    openDialog: openGoalDialog,
+  } = useDialogState('goal')
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false)
   const flow = flowState.current
 
@@ -96,6 +100,30 @@ export default function usePrayerFlow(): PrayerFlowController {
     showUntil,
     visibleSchedule,
   } = usePrayerSchedule()
+
+  const localItemsRef = useRef(localItems)
+  useEffect(
+    () => {
+      localItemsRef.current = localItems
+    },
+    [localItems],
+  )
+
+  const scheduleRef = useRef(schedule)
+  useEffect(
+    () => {
+      scheduleRef.current = schedule
+    },
+    [schedule],
+  )
+
+  const visibleScheduleRef = useRef(visibleSchedule)
+  useEffect(
+    () => {
+      visibleScheduleRef.current = visibleSchedule
+    },
+    [visibleSchedule],
+  )
 
   const canKeepPraying = useMemo(
     () => schedule.some((item, idx) => idx >= visibleSchedule.length && !isPrayedForToday(item)),
@@ -134,6 +162,26 @@ export default function usePrayerFlow(): PrayerFlowController {
         .map(item => ({ ...item }) as DirtyItem<Item>)
     ),
     [itemMap, scheduleIds],
+  )
+
+  const visibleIndexByItemId = useMemo(
+    () => {
+      const indexById = new Map<string, number>()
+      for (let index = 0; index < visibleSchedule.length; index += 1) {
+        indexById.set(visibleSchedule[index].id, index)
+      }
+
+      return indexById
+    },
+    [visibleSchedule],
+  )
+
+  const visibleIndexByItemIdRef = useRef(visibleIndexByItemId)
+  useEffect(
+    () => {
+      visibleIndexByItemIdRef.current = visibleIndexByItemId
+    },
+    [visibleIndexByItemId],
   )
 
   const isActiveViewPrepared = usePrayerActiveViewPreload({
@@ -205,12 +253,16 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const handleStart = useCallback(
     (fromIndex: number) => {
-      const items = localItems.length > 0 ? localItems : buildLocalItems(visibleSchedule.length)
+      const existingItems = localItemsRef.current
+      const visibleCount = visibleScheduleRef.current.length
+      const items = existingItems.length > 0 ? existingItems : buildLocalItems(visibleCount)
       if (!items[fromIndex]) return
-      if (items !== localItems) setLocalItems(items)
+      if (items !== existingItems) {
+        setLocalItems(items)
+      }
       dispatchFlow({ type: 'start-at', index: fromIndex })
     },
-    [buildLocalItems, localItems, visibleSchedule.length],
+    [buildLocalItems],
   )
 
   const handleNext = useCallback(
@@ -265,12 +317,12 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const handleItemClick = useCallback(
     (item: Item) => {
-      const index = visibleSchedule.findIndex(s => s.id === item.id)
-      if (index >= 0) {
+      const index = visibleIndexByItemIdRef.current.get(item.id)
+      if (index !== undefined) {
         handleStart(index)
       }
     },
-    [visibleSchedule, handleStart],
+    [handleStart],
   )
 
   const handleCheck = useCallback(
@@ -281,8 +333,11 @@ export default function usePrayerFlow(): PrayerFlowController {
   const handleKeepPraying = useCallback(
     () => {
       const nextUnprayed: number[] = []
-      for (let i = visibleSchedule.length; i < schedule.length; i++) {
-        const item = schedule[i]
+      const currentVisibleCount = visibleScheduleRef.current.length
+      const currentSchedule = scheduleRef.current
+
+      for (let i = currentVisibleCount; i < currentSchedule.length; i++) {
+        const item = currentSchedule[i]
         if (item && !isPrayedForToday(item)) {
           nextUnprayed.push(i)
           if (nextUnprayed.length === 3) break
@@ -297,16 +352,17 @@ export default function usePrayerFlow(): PrayerFlowController {
       setLocalItems(expandedItems)
       dispatchFlow({ type: 'set-active-index', index: firstNewIndex })
     },
-    [buildLocalItems, isPrayedForToday, schedule, showUntil, visibleSchedule.length],
+    [buildLocalItems, isPrayedForToday, showUntil],
   )
 
-  const handleEditGoal = useCallback(() => goalDialog.openDialog(), [goalDialog])
-  const handleCloseGoalDialog = useCallback(() => goalDialog.closeDialog(), [goalDialog])
+  const handleEditGoal = useCallback(() => openGoalDialog(), [openGoalDialog])
+  const handleCloseGoalDialog = useCallback(() => closeGoalDialog(), [closeGoalDialog])
   const handleOpenEditDrawer = useCallback(() => setIsEditDrawerOpen(true), [])
+  const activeFlowIndex = flow.type === 'active' ? flow.index : null
   const handleCloseEditDrawer = useCallback(
     () => {
-      if (flow.type === 'active') {
-        const currentItem = localItems[flow.index]
+      if (flow.type === 'active' && activeFlowIndex !== null) {
+        const currentItem = localItems[activeFlowIndex]
         if (currentItem) {
           const existing = itemMap[currentItem.id]
           const prayedForChanged = !!existing && JSON.stringify(existing.prayedFor) !== JSON.stringify(currentItem.prayedFor)
@@ -320,7 +376,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       }
       setIsEditDrawerOpen(false)
     },
-    [flow, itemMap, localItems, queuePrayedForSync, saveLocalItem],
+    [activeFlowIndex, flow.type, itemMap, localItems, queuePrayedForSync, saveLocalItem],
   )
 
   const handleGoToOverview = useCallback(() => {
@@ -346,20 +402,39 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const startButtonLabel = allVisiblePrayed ? 'Keep Praying' : (hasPrayedItems ? 'Continue' : 'Start')
 
-  const handleOverviewPrimaryAction = useCallback(
+  const allVisiblePrayedRef = useRef(allVisiblePrayed)
+  useEffect(
     () => {
-      if (allVisiblePrayed && canKeepPraying) {
-        handleKeepPraying()
-      } else {
-        handleStart(firstUnprayedIndex)
-      }
+      allVisiblePrayedRef.current = allVisiblePrayed
     },
-    [allVisiblePrayed, canKeepPraying, firstUnprayedIndex, handleKeepPraying, handleStart],
+    [allVisiblePrayed],
+  )
+
+  const canKeepPrayingRef = useRef(canKeepPraying)
+  useEffect(
+    () => {
+      canKeepPrayingRef.current = canKeepPraying
+    },
+    [canKeepPraying],
+  )
+
+  const firstUnprayedIndexRef = useRef(firstUnprayedIndex)
+  useEffect(
+    () => {
+      firstUnprayedIndexRef.current = firstUnprayedIndex
+    },
+    [firstUnprayedIndex],
   )
 
   const handleStartFirst = useCallback(
-    () => handleOverviewPrimaryAction(),
-    [handleOverviewPrimaryAction],
+    () => {
+      if (allVisiblePrayedRef.current && canKeepPrayingRef.current) {
+        handleKeepPraying()
+      } else {
+        handleStart(firstUnprayedIndexRef.current)
+      }
+    },
+    [handleKeepPraying, handleStart],
   )
 
   const overlayActiveItem = overlayFlow?.type === 'active' ? localItems[overlayFlow.index] : undefined
@@ -402,7 +477,7 @@ export default function usePrayerFlow(): PrayerFlowController {
     handleStepClick,
     hideActiveView,
     isEditDrawerOpen,
-    isGoalDialogOpen: goalDialog.isOpen,
+    isGoalDialogOpen,
     isLastActiveStep,
     isPrayedForToday,
     localItems,

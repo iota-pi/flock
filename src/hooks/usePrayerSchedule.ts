@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToday } from './useToday'
-import { useItemMap, useItems, useMetadata } from '../state/selectors'
+import { useItems, useMetadata } from '../state/selectors'
 import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
@@ -9,8 +9,12 @@ import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function usePrayerSchedule() {
   const items = useItems()
-  const itemMap = useItemMap()
   const today = useToday()
+
+  const itemMap = useMemo(
+    () => Object.fromEntries(items.map(item => [item.id, item])),
+    [items],
+  )
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
@@ -33,15 +37,19 @@ export function usePrayerSchedule() {
   )
   const scheduleIds = useStableArray(rawPrayerSchedule)
 
-  const schedule = useMemo(
-    () => scheduleIds.map(id => itemMap[id]),
+  const rawSchedule = useMemo(
+    () => scheduleIds
+      .map(id => itemMap[id])
+      .filter((item): item is Item => !!item),
     [itemMap, scheduleIds],
   )
+  const schedule = useStableArray(rawSchedule)
 
-  const visibleSchedule = useMemo(
+  const rawVisibleSchedule = useMemo(
     () => schedule.slice(0, todaysGoal),
     [todaysGoal, schedule],
   )
+  const visibleSchedule = useStableArray(rawVisibleSchedule)
 
   const completed = useMemo(
     () => items.filter(isPrayedForToday).length,

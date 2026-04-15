@@ -53,10 +53,6 @@ export const useItemMap = () => {
   const items = useAutomergeItemsSnapshot()
 
   return useMemo(() => {
-    if (items.length === 0) {
-      return EMPTY_ITEM_MAP
-    }
-
     const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
     return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
   }, [items])
