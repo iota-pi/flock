@@ -12,14 +12,12 @@ import {
   DirtyItem,
   Item,
 } from '../../../state/items'
-import { useItemMap } from '../../../state/selectors'
 import { usePrayerSchedule } from '../../../hooks/usePrayerSchedule'
 import { useToday } from '../../../hooks/useToday'
 import { recordPrayerCompletion } from '../../../api/vault'
 import { useDialogState } from '../../../hooks/useDialogState'
 import { isSameDay } from '../../../utils'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import usePrayerActiveViewPreload from './usePrayerActiveViewPreload'
 import {
   type FlowState,
   PRAYER_FLOW_INITIAL_STATE,
@@ -71,7 +69,6 @@ export type PrayerFlowController = {
 
 export default function usePrayerFlow(): PrayerFlowController {
   const location = useLocation()
-  const itemMap = useItemMap()
   const { queuePrayedForSync, saveLocalItem } = usePrayerSync()
 
   const today = useToday()
@@ -96,7 +93,6 @@ export default function usePrayerFlow(): PrayerFlowController {
     naturalGoal,
     recordPrayerFor,
     schedule,
-    scheduleIds,
     showUntil,
     visibleSchedule,
   } = usePrayerSchedule()
@@ -155,13 +151,11 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const buildLocalItems = useCallback(
     (count: number) => (
-      scheduleIds
+      scheduleRef.current
         .slice(0, count)
-        .map(id => itemMap[id])
-        .filter((item): item is Item => !!item)
         .map(item => ({ ...item }) as DirtyItem<Item>)
     ),
-    [itemMap, scheduleIds],
+    [],
   )
 
   const visibleIndexByItemId = useMemo(
@@ -184,12 +178,7 @@ export default function usePrayerFlow(): PrayerFlowController {
     [visibleIndexByItemId],
   )
 
-  const isActiveViewPrepared = usePrayerActiveViewPreload({
-    isOverview: flow.type === 'overview',
-    visibleCount: visibleSchedule.length,
-    buildLocalItems,
-    setLocalItems,
-  })
+  const isActiveViewPrepared = true
 
   const handleChange = useCallback(
     <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => {
@@ -364,7 +353,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       if (flow.type === 'active' && activeFlowIndex !== null) {
         const currentItem = localItems[activeFlowIndex]
         if (currentItem) {
-          const existing = itemMap[currentItem.id]
+          const existing = scheduleRef.current.find(item => item.id === currentItem.id)
           const prayedForChanged = !!existing && JSON.stringify(existing.prayedFor) !== JSON.stringify(currentItem.prayedFor)
 
           if (prayedForChanged) {
@@ -376,7 +365,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       }
       setIsEditDrawerOpen(false)
     },
-    [activeFlowIndex, flow.type, itemMap, localItems, queuePrayedForSync, saveLocalItem],
+    [activeFlowIndex, flow.type, localItems, queuePrayedForSync, saveLocalItem],
   )
 
   const handleGoToOverview = useCallback(() => {

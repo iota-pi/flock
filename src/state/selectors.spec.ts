@@ -7,6 +7,7 @@ import {
   useItemMap,
   useItems,
   useItemsByIds,
+  usePrayerScheduleInputs,
   useSearchItems,
   useLoggedIn,
 } from './selectors'
@@ -171,7 +172,7 @@ describe('state selectors', () => {
         topic: true,
         error: true,
       },
-    } as const
+    }
 
     const { result } = renderHook(() => useSearchItems(options))
     const firstResult = result.current
@@ -195,7 +196,7 @@ describe('state selectors', () => {
         topic: true,
         error: true,
       },
-    } as const
+    }
 
     const { result } = renderHook(() => useSearchItems(options))
     const firstResult = result.current
@@ -211,5 +212,34 @@ describe('state selectors', () => {
 
     expect(result.current).not.toBe(firstResult)
     expect(result.current.items.find(item => item.id === 'person-1')?.name).toBe('Alice Updated')
+  })
+
+  it('usePrayerScheduleInputs keeps stable snapshot for semantically unchanged updates', () => {
+    const { result } = renderHook(() => usePrayerScheduleInputs())
+    const firstResult = result.current
+
+    act(() => {
+      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
+      automergeMetadataState = { ...automergeMetadataState }
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).toBe(firstResult)
+  })
+
+  it('usePrayerScheduleInputs returns new snapshot when prayerGoal changes', () => {
+    const { result } = renderHook(() => usePrayerScheduleInputs())
+    const firstResult = result.current
+
+    act(() => {
+      automergeMetadataState = {
+        ...automergeMetadataState,
+        prayerGoal: 7,
+      }
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).not.toBe(firstResult)
+    expect(result.current.prayerGoal).toBe(7)
   })
 })

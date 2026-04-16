@@ -25,11 +25,21 @@ type SearchItemsResult = {
   items: Item[],
 }
 
+type PrayerScheduleInputs = {
+  items: Item[],
+  prayerGoal: number | undefined,
+}
+
 type SearchItemsOptions = {
   includeArchived: boolean,
   selectedItemIds: ItemId[],
   showSelectedOptions: boolean,
   types: Readonly<Partial<Record<Item['type'], boolean>>>,
+}
+
+const EMPTY_PRAYER_SCHEDULE_INPUTS: PrayerScheduleInputs = {
+  items: EMPTY_ARRAY,
+  prayerGoal: undefined,
 }
 
 function useAutomergeItemsSnapshot(): Item[] {
@@ -195,6 +205,51 @@ export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
   )
 
   const getServerSnapshot = useCallback(() => EMPTY_ARRAY as T[], [])
+
+  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+}
+
+export function usePrayerScheduleInputs(): PrayerScheduleInputs {
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const cacheRef = useRef<PrayerScheduleInputs | null>(null)
+
+  const getSnapshot = useCallback(
+    () => {
+      if (!authReady) {
+        const cached = cacheRef.current
+        if (cached && cached.items.length === 0 && cached.prayerGoal === undefined) {
+          return cached
+        }
+
+        cacheRef.current = EMPTY_PRAYER_SCHEDULE_INPUTS
+        return EMPTY_PRAYER_SCHEDULE_INPUTS
+      }
+
+      const metadata = getAutomergeMetadata() as Metadata
+      const prayerGoal = metadata.prayerGoal
+      const nextItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+
+      const cached = cacheRef.current
+      if (
+        cached
+        && cached.prayerGoal === prayerGoal
+        && isEqual(cached.items, nextItems)
+      ) {
+        return cached
+      }
+
+      const next: PrayerScheduleInputs = {
+        items: nextItems,
+        prayerGoal,
+      }
+
+      cacheRef.current = next
+      return next
+    },
+    [authReady],
+  )
+
+  const getServerSnapshot = useCallback(() => EMPTY_PRAYER_SCHEDULE_INPUTS, [])
 
   return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
 }

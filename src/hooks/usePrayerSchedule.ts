@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToday } from './useToday'
-import { useItems, useMetadata } from '../state/selectors'
+import { usePrayerScheduleInputs } from '../state/selectors'
 import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
@@ -8,7 +8,10 @@ import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function usePrayerSchedule() {
-  const items = useItems()
+  const {
+    items,
+    prayerGoal,
+  } = usePrayerScheduleInputs()
   const today = useToday()
 
   const itemMap = useMemo(
@@ -17,11 +20,14 @@ export function usePrayerSchedule() {
   )
 
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
-  const [goal] = useMetadata('prayerGoal', naturalGoal)
+  const goal = prayerGoal ?? naturalGoal
   const [todaysGoal, setTodaysGoal] = useState(goal)
 
   useEffect(() => {
-    setTodaysGoal(goal)
+    if (todaysGoal !== goal) {
+      console.log('Updating today\'s prayer goal to', goal)
+      setTodaysGoal(goal)
+    }
   }, [goal])
 
   const isPrayedForToday = useCallback(

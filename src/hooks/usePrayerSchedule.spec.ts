@@ -3,9 +3,7 @@ import { usePrayerSchedule } from './usePrayerSchedule'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 vi.mock('../state/selectors', () => ({
-  useItems: vi.fn(),
-  useItemMap: vi.fn(),
-  useMetadata: vi.fn(),
+  usePrayerScheduleInputs: vi.fn(),
 }))
 
 vi.mock('../utils/prayer', () => ({
@@ -26,7 +24,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
   requestAutomergeSync: vi.fn(),
 }))
 
-import { useItems, useItemMap, useMetadata } from '../state/selectors'
+import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
 import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
@@ -34,15 +32,14 @@ import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { Item } from 'src/state/items'
 
 describe('usePrayerSchedule', () => {
-  const mockSetMetadata = vi.fn()
-
   beforeEach(() => {
     vi.clearAllMocks()
 
-    vi.mocked(useItems).mockReturnValue([])
-    vi.mocked(useItemMap).mockReturnValue({})
+    vi.mocked(usePrayerScheduleInputs).mockReturnValue({
+      items: [],
+      prayerGoal: 3,
+    })
     vi.mocked(useToday).mockReturnValue(new Date('2024-01-01T12:00:00'))
-    vi.mocked(useMetadata).mockReturnValue([3, mockSetMetadata])
 
     vi.mocked(getNaturalPrayerGoal).mockReturnValue(5)
     vi.mocked(getPrayerSchedule).mockReturnValue([])
@@ -62,10 +59,11 @@ describe('usePrayerSchedule', () => {
   it('calculates visibleSchedule based on goal', () => {
     const ids = ['1', '2', '3', '4', '5']
     const items = ids.map(id => ({ id, name: `Item ${id}` } as Item))
-    const itemMap = Object.fromEntries(items.map(i => [i.id, i]))
 
-    vi.mocked(useItems).mockReturnValue(items)
-    vi.mocked(useItemMap).mockReturnValue(itemMap)
+    vi.mocked(usePrayerScheduleInputs).mockReturnValue({
+      items,
+      prayerGoal: 3,
+    })
     vi.mocked(getPrayerSchedule).mockReturnValue(ids)
 
     const { result } = renderHook(() => usePrayerSchedule())
