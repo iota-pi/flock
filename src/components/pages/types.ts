@@ -23,7 +23,6 @@ export interface MenuRouteConfig extends BasePageConfig {
   name: string
   dividerBefore?: boolean
   noPlaceholderDrawer?: boolean
-  metadataControl?: (metadata: AccountMetadata) => boolean
   requiresAuth: true
 }
 

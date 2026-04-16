@@ -15,7 +15,6 @@ import {
 import { pages, usePage } from '../pages'
 import { PageId } from '../pages/routes'
 import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
-import { useAccountMetadata } from '../../state/selectors'
 import { useNavigationStore } from '../../state/navigationStore'
 
 export const DRAWER_SPACING_FULL = 30
@@ -185,7 +184,6 @@ function MainMenu({
 }: Props) {
   const setSelected = useNavigationStore(state => state.setSelected)
   const navigate = useNavigate()
-  const metadata = useAccountMetadata()
   const page = usePage()
   const previousPageIdRef = useRef<PageId | undefined>(page?.id)
   const currentPageIdRef = useRef<PageId | undefined>(page?.id)
@@ -242,11 +240,6 @@ function MainMenu({
     [navigate, onClick, pagePathById],
   )
 
-  const pagesToShow = useMemo(
-    () => pages.filter(p => (p.metadataControl ? p.metadataControl(metadata) : true)),
-    [metadata],
-  )
-
   return (
     <StyledDrawer
       minimised={minimised}
@@ -257,7 +250,7 @@ function MainMenu({
 
       <DrawerContent>
         <FlexList>
-          {pagesToShow.map(({ id, name, icon: Icon, dividerBefore }) => (
+          {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
             <MainMenuItem
               key={id}
               dividerBefore={dividerBefore}
