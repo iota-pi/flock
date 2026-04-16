@@ -84,7 +84,7 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useUiStore(state => state.requests.active)
+  const activeRequests = useUiStore(state => state.activeRequests)
   const loading = activeRequests > 0
 
   const page = usePage()

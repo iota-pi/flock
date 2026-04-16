@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useUiStore, type UIState } from './uiStore'
 
 const initialState: UIState = {
+  activeRequests: 0,
   darkMode: null,
   filters: useUiStore.getState().filters,
-  requests: { active: 0 },
   justCreatedAccount: false,
 }
 
@@ -16,15 +16,15 @@ describe('uiStore base state actions', () => {
 
   it('setUi applies payload values for retained ui fields', () => {
     useUiStore.getState().setUi({
+      activeRequests: 2,
       darkMode: true,
       justCreatedAccount: true,
-      requests: { active: 2 },
     })
 
     const state = useUiStore.getState()
     expect(state.darkMode).toBe(true)
     expect(state.justCreatedAccount).toBe(true)
-    expect(state.requests.active).toBe(2)
+    expect(state.activeRequests).toBe(2)
   })
 
   it('request lifecycle updates active request counter', () => {
@@ -33,11 +33,11 @@ describe('uiStore base state actions', () => {
     store.startRequest()
 
     let state = useUiStore.getState()
-    expect(state.requests.active).toBe(2)
+    expect(state.activeRequests).toBe(2)
 
     store.finishRequest()
     store.finishRequest()
     state = useUiStore.getState()
-    expect(state.requests.active).toBe(0)
+    expect(state.activeRequests).toBe(0)
   })
 })

@@ -11,7 +11,7 @@ import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
   const syncInProgress = useSyncStore(state => state.isSyncing)
-  const activeRequests = useUiStore(state => state.requests.active)
+  const activeRequests = useUiStore(state => state.activeRequests)
   const isSyncing = syncInProgress || activeRequests > 0
   const isOnline = useOnlineStatus()
 

@@ -3,20 +3,14 @@ import { persist } from 'zustand/middleware'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
 import { useToastStore } from './toastStore'
 
-interface RequestData {
-  active: number,
-}
-
 export interface UIState {
+  activeRequests: number,
   darkMode: boolean | null,
   filters: FilterCriterion[],
-  requests: RequestData,
   justCreatedAccount: boolean,
 }
 
-type SetUiPayload = Omit<Partial<UIState>, 'requests'> & {
-  requests?: Partial<UIState['requests']>,
-}
+type SetUiPayload = Partial<UIState>
 
 interface UiStore extends UIState {
   setUi: (payload: SetUiPayload) => void,
@@ -25,11 +19,9 @@ interface UiStore extends UIState {
 }
 
 const initialUiState: UIState = {
+  activeRequests: 0,
   darkMode: null,
   filters: DEFAULT_FILTER_CRITERIA,
-  requests: {
-    active: 0,
-  },
   justCreatedAccount: false,
 }
 
@@ -38,22 +30,16 @@ export const useUiStore = create<UiStore>()(
     set => ({
       ...initialUiState,
       setUi: payload => {
-        set(state => ({
-          ...payload,
-          requests: {
-            ...state.requests,
-            ...payload.requests,
-          },
-        }))
+        set(() => ({ ...payload }))
       },
       startRequest: () => {
         set(state => ({
-          requests: { active: state.requests.active + 1 },
+          activeRequests: state.activeRequests + 1,
         }))
       },
       finishRequest: error => {
         set(state => ({
-          requests: { active: Math.max(0, state.requests.active - 1) },
+          activeRequests: Math.max(0, state.activeRequests - 1),
         }))
 
         if (error) {
