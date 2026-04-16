@@ -13,6 +13,8 @@ type PrayerPageContentProps = {
 }
 
 export default function PrayerPageContent({ flow }: PrayerPageContentProps) {
+  const { actions, state, ui } = flow
+
   return (
     <BasePage noScrollContainer>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -21,56 +23,56 @@ export default function PrayerPageContent({ flow }: PrayerPageContentProps) {
             sx={{
               display: 'flex',
               height: '100%',
-              transform: flow.viewTrackTransform,
-              transition: `transform ${flow.transitionDurationMs}ms cubic-bezier(0.25, 0.8, 0.25, 1)`,
+              transform: state.viewTrackTransform,
+              transition: `transform ${state.transitionDurationMs}ms cubic-bezier(0.25, 0.8, 0.25, 1)`,
               width: '200%',
               willChange: 'transform',
             }}
           >
             <PrayerOverviewPanel
-              completed={flow.completed}
-              goal={flow.goal}
-              naturalGoal={flow.naturalGoal}
-              visibleSchedule={flow.visibleSchedule}
-              isPrayedForToday={flow.isPrayedForToday}
-              onCheck={flow.handleCheck}
-              onEditGoal={flow.handleEditGoal}
-              onItemClick={flow.handleItemClick}
-              onStart={flow.handleStartFirst}
-              startDisabled={flow.allVisiblePrayed && !flow.canKeepPraying}
-              startLabel={flow.startButtonLabel}
+              completed={state.completed}
+              goal={state.goal}
+              naturalGoal={state.naturalGoal}
+              visibleSchedule={state.visibleSchedule}
+              isPrayedForToday={state.isPrayedForToday}
+              onCheck={actions.handleCheck}
+              onEditGoal={actions.handleEditGoal}
+              onItemClick={actions.handleItemClick}
+              onStart={actions.handleStartFirst}
+              startDisabled={state.allVisiblePrayed && !state.canKeepPraying}
+              startLabel={state.startButtonLabel}
             />
 
             <Box sx={{ bgcolor: 'background.default', position: 'relative', width: '50%' }}>
-              {flow.shouldRenderActiveView && (
+              {state.shouldRenderActiveView && (
                 <Box
-                  aria-hidden={flow.hideActiveView}
+                  aria-hidden={state.hideActiveView}
                   sx={{
                     inset: 0,
-                    pointerEvents: flow.hideActiveView ? 'none' : 'auto',
+                    pointerEvents: state.hideActiveView ? 'none' : 'auto',
                     position: 'absolute',
-                    visibility: flow.hideActiveView ? 'hidden' : 'visible',
+                    visibility: state.hideActiveView ? 'hidden' : 'visible',
                   }}
                 >
                   <PrayerActiveView
-                    activeIndex={flow.activeViewIndex}
-                    items={flow.localItems}
-                    isEditDrawerOpen={flow.isEditDrawerOpen && flow.flow.type === 'active'}
-                    onBack={flow.handleBack}
-                    onCloseEditDrawer={flow.handleCloseEditDrawer}
-                    onEditDrawerChange={flow.handleEditDrawerChange}
-                    onItemChange={flow.handleChange}
-                    onNext={flow.handleNext}
-                    onOpenEditDrawer={flow.handleOpenEditDrawer}
+                    activeIndex={state.activeViewIndex}
+                    items={state.localItems}
+                    isEditDrawerOpen={ui.isEditDrawerOpen && state.flow.type === 'active'}
+                    onBack={actions.handleBack}
+                    onCloseEditDrawer={actions.handleCloseEditDrawer}
+                    onEditDrawerChange={actions.handleEditDrawerChange}
+                    onItemChange={actions.handleChange}
+                    onNext={actions.handleNext}
+                    onOpenEditDrawer={actions.handleOpenEditDrawer}
                   />
                 </Box>
               )}
-              {flow.overlayFlow?.type === 'finished' && (
+              {state.overlayFlow?.type === 'finished' && (
                 <PrayerFinishedView
-                  canKeepPraying={flow.canKeepPraying}
-                  onBackToOverview={flow.handleGoToOverview}
-                  onKeepPraying={flow.handleKeepPraying}
-                  prayedCount={flow.overlayFlow.prayedCount}
+                  canKeepPraying={state.canKeepPraying}
+                  onBackToOverview={actions.handleGoToOverview}
+                  onKeepPraying={actions.handleKeepPraying}
+                  prayedCount={state.overlayFlow.prayedCount}
                 />
               )}
             </Box>
@@ -78,38 +80,38 @@ export default function PrayerPageContent({ flow }: PrayerPageContentProps) {
         </Box>
 
         <PrayerStepper
-          activeStep={flow.stepperActiveStep}
-          isHomeActive={flow.flow.type !== 'overview'}
-          onHomeClick={flow.handleGoToOverview}
-          onStepClick={flow.stepperSteps > 0 ? flow.handleStepClick : undefined}
-          steps={flow.stepperSteps}
-          backButton={flow.showActiveNavButtons ? (
-            <Button onClick={flow.handleBack} startIcon={<BackIcon />}>
+          activeStep={state.stepperActiveStep}
+          isHomeActive={state.flow.type !== 'overview'}
+          onHomeClick={actions.handleGoToOverview}
+          onStepClick={state.stepperSteps > 0 ? actions.handleStepClick : undefined}
+          steps={state.stepperSteps}
+          backButton={state.showActiveNavButtons ? (
+            <Button onClick={actions.handleBack} startIcon={<BackIcon />}>
               Back
             </Button>
           ) : undefined}
-          nextButton={flow.showActiveNavButtons
+          nextButton={state.showActiveNavButtons
             ? (
-              <Button endIcon={<NextIcon />} onClick={flow.handleNext}>
-                {flow.isLastActiveStep ? 'Finish' : 'Next'}
+              <Button endIcon={<NextIcon />} onClick={actions.handleNext}>
+                {state.isLastActiveStep ? 'Finish' : 'Next'}
               </Button>
             )
             : (
               <Button
-                disabled={flow.allVisiblePrayed && !flow.canKeepPraying}
+                disabled={state.allVisiblePrayed && !state.canKeepPraying}
                 endIcon={<NextIcon />}
-                onClick={flow.handleStartFirst}
+                onClick={actions.handleStartFirst}
               >
-                {flow.startButtonLabel}
+                {state.startButtonLabel}
               </Button>
             )}
         />
       </Box>
 
       <GoalDialog
-        naturalGoal={flow.naturalGoal}
-        onClose={flow.handleCloseGoalDialog}
-        open={flow.isGoalDialogOpen}
+        naturalGoal={state.naturalGoal}
+        onClose={actions.handleCloseGoalDialog}
+        open={ui.isGoalDialogOpen}
       />
     </BasePage>
   )
