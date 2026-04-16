@@ -55,77 +55,14 @@ const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
   items: EMPTY_ARRAY,
 }
 
-function equalItemsByValue(left: Item[], right: Item[]): boolean {
-  if (left === right) {
-    return true
-  }
-
-  if (left.length !== right.length) {
-    return false
-  }
-
-  for (let i = 0; i < left.length; i += 1) {
-    const leftItem = left[i]
-    const rightItem = right[i]
-
-    if (leftItem === rightItem) {
-      continue
-    }
-
-    if (!rightItem || leftItem.id !== rightItem.id || leftItem.type !== rightItem.type) {
-      return false
-    }
-
-    if (!isEqual(leftItem, rightItem)) {
-      return false
-    }
-  }
-
-  return true
-}
-
-function equalItemMapByValue(
-  left: Record<ItemId, Item>,
-  right: Record<ItemId, Item>,
-): boolean {
-  if (left === right) {
-    return true
-  }
-
-  const leftKeys = Object.keys(left) as ItemId[]
-  const rightKeys = Object.keys(right) as ItemId[]
-  if (leftKeys.length !== rightKeys.length) {
-    return false
-  }
-
-  for (const key of leftKeys) {
-    const leftItem = left[key]
-    const rightItem = right[key]
-    if (!leftItem || !rightItem) {
-      return false
-    }
-
-    if (leftItem === rightItem) {
-      continue
-    }
-
-    if (leftItem.id !== rightItem.id || leftItem.type !== rightItem.type) {
-      return false
-    }
-
-    if (!isEqual(leftItem, rightItem)) {
-      return false
-    }
-  }
-
-  return true
-}
-
 function equalPrayerScheduleInputs(
   left: PrayerScheduleInputs,
   right: PrayerScheduleInputs,
 ): boolean {
-  return left.prayerGoal === right.prayerGoal && equalItemsByValue(left.items, right.items)
+  return (
+    left.prayerGoal === right.prayerGoal
+    && isEqual(left.items, right.items)
+  )
 }
 
 function equalSearchItemsResult(
@@ -133,8 +70,8 @@ function equalSearchItemsResult(
   right: SearchItemsResult,
 ): boolean {
   return (
-    shallowEqualRecord(left.defaultFrequencies, right.defaultFrequencies)
-    && equalItemsByValue(left.items, right.items)
+    isEqual(left.defaultFrequencies, right.defaultFrequencies)
+    && isEqual(left.items, right.items)
   )
 }
 
@@ -168,30 +105,6 @@ function useMemoizedSelector<T>({
   return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
 }
 
-function shallowEqualRecord<T extends string, U>(
-  left: Partial<Record<T, U>>,
-  right: Partial<Record<T, U>>,
-): boolean {
-  if (left === right) {
-    return true
-  }
-
-  const leftKeys = Object.keys(left) as T[]
-  const rightKeys = Object.keys(right) as T[]
-
-  if (leftKeys.length !== rightKeys.length) {
-    return false
-  }
-
-  for (const key of leftKeys) {
-    if (left[key] !== right[key]) {
-      return false
-    }
-  }
-
-  return true
-}
-
 function isVisibleItem(item: Item | null): item is Item {
   return !!item && !(item as Item & { deleted?: boolean }).deleted
 }
@@ -220,14 +133,9 @@ function useMetadataValue<K extends MetadataKey>(
     [defaultValue, key],
   )
 
-  const areEqual = useCallback(
-    (left: Metadata[K], right: Metadata[K]) => isEqual(left, right),
-    [],
-  )
-
   return useMemoizedSelector<Metadata[K]>({
     authReady,
-    areEqual,
+    areEqual: isEqual,
     emptyValue: defaultValue as Metadata[K],
     selectWhenReady,
   })
@@ -251,7 +159,7 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
 
   return useMemoizedSelector<T[]>({
     authReady,
-    areEqual: (left, right) => equalItemsByValue(left as Item[], right as Item[]),
+    areEqual: isEqual,
     emptyValue: EMPTY_ARRAY as T[],
     selectWhenReady,
   })
@@ -273,7 +181,7 @@ export const useItemMap = () => {
 
   return useMemoizedSelector<Record<ItemId, Item>>({
     authReady,
-    areEqual: equalItemMapByValue,
+    areEqual: isEqual,
     emptyValue: EMPTY_ITEM_MAP,
     selectWhenReady,
   })
@@ -321,7 +229,7 @@ export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
 
   return useMemoizedSelector<T[]>({
     authReady,
-    areEqual: (left, right) => equalItemsByValue(left as Item[], right as Item[]),
+    areEqual: isEqual,
     emptyValue: EMPTY_ARRAY as T[],
     selectWhenReady,
   })
