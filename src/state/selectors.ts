@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { DEFAULT_CRITERIA } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
@@ -7,10 +7,10 @@ import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
+import { getAutomergeItem, subscribeAutomergeSnapshots } from '../sync/automergeDocStore'
 import { useAutomergeItem, useAutomergeItems, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
-const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
 const EMPTY_METADATA = {} as Metadata
 
 function useAutomergeItemsSnapshot(): Item[] {
@@ -18,6 +18,28 @@ function useAutomergeItemsSnapshot(): Item[] {
   const itemsSnapshot = useAutomergeItems()
 
   return authReady ? itemsSnapshot : EMPTY_ARRAY
+}
+
+function shallowEqual<T>(left: T[], right: T[]): boolean {
+  if (left === right) {
+    return true
+  }
+
+  if (left.length !== right.length) {
+    return false
+  }
+
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function isVisibleItem(item: Item | null): item is Item {
+  return !!item && !(item as Item & { deleted?: boolean }).deleted
 }
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
@@ -81,6 +103,57 @@ export function useItemsById() {
     ) as T[],
     [itemMap],
   )
+}
+
+export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const cacheRef = useRef<{ ids: ItemId[], items: Item[] } | null>(null)
+
+  const getSnapshot = useCallback(
+    () => {
+      if (!authReady || ids.length === 0) {
+        const cached = cacheRef.current
+        if (
+          cached
+          && cached.items.length === 0
+          && shallowEqual(cached.ids, ids)
+        ) {
+          return cached.items as T[]
+        }
+
+        cacheRef.current = {
+          ids: [...ids],
+          items: EMPTY_ARRAY,
+        }
+        return EMPTY_ARRAY as T[]
+      }
+
+      const nextItems = ids
+        .map(itemId => getAutomergeItem(itemId))
+        .filter(isVisibleItem)
+
+      const cached = cacheRef.current
+      if (
+        cached
+        && shallowEqual(cached.ids, ids)
+        && shallowEqual(cached.items, nextItems)
+      ) {
+        return cached.items as T[]
+      }
+
+      cacheRef.current = {
+        ids: [...ids],
+        items: nextItems,
+      }
+
+      return nextItems as T[]
+    },
+    [authReady, ids],
+  )
+
+  const getServerSnapshot = useCallback(() => EMPTY_ARRAY as T[], [])
+
+  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
 }
 
 export function useMetadata<K extends MetadataKey>(

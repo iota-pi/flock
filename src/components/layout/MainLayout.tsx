@@ -1,11 +1,10 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { Box } from '@mui/material'
-import SelectedActions from '../SelectedActions'
 import GeneralMessage from '../GeneralMessage'
 import { useLoggedIn } from '../../state/selectors'
 
 const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
-
+const SelectedActions = lazy(() => import('../SelectedActions'))
 
 function MainLayout({ children }: { children: ReactNode }) {
   const loggedIn = useLoggedIn()
@@ -33,7 +32,9 @@ function MainLayout({ children }: { children: ReactNode }) {
         </Box>
 
         <Box flexShrink={0} overflow="hidden">
-          <SelectedActions />
+          <Suspense fallback={null}>
+            <SelectedActions />
+          </Suspense>
         </Box>
       </Box>
 

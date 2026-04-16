@@ -6,6 +6,7 @@ import {
   useItem,
   useItemMap,
   useItems,
+  useItemsByIds,
   useLoggedIn,
 } from './selectors'
 import { useAuthStore } from './authStore'
@@ -104,5 +105,25 @@ describe('state selectors', () => {
   it('useItem returns the selected item by id', () => {
     const { result } = renderHook(() => useItem('topic-1'))
     expect(result.current?.name).toBe('Hope')
+  })
+
+  it('useItemsByIds returns selected items and keeps stable reference for unchanged ids', () => {
+    const { result, rerender } = renderHook(
+      ({ ids }) => useItemsByIds(ids),
+      {
+        initialProps: {
+          ids: ['group-1', 'person-1'],
+        },
+      },
+    )
+
+    expect(result.current.map(item => item.id)).toEqual(['group-1', 'person-1'])
+
+    const firstResult = result.current
+    rerender({ ids: ['group-1', 'person-1'] })
+    expect(result.current).toBe(firstResult)
+
+    rerender({ ids: ['topic-1'] })
+    expect(result.current.map(item => item.id)).toEqual(['topic-1'])
   })
 })

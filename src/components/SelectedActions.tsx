@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useCallback, useMemo, useState } from 'react'
+import { Fragment, lazy, memo, Suspense, useCallback, useMemo, useState } from 'react'
 import {
   Divider,
   List,
@@ -17,7 +17,7 @@ import {
   RemoveIcon,
   UnarchiveIcon,
 } from './Icons'
-import { useItemsById } from '../state/selectors'
+import { useItemsByIds } from '../state/selectors'
 import { ERROR_ITEM_TYPE, Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
@@ -47,14 +47,14 @@ interface BulkAction {
 
 const PADDING_HEIGHT = 2
 const ACTION_HEIGHT = 36.02
+const EMPTY_SELECTED_ITEMS: Item[] = []
 
 function SelectedActions() {
   const setSelected = useNavigationStore(state => state.setSelected)
-  const getItemsById = useItemsById()
   const selected = useNavigationStore(state => state.selected)
 
-  const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
-  const prevSelectedItems = usePrevious(selectedItems) || []
+  const selectedItems = useItemsByIds(selected)
+  const prevSelectedItems = usePrevious(selectedItems)
   const selectedStandardItems = useMemo(
     () => selectedItems.filter(item => item.type !== ERROR_ITEM_TYPE),
     [selectedItems],
@@ -111,9 +111,18 @@ function SelectedActions() {
   )
 
   const open = selectedItems.length > 0
-  const workingItems = open ? selectedItems : prevSelectedItems
-  const workingStandardItems = workingItems.filter(item => item.type !== ERROR_ITEM_TYPE)
-  const hasWorkingErrorItems = workingItems.some(item => item.type === ERROR_ITEM_TYPE)
+  const workingItems = useMemo(
+    () => (open ? selectedItems : (prevSelectedItems || EMPTY_SELECTED_ITEMS)),
+    [open, prevSelectedItems, selectedItems],
+  )
+  const workingStandardItems = useMemo(
+    () => workingItems.filter(item => item.type !== ERROR_ITEM_TYPE),
+    [workingItems],
+  )
+  const hasWorkingErrorItems = useMemo(
+    () => workingItems.some(item => item.type === ERROR_ITEM_TYPE),
+    [workingItems],
+  )
 
   const actions = useMemo<BulkAction[]>(
     () => {
@@ -244,4 +253,4 @@ function SelectedActions() {
   )
 }
 
-export default SelectedActions
+export default memo(SelectedActions)
