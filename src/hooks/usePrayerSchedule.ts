@@ -24,10 +24,7 @@ export function usePrayerSchedule() {
   const [todaysGoal, setTodaysGoal] = useState(goal)
 
   useEffect(() => {
-    if (todaysGoal !== goal) {
-      console.log('Updating today\'s prayer goal to', goal)
-      setTodaysGoal(goal)
-    }
+    setTodaysGoal(goal)
   }, [goal])
 
   const isPrayedForToday = useCallback(

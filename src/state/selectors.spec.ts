@@ -9,6 +9,7 @@ import {
   useItemsByIds,
   usePrayerScheduleInputs,
   useSearchItems,
+  useSortCriteria,
   useLoggedIn,
 } from './selectors'
 import { useAuthStore } from './authStore'
@@ -130,10 +131,39 @@ describe('state selectors', () => {
     expect(result.current.map(item => item.id)).toEqual(['person-1'])
   })
 
+  it('useItems keeps stable typed list when unrelated item changes', () => {
+    const { result } = renderHook(() => useItems<Item>('group'))
+    const firstResult = result.current
+
+    act(() => {
+      automergeItemsState = automergeItemsState.map(item => (
+        item.id === 'person-1'
+          ? { ...item, name: 'Alice Updated' }
+          : item
+      ))
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).toBe(firstResult)
+    expect(result.current.map(item => item.id)).toEqual(['group-1'])
+  })
+
   it('useItemMap returns an id keyed item map', () => {
     const { result } = renderHook(() => useItemMap())
     expect(result.current['person-1']?.name).toBe('Alice')
     expect(result.current['group-1']?.name).toBe('Core Group')
+  })
+
+  it('useItemMap keeps stable map for semantically unchanged updates', () => {
+    const { result } = renderHook(() => useItemMap())
+    const firstResult = result.current
+
+    act(() => {
+      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).toBe(firstResult)
   })
 
   it('useItem returns the selected item by id', () => {
@@ -241,5 +271,41 @@ describe('state selectors', () => {
 
     expect(result.current).not.toBe(firstResult)
     expect(result.current.prayerGoal).toBe(7)
+  })
+
+  it('useSortCriteria keeps stable value for semantically unchanged metadata snapshots', () => {
+    const { result } = renderHook(() => useSortCriteria())
+    const firstSortCriteria = result.current[0]
+
+    act(() => {
+      automergeMetadataState = {
+        ...automergeMetadataState,
+        sortCriteria: [{ type: 'name', reverse: false }],
+      }
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current[0]).toBe(firstSortCriteria)
+
+    act(() => {
+      automergeMetadataState = {
+        ...automergeMetadataState,
+        prayerGoal: 9,
+      }
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current[0]).toBe(firstSortCriteria)
+
+    act(() => {
+      automergeMetadataState = {
+        ...automergeMetadataState,
+        sortCriteria: [{ type: 'created', reverse: false }],
+      }
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current[0]).not.toBe(firstSortCriteria)
+    expect(result.current[0]).toEqual([{ type: 'created', reverse: false }])
   })
 })

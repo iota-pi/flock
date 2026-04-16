@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useRef, useSyncExternalStore } from 'react'
 import { isEqual } from 'lodash-es'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
@@ -14,15 +14,23 @@ import {
   getAutomergeMetadata,
   subscribeAutomergeSnapshots,
 } from '../sync/automergeDocStore'
-import { useAutomergeItem, useAutomergeItems, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
+import { useAutomergeItem, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
+const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
 const EMPTY_METADATA = {} as Metadata
 const EMPTY_DEFAULT_PRAYER_FREQUENCY = {} as NonNullable<Metadata['defaultPrayerFrequency']>
 
 type SearchItemsResult = {
   defaultFrequencies: NonNullable<Metadata['defaultPrayerFrequency']>,
   items: Item[],
+}
+
+type MemoizedSelectorOptions<T> = {
+  authReady: boolean,
+  areEqual: (left: T, right: T) => boolean,
+  emptyValue: T,
+  selectWhenReady: () => T,
 }
 
 type PrayerScheduleInputs = {
@@ -42,14 +50,12 @@ const EMPTY_PRAYER_SCHEDULE_INPUTS: PrayerScheduleInputs = {
   prayerGoal: undefined,
 }
 
-function useAutomergeItemsSnapshot(): Item[] {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const itemsSnapshot = useAutomergeItems()
-
-  return authReady ? itemsSnapshot : EMPTY_ARRAY
+const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
+  defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
+  items: EMPTY_ARRAY,
 }
 
-function shallowEqual<T>(left: T[], right: T[]): boolean {
+function equalItemsByValue(left: Item[], right: Item[]): boolean {
   if (left === right) {
     return true
   }
@@ -59,12 +65,107 @@ function shallowEqual<T>(left: T[], right: T[]): boolean {
   }
 
   for (let i = 0; i < left.length; i += 1) {
-    if (left[i] !== right[i]) {
+    const leftItem = left[i]
+    const rightItem = right[i]
+
+    if (leftItem === rightItem) {
+      continue
+    }
+
+    if (!rightItem || leftItem.id !== rightItem.id || leftItem.type !== rightItem.type) {
+      return false
+    }
+
+    if (!isEqual(leftItem, rightItem)) {
       return false
     }
   }
 
   return true
+}
+
+function equalItemMapByValue(
+  left: Record<ItemId, Item>,
+  right: Record<ItemId, Item>,
+): boolean {
+  if (left === right) {
+    return true
+  }
+
+  const leftKeys = Object.keys(left) as ItemId[]
+  const rightKeys = Object.keys(right) as ItemId[]
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  for (const key of leftKeys) {
+    const leftItem = left[key]
+    const rightItem = right[key]
+    if (!leftItem || !rightItem) {
+      return false
+    }
+
+    if (leftItem === rightItem) {
+      continue
+    }
+
+    if (leftItem.id !== rightItem.id || leftItem.type !== rightItem.type) {
+      return false
+    }
+
+    if (!isEqual(leftItem, rightItem)) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function equalPrayerScheduleInputs(
+  left: PrayerScheduleInputs,
+  right: PrayerScheduleInputs,
+): boolean {
+  return left.prayerGoal === right.prayerGoal && equalItemsByValue(left.items, right.items)
+}
+
+function equalSearchItemsResult(
+  left: SearchItemsResult,
+  right: SearchItemsResult,
+): boolean {
+  return (
+    shallowEqualRecord(left.defaultFrequencies, right.defaultFrequencies)
+    && equalItemsByValue(left.items, right.items)
+  )
+}
+
+function useMemoizedSelector<T>({
+  authReady,
+  areEqual,
+  emptyValue,
+  selectWhenReady,
+}: MemoizedSelectorOptions<T>): T {
+  const cacheRef = useRef<{ value: T } | null>(null)
+
+  const getSnapshot = useCallback(
+    () => {
+      const nextValue = authReady
+        ? selectWhenReady()
+        : emptyValue
+
+      const cached = cacheRef.current
+      if (cached && areEqual(cached.value, nextValue)) {
+        return cached.value
+      }
+
+      cacheRef.current = { value: nextValue }
+      return nextValue
+    },
+    [areEqual, authReady, emptyValue, selectWhenReady],
+  )
+
+  const getServerSnapshot = useCallback(() => emptyValue, [emptyValue])
+
+  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
 }
 
 function shallowEqualRecord<T extends string, U>(
@@ -105,19 +206,55 @@ export function useAccountMetadata(): Metadata {
   return authReady ? metadata as Metadata : EMPTY_METADATA
 }
 
+function useMetadataValue<K extends MetadataKey>(
+  key: K,
+  defaultValue?: Metadata[K],
+): Metadata[K] {
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+
+  const selectWhenReady = useCallback(
+    () => {
+      const metadata = getAutomergeMetadata() as Metadata
+      return (metadata[key] === undefined ? defaultValue : metadata[key]) as Metadata[K]
+    },
+    [defaultValue, key],
+  )
+
+  const areEqual = useCallback(
+    (left: Metadata[K], right: Metadata[K]) => isEqual(left, right),
+    [],
+  )
+
+  return useMemoizedSelector<Metadata[K]>({
+    authReady,
+    areEqual,
+    emptyValue: defaultValue as Metadata[K],
+    selectWhenReady,
+  })
+}
+
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const items = useAutomergeItemsSnapshot()
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const selectWhenReady = useCallback(
+    () => {
+      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      return (
+        itemType
+          ? visibleItems.filter(item => item.type === itemType)
+          : visibleItems
+      ) as T[]
+    },
+    [itemType],
+  )
 
-  return useMemo(() => {
-    const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
-    return (
-      itemType
-        ? visibleItems.filter(i => i.type === itemType)
-        : visibleItems
-    ) as T[]
-  }, [itemType, items])
+  return useMemoizedSelector<T[]>({
+    authReady,
+    areEqual: (left, right) => equalItemsByValue(left as Item[], right as Item[]),
+    emptyValue: EMPTY_ARRAY as T[],
+    selectWhenReady,
+  })
 }
 
 export function useItemsInitialLoading(): boolean {
@@ -125,12 +262,21 @@ export function useItemsInitialLoading(): boolean {
 }
 
 export const useItemMap = () => {
-  const items = useAutomergeItemsSnapshot()
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const selectWhenReady = useCallback(
+    () => {
+      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
+    },
+    [],
+  )
 
-  return useMemo(() => {
-    const visibleItems = items.filter(item => !(item as Item & { deleted?: boolean }).deleted)
-    return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
-  }, [items])
+  return useMemoizedSelector<Record<ItemId, Item>>({
+    authReady,
+    areEqual: equalItemMapByValue,
+    emptyValue: EMPTY_ITEM_MAP,
+    selectWhenReady,
+  })
 }
 
 export const useItem = (id: ItemId) => {
@@ -160,103 +306,50 @@ export function useItemsById() {
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const cacheRef = useRef<{ ids: ItemId[], items: Item[] } | null>(null)
-
-  const getSnapshot = useCallback(
+  const selectWhenReady = useCallback(
     () => {
-      if (!authReady || ids.length === 0) {
-        const cached = cacheRef.current
-        if (
-          cached
-          && cached.items.length === 0
-          && shallowEqual(cached.ids, ids)
-        ) {
-          return cached.items as T[]
-        }
-
-        cacheRef.current = {
-          ids: [...ids],
-          items: EMPTY_ARRAY,
-        }
+      if (ids.length === 0) {
         return EMPTY_ARRAY as T[]
       }
 
-      const nextItems = ids
+      return ids
         .map(itemId => getAutomergeItem(itemId))
-        .filter(isVisibleItem)
-
-      const cached = cacheRef.current
-      if (
-        cached
-        && shallowEqual(cached.ids, ids)
-        && shallowEqual(cached.items, nextItems)
-      ) {
-        return cached.items as T[]
-      }
-
-      cacheRef.current = {
-        ids: [...ids],
-        items: nextItems,
-      }
-
-      return nextItems as T[]
+        .filter(isVisibleItem) as T[]
     },
-    [authReady, ids],
+    [ids],
   )
 
-  const getServerSnapshot = useCallback(() => EMPTY_ARRAY as T[], [])
-
-  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+  return useMemoizedSelector<T[]>({
+    authReady,
+    areEqual: (left, right) => equalItemsByValue(left as Item[], right as Item[]),
+    emptyValue: EMPTY_ARRAY as T[],
+    selectWhenReady,
+  })
 }
 
 export function usePrayerScheduleInputs(): PrayerScheduleInputs {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const cacheRef = useRef<PrayerScheduleInputs | null>(null)
-
-  const getSnapshot = useCallback(
+  const selectWhenReady = useCallback(
     () => {
-      if (!authReady) {
-        const cached = cacheRef.current
-        if (cached && cached.items.length === 0 && cached.prayerGoal === undefined) {
-          return cached
-        }
-
-        cacheRef.current = EMPTY_PRAYER_SCHEDULE_INPUTS
-        return EMPTY_PRAYER_SCHEDULE_INPUTS
-      }
-
       const metadata = getAutomergeMetadata() as Metadata
-      const prayerGoal = metadata.prayerGoal
-      const nextItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
-
-      const cached = cacheRef.current
-      if (
-        cached
-        && cached.prayerGoal === prayerGoal
-        && isEqual(cached.items, nextItems)
-      ) {
-        return cached
+      return {
+        items: getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted),
+        prayerGoal: metadata.prayerGoal,
       }
-
-      const next: PrayerScheduleInputs = {
-        items: nextItems,
-        prayerGoal,
-      }
-
-      cacheRef.current = next
-      return next
     },
-    [authReady],
+    [],
   )
 
-  const getServerSnapshot = useCallback(() => EMPTY_PRAYER_SCHEDULE_INPUTS, [])
-
-  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+  return useMemoizedSelector<PrayerScheduleInputs>({
+    authReady,
+    areEqual: equalPrayerScheduleInputs,
+    emptyValue: EMPTY_PRAYER_SCHEDULE_INPUTS,
+    selectWhenReady,
+  })
 }
 
 export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const cacheRef = useRef<SearchItemsResult | null>(null)
   const {
     includeArchived,
     selectedItemIds,
@@ -264,22 +357,8 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
     types,
   } = options
 
-  const getSnapshot = useCallback(
+  const selectWhenReady = useCallback(
     () => {
-      if (!authReady) {
-        const cached = cacheRef.current
-        if (cached && cached.items.length === 0 && shallowEqualRecord(cached.defaultFrequencies, EMPTY_DEFAULT_PRAYER_FREQUENCY)) {
-          return cached
-        }
-
-        const emptyResult: SearchItemsResult = {
-          defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
-          items: EMPTY_ARRAY,
-        }
-        cacheRef.current = emptyResult
-        return emptyResult
-      }
-
       const metadata = getAutomergeMetadata() as Metadata
       const sortCriteria = metadata.sortCriteria || DEFAULT_CRITERIA
       const defaultFrequencies = metadata.defaultPrayerFrequency || EMPTY_DEFAULT_PRAYER_FREQUENCY
@@ -295,32 +374,20 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
         sortCriteria,
       )
 
-      const cached = cacheRef.current
-      if (
-        cached
-        && isEqual(cached.items, nextItems)
-        && shallowEqualRecord(cached.defaultFrequencies, defaultFrequencies)
-      ) {
-        return cached
-      }
-
-      const next: SearchItemsResult = {
+      return {
         defaultFrequencies,
         items: nextItems,
       }
-
-      cacheRef.current = next
-      return next
     },
-    [authReady, includeArchived, selectedItemIds, showSelectedOptions, types],
+    [includeArchived, selectedItemIds, showSelectedOptions, types],
   )
 
-  const getServerSnapshot = useCallback((): SearchItemsResult => ({
-    defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
-    items: EMPTY_ARRAY,
-  }), [])
-
-  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+  return useMemoizedSelector<SearchItemsResult>({
+    authReady,
+    areEqual: equalSearchItemsResult,
+    emptyValue: EMPTY_SEARCH_ITEMS_RESULT,
+    selectWhenReady,
+  })
 }
 
 export function useMetadata<K extends MetadataKey>(
@@ -337,9 +404,7 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [Metadata[K], (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>] {
-  const metadata = useAccountMetadata()
-
-  const value = metadata[key] === undefined ? defaultValue : metadata[key]
+  const value = useMetadataValue(key, defaultValue)
   const setValue = useCallback(
     async (newValueOrFunc: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => {
       await setMetadata(previousMetadata => {

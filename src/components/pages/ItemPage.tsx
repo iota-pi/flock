@@ -15,7 +15,6 @@ import BasePage from './BasePage'
 import { useUiStore } from '../../state/uiStore'
 import { useNavigationStore } from '../../state/navigationStore'
 import { processItemsWithWorker } from '../../workers/itemWorkerManager'
-import { useStableDeepValue } from '../../hooks/useStableDeepValue'
 import { hardDeleteItems } from '../../features/items/mutations/itemMutations'
 
 interface Props {
@@ -53,16 +52,14 @@ function ItemPage({
   const [archivedCount, setArchivedCount] = useState(() => (
     rawItems.filter(i => i.archived).length
   ))
-  const stableFilters = useStableDeepValue(filters)
-  const stableSortCriteria = useStableDeepValue(sortCriteria)
 
   useEffect(() => {
     let cancelled = false
 
     void processItemsWithWorker({
       items: rawItems,
-      filters: stableFilters,
-      sortCriteria: stableSortCriteria,
+      filters,
+      sortCriteria,
       showArchived,
     })
       .then(result => {
@@ -88,7 +85,7 @@ function ItemPage({
     return () => {
       cancelled = true
     }
-  }, [rawItems, showArchived, stableFilters, stableSortCriteria])
+  }, [filters, rawItems, showArchived, sortCriteria])
 
   const handleClickShowArchived = useCallback(
     () => setShowArchived(sa => !sa),
