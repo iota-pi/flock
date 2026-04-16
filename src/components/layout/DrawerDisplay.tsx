@@ -11,12 +11,32 @@ import { useAutomergeItem } from 'src/sync/useAutomerge'
 const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 
+function getDrawerItemId(drawer?: DrawerData): string | undefined {
+  if (!drawer) {
+    return undefined
+  }
+
+  if (typeof drawer.item === 'string') {
+    return drawer.item
+  }
+
+  return drawer.newItem?.id
+}
+
+function isHashRoutedDrawer(drawer: DrawerData): boolean {
+  return drawer.disableRouting !== true
+}
+
 function useDrawerRouting(drawers: DrawerData[]) {
   const clearDrawers = useNavigationStore(state => state.clearDrawers)
   const removeActive = useNavigationStore(state => state.removeActive)
   const routerLocation = useLocation()
   const navigate = useNavigate()
-  const prevDrawers = usePrevious(drawers)
+  const hashRoutedDrawers = useMemo(
+    () => drawers.filter(isHashRoutedDrawer),
+    [drawers],
+  )
+  const prevHashRoutedDrawers = usePrevious(hashRoutedDrawers)
   const prevPathname = usePrevious(routerLocation.pathname)
   const prevLocationHash = usePrevious(routerLocation.hash)
 
@@ -31,38 +51,42 @@ function useDrawerRouting(drawers: DrawerData[]) {
 
   useEffect(
     () => {
-      if (!prevDrawers) {
+      if (!prevHashRoutedDrawers) {
         return
       }
-      const topItem = (
-        drawers[drawers.length - 1]?.item
-        || drawers[drawers.length - 1]?.newItem?.id
-      )
-      const prevTopItem = (
-        prevDrawers[prevDrawers.length - 1]?.item
-        || prevDrawers[prevDrawers.length - 1]?.newItem?.id
-      )
+
+      const topItem = getDrawerItemId(hashRoutedDrawers[hashRoutedDrawers.length - 1])
+      const prevTopItem = getDrawerItemId(prevHashRoutedDrawers[prevHashRoutedDrawers.length - 1])
       const currentHash = routerLocation.hash.replace(/^#/, '')
-      if (drawers.length === prevDrawers.length) {
+
+      if (hashRoutedDrawers.length === prevHashRoutedDrawers.length) {
         if (topItem && topItem !== prevTopItem) {
           navigate(`#${topItem}`, { replace: true })
         }
-      } else if (drawers.length < prevDrawers.length && prevTopItem === currentHash) {
+      } else if (hashRoutedDrawers.length < prevHashRoutedDrawers.length && prevTopItem === currentHash) {
         navigate(-1)
-      } else if (drawers.length > prevDrawers.length && topItem) {
+      } else if (hashRoutedDrawers.length > prevHashRoutedDrawers.length && topItem) {
         navigate(`#${topItem}`)
       }
     },
-    [drawers, routerLocation, prevDrawers, navigate],
+    [hashRoutedDrawers, navigate, prevHashRoutedDrawers, routerLocation],
   )
 
   useEffect(
     () => {
+      if (hashRoutedDrawers.length === 0) {
+        return
+      }
+
+      const topDrawer = drawers[drawers.length - 1]
+      if (!topDrawer || !isHashRoutedDrawer(topDrawer)) {
+        return
+      }
+
       const id = routerLocation.hash.replace(/^#/, '')
 
-      const topItem = drawers[drawers.length - 1]
-      const topItemId = topItem?.item || topItem?.newItem?.id
-      const secondTopItem = drawers[drawers.length - 2]?.item
+      const topItemId = getDrawerItemId(topDrawer)
+      const secondTopItem = getDrawerItemId(hashRoutedDrawers[hashRoutedDrawers.length - 2])
 
       if (prevLocationHash !== routerLocation.hash && secondTopItem === id) {
         removeActive()
@@ -74,7 +98,7 @@ function useDrawerRouting(drawers: DrawerData[]) {
         }
       }
     },
-    [drawers, prevLocationHash, removeActive, routerLocation],
+    [drawers, hashRoutedDrawers, prevLocationHash, removeActive, routerLocation],
   )
 }
 
@@ -91,12 +115,30 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
+  const drawerItemObject = typeof drawer.item === 'string' ? undefined : drawer.item
+  const isPrayerEditDrawer = (
+    drawer.fromPrayerPage === true
+    && drawer.disableRouting === true
+    && !!drawerItemObject
+    && !!drawer.onChange
+  )
   const lookupItemId = useMemo(
-    () => drawer.item || drawer.newItem?.id || generateItemId(),
-    [drawer.item, drawer.newItem?.id],
+    () => getDrawerItemId(drawer) || generateItemId(),
+    [drawer],
   )
   const existingItem = useAutomergeItem(lookupItemId)
-  const item = existingItem || drawer.newItem
+  const item = isPrayerEditDrawer
+    ? drawerItemObject
+    : (existingItem || drawer.newItem || drawerItemObject)
+
+  const handlePrayerChange = useCallback(
+    (
+      data: Parameters<NonNullable<DrawerData['onChange']>>[0],
+    ) => {
+      drawer.onChange?.(data)
+    },
+    [drawer],
+  )
 
   const [localItem, setLocalItem] = useState<Item | undefined>(item)
   const handleChange = useCallback(
@@ -118,6 +160,24 @@ function IndividualDrawer({
     setLocalItem(item)
   }, [item])
 
+  if (isPrayerEditDrawer && item) {
+    return (
+      <Suspense fallback={null}>
+        <ItemDrawer
+          alwaysTemporary={drawer.alwaysTemporary}
+          fromPrayerPage={drawer.fromPrayerPage}
+          item={item}
+          onBack={onClose}
+          onChange={handlePrayerChange}
+          onClose={onClose}
+          onExited={onExited}
+          open={open}
+          stacked={drawer.stacked ?? false}
+        />
+      </Suspense>
+    )
+  }
+
   if (localItem) {
     return (
       <Suspense fallback={null}>
@@ -128,7 +188,7 @@ function IndividualDrawer({
           onClose={onClose}
           onExited={onExited}
           open={open}
-          stacked={stacked}
+          stacked={drawer.stacked ?? stacked}
         />
       </Suspense>
     )
@@ -147,31 +207,70 @@ function DrawerDisplay() {
   const [closingDrawerId, setClosingDrawerId] = useState<string | null>(null)
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
-  const topDrawerId = drawers[drawers.length - 1]?.id || null
+  const topDrawer = drawers[drawers.length - 1]
+  const topDrawerId = topDrawer?.id || null
   const activeClosingDrawerId = closingDrawerId && topDrawerId === closingDrawerId
     ? closingDrawerId
     : null
 
   const handleClose = useCallback(
     () => {
-      if (topDrawerId) {
-        setClosingDrawerId(topDrawerId)
+      if (!topDrawerId || !topDrawer) {
+        return
+      }
+
+      topDrawer.onCloseRequest?.()
+      setClosingDrawerId(topDrawerId)
+    },
+    [topDrawer, topDrawerId],
+  )
+
+  const handleExited = useCallback(
+    (drawer: DrawerData) => {
+      if (closingDrawerId === drawer.id) {
+        setClosingDrawerId(null)
+      }
+
+      drawer.onExited?.()
+
+      if (drawers[drawers.length - 1]?.id === drawer.id) {
+        removeActive()
       }
     },
-    [topDrawerId],
+    [closingDrawerId, drawers, removeActive],
   )
-  const handleExited = useCallback(
+
+  const handleImmediateClose = useCallback(
     () => {
+      if (!topDrawer) {
+        return
+      }
+
+      topDrawer.onCloseRequest?.()
+      topDrawer.onExited?.()
       setClosingDrawerId(null)
       removeActive()
     },
-    [removeActive],
+    [removeActive, topDrawer],
   )
-  const onClose = baseDrawerIsPermanent && drawers.length === 1 ? handleExited : handleClose
+
+  const shouldUseImmediateClose = (
+    baseDrawerIsPermanent
+    && drawers.length === 1
+    && topDrawer?.alwaysTemporary !== true
+  )
+
+  const onClose = shouldUseImmediateClose
+    ? handleImmediateClose
+    : handleClose
+
   const drawerOpenById = useMemo(() => {
     const result = new Map<string, boolean>()
     for (const drawer of drawers) {
-      result.set(drawer.id, drawer.id !== activeClosingDrawerId)
+      result.set(
+        drawer.id,
+        (drawer.open ?? true) && drawer.id !== activeClosingDrawerId,
+      )
     }
     return result
   }, [activeClosingDrawerId, drawers])
@@ -193,7 +292,7 @@ function DrawerDisplay() {
           drawer={drawer}
           open={drawerOpenById.get(drawer.id) ?? true}
           onClose={onClose}
-          onExited={handleExited}
+          onExited={() => handleExited(drawer)}
           stacked={i > 0}
         />
       ))}

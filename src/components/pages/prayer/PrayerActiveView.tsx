@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import {
   Box,
   Container,
@@ -10,7 +10,7 @@ import {
   DirtyItem,
   Item,
 } from 'src/state/items'
-import ItemDrawer from 'src/features/items/components/ItemDrawer'
+import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {
@@ -47,7 +47,69 @@ function PrayerActiveView({
   onEditDrawerChange,
   onItemChange,
 }: Props) {
+  const drawers = useNavigationStore(state => state.drawers)
+  const pushActive = useNavigationStore(state => state.pushActive)
+  const replaceActive = useNavigationStore(state => state.replaceActive)
+
   const activeItem = items[activeIndex]
+
+  const topDrawer = drawers[drawers.length - 1]
+  const topPrayerDrawer = (
+    topDrawer
+    && topDrawer.fromPrayerPage === true
+    && topDrawer.disableRouting === true
+    && typeof topDrawer.item !== 'string'
+    && !!topDrawer.onChange
+  )
+    ? topDrawer
+    : undefined
+
+  useEffect(
+    () => {
+      if (!isEditDrawerOpen && !topPrayerDrawer) {
+        return
+      }
+
+      const nextPrayerDrawerPayload: Partial<Omit<DrawerData, 'id'>> = {
+        alwaysTemporary: true,
+        disableRouting: true,
+        fromPrayerPage: true,
+        item: activeItem.id,
+        onChange: onEditDrawerChange,
+        onCloseRequest: onCloseEditDrawer,
+        open: isEditDrawerOpen,
+        stacked: false,
+      }
+
+      const requiresSync = (
+        !topPrayerDrawer
+        || topPrayerDrawer.item !== nextPrayerDrawerPayload.item
+        || topPrayerDrawer.onChange !== nextPrayerDrawerPayload.onChange
+        || topPrayerDrawer.onCloseRequest !== nextPrayerDrawerPayload.onCloseRequest
+        || topPrayerDrawer.open !== nextPrayerDrawerPayload.open
+      )
+
+      if (!requiresSync) {
+        return
+      }
+
+      if (topPrayerDrawer) {
+        replaceActive(nextPrayerDrawerPayload)
+      } else {
+        pushActive(nextPrayerDrawerPayload)
+      }
+    },
+    [
+      activeItem.id,
+      isEditDrawerOpen,
+      onCloseEditDrawer,
+      onEditDrawerChange,
+      pushActive,
+      replaceActive,
+      topPrayerDrawer,
+    ],
+  )
+
   const activeItemArchived = activeItem.archived
   const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
 
@@ -128,37 +190,22 @@ function PrayerActiveView({
   )
 
   return (
-    <>
-      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-        <ItemViewTopBar
-          editButtonDataCy="active-item-edit-button"
-          item={activeItem}
-          menuButtonDataCy="active-item-menu-button"
-          menuItems={[
-            markPrayedMenuItem,
-            archiveMenuItem,
-          ]}
-          onEdit={onOpenEditDrawer}
-        />
-
-        <SwipeableCarousel activeIndex={activeIndex} onBack={onBack} onNext={onNext}>
-          {formSlides}
-        </SwipeableCarousel>
-
-      </Box>
-
-      <ItemDrawer
-        alwaysTemporary
-        fromPrayerPage
+    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <ItemViewTopBar
+        editButtonDataCy="active-item-edit-button"
         item={activeItem}
-        onBack={onCloseEditDrawer}
-        onChange={onEditDrawerChange}
-        onClose={onCloseEditDrawer}
-        onExited={onCloseEditDrawer}
-        open={isEditDrawerOpen}
-        stacked={false}
+        menuButtonDataCy="active-item-menu-button"
+        menuItems={[
+          markPrayedMenuItem,
+          archiveMenuItem,
+        ]}
+        onEdit={onOpenEditDrawer}
       />
-    </>
+
+      <SwipeableCarousel activeIndex={activeIndex} onBack={onBack} onNext={onNext}>
+        {formSlides}
+      </SwipeableCarousel>
+    </Box>
   )
 }
 

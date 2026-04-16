@@ -1,19 +1,27 @@
 import { create } from 'zustand'
 import { generateItemId } from '../utils'
 import type { ItemId } from '../shared/itemTypes'
-import type { Item } from './items'
+import type { DirtyItem, Item } from './items'
+
+export type DrawerOnChange = (
+  item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+) => void
 
 export interface DrawerData {
   id: string
   item?: ItemId
   newItem?: Item
+  alwaysTemporary?: boolean
+  disableRouting?: boolean
+  fromPrayerPage?: boolean
+  onChange?: DrawerOnChange
+  onCloseRequest?: () => void
+  onExited?: () => void
+  open?: boolean
+  stacked?: boolean
 }
 
-type PushActiveOptions = 'newItem'
-
-type PushActiveData = (
-  Pick<DrawerData, 'item'> & Partial<Pick<DrawerData, PushActiveOptions>>
-)
+type DrawerPayload = Partial<Omit<DrawerData, 'id'>>
 
 interface NavigationState {
   drawers: DrawerData[]
@@ -23,8 +31,8 @@ interface NavigationState {
 interface NavigationStore extends NavigationState {
   setSelected: (selected: ItemId[]) => void
   toggleSelected: (itemId: ItemId) => void
-  replaceActive: (payload: Partial<Omit<DrawerData, 'id'>>) => void
-  pushActive: (payload: PushActiveData) => void
+  replaceActive: (payload: DrawerPayload) => void
+  pushActive: (payload: DrawerPayload) => void
   removeActive: () => void
   clearDrawers: () => void
   pruneItemDrawers: (itemIds: ItemId[]) => void
@@ -49,16 +57,16 @@ export const useNavigationStore = create<NavigationStore>(set => ({
   },
   replaceActive: payload => {
     set(state => {
-      const lastItem = state.drawers[state.drawers.length - 1]
-      const newItem: DrawerData = {
-        id: lastItem ? lastItem.id : generateItemId(),
+      const lastDrawer = state.drawers[state.drawers.length - 1]
+      const nextDrawer: DrawerData = {
+        id: lastDrawer ? lastDrawer.id : generateItemId(),
         ...payload,
       }
       const drawers = [...state.drawers]
-      if (lastItem) {
-        drawers[drawers.indexOf(lastItem)] = newItem
+      if (lastDrawer) {
+        drawers[drawers.indexOf(lastDrawer)] = nextDrawer
       } else {
-        drawers.push(newItem)
+        drawers.push(nextDrawer)
       }
       return { drawers }
     })
