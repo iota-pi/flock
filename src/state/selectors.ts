@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
-import { DEFAULT_CRITERIA } from '../utils/customSort'
+import { isEqual } from 'lodash-es'
+import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
@@ -7,11 +8,29 @@ import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
-import { getAutomergeItem, subscribeAutomergeSnapshots } from '../sync/automergeDocStore'
+import {
+  getAutomergeItem,
+  getAutomergeItems,
+  getAutomergeMetadata,
+  subscribeAutomergeSnapshots,
+} from '../sync/automergeDocStore'
 import { useAutomergeItem, useAutomergeItems, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_METADATA = {} as Metadata
+const EMPTY_DEFAULT_PRAYER_FREQUENCY = {} as NonNullable<Metadata['defaultPrayerFrequency']>
+
+type SearchItemsResult = {
+  defaultFrequencies: NonNullable<Metadata['defaultPrayerFrequency']>,
+  items: Item[],
+}
+
+type SearchItemsOptions = {
+  includeArchived: boolean,
+  selectedItemIds: ItemId[],
+  showSelectedOptions: boolean,
+  types: Readonly<Partial<Record<Item['type'], boolean>>>,
+}
 
 function useAutomergeItemsSnapshot(): Item[] {
   const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
@@ -31,6 +50,30 @@ function shallowEqual<T>(left: T[], right: T[]): boolean {
 
   for (let i = 0; i < left.length; i += 1) {
     if (left[i] !== right[i]) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function shallowEqualRecord<T extends string, U>(
+  left: Partial<Record<T, U>>,
+  right: Partial<Record<T, U>>,
+): boolean {
+  if (left === right) {
+    return true
+  }
+
+  const leftKeys = Object.keys(left) as T[]
+  const rightKeys = Object.keys(right) as T[]
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) {
       return false
     }
   }
@@ -152,6 +195,75 @@ export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
   )
 
   const getServerSnapshot = useCallback(() => EMPTY_ARRAY as T[], [])
+
+  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+}
+
+export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
+  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const cacheRef = useRef<SearchItemsResult | null>(null)
+  const {
+    includeArchived,
+    selectedItemIds,
+    showSelectedOptions,
+    types,
+  } = options
+
+  const getSnapshot = useCallback(
+    () => {
+      if (!authReady) {
+        const cached = cacheRef.current
+        if (cached && cached.items.length === 0 && shallowEqualRecord(cached.defaultFrequencies, EMPTY_DEFAULT_PRAYER_FREQUENCY)) {
+          return cached
+        }
+
+        const emptyResult: SearchItemsResult = {
+          defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
+          items: EMPTY_ARRAY,
+        }
+        cacheRef.current = emptyResult
+        return emptyResult
+      }
+
+      const metadata = getAutomergeMetadata() as Metadata
+      const sortCriteria = metadata.sortCriteria || DEFAULT_CRITERIA
+      const defaultFrequencies = metadata.defaultPrayerFrequency || EMPTY_DEFAULT_PRAYER_FREQUENCY
+      const selectedIdSet = new Set(selectedItemIds)
+
+      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      const nextItems = sortItems(
+        visibleItems.filter(item => (
+          types[item.type]
+          && (includeArchived || !item.archived)
+          && (showSelectedOptions || !selectedIdSet.has(item.id))
+        )),
+        sortCriteria,
+      )
+
+      const cached = cacheRef.current
+      if (
+        cached
+        && isEqual(cached.items, nextItems)
+        && shallowEqualRecord(cached.defaultFrequencies, defaultFrequencies)
+      ) {
+        return cached
+      }
+
+      const next: SearchItemsResult = {
+        defaultFrequencies,
+        items: nextItems,
+      }
+
+      cacheRef.current = next
+      return next
+    },
+    [authReady, includeArchived, selectedItemIds, showSelectedOptions, types],
+  )
+
+  const getServerSnapshot = useCallback((): SearchItemsResult => ({
+    defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
+    items: EMPTY_ARRAY,
+  }), [])
 
   return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
 }

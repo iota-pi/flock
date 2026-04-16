@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from './items'
 import {
@@ -7,9 +7,16 @@ import {
   useItemMap,
   useItems,
   useItemsByIds,
+  useSearchItems,
   useLoggedIn,
 } from './selectors'
 import { useAuthStore } from './authStore'
+import {
+  getAutomergeItem,
+  getAutomergeItems,
+  getAutomergeMetadata,
+  subscribeAutomergeSnapshots,
+} from '../sync/automergeDocStore'
 
 const itemsFixture: Item[] = [
   {
@@ -58,19 +65,45 @@ vi.mock('../api/itemReadService', () => ({
 }))
 
 vi.mock('../sync/automergeDocStore', () => ({
-  getAutomergeItems: vi.fn(() => itemsFixture),
-  getAutomergeItem: vi.fn((itemId: string) => itemsFixture.find(item => item.id === itemId) || null),
-  getAutomergeMetadata: vi.fn(() => ({})),
+  getAutomergeItems: vi.fn(),
+  getAutomergeItem: vi.fn(),
+  getAutomergeMetadata: vi.fn(),
   getAutomergeSnapshotVersion: vi.fn(() => 1),
-  subscribeAutomergeSnapshots: vi.fn(() => () => undefined),
+  subscribeAutomergeSnapshots: vi.fn(),
 }))
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({
   requestAutomergeSync: vi.fn(),
 }))
 
+let automergeItemsState: Item[] = itemsFixture
+let automergeMetadataState: Record<string, unknown> = {}
+let automergeListeners = new Set<() => void>()
+
+function emitAutomergeSnapshot() {
+  for (const listener of Array.from(automergeListeners)) {
+    listener()
+  }
+}
+
 describe('state selectors', () => {
   beforeEach(() => {
+    automergeItemsState = itemsFixture
+    automergeMetadataState = {}
+    automergeListeners = new Set()
+
+    vi.mocked(getAutomergeItems).mockImplementation(() => automergeItemsState)
+    vi.mocked(getAutomergeItem).mockImplementation((itemId: string) => (
+      automergeItemsState.find(item => item.id === itemId) || null
+    ))
+    vi.mocked(getAutomergeMetadata).mockImplementation(() => automergeMetadataState)
+    vi.mocked(subscribeAutomergeSnapshots).mockImplementation(listener => {
+      automergeListeners.add(listener)
+      return () => {
+        automergeListeners.delete(listener)
+      }
+    })
+
     useAuthStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
@@ -125,5 +158,58 @@ describe('state selectors', () => {
 
     rerender({ ids: ['topic-1'] })
     expect(result.current.map(item => item.id)).toEqual(['topic-1'])
+  })
+
+  it('useSearchItems keeps stable snapshot when item references change but values do not', () => {
+    const options = {
+      includeArchived: false,
+      selectedItemIds: [],
+      showSelectedOptions: false,
+      types: {
+        group: true,
+        person: true,
+        topic: true,
+        error: true,
+      },
+    } as const
+
+    const { result } = renderHook(() => useSearchItems(options))
+    const firstResult = result.current
+
+    act(() => {
+      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).toBe(firstResult)
+  })
+
+  it('useSearchItems returns a new snapshot when visible item data changes', () => {
+    const options = {
+      includeArchived: false,
+      selectedItemIds: [],
+      showSelectedOptions: false,
+      types: {
+        group: true,
+        person: true,
+        topic: true,
+        error: true,
+      },
+    } as const
+
+    const { result } = renderHook(() => useSearchItems(options))
+    const firstResult = result.current
+
+    act(() => {
+      automergeItemsState = automergeItemsState.map(item => (
+        item.id === 'person-1'
+          ? { ...item, name: 'Alice Updated' }
+          : item
+      ))
+      emitAutomergeSnapshot()
+    })
+
+    expect(result.current).not.toBe(firstResult)
+    expect(result.current.items.find(item => item.id === 'person-1')?.name).toBe('Alice Updated')
   })
 })

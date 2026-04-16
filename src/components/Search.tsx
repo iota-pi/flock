@@ -29,10 +29,9 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useItemsInitialLoading, useMetadata, useSortCriteria } from '../state/selectors'
+import { useItemsInitialLoading, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
-import { sortItems } from '../utils/customSort'
 import {
   ALL_SEARCHABLE_TYPES,
   AnySearchable,
@@ -93,12 +92,12 @@ interface Props<T> {
   showSelectedChips?: boolean,
   showSelectedOptions?: boolean,
   showOptionCheckboxes?: boolean,
-  /** Keep the popper open after selecting an option */
   keepPopperOpenOnSelect?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
 const DARK_THEME = getTheme(true)
+const EMPTY_ITEMS: never[] = []
 
 function Search<T extends AnySearchableData = AnySearchableData>({
   autoFocus,
@@ -115,7 +114,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   onCreate,
   onRemove,
   onSelect,
-  selectedItems = [],
+  selectedItems = EMPTY_ITEMS as T[],
   searchDescription = false,
   searchSummary = false,
   showDescriptions = true,
@@ -126,17 +125,22 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showOptionCheckboxes = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const items = useItems()
   const itemsInitialLoading = useItemsInitialLoading()
-  const [sortCriteria] = useSortCriteria()
-  const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
-
-  const selectedIds = useMemo(
-    () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
+  const selectedItemIds = useMemo(
+    () => selectedItems.map(s => (typeof s === 'string' ? s : s.id)),
     [selectedItems],
   )
+  const {
+    defaultFrequencies,
+    items,
+  } = useSearchItems({
+    includeArchived,
+    selectedItemIds,
+    showSelectedOptions,
+    types,
+  })
 
-  const selectedSearchables: AnySearchable[] = useMemo(
+  const selectedSearchables = useMemo(
     () => selectedItems.map(
       (item): AnySearchable => ({
         data: item,
@@ -148,23 +152,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     [selectedItems],
   )
 
-  const filteredItems = useMemo(
-    () => sortItems(
-      items.filter(item => (
-        types[item.type]
-        && (includeArchived || !item.archived)
-        && (showSelectedOptions || !selectedIds.has(item.id))
-      )),
-      sortCriteria,
-    ),
-    [includeArchived, items, selectedIds, showSelectedOptions, sortCriteria, types],
-  )
-
   const options = useMemo<AnySearchable[]>(
     () => {
       const results: AnySearchable[] = []
       results.push(
-        ...filteredItems.map((item): AnySearchable => ({
+        ...items.map((item): AnySearchable => ({
           type: item.type,
           id: item.id,
           data: item,
@@ -173,7 +165,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       )
       return results
     },
-    [filteredItems],
+    [items],
   )
 
   const matchSorterKeys = useMemo(
@@ -263,7 +255,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           }
         } else {
           const data = option.data as T
-          if (selectedIds.has(data.id)) {
+          if (selectedItemIds.includes(data.id)) {
             onRemove?.(data)
           } else if (onSelect) {
             onSelect(data)
@@ -282,7 +274,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onClear()
       }
     },
-    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedIds, selectedSearchables],
+    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedItemIds, selectedSearchables],
   )
 
   const theme = useMemo(

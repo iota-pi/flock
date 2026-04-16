@@ -7,10 +7,8 @@ import getTheme from '../theme'
 
 // Mocks
 vi.mock('../state/selectors', () => ({
-  useItems: vi.fn(),
   useItemsInitialLoading: vi.fn(),
-  useMetadata: vi.fn(),
-  useSortCriteria: vi.fn(),
+  useSearchItems: vi.fn(),
 }))
 vi.mock('../state/uiStore', () => ({
   useUiStore: vi.fn(),
@@ -29,7 +27,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
   )
 }
 
-import { useItems, useItemsInitialLoading, useMetadata, useSortCriteria } from '../state/selectors'
+import { useItemsInitialLoading, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
 
@@ -46,10 +44,14 @@ describe('Search Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useItems).mockReturnValue(items)
+    vi.mocked(useSearchItems).mockImplementation(options => ({
+      defaultFrequencies: {},
+      items: items.filter(item => (
+        options.types[item.type]
+        && (options.includeArchived || !item.archived)
+      )),
+    }))
     vi.mocked(useItemsInitialLoading).mockReturnValue(false)
-    vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
-    vi.mocked(useSortCriteria).mockReturnValue([[], vi.fn()])
     vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 
@@ -93,7 +95,10 @@ describe('Search Component', () => {
       name: 'HasNote',
       notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
     }
-    vi.mocked(useItems).mockReturnValue([...items, itemWithNote])
+    vi.mocked(useSearchItems).mockReturnValue({
+      defaultFrequencies: {},
+      items: [...items, itemWithNote],
+    })
 
     renderWithTheme(<Search searchSummary />) // searchSummary enables note search
 
