@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   getAutomergeItem: vi.fn(),
-  applyAutomergeItemPatches: vi.fn(async () => undefined),
+  withAutomergeDocumentChange: vi.fn(async () => true),
 }))
 
 vi.mock('../sync/manualRecoveryStore', () => ({
@@ -24,7 +24,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 
 vi.mock('../sync/automergeDocStore', () => ({
   getAutomergeItem: mocks.getAutomergeItem,
-  applyAutomergeItemPatches: mocks.applyAutomergeItemPatches,
+  withAutomergeDocumentChange: mocks.withAutomergeDocumentChange,
 }))
 
 vi.mock('../state/toastStore', () => ({
@@ -87,7 +87,7 @@ describe('useOfflineRecovery', () => {
     })
 
     expect(mocks.removeManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-corrupted-1')
-    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-corrupted-1'])
+    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith()
     expect(mocks.setMessage).toHaveBeenCalledWith({
       severity: 'info',
       message: 'Retry sync triggered for item-corrupted-1.',
@@ -117,7 +117,13 @@ describe('useOfflineRecovery', () => {
       await result.current.handleForceOverwriteCorruptedItem('item-1')
     })
 
-    expect(mocks.applyAutomergeItemPatches).toHaveBeenCalledWith('item-1', expect.any(Array))
-    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith(['item-1'])
+    expect(mocks.withAutomergeDocumentChange).toHaveBeenCalledWith(
+      'item-1',
+      expect.any(Function),
+      expect.objectContaining({
+        createIfMissing: true,
+      }),
+    )
+    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith()
   })
 })

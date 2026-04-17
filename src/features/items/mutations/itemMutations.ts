@@ -6,10 +6,7 @@ import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { removeKnownAutomergeItemIds } from '../../../sync/automergeRepo'
 import {
-  ACCOUNT_METADATA_DOCUMENT_ID,
-  applyAutomergeMetadataPatches,
-  type AutomergeDocumentPatch,
-  getAutomergeItem,
+  withAutomergeMetadataChange,
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
@@ -17,7 +14,6 @@ import {
   withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
-import { applyDocumentPatch } from '../../../sync/utils/documentPatchUtils'
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -71,88 +67,21 @@ function normalizeMetadataForAutomerge(metadata: AccountMetadata): Record<string
   return JSON.parse(JSON.stringify(metadata || {})) as Record<string, unknown>
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isDeepEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) {
-    return true
-  }
-
-  if (Array.isArray(left) && Array.isArray(right)) {
-    if (left.length !== right.length) {
-      return false
-    }
-
-    for (let index = 0; index < left.length; index += 1) {
-      if (!isDeepEqual(left[index], right[index])) {
-        return false
-      }
-    }
-
-    return true
-  }
-
-  if (isPlainObject(left) && isPlainObject(right)) {
-    const leftKeys = Object.keys(left)
-    const rightKeys = Object.keys(right)
-
-    if (leftKeys.length !== rightKeys.length) {
-      return false
-    }
-
-    for (const key of leftKeys) {
-      if (!isDeepEqual(left[key], right[key])) {
-        return false
-      }
-    }
-
-    return true
-  }
-
-  return false
-}
-
-function buildTopLevelDocumentPatches(
-  previous: Record<string, unknown>,
+function mutateDraftToMatchSnapshot(
+  draft: Record<string, unknown>,
   next: Record<string, unknown>,
-): AutomergeDocumentPatch[] {
-  const patches: AutomergeDocumentPatch[] = []
-
-  for (const key of Object.keys(previous)) {
+): void {
+  for (const key of Object.keys(draft)) {
     if (!(key in next) || next[key] === undefined) {
-      patches.push({
-        op: 'remove',
-        path: [key],
-      })
+      delete draft[key]
     }
   }
 
   for (const [key, value] of Object.entries(next)) {
-    if (value === undefined) {
-      continue
-    }
-
-    if (!(key in previous)) {
-      patches.push({
-        op: 'add',
-        path: [key],
-        value,
-      })
-      continue
-    }
-
-    if (!isDeepEqual(previous[key], value)) {
-      patches.push({
-        op: 'replace',
-        path: [key],
-        value,
-      })
+    if (value !== undefined) {
+      draft[key] = value
     }
   }
-
-  return patches
 }
 
 function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
@@ -210,18 +139,10 @@ export async function storeItems(
 
   for (const item of current) {
     const normalizedItem = normalizeItemForAutomerge(item)
-    const existingItem = (getAutomergeItem(item.id) as unknown as Record<string, unknown>) || { id: item.id }
-    const patches = buildTopLevelDocumentPatches(existingItem, normalizedItem)
-    if (patches.length === 0) {
-      continue
-    }
-
     await withAutomergeDocumentChange(
       item.id,
       doc => {
-        for (const patch of patches) {
-          applyDocumentPatch(doc, patch)
-        }
+        mutateDraftToMatchSnapshot(doc, normalizedItem)
 
         if (typeof doc.id !== 'string' || doc.id.length === 0) {
           doc.id = item.id
@@ -236,7 +157,7 @@ export async function storeItems(
   }
 
   if (changedIds.length > 0) {
-    requestAutomergeSync(changedIds)
+    requestAutomergeSync()
   }
 
   return current
@@ -298,18 +219,12 @@ export async function setMetadata(
     )
 
     const normalizedMetadata = normalizeMetadataForAutomerge(nextMetadata)
-    const patches = buildTopLevelDocumentPatches(
-      currentMetadata as Record<string, unknown>,
-      normalizedMetadata,
-    )
 
-    if (patches.length === 0) {
-      return nextMetadata
-    }
+    await withAutomergeMetadataChange(metadataDraft => {
+      mutateDraftToMatchSnapshot(metadataDraft, normalizedMetadata)
+    })
 
-    await applyAutomergeMetadataPatches(patches)
-
-    requestAutomergeSync([ACCOUNT_METADATA_DOCUMENT_ID])
+    requestAutomergeSync()
 
     return nextMetadata
   })

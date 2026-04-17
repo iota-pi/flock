@@ -9,39 +9,25 @@ import { useToastStore } from '../state/toastStore'
 import type { ItemId } from '../shared/itemTypes'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import {
-  applyAutomergeItemPatches,
   getAutomergeItem,
-  type AutomergeDocumentPatch,
+  withAutomergeDocumentChange,
 } from '../sync/automergeDocStore'
 
-function buildReplaceAllPatches(
-  previous: Record<string, unknown>,
-  next: Record<string, unknown>,
-): AutomergeDocumentPatch[] {
-  const patches: AutomergeDocumentPatch[] = []
-
-  for (const key of Object.keys(previous)) {
-    if (!(key in next) || next[key] === undefined) {
-      patches.push({
-        op: 'remove',
-        path: [key],
-      })
+function mutateDraftToMatchSnapshot(
+  draft: Record<string, unknown>,
+  snapshot: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(draft)) {
+    if (!(key in snapshot) || snapshot[key] === undefined) {
+      delete draft[key]
     }
   }
 
-  for (const [key, value] of Object.entries(next)) {
-    if (value === undefined) {
-      continue
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value !== undefined) {
+      draft[key] = value
     }
-
-    patches.push({
-      op: key in previous ? 'replace' : 'add',
-      path: [key],
-      value,
-    })
   }
-
-  return patches
 }
 
 export function useOfflineRecovery() {
@@ -86,15 +72,22 @@ export function useOfflineRecovery() {
         localSnapshot.prayedFor = [...localItem.prayedFor]
       }
 
-      const patches = buildReplaceAllPatches(
-        (getAutomergeItem(itemId) as unknown as Record<string, unknown>) || {},
-        localSnapshot,
+      await withAutomergeDocumentChange(
+        itemId,
+        doc => {
+          mutateDraftToMatchSnapshot(doc, localSnapshot)
+          if (typeof doc.id !== 'string' || doc.id.length === 0) {
+            doc.id = itemId
+          }
+        },
+        {
+          createIfMissing: true,
+          initialValue: { id: itemId },
+        },
       )
 
-      await applyAutomergeItemPatches(itemId, patches)
-
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync([itemId])
+      requestAutomergeSync()
       setMessage({ message: `Recovered ${itemId} using local cache.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -106,26 +99,23 @@ export function useOfflineRecovery() {
     try {
       const existing = getAutomergeItem(itemId)
 
-      await applyAutomergeItemPatches(itemId, [
-        {
-          op: 'replace',
-          path: ['id'],
-          value: itemId,
+      await withAutomergeDocumentChange(
+        itemId,
+        doc => {
+          doc.id = itemId
+          doc.type = existing?.type || 'person'
+          doc.deleted = true
         },
         {
-          op: 'replace',
-          path: ['type'],
-          value: existing?.type || 'person',
+          createIfMissing: true,
+          initialValue: {
+            id: itemId,
+          },
         },
-        {
-          op: 'replace',
-          path: ['deleted'],
-          value: true,
-        },
-      ])
+      )
 
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync([itemId])
+      requestAutomergeSync()
       setMessage({ message: `Deleted corrupted server item ${itemId}.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -136,7 +126,7 @@ export function useOfflineRecovery() {
     setIsRetrying(itemId)
     try {
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync([itemId])
+      requestAutomergeSync()
       setMessage({
         severity: 'info',
         message: `Retry sync triggered for ${itemId}.`,

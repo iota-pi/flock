@@ -17,7 +17,7 @@ vi.mock('./useToday', () => ({
 }))
 
 vi.mock('../sync/automergeDocStore', () => ({
-  applyAutomergeItemPatches: vi.fn(async () => undefined),
+  withAutomergeDocumentChange: vi.fn(async () => true),
 }))
 
 vi.mock('../sync/automergeSyncDispatcher', () => ({
@@ -27,7 +27,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
-import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
+import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { Item } from 'src/state/items'
 
@@ -83,14 +83,14 @@ describe('usePrayerSchedule', () => {
       result.current.recordPrayerFor(item as any)
     })
 
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('1', [
-      {
-        op: 'replace',
-        path: ['prayedFor'],
-        value: expect.any(Array),
-      },
-    ])
-    expect(requestAutomergeSync).toHaveBeenCalledWith(['1'])
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith(
+      '1',
+      expect.any(Function),
+      expect.objectContaining({
+        createIfMissing: true,
+      }),
+    )
+    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('isPrayedForToday returns correct status', () => {

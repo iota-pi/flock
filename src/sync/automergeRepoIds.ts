@@ -64,27 +64,6 @@ function ensureMapping(itemId: string): { url: AutomergeUrl; documentId: string 
   }
 }
 
-export function registerAutomergeItemIds(itemIds: string[]): void {
-  for (const rawItemId of itemIds) {
-    if (typeof rawItemId !== 'string') {
-      continue
-    }
-
-    const itemId = rawItemId.trim()
-    if (itemId.length === 0) {
-      continue
-    }
-
-    ensureMapping(itemId)
-  }
-}
-
-export function clearAutomergeItemIdMappings(): void {
-  documentIdByItemId.clear()
-  itemIdByDocumentId.clear()
-  urlByItemId.clear()
-}
-
 export function toAutomergeUrlFromItemId(itemId: string): AnyDocumentId {
   return ensureMapping(itemId).url
 }

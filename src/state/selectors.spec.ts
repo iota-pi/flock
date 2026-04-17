@@ -7,21 +7,28 @@ import {
   useItemMap,
   useItems,
   useItemsByIds,
+  useLoggedIn,
   usePrayerScheduleInputs,
   useSearchItems,
   useSortCriteria,
-  useLoggedIn,
 } from './selectors'
 import { useAuthStore } from './authStore'
-import {
-  getAutomergeItem,
-  getAutomergeItems,
-  getAutomergeMetadata,
-  subscribeAutomergeItem,
-  subscribeAutomergeItems,
-  subscribeAutomergeMetadata,
-  subscribeAutomergeSnapshots,
-} from '../sync/automergeDocStore'
+
+const useAutomergeMocks = vi.hoisted(() => ({
+  useAutomergeItems: vi.fn(),
+  useAutomergeItem: vi.fn(),
+  useAutomergeMetadataSnapshot: vi.fn(),
+}))
+
+vi.mock('../features/items/mutations/itemMutations', () => ({
+  setMetadata: vi.fn(async () => ({})),
+}))
+
+vi.mock('../sync/useAutomerge', () => ({
+  useAutomergeItems: useAutomergeMocks.useAutomergeItems,
+  useAutomergeItem: useAutomergeMocks.useAutomergeItem,
+  useAutomergeMetadataSnapshot: useAutomergeMocks.useAutomergeMetadataSnapshot,
+}))
 
 const itemsFixture: Item[] = [
   {
@@ -62,82 +69,15 @@ const itemsFixture: Item[] = [
   },
 ]
 
-const useAutomergeMocks = vi.hoisted(() => ({
-  useAutomergeItem: vi.fn(),
-  useAutomergeMetadataSnapshot: vi.fn(() => ({})),
-}))
-
-vi.mock('../api/itemReadService', () => ({
-  ensureItemsBootstrap: vi.fn(async () => undefined),
-  ensureMetadataLoaded: vi.fn(async () => ({})),
-  getCachedMetadata: vi.fn(() => ({})),
-  subscribeMetadata: vi.fn(() => () => undefined),
-}))
-
-vi.mock('../sync/automergeDocStore', () => ({
-  getAutomergeItems: vi.fn(),
-  getAutomergeItem: vi.fn(),
-  getAutomergeMetadata: vi.fn(),
-  subscribeAutomergeItem: vi.fn(),
-  subscribeAutomergeItems: vi.fn(),
-  subscribeAutomergeMetadata: vi.fn(),
-  subscribeAutomergeSnapshots: vi.fn(),
-}))
-
-vi.mock('../sync/useAutomerge', () => ({
-  useAutomergeItem: useAutomergeMocks.useAutomergeItem,
-  useAutomergeMetadataSnapshot: useAutomergeMocks.useAutomergeMetadataSnapshot,
-}))
-
-vi.mock('../sync/automergeSyncDispatcher', () => ({
-  requestAutomergeSync: vi.fn(),
-}))
-
 let automergeItemsState: Item[] = itemsFixture
 let automergeMetadataState: Record<string, unknown> = {}
-let automergeListeners = new Set<() => void>()
-
-function emitAutomergeSnapshot() {
-  for (const listener of Array.from(automergeListeners)) {
-    listener()
-  }
-}
 
 describe('state selectors', () => {
   beforeEach(() => {
     automergeItemsState = itemsFixture
     automergeMetadataState = {}
-    automergeListeners = new Set()
 
-    vi.mocked(getAutomergeItems).mockImplementation(() => automergeItemsState)
-    vi.mocked(getAutomergeItem).mockImplementation((itemId: string) => (
-      automergeItemsState.find(item => item.id === itemId) || null
-    ))
-    vi.mocked(getAutomergeMetadata).mockImplementation(() => automergeMetadataState)
-    vi.mocked(subscribeAutomergeSnapshots).mockImplementation(listener => {
-      automergeListeners.add(listener)
-      return () => {
-        automergeListeners.delete(listener)
-      }
-    })
-    vi.mocked(subscribeAutomergeItems).mockImplementation(listener => {
-      automergeListeners.add(listener)
-      return () => {
-        automergeListeners.delete(listener)
-      }
-    })
-    vi.mocked(subscribeAutomergeMetadata).mockImplementation(listener => {
-      automergeListeners.add(listener)
-      return () => {
-        automergeListeners.delete(listener)
-      }
-    })
-    vi.mocked(subscribeAutomergeItem).mockImplementation((_itemId, listener) => {
-      automergeListeners.add(listener)
-      return () => {
-        automergeListeners.delete(listener)
-      }
-    })
+    useAutomergeMocks.useAutomergeItems.mockImplementation(() => automergeItemsState)
     useAutomergeMocks.useAutomergeItem.mockImplementation((itemId: string) => (
       automergeItemsState.find(item => item.id === itemId) || null
     ))
@@ -169,7 +109,7 @@ describe('state selectors', () => {
   })
 
   it('useItems keeps stable typed list when unrelated item changes', () => {
-    const { result } = renderHook(() => useItems<Item>('group'))
+    const { result, rerender } = renderHook(() => useItems<Item>('group'))
     const firstResult = result.current
 
     act(() => {
@@ -178,7 +118,7 @@ describe('state selectors', () => {
           ? { ...item, name: 'Alice Updated' }
           : item
       ))
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).toBe(firstResult)
@@ -192,12 +132,12 @@ describe('state selectors', () => {
   })
 
   it('useItemMap keeps stable map for semantically unchanged updates', () => {
-    const { result } = renderHook(() => useItemMap())
+    const { result, rerender } = renderHook(() => useItemMap())
     const firstResult = result.current
 
     act(() => {
       automergeItemsState = automergeItemsState.map(item => ({ ...item }))
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).toBe(firstResult)
@@ -241,12 +181,12 @@ describe('state selectors', () => {
       },
     }
 
-    const { result } = renderHook(() => useSearchItems(options))
+    const { result, rerender } = renderHook(() => useSearchItems(options))
     const firstResult = result.current
 
     act(() => {
       automergeItemsState = automergeItemsState.map(item => ({ ...item }))
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).toBe(firstResult)
@@ -265,7 +205,7 @@ describe('state selectors', () => {
       },
     }
 
-    const { result } = renderHook(() => useSearchItems(options))
+    const { result, rerender } = renderHook(() => useSearchItems(options))
     const firstResult = result.current
 
     act(() => {
@@ -274,7 +214,7 @@ describe('state selectors', () => {
           ? { ...item, name: 'Alice Updated' }
           : item
       ))
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).not.toBe(firstResult)
@@ -282,20 +222,20 @@ describe('state selectors', () => {
   })
 
   it('usePrayerScheduleInputs keeps stable snapshot for semantically unchanged updates', () => {
-    const { result } = renderHook(() => usePrayerScheduleInputs())
+    const { result, rerender } = renderHook(() => usePrayerScheduleInputs())
     const firstResult = result.current
 
     act(() => {
       automergeItemsState = automergeItemsState.map(item => ({ ...item }))
       automergeMetadataState = { ...automergeMetadataState }
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).toBe(firstResult)
   })
 
   it('usePrayerScheduleInputs returns new snapshot when prayerGoal changes', () => {
-    const { result } = renderHook(() => usePrayerScheduleInputs())
+    const { result, rerender } = renderHook(() => usePrayerScheduleInputs())
     const firstResult = result.current
 
     act(() => {
@@ -303,7 +243,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         prayerGoal: 7,
       }
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current).not.toBe(firstResult)
@@ -311,7 +251,7 @@ describe('state selectors', () => {
   })
 
   it('useSortCriteria keeps stable value for semantically unchanged metadata snapshots', () => {
-    const { result } = renderHook(() => useSortCriteria())
+    const { result, rerender } = renderHook(() => useSortCriteria())
     const firstSortCriteria = result.current[0]
 
     act(() => {
@@ -319,7 +259,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         sortCriteria: [{ type: 'name', reverse: false }],
       }
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current[0]).toBe(firstSortCriteria)
@@ -329,7 +269,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         prayerGoal: 9,
       }
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current[0]).toBe(firstSortCriteria)
@@ -339,7 +279,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         sortCriteria: [{ type: 'created', reverse: false }],
       }
-      emitAutomergeSnapshot()
+      rerender()
     })
 
     expect(result.current[0]).not.toBe(firstSortCriteria)

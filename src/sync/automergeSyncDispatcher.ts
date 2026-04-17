@@ -2,7 +2,6 @@ import { useSyncStore } from '../state/syncStore'
 import { useAuthStore } from '../state/authStore'
 import { listAutomergeDocumentIds, resolvePendingAutomergeHandles } from './automergeDocStore'
 import {
-  registerKnownAutomergeItemIds,
   setVaultNetworkAccount,
   syncKnownAutomergeItemIds,
 } from './automergeRepo'
@@ -30,21 +29,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 function getActiveAccount(): string | null {
   return useAuthStore.getState().account || null
-}
-
-function normalizeRequestedItemIds(itemIds?: string[]): string[] {
-  const source = Array.isArray(itemIds) ? itemIds : []
-
-  const deduped = new Set<string>()
-  for (const itemId of source) {
-    if (typeof itemId !== 'string' || itemId.length === 0) {
-      continue
-    }
-
-    deduped.add(itemId)
-  }
-
-  return Array.from(deduped)
 }
 
 async function runSync(account: string): Promise<string[]> {
@@ -75,10 +59,7 @@ export async function pullRemoteMessagesNow(account?: string | null, itemIds?: s
     return []
   }
 
-  const normalized = normalizeRequestedItemIds(itemIds)
-  if (normalized.length > 0) {
-    registerKnownAutomergeItemIds(normalized, activeAccount)
-  }
+  void itemIds
 
   return runSync(activeAccount)
 }
@@ -87,21 +68,13 @@ let syncQueue: Promise<unknown> = Promise.resolve()
 
 export function requestAutomergeSync(itemIds?: string[] | string): void {
   const account = getActiveAccount()
-  const normalized = normalizeRequestedItemIds(typeof itemIds === 'string' ? [itemIds] : itemIds)
+  void itemIds
 
   if (!account) {
-    if (normalized.length > 0) {
-      registerKnownAutomergeItemIds(normalized)
-    }
-
     if (SHOULD_THROW_SYNC_ERRORS) {
       throw new Error('Sync dispatcher is not active')
     }
     return
-  }
-
-  if (normalized.length > 0) {
-    registerKnownAutomergeItemIds(normalized, account)
   }
 
   syncQueue = syncQueue

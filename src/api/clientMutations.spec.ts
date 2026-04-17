@@ -2,12 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import {
-  ACCOUNT_METADATA_DOCUMENT_ID,
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
-  applyAutomergeMetadataPatches,
   withAutomergeDocumentChange,
+  withAutomergeMetadataChange,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { ensureItemsBootstrap } from './itemReadService'
@@ -28,7 +27,7 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     getAutomergeMetadata: vi.fn(() => ({})),
     initializeAutomergeDocStore: vi.fn(),
     withAutomergeDocumentChange: vi.fn(async () => true),
-    applyAutomergeMetadataPatches: vi.fn(async () => undefined),
+    withAutomergeMetadataChange: vi.fn(async () => true),
   }
 })
 
@@ -70,16 +69,14 @@ describe('local-first mutations', () => {
     vi.mocked(getAutomergeMetadata).mockImplementation(() => ({
       ...metadataState,
     } as any))
-    vi.mocked(applyAutomergeMetadataPatches).mockImplementation(async patches => {
-      for (const patch of patches) {
-        const key = String(patch.path[0])
-
-        if (patch.op === 'remove') {
-          delete metadataState[key]
-        } else {
-          metadataState[key] = patch.value
-        }
+    vi.mocked(withAutomergeMetadataChange).mockImplementation(async (change: (draft: Record<string, unknown>) => void) => {
+      const draft = { ...metadataState }
+      change(draft)
+      for (const key of Object.keys(metadataState)) {
+        delete metadataState[key]
       }
+      Object.assign(metadataState, draft)
+      return true
     })
 
     setApiAuthToken('')
@@ -101,7 +98,7 @@ describe('local-first mutations', () => {
         createIfMissing: true,
       }),
     )
-    expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
+    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('rejects invalid item payloads before storing', async () => {
@@ -118,7 +115,7 @@ describe('local-first mutations', () => {
     expect(withAutomergeDocumentChange).toHaveBeenCalledTimes(2)
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p2', expect.any(Function), expect.any(Object))
-    expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
+    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('deletes with group updates and tombstones', async () => {
@@ -134,7 +131,7 @@ describe('local-first mutations', () => {
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('g1', expect.any(Function), expect.any(Object))
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
-    expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
+    expect(requestAutomergeSync).toHaveBeenCalledWith()
     expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
   })
 
@@ -142,8 +139,8 @@ describe('local-first mutations', () => {
     const result = await setMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(applyAutomergeMetadataPatches).toHaveBeenCalledTimes(1)
-    expect(requestAutomergeSync).toHaveBeenCalledWith([ACCOUNT_METADATA_DOCUMENT_ID])
+    expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)
+    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('serializes functional metadata updates to avoid stale overwrites', async () => {

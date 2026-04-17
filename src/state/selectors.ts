@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { isEqual } from 'lodash-es'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
@@ -9,12 +9,10 @@ import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
 import {
-  getAutomergeItem,
-  getAutomergeItems,
-  getAutomergeMetadata,
-  subscribeAutomergeSnapshots,
-} from '../sync/automergeDocStore'
-import { useAutomergeItem, useAutomergeMetadataSnapshot } from '../sync/useAutomerge'
+  useAutomergeItem,
+  useAutomergeItems,
+  useAutomergeMetadataSnapshot,
+} from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -24,13 +22,6 @@ const EMPTY_DEFAULT_PRAYER_FREQUENCY = {} as NonNullable<Metadata['defaultPrayer
 type SearchItemsResult = {
   defaultFrequencies: NonNullable<Metadata['defaultPrayerFrequency']>,
   items: Item[],
-}
-
-type MemoizedSelectorOptions<T> = {
-  authReady: boolean,
-  areEqual: (left: T, right: T) => boolean,
-  emptyValue: T,
-  selectWhenReady: () => T,
 }
 
 type PrayerScheduleInputs = {
@@ -75,37 +66,19 @@ function equalSearchItemsResult(
   )
 }
 
-function useMemoizedSelector<T>({
-  authReady,
-  areEqual,
-  emptyValue,
-  selectWhenReady,
-}: MemoizedSelectorOptions<T>): T {
+function useMemoizedValue<T>(value: T, areEqual: (left: T, right: T) => boolean): T {
   const cacheRef = useRef<{ value: T } | null>(null)
 
-  const getSnapshot = useCallback(
-    () => {
-      const nextValue = authReady
-        ? selectWhenReady()
-        : emptyValue
+  const cached = cacheRef.current
+  if (cached && areEqual(cached.value, value)) {
+    return cached.value
+  }
 
-      const cached = cacheRef.current
-      if (cached && areEqual(cached.value, nextValue)) {
-        return cached.value
-      }
-
-      cacheRef.current = { value: nextValue }
-      return nextValue
-    },
-    [areEqual, authReady, emptyValue, selectWhenReady],
-  )
-
-  const getServerSnapshot = useCallback(() => emptyValue, [emptyValue])
-
-  return useSyncExternalStore(subscribeAutomergeSnapshots, getSnapshot, getServerSnapshot)
+  cacheRef.current = { value }
+  return value
 }
 
-function isVisibleItem(item: Item | null): item is Item {
+function isVisibleItem(item: Item | null | undefined): item is Item {
   return !!item && !(item as Item & { deleted?: boolean }).deleted
 }
 
@@ -114,55 +87,48 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 
 export function useAccountMetadata(): Metadata {
   const authReady = useAuthReady()
-  const metadata = useAutomergeMetadataSnapshot()
+  const metadata = useAutomergeMetadataSnapshot() as Metadata
 
-  return authReady ? metadata as Metadata : EMPTY_METADATA
+  return useMemoizedValue(authReady ? metadata : EMPTY_METADATA, isEqual)
 }
 
 function useMetadataValue<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): Metadata[K] {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const authReady = useAuthReady()
+  const metadata = useAutomergeMetadataSnapshot() as Metadata
 
-  const selectWhenReady = useCallback(
-    () => {
-      const metadata = getAutomergeMetadata() as Metadata
-      return (metadata[key] === undefined ? defaultValue : metadata[key]) as Metadata[K]
-    },
-    [defaultValue, key],
-  )
+  const value = authReady
+    ? (metadata[key] === undefined ? defaultValue : metadata[key]) as Metadata[K]
+    : defaultValue as Metadata[K]
 
-  return useMemoizedSelector<Metadata[K]>({
-    authReady,
-    areEqual: isEqual,
-    emptyValue: defaultValue as Metadata[K],
-    selectWhenReady,
-  })
+  return useMemoizedValue(value, isEqual)
 }
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const selectWhenReady = useCallback(
+  const authReady = useAuthReady()
+  const items = useAutomergeItems()
+
+  const nextItems = useMemo(
     () => {
-      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      if (!authReady) {
+        return EMPTY_ARRAY as T[]
+      }
+
+      const visibleItems = items.filter(isVisibleItem)
       return (
         itemType
           ? visibleItems.filter(item => item.type === itemType)
           : visibleItems
       ) as T[]
     },
-    [itemType],
+    [authReady, itemType, items],
   )
 
-  return useMemoizedSelector<T[]>({
-    authReady,
-    areEqual: isEqual,
-    emptyValue: EMPTY_ARRAY as T[],
-    selectWhenReady,
-  })
+  return useMemoizedValue(nextItems, isEqual)
 }
 
 export function useItemsInitialLoading(): boolean {
@@ -170,25 +136,26 @@ export function useItemsInitialLoading(): boolean {
 }
 
 export const useItemMap = () => {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const selectWhenReady = useCallback(
+  const authReady = useAuthReady()
+  const items = useAutomergeItems()
+
+  const nextMap = useMemo(
     () => {
-      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      if (!authReady) {
+        return EMPTY_ITEM_MAP
+      }
+
+      const visibleItems = items.filter(isVisibleItem)
       return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
     },
-    [],
+    [authReady, items],
   )
 
-  return useMemoizedSelector<Record<ItemId, Item>>({
-    authReady,
-    areEqual: isEqual,
-    emptyValue: EMPTY_ITEM_MAP,
-    selectWhenReady,
-  })
+  return useMemoizedValue(nextMap, isEqual)
 }
 
 export const useItem = (id: ItemId) => {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const authReady = useAuthReady()
   const item = useAutomergeItem(id)
 
   if (!authReady) {
@@ -204,6 +171,7 @@ export const useItem = (id: ItemId) => {
 
 export function useItemsById() {
   const itemMap = useItemMap()
+
   return useCallback(
     <T extends Item>(ids: ItemId[]) => (
       ids.map(id => itemMap[id] as T).filter(item => item !== undefined)
@@ -213,51 +181,51 @@ export function useItemsById() {
 }
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const selectWhenReady = useCallback(
+  const authReady = useAuthReady()
+  const itemMap = useItemMap()
+
+  const nextItems = useMemo(
     () => {
-      if (ids.length === 0) {
+      if (!authReady || ids.length === 0) {
         return EMPTY_ARRAY as T[]
       }
 
       return ids
-        .map(itemId => getAutomergeItem(itemId))
+        .map(itemId => itemMap[itemId])
         .filter(isVisibleItem) as T[]
     },
-    [ids],
+    [authReady, ids, itemMap],
   )
 
-  return useMemoizedSelector<T[]>({
-    authReady,
-    areEqual: isEqual,
-    emptyValue: EMPTY_ARRAY as T[],
-    selectWhenReady,
-  })
+  return useMemoizedValue(nextItems, isEqual)
 }
 
 export function usePrayerScheduleInputs(): PrayerScheduleInputs {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
-  const selectWhenReady = useCallback(
+  const authReady = useAuthReady()
+  const items = useAutomergeItems()
+  const metadata = useAutomergeMetadataSnapshot() as Metadata
+
+  const nextValue = useMemo(
     () => {
-      const metadata = getAutomergeMetadata() as Metadata
+      if (!authReady) {
+        return EMPTY_PRAYER_SCHEDULE_INPUTS
+      }
+
       return {
-        items: getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted),
+        items: items.filter(isVisibleItem),
         prayerGoal: metadata.prayerGoal,
       }
     },
-    [],
+    [authReady, items, metadata],
   )
 
-  return useMemoizedSelector<PrayerScheduleInputs>({
-    authReady,
-    areEqual: equalPrayerScheduleInputs,
-    emptyValue: EMPTY_PRAYER_SCHEDULE_INPUTS,
-    selectWhenReady,
-  })
+  return useMemoizedValue(nextValue, equalPrayerScheduleInputs)
 }
 
 export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
-  const authReady = useAuthStore(state => state.loggedIn && !state.initializing)
+  const authReady = useAuthReady()
+  const items = useAutomergeItems()
+  const metadata = useAutomergeMetadataSnapshot() as Metadata
   const {
     includeArchived,
     selectedItemIds,
@@ -265,14 +233,17 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
     types,
   } = options
 
-  const selectWhenReady = useCallback(
+  const nextValue = useMemo(
     () => {
-      const metadata = getAutomergeMetadata() as Metadata
+      if (!authReady) {
+        return EMPTY_SEARCH_ITEMS_RESULT
+      }
+
       const sortCriteria = metadata.sortCriteria || DEFAULT_CRITERIA
       const defaultFrequencies = metadata.defaultPrayerFrequency || EMPTY_DEFAULT_PRAYER_FREQUENCY
       const selectedIdSet = new Set(selectedItemIds)
 
-      const visibleItems = getAutomergeItems().filter(item => !(item as Item & { deleted?: boolean }).deleted)
+      const visibleItems = items.filter(isVisibleItem)
       const nextItems = sortItems(
         visibleItems.filter(item => (
           types[item.type]
@@ -287,15 +258,10 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
         items: nextItems,
       }
     },
-    [includeArchived, selectedItemIds, showSelectedOptions, types],
+    [authReady, includeArchived, items, metadata, selectedItemIds, showSelectedOptions, types],
   )
 
-  return useMemoizedSelector<SearchItemsResult>({
-    authReady,
-    areEqual: equalSearchItemsResult,
-    emptyValue: EMPTY_SEARCH_ITEMS_RESULT,
-    selectWhenReady,
-  })
+  return useMemoizedValue(nextValue, equalSearchItemsResult)
 }
 
 export function useMetadata<K extends MetadataKey>(
@@ -331,6 +297,7 @@ export function useMetadata<K extends MetadataKey>(
     },
     [defaultValue, key],
   )
+
   return [value, setValue]
 }
 

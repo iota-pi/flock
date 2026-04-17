@@ -4,7 +4,7 @@ import { usePrayerScheduleInputs } from '../state/selectors'
 import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { applyAutomergeItemPatches } from '../sync/automergeDocStore'
+import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function usePrayerSchedule() {
@@ -72,14 +72,20 @@ export function usePrayerSchedule() {
         prayedFor = [...prayedFor, new Date().getTime()]
       }
 
-      void applyAutomergeItemPatches(item.id, [
-        {
-          op: 'replace',
-          path: ['prayedFor'],
-          value: prayedFor,
+      void withAutomergeDocumentChange(
+        item.id,
+        doc => {
+          doc.prayedFor = prayedFor
+          if (typeof doc.id !== 'string' || doc.id.length === 0) {
+            doc.id = item.id
+          }
         },
-      ])
-      requestAutomergeSync([item.id])
+        {
+          createIfMissing: true,
+          initialValue: { id: item.id },
+        },
+      )
+      requestAutomergeSync()
     },
     [isPrayedForToday],
   )

@@ -4,13 +4,8 @@ import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { getAutomergeRepo, getKnownAutomergeItemIds } from './automergeRepo'
-import {
-  clearAutomergeItemIdMappings,
-  registerAutomergeItemIds,
-  toAutomergeUrlFromItemId,
-} from './automergeRepoIds'
+import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
-import { applyDocumentPatch } from './utils/documentPatchUtils'
 import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
@@ -24,19 +19,8 @@ export type AutomergeIndexDocument = {
   metadata?: AccountMetadata
 }
 
-export type AutomergeDocumentPatch = {
-  op: 'add' | 'replace' | 'remove'
-  path: Array<string | number>
-  value?: unknown
-}
-
 type RepoDoc = Record<string, unknown>
-
 type RepoDocHandle = DocHandle<RepoDoc>
-
-type UpsertMetadataOptions = {
-  markLocalChange?: boolean
-}
 
 type EnsureHandleOptions = {
   createIfMissing?: boolean
@@ -47,6 +31,10 @@ type EnsureHandleOptions = {
 type ChangeDocumentOptions = {
   createIfMissing?: boolean
   initialValue?: RepoDoc
+}
+
+type UpsertMetadataOptions = {
+  markLocalChange?: boolean
 }
 
 const initializedAccounts = new Set<string>()
@@ -74,6 +62,7 @@ function normalizeItemIds(raw: unknown): string[] {
   }
 
   const deduped = new Set<string>()
+
   for (const entry of raw) {
     const normalized = normalizeItemId(entry)
     if (!normalized) {
@@ -124,7 +113,7 @@ function tryResolveNonReadyHandle(handle: RepoDocHandle): void {
   try {
     handle.doneLoading()
   } catch {
-    // Ignore and keep the handle in its current state.
+    // Keep handle in current state.
   }
 }
 
@@ -205,14 +194,11 @@ function readDocumentSnapshot(documentId: string): RepoDoc | null {
 
 function getIndexSnapshot(): AutomergeIndexDocument {
   const rawIndex = readDocumentSnapshot(ACCOUNT_INDEX_DOCUMENT_ID)
-  const normalized: AutomergeIndexDocument = {
+  return {
     accountId: normalizeItemId(rawIndex?.accountId) || undefined,
     itemIds: normalizeItemIds(rawIndex?.itemIds),
     metadata: normalizeMetadata(rawIndex?.metadata),
   }
-
-  registerAutomergeItemIds(normalized.itemIds || [])
-  return normalized
 }
 
 function getLegacyMetadataSnapshot(): AccountMetadata {
@@ -226,12 +212,59 @@ function isItemDocumentId(documentId: string): boolean {
   )
 }
 
-async function ensureIndexDocument(accountId?: string | null): Promise<void> {
+function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
+  if (!snapshot) {
+    return null
+  }
+
+  const item = snapshot as Partial<Item>
+  const normalizedItem = (typeof item.id === 'string' && item.id.length > 0)
+    ? item
+    : { ...item, id: itemId }
+
+  if (typeof normalizedItem.type !== 'string' || normalizedItem.type.length === 0) {
+    return null
+  }
+
+  return normalizedItem as Item
+}
+
+function mutateDraftToMatchSnapshot(
+  draft: RepoDoc,
+  snapshot: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(draft)) {
+    if (!(key in snapshot) || snapshot[key] === undefined) {
+      delete draft[key]
+    }
+  }
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value !== undefined) {
+      draft[key] = value
+    }
+  }
+}
+
+async function ensureIndexDocument(accountId: string): Promise<void> {
   await ensureDocumentHandle(ACCOUNT_INDEX_DOCUMENT_ID, {
     createIfMissing: true,
     initialValue: createIndexInitialDocument(accountId),
     awaitReady: false,
   })
+
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      if (typeof doc.accountId !== 'string' || doc.accountId.length === 0) {
+        doc.accountId = accountId
+      }
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(accountId),
+    },
+  )
 }
 
 async function seedImportedDocument(documentId: string, binary: Uint8Array): Promise<void> {
@@ -273,153 +306,20 @@ async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
     return
   }
 
-  await withAutomergeDocumentChange(
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    doc => {
-      const existing = normalizeMetadata(doc.metadata)
-      if (hasAnyKeys(existing as Record<string, unknown>)) {
-        return
-      }
-
-      doc.metadata = cloneValue(legacyMetadata)
-      if (typeof doc.accountId !== 'string' || doc.accountId.length === 0) {
-        doc.accountId = accountId
-      }
-    },
-    {
-      createIfMissing: true,
-      initialValue: createIndexInitialDocument(accountId),
-    },
-  )
-}
-
-function removeHandleListener(
-  handle: RepoDocHandle,
-  event: 'change' | 'delete',
-  listener: () => void,
-): void {
-  const typedHandle = handle as RepoDocHandle & {
-    off?: (event: 'change' | 'delete', listener: () => void) => void
-    removeListener?: (event: 'change' | 'delete', listener: () => void) => void
-  }
-
-  if (typeof typedHandle.off === 'function') {
-    typedHandle.off(event, listener)
-    return
-  }
-
-  typedHandle.removeListener?.(event, listener)
-}
-
-function subscribeToDocument(documentId: string, listener: () => void): () => void {
-  const normalizedDocumentId = normalizeItemId(documentId)
-  if (!normalizedDocumentId) {
-    return () => undefined
-  }
-
-  const handle = getRepoHandle(normalizedDocumentId)
-  const onChange = () => {
-    listener()
-  }
-  const onDelete = () => {
-    listener()
-  }
-
-  handle.on('change', onChange)
-  handle.on('delete', onDelete)
-
-  return () => {
-    removeHandleListener(handle, 'change', onChange)
-    removeHandleListener(handle, 'delete', onDelete)
-  }
-}
-
-function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
-  if (!snapshot) {
-    return null
-  }
-
-  const item = snapshot as Partial<Item>
-  const normalizedItem = (typeof item.id === 'string' && item.id.length > 0)
-    ? item
-    : { ...item, id: itemId }
-
-  if (typeof normalizedItem.type !== 'string' || normalizedItem.type.length === 0) {
-    return null
-  }
-
-  return normalizedItem as Item
-}
-
-async function withMetadataDraftChange(change: (metadataDraft: RepoDoc) => void): Promise<boolean> {
-  return withAutomergeDocumentChange(
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    doc => {
-      let metadataDraft = isPlainObject(doc.metadata)
-        ? (doc.metadata as RepoDoc)
-        : null
-
-      if (!metadataDraft) {
-        metadataDraft = {}
-        doc.metadata = metadataDraft
-      }
-
-      change(metadataDraft)
-    },
-    {
-      createIfMissing: true,
-      initialValue: createIndexInitialDocument(),
-    },
-  )
-}
-
-export function subscribeAutomergeSnapshots(listener: () => void): () => void {
-  const unsubscribeItems = subscribeAutomergeItems(listener)
-  const unsubscribeMetadata = subscribeAutomergeMetadata(listener)
-
-  return () => {
-    unsubscribeItems()
-    unsubscribeMetadata()
-  }
-}
-
-export function subscribeAutomergeItems(listener: () => void): () => void {
-  let itemUnsubscribers: Array<() => void> = []
-
-  const resubscribeItems = () => {
-    for (const unsubscribe of itemUnsubscribers) {
-      unsubscribe()
+  await withAutomergeMetadataChange(metadataDraft => {
+    if (hasAnyKeys(metadataDraft)) {
+      return
     }
 
-    itemUnsubscribers = listAutomergeItemIds().map(itemId => subscribeToDocument(itemId, listener))
-  }
-
-  const unsubscribeIndex = subscribeToDocument(ACCOUNT_INDEX_DOCUMENT_ID, () => {
-    resubscribeItems()
-    listener()
+    mutateDraftToMatchSnapshot(metadataDraft, cloneValue(legacyMetadata) as Record<string, unknown>)
+  }, {
+    createIfMissing: true,
+    initialValue: createIndexInitialDocument(accountId),
   })
-
-  resubscribeItems()
-
-  return () => {
-    unsubscribeIndex()
-    for (const unsubscribe of itemUnsubscribers) {
-      unsubscribe()
-    }
-    itemUnsubscribers = []
-  }
-}
-
-export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  return subscribeToDocument(itemId, listener)
-}
-
-export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  return subscribeToDocument(ACCOUNT_INDEX_DOCUMENT_ID, listener)
 }
 
 export function resolvePendingAutomergeHandles(): void {
-  // Doc handle lifecycle is now managed by automerge-repo internals.
+  // Doc handle lifecycle is managed by automerge-repo.
 }
 
 export async function withAutomergeDocumentChange(
@@ -453,13 +353,36 @@ export async function withAutomergeDocumentChange(
   return true
 }
 
+export async function withAutomergeMetadataChange(
+  change: (metadataDraft: RepoDoc) => void,
+  options: ChangeDocumentOptions = {},
+): Promise<boolean> {
+  return withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      let metadataDraft = isPlainObject(doc.metadata)
+        ? (doc.metadata as RepoDoc)
+        : null
+
+      if (!metadataDraft) {
+        metadataDraft = {}
+        doc.metadata = metadataDraft
+      }
+
+      change(metadataDraft)
+    },
+    {
+      createIfMissing: options.createIfMissing ?? true,
+      initialValue: options.initialValue || createIndexInitialDocument(),
+    },
+  )
+}
+
 export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<void> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
   }
-
-  registerAutomergeItemIds(normalized)
 
   await withAutomergeDocumentChange(
     ACCOUNT_INDEX_DOCUMENT_ID,
@@ -479,30 +402,21 @@ export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<voi
   )
 }
 
-export async function observeAutomergeKnownItemIds(itemIds: string[]): Promise<void> {
-  await addAutomergeItemIdsToIndex(itemIds)
-}
-
 export async function initializeAutomergeDocStore(account: string): Promise<void> {
-  const nextAccount = normalizeItemId(account)
-  if (!nextAccount) {
+  const normalizedAccount = normalizeItemId(account)
+  if (!normalizedAccount) {
     return
   }
 
-  registerAutomergeItemIds([
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
-  ])
+  await ensureIndexDocument(normalizedAccount)
 
-  await ensureIndexDocument(nextAccount)
-
-  if (initializedAccounts.has(nextAccount)) {
+  if (initializedAccounts.has(normalizedAccount)) {
     return
   }
 
-  await migrateLegacyKnownItemIds(nextAccount)
-  await migrateLegacyMetadataSnapshot(nextAccount)
-  initializedAccounts.add(nextAccount)
+  await migrateLegacyKnownItemIds(normalizedAccount)
+  await migrateLegacyMetadataSnapshot(normalizedAccount)
+  initializedAccounts.add(normalizedAccount)
 }
 
 export function listAutomergeItemIds(): string[] {
@@ -541,8 +455,6 @@ export function getAutomergeItem(itemId: string): Item | null {
   if (!normalizedItemId) {
     return null
   }
-
-  registerAutomergeItemIds([normalizedItemId])
 
   const snapshot = readDocumentSnapshot(normalizedItemId)
   return normalizeItemSnapshot(normalizedItemId, snapshot)
@@ -589,18 +501,10 @@ export async function upsertAutomergeMetadataSnapshot(
 ): Promise<void> {
   void options.markLocalChange
 
-  const nextMetadata = cloneValue(metadata || {})
+  const nextMetadata = cloneValue(metadata || {}) as Record<string, unknown>
 
-  await withMetadataDraftChange(metadataDraft => {
-    for (const key of Object.keys(metadataDraft)) {
-      if (!(key in nextMetadata) || nextMetadata[key as keyof AccountMetadata] === undefined) {
-        delete metadataDraft[key]
-      }
-    }
-
-    for (const [key, value] of Object.entries(nextMetadata)) {
-      metadataDraft[key] = value
-    }
+  await withAutomergeMetadataChange(metadataDraft => {
+    mutateDraftToMatchSnapshot(metadataDraft, nextMetadata)
   })
 }
 
@@ -662,7 +566,6 @@ export async function clearAutomergeDocStore(): Promise<void> {
   }
 
   initializedAccounts.clear()
-  clearAutomergeItemIdMappings()
 
   if (typeof indexedDB !== 'undefined') {
     try {
@@ -712,47 +615,4 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
   await addAutomergeItemIdsToIndex(restoredItemIds)
 
   return restoredItemIds
-}
-
-export async function applyAutomergeItemPatches(
-  itemId: string,
-  patches: AutomergeDocumentPatch[],
-): Promise<void> {
-  const normalizedItemId = normalizeItemId(itemId)
-  if (!normalizedItemId || patches.length === 0) {
-    return
-  }
-
-  await withAutomergeDocumentChange(
-    normalizedItemId,
-    doc => {
-      for (const patch of patches) {
-        applyDocumentPatch(doc, patch)
-      }
-
-      if (typeof doc.id !== 'string' || doc.id.length === 0) {
-        doc.id = normalizedItemId
-      }
-    },
-    {
-      createIfMissing: true,
-      initialValue: {
-        id: normalizedItemId,
-      },
-    },
-  )
-}
-
-export async function applyAutomergeMetadataPatches(
-  patches: AutomergeDocumentPatch[],
-): Promise<void> {
-  if (patches.length === 0) {
-    return
-  }
-
-  await withMetadataDraftChange(metadataDraft => {
-    for (const patch of patches) {
-      applyDocumentPatch(metadataDraft, patch)
-    }
-  })
 }
