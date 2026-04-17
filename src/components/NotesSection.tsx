@@ -9,7 +9,6 @@ import {
   List,
   ListItem,
   Popover,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -25,6 +24,7 @@ import {
 import DelayedRender from './ui/DelayedRender'
 import type { Note } from '../state/items'
 import { formatDate, generateItemId } from '../utils'
+import DebouncedTextField from './ui/DebouncedTextField'
 
 interface Props {
   notes: Note[],
@@ -45,15 +45,25 @@ function NoteItem({
   onDelete: (id: string) => void
 }) {
   const [datePickerAnchor, setDatePickerAnchor] = useState<HTMLElement | null>(null)
+  const [displayText, setDisplayText] = useState(note.text)
+
+  const handleCommitText = useCallback(
+    (nextText: string) => {
+      onUpdate?.(note.id, nextText)
+    },
+    [note.id, onUpdate],
+  )
 
   return (
     <ListItem disableGutters sx={{ alignItems: 'center' }}>
-      <TextField
+      <DebouncedTextField
+        debounceMs={1000}
         fullWidth
         multiline
         minRows={note.archived ? undefined : 2}
+        onCommit={handleCommitText}
+        onValueChange={setDisplayText}
         value={note.text}
-        onChange={e => onUpdate?.(note.id, e.target.value)}
         disabled={note.archived}
         variant={note.archived ? 'filled' : 'outlined'}
         size="small"
@@ -101,7 +111,7 @@ function NoteItem({
         }}
       />
       {
-        (note.text.trim() || note.archived) && (
+        (displayText.trim() || note.archived) && (
           <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
             <IconButton aria-label={note.archived ? 'Unarchive note' : 'Archive note'} onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
               {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
@@ -110,7 +120,7 @@ function NoteItem({
         )
       }
       {
-        (note.archived || !note.text.trim()) && (
+        (note.archived || !displayText.trim()) && (
           <Tooltip title="Delete Note">
             <IconButton aria-label="Delete note" onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
               <DeleteIcon fontSize="small" />

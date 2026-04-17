@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,7 +46,7 @@ describe('ItemFormContent', () => {
     vi.clearAllMocks()
   })
 
-  it('marks name as required and reports updates immediately while empty', async () => {
+  it('marks name as required and commits updates when the field blurs', async () => {
     const user = userEvent.setup()
     const handleChange = vi.fn()
     const item = {
@@ -71,6 +71,7 @@ describe('ItemFormContent', () => {
     expect(nameInput.required).toBe(true)
 
     await user.clear(nameInput)
+    fireEvent.blur(nameInput)
     expect(handleChange).toHaveBeenCalledWith({ name: '' })
   })
 

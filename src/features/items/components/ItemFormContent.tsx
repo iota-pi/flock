@@ -1,9 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   IconButton,
   InputAdornment,
-  TextField,
   Tooltip,
 } from '@mui/material'
 import {
@@ -13,6 +12,7 @@ import {
   Item,
 } from '../../../state/items'
 import { useItems } from '../../../state/selectors'
+import DebouncedTextField, { type DebouncedTextFieldControls } from '../../../components/ui/DebouncedTextField'
 import {
   DeleteIcon,
   NotesIcon,
@@ -47,26 +47,26 @@ function ItemFormContent({
 }: ItemFormContentProps) {
   const allItems = useItems()
   const [showDescription, setShowDescription] = useState((item.description || '').length > 0)
+  const [nameValue, setNameValue] = useState(item.name || '')
+  const [descriptionValue, setDescriptionValue] = useState(item.description || '')
+  const descriptionDebounceControlsRef = useRef<DebouncedTextFieldControls | null>(null)
 
-  const nameValue = item.name || ''
-  const descriptionValue = item.description || ''
+  const handleNameCommit = useCallback(
+    (nextName: string) => {
+      handleChange<Item>({ name: nextName })
+    },
+    [handleChange],
+  )
+
+  const handleDescriptionCommit = useCallback(
+    (nextDescription: string) => {
+      handleChange<Item>({ description: nextDescription })
+    },
+    [handleChange],
+  )
   const notesValue = Array.isArray(item.notes) ? item.notes : []
   const nameError = nameValue.trim().length === 0
   const descriptionError = descriptionValue.length > DESCRIPTION_MAX_LENGTH
-
-  const handleNameChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      handleChange<Item>({ name: event.target.value })
-    },
-    [handleChange],
-  )
-
-  const handleDescriptionChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      handleChange<Item>({ description: event.target.value })
-    },
-    [handleChange],
-  )
 
   const handleNotesChange = useCallback(
     (notes: Item['notes']) => {
@@ -91,6 +91,8 @@ function ItemFormContent({
 
   const handleAddDescription = useCallback(() => setShowDescription(true), [])
   const handleRemoveDescription = useCallback(() => {
+    descriptionDebounceControlsRef.current?.cancel()
+    setDescriptionValue('')
     handleChange<Item>({ description: '' })
     setShowDescription(false)
   }, [handleChange])
@@ -155,15 +157,17 @@ function ItemFormContent({
   const nameFields = useMemo(
     () => (
       <Grid size={{ xs: 12 }}>
-        <TextField
+        <DebouncedTextField
           autoFocus={autoFocusName}
+          debounceMs={1000}
           error={nameError}
           fullWidth
           helperText={nameError ? NAME_REQUIRED_MESSAGE : ' '}
           label="Name"
-          onChange={handleNameChange}
+          onCommit={handleNameCommit}
+          onValueChange={setNameValue}
           required
-          value={nameValue}
+          value={item.name || ''}
           variant="standard"
           slotProps={{
             htmlInput: { 'data-cy': 'name' },
@@ -172,18 +176,22 @@ function ItemFormContent({
         />
       </Grid>
     ),
-    [autoFocusName, handleNameChange, nameError, nameInputProps, nameValue],
+    [autoFocusName, handleNameCommit, item.name, nameError, nameInputProps],
   )
 
   const descriptionField = useMemo(
     () =>
       showDescription && (
         <Grid size={{ xs: 12 }}>
-          <TextField
+          <DebouncedTextField
+            debounceControlsRef={descriptionDebounceControlsRef}
+            debounceMs={1000}
             error={descriptionError}
             fullWidth
             helperText={descriptionError ? `Description must be ${DESCRIPTION_MAX_LENGTH} characters or less` : ' '}
             label="Short Description"
+            onCommit={handleDescriptionCommit}
+            onValueChange={setDescriptionValue}
             slotProps={{
               htmlInput: { 'data-cy': 'description' },
               input: {
@@ -203,13 +211,12 @@ function ItemFormContent({
                 ),
               },
             }}
-            onChange={handleDescriptionChange}
-            value={descriptionValue}
+            value={item.description || ''}
             variant="standard"
           />
         </Grid>
       ),
-    [descriptionError, descriptionValue, handleDescriptionChange, handleRemoveDescription, showDescription],
+    [descriptionError, handleDescriptionCommit, handleRemoveDescription, item.description, showDescription],
   )
 
 
