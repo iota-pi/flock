@@ -1,11 +1,15 @@
 import {
+  type DocHandle,
+  type DocHandleChangePayload,
+  type DocHandleDeletePayload,
   NetworkAdapter,
   type Message,
   type PeerId,
   type PeerMetadata,
+  type Repo,
   type StorageId,
 } from '@automerge/automerge-repo/slim'
-import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 import { encryptSyncMessage } from './automergeSyncCrypto'
 import { SyncTransportService } from './SyncTransportService'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
@@ -14,7 +18,9 @@ import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
-type KnownItemIdsListener = (itemIds: string[]) => void
+type IndexDocument = {
+  itemIds?: unknown
+}
 
 function normalizeItemIds(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -60,10 +66,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
 
-  private readonly knownItemIds = new Set<string>()
-  private knownItemIdsSnapshot: string[] = []
-  private knownItemIdsVersion = 0
-  private readonly knownItemIdsListeners = new Set<KnownItemIdsListener>()
+  private repo: Repo | null = null
+  private indexHandle: DocHandle<IndexDocument> | null = null
+  private readonly trackedItemIds = new Set<string>()
 
   private transportService = new SyncTransportService()
   private pullQueueManager = new SyncPullQueueManager()
@@ -75,7 +80,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
 
     this.transportService.on('open', () => {
-      this.syncItemIds()
+      this.pullTrackedItemIds()
     })
 
     this.transportService.on('close', () => {
@@ -84,16 +89,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.transportService.on('message', payload => {
       if ('action' in payload && payload.action === 'sync_ping') {
-        const itemIds = withIndexDocumentPriority(normalizeItemIds(payload.itemIds))
-        this.registerKnownItemIds(itemIds)
-        this.pullQueueManager.enqueuePull(itemIds)
+        this.handleRealtimeItemHints(normalizeItemIds(payload.itemIds))
         return
       }
 
       if ('eventType' in payload && (payload.eventType === 'items.updated' || payload.eventType === 'items.deleted')) {
-        const itemIds = withIndexDocumentPriority(normalizeEventItemIds(payload))
-        this.registerKnownItemIds(itemIds)
-        this.pullQueueManager.enqueuePull(itemIds)
+        this.handleRealtimeItemHints(normalizeEventItemIds(payload))
       }
     })
 
@@ -109,8 +110,20 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       })
     }
 
-    this.pullQueueManager.onKnownItemIdsDiscovered = itemIds => {
-      this.registerKnownItemIds(itemIds)
+    this.resetTrackedItemIds()
+  }
+
+  attachRepo(repo: Repo): void {
+    if (this.repo === repo) {
+      return
+    }
+
+    this.stopIndexObservation()
+    this.repo = repo
+
+    if (this.account) {
+      this.startIndexObservation()
+      this.pullTrackedItemIds()
     }
   }
 
@@ -122,12 +135,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.account = nextAccount
     this.pullQueueManager.setAccount(this.account)
+    this.resetTrackedItemIds()
 
-    this.knownItemIds.clear()
+    this.stopIndexObservation()
     if (this.account) {
-      this.knownItemIds.add(ACCOUNT_INDEX_DOCUMENT_ID)
+      this.startIndexObservation()
     }
-    this.notifyKnownItemIdsChanged()
 
     if (!this.connected) {
       return
@@ -136,6 +149,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.account) {
       this.transportService.start(this.account)
       this.emitPeerCandidate()
+      this.pullTrackedItemIds()
     } else {
       this.transportService.stop()
     }
@@ -143,90 +157,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   isReady(): boolean {
     return this.ready
-  }
-
-  getKnownItemIds(): string[] {
-    return [...this.knownItemIdsSnapshot]
-  }
-
-  getKnownItemIdsState(): { version: number; itemIds: readonly string[] } {
-    return {
-      version: this.knownItemIdsVersion,
-      itemIds: this.knownItemIdsSnapshot,
-    }
-  }
-
-  subscribeKnownItemIds(listener: KnownItemIdsListener): () => void {
-    this.knownItemIdsListeners.add(listener)
-    listener(this.getKnownItemIds())
-
-    return () => {
-      this.knownItemIdsListeners.delete(listener)
-    }
-  }
-
-  registerKnownItemIds(itemIds: string[]): void {
-    let changed = false
-
-    for (const rawItemId of itemIds) {
-      const itemId = toVaultItemIdFromAutomergeId(rawItemId)
-      if (!itemId || this.knownItemIds.has(itemId)) {
-        continue
-      }
-
-      this.knownItemIds.add(itemId)
-      changed = true
-    }
-
-    if (changed) {
-      this.notifyKnownItemIdsChanged()
-    }
-  }
-
-  removeKnownItemIds(itemIds: string[]): void {
-    let changed = false
-    const normalized = []
-
-    for (const rawItemId of itemIds) {
-      const itemId = toVaultItemIdFromAutomergeId(rawItemId)
-      if (!itemId || itemId === ACCOUNT_INDEX_DOCUMENT_ID || !this.knownItemIds.delete(itemId)) {
-        continue
-      }
-
-      normalized.push(itemId)
-      changed = true
-    }
-
-    this.pullQueueManager.removeKnownItemIds(normalized)
-
-    if (changed) {
-      this.notifyKnownItemIdsChanged()
-    }
-  }
-
-  clearKnownItemIds(): void {
-    const shouldPreserveIndex = !!this.account
-    if (this.knownItemIds.size === 0 || (shouldPreserveIndex && this.knownItemIds.size === 1 && this.knownItemIds.has(ACCOUNT_INDEX_DOCUMENT_ID))) {
-      return
-    }
-
-    this.knownItemIds.clear()
-    if (shouldPreserveIndex) {
-      this.knownItemIds.add(ACCOUNT_INDEX_DOCUMENT_ID)
-    }
-    this.pullQueueManager.clear()
-    this.notifyKnownItemIdsChanged()
-  }
-
-  async syncItemIds(itemIds?: string[]): Promise<void> {
-    const normalized = Array.isArray(itemIds) && itemIds.length > 0
-      ? normalizeItemIds(itemIds)
-      : this.getKnownItemIds()
-
-    const prioritized = withIndexDocumentPriority(normalized)
-
-    this.registerKnownItemIds(prioritized)
-    await this.pullQueueManager.enqueuePull(prioritized)
   }
 
   whenReady(): Promise<void> {
@@ -247,6 +177,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.account) {
       this.emitPeerCandidate()
       this.transportService.start(this.account)
+      this.startIndexObservation()
+      this.pullTrackedItemIds()
     }
   }
 
@@ -267,7 +199,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     const accountAtSend = this.account
     const itemId = toVaultItemIdFromAutomergeId(documentId)
     if (itemId) {
-      this.registerKnownItemIds([itemId])
+      this.addTrackedItemIds([itemId])
     }
 
     this.transportService.enqueueSend(async () => {
@@ -299,14 +231,157 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
   }
 
-  private notifyKnownItemIdsChanged(): void {
-    this.knownItemIdsVersion += 1
-    this.knownItemIdsSnapshot = Array.from(this.knownItemIds)
+  private handleRealtimeItemHints(itemIds: string[]): void {
+    const prioritized = withIndexDocumentPriority(itemIds)
+    this.addTrackedItemIds(prioritized)
+    this.enqueuePull(prioritized)
+  }
 
-    const itemIds = this.knownItemIdsSnapshot
-    for (const listener of this.knownItemIdsListeners) {
-      listener(itemIds)
+  private resetTrackedItemIds(): void {
+    this.trackedItemIds.clear()
+    if (this.account) {
+      this.trackedItemIds.add(ACCOUNT_INDEX_DOCUMENT_ID)
     }
+  }
+
+  private addTrackedItemIds(itemIds: string[]): string[] {
+    const normalized = normalizeItemIds(itemIds)
+    if (normalized.length === 0) {
+      return []
+    }
+
+    const added: string[] = []
+    for (const itemId of normalized) {
+      if (this.trackedItemIds.has(itemId)) {
+        continue
+      }
+
+      this.trackedItemIds.add(itemId)
+      added.push(itemId)
+    }
+
+    return added
+  }
+
+  private replaceTrackedItemIdsFromIndex(itemIds: string[]): { added: string[]; removed: string[] } {
+    const nextItemIds = withIndexDocumentPriority(itemIds)
+    const nextSet = new Set(nextItemIds)
+
+    const added = nextItemIds.filter(itemId => !this.trackedItemIds.has(itemId))
+    const removed = Array.from(this.trackedItemIds).filter(itemId => !nextSet.has(itemId))
+
+    this.trackedItemIds.clear()
+    for (const itemId of nextItemIds) {
+      this.trackedItemIds.add(itemId)
+    }
+
+    return {
+      added,
+      removed,
+    }
+  }
+
+  private getTrackedItemIds(): string[] {
+    if (this.trackedItemIds.size === 0) {
+      return [ACCOUNT_INDEX_DOCUMENT_ID]
+    }
+
+    return withIndexDocumentPriority(Array.from(this.trackedItemIds))
+  }
+
+  private pullTrackedItemIds(): void {
+    this.enqueuePull(this.getTrackedItemIds())
+  }
+
+  private enqueuePull(itemIds: string[]): void {
+    if (!this.account || !this.connected || !this.peerId) {
+      return
+    }
+
+    const prioritized = withIndexDocumentPriority(itemIds)
+    this.addTrackedItemIds(prioritized)
+
+    void this.pullQueueManager.enqueuePull(prioritized).catch(error => {
+      console.error('[VaultEncryptedNetworkAdapter] enqueuePull failed', error)
+    })
+  }
+
+  private startIndexObservation(): void {
+    if (!this.repo || !this.account) {
+      return
+    }
+
+    const handle = this.repo.findWithProgress<IndexDocument>(toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)).handle as DocHandle<IndexDocument>
+
+    if (this.indexHandle === handle) {
+      this.syncTrackedItemIdsFromIndex(handle)
+      return
+    }
+
+    this.stopIndexObservation()
+    this.indexHandle = handle
+    handle.on('change', this.handleIndexDocumentChange)
+    handle.on('delete', this.handleIndexDocumentDelete)
+
+    this.syncTrackedItemIdsFromIndex(handle)
+
+    if (!handle.isReady() && !handle.isUnavailable()) {
+      void handle.whenReady(['ready', 'unavailable'])
+        .then(() => {
+          if (this.indexHandle === handle) {
+            this.syncTrackedItemIdsFromIndex(handle)
+          }
+        })
+        .catch(() => {
+          // Keep adapter running; pull retries continue through realtime reconnects.
+        })
+    }
+  }
+
+  private stopIndexObservation(): void {
+    if (!this.indexHandle) {
+      return
+    }
+
+    this.indexHandle.off('change', this.handleIndexDocumentChange)
+    this.indexHandle.off('delete', this.handleIndexDocumentDelete)
+    this.indexHandle = null
+  }
+
+  private syncTrackedItemIdsFromIndex(handle: DocHandle<IndexDocument>): void {
+    if (this.indexHandle !== handle || !this.account) {
+      return
+    }
+
+    if (!handle.isReady()) {
+      return
+    }
+
+    try {
+      const doc = handle.doc() as IndexDocument
+      const fromIndex = normalizeItemIds(doc?.itemIds)
+      const { added, removed } = this.replaceTrackedItemIdsFromIndex(fromIndex)
+
+      if (removed.length > 0) {
+        this.pullQueueManager.removeKnownItemIds(removed)
+      }
+
+      if (added.length > 0) {
+        this.enqueuePull(added)
+      }
+    } catch {
+      // Ignore transient index-read failures; future changes will retrigger observation.
+    }
+  }
+
+  private readonly handleIndexDocumentChange = (payload: DocHandleChangePayload<IndexDocument>): void => {
+    this.syncTrackedItemIdsFromIndex(payload.handle)
+  }
+
+  private readonly handleIndexDocumentDelete = (_payload: DocHandleDeletePayload<IndexDocument>): void => {
+    this.resetTrackedItemIds()
+    this.pullQueueManager.clear()
+    this.pullTrackedItemIds()
   }
 }
 

@@ -33,6 +33,18 @@ function queueWorkerApi(api: ItemWorkerApi): void {
   workerApis.push(api)
 }
 
+function createWorkerRequest() {
+  return {
+    items: Array.from({ length: 120 }, (_, index) => ({
+      id: `item-${index}`,
+      archived: false,
+    } as any)),
+    filters: [],
+    sortCriteria: [],
+    showArchived: false,
+  }
+}
+
 describe('itemWorkerManager', () => {
   beforeEach(() => {
     workerInstances.length = 0
@@ -80,12 +92,7 @@ describe('itemWorkerManager', () => {
       seedAutomerge: vi.fn(),
     })
 
-    const request = {
-      items: [],
-      filters: [],
-      sortCriteria: [],
-      showArchived: false,
-    }
+    const request = createWorkerRequest()
 
     const promiseOne = processItemsWithWorker(request)
     const promiseTwo = processItemsWithWorker(request)
@@ -140,12 +147,7 @@ describe('itemWorkerManager', () => {
       seedAutomerge: vi.fn(),
     })
 
-    const request = {
-      items: [],
-      filters: [],
-      sortCriteria: [],
-      showArchived: false,
-    }
+    const request = createWorkerRequest()
 
     await expect(processItemsWithWorker(request)).resolves.toEqual({
       results: [],

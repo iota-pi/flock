@@ -3,7 +3,7 @@ import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { getAutomergeRepo, getKnownAutomergeItemIds } from './automergeRepo'
+import { getAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
 import {
@@ -291,15 +291,6 @@ async function seedImportedDocument(documentId: string, binary: Uint8Array): Pro
   }
 }
 
-async function migrateLegacyKnownItemIds(accountId: string): Promise<void> {
-  const knownItemIds = getKnownAutomergeItemIds(accountId)
-  if (knownItemIds.length === 0) {
-    return
-  }
-
-  await addAutomergeItemIdsToIndex(knownItemIds)
-}
-
 async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
   const legacyMetadata = getLegacyMetadataSnapshot()
   if (!hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
@@ -414,7 +405,6 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     return
   }
 
-  await migrateLegacyKnownItemIds(normalizedAccount)
   await migrateLegacyMetadataSnapshot(normalizedAccount)
   initializedAccounts.add(normalizedAccount)
 }

@@ -20,15 +20,10 @@ vi.mock('../sync/automergeDocStore', () => ({
   withAutomergeDocumentChange: vi.fn(async () => true),
 }))
 
-vi.mock('../sync/automergeSyncDispatcher', () => ({
-  requestAutomergeSync: vi.fn(),
-}))
-
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
 import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { Item } from 'src/state/items'
 
 describe('usePrayerSchedule', () => {
@@ -73,7 +68,7 @@ describe('usePrayerSchedule', () => {
     expect(result.current.visibleSchedule.map(i => i.id)).toEqual(['1', '2', '3'])
   })
 
-  it('recordPrayerFor updates local automerge doc and requests sync', () => {
+  it('recordPrayerFor updates local automerge doc', () => {
     const item = { id: '1', type: 'person', name: 'Alice', prayedFor: [] }
     vi.mocked(getLastPrayedFor).mockReturnValue(0)
 
@@ -90,7 +85,6 @@ describe('usePrayerSchedule', () => {
         createIfMissing: true,
       }),
     )
-    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('isPrayedForToday returns correct status', () => {

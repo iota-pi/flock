@@ -5,7 +5,6 @@ import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
 import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 
 export function usePrayerSchedule() {
   const {
@@ -85,7 +84,6 @@ export function usePrayerSchedule() {
           initialValue: { id: item.id },
         },
       )
-      requestAutomergeSync()
     },
     [isPrayedForToday],
   )

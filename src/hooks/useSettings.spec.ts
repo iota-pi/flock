@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   clearAutomergeDocStore: vi.fn(async () => undefined),
   getAutomergeItems: vi.fn(() => []),
   getAutomergeMetadata: vi.fn(() => ({})),
-  requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -60,10 +59,6 @@ vi.mock('../state/syncStore', () => ({
   useSyncStore: {
     getState: () => ({}),
   },
-}))
-
-vi.mock('../sync/automergeSyncDispatcher', () => ({
-  requestAutomergeSync: mocks.requestAutomergeSync,
 }))
 
 vi.mock('../api/itemReadService', () => ({

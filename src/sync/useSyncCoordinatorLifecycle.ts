@@ -3,7 +3,6 @@ import * as Sentry from '@sentry/react'
 import { ensureItemsBootstrap } from '../api/itemReadService'
 import { useSyncStore } from '../state/syncStore'
 import {
-  requestAutomergeSync,
   startAutomergeSyncDispatcher,
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
@@ -44,7 +43,6 @@ export default function useSyncCoordinatorLifecycle(
 
           clearFatalError()
           startAutomergeSyncDispatcher(account)
-          requestAutomergeSync()
         } catch (error) {
           if (cancelled) {
             return

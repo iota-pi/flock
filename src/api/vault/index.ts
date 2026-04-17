@@ -8,7 +8,6 @@ import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
 } from '../../sync/automergeDocStore'
-import { clearKnownAutomergeItemIds } from '../../sync/automergeRepo'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
@@ -208,7 +207,6 @@ export async function signOutVault() {
 
   clearStoredMetadata()
   await clearActiveSessionToken()
-  clearKnownAutomergeItemIds()
   await clearAutomergeDocStore()
   await clearManualRecoveryEntries()
 }

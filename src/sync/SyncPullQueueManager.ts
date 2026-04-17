@@ -15,7 +15,6 @@ export class SyncPullQueueManager {
   private pullRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   public onMessageParsed: (itemId: string, documentId: DocumentId, message: Uint8Array) => void = () => {}
-  public onKnownItemIdsDiscovered: (itemIds: string[]) => void = () => {}
 
   setAccount(account: string | null): void {
     this.account = account
@@ -101,7 +100,6 @@ export class SyncPullQueueManager {
 
       for (const result of response.results || []) {
         const itemId = toVaultItemIdFromAutomergeId(result.itemId)
-        this.onKnownItemIdsDiscovered([itemId])
         let highestCursor = this.cursorByItemId.get(itemId) || 0
 
         for (const entry of result.messages || []) {

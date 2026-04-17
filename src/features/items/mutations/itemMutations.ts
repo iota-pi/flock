@@ -4,7 +4,6 @@ import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { removeKnownAutomergeItemIds } from '../../../sync/automergeRepo'
 import {
   withAutomergeMetadataChange,
   getAutomergeItems,
@@ -13,7 +12,6 @@ import {
   removeAutomergeItem,
   withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
-import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -135,8 +133,6 @@ export async function storeItems(
   const current = normalizeItemsInput(items)
   await ensureAutomergeStoreReady()
 
-  const changedIds: ItemId[] = []
-
   for (const item of current) {
     const normalizedItem = normalizeItemForAutomerge(item)
     await withAutomergeDocumentChange(
@@ -153,11 +149,6 @@ export async function storeItems(
         initialValue: { id: item.id },
       },
     )
-    changedIds.push(item.id)
-  }
-
-  if (changedIds.length > 0) {
-    requestAutomergeSync()
   }
 
   return current
@@ -193,8 +184,6 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
   const ids = normalizeItemIds(itemIds)
   await ensureAutomergeStoreReady()
 
-  removeKnownAutomergeItemIds(ids)
-
   for (const itemId of ids) {
     await removeAutomergeItem(itemId)
   }
@@ -223,8 +212,6 @@ export async function setMetadata(
     await withAutomergeMetadataChange(metadataDraft => {
       mutateDraftToMatchSnapshot(metadataDraft, normalizedMetadata)
     })
-
-    requestAutomergeSync()
 
     return nextMetadata
   })

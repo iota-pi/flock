@@ -7,7 +7,6 @@ import {
 } from '../sync/manualRecoveryStore'
 import { useToastStore } from '../state/toastStore'
 import type { ItemId } from '../shared/itemTypes'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import {
   getAutomergeItem,
   withAutomergeDocumentChange,
@@ -87,7 +86,6 @@ export function useOfflineRecovery() {
       )
 
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync()
       setMessage({ message: `Recovered ${itemId} using local cache.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -115,7 +113,6 @@ export function useOfflineRecovery() {
       )
 
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync()
       setMessage({ message: `Deleted corrupted server item ${itemId}.` })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -126,10 +123,9 @@ export function useOfflineRecovery() {
     setIsRetrying(itemId)
     try {
       await removeManualRecoveryEntry(itemId)
-      requestAutomergeSync()
       setMessage({
         severity: 'info',
-        message: `Retry sync triggered for ${itemId}.`,
+        message: `Retry queued for ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))

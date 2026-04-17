@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   readManualRecoveryEntries: vi.fn(),
   removeManualRecoveryEntryById: vi.fn(),
   removeManualRecoveryEntryByItemId: vi.fn(),
-  requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   getAutomergeItem: vi.fn(),
   withAutomergeDocumentChange: vi.fn(async () => true),
@@ -16,10 +15,6 @@ vi.mock('../sync/manualRecoveryStore', () => ({
   readManualRecoveryEntries: mocks.readManualRecoveryEntries,
   removeManualRecoveryEntryById: mocks.removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId: mocks.removeManualRecoveryEntryByItemId,
-}))
-
-vi.mock('../sync/automergeSyncDispatcher', () => ({
-  requestAutomergeSync: mocks.requestAutomergeSync,
 }))
 
 vi.mock('../sync/automergeDocStore', () => ({
@@ -71,7 +66,7 @@ describe('useOfflineRecovery', () => {
     expect(mocks.removeManualRecoveryEntryById).toHaveBeenCalledWith('r1')
   })
 
-  it('retries a corrupted item and requests sync', async () => {
+  it('retries a corrupted item and updates status message', async () => {
     const entry = { id: 'r1', itemId: 'item-corrupted-1', reason: 'failed', createdAt: 1 }
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
@@ -87,15 +82,14 @@ describe('useOfflineRecovery', () => {
     })
 
     expect(mocks.removeManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-corrupted-1')
-    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith()
     expect(mocks.setMessage).toHaveBeenCalledWith({
       severity: 'info',
-      message: 'Retry sync triggered for item-corrupted-1.',
+      message: 'Retry queued for item-corrupted-1.',
     })
     expect(result.current.isRetrying).toBe(null)
   })
 
-  it('force overwrite applies local item snapshot and requests sync', async () => {
+  it('force overwrite applies local item snapshot', async () => {
     const entry = { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
@@ -124,6 +118,5 @@ describe('useOfflineRecovery', () => {
         createIfMissing: true,
       }),
     )
-    expect(mocks.requestAutomergeSync).toHaveBeenCalledWith()
   })
 })

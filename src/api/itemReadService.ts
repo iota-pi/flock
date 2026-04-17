@@ -10,11 +10,9 @@ import {
   getAutomergeMetadata,
   hydrateAutomergeDocumentBinary,
   initializeAutomergeDocStore,
-  listAutomergeDocumentIds,
   listAutomergeItemIds,
   upsertAutomergeMetadataSnapshot,
 } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 
 type FetchItemsOptions = {
@@ -176,14 +174,6 @@ async function hydrateMetadataIfNeeded(accountId: string, force = false): Promis
   }
 }
 
-function requestSyncForKnownDocuments(): void {
-  if (listAutomergeDocumentIds().length === 0) {
-    return
-  }
-
-  requestAutomergeSync()
-}
-
 export async function ensureItemsBootstrap(
   accountId: string,
   options: EnsureItemsBootstrapOptions = {},
@@ -202,7 +192,6 @@ export async function ensureItemsBootstrap(
 
     const knownItemIds = listAutomergeItemIds()
     if (!shouldForce && bootstrappedAccounts.has(accountId) && knownItemIds.length > 0) {
-      requestSyncForKnownDocuments()
       return
     }
 
@@ -217,17 +206,10 @@ export async function ensureItemsBootstrap(
 
       if (fetchedItemIds.length > 0) {
         await addAutomergeItemIdsToIndex(fetchedItemIds)
-        requestAutomergeSync()
       }
     }
 
     await hydrateMetadataIfNeeded(accountId, options.forceMetadataRefetch === true)
-
-    requestSyncForKnownDocuments()
-
-    if (options.forceMetadataRefetch) {
-      requestAutomergeSync()
-    }
 
     bootstrappedAccounts.add(accountId)
   })()

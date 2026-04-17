@@ -8,7 +8,6 @@ import {
   withAutomergeDocumentChange,
   withAutomergeMetadataChange,
 } from '../sync/automergeDocStore'
-import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { ensureItemsBootstrap } from './itemReadService'
 import { setApiAuthToken } from './runtime'
 
@@ -30,14 +29,6 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     withAutomergeMetadataChange: vi.fn(async () => true),
   }
 })
-
-vi.mock('../sync/automergeSyncDispatcher', () => ({
-  requestAutomergeSync: vi.fn(),
-}))
-
-vi.mock('../sync/automergeRepo', () => ({
-  removeKnownAutomergeItemIds: vi.fn(),
-}))
 
 vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'test-account'),
@@ -84,7 +75,7 @@ describe('local-first mutations', () => {
     vi.mocked(getAutomergeItems).mockReturnValue([])
   })
 
-  it('stores single-item snapshots and requests sync', async () => {
+  it('stores single-item snapshots', async () => {
     const item = getBlankPerson('p1')
 
     const result = await storeItems(item)
@@ -98,7 +89,6 @@ describe('local-first mutations', () => {
         createIfMissing: true,
       }),
     )
-    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('rejects invalid item payloads before storing', async () => {
@@ -106,7 +96,7 @@ describe('local-first mutations', () => {
     expect(withAutomergeDocumentChange).not.toHaveBeenCalled()
   })
 
-  it('stores batch updates and requests sync for all ids', async () => {
+  it('stores batch updates for all ids', async () => {
     const first = getBlankPerson('p1')
     const second = getBlankPerson('p2')
 
@@ -115,7 +105,6 @@ describe('local-first mutations', () => {
     expect(withAutomergeDocumentChange).toHaveBeenCalledTimes(2)
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p2', expect.any(Function), expect.any(Object))
-    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('deletes with group updates and tombstones', async () => {
@@ -131,7 +120,6 @@ describe('local-first mutations', () => {
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('g1', expect.any(Function), expect.any(Object))
     expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
-    expect(requestAutomergeSync).toHaveBeenCalledWith()
     expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
   })
 
@@ -140,7 +128,6 @@ describe('local-first mutations', () => {
 
     expect(result.prayerGoal).toBe(20)
     expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)
-    expect(requestAutomergeSync).toHaveBeenCalledWith()
   })
 
   it('serializes functional metadata updates to avoid stale overwrites', async () => {
