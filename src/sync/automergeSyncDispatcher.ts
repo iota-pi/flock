@@ -2,10 +2,6 @@ import { useSyncStore } from '../state/syncStore'
 import { useAuthStore } from '../state/authStore'
 import { listAutomergeDocumentIds, resolvePendingAutomergeHandles } from './automergeDocStore'
 import {
-  startAutomergeKnownItemIdsOrchestrator,
-  stopAutomergeKnownItemIdsOrchestrator,
-} from './automergeKnownItemIdsOrchestrator'
-import {
   registerKnownAutomergeItemIds,
   setVaultNetworkAccount,
   syncKnownAutomergeItemIds,
@@ -36,10 +32,8 @@ function getActiveAccount(): string | null {
   return useAuthStore.getState().account || null
 }
 
-function normalizeItemIds(itemIds?: string[]): string[] {
-  const source = Array.isArray(itemIds)
-    ? itemIds
-    : listAutomergeDocumentIds()
+function normalizeRequestedItemIds(itemIds?: string[]): string[] {
+  const source = Array.isArray(itemIds) ? itemIds : []
 
   const deduped = new Set<string>()
   for (const itemId of source) {
@@ -53,9 +47,9 @@ function normalizeItemIds(itemIds?: string[]): string[] {
   return Array.from(deduped)
 }
 
-async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
-  const normalized = normalizeItemIds(itemIds)
-  if (normalized.length === 0) {
+async function runSync(account: string): Promise<string[]> {
+  const knownDocumentIds = listAutomergeDocumentIds()
+  if (knownDocumentIds.length === 0) {
     return []
   }
 
@@ -64,12 +58,12 @@ async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
     resolvePendingAutomergeHandles()
 
     await withTimeout(
-      syncKnownAutomergeItemIds(normalized),
+      syncKnownAutomergeItemIds(undefined, account),
       SYNC_QUEUE_TIMEOUT_MS,
       `[automergeSyncDispatcher] Sync timed out after ${SYNC_QUEUE_TIMEOUT_MS}ms`,
     )
 
-    return normalized
+    return knownDocumentIds
   } finally {
     useSyncStore.getState().setIsSyncing(false)
   }
@@ -81,14 +75,19 @@ export async function pullRemoteMessagesNow(account?: string | null, itemIds?: s
     return []
   }
 
-  return runSync(activeAccount, itemIds)
+  const normalized = normalizeRequestedItemIds(itemIds)
+  if (normalized.length > 0) {
+    registerKnownAutomergeItemIds(normalized, activeAccount)
+  }
+
+  return runSync(activeAccount)
 }
 
 let syncQueue: Promise<unknown> = Promise.resolve()
 
 export function requestAutomergeSync(itemIds?: string[] | string): void {
   const account = getActiveAccount()
-  const normalized = normalizeItemIds(typeof itemIds === 'string' ? [itemIds] : itemIds)
+  const normalized = normalizeRequestedItemIds(typeof itemIds === 'string' ? [itemIds] : itemIds)
 
   if (!account) {
     if (normalized.length > 0) {
@@ -101,8 +100,12 @@ export function requestAutomergeSync(itemIds?: string[] | string): void {
     return
   }
 
+  if (normalized.length > 0) {
+    registerKnownAutomergeItemIds(normalized, account)
+  }
+
   syncQueue = syncQueue
-    .then(() => runSync(account, normalized))
+    .then(() => runSync(account))
     .catch(error => {
       console.error('Background sync failed:', error)
     })
@@ -114,13 +117,11 @@ export function startAutomergeSyncDispatcher(account: string): void {
   }
 
   setVaultNetworkAccount(account)
-  startAutomergeKnownItemIdsOrchestrator(account)
 
-  void syncKnownAutomergeItemIds()
+  void syncKnownAutomergeItemIds(undefined, account)
 }
 
 export function stopAutomergeSyncDispatcher(): void {
-  stopAutomergeKnownItemIdsOrchestrator()
   setVaultNetworkAccount(null)
   useSyncStore.getState().setIsSyncing(false)
 }

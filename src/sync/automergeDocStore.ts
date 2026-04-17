@@ -3,7 +3,7 @@ import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { getAutomergeRepo } from './automergeRepo'
+import { getAutomergeRepo, getKnownAutomergeItemIds } from './automergeRepo'
 import {
   clearAutomergeItemIdMappings,
   registerAutomergeItemIds,
@@ -11,8 +11,18 @@ import {
 } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
 import { applyDocumentPatch } from './utils/documentPatchUtils'
+import {
+  ACCOUNT_INDEX_DOCUMENT_ID,
+  LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
+} from './automergeConstants'
 
-export const ACCOUNT_METADATA_DOCUMENT_ID = '__account_metadata__'
+export const ACCOUNT_METADATA_DOCUMENT_ID = ACCOUNT_INDEX_DOCUMENT_ID
+
+export type AutomergeIndexDocument = {
+  accountId?: string
+  itemIds?: string[]
+  metadata?: AccountMetadata
+}
 
 export type AutomergeDocumentPatch = {
   op: 'add' | 'replace' | 'remove'
@@ -34,147 +44,12 @@ type EnsureHandleOptions = {
   awaitReady?: boolean
 }
 
-type HandleSubscription = {
-  handle: RepoDocHandle
-  onChange: () => void
-  onDelete: () => void
+type ChangeDocumentOptions = {
+  createIfMissing?: boolean
+  initialValue?: RepoDoc
 }
 
-type SnapshotScope = 'item' | 'items' | 'metadata'
-
-const handleByDocumentId = new Map<string, RepoDocHandle>()
-const handleSubscriptionByDocumentId = new Map<string, HandleSubscription>()
-const syncCursorByItemId = new Map<string, number>()
-const localChangeByDocumentId = new Set<string>()
-const automergeSnapshotListeners = new Set<() => void>()
-const automergeItemListenersById = new Map<string, Set<() => void>>()
-const automergeItemsListeners = new Set<() => void>()
-const automergeMetadataListeners = new Set<() => void>()
-const knownItemIds = new Set<string>()
-
-let automergeSnapshotNotifyQueued = false
-const pendingSnapshotScopes = new Set<SnapshotScope>()
-const pendingSnapshotItemIds = new Set<string>()
-
-function flushAutomergeSnapshotChanged(): void {
-  automergeSnapshotNotifyQueued = false
-
-  const snapshotListeners = Array.from(automergeSnapshotListeners)
-  const itemsListeners = pendingSnapshotScopes.has('items')
-    ? Array.from(automergeItemsListeners)
-    : []
-  const metadataListeners = pendingSnapshotScopes.has('metadata')
-    ? Array.from(automergeMetadataListeners)
-    : []
-
-  const itemListenersById = Array.from(pendingSnapshotItemIds).map(itemId => [
-    itemId,
-    Array.from(automergeItemListenersById.get(itemId) || []),
-  ] as const)
-
-  pendingSnapshotScopes.clear()
-  pendingSnapshotItemIds.clear()
-
-  for (const listener of snapshotListeners) {
-    listener()
-  }
-
-  for (const listener of itemsListeners) {
-    listener()
-  }
-
-  for (const listener of metadataListeners) {
-    listener()
-  }
-
-  for (const [, listeners] of itemListenersById) {
-    for (const listener of listeners) {
-      listener()
-    }
-  }
-}
-
-function notifyAutomergeSnapshotChanged(scope: SnapshotScope, itemId?: string): void {
-  pendingSnapshotScopes.add(scope)
-
-  if (itemId) {
-    pendingSnapshotItemIds.add(itemId)
-  }
-
-  if (automergeSnapshotNotifyQueued) {
-    return
-  }
-
-  automergeSnapshotNotifyQueued = true
-  queueMicrotask(flushAutomergeSnapshotChanged)
-}
-
-export function subscribeAutomergeSnapshots(listener: () => void): () => void {
-  automergeSnapshotListeners.add(listener)
-
-  return () => {
-    automergeSnapshotListeners.delete(listener)
-  }
-}
-
-export function subscribeAutomergeItems(listener: () => void): () => void {
-  automergeItemsListeners.add(listener)
-
-  return () => {
-    automergeItemsListeners.delete(listener)
-  }
-}
-
-export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
-  const normalizedItemId = normalizeItemId(itemId)
-  if (!normalizedItemId) {
-    return () => undefined
-  }
-
-  const listeners = automergeItemListenersById.get(normalizedItemId) || new Set<() => void>()
-  listeners.add(listener)
-  automergeItemListenersById.set(normalizedItemId, listeners)
-
-  return () => {
-    const next = automergeItemListenersById.get(normalizedItemId)
-    if (!next) {
-      return
-    }
-
-    next.delete(listener)
-    if (next.size === 0) {
-      automergeItemListenersById.delete(normalizedItemId)
-    }
-  }
-}
-
-export function subscribeAutomergeMetadata(listener: () => void): () => void {
-  automergeMetadataListeners.add(listener)
-
-  return () => {
-    automergeMetadataListeners.delete(listener)
-  }
-}
-
-function getSnapshotScopeForDocumentId(documentId: string): SnapshotScope {
-  return documentId === ACCOUNT_METADATA_DOCUMENT_ID ? 'metadata' : 'items'
-}
-
-function notifyDocumentSnapshotChanged(documentId: string): void {
-  const scope = getSnapshotScopeForDocumentId(documentId)
-
-  if (scope === 'items') {
-    notifyAutomergeSnapshotChanged(scope, documentId)
-    return
-  }
-
-  notifyAutomergeSnapshotChanged(scope)
-}
-
-function notifyAllSnapshotScopesChanged(): void {
-  notifyAutomergeSnapshotChanged('metadata')
-  notifyAutomergeSnapshotChanged('items')
-}
+const initializedAccounts = new Set<string>()
 
 function cloneValue<T>(value: T): T {
   return structuredClone(value)
@@ -193,46 +68,52 @@ function normalizeItemId(raw: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function removeHandleSubscription(documentId: string): void {
-  const existing = handleSubscriptionByDocumentId.get(documentId)
-  if (!existing) {
-    return
+function normalizeItemIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return []
   }
 
-  existing.handle.off('change', existing.onChange)
-  existing.handle.off('delete', existing.onDelete)
-  handleSubscriptionByDocumentId.delete(documentId)
+  const deduped = new Set<string>()
+  for (const entry of raw) {
+    const normalized = normalizeItemId(entry)
+    if (!normalized) {
+      continue
+    }
+
+    if (
+      normalized === ACCOUNT_INDEX_DOCUMENT_ID
+      || normalized === LEGACY_ACCOUNT_METADATA_DOCUMENT_ID
+      || deduped.has(normalized)
+    ) {
+      continue
+    }
+
+    deduped.add(normalized)
+  }
+
+  return Array.from(deduped)
 }
 
-function ensureHandleSubscription(documentId: string, handle: RepoDocHandle): void {
-  const existing = handleSubscriptionByDocumentId.get(documentId)
-  if (existing?.handle === handle) {
-    return
-  }
+function normalizeMetadata(raw: unknown): AccountMetadata {
+  return isPlainObject(raw) ? (raw as AccountMetadata) : {}
+}
 
-  if (existing) {
-    removeHandleSubscription(documentId)
-  }
+function hasAnyKeys(value: Record<string, unknown>): boolean {
+  return Object.keys(value).length > 0
+}
 
-  const onChange = () => {
-    notifyDocumentSnapshotChanged(documentId)
+function createIndexInitialDocument(accountId?: string | null): RepoDoc {
+  const normalizedAccountId = normalizeItemId(accountId) || ''
+  return {
+    accountId: normalizedAccountId,
+    itemIds: [],
+    metadata: {},
   }
+}
 
-  const onDelete = () => {
-    handleByDocumentId.delete(documentId)
-    syncCursorByItemId.delete(documentId)
-    localChangeByDocumentId.delete(documentId)
-    removeHandleSubscription(documentId)
-    notifyDocumentSnapshotChanged(documentId)
-  }
-
-  handle.on('change', onChange)
-  handle.on('delete', onDelete)
-  handleSubscriptionByDocumentId.set(documentId, {
-    handle,
-    onChange,
-    onDelete,
-  })
+function getRepoHandle(documentId: string): RepoDocHandle {
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
+  return getAutomergeRepo().findWithProgress<RepoDoc>(documentUrl).handle as RepoDocHandle
 }
 
 function tryResolveNonReadyHandle(handle: RepoDocHandle): void {
@@ -244,60 +125,6 @@ function tryResolveNonReadyHandle(handle: RepoDocHandle): void {
     handle.doneLoading()
   } catch {
     // Ignore and keep the handle in its current state.
-  }
-}
-
-export function resolvePendingAutomergeHandles(): void {
-  const repoHandles = Object.values(getAutomergeRepo().handles || {}) as Array<RepoDocHandle & {
-    isDeleted?: () => boolean
-    isUnloaded?: () => boolean
-  }>
-
-  for (const handle of repoHandles) {
-    if (handle.isReady() || handle.isUnavailable()) {
-      continue
-    }
-
-    if (handle.isDeleted?.() || handle.isUnloaded?.()) {
-      continue
-    }
-
-    tryResolveNonReadyHandle(handle)
-  }
-}
-
-async function evictDocumentHandle(documentId: string): Promise<void> {
-  handleByDocumentId.delete(documentId)
-  removeHandleSubscription(documentId)
-
-  try {
-    await getAutomergeRepo().removeFromCache(interpretAsDocumentId(toAutomergeUrlFromItemId(documentId)))
-  } catch {
-    // Ignore cache-eviction failures for handles that were never loaded.
-  }
-
-  notifyDocumentSnapshotChanged(documentId)
-}
-
-function setLocalChange(documentId: string, changed: boolean): void {
-  if (changed) {
-    localChangeByDocumentId.add(documentId)
-    return
-  }
-
-  localChangeByDocumentId.delete(documentId)
-}
-
-function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
-  if (!handle.isReady()) {
-    return null
-  }
-
-  try {
-    const doc = handle.doc()
-    return isPlainObject(doc) ? (doc as RepoDoc) : null
-  } catch {
-    return null
   }
 }
 
@@ -320,7 +147,6 @@ async function ensureDocumentHandle(
   }
 
   if (handle.isUnavailable() && options.createIfMissing) {
-    // Deleting clears the unavailable handle so import can recreate this doc id.
     try {
       repo.delete(resolvedDocumentId)
     } catch (error) {
@@ -330,8 +156,8 @@ async function ensureDocumentHandle(
       })
     }
 
-    const initialValue = options.initialValue || (documentId === ACCOUNT_METADATA_DOCUMENT_ID
-      ? {}
+    const initialValue = options.initialValue || (documentId === ACCOUNT_INDEX_DOCUMENT_ID
+      ? createIndexInitialDocument()
       : { id: documentId })
 
     const binary = Automerge.save(Automerge.from(initialValue))
@@ -348,111 +174,167 @@ async function ensureDocumentHandle(
     }
   }
 
-  handleByDocumentId.set(documentId, handle)
-  ensureHandleSubscription(documentId, handle)
-  notifyDocumentSnapshotChanged(documentId)
-
   return handle
 }
 
-export async function observeAutomergeKnownItemIds(itemIds: string[]): Promise<void> {
-  const normalizedItemIds: string[] = []
-  const normalizedItemIdSet = new Set<string>()
-
-  for (const rawItemId of itemIds) {
-    const normalizedItemId = normalizeItemId(rawItemId)
-    if (!normalizedItemId || normalizedItemId === ACCOUNT_METADATA_DOCUMENT_ID || normalizedItemIdSet.has(normalizedItemId)) {
-      continue
-    }
-
-    normalizedItemIdSet.add(normalizedItemId)
-    normalizedItemIds.push(normalizedItemId)
+function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
+  if (!handle.isReady()) {
+    tryResolveNonReadyHandle(handle)
   }
 
-  knownItemIds.clear()
-  for (const itemId of normalizedItemIds) {
-    knownItemIds.add(itemId)
+  if (!handle.isReady()) {
+    return null
   }
 
-  const nextIds = new Set(normalizedItemIds)
-
-  for (const knownId of Array.from(handleByDocumentId.keys())) {
-    if (knownId === ACCOUNT_METADATA_DOCUMENT_ID) {
-      continue
-    }
-
-    if (nextIds.has(knownId)) {
-      continue
-    }
-
-    await evictDocumentHandle(knownId)
+  try {
+    const doc = handle.doc()
+    return isPlainObject(doc) ? (doc as RepoDoc) : null
+  } catch {
+    return null
   }
-
-  await Promise.all(normalizedItemIds.map(async itemId => {
-    try {
-      await ensureDocumentHandle(itemId, { awaitReady: false })
-    } catch (error) {
-      console.error('[automerge] failed to observe known item id handle', { itemId, error })
-    }
-  }))
-
-  notifyAutomergeSnapshotChanged('items')
 }
 
-export async function initializeAutomergeDocStore(account: string): Promise<void> {
-  const nextAccount = normalizeItemId(account)
-  if (!nextAccount) {
-    return
+function readDocumentSnapshot(documentId: string): RepoDoc | null {
+  const normalizedDocumentId = normalizeItemId(documentId)
+  if (!normalizedDocumentId) {
+    return null
   }
 
-  resolvePendingAutomergeHandles()
+  return snapshotFromHandle(getRepoHandle(normalizedDocumentId))
+}
 
-  registerAutomergeItemIds([ACCOUNT_METADATA_DOCUMENT_ID])
+function getIndexSnapshot(): AutomergeIndexDocument {
+  const rawIndex = readDocumentSnapshot(ACCOUNT_INDEX_DOCUMENT_ID)
+  const normalized: AutomergeIndexDocument = {
+    accountId: normalizeItemId(rawIndex?.accountId) || undefined,
+    itemIds: normalizeItemIds(rawIndex?.itemIds),
+    metadata: normalizeMetadata(rawIndex?.metadata),
+  }
 
-  await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
+  registerAutomergeItemIds(normalized.itemIds || [])
+  return normalized
+}
+
+function getLegacyMetadataSnapshot(): AccountMetadata {
+  return normalizeMetadata(readDocumentSnapshot(LEGACY_ACCOUNT_METADATA_DOCUMENT_ID))
+}
+
+function isItemDocumentId(documentId: string): boolean {
+  return (
+    documentId !== ACCOUNT_INDEX_DOCUMENT_ID
+    && documentId !== LEGACY_ACCOUNT_METADATA_DOCUMENT_ID
+  )
+}
+
+async function ensureIndexDocument(accountId?: string | null): Promise<void> {
+  await ensureDocumentHandle(ACCOUNT_INDEX_DOCUMENT_ID, {
     createIfMissing: true,
-    initialValue: {},
+    initialValue: createIndexInitialDocument(accountId),
     awaitReady: false,
   })
 }
 
-export function listAutomergeDocumentIds(): string[] {
-  const itemIds = listAutomergeItemIds()
-  return [
-    ACCOUNT_METADATA_DOCUMENT_ID,
-    ...itemIds,
-  ]
-}
+async function seedImportedDocument(documentId: string, binary: Uint8Array): Promise<void> {
+  const repo = getAutomergeRepo()
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
+  const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
-export function listAutomergeItemIds(): string[] {
-  const ids = new Set<string>([
-    ...Array.from(knownItemIds),
-    ...Array.from(handleByDocumentId.keys()).filter(documentId => documentId !== ACCOUNT_METADATA_DOCUMENT_ID),
-  ])
-
-  return Array.from(ids).filter(itemId => itemId !== ACCOUNT_METADATA_DOCUMENT_ID)
-}
-
-export function getAutomergeItems(): Item[] {
-  const items: Item[] = []
-
-  for (const itemId of listAutomergeItemIds()) {
-    const item = getAutomergeItem(itemId)
-    if (item) {
-      items.push(item)
-    }
+  try {
+    await repo.removeFromCache(resolvedDocumentId)
+  } catch {
+    // Ignore cache-eviction failures for handles that were never loaded.
   }
 
-  return items
-}
+  const handle = repo.import<RepoDoc>(binary, {
+    docId: resolvedDocumentId,
+  }) as RepoDocHandle
 
-export function getAutomergeItem(itemId: string): Item | null {
-  const handle = handleByDocumentId.get(itemId)
-  if (!handle) {
-    return null
+  if (!handle.isReady() && !handle.isUnavailable()) {
+    tryResolveNonReadyHandle(handle)
   }
 
-  const snapshot = snapshotFromHandle(handle)
+  if (!handle.isReady() && !handle.isUnavailable()) {
+    await handle.whenReady(['ready', 'unavailable'])
+  }
+}
+
+async function migrateLegacyKnownItemIds(accountId: string): Promise<void> {
+  const knownItemIds = getKnownAutomergeItemIds(accountId)
+  if (knownItemIds.length === 0) {
+    return
+  }
+
+  await addAutomergeItemIdsToIndex(knownItemIds)
+}
+
+async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
+  const legacyMetadata = getLegacyMetadataSnapshot()
+  if (!hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
+    return
+  }
+
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      const existing = normalizeMetadata(doc.metadata)
+      if (hasAnyKeys(existing as Record<string, unknown>)) {
+        return
+      }
+
+      doc.metadata = cloneValue(legacyMetadata)
+      if (typeof doc.accountId !== 'string' || doc.accountId.length === 0) {
+        doc.accountId = accountId
+      }
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(accountId),
+    },
+  )
+}
+
+function removeHandleListener(
+  handle: RepoDocHandle,
+  event: 'change' | 'delete',
+  listener: () => void,
+): void {
+  const typedHandle = handle as RepoDocHandle & {
+    off?: (event: 'change' | 'delete', listener: () => void) => void
+    removeListener?: (event: 'change' | 'delete', listener: () => void) => void
+  }
+
+  if (typeof typedHandle.off === 'function') {
+    typedHandle.off(event, listener)
+    return
+  }
+
+  typedHandle.removeListener?.(event, listener)
+}
+
+function subscribeToDocument(documentId: string, listener: () => void): () => void {
+  const normalizedDocumentId = normalizeItemId(documentId)
+  if (!normalizedDocumentId) {
+    return () => undefined
+  }
+
+  const handle = getRepoHandle(normalizedDocumentId)
+  const onChange = () => {
+    listener()
+  }
+  const onDelete = () => {
+    listener()
+  }
+
+  handle.on('change', onChange)
+  handle.on('delete', onDelete)
+
+  return () => {
+    removeHandleListener(handle, 'change', onChange)
+    removeHandleListener(handle, 'delete', onDelete)
+  }
+}
+
+function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
   if (!snapshot) {
     return null
   }
@@ -469,50 +351,210 @@ export function getAutomergeItem(itemId: string): Item | null {
   return normalizedItem as Item
 }
 
-export function getAutomergeMetadata(): AccountMetadata {
-  const handle = handleByDocumentId.get(ACCOUNT_METADATA_DOCUMENT_ID)
-  if (!handle) {
-    return {}
-  }
+async function withMetadataDraftChange(change: (metadataDraft: RepoDoc) => void): Promise<boolean> {
+  return withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      let metadataDraft = isPlainObject(doc.metadata)
+        ? (doc.metadata as RepoDoc)
+        : null
 
-  const snapshot = snapshotFromHandle(handle)
-  if (!snapshot || !isPlainObject(snapshot)) {
-    return {}
-  }
+      if (!metadataDraft) {
+        metadataDraft = {}
+        doc.metadata = metadataDraft
+      }
 
-  return snapshot as AccountMetadata
+      change(metadataDraft)
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(),
+    },
+  )
 }
 
-async function seedAutomergeDocument(
+export function subscribeAutomergeSnapshots(listener: () => void): () => void {
+  const unsubscribeItems = subscribeAutomergeItems(listener)
+  const unsubscribeMetadata = subscribeAutomergeMetadata(listener)
+
+  return () => {
+    unsubscribeItems()
+    unsubscribeMetadata()
+  }
+}
+
+export function subscribeAutomergeItems(listener: () => void): () => void {
+  let itemUnsubscribers: Array<() => void> = []
+
+  const resubscribeItems = () => {
+    for (const unsubscribe of itemUnsubscribers) {
+      unsubscribe()
+    }
+
+    itemUnsubscribers = listAutomergeItemIds().map(itemId => subscribeToDocument(itemId, listener))
+  }
+
+  const unsubscribeIndex = subscribeToDocument(ACCOUNT_INDEX_DOCUMENT_ID, () => {
+    resubscribeItems()
+    listener()
+  })
+
+  resubscribeItems()
+
+  return () => {
+    unsubscribeIndex()
+    for (const unsubscribe of itemUnsubscribers) {
+      unsubscribe()
+    }
+    itemUnsubscribers = []
+  }
+}
+
+export function subscribeAutomergeItem(itemId: string, listener: () => void): () => void {
+  return subscribeToDocument(itemId, listener)
+}
+
+export function subscribeAutomergeMetadata(listener: () => void): () => void {
+  return subscribeToDocument(ACCOUNT_INDEX_DOCUMENT_ID, listener)
+}
+
+export function resolvePendingAutomergeHandles(): void {
+  // Doc handle lifecycle is now managed by automerge-repo internals.
+}
+
+export async function withAutomergeDocumentChange(
   documentId: string,
-  binary: Uint8Array,
-): Promise<void> {
-  const repo = getAutomergeRepo()
-  const documentUrl = toAutomergeUrlFromItemId(documentId)
+  change: (draft: RepoDoc) => void,
+  options: ChangeDocumentOptions = {},
+): Promise<boolean> {
+  const normalizedDocumentId = normalizeItemId(documentId)
+  if (!normalizedDocumentId) {
+    return false
+  }
 
-  const handle = repo.import<RepoDoc>(binary, {
-    docId: interpretAsDocumentId(documentUrl),
-  }) as unknown as RepoDocHandle
+  if (isItemDocumentId(normalizedDocumentId)) {
+    await addAutomergeItemIdsToIndex([normalizedDocumentId])
+  }
 
-  handleByDocumentId.set(documentId, handle)
-  ensureHandleSubscription(documentId, handle)
-  notifyDocumentSnapshotChanged(documentId)
+  const handle = await ensureDocumentHandle(normalizedDocumentId, {
+    createIfMissing: options.createIfMissing,
+    initialValue: options.initialValue,
+    awaitReady: false,
+  })
 
-  if (!handle.isReady() && !handle.isUnavailable()) {
-    try {
-      handle.doneLoading()
-    } catch {
-      // Ignore doneLoading errors and fall back to whenReady.
+  if (handle.isUnavailable() || !handle.isReady()) {
+    return false
+  }
+
+  handle.change(doc => {
+    change(doc as RepoDoc)
+  })
+
+  return true
+}
+
+export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<void> {
+  const normalized = normalizeItemIds(itemIds)
+  if (normalized.length === 0) {
+    return
+  }
+
+  registerAutomergeItemIds(normalized)
+
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
+      const next = new Set(current)
+      for (const itemId of normalized) {
+        next.add(itemId)
+      }
+
+      doc.itemIds = Array.from(next)
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(),
+    },
+  )
+}
+
+export async function observeAutomergeKnownItemIds(itemIds: string[]): Promise<void> {
+  await addAutomergeItemIdsToIndex(itemIds)
+}
+
+export async function initializeAutomergeDocStore(account: string): Promise<void> {
+  const nextAccount = normalizeItemId(account)
+  if (!nextAccount) {
+    return
+  }
+
+  registerAutomergeItemIds([
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
+  ])
+
+  await ensureIndexDocument(nextAccount)
+
+  if (initializedAccounts.has(nextAccount)) {
+    return
+  }
+
+  await migrateLegacyKnownItemIds(nextAccount)
+  await migrateLegacyMetadataSnapshot(nextAccount)
+  initializedAccounts.add(nextAccount)
+}
+
+export function listAutomergeItemIds(): string[] {
+  return getIndexSnapshot().itemIds || []
+}
+
+export function listAutomergeDocumentIds(): string[] {
+  const documentIds = new Set<string>([
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    ...listAutomergeItemIds(),
+  ])
+
+  const legacyMetadata = getLegacyMetadataSnapshot()
+  if (hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
+    documentIds.add(LEGACY_ACCOUNT_METADATA_DOCUMENT_ID)
+  }
+
+  return Array.from(documentIds)
+}
+
+export function getAutomergeItems(): Item[] {
+  const items: Item[] = []
+
+  for (const itemId of listAutomergeItemIds()) {
+    const item = getAutomergeItem(itemId)
+    if (item) {
+      items.push(item)
     }
   }
 
-  if (!handle.isReady() && !handle.isUnavailable()) {
-    await handle.whenReady(['ready', 'unavailable'])
+  return items
+}
+
+export function getAutomergeItem(itemId: string): Item | null {
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId) {
+    return null
   }
 
-  if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
-    registerAutomergeItemIds([documentId])
+  registerAutomergeItemIds([normalizedItemId])
+
+  const snapshot = readDocumentSnapshot(normalizedItemId)
+  return normalizeItemSnapshot(normalizedItemId, snapshot)
+}
+
+export function getAutomergeMetadata(): AccountMetadata {
+  const indexMetadata = normalizeMetadata(getIndexSnapshot().metadata)
+  if (hasAnyKeys(indexMetadata as Record<string, unknown>)) {
+    return indexMetadata
   }
+
+  return getLegacyMetadataSnapshot()
 }
 
 export async function hydrateAutomergeDocumentBinary(
@@ -524,37 +566,42 @@ export async function hydrateAutomergeDocumentBinary(
     return
   }
 
-  await seedAutomergeDocument(normalizedDocumentId, binary)
+  await seedImportedDocument(normalizedDocumentId, binary)
+
+  if (isItemDocumentId(normalizedDocumentId)) {
+    await addAutomergeItemIdsToIndex([normalizedDocumentId])
+    return
+  }
+
+  if (normalizedDocumentId === LEGACY_ACCOUNT_METADATA_DOCUMENT_ID) {
+    const legacyMetadata = getLegacyMetadataSnapshot()
+    if (hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
+      await upsertAutomergeMetadataSnapshot(legacyMetadata, {
+        markLocalChange: false,
+      })
+    }
+  }
 }
 
 export async function upsertAutomergeMetadataSnapshot(
   metadata: AccountMetadata,
   options: UpsertMetadataOptions = {},
 ): Promise<void> {
-  const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
-    createIfMissing: true,
-    initialValue: {},
-    awaitReady: false,
-  })
-
-  if (!handle.isReady()) {
-    return
-  }
+  void options.markLocalChange
 
   const nextMetadata = cloneValue(metadata || {})
-  handle.change(doc => {
-    for (const key of Object.keys(doc)) {
+
+  await withMetadataDraftChange(metadataDraft => {
+    for (const key of Object.keys(metadataDraft)) {
       if (!(key in nextMetadata) || nextMetadata[key as keyof AccountMetadata] === undefined) {
-        delete doc[key]
+        delete metadataDraft[key]
       }
     }
 
     for (const [key, value] of Object.entries(nextMetadata)) {
-      doc[key] = value
+      metadataDraft[key] = value
     }
   })
-
-  setLocalChange(ACCOUNT_METADATA_DOCUMENT_ID, options.markLocalChange !== false)
 }
 
 export async function removeAutomergeItem(itemId: string): Promise<void> {
@@ -563,40 +610,58 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
     return
   }
 
-  knownItemIds.delete(normalizedItemId)
-  localChangeByDocumentId.delete(normalizedItemId)
-  syncCursorByItemId.delete(normalizedItemId)
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
+      doc.itemIds = current.filter(existingItemId => existingItemId !== normalizedItemId)
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(),
+    },
+  )
 
-  await evictDocumentHandle(normalizedItemId)
+  const repo = getAutomergeRepo()
+  const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)
 
   try {
-    getAutomergeRepo().delete(toAutomergeUrlFromItemId(normalizedItemId))
+    repo.delete(documentUrl)
   } catch {
     // Ignore missing local handles.
   }
 
+  try {
+    await repo.removeFromCache(interpretAsDocumentId(documentUrl))
+  } catch {
+    // Ignore cache-eviction failures for handles that were never loaded.
+  }
 }
 
 export async function clearAutomergeDocStore(): Promise<void> {
-  const documentIds = listAutomergeDocumentIds()
+  const repo = getAutomergeRepo()
+  const documentIds = Array.from(new Set([
+    ...listAutomergeDocumentIds(),
+    LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
+  ]))
 
   for (const documentId of documentIds) {
+    const documentUrl = toAutomergeUrlFromItemId(documentId)
+
     try {
-      getAutomergeRepo().delete(toAutomergeUrlFromItemId(documentId))
+      repo.delete(documentUrl)
     } catch {
       // Ignore missing local handles.
     }
 
-    await evictDocumentHandle(documentId)
+    try {
+      await repo.removeFromCache(interpretAsDocumentId(documentUrl))
+    } catch {
+      // Ignore cache-eviction failures for handles that were never loaded.
+    }
   }
 
-  for (const documentId of Array.from(handleSubscriptionByDocumentId.keys())) {
-    removeHandleSubscription(documentId)
-  }
-
-  syncCursorByItemId.clear()
-  localChangeByDocumentId.clear()
-  knownItemIds.clear()
+  initializedAccounts.clear()
   clearAutomergeItemIdMappings()
 
   if (typeof indexedDB !== 'undefined') {
@@ -606,15 +671,15 @@ export async function clearAutomergeDocStore(): Promise<void> {
       // Ignore IndexedDB delete failures in constrained environments.
     }
   }
-
-  notifyAllSnapshotScopesChanged()
 }
 
 export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
   const exported: Partial<Record<ItemId, string>> = {}
 
   for (const documentId of listAutomergeDocumentIds()) {
-    const handle = await ensureDocumentHandle(documentId)
+    const handle = await ensureDocumentHandle(documentId, {
+      awaitReady: false,
+    })
     if (!handle.isReady()) {
       continue
     }
@@ -634,12 +699,17 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
       continue
     }
 
-    await seedAutomergeDocument(documentId, decodeBase64ToBytes(encodedBinary))
+    await hydrateAutomergeDocumentBinary(documentId, decodeBase64ToBytes(encodedBinary))
 
-    if (documentId !== ACCOUNT_METADATA_DOCUMENT_ID) {
-      restoredItemIds.push(documentId)
+    const normalizedDocumentId = normalizeItemId(documentId)
+    if (!normalizedDocumentId || !isItemDocumentId(normalizedDocumentId)) {
+      continue
     }
+
+    restoredItemIds.push(normalizedDocumentId)
   }
+
+  await addAutomergeItemIdsToIndex(restoredItemIds)
 
   return restoredItemIds
 }
@@ -653,35 +723,24 @@ export async function applyAutomergeItemPatches(
     return
   }
 
-  registerAutomergeItemIds([normalizedItemId])
+  await withAutomergeDocumentChange(
+    normalizedItemId,
+    doc => {
+      for (const patch of patches) {
+        applyDocumentPatch(doc, patch)
+      }
 
-  const handle = await ensureDocumentHandle(normalizedItemId, {
-    createIfMissing: true,
-    initialValue: {
-      id: normalizedItemId,
+      if (typeof doc.id !== 'string' || doc.id.length === 0) {
+        doc.id = normalizedItemId
+      }
     },
-    awaitReady: false,
-  })
-
-  if (handle.isUnavailable()) {
-    return
-  }
-
-  if (!handle.isReady()) {
-    return
-  }
-
-  handle.change(doc => {
-    for (const patch of patches) {
-      applyDocumentPatch(doc, patch)
-    }
-
-    if (typeof doc.id !== 'string' || doc.id.length === 0) {
-      doc.id = normalizedItemId
-    }
-  })
-
-  setLocalChange(normalizedItemId, true)
+    {
+      createIfMissing: true,
+      initialValue: {
+        id: normalizedItemId,
+      },
+    },
+  )
 }
 
 export async function applyAutomergeMetadataPatches(
@@ -691,21 +750,9 @@ export async function applyAutomergeMetadataPatches(
     return
   }
 
-  const handle = await ensureDocumentHandle(ACCOUNT_METADATA_DOCUMENT_ID, {
-    createIfMissing: true,
-    initialValue: {},
-    awaitReady: false,
-  })
-
-  if (!handle.isReady()) {
-    return
-  }
-
-  handle.change(doc => {
+  await withMetadataDraftChange(metadataDraft => {
     for (const patch of patches) {
-      applyDocumentPatch(doc, patch)
+      applyDocumentPatch(metadataDraft, patch)
     }
   })
-
-  setLocalChange(ACCOUNT_METADATA_DOCUMENT_ID, true)
 }

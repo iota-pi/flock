@@ -1,16 +1,12 @@
-import * as Automerge from '@automerge/automerge'
-import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import { ERROR_ITEM_TYPE, GroupItem, type Item } from '../../../state/items'
 import { ITEM_TYPES, ItemId } from '../../../shared/itemTypes'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { getAutomergeRepo, removeKnownAutomergeItemIds } from '../../../sync/automergeRepo'
-import { toAutomergeUrlFromItemId } from '../../../sync/automergeRepoIds'
+import { removeKnownAutomergeItemIds } from '../../../sync/automergeRepo'
 import {
   ACCOUNT_METADATA_DOCUMENT_ID,
-  applyAutomergeItemPatches,
   applyAutomergeMetadataPatches,
   type AutomergeDocumentPatch,
   getAutomergeItem,
@@ -18,8 +14,10 @@ import {
   getAutomergeMetadata,
   initializeAutomergeDocStore,
   removeAutomergeItem,
+  withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
 import { requestAutomergeSync } from '../../../sync/automergeSyncDispatcher'
+import { applyDocumentPatch } from '../../../sync/utils/documentPatchUtils'
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -190,58 +188,6 @@ async function ensureAutomergeStoreReady(): Promise<void> {
   await initializeAutomergeDocStore(getAccountId())
 }
 
-async function upsertRepoItemSnapshot(item: Item): Promise<void> {
-  const repo = getAutomergeRepo()
-  const docUrl = toAutomergeUrlFromItemId(item.id)
-
-  let handle = repo.findWithProgress<Record<string, unknown>>(docUrl).handle
-
-  if (handle.isUnavailable()) {
-    // `removeFromCache` may throw on unavailable handles; delete clears handle cache entry.
-    repo.delete(interpretAsDocumentId(docUrl))
-
-    const initialDoc = Automerge.from(normalizeItemForAutomerge(item))
-    const binary = Automerge.save(initialDoc)
-    handle = repo.import<Record<string, unknown>>(binary, {
-      docId: interpretAsDocumentId(docUrl),
-    })
-    return
-  }
-
-  if (!handle.isReady()) {
-    // Best-effort mirror to repo handle; avoid blocking mutations on long readiness waits.
-    return
-  }
-
-  const normalizedItem = normalizeItemForAutomerge(item)
-  handle.change(doc => {
-    const draft = doc as Record<string, unknown>
-
-    for (const key of Object.keys(draft)) {
-      if (!(key in normalizedItem) || normalizedItem[key] === undefined) {
-        delete draft[key]
-      }
-    }
-
-    for (const [key, value] of Object.entries(normalizedItem)) {
-      if (value !== undefined) {
-        draft[key] = value
-      }
-    }
-  })
-}
-
-function removeRepoItemDocument(itemId: string): void {
-  const repo = getAutomergeRepo()
-  const docUrl = toAutomergeUrlFromItemId(itemId)
-
-  try {
-    repo.delete(docUrl)
-  } catch (error) {
-    console.error('[itemMutations] Failed to delete repo document', error)
-  }
-}
-
 let metadataUpdateQueue: Promise<void> = Promise.resolve()
 
 function enqueueMetadataUpdate(task: () => Promise<AccountMetadata>): Promise<AccountMetadata> {
@@ -270,20 +216,26 @@ export async function storeItems(
       continue
     }
 
-    await applyAutomergeItemPatches(item.id, patches)
+    await withAutomergeDocumentChange(
+      item.id,
+      doc => {
+        for (const patch of patches) {
+          applyDocumentPatch(doc, patch)
+        }
+
+        if (typeof doc.id !== 'string' || doc.id.length === 0) {
+          doc.id = item.id
+        }
+      },
+      {
+        createIfMissing: true,
+        initialValue: { id: item.id },
+      },
+    )
     changedIds.push(item.id)
   }
 
   if (changedIds.length > 0) {
-    await Promise.allSettled(changedIds.map(async itemId => {
-      const changedItem = current.find(item => item.id === itemId)
-      if (!changedItem) {
-        return
-      }
-
-      await upsertRepoItemSnapshot(changedItem)
-    }))
-
     requestAutomergeSync(changedIds)
   }
 
@@ -324,7 +276,6 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
 
   for (const itemId of ids) {
     await removeAutomergeItem(itemId)
-    removeRepoItemDocument(itemId)
   }
 
   useNavigationStore.getState().pruneItemDrawers(ids)

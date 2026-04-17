@@ -10,6 +10,7 @@ import { encryptSyncMessage } from './automergeSyncCrypto'
 import { SyncTransportService } from './SyncTransportService'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -37,6 +38,19 @@ function normalizeEventItemIds(payload: { data?: { itemIds?: unknown; deletedIte
     ...normalizeItemIds(payload.data?.itemIds),
     ...normalizeItemIds(payload.data?.deletedItemIds),
   ]
+}
+
+function withIndexDocumentPriority(itemIds: string[]): string[] {
+  const normalized = normalizeItemIds(itemIds)
+  const deduped = new Set<string>([ACCOUNT_INDEX_DOCUMENT_ID])
+
+  for (const itemId of normalized) {
+    if (itemId !== ACCOUNT_INDEX_DOCUMENT_ID) {
+      deduped.add(itemId)
+    }
+  }
+
+  return Array.from(deduped)
 }
 
 export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
@@ -70,14 +84,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.transportService.on('message', payload => {
       if ('action' in payload && payload.action === 'sync_ping') {
-        const itemIds = normalizeItemIds(payload.itemIds)
+        const itemIds = withIndexDocumentPriority(normalizeItemIds(payload.itemIds))
         this.registerKnownItemIds(itemIds)
         this.pullQueueManager.enqueuePull(itemIds)
         return
       }
 
       if ('eventType' in payload && (payload.eventType === 'items.updated' || payload.eventType === 'items.deleted')) {
-        const itemIds = normalizeEventItemIds(payload)
+        const itemIds = withIndexDocumentPriority(normalizeEventItemIds(payload))
         this.registerKnownItemIds(itemIds)
         this.pullQueueManager.enqueuePull(itemIds)
       }
@@ -110,6 +124,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.pullQueueManager.setAccount(this.account)
 
     this.knownItemIds.clear()
+    if (this.account) {
+      this.knownItemIds.add(ACCOUNT_INDEX_DOCUMENT_ID)
+    }
     this.notifyKnownItemIdsChanged()
 
     if (!this.connected) {
@@ -172,7 +189,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     for (const rawItemId of itemIds) {
       const itemId = toVaultItemIdFromAutomergeId(rawItemId)
-      if (!itemId || !this.knownItemIds.delete(itemId)) {
+      if (!itemId || itemId === ACCOUNT_INDEX_DOCUMENT_ID || !this.knownItemIds.delete(itemId)) {
         continue
       }
 
@@ -188,11 +205,15 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   clearKnownItemIds(): void {
-    if (this.knownItemIds.size === 0) {
+    const shouldPreserveIndex = !!this.account
+    if (this.knownItemIds.size === 0 || (shouldPreserveIndex && this.knownItemIds.size === 1 && this.knownItemIds.has(ACCOUNT_INDEX_DOCUMENT_ID))) {
       return
     }
 
     this.knownItemIds.clear()
+    if (shouldPreserveIndex) {
+      this.knownItemIds.add(ACCOUNT_INDEX_DOCUMENT_ID)
+    }
     this.pullQueueManager.clear()
     this.notifyKnownItemIdsChanged()
   }
@@ -202,12 +223,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       ? normalizeItemIds(itemIds)
       : this.getKnownItemIds()
 
-    if (normalized.length === 0) {
-      return
-    }
+    const prioritized = withIndexDocumentPriority(normalized)
 
-    this.registerKnownItemIds(normalized)
-    await this.pullQueueManager.enqueuePull(normalized)
+    this.registerKnownItemIds(prioritized)
+    await this.pullQueueManager.enqueuePull(prioritized)
   }
 
   whenReady(): Promise<void> {

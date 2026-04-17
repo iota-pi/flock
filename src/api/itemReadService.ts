@@ -6,6 +6,7 @@ import { fetchMany } from './vault/client'
 import { decryptObject, getVaultKey } from './vault'
 import type { CachedVaultItem, VaultItem } from './vault/clientTypes'
 import {
+  addAutomergeItemIdsToIndex,
   getAutomergeMetadata,
   hydrateAutomergeDocumentBinary,
   initializeAutomergeDocStore,
@@ -14,7 +15,6 @@ import {
   upsertAutomergeMetadataSnapshot,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
-import { registerKnownAutomergeItemIds } from '../sync/automergeRepo'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 
 type FetchItemsOptions = {
@@ -177,12 +177,11 @@ async function hydrateMetadataIfNeeded(accountId: string, force = false): Promis
 }
 
 function requestSyncForKnownDocuments(): void {
-  const knownDocumentIds = listAutomergeDocumentIds()
-  if (knownDocumentIds.length === 0) {
+  if (listAutomergeDocumentIds().length === 0) {
     return
   }
 
-  requestAutomergeSync(knownDocumentIds)
+  requestAutomergeSync()
 }
 
 export async function ensureItemsBootstrap(
@@ -217,8 +216,8 @@ export async function ensureItemsBootstrap(
       }
 
       if (fetchedItemIds.length > 0) {
-        registerKnownAutomergeItemIds(fetchedItemIds)
-        requestAutomergeSync(fetchedItemIds)
+        await addAutomergeItemIdsToIndex(fetchedItemIds)
+        requestAutomergeSync()
       }
     }
 

@@ -6,8 +6,8 @@ import {
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
-  applyAutomergeItemPatches,
   applyAutomergeMetadataPatches,
+  withAutomergeDocumentChange,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import { ensureItemsBootstrap } from './itemReadService'
@@ -19,28 +19,6 @@ const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
 }))
 
-const repoMocks = vi.hoisted(() => {
-  const importedHandle = {
-    state: 'ready',
-    isReady: () => true,
-    whenReady: vi.fn(async () => undefined),
-    change: vi.fn(),
-  }
-
-  return {
-    find: vi.fn(() => ({
-      state: 'unavailable',
-      isReady: () => true,
-      whenReady: vi.fn(async () => undefined),
-      change: vi.fn(),
-    })),
-    import: vi.fn(() => importedHandle),
-    removeFromCache: vi.fn(async () => undefined),
-    delete: vi.fn(),
-    importedHandle,
-  }
-})
-
 vi.mock('../sync/automergeDocStore', async importOriginal => {
   const actual = await importOriginal<typeof import('../sync/automergeDocStore')>()
   return {
@@ -49,7 +27,7 @@ vi.mock('../sync/automergeDocStore', async importOriginal => {
     getAutomergeItem: vi.fn(() => null),
     getAutomergeMetadata: vi.fn(() => ({})),
     initializeAutomergeDocStore: vi.fn(),
-    applyAutomergeItemPatches: vi.fn(async () => undefined),
+    withAutomergeDocumentChange: vi.fn(async () => true),
     applyAutomergeMetadataPatches: vi.fn(async () => undefined),
   }
 })
@@ -59,7 +37,6 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 }))
 
 vi.mock('../sync/automergeRepo', () => ({
-  getAutomergeRepo: () => repoMocks,
   removeKnownAutomergeItemIds: vi.fn(),
 }))
 
@@ -117,13 +94,19 @@ describe('local-first mutations', () => {
 
     expect(result[0].id).toBe('p1')
     expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith(
+      'p1',
+      expect.any(Function),
+      expect.objectContaining({
+        createIfMissing: true,
+      }),
+    )
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1'])
   })
 
   it('rejects invalid item payloads before storing', async () => {
     await expect(storeItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
-    expect(applyAutomergeItemPatches).not.toHaveBeenCalled()
+    expect(withAutomergeDocumentChange).not.toHaveBeenCalled()
   })
 
   it('stores batch updates and requests sync for all ids', async () => {
@@ -132,9 +115,9 @@ describe('local-first mutations', () => {
 
     await storeItems([first, second])
 
-    expect(applyAutomergeItemPatches).toHaveBeenCalledTimes(2)
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p2', expect.any(Array))
+    expect(withAutomergeDocumentChange).toHaveBeenCalledTimes(2)
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p2', expect.any(Function), expect.any(Object))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['p1', 'p2'])
   })
 
@@ -149,8 +132,8 @@ describe('local-first mutations', () => {
     await deleteItems('p1')
 
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('g1', expect.any(Array))
-    expect(applyAutomergeItemPatches).toHaveBeenCalledWith('p1', expect.any(Array))
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('g1', expect.any(Function), expect.any(Object))
+    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
     expect(requestAutomergeSync).toHaveBeenCalledWith(['g1', 'p1'])
     expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
   })

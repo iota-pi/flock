@@ -5,8 +5,6 @@ import { useAuthStore, getInitialAuthState } from '../state/authStore'
 const mocks = vi.hoisted(() => ({
   listAutomergeDocumentIds: vi.fn(() => ['doc-1']),
   resolvePendingAutomergeHandles: vi.fn(),
-  startAutomergeKnownItemIdsOrchestrator: vi.fn(),
-  stopAutomergeKnownItemIdsOrchestrator: vi.fn(),
   registerKnownAutomergeItemIds: vi.fn(),
   syncKnownAutomergeItemIds: vi.fn(),
   setVaultNetworkAccount: vi.fn(),
@@ -15,11 +13,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('./automergeDocStore', () => ({
   listAutomergeDocumentIds: mocks.listAutomergeDocumentIds,
   resolvePendingAutomergeHandles: mocks.resolvePendingAutomergeHandles,
-}))
-
-vi.mock('./automergeKnownItemIdsOrchestrator', () => ({
-  startAutomergeKnownItemIdsOrchestrator: mocks.startAutomergeKnownItemIdsOrchestrator,
-  stopAutomergeKnownItemIdsOrchestrator: mocks.stopAutomergeKnownItemIdsOrchestrator,
 }))
 
 vi.mock('./automergeRepo', () => ({
@@ -60,15 +53,15 @@ describe('automergeSyncDispatcher', () => {
     startAutomergeSyncDispatcher('acct-1')
 
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith('acct-1')
-    expect(mocks.startAutomergeKnownItemIdsOrchestrator).toHaveBeenCalledWith('acct-1')
+    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenCalledWith(undefined, 'acct-1')
 
     await pullRemoteMessagesNow(undefined, ['doc-1'])
-    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenCalledWith(['doc-1'])
+    expect(mocks.registerKnownAutomergeItemIds).toHaveBeenCalledWith(['doc-1'], 'acct-1')
+    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenLastCalledWith(undefined, 'acct-1')
 
     useAuthStore.setState({ account: '' })
     stopAutomergeSyncDispatcher()
 
-    expect(mocks.stopAutomergeKnownItemIdsOrchestrator).toHaveBeenCalled()
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith(null)
   })
 
@@ -90,8 +83,8 @@ describe('automergeSyncDispatcher', () => {
     await Promise.resolve()
 
     expect(mocks.syncKnownAutomergeItemIds).toHaveBeenCalledTimes(2)
-    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenNthCalledWith(1, ['doc-1'])
-    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenNthCalledWith(2, ['doc-2'])
+    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenNthCalledWith(1, undefined, 'acct-1')
+    expect(mocks.syncKnownAutomergeItemIds).toHaveBeenNthCalledWith(2, undefined, 'acct-1')
 
     vi.useRealTimers()
     errorSpy.mockRestore()
