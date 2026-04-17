@@ -64,18 +64,11 @@ const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
   minWidth: theme.spacing(5),
 }))
 
-export interface ItemListExtraElement {
-  content: ReactNode
-  index: number
-}
-
 interface ItemListItemProps<T extends Item> {
   index: number
   style: CSSProperties
   item: T
-  itemsLength: number
   measureElement?: (node: HTMLElement | null) => void
-  extraElements?: ItemListExtraElement[]
   filterTags?: (tag: string) => boolean
   getActionIcon?: (item: T) => ReactNode
   getChecked?: (item: T) => boolean
@@ -95,9 +88,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     index,
     style,
     item,
-    itemsLength,
     measureElement,
-    extraElements,
     filterTags,
     getActionIcon,
     getChecked,
@@ -238,24 +229,8 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     </CheckboxHolder>
   )
 
-  const extras = useMemo(
-    () => (extraElements || []).filter(e => e.index === index).map(e => e.content),
-    [extraElements, index],
-  )
-  const endExtras = useMemo(
-    () => (
-      index === itemsLength - 1
-      && ((extraElements || [])
-        .filter(e => e.index === -1 || e.index > index)
-        .map(e => e.content))
-    ),
-    [extraElements, index, itemsLength],
-  )
-
   return (
     <div style={style} ref={measureElement} data-index={index}>
-      {extras}
-
       {dividers && <Divider />}
 
       <StyledListItem
@@ -324,8 +299,6 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
 
         {checkboxSide === 'right' && checkbox}
       </StyledListItem>
-
-      {endExtras}
     </div>
   )
 }

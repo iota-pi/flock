@@ -36,6 +36,7 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
 }
 
 export type FilterCriterionType = (
+  | 'archived'
   | 'created'
   | 'description'
   | 'lastPrayedFor'
@@ -57,6 +58,11 @@ export interface FilterCriterion {
 export const FILTER_CRITERIA_DISPLAY_MAP: (
   Record<FilterCriterionType, FilterCriterionDisplayData>
 ) = {
+  archived: {
+    dataType: 'boolean',
+    name: 'Archived',
+    operators: ['is', 'isnot'],
+  },
   created: {
     dataType: 'date',
     name: 'Date created',
@@ -84,6 +90,7 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
   },
 }
 const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
+  'archived',
   'name',
   'description',
   'prayerFrequency',
@@ -94,17 +101,32 @@ export const FILTER_CRITERIA_DISPLAY = (
   FILTER_CRITERIA_ORDER.map(fc => fc)
 )
 
+export const DEFAULT_ADDITIONAL_FILTER_CRITERION: FilterCriterion = {
+  type: 'name',
+  baseOperator: 'contains',
+  inverse: false,
+  operator: 'contains',
+  value: '',
+}
+
 export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [
   {
-    type: 'name',
-    baseOperator: 'contains',
+    type: 'archived',
+    baseOperator: 'is',
     inverse: false,
-    operator: 'contains',
-    value: '',
+    operator: 'is',
+    value: false,
   },
 ]
 
 const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
+  archived: (item, criterion) => {
+    if (criterion.baseOperator === 'is') {
+      const expected = criterion.value === true || criterion.value === 'true'
+      return item.archived === expected
+    }
+    return true
+  },
   created: (item, criterion) => {
     if (criterion.baseOperator === 'is') {
       return isSameDay(new Date(item.created), new Date(criterion.value as number))
@@ -191,4 +213,26 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'frequency') return 'monthly' as Frequency
 
   throw new Error(`Unknown data type ${dataType}`)
+}
+
+export function isDefaultNoArchivedItemsFilter(criterion: FilterCriterion): boolean {
+  return (
+    criterion.type === 'archived'
+    && criterion.baseOperator === 'is'
+    && criterion.inverse === false
+    && criterion.operator === 'is'
+    && (criterion.value === false || criterion.value === 'false')
+  )
+}
+
+export function isPracticalFilterCriterion(criterion: FilterCriterion): boolean {
+  if (isDefaultNoArchivedItemsFilter(criterion)) {
+    return false
+  }
+
+  if (criterion.operator === 'contains' && criterion.value === '') {
+    return false
+  }
+
+  return true
 }

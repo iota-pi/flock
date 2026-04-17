@@ -12,7 +12,6 @@ import {
 import { GroupItem, Item } from '../../../state/items'
 import { useGroupLookups } from '../hooks/useGroupLookups'
 import { ItemListContextProvider } from './ItemListContext'
-import { type ItemListExtraElement } from './ItemListItem'
 import {
   StandardItemList,
   VirtualizedItemList,
@@ -25,7 +24,6 @@ interface BaseProps<T extends Item> {
   checkboxSide?: 'left' | 'right',
   compact?: boolean,
   dividers?: boolean,
-  extraElements?: ItemListExtraElement[],
   fadeArchived?: boolean,
   filterTags?: (tag: string) => boolean,
   getActionIcon?: (item: T) => ReactNode,
@@ -66,7 +64,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     defaultRowHeight = DEFAULT_ROW_HEIGHT,
     disablePadding,
     dividers,
-    extraElements,
     fadeArchived = true,
     filterTags,
     fullHeight = true,
@@ -93,7 +90,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const groupsByMemberId = useGroupLookups()
 
   const useDynamicHeight = Boolean(
-    fullHeight && (wrapText || (extraElements && extraElements.length > 0) || compact),
+    fullHeight && (wrapText || compact),
   )
 
   const listContextValue = useMemo(
@@ -132,7 +129,6 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   )
 
   const listRendererProps = {
-    extraElements,
     filterTags,
     getActionIcon,
     getChecked,

@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
-import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
+import { useCallback, useMemo } from 'react'
+import { Theme, useMediaQuery } from '@mui/material'
 import { DeleteIcon } from 'src/components/Icons'
 import { ERROR_ITEM_TYPE, getItemTypeLabel, Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
@@ -42,27 +42,18 @@ function ItemPage({
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
 
-  const [showArchived, setShowArchived] = useState(false)
-
   const {
     results: items,
     totalApplicable,
-    archivedCount,
   } = useMemo(
-     () => (
+    () => (
       processItemsSnapshot({
         items: rawItems,
         filters,
         sortCriteria,
-        showArchived: false,
       })
     ),
     [rawItems, filters, sortCriteria],
-  )
-
-  const handleClickShowArchived = useCallback(
-    () => setShowArchived(sa => !sa),
-    [],
   )
 
   const hiddenItemCount = totalApplicable - items.length
@@ -144,50 +135,13 @@ function ItemPage({
   const pluralLabel = getItemTypeLabel(itemType, true)
   const pluralLabelLower = pluralLabel.toLowerCase()
 
-  const noItemsHint = hiddenItemCount
+  const noItemsHint = (filterCount > 0 && hiddenItemCount > 0)
     ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
     : 'Click the plus button to add one!'
   const itemCountText = (
     filterCount > 0
       ? `${items.length} / ${rawItems.length} ${pluralLabelLower}`
       : `${items.length} ${pluralLabelLower}`
-  )
-
-  const extras = useMemo(
-    () => {
-      return [
-        {
-          content: (
-            <Fragment key="show-archived">
-              <Divider />
-
-              <Grid container spacing={2} padding={2}>
-                <Grid
-                  size={{ xs: 12 }}
-                  display="flex"
-                  sx={{
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Button
-                    onClick={handleClickShowArchived}
-                    variant="outlined"
-                    disabled={archivedCount === 0}
-                  >
-                    {showArchived ? 'Hide' : 'Show'}
-                    {' '}
-                    Archived {pluralLabel}
-                  </Button>
-                </Grid>
-              </Grid>
-            </Fragment>
-          ),
-          height: 68.5,
-          index: -1,
-        }
-      ]
-    },
-    [archivedCount, handleClickShowArchived, pluralLabel, showArchived],
   )
 
   return (
@@ -208,7 +162,6 @@ function ItemPage({
         defaultRowHeight={itemType === 'group' ? 72 : undefined}
         checkboxes
         disablePadding
-        extraElements={extras}
         getActionIcon={getActionIcon}
         getChecked={getChecked}
         onClickAction={handleClickAction}

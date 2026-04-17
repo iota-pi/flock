@@ -8,11 +8,14 @@ import {
   useItems,
   useItemsByIds,
   useLoggedIn,
+  usePracticalFilterCount,
   usePrayerScheduleInputs,
   useSearchItems,
   useSortCriteria,
 } from './selectors'
 import { useAuthStore } from './authStore'
+import { useUiStore } from './uiStore'
+import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 
 const useAutomergeMocks = vi.hoisted(() => ({
   useAutomergeItems: vi.fn(),
@@ -87,6 +90,10 @@ describe('state selectors', () => {
       account: 'acct-1',
       loggedIn: true,
       initializing: false,
+    })
+
+    useUiStore.setState({
+      filters: DEFAULT_FILTER_CRITERIA,
     })
   })
 
@@ -284,5 +291,30 @@ describe('state selectors', () => {
 
     expect(result.current[0]).not.toBe(firstSortCriteria)
     expect(result.current[0]).toEqual([{ type: 'created', reverse: false }])
+  })
+
+  it('usePracticalFilterCount ignores default archived=false filter', () => {
+    const { result } = renderHook(() => usePracticalFilterCount())
+
+    expect(result.current).toBe(0)
+  })
+
+  it('usePracticalFilterCount counts user filters beyond the default archived filter', () => {
+    useUiStore.setState({
+      filters: [
+        ...DEFAULT_FILTER_CRITERIA,
+        {
+          type: 'name',
+          baseOperator: 'contains',
+          inverse: false,
+          operator: 'contains',
+          value: 'alice',
+        },
+      ],
+    })
+
+    const { result } = renderHook(() => usePracticalFilterCount())
+
+    expect(result.current).toBe(1)
   })
 })

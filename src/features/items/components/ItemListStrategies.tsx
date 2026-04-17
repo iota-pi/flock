@@ -1,10 +1,9 @@
 import { type CSSProperties, ReactNode, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { GroupItem, Item } from '../../../state/items'
-import { ItemListItem, type ItemListExtraElement } from './ItemListItem'
+import { ItemListItem } from './ItemListItem'
 
 type ItemListRendererProps<T extends Item> = {
-  extraElements?: ItemListExtraElement[]
   filterTags?: (tag: string) => boolean
   getActionIcon?: (item: T) => ReactNode
   getChecked?: (item: T) => boolean
@@ -14,7 +13,6 @@ type ItemListRendererProps<T extends Item> = {
   getIcon?: (item: T) => ReactNode
   getTitle?: (item: T) => string
   groupsByMemberId: ReadonlyMap<string, GroupItem[]>
-  items: T[]
   onCheck?: (item: T) => void
   onClick?: (item: T) => void
   onClickAction?: (item: T) => void
@@ -22,18 +20,19 @@ type ItemListRendererProps<T extends Item> = {
 
 type StandardItemListProps<T extends Item> = ItemListRendererProps<T> & {
   fullHeight: boolean
+  items: T[]
 }
 
 type VirtualizedItemListProps<T extends Item> = ItemListRendererProps<T> & {
   defaultRowHeight: number
   fallbackRenderCount: number
+  items: T[]
   useDynamicHeight: boolean
 }
 
 function createItemListItem<T extends Item>(
   item: T,
   index: number,
-  itemsLength: number,
   props: ItemListRendererProps<T>,
   style: CSSProperties,
   measureElement?: (node: HTMLElement | null) => void,
@@ -43,10 +42,8 @@ function createItemListItem<T extends Item>(
       key={item.id}
       index={index}
       item={item}
-      itemsLength={itemsLength}
       style={style}
       measureElement={measureElement}
-      extraElements={props.extraElements}
       filterTags={props.filterTags}
       getActionIcon={props.getActionIcon}
       getChecked={props.getChecked}
@@ -69,7 +66,7 @@ export function StandardItemList<T extends Item>({
   ...props
 }: StandardItemListProps<T>) {
   const content = items.map((item, index) => (
-    createItemListItem(item, index, items.length, { items, ...props }, {})
+    createItemListItem(item, index, props, {})
   ))
 
   if (!fullHeight) {
@@ -141,8 +138,7 @@ export function VirtualizedItemList<T extends Item>({
             return createItemListItem(
               item,
               virtualRow.index,
-              items.length,
-              { items, ...props },
+              props,
               {
                 left: 0,
                 position: 'absolute',
@@ -160,7 +156,7 @@ export function VirtualizedItemList<T extends Item>({
             )
           })
           : fallbackItems.map((item, index) => (
-            createItemListItem(item, index, items.length, { items, ...props }, {})
+            createItemListItem(item, index, props, {})
           ))}
       </div>
     </div>

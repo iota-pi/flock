@@ -9,17 +9,14 @@ const workerApi = {
     items: Item[]
     filters?: FilterCriterion[]
     sortCriteria?: SortCriterion[]
-    showArchived?: boolean
   }) {
     const items = input.items
     const filters = input.filters || []
     const sortCriteria = input.sortCriteria || []
-    const showArchived = !!input.showArchived
 
     const archivedCount = items.filter(i => i.archived).length
-    const preFiltered = showArchived ? items : items.filter(i => !i.archived)
-    const totalApplicable = preFiltered.length
-    const filtered = filterItems(preFiltered, filters)
+    const totalApplicable = items.length
+    const filtered = filterItems(items, filters)
     const results = sortItems(filtered, sortCriteria)
 
     return {

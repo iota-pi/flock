@@ -8,7 +8,7 @@ import {
   Divider,
 } from '@mui/material'
 import { useUiStore } from '../../../state/uiStore'
-import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP } from '../../../utils/customFilter'
+import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from '../../../utils/customFilter'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from '../../../utils/customFilter'
 
@@ -38,7 +38,9 @@ function FilterDialog({
     () => setLocalCriteria(lc => {
       return [
         ...lc,
-        ...DEFAULT_FILTER_CRITERIA,
+        {
+          ...DEFAULT_ADDITIONAL_FILTER_CRITERION,
+        },
       ]
     }),
     [],

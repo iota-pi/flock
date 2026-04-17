@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
@@ -323,5 +324,5 @@ export const useIsActive = () => {
 }
 
 export const usePracticalFilterCount = () => useUiStore(state => (
-  state.filters.filter(fc => fc.operator !== 'contains' || fc.value).length
+  state.filters.filter(isPracticalFilterCriterion).length
 ))

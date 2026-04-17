@@ -13,9 +13,9 @@ import {
   useMediaQuery,
 } from '@mui/material'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
-import { usePracticalFilterCount } from '../../state/selectors'
+import { usePracticalFilterCount } from 'src/state/selectors'
 import SyncNowButton from './SyncNowButton'
-import { useDialogState } from '../../hooks/useDialogState'
+import { useDialogState } from 'src/hooks/useDialogState'
 
 const SortDialog = lazy(() => import('../dialogs/SortDialog'))
 const FilterDialog = lazy(() => import('../dialogs/FilterDialog'))

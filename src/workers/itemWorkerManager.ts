@@ -18,7 +18,6 @@ export type ProcessItemsInput = {
   items: Item[]
   filters: FilterCriterion[]
   sortCriteria: SortCriterion[]
-  showArchived: boolean
 }
 
 export type ProcessItemsResult = {
@@ -26,8 +25,6 @@ export type ProcessItemsResult = {
   totalApplicable: number
   archivedCount: number
 }
-
-const WORKER_MIN_ITEM_COUNT = 120
 
 let worker: Worker | null = null
 let workerApi: Remote<ItemWorkerApi> | null = null
@@ -48,12 +45,10 @@ export function processItemsSnapshot(input: ProcessItemsInput): ProcessItemsResu
   const items = input.items
   const filters = input.filters || []
   const sortCriteria = input.sortCriteria || []
-  const showArchived = !!input.showArchived
 
   const archivedCount = items.filter(i => i.archived).length
-  const preFiltered = showArchived ? items : items.filter(i => !i.archived)
-  const totalApplicable = preFiltered.length
-  const filtered = filterItems(preFiltered, filters)
+  const totalApplicable = items.length
+  const filtered = filterItems(items, filters)
   const results = sortItems(filtered, sortCriteria)
 
   return {

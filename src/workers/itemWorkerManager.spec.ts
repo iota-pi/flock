@@ -33,18 +33,6 @@ function queueWorkerApi(api: ItemWorkerApi): void {
   workerApis.push(api)
 }
 
-function createWorkerRequest() {
-  return {
-    items: Array.from({ length: 120 }, (_, index) => ({
-      id: `item-${index}`,
-      archived: false,
-    } as any)),
-    filters: [],
-    sortCriteria: [],
-    showArchived: false,
-  }
-}
-
 describe('itemWorkerManager', () => {
   beforeEach(() => {
     workerInstances.length = 0
@@ -87,5 +75,31 @@ describe('itemWorkerManager', () => {
     expect(seedAutomerge).toHaveBeenCalledTimes(1)
 
     await expect(promise).resolves.toEqual([{ id: 'item-1', binary: new Uint8Array([1, 2, 3]) }])
+  })
+
+  it('processItemsSnapshot respects archived filters without showArchived toggles', async () => {
+    const { processItemsSnapshot } = await import('./itemWorkerManager')
+
+    const result = processItemsSnapshot({
+      items: [
+        { id: 'person-1', archived: false, name: 'Alice' } as any,
+        { id: 'person-2', archived: true, name: 'Archived Alice' } as any,
+      ],
+      filters: [
+        {
+          type: 'archived',
+          baseOperator: 'is',
+          inverse: false,
+          operator: 'is',
+          value: false,
+        },
+      ],
+      sortCriteria: [],
+    })
+
+    expect(result.totalApplicable).toBe(2)
+    expect(result.archivedCount).toBe(1)
+    expect(result.results).toHaveLength(1)
+    expect(result.results[0]?.id).toBe('person-1')
   })
 })
