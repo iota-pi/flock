@@ -172,6 +172,7 @@ function PrayerActiveView({
               <ItemFormContent
                 autoFocusName={false}
                 fromPrayerPage
+                key={item.id}
                 handleChange={
                   itemIndex === activeIndex
                     ? onItemChange

@@ -47,6 +47,7 @@ export type ErrorItem = Omit<BaseItem, 'type'> & {
 export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
+export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>
 
 export type DirtyItem<T> = T & { dirty?: boolean }
 

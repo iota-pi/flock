@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Grid,
   IconButton,
@@ -12,27 +12,24 @@ import {
   Item,
 } from '../../../state/items'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Controller, useForm } from 'react-hook-form'
-import { z } from 'zod'
+import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form'
 import { useItems } from '../../../state/selectors'
-import { usePrevious } from '../../../utils'
 import {
   DeleteIcon,
   NotesIcon,
 } from '../../../components/Icons'
-import { ItemFormInputSchema } from '../../../shared/schemas/trpc'
 import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
 import ItemFormNotesSection from './ItemFormNotesSection'
 import ItemFormFrequencySection from './ItemFormFrequencySection'
 import ItemFormRelationshipsSection from './ItemFormRelationshipsSection'
-
-
-function getValue(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  return event.target.value
-}
-
-type ItemFormFields = z.input<typeof ItemFormInputSchema>
-type ItemFormParsed = z.output<typeof ItemFormInputSchema>
+import {
+  buildItemPatchFromDraftValues,
+  cloneItemFormDraftValues,
+  getItemFormDefaultValues,
+  ItemFormDraftInput,
+  ItemFormDraftSchema,
+  ItemFormDraftValues,
+} from './itemFormValues'
 
 interface ItemFormContentProps {
   item: DirtyItem<Item>,
@@ -52,38 +49,57 @@ function ItemFormContent({
   hideRelationships = false,
 }: ItemFormContentProps) {
   const allItems = useItems()
-  const [showDescription, setShowDescription] = useState(!!item.description)
-  const prevItemId = usePrevious(item.id)
+  const [defaultValues] = useState<ItemFormDraftValues>(() => getItemFormDefaultValues(item))
+  const [showDescription, setShowDescription] = useState(defaultValues.description.length > 0)
+  const formMethods = useForm<ItemFormDraftInput, unknown, ItemFormDraftValues>({
+    resolver: zodResolver(ItemFormDraftSchema),
+    mode: 'onChange',
+    defaultValues,
+  })
   const {
     control,
-    reset,
+    setValue,
     formState: { errors },
-  } = useForm<ItemFormFields, unknown, ItemFormParsed>({
-    resolver: zodResolver(ItemFormInputSchema),
-    mode: 'onChange',
-    defaultValues: {
-      name: item.name,
-      description: item.description || '',
+  } = formMethods
+
+  const draftValues = useWatch({
+    control,
+    defaultValue: defaultValues,
+  }) as ItemFormDraftValues
+  const nameValue = useWatch({
+    control,
+    name: 'name',
+    defaultValue: defaultValues.name,
+  }) || ''
+  const descriptionValue = useWatch({
+    control,
+    name: 'description',
+    defaultValue: defaultValues.description,
+  }) || ''
+  const previousDraftRef = useRef<ItemFormDraftValues>(cloneItemFormDraftValues(defaultValues))
+
+  useEffect(
+    () => {
+      const updates = buildItemPatchFromDraftValues(previousDraftRef.current, draftValues, item.type)
+
+      if (Object.keys(updates).length === 0) {
+        return
+      }
+
+      previousDraftRef.current = cloneItemFormDraftValues(draftValues)
+      handleChange<Item>(updates)
     },
-  })
-
-  useEffect(() => {
-    reset({
-      name: item.name,
-      description: item.description || '',
-    })
-  }, [item.description, item.id, item.name, reset])
-
-  // Reset showDescription when item changes
-  if (prevItemId !== item.id && showDescription !== !!item.description) {
-    setShowDescription(!!item.description)
-  }
+    [draftValues, handleChange, item.type],
+  )
 
   const handleAddDescription = useCallback(() => setShowDescription(true), [])
   const handleRemoveDescription = useCallback(() => {
-    handleChange({ description: '' })
+    setValue('description', '', {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
     setShowDescription(false)
-  }, [handleChange])
+  }, [setValue])
 
   const itemsByName = useMemo(
     () => {
@@ -103,17 +119,17 @@ function ItemFormContent({
 
   const duplicates = useMemo(
     () => {
-      const potential = itemsByName[getItemName(item)]
+      const potential = itemsByName[getItemName({ name: nameValue, type: item.type })]
       if (potential) {
         return potential.filter(i => i.type === item.type && i.id !== item.id)
       }
       return []
     },
-    [item, itemsByName],
+    [item.id, item.type, itemsByName, nameValue],
   )
 
   const defaultExpandAccordions = !fromPrayerPage
-  const hasDescription = !!item.description
+  const hasDescription = !!descriptionValue
   const isArchivedInPrayer = fromPrayerPage && !!item.archived
 
   const nameInputProps = useMemo(
@@ -154,12 +170,8 @@ function ItemFormContent({
               error={!!errors.name}
               fullWidth
               helperText={errors.name?.message || ' '}
-              key={item.id}
               label="Name"
-              onChange={event => {
-                field.onChange(event)
-                handleChange({ name: getValue(event) })
-              }}
+              onChange={field.onChange}
               required
               value={field.value}
               variant="standard"
@@ -172,7 +184,7 @@ function ItemFormContent({
         />
       </Grid>
     ),
-    [autoFocusName, control, errors.name, handleChange, item.id, nameInputProps],
+    [autoFocusName, control, errors.name, nameInputProps],
   )
 
   const descriptionField = useMemo(
@@ -207,10 +219,7 @@ function ItemFormContent({
                     ),
                   },
                 }}
-                onChange={event => {
-                  field.onChange(event)
-                  handleChange({ description: getValue(event) })
-                }}
+                onChange={field.onChange}
                 value={field.value}
                 variant="standard"
               />
@@ -218,41 +227,39 @@ function ItemFormContent({
           />
         </Grid>
       ),
-    [control, errors.description, handleChange, handleRemoveDescription, showDescription],
+    [control, errors.description, handleRemoveDescription, showDescription],
   )
 
 
   return (
-    <Grid container spacing={2}>
-      {!hideHeaderFields && (
-        <ItemFormDuplicateAlertSection
-          duplicateCount={duplicates.length}
-          hasDescription={hasDescription}
-          itemType={item.type}
+    <FormProvider {...formMethods}>
+      <Grid container spacing={2}>
+        {!hideHeaderFields && (
+          <ItemFormDuplicateAlertSection
+            duplicateCount={duplicates.length}
+            hasDescription={hasDescription}
+            itemType={item.type}
+          />
+        )}
+        {!hideHeaderFields && nameFields}
+        {!hideHeaderFields && descriptionField}
+        <ItemFormNotesSection
+          disabled={isArchivedInPrayer}
+          itemId={item.id}
         />
-      )}
-      {!hideHeaderFields && nameFields}
-      {!hideHeaderFields && descriptionField}
-      <ItemFormNotesSection
-        disabled={isArchivedInPrayer}
-        itemId={item.id}
-        notes={item.notes}
-        onChange={notes => handleChange({ notes })}
-      />
-      <ItemFormFrequencySection
-        defaultExpandAccordions={defaultExpandAccordions}
-        disabled={isArchivedInPrayer}
-        item={item}
-        onChange={handleChange}
-      />
-      {!hideRelationships && (
-        <ItemFormRelationshipsSection
+        <ItemFormFrequencySection
           defaultExpandAccordions={defaultExpandAccordions}
+          disabled={isArchivedInPrayer}
           item={item}
-          onChange={handleChange}
         />
-      )}
-    </Grid>
+        {!hideRelationships && (
+          <ItemFormRelationshipsSection
+            defaultExpandAccordions={defaultExpandAccordions}
+            item={item}
+          />
+        )}
+      </Grid>
+    </FormProvider>
   )
 }
 

@@ -257,6 +257,7 @@ function ItemDrawer({
       typeIcon={getIconType(resolvedItem.type)}
     >
       <ItemFormContent
+        key={resolvedItem.id}
         handleChange={handleChange}
         item={resolvedItem}
         fromPrayerPage={fromPrayerPage}
