@@ -3,10 +3,11 @@ import {
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Item } from '../../state/items'
+import { ERROR_ITEM_TYPE, Item } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'
+import { createItem } from '../../features/items/mutations/itemMutations'
 
 interface Props {
   label: string,
@@ -32,8 +33,22 @@ function EverythingSearch({
   useHotkeys('/', focusSearch, { keyup: true, keydown: false })
 
   const handleCreate = useCallback(
-    (newItem: Item) => {
-      replaceActive({ newItem })
+    (itemToCreate: Item) => {
+      if (itemToCreate.type === ERROR_ITEM_TYPE) {
+        return
+      }
+
+      const {
+        id: _id,
+        type,
+        ...overrides
+      } = itemToCreate
+
+      void createItem(type, overrides).then(createdItem => {
+        replaceActive({ item: createdItem.id })
+      }).catch(error => {
+        console.error(error)
+      })
     },
     [replaceActive],
   )

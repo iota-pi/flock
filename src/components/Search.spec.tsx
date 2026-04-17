@@ -7,7 +7,6 @@ import getTheme from '../theme'
 
 // Mocks
 vi.mock('../state/selectors', () => ({
-  useItemsInitialLoading: vi.fn(),
   useSearchItems: vi.fn(),
 }))
 vi.mock('../state/uiStore', () => ({
@@ -27,7 +26,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
   )
 }
 
-import { useItemsInitialLoading, useSearchItems } from '../state/selectors'
+import { useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
 
@@ -51,7 +50,6 @@ describe('Search Component', () => {
         && (options.includeArchived || !item.archived)
       )),
     }))
-    vi.mocked(useItemsInitialLoading).mockReturnValue(false)
     vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 

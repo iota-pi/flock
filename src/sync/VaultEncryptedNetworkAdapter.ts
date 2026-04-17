@@ -378,7 +378,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.syncTrackedItemIdsFromIndex(payload.handle)
   }
 
-  private readonly handleIndexDocumentDelete = (_payload: DocHandleDeletePayload<IndexDocument>): void => {
+  private readonly handleIndexDocumentDelete = (_: DocHandleDeletePayload<IndexDocument>): void => {
     this.resetTrackedItemIds()
     this.pullQueueManager.clear()
     this.pullTrackedItemIds()

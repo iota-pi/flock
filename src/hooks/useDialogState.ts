@@ -28,7 +28,7 @@ export function useDialogState(dialogId: string, paramName = 'dialog') {
       next.delete(paramName)
       return next
     })
-  }, [dialogId, paramName, searchParamMatches, setSearchParams])
+  }, [paramName, searchParamMatches, setSearchParams])
 
   const toggleDialog = useCallback(() => {
     if (searchParamMatches) {
@@ -37,7 +37,7 @@ export function useDialogState(dialogId: string, paramName = 'dialog') {
     }
 
     openDialog()
-  }, [closeDialog, dialogId, openDialog, paramName, searchParamMatches])
+  }, [closeDialog, openDialog, searchParamMatches])
 
   return {
     isOpen,

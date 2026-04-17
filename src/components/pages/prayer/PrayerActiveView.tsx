@@ -7,8 +7,8 @@ import {
   MenuItem,
 } from '@mui/material'
 import {
-  DirtyItem,
   Item,
+  LocalChangeItem,
 } from 'src/state/items'
 import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
@@ -24,14 +24,14 @@ import SwipeableCarousel from '../../ui/SwipeableCarousel'
 
 interface Props {
   activeIndex: number,
-  items: DirtyItem<Item>[],
+  items: LocalChangeItem<Item>[],
   isEditDrawerOpen: boolean,
   onBack: () => void,
   onNext: () => void,
   onOpenEditDrawer: () => void,
   onCloseEditDrawer: () => void,
   onEditDrawerChange: (
-    data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+    data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
   onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
 }

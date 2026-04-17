@@ -1,4 +1,3 @@
-import { Suspense } from 'react'
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
 import { CircularProgress, Box } from '@mui/material'
 import { useLoggedIn } from '../../state/selectors'
@@ -8,6 +7,7 @@ import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { Page, PageId } from './types'
 import ErrorPage from './ErrorPage'
+import AsyncBoundary from '../ui/AsyncBoundary'
 
 export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
   .map(([id, config]) => ({ ...config, id }))
@@ -70,9 +70,9 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RedirectIfLoggedIn redirect="/">
-        <Suspense fallback={<Loading />}>
+        <AsyncBoundary loadingFallback={<Loading />}>
           {p.page}
-        </Suspense>
+        </AsyncBoundary>
       </RedirectIfLoggedIn>
     ),
     errorElement: <ErrorPage />,
@@ -83,9 +83,9 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RequireAuth>
-        <Suspense fallback={<Loading />}>
+        <AsyncBoundary loadingFallback={<Loading />}>
           {p.page}
-        </Suspense>
+        </AsyncBoundary>
       </RequireAuth>
     ),
     errorElement: <ErrorPage />,

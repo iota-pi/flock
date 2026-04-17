@@ -1,6 +1,7 @@
 import {
   AppBar as MuiAppBar,
   Box,
+  CircularProgress,
   IconButton,
   styled,
   Theme,
@@ -14,6 +15,7 @@ import { dark as darkTheme } from '../../theme'
 import EverythingSearch from './EverythingSearch'
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu'
 import { MenuIcon } from '../Icons'
+import AsyncBoundary from '../ui/AsyncBoundary'
 
 const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   paddingLeft: theme.spacing(3),
@@ -94,7 +96,15 @@ function AppBar({
 
         <SearchHolder>
           <ThemeProvider theme={darkTheme}>
-            <EverythingSearch label="Search" />
+            <AsyncBoundary
+              loadingFallback={(
+                <Box display="flex" justifyContent="center" py={1}>
+                  <CircularProgress color="inherit" size={20} />
+                </Box>
+              )}
+            >
+              <EverythingSearch label="Search" />
+            </AsyncBoundary>
           </ThemeProvider>
         </SearchHolder>
       </StyledToolbar>

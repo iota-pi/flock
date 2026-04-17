@@ -1,15 +1,17 @@
-import { ERROR_ITEM_TYPE, GroupItem, type Item } from '../../../state/items'
-import { ITEM_TYPES, ItemId } from '../../../shared/itemTypes'
+import { ERROR_ITEM_TYPE, getBlankItem, GroupItem, type Item } from '../../../state/items'
+import { ITEM_TYPES, ItemId, type ItemType } from '../../../shared/itemTypes'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import {
+  addAutomergeItemIdsToIndex,
   withAutomergeMetadataChange,
   getAutomergeItems,
   getAutomergeMetadata,
   initializeAutomergeDocStore,
   removeAutomergeItem,
+  removeAutomergeItemIdsFromIndex,
   withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
 
@@ -64,6 +66,12 @@ function normalizeItemForAutomerge(item: Item): Record<string, unknown> {
 function normalizeMetadataForAutomerge(metadata: AccountMetadata): Record<string, unknown> {
   return JSON.parse(JSON.stringify(metadata || {})) as Record<string, unknown>
 }
+
+type StoreItemsOptions = {
+  addToIndex?: boolean
+}
+
+type CreateItemOverrides = Partial<Omit<Item, 'id' | 'type'>>
 
 function mutateDraftToMatchSnapshot(
   draft: Record<string, unknown>,
@@ -129,6 +137,7 @@ function enqueueMetadataUpdate(task: () => Promise<AccountMetadata>): Promise<Ac
 
 export async function storeItems(
   items: Item | Item[],
+  options: StoreItemsOptions = {},
 ): Promise<Item[]> {
   const current = normalizeItemsInput(items)
   await ensureAutomergeStoreReady()
@@ -145,6 +154,7 @@ export async function storeItems(
         }
       },
       {
+        addToIndex: options.addToIndex,
         createIfMissing: true,
         initialValue: { id: item.id },
       },
@@ -152,6 +162,43 @@ export async function storeItems(
   }
 
   return current
+}
+
+export async function createItem(
+  itemType: ItemType,
+  overrides: CreateItemOverrides = {},
+): Promise<Item> {
+  await ensureAutomergeStoreReady()
+
+  const baseItem = getBlankItem(itemType, true)
+  const nextItem = {
+    ...baseItem,
+    ...overrides,
+    id: baseItem.id,
+    type: itemType,
+  } as Item
+
+  const normalizedItem = normalizeItemForAutomerge(nextItem as Item)
+
+  await withAutomergeDocumentChange(
+    nextItem.id,
+    doc => {
+      mutateDraftToMatchSnapshot(doc, normalizedItem)
+
+      if (typeof doc.id !== 'string' || doc.id.length === 0) {
+        doc.id = nextItem.id
+      }
+    },
+    {
+      addToIndex: false,
+      createIfMissing: true,
+      initialValue: normalizedItem,
+    },
+  )
+
+  await addAutomergeItemIdsToIndex([nextItem.id])
+
+  return nextItem
 }
 
 export async function deleteItems(
@@ -169,15 +216,22 @@ export async function deleteItems(
     allItems = getAutomergeItems()
   }
 
+  await removeAutomergeItemIdsFromIndex(ids)
+
   const updates = buildDeletionUpdates(allItems, ids)
 
   if (updates.length > 0) {
-    await storeItems(updates)
+    await storeItems(updates, { addToIndex: false })
   }
 
   useNavigationStore.getState().pruneItemDrawers(ids)
 
   return ids
+}
+
+export async function deleteItem(itemId: ItemId): Promise<ItemId> {
+  const [deletedId] = await deleteItems(itemId)
+  return deletedId
 }
 
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {

@@ -1,11 +1,11 @@
 import { Dispatch, SetStateAction, useEffect, useState } from 'react'
-import type { DirtyItem, Item } from '../../../state/items'
+import type { Item, LocalChangeItem } from '../../../state/items'
 
 type UsePrayerActiveViewPreloadOptions = {
   isOverview: boolean
   visibleCount: number
-  buildLocalItems: (count: number) => DirtyItem<Item>[]
-  setLocalItems: Dispatch<SetStateAction<DirtyItem<Item>[]>>
+  buildLocalItems: (count: number) => LocalChangeItem<Item>[]
+  setLocalItems: Dispatch<SetStateAction<LocalChangeItem<Item>[]>>
 }
 
 export default function usePrayerActiveViewPreload({

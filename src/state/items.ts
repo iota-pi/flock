@@ -49,7 +49,7 @@ export type StandardItem = PersonItem | GroupItem | TopicItem
 export type Item = StandardItem | ErrorItem
 export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>
 
-export type DirtyItem<T> = T & { dirty?: boolean }
+export type LocalChangeItem<T> = T & { hasLocalChanges?: boolean }
 
 function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
   if (!candidate || typeof candidate !== 'object') {
@@ -210,17 +210,17 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
     const blank = getBlankItem(item.type, false)
     const filled = mergeItemWithDefaults(blank, item)
     return filled as T
-  } catch (e) {
+  } catch (_) {
     return item
   }
 }
 
-export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
-  return { ...item, dirty: true }
+export function markItemLocalChange<T extends Partial<Item>>(item: T): LocalChangeItem<T> {
+  return { ...item, hasLocalChanges: true }
 }
 
-export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
-  return { ...item, dirty: undefined, isNew: undefined }
+export function stripLocalItemState<T extends Item>(item: LocalChangeItem<T>): T {
+  return { ...item, hasLocalChanges: undefined, isNew: undefined }
 }
 
 export function convertItem<T extends Item, S extends StandardItem>(item: T, type: S['type']): S {

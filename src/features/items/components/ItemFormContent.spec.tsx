@@ -4,7 +4,7 @@ import { ThemeProvider } from '@mui/material'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
-import type { DirtyItem, Item } from '../../../state/items'
+import type { Item, LocalChangeItem } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
 
 vi.mock('../../../state/selectors', () => ({
@@ -52,7 +52,7 @@ describe('ItemFormContent', () => {
     const item = {
       ...getBlankPerson('item-1', false),
       name: 'Initial Name',
-    } as DirtyItem<Item>
+    } as LocalChangeItem<Item>
 
     vi.mocked(useItems).mockReturnValue([])
 
@@ -79,7 +79,7 @@ describe('ItemFormContent', () => {
     const item = {
       ...getBlankPerson('item-1', false),
       name: 'John Doe',
-    } as DirtyItem<Item>
+    } as LocalChangeItem<Item>
 
     vi.mocked(useItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
 

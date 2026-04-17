@@ -31,6 +31,7 @@ type EnsureHandleOptions = {
 type ChangeDocumentOptions = {
   createIfMissing?: boolean
   initialValue?: RepoDoc
+  addToIndex?: boolean
 }
 
 type UpsertMetadataOptions = {
@@ -323,7 +324,9 @@ export async function withAutomergeDocumentChange(
     return false
   }
 
-  if (isItemDocumentId(normalizedDocumentId)) {
+  const shouldAddToIndex = options.addToIndex !== false && isItemDocumentId(normalizedDocumentId)
+
+  if (shouldAddToIndex) {
     await addAutomergeItemIdsToIndex([normalizedDocumentId])
   }
 
@@ -389,6 +392,28 @@ export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<voi
     {
       createIfMissing: true,
       initialValue: createIndexInitialDocument(),
+    },
+  )
+}
+
+export async function removeAutomergeItemIdsFromIndex(itemIds: string[]): Promise<void> {
+  const normalized = normalizeItemIds(itemIds)
+  if (normalized.length === 0) {
+    return
+  }
+
+  const removeSet = new Set(normalized)
+
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
+      doc.itemIds = current.filter(itemId => !removeSet.has(itemId))
+    },
+    {
+      createIfMissing: true,
+      initialValue: createIndexInitialDocument(),
+      addToIndex: false,
     },
   )
 }
@@ -504,17 +529,7 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
     return
   }
 
-  await withAutomergeDocumentChange(
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    doc => {
-      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
-      doc.itemIds = current.filter(existingItemId => existingItemId !== normalizedItemId)
-    },
-    {
-      createIfMissing: true,
-      initialValue: createIndexInitialDocument(),
-    },
-  )
+  await removeAutomergeItemIdsFromIndex([normalizedItemId])
 
   const repo = getAutomergeRepo()
   const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)

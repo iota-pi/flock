@@ -1,12 +1,10 @@
 import { useCallback } from 'react'
 import { Grid } from '@mui/material'
-import { useFormContext, useWatch } from 'react-hook-form'
-import type { DirtyItem, GroupItem, Item } from '../../../state/items'
+import type { GroupItem, Item, LocalChangeItem } from '../../../state/items'
 import FrequencyControls from '../../../components/FrequencyControls'
 import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
 import { FrequencyIcon } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import type { ItemFormDraftValues } from './itemFormValues'
 
 type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
   & Partial<Pick<GroupItem, 'memberPrayerFrequency' | 'memberPrayerTarget'>>
@@ -14,42 +12,27 @@ type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
 type ItemFormFrequencySectionProps = {
   defaultExpandAccordions: boolean
   disabled: boolean
-  item: DirtyItem<Item>
+  item: LocalChangeItem<Item>
+  onChange: (data: FrequencyUpdate) => void
 }
 
 export default function ItemFormFrequencySection({
   defaultExpandAccordions,
   disabled,
   item,
+  onChange,
 }: ItemFormFrequencySectionProps) {
-  const { setValue } = useFormContext<ItemFormDraftValues>()
-  const prayerFrequency = useWatch({ name: 'prayerFrequency' })
-  const memberPrayerFrequency = useWatch({ name: 'memberPrayerFrequency' })
-  const memberPrayerTarget = useWatch({ name: 'memberPrayerTarget' })
-
   const handleChange = useCallback(
-    (data: FrequencyUpdate) => {
-      if (data.prayerFrequency !== undefined) {
-        setValue('prayerFrequency', data.prayerFrequency, { shouldDirty: true })
-      }
-
-      if (data.memberPrayerFrequency !== undefined) {
-        setValue('memberPrayerFrequency', data.memberPrayerFrequency, { shouldDirty: true })
-      }
-
-      if (data.memberPrayerTarget !== undefined) {
-        setValue('memberPrayerTarget', data.memberPrayerTarget, { shouldDirty: true })
-      }
-    },
-    [setValue],
+    (data: FrequencyUpdate) => onChange(data),
+    [onChange],
   )
 
   const lastPrayer = getLastPrayedFor(item)
   const memberFrequency = item.type === 'group'
-    ? (memberPrayerFrequency ?? item.memberPrayerFrequency)
+    ? item.memberPrayerFrequency
     : undefined
   const memberTarget = item.type === 'group'
-    ? (memberPrayerTarget ?? item.memberPrayerTarget)
+    ? item.memberPrayerTarget
     : undefined
 
   return (
@@ -60,7 +43,7 @@ export default function ItemFormFrequencySection({
             id={item.id}
             lastPrayer={lastPrayer}
             onChange={handleChange}
-            prayerFrequency={prayerFrequency ?? item.prayerFrequency}
+            prayerFrequency={item.prayerFrequency}
             memberPrayerFrequency={memberFrequency}
             memberPrayerTarget={memberTarget}
           />

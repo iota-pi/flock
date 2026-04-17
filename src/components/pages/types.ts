@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import type { AccountMetadata } from 'src/state/metadata'
 import type { MuiIconType } from '../Icons'
 import type { InternalPageId, PageId } from './routes'
 

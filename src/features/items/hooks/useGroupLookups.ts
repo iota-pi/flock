@@ -3,7 +3,7 @@ import { type GroupItem } from '../../../state/items'
 import { useItems } from '../../../state/selectors'
 
 export function useGroupLookups(): ReadonlyMap<string, GroupItem[]> {
-  const allGroups = useItems('group') as GroupItem[]
+  const allGroups = useItems<GroupItem>('group')
 
   return useMemo(() => {
     const lookup = new Map<string, GroupItem[]>()

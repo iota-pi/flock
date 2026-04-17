@@ -29,7 +29,7 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useItemsInitialLoading, useSearchItems } from '../state/selectors'
+import { useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import {
@@ -125,7 +125,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showOptionCheckboxes = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const itemsInitialLoading = useItemsInitialLoading()
   const selectedItemIds = useMemo(
     () => selectedItems.map(s => (typeof s === 'string' ? s : s.id)),
     [selectedItems],
@@ -328,8 +327,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           } as any,
         }}
         multiple
-        loading={itemsInitialLoading}
-        loadingText="Loading items..."
         noOptionsText={noItemsText}
         onChange={handleChange}
         onHighlightChange={handleHighlightChange}

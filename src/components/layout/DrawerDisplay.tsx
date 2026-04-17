@@ -1,26 +1,19 @@
 import { Theme, useMediaQuery } from '@mui/material'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { isItem, Item } from '../../state/items'
-import { DrawerData, useNavigationStore } from '../../state/navigationStore'
-import { useLoggedIn } from '../../state/selectors'
-import { generateItemId, usePrevious } from '../../utils'
+import { isItem } from 'src/state/items'
+import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
+import { useLoggedIn } from 'src/state/selectors'
+import { generateItemId, usePrevious } from 'src/utils'
 import { usePage } from '../pages'
 import { useAutomergeItem } from 'src/sync/useAutomerge'
 
-const ItemDrawer = lazy(() => import('../../features/items/components/ItemDrawer'))
+const ItemDrawer = lazy(() => import('src/features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
+const noop = () => {}
 
 function getDrawerItemId(drawer?: DrawerData): string | undefined {
-  if (!drawer) {
-    return undefined
-  }
-
-  if (typeof drawer.item === 'string') {
-    return drawer.item
-  }
-
-  return drawer.newItem?.id
+  return drawer?.item
 }
 
 function isHashRoutedDrawer(drawer: DrawerData): boolean {
@@ -115,21 +108,16 @@ function IndividualDrawer({
   onExited: () => void,
   stacked: boolean,
 }) {
-  const drawerItemObject = typeof drawer.item === 'string' ? undefined : drawer.item
   const isPrayerEditDrawer = (
     drawer.fromPrayerPage === true
     && drawer.disableRouting === true
-    && !!drawerItemObject
     && !!drawer.onChange
   )
   const lookupItemId = useMemo(
     () => getDrawerItemId(drawer) || generateItemId(),
     [drawer],
   )
-  const existingItem = useAutomergeItem(lookupItemId)
-  const item = isPrayerEditDrawer
-    ? drawerItemObject
-    : (existingItem || drawer.newItem || drawerItemObject)
+  const item = useAutomergeItem(lookupItemId)
 
   const handlePrayerChange = useCallback(
     (
@@ -139,26 +127,6 @@ function IndividualDrawer({
     },
     [drawer],
   )
-
-  const [localItem, setLocalItem] = useState<Item | undefined>(item)
-  const handleChange = useCallback(
-    (
-      data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
-    ) => setLocalItem(prevItem => {
-      if (prevItem && isItem(prevItem)) {
-        if (typeof data === 'function') {
-          return data(prevItem)
-        }
-        return { ...prevItem, ...data } as Item
-      }
-      return undefined
-    }),
-    [],
-  )
-
-  useEffect(() => {
-    setLocalItem(item)
-  }, [item])
 
   if (isPrayerEditDrawer && item) {
     return (
@@ -178,13 +146,13 @@ function IndividualDrawer({
     )
   }
 
-  if (localItem) {
+  if (item && isItem(item)) {
     return (
       <Suspense fallback={null}>
         <ItemDrawer
-          item={localItem}
+          item={item}
           onBack={onClose}
-          onChange={handleChange}
+          onChange={noop}
           onClose={onClose}
           onExited={onExited}
           open={open}
@@ -196,8 +164,6 @@ function IndividualDrawer({
 
   return null
 }
-
-const noop = () => {}
 
 function DrawerDisplay() {
   const removeActive = useNavigationStore(state => state.removeActive)

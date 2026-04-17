@@ -7,8 +7,8 @@ import {
 } from 'react'
 import { useLocation } from 'react-router'
 import {
-  DirtyItem,
   Item,
+  LocalChangeItem,
 } from '../../../state/items'
 import { usePrayerSchedule } from '../../../hooks/usePrayerSchedule'
 import { useToday } from '../../../hooks/useToday'
@@ -27,7 +27,7 @@ export type PrayerFlowActions = {
   handleCheck: (item: Item) => void
   handleCloseEditDrawer: () => void
   handleEditDrawerChange: (
-    data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+    data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void
   handleGoToOverview: () => void
   handleItemClick: (item: Item) => void
@@ -47,7 +47,7 @@ export type PrayerFlowProgressSlice = {
 
 export type PrayerFlowScheduleSlice = {
   isPrayedForToday: (item: Item) => boolean
-  localItems: DirtyItem<Item>[]
+  localItems: LocalChangeItem<Item>[]
   visibleItems: Item[]
 }
 
@@ -194,10 +194,10 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   const [actions] = useState<PrayerFlowActions>(
     () => {
-      const buildLocalItems = (count: number): DirtyItem<Item>[] => (
+      const buildLocalItems = (count: number): LocalChangeItem<Item>[] => (
         scheduleRef.current
           .slice(0, count)
-          .map(item => ({ ...item }) as DirtyItem<Item>)
+          .map(item => ({ ...item }) as LocalChangeItem<Item>)
       )
 
       const startAtIndex = (fromIndex: number) => {
@@ -276,7 +276,7 @@ export default function usePrayerFlow(): PrayerFlowController {
             dispatchFlow({
               type: 'replace-item',
               index: currentFlow.index,
-              item: { ...data(currentItem), dirty: true } as DirtyItem<Item>,
+              item: { ...data(currentItem), hasLocalChanges: true } as LocalChangeItem<Item>,
             })
             return
           }
@@ -284,8 +284,8 @@ export default function usePrayerFlow(): PrayerFlowController {
           dispatchFlow({
             type: 'edit-item',
             index: currentFlow.index,
-            changes: data as Partial<DirtyItem<Item>>,
-            markDirty: true,
+            changes: data as Partial<LocalChangeItem<Item>>,
+            markLocalChange: true,
           })
         },
 
@@ -318,7 +318,7 @@ export default function usePrayerFlow(): PrayerFlowController {
         },
 
         handleEditDrawerChange: (
-          data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+          data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
         ) => {
           const currentFlow = flowRef.current
           if (currentFlow.type !== 'active') {
@@ -334,7 +334,7 @@ export default function usePrayerFlow(): PrayerFlowController {
             dispatchFlow({
               type: 'replace-item',
               index: currentFlow.index,
-              item: data(currentItem) as DirtyItem<Item>,
+              item: data(currentItem) as LocalChangeItem<Item>,
             })
             return
           }
@@ -342,7 +342,7 @@ export default function usePrayerFlow(): PrayerFlowController {
           dispatchFlow({
             type: 'edit-item',
             index: currentFlow.index,
-            changes: data as Partial<DirtyItem<Item>>,
+            changes: data as Partial<Item>,
           })
         },
 

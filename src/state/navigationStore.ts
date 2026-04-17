@@ -1,16 +1,15 @@
 import { create } from 'zustand'
 import { generateItemId } from '../utils'
 import type { ItemId } from '../shared/itemTypes'
-import type { DirtyItem, Item } from './items'
+import type { Item } from './items'
 
 export type DrawerOnChange = (
-  item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+  item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
 ) => void
 
 export interface DrawerData {
   id: string
   item?: ItemId
-  newItem?: Item
   alwaysTemporary?: boolean
   disableRouting?: boolean
   fromPrayerPage?: boolean

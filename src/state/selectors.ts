@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
-import { isEqual } from 'lodash-es'
+import { useCallback, useMemo, useState } from 'react'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
@@ -16,8 +15,8 @@ import {
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
-const EMPTY_METADATA = {} as Metadata
-const EMPTY_DEFAULT_PRAYER_FREQUENCY = {} as NonNullable<Metadata['defaultPrayerFrequency']>
+const EMPTY_METADATA: Metadata = {}
+const EMPTY_DEFAULT_PRAYER_FREQUENCY: NonNullable<Metadata['defaultPrayerFrequency']> = {}
 
 type SearchItemsResult = {
   defaultFrequencies: NonNullable<Metadata['defaultPrayerFrequency']>,
@@ -46,40 +45,49 @@ const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
   items: EMPTY_ARRAY,
 }
 
-function equalPrayerScheduleInputs(
-  left: PrayerScheduleInputs,
-  right: PrayerScheduleInputs,
-): boolean {
-  return (
-    left.prayerGoal === right.prayerGoal
-    && isEqual(left.items, right.items)
-  )
-}
-
-function equalSearchItemsResult(
-  left: SearchItemsResult,
-  right: SearchItemsResult,
-): boolean {
-  return (
-    isEqual(left.defaultFrequencies, right.defaultFrequencies)
-    && isEqual(left.items, right.items)
-  )
-}
-
-function useMemoizedValue<T>(value: T, areEqual: (left: T, right: T) => boolean): T {
-  const cacheRef = useRef<{ value: T } | null>(null)
-
-  const cached = cacheRef.current
-  if (cached && areEqual(cached.value, value)) {
-    return cached.value
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) {
+    return String(value)
   }
 
-  cacheRef.current = { value }
-  return value
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value)
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSerialize).join(',')}]`
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(',')}}`
+  }
+
+  return JSON.stringify(String(value))
+}
+
+function useMemoizedValue<T>(value: T): T {
+  const signature = useMemo(
+    () => stableSerialize(value),
+    [value],
+  )
+
+  const [cache] = useState(() => new Map<string, T>())
+
+  if (!cache.has(signature)) {
+    if (cache.size > 50) {
+      cache.clear()
+    }
+
+    cache.set(signature, value)
+  }
+
+  return cache.get(signature) as T
 }
 
 function isVisibleItem(item: Item | null | undefined): item is Item {
-  return !!item && !(item as Item & { deleted?: boolean }).deleted
+  return !!item && !item.deleted
 }
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
@@ -87,9 +95,9 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 
 export function useAccountMetadata(): Metadata {
   const authReady = useAuthReady()
-  const metadata = useAutomergeMetadataSnapshot() as Metadata
+  const metadata = useAutomergeMetadataSnapshot()
 
-  return useMemoizedValue(authReady ? metadata : EMPTY_METADATA, isEqual)
+  return useMemoizedValue(authReady ? metadata : EMPTY_METADATA)
 }
 
 function useMetadataValue<K extends MetadataKey>(
@@ -97,20 +105,20 @@ function useMetadataValue<K extends MetadataKey>(
   defaultValue?: Metadata[K],
 ): Metadata[K] {
   const authReady = useAuthReady()
-  const metadata = useAutomergeMetadataSnapshot() as Metadata
+  const metadata = useAutomergeMetadataSnapshot()
 
   const value = authReady
     ? (metadata[key] === undefined ? defaultValue : metadata[key]) as Metadata[K]
     : defaultValue as Metadata[K]
 
-  return useMemoizedValue(value, isEqual)
+  return useMemoizedValue(value)
 }
 
 export function useItems<T extends Item>(itemType: T['type']): T[]
 export function useItems(): Item[]
 export function useItems<T extends Item>(itemType?: T['type']): T[] {
   const authReady = useAuthReady()
-  const items = useAutomergeItems()
+  const items = useAutomergeItems<Item>()
 
   const nextItems = useMemo(
     () => {
@@ -128,16 +136,12 @@ export function useItems<T extends Item>(itemType?: T['type']): T[] {
     [authReady, itemType, items],
   )
 
-  return useMemoizedValue(nextItems, isEqual)
-}
-
-export function useItemsInitialLoading(): boolean {
-  return false
+  return useMemoizedValue(nextItems)
 }
 
 export const useItemMap = () => {
   const authReady = useAuthReady()
-  const items = useAutomergeItems()
+  const items = useAutomergeItems<Item>()
 
   const nextMap = useMemo(
     () => {
@@ -146,23 +150,26 @@ export const useItemMap = () => {
       }
 
       const visibleItems = items.filter(isVisibleItem)
-      return Object.fromEntries(visibleItems.map(item => [item.id, item])) as Record<ItemId, Item>
+      return visibleItems.reduce<Record<ItemId, Item>>((result, item) => {
+        result[item.id] = item
+        return result
+      }, {})
     },
     [authReady, items],
   )
 
-  return useMemoizedValue(nextMap, isEqual)
+  return useMemoizedValue(nextMap)
 }
 
 export const useItem = (id: ItemId) => {
   const authReady = useAuthReady()
-  const item = useAutomergeItem(id)
+  const item = useAutomergeItem<Item>(id)
 
   if (!authReady) {
     return undefined
   }
 
-  if (!item || (item as Item & { deleted?: boolean }).deleted) {
+  if (!item || item.deleted) {
     return undefined
   }
 
@@ -173,9 +180,9 @@ export function useItemsById() {
   const itemMap = useItemMap()
 
   return useCallback(
-    <T extends Item>(ids: ItemId[]) => (
-      ids.map(id => itemMap[id] as T).filter(item => item !== undefined)
-    ) as T[],
+    <T extends Item>(ids: ItemId[]) => ids
+      .map(id => itemMap[id])
+      .filter((item): item is T => item !== undefined),
     [itemMap],
   )
 }
@@ -197,13 +204,13 @@ export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
     [authReady, ids, itemMap],
   )
 
-  return useMemoizedValue(nextItems, isEqual)
+  return useMemoizedValue(nextItems)
 }
 
 export function usePrayerScheduleInputs(): PrayerScheduleInputs {
   const authReady = useAuthReady()
-  const items = useAutomergeItems()
-  const metadata = useAutomergeMetadataSnapshot() as Metadata
+  const items = useAutomergeItems<Item>()
+  const metadata = useAutomergeMetadataSnapshot()
 
   const nextValue = useMemo(
     () => {
@@ -219,13 +226,13 @@ export function usePrayerScheduleInputs(): PrayerScheduleInputs {
     [authReady, items, metadata],
   )
 
-  return useMemoizedValue(nextValue, equalPrayerScheduleInputs)
+  return useMemoizedValue(nextValue)
 }
 
 export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
   const authReady = useAuthReady()
-  const items = useAutomergeItems()
-  const metadata = useAutomergeMetadataSnapshot() as Metadata
+  const items = useAutomergeItems<Item>()
+  const metadata = useAutomergeMetadataSnapshot()
   const {
     includeArchived,
     selectedItemIds,
@@ -261,7 +268,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
     [authReady, includeArchived, items, metadata, selectedItemIds, showSelectedOptions, types],
   )
 
-  return useMemoizedValue(nextValue, equalSearchItemsResult)
+  return useMemoizedValue(nextValue)
 }
 
 export function useMetadata<K extends MetadataKey>(

@@ -1,26 +1,22 @@
 import { useCallback, useMemo } from 'react'
 import { Grid } from '@mui/material'
-import type { DirtyItem, GroupItem, Item } from '../../../state/items'
-import { useFormContext, useWatch } from 'react-hook-form'
+import type { GroupItem, Item, LocalChangeItem } from '../../../state/items'
 import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
 import GroupDisplay from '../../groups/components/GroupDisplay'
 import MemberDisplay from '../../groups/components/MemberDisplay'
 import { GroupIcon, PersonIcon } from '../../../components/Icons'
-import type { ItemFormDraftValues } from './itemFormValues'
 
 type ItemFormRelationshipsSectionProps = {
   defaultExpandAccordions: boolean
-  item: DirtyItem<Item>
+  item: LocalChangeItem<Item>
+  onChange: (data: Partial<Pick<GroupItem, 'members'>>) => void
 }
 
 export default function ItemFormRelationshipsSection({
   defaultExpandAccordions,
   item,
+  onChange,
 }: ItemFormRelationshipsSectionProps) {
-  const { setValue } = useFormContext<ItemFormDraftValues>()
-  const name = useWatch({ name: 'name' })
-  const members = useWatch({ name: 'members' })
-
   const group = useMemo(
     () => {
       if (item.type !== 'group') {
@@ -29,18 +25,16 @@ export default function ItemFormRelationshipsSection({
 
       return {
         ...(item as GroupItem),
-        members: members ?? item.members,
-        name: name ?? item.name,
       }
     },
-    [item, members, name],
+    [item],
   )
 
   const handleMembersChange = useCallback(
     (nextGroup: Partial<Pick<GroupItem, 'members'>>) => {
-      setValue('members', nextGroup.members ?? [], { shouldDirty: true })
+      onChange({ members: nextGroup.members ?? [] })
     },
-    [setValue],
+    [onChange],
   )
 
   return (

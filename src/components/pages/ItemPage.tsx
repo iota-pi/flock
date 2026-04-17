@@ -1,12 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
 import { DeleteIcon } from '../../components/Icons'
-import { ERROR_ITEM_TYPE, getBlankItem, getItemTypeLabel, Item } from '../../state/items'
+import { ERROR_ITEM_TYPE, getItemTypeLabel, Item } from '../../state/items'
 import type { ItemType } from '../../shared/itemTypes'
 import ItemList from '../../features/items/components/ItemList'
 import {
   useItems,
-  useItemsInitialLoading,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
@@ -15,7 +14,7 @@ import BasePage from './BasePage'
 import { useUiStore } from '../../state/uiStore'
 import { useNavigationStore } from '../../state/navigationStore'
 import { processItemsWithWorker } from '../../workers/itemWorkerManager'
-import { hardDeleteItems } from '../../features/items/mutations/itemMutations'
+import { createItem, hardDeleteItems } from '../../features/items/mutations/itemMutations'
 
 interface Props {
   itemType: ItemType,
@@ -27,7 +26,6 @@ function ItemPage({
   const replaceActive = useNavigationStore(state => state.replaceActive)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
-  const itemsInitialLoading = useItemsInitialLoading()
   const allItems = useItems()
   const rawItems = useMemo(
     () => allItems.filter(item => (
@@ -106,11 +104,12 @@ function ItemPage({
   )
   const handleClickAdd = useCallback(
     () => {
-      replaceActive({
-        newItem: {
-          ...getBlankItem(itemType),
-          prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
-        },
+      void createItem(itemType, {
+        prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
+      }).then(createdItem => {
+        replaceActive({ item: createdItem.id })
+      }).catch(error => {
+        console.error(error)
       })
     },
     [defaultFrequencies, itemType, replaceActive],
@@ -170,13 +169,9 @@ function ItemPage({
   const pluralLabel = getItemTypeLabel(itemType, true)
   const pluralLabelLower = pluralLabel.toLowerCase()
 
-  const noItemsHint = (
-    itemsInitialLoading
-      ? undefined
-      : hiddenItemCount
-        ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
-        : 'Click the plus button to add one!'
-  )
+  const noItemsHint = hiddenItemCount
+    ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
+    : 'Click the plus button to add one!'
   const itemCountText = (
     filterCount > 0
       ? `${items.length} / ${rawItems.length} ${pluralLabelLower}`
@@ -247,7 +242,7 @@ function ItemPage({
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
         maxTags={3}
         noItemsHint={noItemsHint}
-        noItemsText={itemsInitialLoading ? 'Loading items...' : `No ${pluralLabelLower} found`}
+        noItemsText={`No ${pluralLabelLower} found`}
         onCheck={handleCheck}
         onClick={handleClickItem}
       />

@@ -1,23 +1,20 @@
 import { Grid } from '@mui/material'
-import { useController, useFormContext } from 'react-hook-form'
 import NotesSection from '../../../components/NotesSection'
-import type { ItemFormDraftValues } from './itemFormValues'
+import type { Note } from '../../../state/items'
 
 type ItemFormNotesSectionProps = {
+  notes: Note[]
+  onChange: (notes: Note[]) => void
   itemId: string
   disabled: boolean
 }
 
 export default function ItemFormNotesSection({
+  notes,
+  onChange,
   itemId,
   disabled,
 }: ItemFormNotesSectionProps) {
-  const { control } = useFormContext<ItemFormDraftValues>()
-  const { field } = useController({
-    control,
-    name: 'notes',
-  })
-
   return (
     <Grid
       size={{ xs: 12 }}
@@ -26,8 +23,8 @@ export default function ItemFormNotesSection({
     >
       <NotesSection
         key={itemId}
-        notes={field.value}
-        onChange={field.onChange}
+        notes={notes}
+        onChange={onChange}
       />
     </Grid>
   )

@@ -9,12 +9,11 @@ import {
 } from '@mui/material'
 import {
   convertItem,
-  dirtyItem,
-  DirtyItem,
   getItemName,
   getItemTypeLabel,
   isValid,
   Item,
+  LocalChangeItem,
 } from '../../../state/items'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
 import { isSameDay } from '../../../utils'
@@ -26,19 +25,18 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { deleteItems, storeItems } from '../mutations/itemMutations'
-import { useAutomergeItem } from 'src/sync/useAutomerge'
+import { deleteItem } from '../mutations/itemMutations'
+import { useAutomergeItemDocument } from 'src/sync/useAutomerge'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
-import useAutoSaveItem from '../hooks/useAutoSaveItem'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
 
 
 interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
-  item: DirtyItem<Item>,
+  item: LocalChangeItem<Item>,
   onChange: (
-    item: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
+    item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
 }
 
@@ -59,87 +57,76 @@ function ItemDrawer({
   open,
   stacked,
 }: Props) {
-  const automergeItem = useAutomergeItem(item.id)
+  const {
+    item: automergeItem,
+    change: changeAutomergeItem,
+  } = useAutomergeItemDocument(item.id)
 
   const resolvedItem = useMemo(() => {
-    if (item.dirty || item.isNew || !automergeItem) {
+    if (item.isNew || !automergeItem) {
       return item
     }
 
     return {
       ...automergeItem,
-      dirty: item.dirty,
       isNew: item.isNew,
-    } as DirtyItem<Item>
+    } as LocalChangeItem<Item>
   }, [automergeItem, item])
-
-  const persistItem = useCallback(
-    (cleanItemValue: Item) => {
-      void storeItems(cleanItemValue).catch(error => {
-        console.error(error)
-      })
-    },
-    [],
-  )
-
-  const {
-    disableAutoSaveNow,
-    enableAutoSaveNow,
-    saveItem,
-  } = useAutoSaveItem({
-    item,
-    onPersist: persistItem,
-    open,
-  })
 
   const handleChange = useCallback(
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
     ) => {
-      enableAutoSaveNow()
-      if (typeof data === 'function') {
-        return onChange(originalItem => dirtyItem(data(originalItem)))
-      }
-      return onChange(dirtyItem(data))
-    },
-    [enableAutoSaveNow, onChange],
-  )
+      changeAutomergeItem(draft => {
+        if (typeof draft.id !== 'string' || draft.id.length === 0) {
+          draft.id = item.id
+        }
 
-  const handleSave = useCallback(
-    (itemToSave: DirtyItem<Item>) => {
-      return saveItem(itemToSave)
+        if (typeof draft.type !== 'string' || draft.type.length === 0) {
+          draft.type = resolvedItem.type
+        }
+
+        if (typeof data === 'function') {
+          const nextItem = data(draft)
+          Object.assign(draft, nextItem)
+          return
+        }
+
+        Object.assign(draft, data)
+      })
+
+      if (typeof data === 'function') {
+        return onChange(data)
+      }
+      return onChange(data)
     },
-    [saveItem],
+    [changeAutomergeItem, item.id, onChange, resolvedItem.type],
   )
 
   const handleClose = useCallback(
-    (disableSave?: boolean) => {
-      if (!disableSave) {
-        handleSave(item)
-      }
+    () => {
       onClose()
     },
-    [handleSave, item, onClose],
+    [onClose],
   )
+
   const handleSaveButton = useCallback(
     () => {
-      const clean = handleSave(item)
-      if (clean) {
-        onChange(clean)
-      }
+      onClose(true)
     },
-    [handleSave, item, onChange],
+    [onClose],
   )
+
   const handleCancel = useCallback(
     () => {
-      disableAutoSaveNow()
       onClose()
     },
-    [disableAutoSaveNow, onClose],
+    [onClose],
   )
+
   const handleDelete = useCallback(
     () => {
-      deleteItems(item.id)
+      deleteItem(item.id)
         .catch(error => console.error(error))
       onClose()
     },
@@ -244,7 +231,7 @@ function ItemDrawer({
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
-        promptSave: !!resolvedItem.dirty,
+        promptSave: false,
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}

@@ -1,4 +1,4 @@
-import type { DirtyItem, Item } from '../../../state/items'
+import type { Item, LocalChangeItem } from '../../../state/items'
 
 export type FlowState =
   | { type: 'overview' }
@@ -8,7 +8,7 @@ export type FlowState =
 export type PrayerFlowState = {
   current: FlowState
   lastOverlay: FlowState | null
-  localItems: DirtyItem<Item>[]
+  localItems: LocalChangeItem<Item>[]
 }
 
 export type PrayerFlowAction =
@@ -16,18 +16,18 @@ export type PrayerFlowAction =
   | { type: 'start-at'; index: number }
   | { type: 'set-active-index'; index: number }
   | { type: 'finish'; prayedCount: number }
-  | { type: 'set-local-items'; items: DirtyItem<Item>[] }
+  | { type: 'set-local-items'; items: LocalChangeItem<Item>[] }
   | { type: 'clear-local-items' }
   | {
     type: 'edit-item'
     index: number
-    changes: Partial<DirtyItem<Item>>
-    markDirty?: boolean
+    changes: Partial<LocalChangeItem<Item>>
+    markLocalChange?: boolean
   }
   | {
     type: 'replace-item'
     index: number
-    item: DirtyItem<Item>
+    item: LocalChangeItem<Item>
   }
   | {
     type: 'record-prayer'
@@ -68,9 +68,9 @@ function isSameCalendarDay(timeA: number, timeB: number): boolean {
   )
 }
 
-export function applyPrayerToItem(item: DirtyItem<Item>, timestamp: number): {
+export function applyPrayerToItem(item: LocalChangeItem<Item>, timestamp: number): {
   addedPrayer: boolean
-  item: DirtyItem<Item>
+  item: LocalChangeItem<Item>
 } {
   const alreadyPrayedToday = item.prayedFor.some(prayedAt => isSameCalendarDay(prayedAt, timestamp))
   if (alreadyPrayedToday) {
@@ -84,17 +84,17 @@ export function applyPrayerToItem(item: DirtyItem<Item>, timestamp: number): {
     addedPrayer: true,
     item: {
       ...item,
-      dirty: true,
+      hasLocalChanges: true,
       prayedFor: [...item.prayedFor, timestamp],
     },
   }
 }
 
 function replaceLocalItemAtIndex(
-  items: DirtyItem<Item>[],
+  items: LocalChangeItem<Item>[],
   index: number,
-  nextItem: DirtyItem<Item>,
-): DirtyItem<Item>[] {
+  nextItem: LocalChangeItem<Item>,
+): LocalChangeItem<Item>[] {
   if (!items[index]) {
     return items
   }
@@ -133,15 +133,17 @@ export function prayerFlowReducer(state: PrayerFlowState, action: PrayerFlowActi
       return state
     }
 
-    if (Object.keys(action.changes).length === 0 && !action.markDirty) {
+    if (Object.keys(action.changes).length === 0 && !action.markLocalChange) {
       return state
     }
 
     const nextItem = {
       ...currentItem,
       ...action.changes,
-      dirty: action.markDirty ? true : (action.changes.dirty ?? currentItem.dirty),
-    } as DirtyItem<Item>
+      hasLocalChanges: action.markLocalChange
+        ? true
+        : (action.changes.hasLocalChanges ?? currentItem.hasLocalChanges),
+    } as LocalChangeItem<Item>
 
     return {
       ...state,

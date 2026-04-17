@@ -18,14 +18,9 @@ function DelayedRender({
       return
     }
 
-    if (delayMs <= 0) {
-      setShouldRender(true)
-      return
-    }
-
     const timeoutId = setTimeout(() => {
       setShouldRender(true)
-    }, delayMs)
+    }, Math.max(delayMs, 0))
 
     return () => {
       clearTimeout(timeoutId)
