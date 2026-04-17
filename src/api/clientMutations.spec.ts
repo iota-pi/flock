@@ -60,6 +60,7 @@ vi.mock('../sync/automergeSyncDispatcher', () => ({
 
 vi.mock('../sync/automergeRepo', () => ({
   getAutomergeRepo: () => repoMocks,
+  removeKnownAutomergeItemIds: vi.fn(),
 }))
 
 vi.mock('./util', () => ({

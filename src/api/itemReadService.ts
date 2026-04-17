@@ -14,7 +14,7 @@ import {
   upsertAutomergeMetadataSnapshot,
 } from '../sync/automergeDocStore'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
-import { getVaultNetworkAdapter } from '../sync/automergeRepo'
+import { registerKnownAutomergeItemIds } from '../sync/automergeRepo'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 
 type FetchItemsOptions = {
@@ -217,7 +217,7 @@ export async function ensureItemsBootstrap(
       }
 
       if (fetchedItemIds.length > 0) {
-        getVaultNetworkAdapter().registerKnownItemIds(fetchedItemIds)
+        registerKnownAutomergeItemIds(fetchedItemIds)
         requestAutomergeSync(fetchedItemIds)
       }
     }

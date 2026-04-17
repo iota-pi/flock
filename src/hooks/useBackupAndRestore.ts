@@ -13,6 +13,7 @@ import {
   getAutomergeMetadata,
   restoreFromBinaries,
 } from '../sync/automergeDocStore'
+import { clearKnownAutomergeItemIds } from '../sync/automergeRepo'
 import { requestAutomergeSync } from '../sync/automergeSyncDispatcher'
 import type { BaseToastMessage } from '../state/toastStore'
 
@@ -41,6 +42,7 @@ export default function useBackupAndRestore({
 
   const handleClearCache = useCallback(
     async () => {
+      clearKnownAutomergeItemIds()
       await clearAutomergeDocStore()
       requestAutomergeSync()
       setCacheClearCounter(c => c + 1)
@@ -79,7 +81,10 @@ export default function useBackupAndRestore({
           await setMetadata(payload.metadata)
         }
 
-        await restoreFromBinaries(payload.documents)
+        const restoredItemIds = await restoreFromBinaries(payload.documents)
+        if (restoredItemIds.length > 0) {
+          requestAutomergeSync(restoredItemIds)
+        }
 
         setMessage({ message: 'Restore successful' })
         return true

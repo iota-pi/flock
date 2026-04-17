@@ -1,65 +1,47 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
   getAutomergeItem,
   getAutomergeItems,
   getAutomergeMetadata,
-  getAutomergeSnapshotVersion,
-  subscribeAutomergeSnapshots,
+  subscribeAutomergeItem,
+  subscribeAutomergeItems,
+  subscribeAutomergeMetadata,
 } from './automergeDocStore'
 
-const EMPTY_VERSION = 0
 const EMPTY_ITEMS: Item[] = []
 const EMPTY_METADATA: AccountMetadata = {}
 const EMPTY_ITEM: Item | null = null
 
-function subscribeAutomergeSnapshot(onStoreChange: () => void): () => void {
-  return subscribeAutomergeSnapshots(onStoreChange)
-}
-
-function getAutomergeSnapshot(): number {
-  return getAutomergeSnapshotVersion()
-}
-
 export function useAutomergeItems(): Item[] {
-  const snapshotVersion = useSyncExternalStore(
-    subscribeAutomergeSnapshot,
-    getAutomergeSnapshot,
-    () => EMPTY_VERSION,
-  )
-
-  return useMemo(
+  return useSyncExternalStore(
+    subscribeAutomergeItems,
     () => {
       const items = getAutomergeItems()
       return items.length > 0 ? items : EMPTY_ITEMS
     },
-    [snapshotVersion],
+    () => EMPTY_ITEMS,
   )
 }
 
 export function useAutomergeItem(itemId: string): Item | null {
-  const snapshotVersion = useSyncExternalStore(
-    subscribeAutomergeSnapshot,
-    getAutomergeSnapshot,
-    () => EMPTY_VERSION,
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeAutomergeItem(itemId, onStoreChange),
+    [itemId],
+  )
+  const getSnapshot = useCallback(
+    () => getAutomergeItem(itemId) || EMPTY_ITEM,
+    [itemId],
   )
 
-  return useMemo(
-    () => getAutomergeItem(itemId) || EMPTY_ITEM,
-    [itemId, snapshotVersion],
-  )
+  return useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_ITEM)
 }
 
 export function useAutomergeMetadataSnapshot(): AccountMetadata {
-  const snapshotVersion = useSyncExternalStore(
-    subscribeAutomergeSnapshot,
-    getAutomergeSnapshot,
-    () => EMPTY_VERSION,
-  )
-
-  return useMemo(
+  return useSyncExternalStore(
+    subscribeAutomergeMetadata,
     () => getAutomergeMetadata() || EMPTY_METADATA,
-    [snapshotVersion],
+    () => EMPTY_METADATA,
   )
 }

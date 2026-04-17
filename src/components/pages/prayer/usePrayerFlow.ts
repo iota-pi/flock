@@ -37,28 +37,44 @@ export type PrayerFlowActions = {
   handleStepClick: (index: number) => void
 }
 
-export type PrayerFlowController = {
-  actions: PrayerFlowActions
-  activeViewIndex: number
+export type PrayerFlowProgressSlice = {
   allVisiblePrayed: boolean
   canKeepPraying: boolean
   completed: number
-  flow: FlowState
   goal: number
-  hideActiveView: boolean
-  isLastActiveStep: boolean
+  naturalGoal: number
+}
+
+export type PrayerFlowScheduleSlice = {
   isPrayedForToday: (item: Item) => boolean
   localItems: DirtyItem<Item>[]
-  naturalGoal: number
-  overlayFlow: FlowState | null
-  shouldRenderActiveView: boolean
+  visibleItems: Item[]
+}
+
+export type PrayerFlowViewSlice = {
+  activeIndex: number
+  current: FlowState
+  hideActive: boolean
+  isLastActiveStep: boolean
+  overlay: FlowState | null
+  shouldRenderActive: boolean
   showActiveNavButtons: boolean
   startButtonLabel: string
-  stepperActiveStep: number | undefined
-  stepperSteps: number
+  trackTransform: string
   transitionDurationMs: number
-  viewTrackTransform: string
-  visibleSchedule: Item[]
+}
+
+export type PrayerFlowStepperSlice = {
+  activeStep: number | undefined
+  steps: number
+}
+
+export type PrayerFlowController = {
+  actions: PrayerFlowActions
+  progress: PrayerFlowProgressSlice
+  schedule: PrayerFlowScheduleSlice
+  stepper: PrayerFlowStepperSlice
+  view: PrayerFlowViewSlice
 }
 
 function useLatestRef<T>(value: T) {
@@ -395,25 +411,33 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   return {
     actions,
-    activeViewIndex,
-    allVisiblePrayed,
-    canKeepPraying,
-    completed,
-    flow,
-    goal,
-    hideActiveView,
-    isLastActiveStep,
-    isPrayedForToday,
-    localItems,
-    naturalGoal,
-    overlayFlow,
-    shouldRenderActiveView,
-    showActiveNavButtons,
-    startButtonLabel,
-    stepperActiveStep,
-    stepperSteps,
-    transitionDurationMs,
-    viewTrackTransform,
-    visibleSchedule,
+    progress: {
+      allVisiblePrayed,
+      canKeepPraying,
+      completed,
+      goal,
+      naturalGoal,
+    },
+    schedule: {
+      isPrayedForToday,
+      localItems,
+      visibleItems: visibleSchedule,
+    },
+    stepper: {
+      activeStep: stepperActiveStep,
+      steps: stepperSteps,
+    },
+    view: {
+      activeIndex: activeViewIndex,
+      current: flow,
+      hideActive: hideActiveView,
+      isLastActiveStep,
+      overlay: overlayFlow,
+      shouldRenderActive: shouldRenderActiveView,
+      showActiveNavButtons,
+      startButtonLabel,
+      trackTransform: viewTrackTransform,
+      transitionDurationMs,
+    },
   }
 }

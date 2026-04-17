@@ -55,3 +55,30 @@ export function setVaultNetworkAccount(account: string | null): void {
   getVaultNetworkAdapter(account).setAccount(account)
 }
 
+export function getKnownAutomergeItemIds(accountId?: string | null): string[] {
+  return getVaultNetworkAdapter(accountId).getKnownItemIds()
+}
+
+export function subscribeKnownAutomergeItemIds(
+  listener: (itemIds: string[]) => void,
+  accountId?: string | null,
+): () => void {
+  return getVaultNetworkAdapter(accountId).subscribeKnownItemIds(listener)
+}
+
+export function registerKnownAutomergeItemIds(itemIds: string[], accountId?: string | null): void {
+  getVaultNetworkAdapter(accountId).registerKnownItemIds(itemIds)
+}
+
+export function removeKnownAutomergeItemIds(itemIds: string[], accountId?: string | null): void {
+  getVaultNetworkAdapter(accountId).removeKnownItemIds(itemIds)
+}
+
+export function clearKnownAutomergeItemIds(accountId?: string | null): void {
+  getVaultNetworkAdapter(accountId).clearKnownItemIds()
+}
+
+export async function syncKnownAutomergeItemIds(itemIds?: string[], accountId?: string | null): Promise<void> {
+  await getVaultNetworkAdapter(accountId).syncItemIds(itemIds)
+}
+

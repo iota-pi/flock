@@ -6,7 +6,7 @@ import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { getAutomergeRepo } from '../../../sync/automergeRepo'
+import { getAutomergeRepo, removeKnownAutomergeItemIds } from '../../../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../../../sync/automergeRepoIds'
 import {
   ACCOUNT_METADATA_DOCUMENT_ID,
@@ -319,6 +319,8 @@ export async function deleteItems(
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
   await ensureAutomergeStoreReady()
+
+  removeKnownAutomergeItemIds(ids)
 
   for (const itemId of ids) {
     await removeAutomergeItem(itemId)

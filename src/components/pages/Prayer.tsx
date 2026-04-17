@@ -6,6 +6,7 @@ import { useDialogState } from '../../hooks/useDialogState'
 
 function PrayerPage() {
   const flow = usePrayerFlow()
+  const currentFlow = flow.view.current
   const [activeEditDrawerKey, setActiveEditDrawerKey] = useState<string | null>(null)
   const {
     closeDialog: closeGoalDialog,
@@ -13,14 +14,14 @@ function PrayerPage() {
     openDialog: openGoalDialog,
   } = useDialogState('goal')
 
-  const currentActiveDrawerKey = flow.flow.type === 'active' ? String(flow.flow.index) : null
+  const currentActiveDrawerKey = currentFlow.type === 'active' ? String(currentFlow.index) : null
   const isEditDrawerOpen = currentActiveDrawerKey !== null && activeEditDrawerKey === currentActiveDrawerKey
 
   const handleOpenEditDrawer = useCallback(() => {
-    if (flow.flow.type === 'active') {
-      setActiveEditDrawerKey(String(flow.flow.index))
+    if (currentFlow.type === 'active') {
+      setActiveEditDrawerKey(String(currentFlow.index))
     }
-  }, [flow.flow])
+  }, [currentFlow])
 
   const handleCloseEditDrawer = useCallback(
     () => {

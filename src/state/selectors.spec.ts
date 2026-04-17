@@ -17,6 +17,9 @@ import {
   getAutomergeItem,
   getAutomergeItems,
   getAutomergeMetadata,
+  subscribeAutomergeItem,
+  subscribeAutomergeItems,
+  subscribeAutomergeMetadata,
   subscribeAutomergeSnapshots,
 } from '../sync/automergeDocStore'
 
@@ -70,7 +73,9 @@ vi.mock('../sync/automergeDocStore', () => ({
   getAutomergeItems: vi.fn(),
   getAutomergeItem: vi.fn(),
   getAutomergeMetadata: vi.fn(),
-  getAutomergeSnapshotVersion: vi.fn(() => 1),
+  subscribeAutomergeItem: vi.fn(),
+  subscribeAutomergeItems: vi.fn(),
+  subscribeAutomergeMetadata: vi.fn(),
   subscribeAutomergeSnapshots: vi.fn(),
 }))
 
@@ -100,6 +105,24 @@ describe('state selectors', () => {
     ))
     vi.mocked(getAutomergeMetadata).mockImplementation(() => automergeMetadataState)
     vi.mocked(subscribeAutomergeSnapshots).mockImplementation(listener => {
+      automergeListeners.add(listener)
+      return () => {
+        automergeListeners.delete(listener)
+      }
+    })
+    vi.mocked(subscribeAutomergeItems).mockImplementation(listener => {
+      automergeListeners.add(listener)
+      return () => {
+        automergeListeners.delete(listener)
+      }
+    })
+    vi.mocked(subscribeAutomergeMetadata).mockImplementation(listener => {
+      automergeListeners.add(listener)
+      return () => {
+        automergeListeners.delete(listener)
+      }
+    })
+    vi.mocked(subscribeAutomergeItem).mockImplementation((_itemId, listener) => {
       automergeListeners.add(listener)
       return () => {
         automergeListeners.delete(listener)

@@ -247,6 +247,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     const accountAtSend = this.account
     const itemId = toVaultItemIdFromAutomergeId(documentId)
+    if (itemId) {
+      this.registerKnownItemIds([itemId])
+    }
 
     this.transportService.enqueueSend(async () => {
       if (!accountAtSend || !this.connected || this.account !== accountAtSend) {

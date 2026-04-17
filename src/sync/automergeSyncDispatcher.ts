@@ -2,8 +2,13 @@ import { useSyncStore } from '../state/syncStore'
 import { useAuthStore } from '../state/authStore'
 import { listAutomergeDocumentIds, resolvePendingAutomergeHandles } from './automergeDocStore'
 import {
-  getVaultNetworkAdapter,
+  startAutomergeKnownItemIdsOrchestrator,
+  stopAutomergeKnownItemIdsOrchestrator,
+} from './automergeKnownItemIdsOrchestrator'
+import {
+  registerKnownAutomergeItemIds,
   setVaultNetworkAccount,
+  syncKnownAutomergeItemIds,
 } from './automergeRepo'
 
 const SHOULD_THROW_SYNC_ERRORS = (
@@ -54,14 +59,12 @@ async function runSync(account: string, itemIds?: string[]): Promise<string[]> {
     return []
   }
 
-  const adapter = getVaultNetworkAdapter()
-
   useSyncStore.getState().setIsSyncing(true)
   try {
     resolvePendingAutomergeHandles()
 
     await withTimeout(
-      adapter.syncItemIds(normalized),
+      syncKnownAutomergeItemIds(normalized),
       SYNC_QUEUE_TIMEOUT_MS,
       `[automergeSyncDispatcher] Sync timed out after ${SYNC_QUEUE_TIMEOUT_MS}ms`,
     )
@@ -89,7 +92,7 @@ export function requestAutomergeSync(itemIds?: string[] | string): void {
 
   if (!account) {
     if (normalized.length > 0) {
-      getVaultNetworkAdapter().registerKnownItemIds(normalized)
+      registerKnownAutomergeItemIds(normalized)
     }
 
     if (SHOULD_THROW_SYNC_ERRORS) {
@@ -111,12 +114,13 @@ export function startAutomergeSyncDispatcher(account: string): void {
   }
 
   setVaultNetworkAccount(account)
+  startAutomergeKnownItemIdsOrchestrator(account)
 
-  const adapter = getVaultNetworkAdapter()
-  adapter.syncItemIds()
+  void syncKnownAutomergeItemIds()
 }
 
 export function stopAutomergeSyncDispatcher(): void {
+  stopAutomergeKnownItemIdsOrchestrator()
   setVaultNetworkAccount(null)
   useSyncStore.getState().setIsSyncing(false)
 }

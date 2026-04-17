@@ -27,7 +27,7 @@ export default function PrayerPageContent({
   onEditGoal,
   onOpenEditDrawer,
 }: PrayerPageContentProps) {
-  const { actions } = flow
+  const { actions, progress, schedule, stepper, view } = flow
 
   return (
     <BasePage noScrollContainer>
@@ -37,41 +37,41 @@ export default function PrayerPageContent({
             sx={{
               display: 'flex',
               height: '100%',
-              transform: flow.viewTrackTransform,
-              transition: `transform ${flow.transitionDurationMs}ms cubic-bezier(0.25, 0.8, 0.25, 1)`,
+              transform: view.trackTransform,
+              transition: `transform ${view.transitionDurationMs}ms cubic-bezier(0.25, 0.8, 0.25, 1)`,
               width: '200%',
               willChange: 'transform',
             }}
           >
             <PrayerOverviewPanel
-              completed={flow.completed}
-              goal={flow.goal}
-              naturalGoal={flow.naturalGoal}
-              visibleSchedule={flow.visibleSchedule}
-              isPrayedForToday={flow.isPrayedForToday}
+              completed={progress.completed}
+              goal={progress.goal}
+              naturalGoal={progress.naturalGoal}
+              visibleSchedule={schedule.visibleItems}
+              isPrayedForToday={schedule.isPrayedForToday}
               onCheck={actions.handleCheck}
               onEditGoal={onEditGoal}
               onItemClick={actions.handleItemClick}
               onStart={actions.handleStartFirst}
-              startDisabled={flow.allVisiblePrayed && !flow.canKeepPraying}
-              startLabel={flow.startButtonLabel}
+              startDisabled={progress.allVisiblePrayed && !progress.canKeepPraying}
+              startLabel={view.startButtonLabel}
             />
 
             <Box sx={{ bgcolor: 'background.default', position: 'relative', width: '50%' }}>
-              {flow.shouldRenderActiveView && (
+              {view.shouldRenderActive && (
                 <Box
-                  aria-hidden={flow.hideActiveView}
+                  aria-hidden={view.hideActive}
                   sx={{
                     inset: 0,
-                    pointerEvents: flow.hideActiveView ? 'none' : 'auto',
+                    pointerEvents: view.hideActive ? 'none' : 'auto',
                     position: 'absolute',
-                    visibility: flow.hideActiveView ? 'hidden' : 'visible',
+                    visibility: view.hideActive ? 'hidden' : 'visible',
                   }}
                 >
                   <PrayerActiveView
-                    activeIndex={flow.activeViewIndex}
-                    items={flow.localItems}
-                    isEditDrawerOpen={isEditDrawerOpen && flow.flow.type === 'active'}
+                    activeIndex={view.activeIndex}
+                    items={schedule.localItems}
+                    isEditDrawerOpen={isEditDrawerOpen && view.current.type === 'active'}
                     onBack={actions.handleBack}
                     onCloseEditDrawer={onCloseEditDrawer}
                     onEditDrawerChange={actions.handleEditDrawerChange}
@@ -81,12 +81,12 @@ export default function PrayerPageContent({
                   />
                 </Box>
               )}
-              {flow.overlayFlow?.type === 'finished' && (
+              {view.overlay?.type === 'finished' && (
                 <PrayerFinishedView
-                  canKeepPraying={flow.canKeepPraying}
+                  canKeepPraying={progress.canKeepPraying}
                   onBackToOverview={actions.handleGoToOverview}
                   onKeepPraying={actions.handleKeepPraying}
-                  prayedCount={flow.overlayFlow.prayedCount}
+                  prayedCount={view.overlay.prayedCount}
                 />
               )}
             </Box>
@@ -94,36 +94,36 @@ export default function PrayerPageContent({
         </Box>
 
         <PrayerStepper
-          activeStep={flow.stepperActiveStep}
-          isHomeActive={flow.flow.type !== 'overview'}
+          activeStep={stepper.activeStep}
+          isHomeActive={view.current.type !== 'overview'}
           onHomeClick={actions.handleGoToOverview}
-          onStepClick={flow.stepperSteps > 0 ? actions.handleStepClick : undefined}
-          steps={flow.stepperSteps}
-          backButton={flow.showActiveNavButtons ? (
+          onStepClick={stepper.steps > 0 ? actions.handleStepClick : undefined}
+          steps={stepper.steps}
+          backButton={view.showActiveNavButtons ? (
             <Button onClick={actions.handleBack} startIcon={<BackIcon />}>
               Back
             </Button>
           ) : undefined}
-          nextButton={flow.showActiveNavButtons
+          nextButton={view.showActiveNavButtons
             ? (
               <Button endIcon={<NextIcon />} onClick={actions.handleNext}>
-                {flow.isLastActiveStep ? 'Finish' : 'Next'}
+                {view.isLastActiveStep ? 'Finish' : 'Next'}
               </Button>
             )
             : (
               <Button
-                disabled={flow.allVisiblePrayed && !flow.canKeepPraying}
+                disabled={progress.allVisiblePrayed && !progress.canKeepPraying}
                 endIcon={<NextIcon />}
                 onClick={actions.handleStartFirst}
               >
-                {flow.startButtonLabel}
+                {view.startButtonLabel}
               </Button>
             )}
         />
       </Box>
 
       <GoalDialog
-        naturalGoal={flow.naturalGoal}
+        naturalGoal={progress.naturalGoal}
         onClose={onCloseGoalDialog}
         open={isGoalDialogOpen}
       />

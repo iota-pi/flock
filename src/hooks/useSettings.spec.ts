@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
   getAutomergeItems: vi.fn(() => []),
+  getAutomergeMetadata: vi.fn(() => ({})),
+  requestAutomergeSync: vi.fn(),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -60,6 +62,10 @@ vi.mock('../state/syncStore', () => ({
   },
 }))
 
+vi.mock('../sync/automergeSyncDispatcher', () => ({
+  requestAutomergeSync: mocks.requestAutomergeSync,
+}))
+
 vi.mock('../api/itemReadService', () => ({
   clearMetadataCache: mocks.clearMetadataCache,
   getCachedMetadata: mocks.getCachedMetadata,
@@ -69,6 +75,7 @@ vi.mock('../sync/automergeDocStore', () => ({
   clearAutomergeDocStore: mocks.clearAutomergeDocStore,
   exportAllBinaries: mocks.exportAllBinaries,
   getAutomergeItems: mocks.getAutomergeItems,
+  getAutomergeMetadata: mocks.getAutomergeMetadata,
   restoreFromBinaries: mocks.restoreFromBinaries,
 }))
 
