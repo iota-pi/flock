@@ -14,14 +14,14 @@ type ItemWorkerApi = {
   }>>
 }
 
-type ProcessItemsInput = {
+export type ProcessItemsInput = {
   items: Item[]
   filters: FilterCriterion[]
   sortCriteria: SortCriterion[]
   showArchived: boolean
 }
 
-type ProcessItemsResult = {
+export type ProcessItemsResult = {
   results: Item[]
   totalApplicable: number
   archivedCount: number
@@ -44,7 +44,7 @@ function resetWorker(reason: string, error?: unknown): void {
   workerApi = null
 }
 
-function processItemsSynchronously(input: ProcessItemsInput): ProcessItemsResult {
+export function processItemsSnapshot(input: ProcessItemsInput): ProcessItemsResult {
   const items = input.items
   const filters = input.filters || []
   const sortCriteria = input.sortCriteria || []
@@ -113,17 +113,6 @@ async function withWorkerFallback<T>(
     resetWorker('Item worker execution failed; falling back to synchronous processing', error)
     return runSynchronously()
   }
-}
-
-export async function processItemsWithWorker(input: ProcessItemsInput): Promise<ProcessItemsResult> {
-  if (input.items.length < WORKER_MIN_ITEM_COUNT) {
-    return processItemsSynchronously(input)
-  }
-
-  return withWorkerFallback(
-    async api => api.processItems(input),
-    () => processItemsSynchronously(input),
-  )
 }
 
 export async function seedAutomergeBinaryWithWorker(items: Item[]): Promise<Array<{ id: string; binary: Uint8Array }>> {

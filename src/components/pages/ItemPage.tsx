@@ -1,20 +1,22 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
-import { DeleteIcon } from '../../components/Icons'
-import { ERROR_ITEM_TYPE, getItemTypeLabel, Item } from '../../state/items'
-import type { ItemType } from '../../shared/itemTypes'
-import ItemList from '../../features/items/components/ItemList'
+import { DeleteIcon } from 'src/components/Icons'
+import { ERROR_ITEM_TYPE, getItemTypeLabel, Item } from 'src/state/items'
+import type { ItemType } from 'src/shared/itemTypes'
+import ItemList from 'src/features/items/components/ItemList'
 import {
   useItems,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
-} from '../../state/selectors'
+} from 'src/state/selectors'
 import BasePage from './BasePage'
-import { useUiStore } from '../../state/uiStore'
-import { useNavigationStore } from '../../state/navigationStore'
-import { processItemsWithWorker } from '../../workers/itemWorkerManager'
-import { createItem, hardDeleteItems } from '../../features/items/mutations/itemMutations'
+import { useUiStore } from 'src/state/uiStore'
+import { useNavigationStore } from 'src/state/navigationStore'
+import {
+  processItemsSnapshot,
+} from 'src/workers/itemWorkerManager'
+import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
 
 interface Props {
   itemType: ItemType,
@@ -41,49 +43,22 @@ function ItemPage({
   const [sortCriteria] = useSortCriteria()
 
   const [showArchived, setShowArchived] = useState(false)
-  const [items, setItems] = useState<Item[]>(() => (
-    showArchived ? rawItems : rawItems.filter(i => !i.archived)
-  ))
-  const [totalApplicable, setTotalApplicable] = useState(() => (
-    showArchived ? rawItems.length : rawItems.filter(i => !i.archived).length
-  ))
-  const [archivedCount, setArchivedCount] = useState(() => (
-    rawItems.filter(i => i.archived).length
-  ))
 
-  useEffect(() => {
-    let cancelled = false
-
-    void processItemsWithWorker({
-      items: rawItems,
-      filters,
-      sortCriteria,
-      showArchived,
-    })
-      .then(result => {
-        if (cancelled) {
-          return
-        }
-
-        setItems(result.results)
-        setTotalApplicable(result.totalApplicable)
-        setArchivedCount(result.archivedCount)
+  const {
+    results: items,
+    totalApplicable,
+    archivedCount,
+  } = useMemo(
+     () => (
+      processItemsSnapshot({
+        items: rawItems,
+        filters,
+        sortCriteria,
+        showArchived: false,
       })
-      .catch(() => {
-        if (cancelled) {
-          return
-        }
-
-        const fallbackItems = showArchived ? rawItems : rawItems.filter(i => !i.archived)
-        setItems(fallbackItems)
-        setTotalApplicable(fallbackItems.length)
-        setArchivedCount(rawItems.filter(i => i.archived).length)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [filters, rawItems, showArchived, sortCriteria])
+    ),
+    [rawItems, filters, sortCriteria],
+  )
 
   const handleClickShowArchived = useCallback(
     () => setShowArchived(sa => !sa),
