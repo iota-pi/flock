@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
-import { useDocument, useDocuments } from '@automerge/automerge-repo-react-hooks'
-import type { AutomergeUrl } from '@automerge/automerge-repo/slim'
+import { useEffect, useMemo, useState } from 'react'
+import { useDocument, useRepo } from '@automerge/automerge-repo-react-hooks'
+import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
 import { z } from 'zod'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
@@ -19,6 +19,7 @@ const automergeIndexDocumentSchema = z.object({
 }).passthrough()
 
 type RepoDoc = Record<string, unknown>
+type RepoDocHandle = DocHandle<RepoDoc> | undefined
 type AutomergeIndexDocument = z.infer<typeof automergeIndexDocumentSchema>
 type ItemSchema<TItem extends Item> = z.ZodType<TItem>
 
@@ -78,8 +79,22 @@ function resolveItemSchema<TItem extends Item>(schema?: ItemSchema<TItem>): Item
   return (schema || defaultItemSchema) as ItemSchema<TItem>
 }
 
+function readReadySnapshot(handle: RepoDocHandle): RepoDoc | null {
+  if (!handle || !handle.isReady() || handle.isUnavailable()) {
+    return null
+  }
+
+  try {
+    const doc = handle.doc()
+    return (!doc || typeof doc !== 'object' || Array.isArray(doc)) ? null : (doc as RepoDoc)
+  } catch {
+    return null
+  }
+}
+
 export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema<TItem>): TItem[] {
   const resolvedSchema = resolveItemSchema(schema)
+  const repo = useRepo()
 
   const [indexDoc] = useDocument<AutomergeIndexDocument>(
     toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID),
@@ -101,15 +116,84 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
     [itemIds],
   )
 
-  const [itemDocsByUrl] = useDocuments<RepoDoc>(itemUrls, { suspense: true })
+  const itemHandlesByUrl = useMemo(
+    () => {
+      const handles = new Map<AutomergeUrl, RepoDocHandle>()
+
+      for (const documentUrl of itemUrls) {
+        try {
+          handles.set(documentUrl, repo.findWithProgress<RepoDoc>(documentUrl).handle as DocHandle<RepoDoc>)
+        } catch {
+          handles.set(documentUrl, undefined)
+        }
+      }
+
+      return handles
+    },
+    [itemUrls, repo],
+  )
+  const [handleVersion, setHandleVersion] = useState(0)
+
+  useEffect(
+    () => {
+      if (itemHandlesByUrl.size === 0) {
+        return
+      }
+
+      let disposed = false
+      const cleanups: Array<() => void> = []
+
+      const bumpHandleVersion = () => {
+        if (!disposed) {
+          setHandleVersion(prev => prev + 1)
+        }
+      }
+
+      itemHandlesByUrl.forEach(handle => {
+        if (!handle) {
+          return
+        }
+
+        handle.on('heads-changed', bumpHandleVersion)
+        handle.on('change', bumpHandleVersion)
+        handle.on('delete', bumpHandleVersion)
+
+        cleanups.push(() => {
+          handle.removeListener('heads-changed', bumpHandleVersion)
+          handle.removeListener('change', bumpHandleVersion)
+          handle.removeListener('delete', bumpHandleVersion)
+        })
+      })
+
+      return () => {
+        disposed = true
+        for (const cleanup of cleanups) {
+          cleanup()
+        }
+      }
+    },
+    [itemHandlesByUrl],
+  )
 
   return useMemo(
     () => {
+      // This invalidates memoized items when async handle readiness events resolve.
+      void handleVersion
       const items: TItem[] = []
 
-      for (const itemId of itemIds) {
-        const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
-        const nextItem = parseItemFromDoc(itemId, itemDocsByUrl.get(documentUrl), resolvedSchema)
+      for (let index = 0; index < itemIds.length; index += 1) {
+        const itemId = itemIds[index]
+        const documentUrl = itemUrls[index]
+
+        if (!documentUrl) {
+          continue
+        }
+
+        const nextItem = parseItemFromDoc(
+          itemId,
+          readReadySnapshot(itemHandlesByUrl.get(documentUrl)),
+          resolvedSchema,
+        )
         if (nextItem) {
           items.push(nextItem)
         }
@@ -117,7 +201,7 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
 
       return items.length > 0 ? items : (EMPTY_ITEMS as TItem[])
     },
-    [itemDocsByUrl, itemIds, resolvedSchema],
+    [handleVersion, itemHandlesByUrl, itemIds, itemUrls, resolvedSchema],
   )
 }
 
