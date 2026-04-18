@@ -22,7 +22,7 @@ export type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, Sear
 interface SearchableRowProps {
   itemData: PropsAndOption[],
   index: number,
-  style: CSSProperties,
+  style?: CSSProperties,
 }
 
 export default function SearchableRow(

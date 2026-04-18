@@ -131,7 +131,6 @@ const ListBoxComponent = forwardRef<
                   key={item[1].id}
                   itemData={itemData}
                   index={index}
-                  style={{}}
                 />
               ))}
           </ul>
