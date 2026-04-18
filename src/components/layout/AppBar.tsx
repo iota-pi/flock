@@ -96,13 +96,7 @@ function AppBar({
 
         <SearchHolder>
           <ThemeProvider theme={darkTheme}>
-            <AsyncBoundary
-              loadingFallback={(
-                <Box display="flex" justifyContent="center" py={1}>
-                  <CircularProgress color="inherit" size={20} />
-                </Box>
-              )}
-            >
+            <AsyncBoundary loadingFallback={null}>
               <EverythingSearch label="Search" />
             </AsyncBoundary>
           </ThemeProvider>

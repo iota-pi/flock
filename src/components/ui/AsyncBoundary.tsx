@@ -16,7 +16,7 @@ type AsyncErrorBoundaryState = {
   error: Error | null
 }
 
-function DefaultLoadingFallback() {
+export function LoadingSpinner() {
   return (
     <Box display="flex" justifyContent="center" alignItems="center" height="100%" width="100%">
       <CircularProgress />
@@ -67,7 +67,7 @@ export default function AsyncBoundary({
 }: AsyncBoundaryProps) {
   return (
     <AsyncErrorBoundary errorFallback={errorFallback}>
-      <Suspense fallback={loadingFallback || <DefaultLoadingFallback />}>
+      <Suspense fallback={loadingFallback === undefined ? <LoadingSpinner /> : loadingFallback}>
         {children}
       </Suspense>
     </AsyncErrorBoundary>

@@ -7,19 +7,11 @@ import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { Page, PageId } from './types'
 import ErrorPage from './ErrorPage'
-import AsyncBoundary from '../ui/AsyncBoundary'
+import AsyncBoundary, { LoadingSpinner } from '../ui/AsyncBoundary'
 
 export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
   .map(([id, config]) => ({ ...config, id }))
 
-
-function Loading() {
-  return (
-    <Box display="flex" justifyContent="center" alignItems="center" height="100%" width="100%">
-      <CircularProgress />
-    </Box>
-  )
-}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loggedIn = useLoggedIn()
@@ -27,7 +19,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation()
 
   if (initializing) {
-    return <Loading />
+    return <LoadingSpinner />
   }
 
   if (!loggedIn) {
@@ -48,7 +40,7 @@ function RedirectIfLoggedIn(
   const location = useLocation()
 
   if (initializing) {
-    return <Loading />
+    return <LoadingSpinner />
   }
 
   if (loggedIn) {
@@ -70,7 +62,7 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RedirectIfLoggedIn redirect="/">
-        <AsyncBoundary loadingFallback={<Loading />}>
+        <AsyncBoundary>
           {p.page}
         </AsyncBoundary>
       </RedirectIfLoggedIn>
@@ -83,7 +75,7 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RequireAuth>
-        <AsyncBoundary loadingFallback={<Loading />}>
+        <AsyncBoundary>
           {p.page}
         </AsyncBoundary>
       </RequireAuth>
