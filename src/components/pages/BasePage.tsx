@@ -41,6 +41,8 @@ interface NoTopBarProps {
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps)
 type Props = PropsWithChildren<CombinedProps>
 
+const EMPTY_MENU_ITEMS: MenuItemData[] = []
+
 
 const ContentWithScroll = styled('div')(({ theme }) => ({
   position: 'relative',
@@ -75,7 +77,7 @@ function BasePage({
   fab,
   fabIcon,
   fabLabel,
-  menuItems,
+  menuItems = EMPTY_MENU_ITEMS,
   onClickFab,
   onSelectAll,
   noScrollContainer,
@@ -97,7 +99,7 @@ function BasePage({
         <TopBar
           allSelected={allSelected}
           filterable={showFilter}
-          menuItems={menuItems || []}
+          menuItems={menuItems}
           onSelectAll={onSelectAll}
           sortable={showSort}
           title={topBarTitle}
