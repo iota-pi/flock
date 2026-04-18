@@ -4,12 +4,9 @@ import type { ItemId } from '../shared/itemTypes'
 import { useNavigationStore } from '../state/navigationStore'
 
 const StyledChip = styled(Chip)(({ theme }) => ({
-  marginTop: theme.spacing(0.5),
-  marginBottom: theme.spacing(0.5),
-
   '& .MuiChip-label': {
-    paddingLeft: theme.spacing(2),
-    paddingRight: theme.spacing(2),
+    paddingLeft: theme.spacing(1.25),
+    paddingRight: theme.spacing(1.25),
   },
 }))
 
@@ -40,15 +37,13 @@ function TagChip({
   )
 
   return (
-    <Box my={0.5}>
-      <StyledChip
-        data-cy="tag"
-        label={tag}
-        onClick={linkedId ? handleClick : undefined}
-        variant="outlined"
-        size="small"
-      />
-    </Box>
+    <StyledChip
+      data-cy="tag"
+      label={tag}
+      onClick={linkedId ? handleClick : undefined}
+      variant="outlined"
+      size="small"
+    />
   )
 }
 

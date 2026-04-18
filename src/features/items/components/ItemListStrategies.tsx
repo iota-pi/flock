@@ -1,6 +1,7 @@
 import { type CSSProperties, ReactNode, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { GroupItem, Item } from '../../../state/items'
+import { Item } from '../../../state/items'
+import { type GroupLookupData } from '../hooks/useGroupLookups'
 import { ItemListItem } from './ItemListItem'
 
 type ItemListRendererProps<T extends Item> = {
@@ -12,7 +13,7 @@ type ItemListRendererProps<T extends Item> = {
   getHighlighted?: (item: T) => boolean
   getIcon?: (item: T) => ReactNode
   getTitle?: (item: T) => string
-  groupsByMemberId: ReadonlyMap<string, GroupItem[]>
+  groupsByMemberId: ReadonlyMap<string, GroupLookupData>
   highlightedItemIds: ReadonlySet<string>
   onCheck?: (item: T) => void
   onClick?: (item: T) => void

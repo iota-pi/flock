@@ -9,8 +9,8 @@ import {
   Divider,
   SxProps,
 } from '@mui/material'
-import { GroupItem, Item } from '../../../state/items'
-import { useGroupLookups } from '../hooks/useGroupLookups'
+import { Item } from '../../../state/items'
+import { useGroupLookups, type GroupLookupData } from '../hooks/useGroupLookups'
 import { ItemListContextProvider } from './ItemListContext'
 import {
   StandardItemList,
@@ -35,7 +35,7 @@ interface BaseProps<T extends Item> {
   getHighlighted?: (item: T) => boolean,
   getIcon?: (item: T) => ReactNode,
   getTitle?: (item: T) => string,
-  groupsByMemberId?: ReadonlyMap<string, GroupItem[]>,
+  groupsByMemberId?: ReadonlyMap<string, GroupLookupData>,
   items: T[],
   linkTags?: boolean,
   maxTags?: number,

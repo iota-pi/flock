@@ -19,7 +19,8 @@ import {
 } from '@mui/material'
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
-import { getItemName, type GroupItem, isItem, type Item } from 'src/state/items'
+import { getItemName, isItem, type Item } from 'src/state/items'
+import { type GroupLookupData } from '../hooks/useGroupLookups'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -75,7 +76,7 @@ interface ItemListItemProps<T extends Item> {
   getForceFade?: (item: T) => boolean
   getIcon?: (item: T) => ReactNode
   getTitle?: (item: T) => string
-  groupsByMemberId?: ReadonlyMap<string, GroupItem[]>
+  groupsByMemberId?: ReadonlyMap<string, GroupLookupData>
   highlighted?: boolean
   onCheck?: (item: T) => void
   onClick?: (item: T) => void
@@ -172,23 +173,23 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     },
     [currentItem, getDescription],
   )
-  const groups = useMemo(
-    () => groupsByMemberId?.get(currentItem.id) || [],
+  const groupLookup = useMemo(
+    () => groupsByMemberId?.get(currentItem.id),
     [currentItem.id, groupsByMemberId],
   )
   const tags = useMemo(
     () => {
-      const groupNames = groups.filter(g => !g.archived).map(g => g.name)
+      const groupNames = groupLookup?.tags ?? []
       if (filterTags) {
         return groupNames.filter(filterTags)
       }
       return groupNames
     },
-    [filterTags, groups],
+    [filterTags, groupLookup],
   )
   const groupIds = useMemo(
-    () => linkTags ? groups.map(g => g.id) : undefined,
-    [groups, linkTags],
+    () => linkTags ? groupLookup?.groupIds : undefined,
+    [groupLookup, linkTags],
   )
 
   const faded = useMemo(
