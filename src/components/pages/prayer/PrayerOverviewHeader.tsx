@@ -6,12 +6,12 @@ import {
   Grid,
   IconButton,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
 import {
   EditIcon,
   NextIcon,
 } from '../../Icons'
-import PageContainer from '../../ui/PageContainer'
 
 interface Props {
   completed: number,
@@ -34,48 +34,51 @@ function PrayerOverviewHeader({
   onEditGoal,
   onStart,
 }: Props) {
+  const xs = useMediaQuery(theme => theme.breakpoints.down('sm'))
+
   return (
     <Fragment>
-      <PageContainer maxWidth="xl">
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12 }} display="flex" alignItems="center">
-            <Typography>
-              {'Daily Goal: '}
-              {completed}
-              {' / '}
-              <Typography
-                color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
-                component="span"
-              >
-                {goal}
-              </Typography>
+      <Grid
+        container
+        spacing={2}
+        paddingX={2}
+        paddingY={xs ? 1 : 2}
+      >
+        <Grid size={{ xs: 12 }} display="flex" alignItems="center">
+          <Typography>
+            {'Daily Goal: '}
+            {completed}
+            {' / '}
+            <Typography
+              color={goal < naturalGoal ? 'secondary' : 'textPrimary'}
+              component="span"
+            >
+              {goal}
             </Typography>
+          </Typography>
 
-            <IconButton
-              aria-label="Edit prayer goal"
-              size="medium"
-              onClick={onEditGoal}
-              sx={{ ml: 1 }}
-              data-cy="edit-goal"
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
+          <IconButton
+            aria-label="Edit prayer goal"
+            size="medium"
+            onClick={onEditGoal}
+            sx={{ ml: 1 }}
+            data-cy="edit-goal"
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
 
-            <Box sx={{ flexGrow: 1 }} />
+          <Box sx={{ flexGrow: 1 }} />
 
-            <Button
-              data-cy="start-prayer"
-              disabled={visibleScheduleLength === 0 || startDisabled}
-              endIcon={<NextIcon />}
-              onClick={onStart}
-              size="small"
-              variant="contained"
-            >
-              {startLabel}
-            </Button>
-          </Grid>
+          <Button
+            data-cy="start-prayer"
+            disabled={visibleScheduleLength === 0 || startDisabled}
+            endIcon={<NextIcon />}
+            onClick={onStart}
+          >
+            {startLabel}
+          </Button>
         </Grid>
-      </PageContainer>
+      </Grid>
       <Divider />
     </Fragment>
   )

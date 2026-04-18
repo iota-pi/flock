@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import {
+  Box,
   Divider,
   Typography,
 } from '@mui/material'
@@ -8,7 +9,6 @@ import BasePage from './BasePage'
 import type { Item } from '../../state/items'
 import useSettings from '../../hooks/useSettings'
 import { useDialogState } from '../../hooks/useDialogState'
-import PageContainer from '../ui/PageContainer'
 import type { RestorePayload } from '../../types/backup'
 import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
@@ -77,7 +77,7 @@ function SettingsPage() {
 
   return (
     <BasePage>
-      <PageContainer maxWidth="xl">
+      <Box padding={2}>
         <Typography variant="h4" fontWeight={300} gutterBottom>
           Settings
         </Typography>
@@ -85,7 +85,7 @@ function SettingsPage() {
         <Typography color="textSecondary">
           Account ID: {values.account}
         </Typography>
-      </PageContainer>
+      </Box>
 
       <Divider />
 
