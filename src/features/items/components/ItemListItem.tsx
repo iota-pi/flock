@@ -16,6 +16,7 @@ import {
   ListItemText,
   type ListItemTextProps,
   styled,
+  useTheme,
 } from '@mui/material'
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
@@ -229,6 +230,8 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     </CheckboxHolder>
   )
 
+  const marginLeft = useTheme().spacing(2)
+
   return (
     <div style={style} ref={measureElement} data-index={index}>
       {dividers && <Divider />}
@@ -248,17 +251,21 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
           </StyledListItemIcon>
         )}
 
-        <Box
-          display="flex"
-          flexDirection="row"
-          flexGrow={1}
-          minWidth={0}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            flexGrow: 1,
+            minWidth: 0,
+          }}
         >
-          <Box
-            display="flex"
-            alignItems="center"
-            flexGrow={1}
-            minWidth={0}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexGrow: 1,
+              minWidth: 0,
+            }}
           >
             <StyledListItemText
               faded={faded}
@@ -267,9 +274,9 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
               primary={title}
               secondary={description || undefined}
             />
-          </Box>
+          </div>
 
-          <Box flexGrow={1} />
+          <div style={{ flexGrow: 1 }} />
 
           {showTags && isItem(currentItem) && (
             <TagDisplay
@@ -278,10 +285,10 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
               max={maxTags}
             />
           )}
-        </Box>
+        </div>
 
         {actionIcon && (
-          <Box ml={2}>
+          <div style={{ marginLeft }}>
             <IconButton
               aria-label="List item action"
               data-cy="list-item-action"
@@ -294,7 +301,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
             >
               {actionIcon}
             </IconButton>
-          </Box>
+          </div>
         )}
 
         {checkboxSide === 'right' && checkbox}
