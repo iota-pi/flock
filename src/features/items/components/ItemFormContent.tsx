@@ -8,10 +8,8 @@ import {
 import {
   LocalChangeItem,
   GroupItem,
-  getItemName,
   Item,
 } from '../../../state/items'
-import { useItems } from '../../../state/selectors'
 import DebouncedTextField, { type DebouncedTextFieldControls } from '../../../components/ui/DebouncedTextField'
 import {
   DeleteIcon,
@@ -45,7 +43,6 @@ function ItemFormContent({
   hideHeaderFields = false,
   hideRelationships = false,
 }: ItemFormContentProps) {
-  const allItems = useItems()
   const [showDescription, setShowDescription] = useState((item.description || '').length > 0)
   const [nameValue, setNameValue] = useState(item.name || '')
   const [descriptionValue, setDescriptionValue] = useState(item.description || '')
@@ -96,33 +93,6 @@ function ItemFormContent({
     handleChange<Item>({ description: '' })
     setShowDescription(false)
   }, [handleChange])
-
-  const itemsByName = useMemo(
-    () => {
-      const result: { [name: string]: Item[] | undefined } = {}
-      for (const i of allItems) {
-        const name = getItemName(i)
-        if (result[name] === undefined) {
-          result[name] = [i]
-        } else {
-          result[name]!.push(i)
-        }
-      }
-      return result
-    },
-    [allItems],
-  )
-
-  const duplicates = useMemo(
-    () => {
-      const potential = itemsByName[getItemName({ name: nameValue, type: item.type })]
-      if (potential) {
-        return potential.filter(i => i.type === item.type && i.id !== item.id)
-      }
-      return []
-    },
-    [item.id, item.type, itemsByName, nameValue],
-  )
 
   const defaultExpandAccordions = !fromPrayerPage
   const hasDescription = !!descriptionValue
@@ -224,9 +194,10 @@ function ItemFormContent({
     <Grid container spacing={2}>
       {!hideHeaderFields && (
         <ItemFormDuplicateAlertSection
-          duplicateCount={duplicates.length}
           hasDescription={hasDescription}
+          itemId={item.id}
           itemType={item.type}
+          nameValue={nameValue}
         />
       )}
       {!hideHeaderFields && nameFields}
