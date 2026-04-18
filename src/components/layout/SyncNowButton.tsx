@@ -1,8 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, CircularProgress, IconButton, Tooltip } from '@mui/material'
 import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import { useUiStore } from '../../state/uiStore'
 import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
@@ -12,8 +11,35 @@ import { getAccountId } from 'src/api/util'
 function SyncNowButton() {
   const syncInProgress = useSyncStore(state => state.isSyncing)
   const activeRequests = useUiStore(state => state.activeRequests)
-  const isSyncing = syncInProgress || activeRequests > 0
+  const storeIsSyncing = syncInProgress || activeRequests > 0
   const isOnline = useOnlineStatus()
+
+  const [isSyncing, setIsSyncing] = useState<boolean>(storeIsSyncing)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (storeIsSyncing) {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+      setIsSyncing(true)
+    } else {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      timeoutRef.current = setTimeout(() => {
+        timeoutRef.current = null
+        setIsSyncing(false)
+      }, 100)
+    }
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+    }
+  }, [storeIsSyncing])
 
   const handleForceSync = useCallback(
     async () => {
@@ -34,9 +60,7 @@ function SyncNowButton() {
   const isSyncActive = isSyncing
   const syncStatusIcon = !isOnline
     ? <CloudOffIcon color="warning" />
-    : isSyncActive
-      ? <CloudUploadIcon color="info" />
-      : <CloudDoneIcon color="success" />
+    : <CloudDoneIcon color="success" />
   const syncTooltip = !isOnline
     ? 'Offline'
     : isSyncActive
@@ -56,13 +80,13 @@ function SyncNowButton() {
           aria-label="Sync now"
         >
           <Box position="relative" display="inline-flex" alignItems="center" justifyContent="center">
-            {syncStatusIcon}
-            {isSyncing && (
+            {isSyncing ? (
               <CircularProgress
-                size={22}
-                thickness={5}
-                sx={{ position: 'absolute' }}
+                size={24}
+                color='info'
               />
+            ) : (
+              syncStatusIcon
             )}
           </Box>
         </IconButton>
