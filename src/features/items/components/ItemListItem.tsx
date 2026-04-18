@@ -6,7 +6,6 @@ import {
   useMemo,
 } from 'react'
 import {
-  Box,
   Checkbox,
   Divider,
   IconButton,
@@ -21,7 +20,6 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, type GroupItem, isItem, type Item } from 'src/state/items'
-import { useNavigationStore } from 'src/state/navigationStore'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -75,10 +73,10 @@ interface ItemListItemProps<T extends Item> {
   getChecked?: (item: T) => boolean
   getDescription?: (item: T) => string
   getForceFade?: (item: T) => boolean
-  getHighlighted?: (item: T) => boolean
   getIcon?: (item: T) => ReactNode
   getTitle?: (item: T) => string
   groupsByMemberId?: ReadonlyMap<string, GroupItem[]>
+  highlighted?: boolean
   onCheck?: (item: T) => void
   onClick?: (item: T) => void
   onClickAction?: (item: T) => void
@@ -95,10 +93,10 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     getChecked,
     getDescription,
     getForceFade,
-    getHighlighted,
     getIcon,
     getTitle,
     groupsByMemberId,
+    highlighted,
     onCheck,
     onClick,
     onClickAction,
@@ -118,12 +116,6 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
   } = useItemListContext()
 
   const currentItem = item
-  const highlightedByDrawer = useNavigationStore(
-    useCallback(
-      state => state.drawers.some(drawer => drawer.item === currentItem.id),
-      [currentItem.id],
-    ),
-  )
 
   const handleClick = useCallback(
     () => onClick?.(currentItem),
@@ -211,10 +203,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     },
     [currentItem, fadeArchived, getForceFade],
   )
-  const highlighted = useMemo(
-    () => getHighlighted?.(currentItem) ?? highlightedByDrawer,
-    [currentItem, getHighlighted, highlightedByDrawer],
-  )
+  const isHighlighted = highlighted ?? false
 
   const CheckboxHolder = checkboxSide === 'right' ? ListItemIconRight : ListItemIcon
   const checkbox = checkboxes && onCheck && (
@@ -239,7 +228,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
       <StyledListItem
         data-cy="list-item"
         disabled={!onClick && !onCheck && !onClickAction}
-        selected={highlighted || false}
+        selected={isHighlighted}
         onClick={onClick ? handleClick : undefined}
         dense={compact}
       >

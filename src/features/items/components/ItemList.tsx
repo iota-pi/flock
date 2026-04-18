@@ -16,6 +16,8 @@ import {
   StandardItemList,
   VirtualizedItemList,
 } from './ItemListStrategies'
+import { useNavigationStore } from '../../../state/navigationStore'
+import { useShallow } from 'zustand/react/shallow'
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20
@@ -54,6 +56,18 @@ interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
   paddingBottom?: number,
 }
 
+const selectActiveDrawerItemIds = (state: ReturnType<typeof useNavigationStore.getState>) => {
+  const activeDrawerItemIds = new Set<string>()
+
+  for (const drawer of state.drawers) {
+    if (drawer.item) {
+      activeDrawerItemIds.add(drawer.item)
+    }
+  }
+
+  return Array.from(activeDrawerItemIds).sort()
+}
+
 function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   const {
     getActionIcon,
@@ -88,6 +102,11 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
   } = props
 
   const groupsByMemberId = useGroupLookups()
+  const activeDrawerItemIds = useNavigationStore(useShallow(selectActiveDrawerItemIds))
+  const highlightedItemIds = useMemo(
+    () => new Set(activeDrawerItemIds),
+    [activeDrawerItemIds],
+  )
 
   const useDynamicHeight = Boolean(
     fullHeight && (wrapText || compact),
@@ -128,21 +147,40 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     [fullHeight, paddingBottom],
   )
 
-  const listRendererProps = {
-    filterTags,
-    getActionIcon,
-    getChecked,
-    getDescription,
-    getForceFade,
-    getHighlighted,
-    getIcon,
-    getTitle,
-    groupsByMemberId,
-    items,
-    onCheck,
-    onClick,
-    onClickAction,
-  }
+  const listRendererProps = useMemo(
+    () => ({
+      filterTags,
+      getActionIcon,
+      getChecked,
+      getDescription,
+      getForceFade,
+      getHighlighted,
+      getIcon,
+      getTitle,
+      groupsByMemberId,
+      highlightedItemIds,
+      items,
+      onCheck,
+      onClick,
+      onClickAction,
+    }),
+    [
+      filterTags,
+      getActionIcon,
+      getChecked,
+      getDescription,
+      getForceFade,
+      getHighlighted,
+      getIcon,
+      getTitle,
+      groupsByMemberId,
+      highlightedItemIds,
+      items,
+      onCheck,
+      onClick,
+      onClickAction,
+    ],
+  )
 
   const useVirtualizedList = fullHeight && items.length > FALLBACK_RENDER_COUNT
 

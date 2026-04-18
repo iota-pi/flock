@@ -13,6 +13,7 @@ type ItemListRendererProps<T extends Item> = {
   getIcon?: (item: T) => ReactNode
   getTitle?: (item: T) => string
   groupsByMemberId: ReadonlyMap<string, GroupItem[]>
+  highlightedItemIds: ReadonlySet<string>
   onCheck?: (item: T) => void
   onClick?: (item: T) => void
   onClickAction?: (item: T) => void
@@ -30,6 +31,8 @@ type VirtualizedItemListProps<T extends Item> = ItemListRendererProps<T> & {
   useDynamicHeight: boolean
 }
 
+const EMPTY_STYLE: CSSProperties = {}
+
 function createItemListItem<T extends Item>(
   item: T,
   index: number,
@@ -37,6 +40,8 @@ function createItemListItem<T extends Item>(
   style: CSSProperties,
   measureElement?: (node: HTMLElement | null) => void,
 ) {
+  const highlighted = props.getHighlighted?.(item) ?? props.highlightedItemIds.has(item.id)
+
   return (
     <ItemListItem
       key={item.id}
@@ -49,10 +54,10 @@ function createItemListItem<T extends Item>(
       getChecked={props.getChecked}
       getDescription={props.getDescription}
       getForceFade={props.getForceFade}
-      getHighlighted={props.getHighlighted}
       getIcon={props.getIcon}
       getTitle={props.getTitle}
       groupsByMemberId={props.groupsByMemberId}
+      highlighted={highlighted}
       onCheck={props.onCheck}
       onClick={props.onClick}
       onClickAction={props.onClickAction}
@@ -66,7 +71,7 @@ export function StandardItemList<T extends Item>({
   ...props
 }: StandardItemListProps<T>) {
   const content = items.map((item, index) => (
-    createItemListItem(item, index, props, {})
+    createItemListItem(item, index, props, EMPTY_STYLE)
   ))
 
   if (!fullHeight) {
@@ -156,7 +161,7 @@ export function VirtualizedItemList<T extends Item>({
             )
           })
           : fallbackItems.map((item, index) => (
-            createItemListItem(item, index, props, {})
+            createItemListItem(item, index, props, EMPTY_STYLE)
           ))}
       </div>
     </div>
