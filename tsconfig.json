@@ -34,8 +34,8 @@
   },
   "include": [
     "src",
-    "src/vault/types.d.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "scripts",
   ],
   "exclude": [
     "node_modules",
