@@ -19,6 +19,7 @@ import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 
 const useAutomergeMocks = vi.hoisted(() => ({
   useAutomergeItems: vi.fn(),
+  useAutomergeItemsById: vi.fn(),
   useAutomergeItem: vi.fn(),
   useAutomergeMetadataSnapshot: vi.fn(),
 }))
@@ -29,6 +30,7 @@ vi.mock('../features/items/mutations/itemMutations', () => ({
 
 vi.mock('../sync/useAutomerge', () => ({
   useAutomergeItems: useAutomergeMocks.useAutomergeItems,
+  useAutomergeItemsById: useAutomergeMocks.useAutomergeItemsById,
   useAutomergeItem: useAutomergeMocks.useAutomergeItem,
   useAutomergeMetadataSnapshot: useAutomergeMocks.useAutomergeMetadataSnapshot,
 }))
@@ -81,6 +83,9 @@ describe('state selectors', () => {
     automergeMetadataState = {}
 
     useAutomergeMocks.useAutomergeItems.mockImplementation(() => automergeItemsState)
+    useAutomergeMocks.useAutomergeItemsById.mockImplementation((ids: string[]) => ids
+      .map(itemId => automergeItemsState.find(item => item.id === itemId))
+      .filter((item): item is Item => item !== undefined))
     useAutomergeMocks.useAutomergeItem.mockImplementation((itemId: string) => (
       automergeItemsState.find(item => item.id === itemId) || null
     ))
@@ -177,6 +182,7 @@ describe('state selectors', () => {
 
   it('useSearchItems keeps stable snapshot when item references change but values do not', () => {
     const options = {
+      isOpen: true,
       includeArchived: false,
       selectedItemIds: [],
       showSelectedOptions: false,
@@ -201,6 +207,7 @@ describe('state selectors', () => {
 
   it('useSearchItems returns a new snapshot when visible item data changes', () => {
     const options = {
+      isOpen: true,
       includeArchived: false,
       selectedItemIds: [],
       showSelectedOptions: false,

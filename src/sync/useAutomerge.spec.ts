@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { Item } from '../state/items'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
-import { useAutomergeItems, useAutomergeMetadataSnapshot } from './useAutomerge'
+import { useAutomergeItems, useAutomergeItemsById } from './useAutomerge'
 
 type Listener = () => void
 
@@ -327,44 +327,28 @@ describe('useAutomergeItems', () => {
     expect(handleA.listenerCount('change')).toBe(0)
     expect(handleB.listenerCount('change')).toBeGreaterThan(0)
   })
+
+  it('loads requested docs without reading the index document', () => {
+    const targetItemId = 'item-targeted'
+    const targetItemUrl = toAutomergeUrlFromItemId(targetItemId) as AutomergeUrl
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+
+    const repo = createMockRepo(new Map([
+      [targetItemUrl, new MockDocHandle(true, false, buildPersonDoc(targetItemId, 'Targeted'))],
+    ]))
+    const findWithProgressSpy = vi.spyOn(repo, 'findWithProgress')
+
+    useRepoMock.mockReturnValue(repo)
+
+    const { result } = renderHook(() => useAutomergeItemsById<Item>([targetItemId]))
+
+    expect(result.current.map(item => item.id)).toEqual([targetItemId])
+    expect(findWithProgressSpy).not.toHaveBeenCalledWith(indexUrl)
+  })
 })
 
 describe('useAutomergeMetadataSnapshot', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('returns normalized metadata from the index document', () => {
-    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
-    const metadataDoc = {
-      metadata: {
-        prayerGoal: 5,
-        completedMigrations: ['m1'],
-      },
-    }
-
-    useRepoMock.mockReturnValue(
-      createMockRepo(new Map([
-        [indexUrl, new MockDocHandle(true, false, metadataDoc)],
-      ])),
-    )
-
-    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
-
-    expect(result.current.prayerGoal).toBe(5)
-    expect(result.current.completedMigrations).toEqual(['m1'])
-  })
-
-  it('returns empty metadata for missing or invalid metadata states', () => {
-    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
-
-    useRepoMock.mockReturnValue(
-      createMockRepo(new Map([
-        [indexUrl, new MockDocHandle(true, false, { metadata: { prayerGoal: 'bad' } })],
-      ])),
-    )
-
-    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
-    expect(result.current).toEqual({})
   })
 })

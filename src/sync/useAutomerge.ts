@@ -135,35 +135,23 @@ function syncItemsSnapshot<TItem extends Item>(store: ItemsStoreState<TItem>): b
   return true
 }
 
-export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema<TItem>): TItem[] {
+function useAutomergeItemsFromIds<TItem extends Item = Item>(
+  itemIds: string[],
+  schema?: ItemSchema<TItem>,
+): TItem[] {
   const resolvedSchema = resolveItemSchema(schema)
   const repo = useRepo()
 
-  const indexUrl = useMemo(
-    () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
-    [],
-  )
-
-  const parseIndexItemIds = useCallback(
-    (indexDoc: RepoDoc | undefined): string[] => {
-      const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema)
-      return normalizeItemIds(parsedIndexDoc?.itemIds)
-    },
-    [],
-  )
-
-  const [itemIds] = useOptimizedDocument<RepoDoc, string[]>(
-    indexUrl,
-    parseIndexItemIds,
-    EMPTY_ITEM_IDS,
-    ['change', 'heads-changed', 'delete'],
+  const normalizedItemIds = useMemo(
+    () => normalizeItemIds(itemIds),
+    [itemIds],
   )
 
   const store = useMemo((): ItemsStoreState<TItem> => {
     const nextStore: ItemsStoreState<TItem> = {
       repo,
       schema: resolvedSchema,
-      itemIds,
+      itemIds: normalizedItemIds,
       parsedItemsByUrl: new Map<AutomergeUrl, WeakMap<object, TItem | null>>(),
       snapshot: EMPTY_ITEMS as TItem[],
     }
@@ -171,7 +159,7 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
     syncParsedItemCacheKeys(nextStore)
     syncItemsSnapshot(nextStore)
     return nextStore
-  }, [itemIds, repo, resolvedSchema])
+  }, [normalizedItemIds, repo, resolvedSchema])
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -228,6 +216,37 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
   )
 }
 
+export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema<TItem>): TItem[] {
+  const indexUrl = useMemo(
+    () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
+    [],
+  )
+
+  const parseIndexItemIds = useCallback(
+    (indexDoc: RepoDoc | undefined): string[] => {
+      const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema)
+      return normalizeItemIds(parsedIndexDoc?.itemIds)
+    },
+    [],
+  )
+
+  const [itemIds] = useOptimizedDocument<RepoDoc, string[]>(
+    indexUrl,
+    parseIndexItemIds,
+    EMPTY_ITEM_IDS,
+    ['change', 'heads-changed', 'delete'],
+  )
+
+  return useAutomergeItemsFromIds<TItem>(itemIds, schema)
+}
+
+export function useAutomergeItemsById<TItem extends Item = Item>(
+  itemIds: string[],
+  schema?: ItemSchema<TItem>,
+): TItem[] {
+  return useAutomergeItemsFromIds<TItem>(itemIds, schema)
+}
+
 export function useAutomergeItemDocument<TItem extends Item = Item>(
   itemId: string,
   schema?: ItemSchema<TItem>,
@@ -269,25 +288,37 @@ function normalizeMetadataFromIndex(indexDoc: AutomergeIndexDocument | undefined
   return metadata || EMPTY_METADATA
 }
 
-export function useAutomergeMetadataSnapshot(): AccountMetadata {
+export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
+  key: K,
+): AccountMetadata[K]
+export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
+  key: K,
+  defaultValue: NonNullable<AccountMetadata[K]>,
+): NonNullable<AccountMetadata[K]>
+export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
+  key: K,
+  defaultValue?: AccountMetadata[K],
+): AccountMetadata[K] {
   const indexUrl = useMemo(
     () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
     [],
   )
 
-  const projectMetadataSnapshot = useCallback(
-    (indexDoc: RepoDoc | undefined): AccountMetadata => {
+  const projectMetadataProperty = useCallback(
+    (indexDoc: RepoDoc | undefined): AccountMetadata[K] => {
       const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema) || undefined
-      return normalizeMetadataFromIndex(parsedIndexDoc)
+      const metadata = normalizeMetadataFromIndex(parsedIndexDoc)
+
+      return metadata[key] === undefined ? (defaultValue as AccountMetadata[K]) : metadata[key]
     },
-    [],
+    [key, defaultValue],
   )
 
-  const [metadata] = useOptimizedDocument<RepoDoc, AccountMetadata>(
+  const [value] = useOptimizedDocument<RepoDoc, AccountMetadata[K]>(
     indexUrl,
-    projectMetadataSnapshot,
-    EMPTY_METADATA,
+    projectMetadataProperty,
+    defaultValue as AccountMetadata[K],
   )
 
-  return metadata
+  return value
 }
