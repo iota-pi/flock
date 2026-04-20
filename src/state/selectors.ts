@@ -30,6 +30,7 @@ type PrayerScheduleInputs = {
 }
 
 type SearchItemsOptions = {
+  isOpen: boolean,
   includeArchived: boolean,
   selectedItemIds: ItemId[],
   showSelectedOptions: boolean,
@@ -235,6 +236,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
   const items = useAutomergeItems<Item>()
   const metadata = useAutomergeMetadataSnapshot()
   const {
+    isOpen,
     includeArchived,
     selectedItemIds,
     showSelectedOptions,
@@ -243,7 +245,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
 
   const nextValue = useMemo(
     () => {
-      if (!authReady) {
+      if (!authReady || !isOpen) {
         return EMPTY_SEARCH_ITEMS_RESULT
       }
 

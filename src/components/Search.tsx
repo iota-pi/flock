@@ -4,6 +4,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
 } from 'react'
 import {
   Autocomplete,
@@ -129,10 +130,15 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     () => selectedItems.map(s => (typeof s === 'string' ? s : s.id)),
     [selectedItems],
   )
+  const [isOpen, setIsOpen] = useState(false)
+  const handleOpen = useCallback(() => setIsOpen(true), [])
+  const handleClose = useCallback(() => setIsOpen(false), [])
+
   const {
     defaultFrequencies,
     items,
   } = useSearchItems({
+    isOpen,
     includeArchived,
     selectedItemIds,
     showSelectedOptions,
@@ -328,6 +334,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         }}
         multiple
         noOptionsText={noItemsText}
+        onOpen={handleOpen}
+        onClose={handleClose}
         onChange={handleChange}
         onHighlightChange={handleHighlightChange}
         options={options}

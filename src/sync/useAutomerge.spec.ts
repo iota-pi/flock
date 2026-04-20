@@ -1,22 +1,20 @@
 import { act, renderHook } from '@testing-library/react'
 import type { AutomergeUrl } from '@automerge/automerge-repo/slim'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from '../state/items'
+import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { useAutomergeItems } from './useAutomerge'
 
 type Listener = () => void
 
 const {
-  useDocumentMock,
   useRepoMock,
 } = vi.hoisted(() => ({
-  useDocumentMock: vi.fn(),
   useRepoMock: vi.fn(),
 }))
 
 vi.mock('@automerge/automerge-repo-react-hooks', () => ({
-  useDocument: useDocumentMock,
   useRepo: useRepoMock,
 }))
 
@@ -59,6 +57,10 @@ class MockDocHandle {
     this.listeners.get(event)?.delete(listener)
   }
 
+  public whenReady(): Promise<void> {
+    return Promise.resolve()
+  }
+
   public setDoc(nextDoc: Record<string, unknown>): void {
     this.currentDoc = nextDoc
   }
@@ -97,24 +99,30 @@ function createMockRepo(handleByUrl: Map<AutomergeUrl, MockDocHandle>) {
   }
 }
 
+function buildIndexDoc(itemIds: string[]): Record<string, unknown> {
+  return {
+    itemIds,
+  }
+}
+
 describe('useAutomergeItems', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('skips non-ready handles instead of throwing', () => {
     const itemId = 'item-1'
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
     const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
-
-    useDocumentMock.mockReturnValue([
-      {
-        itemIds: [itemId],
-      },
-      vi.fn(),
-    ])
 
     useRepoMock.mockReturnValue(
       createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, buildIndexDoc([itemId]))],
         [itemUrl, new MockDocHandle(false, false, buildPersonDoc(itemId, 'Alpha'))],
       ])),
     )
@@ -126,6 +134,7 @@ describe('useAutomergeItems', () => {
 
   it('normalizes missing ids and updates when handle emits changes', () => {
     const itemId = 'item-2'
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
     const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
 
     const initialDoc = buildPersonDoc(itemId, 'Before')
@@ -133,15 +142,9 @@ describe('useAutomergeItems', () => {
 
     const handle = new MockDocHandle(true, false, initialDoc)
 
-    useDocumentMock.mockReturnValue([
-      {
-        itemIds: [itemId],
-      },
-      vi.fn(),
-    ])
-
     useRepoMock.mockReturnValue(
       createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, buildIndexDoc([itemId]))],
         [itemUrl, handle],
       ])),
     )
@@ -157,7 +160,39 @@ describe('useAutomergeItems', () => {
       handle.emit('change')
     })
 
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
     expect(result.current).toHaveLength(1)
     expect(result.current[0]?.name).toBe('After')
+  })
+
+  it('keeps stable item array reference when events do not change parsed values', () => {
+    const itemId = 'item-3'
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+
+    const handle = new MockDocHandle(true, false, buildPersonDoc(itemId, 'Stable'))
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, buildIndexDoc([itemId]))],
+        [itemUrl, handle],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeItems<Item>())
+    const firstResult = result.current
+
+    act(() => {
+      handle.emit('heads-changed')
+    })
+
+    act(() => {
+      vi.runOnlyPendingTimers()
+    })
+
+    expect(result.current).toBe(firstResult)
   })
 })

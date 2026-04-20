@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useDocument, useRepo } from '@automerge/automerge-repo-react-hooks'
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useRepo } from '@automerge/automerge-repo-react-hooks'
 import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
 import { z } from 'zod'
 import type { Item } from '../state/items'
@@ -8,20 +8,32 @@ import { accountMetadataSchema } from '../shared/schemas/metadata'
 import { itemSchema } from '../shared/schemas/items'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import {
+  useOptimizedDocument,
+  findRepoDocHandle,
+  readReadySnapshot,
+  readStableSnapshot,
+} from './useOptimizedDocument'
 
 const EMPTY_ITEMS: Item[] = []
+const EMPTY_ITEM_IDS: string[] = []
 const EMPTY_METADATA: AccountMetadata = {}
 
-const automergeIndexDocumentSchema = z.object({
+
+const automergeIndexDocumentSchema = z.looseObject({
   accountId: z.string().optional(),
   itemIds: z.array(z.string()).optional(),
   metadata: z.unknown().optional(),
-}).passthrough()
+})
 
 type RepoDoc = Record<string, unknown>
 type RepoDocHandle = DocHandle<RepoDoc> | undefined
 type AutomergeIndexDocument = z.infer<typeof automergeIndexDocumentSchema>
 type ItemSchema<TItem extends Item> = z.ZodType<TItem>
+type StableSnapshot<T> = {
+  signature: string,
+  value: T,
+}
 
 const defaultItemSchema = itemSchema as ItemSchema<Item>
 
@@ -78,130 +90,144 @@ function parseItemFromDoc<TItem extends Item>(
 function resolveItemSchema<TItem extends Item>(schema?: ItemSchema<TItem>): ItemSchema<TItem> {
   return (schema || defaultItemSchema) as ItemSchema<TItem>
 }
-
-function readReadySnapshot(handle: RepoDocHandle): RepoDoc | null {
-  if (!handle || !handle.isReady() || handle.isUnavailable()) {
-    return null
-  }
-
-  try {
-    const doc = handle.doc()
-    return (!doc || typeof doc !== 'object' || Array.isArray(doc)) ? null : (doc as RepoDoc)
-  } catch {
-    return null
-  }
-}
-
 export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema<TItem>): TItem[] {
   const resolvedSchema = resolveItemSchema(schema)
   const repo = useRepo()
 
-  const [indexDoc] = useDocument<AutomergeIndexDocument>(
-    toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID),
-    { suspense: true },
+  const indexUrl = useMemo(
+    () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
+    [],
   )
 
-  const parsedIndexDoc = useMemo(
-    () => parseWithSchema(indexDoc, automergeIndexDocumentSchema),
-    [indexDoc],
-  )
-
-  const itemIds = useMemo(
-    () => normalizeItemIds(parsedIndexDoc?.itemIds),
-    [parsedIndexDoc],
-  )
-
-  const itemUrls = useMemo(
-    () => itemIds.map(itemId => toAutomergeUrlFromItemId(itemId) as AutomergeUrl),
-    [itemIds],
-  )
-
-  const itemHandlesByUrl = useMemo(
-    () => {
-      const handles = new Map<AutomergeUrl, RepoDocHandle>()
-
-      for (const documentUrl of itemUrls) {
-        try {
-          handles.set(documentUrl, repo.findWithProgress<RepoDoc>(documentUrl).handle as DocHandle<RepoDoc>)
-        } catch {
-          handles.set(documentUrl, undefined)
-        }
-      }
-
-      return handles
+  const parseIndexItemIds = useCallback(
+    (indexDoc: RepoDoc | undefined): string[] => {
+      const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema)
+      return normalizeItemIds(parsedIndexDoc?.itemIds)
     },
-    [itemUrls, repo],
+    [],
   )
-  const [handleVersion, setHandleVersion] = useState(0)
 
-  useEffect(
-    () => {
-      if (itemHandlesByUrl.size === 0) {
-        return
+  const [itemIds] = useOptimizedDocument<RepoDoc, string[]>(
+    indexUrl,
+    parseIndexItemIds,
+    EMPTY_ITEM_IDS,
+    ['change', 'heads-changed', 'delete'],
+  )
+
+  const itemHandlesByUrlRef = useRef<Map<AutomergeUrl, RepoDocHandle>>(new Map())
+  const snapshotRef = useRef<StableSnapshot<TItem[]> | null>(null)
+
+  const resolveItemHandle = useCallback(
+    (documentUrl: AutomergeUrl): RepoDocHandle => {
+      const handlesByUrl = itemHandlesByUrlRef.current
+      if (!handlesByUrl.has(documentUrl)) {
+        handlesByUrl.set(documentUrl, findRepoDocHandle<RepoDoc>(repo, documentUrl))
       }
 
-      let disposed = false
+      return handlesByUrl.get(documentUrl)
+    },
+    [repo],
+  )
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (itemIds.length === 0) {
+        return () => {}
+      }
+
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
       const cleanups: Array<() => void> = []
+      const nextItemUrls = new Set<AutomergeUrl>()
 
-      const bumpHandleVersion = () => {
-        if (!disposed) {
-          setHandleVersion(prev => prev + 1)
-        }
-      }
-
-      itemHandlesByUrl.forEach(handle => {
-        if (!handle) {
+      const scheduleStoreChange = () => {
+        if (timeoutId !== null) {
           return
         }
 
-        handle.on('heads-changed', bumpHandleVersion)
-        handle.on('change', bumpHandleVersion)
-        handle.on('delete', bumpHandleVersion)
+        timeoutId = setTimeout(() => {
+          timeoutId = null
+          onStoreChange()
+        }, 50)
+      }
+
+      for (const itemId of itemIds) {
+        const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+        nextItemUrls.add(documentUrl)
+
+        const handle = resolveItemHandle(documentUrl)
+        if (!handle) {
+          continue
+        }
+
+        handle.on('change', scheduleStoreChange)
+        handle.on('heads-changed', scheduleStoreChange)
+        handle.on('delete', scheduleStoreChange)
 
         cleanups.push(() => {
-          handle.removeListener('heads-changed', bumpHandleVersion)
-          handle.removeListener('change', bumpHandleVersion)
-          handle.removeListener('delete', bumpHandleVersion)
+          handle.removeListener('change', scheduleStoreChange)
+          handle.removeListener('heads-changed', scheduleStoreChange)
+          handle.removeListener('delete', scheduleStoreChange)
         })
-      })
+      }
+
+      const cachedHandles = itemHandlesByUrlRef.current
+      for (const documentUrl of Array.from(cachedHandles.keys())) {
+        if (!nextItemUrls.has(documentUrl)) {
+          cachedHandles.delete(documentUrl)
+        }
+      }
 
       return () => {
-        disposed = true
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId)
+        }
+
         for (const cleanup of cleanups) {
           cleanup()
         }
       }
     },
-    [itemHandlesByUrl],
+    [itemIds, resolveItemHandle],
   )
 
-  return useMemo(
-    () => {
-      // This invalidates memoized items when async handle readiness events resolve.
-      void handleVersion
-      const items: TItem[] = []
+  const getSnapshot = useCallback(
+    (): TItem[] => {
+      const nextItemUrls = new Set<AutomergeUrl>()
+      const parsedItems: TItem[] = []
 
-      for (let index = 0; index < itemIds.length; index += 1) {
-        const itemId = itemIds[index]
-        const documentUrl = itemUrls[index]
-
-        if (!documentUrl) {
-          continue
-        }
+      for (const itemId of itemIds) {
+        const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+        nextItemUrls.add(documentUrl)
 
         const nextItem = parseItemFromDoc(
           itemId,
-          readReadySnapshot(itemHandlesByUrl.get(documentUrl)),
+          readReadySnapshot(resolveItemHandle(documentUrl)),
           resolvedSchema,
         )
         if (nextItem) {
-          items.push(nextItem)
+          parsedItems.push(nextItem)
         }
       }
 
-      return items.length > 0 ? items : (EMPTY_ITEMS as TItem[])
+      const cachedHandles = itemHandlesByUrlRef.current
+      for (const documentUrl of Array.from(cachedHandles.keys())) {
+        if (!nextItemUrls.has(documentUrl)) {
+          cachedHandles.delete(documentUrl)
+        }
+      }
+
+      return readStableSnapshot(
+        parsedItems.length > 0 ? parsedItems : (EMPTY_ITEMS as TItem[]),
+        snapshotRef,
+      )
     },
-    [handleVersion, itemHandlesByUrl, itemIds, itemUrls, resolvedSchema],
+    [itemIds, resolveItemHandle, resolvedSchema],
+  )
+
+  return useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    () => EMPTY_ITEMS as TItem[],
   )
 }
 
@@ -212,28 +238,28 @@ export function useAutomergeItemDocument<TItem extends Item = Item>(
   const resolvedSchema = resolveItemSchema(schema)
 
   const documentUrl = useMemo(
-    () => toAutomergeUrlFromItemId(itemId),
+    () => toAutomergeUrlFromItemId(itemId) as AutomergeUrl,
     [itemId],
   )
 
-  const [itemDoc, changeItemDoc] = useDocument<TItem>(documentUrl, { suspense: true })
-
-  const item = useMemo(
-    () => parseItemFromDoc(itemId, itemDoc, resolvedSchema),
-    [itemDoc, itemId, resolvedSchema],
+  const projectItemSnapshot = useCallback(
+    (itemDoc: TItem | undefined): TItem | null => parseItemFromDoc(itemId, itemDoc, resolvedSchema),
+    [itemId, resolvedSchema],
   )
 
-  const change = useMemo(
-    () => (changeFn: (draft: TItem) => void) => {
-      changeItemDoc(changeFn)
-    },
-    [changeItemDoc],
+  const [item, change] = useOptimizedDocument<TItem, TItem | null>(
+    documentUrl,
+    projectItemSnapshot,
+    null,
   )
 
-  return {
-    item,
-    change,
-  }
+  return useMemo(
+    () => ({
+      item,
+      change,
+    }),
+    [change, item],
+  )
 }
 
 export function useAutomergeItem<TItem extends Item = Item>(itemId: string, schema?: ItemSchema<TItem>): TItem | null {
@@ -247,13 +273,24 @@ function normalizeMetadataFromIndex(indexDoc: AutomergeIndexDocument | undefined
 }
 
 export function useAutomergeMetadataSnapshot(): AccountMetadata {
-  const [indexDoc] = useDocument<AutomergeIndexDocument>(
-    toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID),
-    { suspense: true },
+  const indexUrl = useMemo(
+    () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
+    [],
   )
 
-  return useMemo(
-    () => normalizeMetadataFromIndex(indexDoc),
-    [indexDoc],
+  const projectMetadataSnapshot = useCallback(
+    (indexDoc: RepoDoc | undefined): AccountMetadata => {
+      const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema) || undefined
+      return normalizeMetadataFromIndex(parsedIndexDoc)
+    },
+    [],
   )
+
+  const [metadata] = useOptimizedDocument<RepoDoc, AccountMetadata>(
+    indexUrl,
+    projectMetadataSnapshot,
+    EMPTY_METADATA,
+  )
+
+  return metadata
 }
