@@ -1,10 +1,11 @@
 import { act, renderHook } from '@testing-library/react'
 import type { AutomergeUrl } from '@automerge/automerge-repo/slim'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import type { Item } from '../state/items'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
-import { useAutomergeItems } from './useAutomerge'
+import { useAutomergeItems, useAutomergeMetadataSnapshot } from './useAutomerge'
 
 type Listener = () => void
 
@@ -74,6 +75,10 @@ class MockDocHandle {
     for (const listener of listeners) {
       listener()
     }
+  }
+
+  public listenerCount(event: string): number {
+    return this.listeners.get(event)?.size || 0
   }
 }
 
@@ -194,5 +199,172 @@ describe('useAutomergeItems', () => {
     })
 
     expect(result.current).toBe(firstResult)
+  })
+
+  it('parses only the changed item doc when one item updates', () => {
+    const itemIds = ['item-11', 'item-12', 'item-13', 'item-14', 'item-15']
+    const targetItemId = 'item-13'
+
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const handlesByUrl = new Map<AutomergeUrl, MockDocHandle>()
+    handlesByUrl.set(indexUrl, new MockDocHandle(true, false, buildIndexDoc(itemIds)))
+
+    let targetHandle: MockDocHandle | null = null
+    for (const itemId of itemIds) {
+      const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+      const itemHandle = new MockDocHandle(true, false, buildPersonDoc(itemId, `Name-${itemId}`))
+      handlesByUrl.set(itemUrl, itemHandle)
+
+      if (itemId === targetItemId) {
+        targetHandle = itemHandle
+      }
+    }
+
+    const safeParse = vi.fn((value: unknown) => ({
+      success: true as const,
+      data: value as Item,
+    }))
+    const schema = { safeParse } as unknown as z.ZodType<Item>
+
+    useRepoMock.mockReturnValue(createMockRepo(handlesByUrl))
+
+    const { result } = renderHook(() => useAutomergeItems<Item>(schema))
+    expect(result.current).toHaveLength(itemIds.length)
+
+    safeParse.mockClear()
+    act(() => {
+      targetHandle?.setDoc(buildPersonDoc(targetItemId, 'Name-Updated'))
+      targetHandle?.emit('change')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(60)
+    })
+
+    expect(result.current.find(entry => entry.id === targetItemId)?.name).toBe('Name-Updated')
+    expect(safeParse).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps unchanged item object references stable on unrelated updates', () => {
+    const itemA = 'item-a'
+    const itemB = 'item-b'
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const itemAUrl = toAutomergeUrlFromItemId(itemA) as AutomergeUrl
+    const itemBUrl = toAutomergeUrlFromItemId(itemB) as AutomergeUrl
+
+    const handleA = new MockDocHandle(true, false, buildPersonDoc(itemA, 'Alpha'))
+    const handleB = new MockDocHandle(true, false, buildPersonDoc(itemB, 'Beta'))
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, buildIndexDoc([itemA, itemB]))],
+        [itemAUrl, handleA],
+        [itemBUrl, handleB],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeItems<Item>())
+    const initialItemB = result.current.find(entry => entry.id === itemB)
+
+    act(() => {
+      handleA.setDoc(buildPersonDoc(itemA, 'Alpha-Updated'))
+      handleA.emit('change')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(60)
+    })
+
+    const updatedItemB = result.current.find(entry => entry.id === itemB)
+    expect(updatedItemB).toBe(initialItemB)
+  })
+
+  it('attaches and detaches item listeners when index ids change', () => {
+    const itemA = 'item-sub-a'
+    const itemB = 'item-sub-b'
+
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const itemAUrl = toAutomergeUrlFromItemId(itemA) as AutomergeUrl
+    const itemBUrl = toAutomergeUrlFromItemId(itemB) as AutomergeUrl
+
+    const indexHandle = new MockDocHandle(true, false, buildIndexDoc([itemA]))
+    const handleA = new MockDocHandle(true, false, buildPersonDoc(itemA, 'A'))
+    const handleB = new MockDocHandle(true, false, buildPersonDoc(itemB, 'B'))
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, indexHandle],
+        [itemAUrl, handleA],
+        [itemBUrl, handleB],
+      ])),
+    )
+
+    renderHook(() => useAutomergeItems<Item>())
+
+    expect(handleA.listenerCount('change')).toBeGreaterThan(0)
+    expect(handleB.listenerCount('change')).toBe(0)
+
+    act(() => {
+      indexHandle.setDoc(buildIndexDoc([itemA, itemB]))
+      indexHandle.emit('change')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(60)
+    })
+
+    expect(handleB.listenerCount('change')).toBeGreaterThan(0)
+
+    act(() => {
+      indexHandle.setDoc(buildIndexDoc([itemB]))
+      indexHandle.emit('change')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(60)
+    })
+
+    expect(handleA.listenerCount('change')).toBe(0)
+    expect(handleB.listenerCount('change')).toBeGreaterThan(0)
+  })
+})
+
+describe('useAutomergeMetadataSnapshot', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns normalized metadata from the index document', () => {
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const metadataDoc = {
+      metadata: {
+        prayerGoal: 5,
+        completedMigrations: ['m1'],
+      },
+    }
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, metadataDoc)],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
+
+    expect(result.current.prayerGoal).toBe(5)
+    expect(result.current.completedMigrations).toEqual(['m1'])
+  })
+
+  it('returns empty metadata for missing or invalid metadata states', () => {
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, { metadata: { prayerGoal: 'bad' } })],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
+    expect(result.current).toEqual({})
   })
 })

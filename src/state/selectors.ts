@@ -13,6 +13,7 @@ import {
   useAutomergeItems,
   useAutomergeMetadataSnapshot,
 } from '../sync/useAutomerge'
+import { stableSerialize } from 'src/sync/syncUtils'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
@@ -45,28 +46,6 @@ const EMPTY_PRAYER_SCHEDULE_INPUTS: PrayerScheduleInputs = {
 const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
   defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
   items: EMPTY_ARRAY,
-}
-
-function stableSerialize(value: unknown): string {
-  if (value === null || value === undefined) {
-    return String(value)
-  }
-
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return JSON.stringify(value)
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(stableSerialize).join(',')}]`
-  }
-
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(',')}}`
-  }
-
-  return JSON.stringify(String(value))
 }
 
 function useMemoizedValue<T>(value: T): T {

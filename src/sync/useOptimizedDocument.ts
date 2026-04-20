@@ -1,15 +1,21 @@
-import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useRepo } from '@automerge/automerge-repo-react-hooks'
 import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
+import deepEqual from 'fast-deep-equal'
+import { createDebouncedNotifier } from './syncUtils'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
 export type Repo = ReturnType<typeof useRepo>
 export type OptimizedDocumentEvent = 'change' | 'heads-changed' | 'delete'
 
-export type StableSnapshot<T> = {
-  signature: string
-  value: T
+type OptimizedDocumentStore<TDoc extends object, TSnapshot> = {
+  handle: DocHandle<TDoc> | undefined
+  projectSnapshot: (doc: TDoc | undefined) => TSnapshot
+  fallbackSnapshot: TSnapshot
+  currentDoc: TDoc | undefined
+  currentSnapshot: TSnapshot
+  snapshotByDocRef: WeakMap<object, TSnapshot>
 }
 
 function findRepoDocHandle<TDoc extends object>(repo: Repo, documentUrl: AutomergeUrl): DocHandle<TDoc> | undefined {
@@ -33,45 +39,71 @@ function readReadySnapshot(handle: RepoDocHandle): RepoDoc | null {
   }
 }
 
-function stableSerialize(value: unknown): string {
-  if (value === null || value === undefined) {
-    return String(value)
+function readHandleDoc<TDoc extends object>(handle: DocHandle<TDoc>): TDoc | undefined {
+  try {
+    return handle.doc()
+  } catch {
+    return undefined
   }
-
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return JSON.stringify(value)
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(stableSerialize).join(',')}]`
-  }
-
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-
-    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(',')}}`
-  }
-
-  return JSON.stringify(String(value))
 }
 
-export function readStableSnapshot<T>(
-  value: T,
-  snapshotRef: { current: StableSnapshot<T> | null },
-): T {
-  const signature = stableSerialize(value)
-
-  if (snapshotRef.current?.signature === signature) {
-    return snapshotRef.current.value
+function readProjectedSnapshot<TDoc extends object, TSnapshot>(
+  store: OptimizedDocumentStore<TDoc, TSnapshot>,
+  doc: TDoc | undefined,
+): TSnapshot {
+  if (!doc || typeof doc !== 'object') {
+    return store.projectSnapshot(doc)
   }
 
-  snapshotRef.current = {
-    signature,
-    value,
+  const cacheKey = doc as object
+  if (store.snapshotByDocRef.has(cacheKey)) {
+    return store.snapshotByDocRef.get(cacheKey) as TSnapshot
   }
 
-  return value
+  const snapshot = store.projectSnapshot(doc)
+  store.snapshotByDocRef.set(cacheKey, snapshot)
+  return snapshot
+}
+
+function syncStoreSnapshotFromHandle<TDoc extends object, TSnapshot>(
+  store: OptimizedDocumentStore<TDoc, TSnapshot>,
+): boolean {
+  const currentHandle = store.handle
+
+  if (!currentHandle || currentHandle.isUnavailable()) {
+    const nextSnapshot = deepEqual(store.currentSnapshot, store.fallbackSnapshot)
+      ? store.currentSnapshot
+      : store.fallbackSnapshot
+    const hasChanged = (store.currentDoc !== undefined) || (nextSnapshot !== store.currentSnapshot)
+    store.currentDoc = undefined
+    store.currentSnapshot = nextSnapshot
+    return hasChanged
+  }
+
+  if (!currentHandle.isReady()) {
+    const nextSnapshot = deepEqual(store.currentSnapshot, store.fallbackSnapshot)
+      ? store.currentSnapshot
+      : store.fallbackSnapshot
+    const hasChanged = (store.currentDoc !== undefined) || (nextSnapshot !== store.currentSnapshot)
+    store.currentDoc = undefined
+    store.currentSnapshot = nextSnapshot
+    return hasChanged
+  }
+
+  const nextDoc = readHandleDoc(currentHandle)
+  if (nextDoc === store.currentDoc) {
+    return false
+  }
+
+  store.currentDoc = nextDoc
+  const nextSnapshot = readProjectedSnapshot(store, nextDoc)
+
+  if (deepEqual(nextSnapshot, store.currentSnapshot)) {
+    return false
+  }
+
+  store.currentSnapshot = nextSnapshot
+  return true
 }
 
 const DEFAULT_DOCUMENT_EVENTS: ReadonlyArray<OptimizedDocumentEvent> = ['change', 'heads-changed']
@@ -90,8 +122,19 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
     [repo, documentUrl],
   )
 
-  const snapshotRef = useRef<StableSnapshot<TSnapshot> | null>(null)
-  const lastDocRef = useRef<TDoc | undefined>(undefined)
+  const store = useMemo((): OptimizedDocumentStore<TDoc, TSnapshot> => {
+    const nextStore: OptimizedDocumentStore<TDoc, TSnapshot> = {
+      handle,
+      projectSnapshot,
+      fallbackSnapshot,
+      currentDoc: undefined,
+      currentSnapshot: fallbackSnapshot,
+      snapshotByDocRef: new WeakMap<object, TSnapshot>(),
+    }
+
+    syncStoreSnapshotFromHandle(nextStore)
+    return nextStore
+  }, [fallbackSnapshot, handle, projectSnapshot])
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -99,61 +142,39 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
         return () => {}
       }
 
-      let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-      const batchedChange = () => {
-        if (timeoutId !== null) {
-          return
-        }
-
-        timeoutId = setTimeout(() => {
-          timeoutId = null
+      const debounced = createDebouncedNotifier(() => {
+        const didChange = syncStoreSnapshotFromHandle(store)
+        if (didChange) {
           onStoreChange()
-        }, debounceMs)
-      }
+        }
+      }, debounceMs)
 
       for (const eventName of eventNames) {
-        handle.on(eventName, batchedChange)
+        handle.on(eventName, debounced.schedule)
       }
 
       return () => {
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId)
-        }
+        debounced.cancel()
 
         for (const eventName of eventNames) {
-          handle.removeListener(eventName, batchedChange)
+          handle.removeListener(eventName, debounced.schedule)
         }
       }
     },
-    [debounceMs, eventNames, handle],
+    [debounceMs, eventNames, handle, store],
   )
 
   const getSnapshot = useCallback(
     (): TSnapshot => {
-      if (!handle || handle.isUnavailable()) {
-        return readStableSnapshot(fallbackSnapshot, snapshotRef)
+      const currentHandle = store.handle
+
+      if (currentHandle && !currentHandle.isUnavailable() && !currentHandle.isReady()) {
+        throw currentHandle.whenReady()
       }
 
-      if (!handle.isReady()) {
-        throw handle.whenReady()
-      }
-
-      let currentDoc: TDoc | undefined
-      try {
-        currentDoc = handle.doc()
-      } catch {
-        currentDoc = undefined
-      }
-
-      if (currentDoc === lastDocRef.current && snapshotRef.current) {
-        return snapshotRef.current.value
-      }
-
-      lastDocRef.current = currentDoc
-      return readStableSnapshot(projectSnapshot(currentDoc), snapshotRef)
+      return store.currentSnapshot
     },
-    [fallbackSnapshot, handle, projectSnapshot],
+    [store],
   )
 
   const snapshot = useSyncExternalStore(
