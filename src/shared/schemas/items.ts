@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ITEM_TYPES } from '../itemTypes'
+import { ERROR_ITEM_TYPE, ITEM_TYPES } from '../itemTypes'
 
 const FREQUENCY_VALUES = [
   'daily',
@@ -57,6 +57,16 @@ export const topicItemSchema = baseItemSchema.extend({
   type: z.literal('topic'),
 })
 
+export const errorItemSchema = baseItemSchema.omit({ type: true }).extend({
+  errorMessage: z.string().optional(),
+  memberPrayerFrequency: z.undefined().optional(),
+  members: z.undefined().optional(),
+  originalType: z.enum(ITEM_TYPES).optional(),
+  rawSnapshot: z.record(z.string(), z.unknown()).optional(),
+  type: z.literal(ERROR_ITEM_TYPE)
+})
+
+
 export const readItemSchema = z.discriminatedUnion('type', [
   personItemSchema,
   groupItemSchema,
@@ -79,3 +89,4 @@ export type PersonItem = z.infer<typeof personItemSchema>
 export type GroupItem = z.infer<typeof groupItemSchema>
 export type TopicItem = z.infer<typeof topicItemSchema>
 export type Item = z.infer<typeof readItemSchema>
+export type ErrorItem = z.infer<typeof errorItemSchema>

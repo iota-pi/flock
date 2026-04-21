@@ -10,7 +10,7 @@ import {
   SxProps,
 } from '@mui/material'
 import { Item } from '../../../state/items'
-import { useGroupLookups, type GroupLookupData } from '../hooks/useGroupLookups'
+import { useGroupLookupMap, type GroupLookupData } from '../../../state/selectors'
 import { ItemListContextProvider } from './ItemListContext'
 import {
   StandardItemList,
@@ -101,7 +101,7 @@ function ItemList(props: MultipleItemsProps) {
     wrapText,
   } = props
 
-  const groupsByMemberId = useGroupLookups()
+  const groupsByMemberId = useGroupLookupMap()
   const activeDrawerItemIds = useNavigationStore(useShallow(selectActiveDrawerItemIds))
   const highlightedItemIds = useMemo(
     () => new Set(activeDrawerItemIds),

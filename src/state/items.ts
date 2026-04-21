@@ -1,37 +1,19 @@
 import { z } from 'zod'
 import { mergeWith } from 'lodash-es'
 import { generateItemId } from '../utils'
-import { ITEM_TYPES, ItemId, ItemType } from '../shared/itemTypes'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, ItemType } from '../shared/itemTypes'
 import {
   readItemSchema,
-  type BaseItem as StandardBaseItem,
+  type BaseItem,
+  type ErrorItem,
   type GroupItem,
-  type Note,
   type PersonItem,
   type TopicItem,
 } from '../shared/schemas/items'
 
-export const ERROR_ITEM_TYPE = 'error'
-
-export type { Note }
-
-export type BaseItem = StandardBaseItem & {
-  type: StandardBaseItem['type'] | typeof ERROR_ITEM_TYPE
-}
-
-export type ErrorItem = Omit<BaseItem, 'type'> & {
-  errorMessage?: string
-  memberPrayerFrequency?: undefined
-  members?: undefined
-  originalType?: ItemType
-  rawSnapshot?: Record<string, unknown>
-  type: typeof ERROR_ITEM_TYPE
-}
-
 export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
-type foo = ErrorItem['id']
 export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>
 
 export type LocalChangeItem<T> = T & { hasLocalChanges?: boolean }
@@ -161,7 +143,7 @@ export function getItemName(
   item?: Partial<Item> & Pick<Item, 'type'>,
 ): string {
   if (item === undefined) return ''
-  const name = (item as unknown as StandardBaseItem).name
+  const name = item.name
   return (name || '').trim()
 }
 
@@ -170,14 +152,14 @@ function compareNames(a: BaseItem, b: BaseItem) {
 }
 
 export function compareIds(a: Item, b: Item) {
-  const aId = (a as unknown as StandardBaseItem).id
-  const bId = (b as unknown as StandardBaseItem).id
+  const aId = a.id
+  const bId = b.id
   return +(aId > bId) - +(aId < bId)
 }
 
 export function compareItems(a: Item, b: Item) {
-  if ((a as unknown as StandardBaseItem).archived !== (b as unknown as StandardBaseItem).archived) {
-    return +(a as unknown as StandardBaseItem).archived - +(b as unknown as StandardBaseItem).archived
+  if (a.archived !== b.archived) {
+    return +(a.archived) - +(b.archived)
   } else if (a.type !== b.type) {
     const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
     return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
@@ -227,4 +209,3 @@ export function isValid<T extends Item>(item: T) {
 
   return !!getItemName(item).trim()
 }
-

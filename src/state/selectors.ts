@@ -3,7 +3,7 @@ import deepEqual from 'fast-deep-equal'
 import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
-import type { BaseItem, Item } from './items'
+import type { Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
@@ -16,6 +16,7 @@ import {
   useAutomergeItemsById,
   useAutomergeMetadataValue,
 } from '../sync/useAutomerge'
+import { GroupItem } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_DEFAULT_PRAYER_FREQUENCY: NonNullable<Metadata['defaultPrayerFrequency']> = {}
@@ -227,7 +228,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
       return visibleItems.filter(item => (
         types[item.type]
         && (includeArchived || !item.archived)
-        && (showSelectedOptions || !selectedIdSet.has((item as unknown as BaseItem).id))
+        && (showSelectedOptions || !selectedIdSet.has(item.id))
       ))
     },
     [authReady, includeArchived, isOpen, selectedItemIds, showSelectedOptions, types, visibleItems],
@@ -325,3 +326,37 @@ export const useIsActive = () => {
 export const usePracticalFilterCount = () => useUiStore(state => (
   state.filters.filter(isPracticalFilterCriterion).length
 ))
+
+export interface GroupLookupData {
+  tags: string[]
+  groupIds: ItemId[]
+}
+
+export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
+  const groupIds = useItemIds('group')
+  const groups = useItemsByIds<GroupItem>(groupIds)
+
+  return useMemo(() => {
+    const lookup = new Map<ItemId, GroupLookupData>()
+    for (const group of groups) {
+      if (group.archived) {
+        continue
+      }
+
+      const members = Array.isArray(group.members) ? group.members : []
+      for (const memberId of members) {
+        const existing = lookup.get(memberId as ItemId)
+        if (existing) {
+          existing.tags.push(group.name || '')
+          existing.groupIds.push(group.id as ItemId)
+        } else {
+          lookup.set(memberId as ItemId, {
+            tags: [group.name || ''],
+            groupIds: [group.id as ItemId],
+          })
+        }
+      }
+    }
+    return lookup
+  }, [groups])
+}

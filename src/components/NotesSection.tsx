@@ -22,7 +22,7 @@ import {
   UnarchiveIcon,
 } from './Icons'
 import DelayedRender from './ui/DelayedRender'
-import type { Note } from '../state/items'
+import type { Note } from '../shared/schemas/items'
 import { formatDate, generateItemId } from '../utils'
 import DebouncedTextField from './ui/DebouncedTextField'
 
