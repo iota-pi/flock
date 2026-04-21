@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Box, CircularProgress, IconButton, Tooltip } from '@mui/material'
 import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
@@ -15,55 +15,49 @@ function SyncNowButton() {
   const isOnline = useOnlineStatus()
 
   const [isSyncing, setIsSyncing] = useState<boolean>(storeIsSyncing)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [prevStoreSyncing, setPrevStoreSyncing] = useState<boolean>(storeIsSyncing)
 
-  useEffect(() => {
+  // Derive state immediately during render to prevent synchronous useEffect updates
+  if (storeIsSyncing !== prevStoreSyncing) {
+    setPrevStoreSyncing(storeIsSyncing)
     if (storeIsSyncing) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
       setIsSyncing(true)
-    } else {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
-      timeoutRef.current = setTimeout(() => {
-        timeoutRef.current = null
+    }
+  }
+
+  // Handle the delayed switch to "false" asynchronously
+  useEffect(() => {
+    if (!storeIsSyncing) {
+      const timeoutId = setTimeout(() => {
         setIsSyncing(false)
       }, 100)
-    }
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
+
+      return () => clearTimeout(timeoutId)
     }
   }, [storeIsSyncing])
 
-  const handleForceSync = useCallback(
-    async () => {
-      const account = getAccountId()
-      try {
-        await ensureItemsBootstrap(account, {
-          force: true,
-          forceFullSync: true,
-          forceMetadataRefetch: true,
-        })
-      } catch (error) {
-        console.error('[SyncNowButton] force sync failed', error)
-      }
-    },
-    [],
+  const handleForceSync = useCallback(async () => {
+    const account = getAccountId()
+    try {
+      await ensureItemsBootstrap(account, {
+        force: true,
+        forceFullSync: true,
+        forceMetadataRefetch: true,
+      })
+    } catch (error) {
+      console.error('[SyncNowButton] force sync failed', error)
+    }
+  }, [])
+
+  const syncStatusIcon = !isOnline ? (
+    <CloudOffIcon color="warning" />
+  ) : (
+    <CloudDoneIcon color="success" />
   )
 
-  const isSyncActive = isSyncing
-  const syncStatusIcon = !isOnline
-    ? <CloudOffIcon color="warning" />
-    : <CloudDoneIcon color="success" />
   const syncTooltip = !isOnline
     ? 'Offline'
-    : isSyncActive
+    : isSyncing
       ? 'Syncing'
       : 'Sync Now'
 
@@ -71,22 +65,16 @@ function SyncNowButton() {
     <Tooltip title={syncTooltip}>
       <span>
         <IconButton
-          onClick={() => {
-            void handleForceSync()
-          }}
+          onClick={() => void handleForceSync()}
           disabled={!isOnline || isSyncing}
           size="large"
           sx={{ mr: 1 }}
           aria-label="Sync now"
         >
           <Box position="relative" display="inline-flex" alignItems="center" justifyContent="center">
-            {isSyncing ? (
-              <CircularProgress
-                size={24}
-                color='info'
-              />
-            ) : (
-              syncStatusIcon
+            {(isSyncing
+              ? <CircularProgress size={24} color="info" />
+              : syncStatusIcon
             )}
           </Box>
         </IconButton>
