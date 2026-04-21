@@ -1,12 +1,13 @@
 import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { GroupItem } from '../../../state/items'
+import type { GroupItem, Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
-import { useItems } from '../../../state/selectors'
+import { useItemIds, useItemsById } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { storeItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { useAutomergeItemsById } from '../../../sync/useAutomerge'
 
 interface Props {
   editable?: boolean,
@@ -18,13 +19,19 @@ function GroupDisplay({
   editable = true,
   itemId,
 }: Props) {
-  const allGroups = useItems<GroupItem>('group')
+  const allGroupIds = useItemIds('group')
+  const getItemsById = useItemsById()
   const pushActive = useNavigationStore(state => state.pushActive)
-
-  const currentGroups = useMemo(
-    () => allGroups.filter(g => g.members.includes(itemId)),
-    [allGroups, itemId],
+  
+  const currentGroupIds = useMemo(
+    () => {
+      const groups = getItemsById<GroupItem>(allGroupIds)
+      return groups.filter(g => g.members.includes(itemId)).map(g => g.id)
+    },
+    [allGroupIds, getItemsById, itemId],
   )
+
+  const currentGroups = useAutomergeItemsById<GroupItem>(currentGroupIds)
 
   const handleSelect = useCallback(
     (group: GroupItem) => {
@@ -40,10 +47,11 @@ function GroupDisplay({
     [itemId],
   )
   const handleRemove = useCallback(
-    (group: GroupItem) => {
+    (group: Item) => {
+      const g = group as GroupItem
       const newGroup: GroupItem = {
-        ...group,
-        members: group.members.filter(m => m !== itemId),
+        ...g,
+        members: g.members.filter(m => m !== itemId),
       }
 
       void storeItems(newGroup).catch(error => {
@@ -53,7 +61,7 @@ function GroupDisplay({
     [itemId],
   )
   const handleClickGroup = useCallback(
-    (group: GroupItem) => {
+    (group: Item) => {
       pushActive({ item: group.id })
     },
     [pushActive],
@@ -82,7 +90,7 @@ function GroupDisplay({
         dividers
         fullHeight={false}
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
-        items={currentGroups}
+        itemIds={currentGroupIds}
         noItemsHint="Not in any groups"
         onClick={handleClickGroup}
         onClickAction={editable ? handleRemove : undefined}

@@ -20,6 +20,7 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, isItem, type Item } from 'src/state/items'
+import { useAutomergeItem } from 'src/sync/useAutomerge'
 import { type GroupLookupData } from '../hooks/useGroupLookups'
 import { useItemListContext } from './ItemListContext'
 
@@ -64,30 +65,30 @@ const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
   minWidth: theme.spacing(5),
 }))
 
-interface ItemListItemProps<T extends Item> {
+interface ItemListItemProps {
   index: number
   style: CSSProperties
-  item: T
+  itemId: string
   measureElement?: (node: HTMLElement | null) => void
   filterTags?: (tag: string) => boolean
-  getActionIcon?: (item: T) => ReactNode
-  getChecked?: (item: T) => boolean
-  getDescription?: (item: T) => string
-  getForceFade?: (item: T) => boolean
-  getIcon?: (item: T) => ReactNode
-  getTitle?: (item: T) => string
+  getActionIcon?: (item: Item) => ReactNode
+  getChecked?: (item: Item) => boolean
+  getDescription?: (item: Item) => string
+  getForceFade?: (item: Item) => boolean
+  getIcon?: (item: Item) => ReactNode
+  getTitle?: (item: Item) => string
   groupsByMemberId?: ReadonlyMap<string, GroupLookupData>
   highlighted?: boolean
-  onCheck?: (item: T) => void
-  onClick?: (item: T) => void
-  onClickAction?: (item: T) => void
+  onCheck?: (item: Item) => void
+  onClick?: (item: Item) => void
+  onClickAction?: (item: Item) => void
 }
 
-export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
+export function ItemListItem(props: ItemListItemProps) {
   const {
     index,
     style,
-    item,
+    itemId,
     measureElement,
     filterTags,
     getActionIcon,
@@ -115,17 +116,26 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     showTags,
     wrapText,
   } = useItemListContext()
+  
+  const item = useAutomergeItem(itemId)
 
   const currentItem = item
 
   const handleClick = useCallback(
-    () => onClick?.(currentItem),
+    () => {
+      if (currentItem) {
+        onClick?.(currentItem)
+      }
+    },
     [currentItem, onClick],
   )
 
   const handleClickAction = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation()
+      if (!currentItem) {
+        return undefined
+      }
       if (onClickAction) {
         return onClickAction(currentItem)
       }
@@ -139,7 +149,7 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
 
   const handleCheck = useCallback(
     (event: MouseEvent) => {
-      if (onCheck) {
+      if (onCheck && currentItem) {
         event.stopPropagation()
         onCheck(currentItem)
       }
@@ -148,21 +158,24 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
   )
 
   const actionIcon = useMemo(
-    () => getActionIcon?.(currentItem),
+    () => (currentItem ? getActionIcon?.(currentItem) : undefined),
     [currentItem, getActionIcon],
   )
-  const checked = useMemo(() => getChecked?.(currentItem), [currentItem, getChecked])
+  const checked = useMemo(() => (currentItem ? getChecked?.(currentItem) : false), [currentItem, getChecked])
   const icon = useMemo(
-    () => getIcon?.(currentItem) || getItemIcon(currentItem.type),
+    () => (currentItem ? (getIcon?.(currentItem) || getItemIcon(currentItem.type)) : undefined),
     [currentItem, getIcon],
   )
   const title = useMemo(
-    () => getTitle?.(currentItem) || getItemName(currentItem),
+    () => (currentItem ? (getTitle?.(currentItem) || getItemName(currentItem)) : ''),
     [currentItem, getTitle],
   )
   const description = useMemo(
     () => {
-      const defaultDescription = currentItem.description
+      if (!currentItem) {
+        return ''
+      }
+      const defaultDescription = currentItem.description ?? ''
       const base = getDescription ? getDescription(currentItem) : defaultDescription
       const clipped = base.slice(0, 100)
       if (clipped.length < base.length) {
@@ -174,8 +187,8 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
     [currentItem, getDescription],
   )
   const groupLookup = useMemo(
-    () => groupsByMemberId?.get(currentItem.id),
-    [currentItem.id, groupsByMemberId],
+    () => (currentItem ? groupsByMemberId?.get(currentItem.id) : undefined),
+    [currentItem?.id, groupsByMemberId],
   )
   const tags = useMemo(
     () => {
@@ -194,10 +207,10 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
 
   const faded = useMemo(
     () => {
-      if (isItem(currentItem) && currentItem.archived && fadeArchived) {
+      if (currentItem && isItem(currentItem) && currentItem.archived && fadeArchived) {
         return true
       }
-      if (getForceFade && getForceFade(currentItem)) {
+      if (currentItem && getForceFade && getForceFade(currentItem)) {
         return true
       }
       return false
@@ -215,12 +228,23 @@ export function ItemListItem<T extends Item>(props: ItemListItemProps<T>) {
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        slotProps={{ input: { 'aria-labelledby': `${currentItem.id}-text` } }}
+        slotProps={{ input: { 'aria-labelledby': `${currentItem?.id}-text` } }}
       />
     </CheckboxHolder>
   )
 
   const marginLeft = useTheme().spacing(2)
+
+  if (!currentItem) {
+    return (
+      <div style={style} ref={measureElement} data-index={index}>
+        {dividers && <Divider />}
+        <StyledListItem data-cy="list-item-loading" disabled dense={compact}>
+          <ListItemText primary="..." />
+        </StyledListItem>
+      </div>
+    )
+  }
 
   return (
     <div style={style} ref={measureElement} data-index={index}>

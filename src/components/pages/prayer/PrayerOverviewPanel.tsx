@@ -9,7 +9,7 @@ type Props = {
   completed: number,
   goal: number,
   naturalGoal: number,
-  visibleSchedule: Item[],
+  visibleScheduleIds: string[],
   startLabel: string,
   startDisabled: boolean,
   onEditGoal: () => void,
@@ -23,7 +23,7 @@ const PrayerOverviewPanel = memo(function PrayerOverviewPanel({
   completed,
   goal,
   naturalGoal,
-  visibleSchedule,
+  visibleScheduleIds,
   startLabel,
   startDisabled,
   onEditGoal,
@@ -35,7 +35,7 @@ const PrayerOverviewPanel = memo(function PrayerOverviewPanel({
   const overviewSwipeHandlers = useSwipeable({
     delta: 60,
     onSwiped: ({ deltaX, deltaY }) => {
-      if (visibleSchedule.length === 0) return
+      if (visibleScheduleIds.length === 0) return
       if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
       if (deltaX < 0) {
         onStart()
@@ -57,7 +57,7 @@ const PrayerOverviewPanel = memo(function PrayerOverviewPanel({
           onStart={onStart}
           startDisabled={startDisabled}
           startLabel={startLabel}
-          visibleScheduleLength={visibleSchedule.length}
+          visibleScheduleLength={visibleScheduleIds.length}
         />
       </div>
 
@@ -67,7 +67,7 @@ const PrayerOverviewPanel = memo(function PrayerOverviewPanel({
           checkboxSide="right"
           getChecked={isPrayedForToday}
           getForceFade={isPrayedForToday}
-          items={visibleSchedule}
+          itemIds={visibleScheduleIds}
           noItemsText="No items in prayer schedule"
           onCheck={onCheck}
           onClick={onItemClick}

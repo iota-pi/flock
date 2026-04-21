@@ -47,7 +47,7 @@ export default function PrayerPageContent({
               completed={progress.completed}
               goal={progress.goal}
               naturalGoal={progress.naturalGoal}
-              visibleSchedule={schedule.visibleItems}
+              visibleScheduleIds={schedule.visibleItemsIds}
               isPrayedForToday={schedule.isPrayedForToday}
               onCheck={actions.handleCheck}
               onEditGoal={onEditGoal}

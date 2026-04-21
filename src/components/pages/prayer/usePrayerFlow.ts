@@ -49,6 +49,7 @@ export type PrayerFlowScheduleSlice = {
   isPrayedForToday: (item: Item) => boolean
   localItems: LocalChangeItem<Item>[]
   visibleItems: Item[]
+  visibleItemsIds: string[]
 }
 
 export type PrayerFlowViewSlice = {
@@ -112,6 +113,7 @@ export default function usePrayerFlow(): PrayerFlowController {
     schedule,
     showUntil,
     visibleSchedule,
+    visibleScheduleIds,
   } = usePrayerSchedule()
 
   const canKeepPraying = useMemo(
@@ -422,6 +424,7 @@ export default function usePrayerFlow(): PrayerFlowController {
       isPrayedForToday,
       localItems,
       visibleItems: visibleSchedule,
+      visibleItemsIds: visibleScheduleIds,
     },
     stepper: {
       activeStep: stepperActiveStep,

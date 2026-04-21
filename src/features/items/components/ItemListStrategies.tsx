@@ -4,50 +4,50 @@ import { Item } from '../../../state/items'
 import { type GroupLookupData } from '../hooks/useGroupLookups'
 import { ItemListItem } from './ItemListItem'
 
-type ItemListRendererProps<T extends Item> = {
+type ItemListRendererProps = {
   filterTags?: (tag: string) => boolean
-  getActionIcon?: (item: T) => ReactNode
-  getChecked?: (item: T) => boolean
-  getDescription?: (item: T) => string
-  getForceFade?: (item: T) => boolean
-  getHighlighted?: (item: T) => boolean
-  getIcon?: (item: T) => ReactNode
-  getTitle?: (item: T) => string
+  getActionIcon?: (item: Item) => ReactNode
+  getChecked?: (item: Item) => boolean
+  getDescription?: (item: Item) => string
+  getForceFade?: (item: Item) => boolean
+  getHighlighted?: (item: Item) => boolean
+  getIcon?: (item: Item) => ReactNode
+  getTitle?: (item: Item) => string
   groupsByMemberId: ReadonlyMap<string, GroupLookupData>
   highlightedItemIds: ReadonlySet<string>
-  onCheck?: (item: T) => void
-  onClick?: (item: T) => void
-  onClickAction?: (item: T) => void
+  onCheck?: (item: Item) => void
+  onClick?: (item: Item) => void
+  onClickAction?: (item: Item) => void
 }
 
-type StandardItemListProps<T extends Item> = ItemListRendererProps<T> & {
+type StandardItemListProps = ItemListRendererProps & {
   fullHeight: boolean
-  items: T[]
+  itemIds: string[]
 }
 
-type VirtualizedItemListProps<T extends Item> = ItemListRendererProps<T> & {
+type VirtualizedItemListProps = ItemListRendererProps & {
   defaultRowHeight: number
   fallbackRenderCount: number
-  items: T[]
+  itemIds: string[]
   useDynamicHeight: boolean
 }
 
 const EMPTY_STYLE: CSSProperties = {}
 
-function createItemListItem<T extends Item>(
-  item: T,
+function createItemListItem(
+  itemId: string,
   index: number,
-  props: ItemListRendererProps<T>,
+  props: ItemListRendererProps,
   style: CSSProperties,
   measureElement?: (node: HTMLElement | null) => void,
 ) {
-  const highlighted = props.getHighlighted?.(item) ?? props.highlightedItemIds.has(item.id)
+  const highlighted = props.highlightedItemIds.has(itemId)
 
   return (
     <ItemListItem
-      key={item.id}
+      key={itemId}
       index={index}
-      item={item}
+      itemId={itemId}
       style={style}
       measureElement={measureElement}
       filterTags={props.filterTags}
@@ -66,13 +66,13 @@ function createItemListItem<T extends Item>(
   )
 }
 
-export function StandardItemList<T extends Item>({
+export function StandardItemList({
   fullHeight,
-  items,
+  itemIds,
   ...props
-}: StandardItemListProps<T>) {
-  const content = items.map((item, index) => (
-    createItemListItem(item, index, props, EMPTY_STYLE)
+}: StandardItemListProps) {
+  const content = itemIds.map((itemId, index) => (
+    createItemListItem(itemId, index, props, EMPTY_STYLE)
   ))
 
   if (!fullHeight) {
@@ -92,21 +92,21 @@ export function StandardItemList<T extends Item>({
   )
 }
 
-export function VirtualizedItemList<T extends Item>({
+export function VirtualizedItemList({
   defaultRowHeight,
   fallbackRenderCount,
-  items,
+  itemIds,
   useDynamicHeight,
   ...props
-}: VirtualizedItemListProps<T>) {
+}: VirtualizedItemListProps) {
   const [listNode, setListNode] = useState<HTMLDivElement | null>(null)
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
-    count: items.length,
+    count: itemIds.length,
     getScrollElement: () => listNode,
     estimateSize: () => defaultRowHeight,
-    getItemKey: index => items[index]?.id || index,
+    getItemKey: index => itemIds[index] || index,
     overscan: 5,
     measureElement: useDynamicHeight
       ? element => element.getBoundingClientRect().height
@@ -115,7 +115,7 @@ export function VirtualizedItemList<T extends Item>({
 
   const virtualItems = rowVirtualizer.getVirtualItems()
   const fallbackItems = virtualItems.length === 0
-    ? items.slice(0, Math.min(items.length, fallbackRenderCount))
+    ? itemIds.slice(0, Math.min(itemIds.length, fallbackRenderCount))
     : []
 
   return (
@@ -136,13 +136,13 @@ export function VirtualizedItemList<T extends Item>({
       >
         {virtualItems.length > 0
           ? virtualItems.map(virtualRow => {
-            const item = items[virtualRow.index]
-            if (!item) {
+            const itemId = itemIds[virtualRow.index]
+            if (!itemId) {
               return null
             }
 
             return createItemListItem(
-              item,
+              itemId,
               virtualRow.index,
               props,
               {
@@ -161,8 +161,8 @@ export function VirtualizedItemList<T extends Item>({
                 : undefined,
             )
           })
-          : fallbackItems.map((item, index) => (
-            createItemListItem(item, index, props, EMPTY_STYLE)
+          : fallbackItems.map((itemId, index) => (
+            createItemListItem(itemId, index, props, EMPTY_STYLE)
           ))}
       </div>
     </div>

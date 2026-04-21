@@ -21,32 +21,32 @@ import { useShallow } from 'zustand/react/shallow'
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20
-interface BaseProps<T extends Item> {
+interface BaseProps {
   checkboxes?: boolean,
   checkboxSide?: 'left' | 'right',
   compact?: boolean,
   dividers?: boolean,
   fadeArchived?: boolean,
   filterTags?: (tag: string) => boolean,
-  getActionIcon?: (item: T) => ReactNode,
-  getChecked?: (item: T) => boolean,
-  getDescription?: (item: T) => string,
-  getForceFade?: (item: T) => boolean,
-  getHighlighted?: (item: T) => boolean,
-  getIcon?: (item: T) => ReactNode,
-  getTitle?: (item: T) => string,
+  getActionIcon?: (item: Item) => ReactNode,
+  getChecked?: (item: Item) => boolean,
+  getDescription?: (item: Item) => string,
+  getForceFade?: (item: Item) => boolean,
+  getHighlighted?: (item: Item) => boolean,
+  getIcon?: (item: Item) => ReactNode,
+  getTitle?: (item: Item) => string,
   groupsByMemberId?: ReadonlyMap<string, GroupLookupData>,
-  items: T[],
+  itemIds: string[],
   linkTags?: boolean,
   maxTags?: number,
-  onCheck?: (item: T) => void,
-  onClick?: (item: T) => void,
-  onClickAction?: (item: T) => void,
+  onCheck?: (item: Item) => void,
+  onClick?: (item: Item) => void,
+  onClickAction?: (item: Item) => void,
   showIcons?: boolean,
   showTags?: boolean,
   wrapText?: boolean,
 }
-interface MultipleItemsProps<T extends Item> extends BaseProps<T> {
+interface MultipleItemsProps extends BaseProps {
   className?: string,
   defaultRowHeight?: number,
   fullHeight?: boolean,
@@ -68,7 +68,7 @@ const selectActiveDrawerItemIds = (state: ReturnType<typeof useNavigationStore.g
   return Array.from(activeDrawerItemIds).sort()
 }
 
-function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
+function ItemList(props: MultipleItemsProps) {
   const {
     getActionIcon,
     compact,
@@ -87,7 +87,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
     getHighlighted,
     getIcon,
     getTitle,
-    items,
+    itemIds,
     linkTags = true,
     maxTags,
     noItemsHint,
@@ -159,7 +159,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       getTitle,
       groupsByMemberId,
       highlightedItemIds,
-      items,
+      itemIds,
       onCheck,
       onClick,
       onClickAction,
@@ -175,16 +175,16 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
       getTitle,
       groupsByMemberId,
       highlightedItemIds,
-      items,
+      itemIds,
       onCheck,
       onClick,
       onClickAction,
     ],
   )
 
-  const useVirtualizedList = fullHeight && items.length > FALLBACK_RENDER_COUNT
+  const useVirtualizedList = fullHeight && itemIds.length > FALLBACK_RENDER_COUNT
 
-  const renderedContent = items.length === 0
+  const renderedContent = itemIds.length === 0
     ? (
       <ListItem>
         <ListItemText primary={noItemsText} secondary={noItemsHint} />
@@ -213,7 +213,7 @@ function ItemList<T extends Item>(props: MultipleItemsProps<T>) {
         disablePadding={disablePadding}
         sx={rootStyles}
       >
-        {dividers && items.length === 0 && <Divider />}
+        {dividers && itemIds.length === 0 && <Divider />}
 
         {renderedContent}
 

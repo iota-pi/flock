@@ -5,7 +5,7 @@ import { ERROR_ITEM_TYPE, getItemTypeLabel, Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {
-  useItems,
+  useItemIds,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
@@ -17,6 +17,7 @@ import {
   processItemsSnapshot,
 } from 'src/workers/itemWorkerManager'
 import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
+import { useAutomergeItemsById } from 'src/sync/useAutomerge'
 
 interface Props {
   itemType: ItemType,
@@ -28,14 +29,8 @@ function ItemPage({
   const replaceActive = useNavigationStore(state => state.replaceActive)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
-  const allItems = useItems()
-  const rawItems = useMemo(
-    () => allItems.filter(item => (
-      item.type === itemType
-      || (item.type === ERROR_ITEM_TYPE && item.originalType === itemType)
-    )),
-    [allItems, itemType],
-  )
+  const itemIds = useItemIds(itemType)
+  const rawItems = useAutomergeItemsById(itemIds)
   const selected = useNavigationStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
@@ -57,6 +52,7 @@ function ItemPage({
   )
 
   const hiddenItemCount = totalApplicable - items.length
+  const itemIdsInList = useMemo(() => items.map(item => item.id), [items])
 
   const handleClickItem = useCallback(
     (item: Item) => {
@@ -166,7 +162,7 @@ function ItemPage({
         getChecked={getChecked}
         onClickAction={handleClickAction}
         getDescription={getDescription}
-        items={items}
+        itemIds={itemIdsInList}
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
         maxTags={3}
         noItemsHint={noItemsHint}

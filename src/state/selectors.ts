@@ -11,6 +11,7 @@ import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
 import {
   useAutomergeItem,
+  useAutomergeItemIds,
   useAutomergeItems,
   useAutomergeItemsById,
   useAutomergeMetadataValue,
@@ -88,6 +89,22 @@ export function useVisibleItems(): Item[] {
   )
 }
 
+export function useVisibleItemIds(): string[] {
+  const authReady = useAuthReady()
+  const itemIds = useAutomergeItemIds()
+
+  return useMemo(
+    () => {
+      if (!authReady) {
+        return []
+      }
+
+      return itemIds
+    },
+    [authReady, itemIds],
+  )
+}
+
 export function useMetadataValue<K extends MetadataKey>(
   key: K,
 ): Metadata[K]
@@ -110,23 +127,26 @@ export function useMetadataValue<K extends MetadataKey>(
   return useDeepMemo(resolvedValue)
 }
 
-export function useItems<T extends Item>(itemType: T['type']): T[]
-export function useItems(): Item[]
-export function useItems<T extends Item>(itemType?: T['type']): T[] {
-  const visibleItems = useVisibleItems()
+export function useItemIds(itemType?: Item['type']): string[] {
+  const authReady = useAuthReady()
+  const visibleItems = useAutomergeItems()
 
-  const nextItems = useMemo(
+  const nextIds = useMemo(
     () => {
-      return (
-        itemType
-          ? visibleItems.filter(item => item.type === itemType)
-          : visibleItems
-      ) as T[]
+      if (!authReady) {
+        return []
+      }
+
+      const filtered = itemType
+        ? visibleItems.filter(item => isVisibleItem(item) && item.type === itemType)
+        : visibleItems.filter(isVisibleItem)
+
+      return filtered.map(item => item.id)
     },
-    [itemType, visibleItems],
+    [authReady, itemType, visibleItems],
   )
 
-  return useDeepMemo(nextItems)
+  return useDeepMemo(nextIds)
 }
 
 export const useItemMap = () => {

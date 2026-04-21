@@ -10,6 +10,7 @@ import {
   useAutomergeItems,
   useAutomergeItemsById,
   useAutomergeMetadataSnapshot,
+  clearParsedItemCache,
 } from './useAutomerge'
 
 type Listener = () => void
@@ -119,6 +120,7 @@ describe('useAutomergeItems', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
+    clearParsedItemCache()
   })
 
   afterEach(() => {
@@ -246,7 +248,7 @@ describe('useAutomergeItems', () => {
       vi.advanceTimersByTime(60)
     })
 
-    expect(result.current.find(entry => entry.id === targetItemId)?.name).toBe('Name-Updated')
+    expect(result.current.find((entry: Item) => entry.id === targetItemId)?.name).toBe('Name-Updated')
     expect(safeParse).toHaveBeenCalledTimes(1)
   })
 
@@ -269,7 +271,7 @@ describe('useAutomergeItems', () => {
     )
 
     const { result } = renderHook(() => useAutomergeItems<Item>())
-    const initialItemB = result.current.find(entry => entry.id === itemB)
+    const initialItemB = result.current.find((entry: Item) => entry.id === itemB)
 
     act(() => {
       handleA.setDoc(buildPersonDoc(itemA, 'Alpha-Updated'))
@@ -280,7 +282,7 @@ describe('useAutomergeItems', () => {
       vi.advanceTimersByTime(60)
     })
 
-    const updatedItemB = result.current.find(entry => entry.id === itemB)
+    const updatedItemB = result.current.find((entry: Item) => entry.id === itemB)
     expect(updatedItemB).toBe(initialItemB)
   })
 

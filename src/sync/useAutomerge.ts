@@ -24,13 +24,27 @@ const automergeIndexDocumentSchema = z.looseObject({
   metadata: z.unknown().optional(),
 })
 
+let PARSED_ITEM_CACHE = new WeakMap<ItemSchema<Item>, WeakMap<object, unknown>>()
+
+export function clearParsedItemCache(): void {
+  PARSED_ITEM_CACHE = new WeakMap<ItemSchema<Item>, WeakMap<object, unknown>>()
+}
+
+function getGlobalParsedCache<TItem extends Item>(schema: ItemSchema<TItem>) {
+  let schemaCache = PARSED_ITEM_CACHE.get(schema)
+  if (!schemaCache) {
+    schemaCache = new WeakMap<object, unknown>()
+    PARSED_ITEM_CACHE.set(schema, schemaCache)
+  }
+  return schemaCache as WeakMap<object, TItem | null>
+}
+
 type RepoDoc = Record<string, unknown>
 type Repo = ReturnType<typeof useRepo>
 type AutomergeIndexDocument = z.infer<typeof automergeIndexDocumentSchema>
 type ItemSchema<TItem extends Item> = z.ZodType<TItem>
 type ItemUpdate<TItem extends Item> = Partial<TItem> | ((prev: TItem) => TItem)
 
-type ParsedItemsByUrl<TItem extends Item> = Map<AutomergeUrl, WeakMap<object, TItem | null>>
 
 type ItemsStoreState<TItem extends Item> = {
   repo: Repo
@@ -38,7 +52,6 @@ type ItemsStoreState<TItem extends Item> = {
   enableErrorFallback: boolean
   enableLenientRead: boolean
   itemIds: string[]
-  parsedItemsByUrl: ParsedItemsByUrl<TItem>
   snapshot: TItem[]
 }
 
@@ -86,7 +99,6 @@ export type UseAutomergeItemDocumentResult<TItem extends Item> = {
 export type UseAutomergeItemCommandsResult<TItem extends Item> = {
   applyItemUpdate: (
     update: ItemUpdate<TItem>,
-    options?: { fallbackType?: Item['type'] },
   ) => void
 }
 
@@ -195,30 +207,41 @@ function parseItemFromDoc<TItem extends Item>(
   }
 
   const snapshot = rawDoc as RepoDoc
+  const cacheKey = snapshot as object
+  const cache = getGlobalParsedCache(schema)
+
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey) ?? null
+  }
   const normalizedItem = (typeof snapshot.id === 'string' && snapshot.id.length > 0)
     ? snapshot
     : { ...snapshot, id: itemId }
 
   const parsed = parseWithSchema(normalizedItem, schema)
   if (parsed) {
+    cache.set(cacheKey, parsed)
     return parsed
   }
 
   if (options.enableLenientRead) {
     const lenientItem = parseLenientItemSnapshot(itemId, normalizedItem)
     if (lenientItem) {
+      cache.set(cacheKey, lenientItem as TItem)
       return lenientItem as TItem
     }
   }
 
   if (options.enableErrorFallback) {
-    return createErrorItemFallback(
+    const errorItem = createErrorItemFallback(
       itemId,
       normalizedItem,
       `Schema validation failed for item ${itemId}`,
     ) as unknown as TItem
+    cache.set(cacheKey, errorItem)
+    return errorItem
   }
 
+  cache.set(cacheKey, null)
   return null
 }
 
@@ -238,37 +261,10 @@ function readParsedItemFromCache<TItem extends Item>(
   const handle = findRepoDocHandle<RepoDoc>(store.repo, documentUrl)
   const rawDoc = readReadyObjectSnapshot(handle)
 
-  if (!rawDoc || typeof rawDoc !== 'object' || Array.isArray(rawDoc)) {
-    return null
-  }
-
-  let parsedByDoc = store.parsedItemsByUrl.get(documentUrl)
-  if (!parsedByDoc) {
-    parsedByDoc = new WeakMap<object, TItem | null>()
-    store.parsedItemsByUrl.set(documentUrl, parsedByDoc)
-  }
-
-  const cacheKey = rawDoc as object
-  if (parsedByDoc.has(cacheKey)) {
-    return parsedByDoc.get(cacheKey) ?? null
-  }
-
-  const parsed = parseItemFromDoc(itemId, rawDoc, store.schema, {
+  return parseItemFromDoc(itemId, rawDoc, store.schema, {
     enableErrorFallback: store.enableErrorFallback,
     enableLenientRead: store.enableLenientRead,
   })
-  parsedByDoc.set(cacheKey, parsed)
-  return parsed
-}
-
-function syncParsedItemCacheKeys<TItem extends Item>(store: ItemsStoreState<TItem>): void {
-  const activeUrls = new Set(store.itemIds.map(toItemDocumentUrl))
-
-  for (const documentUrl of Array.from(store.parsedItemsByUrl.keys())) {
-    if (!activeUrls.has(documentUrl)) {
-      store.parsedItemsByUrl.delete(documentUrl)
-    }
-  }
 }
 
 function syncItemsSnapshot<TItem extends Item>(store: ItemsStoreState<TItem>): boolean {
@@ -299,7 +295,7 @@ function useAutomergeItemsFromIds<TItem extends Item = Item>(
   itemIds: string[],
   schema?: ItemSchema<TItem>,
 ): TItem[] {
-  const resolvedSchema = resolveItemSchema(schema)
+  const resolvedSchema = resolveItemSchema(schema) as ItemSchema<TItem>
   const repo = useRepo()
 
   const normalizedItemIds = useMemo(
@@ -316,11 +312,9 @@ function useAutomergeItemsFromIds<TItem extends Item = Item>(
       enableErrorFallback: usesDefaultSchema,
       enableLenientRead: usesDefaultSchema,
       itemIds: normalizedItemIds,
-      parsedItemsByUrl: new Map<AutomergeUrl, WeakMap<object, TItem | null>>(),
       snapshot: EMPTY_ITEMS as TItem[],
     }
 
-    syncParsedItemCacheKeys(nextStore)
     syncItemsSnapshot(nextStore)
     return nextStore
   }, [normalizedItemIds, repo, resolvedSchema])
@@ -381,6 +375,11 @@ function useAutomergeItemsFromIds<TItem extends Item = Item>(
 }
 
 export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema<TItem>): TItem[] {
+  const itemIds = useAutomergeItemIds()
+  return useAutomergeItemsById<TItem>(itemIds, schema)
+}
+
+export function useAutomergeItemIds(): string[] {
   const indexUrl = useMemo(
     () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
     [],
@@ -401,7 +400,7 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
     ['change', 'heads-changed', 'delete'],
   )
 
-  return useAutomergeItemsFromIds<TItem>(itemIds, schema)
+  return itemIds
 }
 
 export function useAutomergeItemsById<TItem extends Item = Item>(
@@ -491,23 +490,30 @@ export function useAutomergeItemCommands<TItem extends Item = Item>(
   schema?: ItemSchema<TItem>,
 ): UseAutomergeItemCommandsResult<TItem> {
   const resolvedSchema = resolveItemSchema(schema)
-  const { change } = useAutomergeItemDocument(itemId, schema)
+  const repo = useRepo()
 
   const applyItemUpdate = useCallback(
     (
       update: ItemUpdate<TItem>,
-      options?: { fallbackType?: Item['type'] },
     ) => {
-      change(draft => {
+      const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+      const handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
+
+      if (!handle) {
+        throw new Error(`Automerge handle missing for item: ${itemId}`)
+      }
+
+      if (!handle.isReady()) {
+        throw new Error(`Automerge handle not ready for item: ${itemId}`)
+      }
+
+      if (handle.isUnavailable()) {
+        throw new Error(`Automerge handle unavailable for item: ${itemId}`)
+      }
+
+      handle.change(draft => {
         if (typeof draft.id !== 'string' || draft.id.length === 0) {
           draft.id = itemId
-        }
-
-        if (
-          options?.fallbackType
-          && (typeof draft.type !== 'string' || draft.type.length === 0)
-        ) {
-          draft.type = options.fallbackType as TItem['type']
         }
 
         if (typeof update === 'function') {
@@ -520,11 +526,11 @@ export function useAutomergeItemCommands<TItem extends Item = Item>(
 
         const validation = resolvedSchema.safeParse(draft)
         if (!validation.success) {
-          throw new Error(`Blocked invalid Automerge item mutation for ${itemId}`)
+          throw new Error(`Blocked invalid Automerge item mutation for ${itemId}: ${validation.error.message}`)
         }
       })
     },
-    [change, itemId, resolvedSchema],
+    [repo, itemId, resolvedSchema],
   )
 
   return useMemo(

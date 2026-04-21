@@ -52,6 +52,11 @@ export function usePrayerSchedule() {
     [todaysGoal, schedule],
   )
   const visibleSchedule = useStableArray(rawVisibleSchedule)
+  
+  const visibleScheduleIds = useMemo(
+    () => scheduleIds.slice(0, todaysGoal),
+    [todaysGoal, scheduleIds],
+  )
 
   const completed = useMemo(
     () => items.filter(isPrayedForToday).length,
@@ -107,5 +112,6 @@ export function usePrayerSchedule() {
     showMore,
     showUntil,
     visibleSchedule,
+    visibleScheduleIds,
   }
 }

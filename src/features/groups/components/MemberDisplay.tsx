@@ -10,6 +10,7 @@ import ItemList from '../../items/components/ItemList'
 import { sortItems } from '../../../utils/customSort'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { useAutomergeItemsById } from '../../../sync/useAutomerge'
 
 
 interface Props {
@@ -29,13 +30,14 @@ function MemberDisplay({
   const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
 
-  const members = useMemo(
-    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria),
+  const sortedMemberIds = useMemo(
+    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria).map(m => m.id),
     [getItemsById, memberIds, sortCriteria],
   )
+  const members = useAutomergeItemsById(sortedMemberIds)
 
   const handleClickItem = useCallback(
-    (item: PersonItem) => {
+    (item: Item) => {
       pushActive({ item: item.id })
     },
     [pushActive],
@@ -68,7 +70,7 @@ function MemberDisplay({
           noItemsText="No people found"
           onSelect={handleSelect}
           onRemove={handleRemove}
-          selectedItems={members}
+          selectedItems={members as PersonItem[]}
           types={{ person: true }}
           searchDescription
           showIcons={false}
@@ -82,7 +84,7 @@ function MemberDisplay({
         dividers
         fullHeight={false}
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
-        items={members}
+        itemIds={sortedMemberIds}
         noItemsHint="No group members"
         onClick={handleClickItem}
         onClickAction={editable ? handleRemove : undefined}
