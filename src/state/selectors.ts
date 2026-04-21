@@ -3,7 +3,7 @@ import deepEqual from 'fast-deep-equal'
 import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
-import type { Item } from './items'
+import type { BaseItem, Item } from './items'
 import type { ItemId } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
@@ -140,7 +140,7 @@ export function useItemIds(itemType?: Item['type']): string[] {
         ? visibleItems.filter(item => isVisibleItem(item) && item.type === itemType)
         : visibleItems.filter(isVisibleItem)
 
-      return filtered.map(item => item.id)
+      return filtered.map(item => item.id as string)
     },
     [authReady, itemType, visibleItems],
   )
@@ -227,7 +227,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
       return visibleItems.filter(item => (
         types[item.type]
         && (includeArchived || !item.archived)
-        && (showSelectedOptions || !selectedIdSet.has(item.id))
+        && (showSelectedOptions || !selectedIdSet.has((item as unknown as BaseItem).id))
       ))
     },
     [authReady, includeArchived, isOpen, selectedItemIds, showSelectedOptions, types, visibleItems],

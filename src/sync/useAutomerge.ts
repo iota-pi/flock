@@ -6,7 +6,7 @@ import { ERROR_ITEM_TYPE, getBlankItem, type ErrorItem, type Item, type ItemForT
 import type { AccountMetadata } from '../state/metadata'
 import { accountMetadataSchema } from '../shared/schemas/metadata'
 import { ITEM_TYPES, type ItemType } from '../shared/itemTypes'
-import { frequencySchema, itemSchema, noteSchema } from '../shared/schemas/items'
+import { frequencySchema, noteSchema, readItemSchema } from '../shared/schemas/items'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { createDebouncedNotifier, normalizeItemIds, parseWithSchema } from './syncUtils'
@@ -55,7 +55,7 @@ type ItemsStoreState<TItem extends Item> = {
   snapshot: TItem[]
 }
 
-const defaultItemSchema = itemSchema as ItemSchema<Item>
+const defaultItemSchema = readItemSchema as ItemSchema<Item>
 
 const lenientBaseItemReadSchema = z.object({
   archived: z.boolean().optional(),

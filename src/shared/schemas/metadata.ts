@@ -19,9 +19,9 @@ const defaultPrayerFrequencySchema = z.object({
   topic: frequencySchema.optional(),
 }).partial()
 
-export const accountMetadataSchema = z.object({
+export const accountMetadataSchema = z.looseObject({
   completedMigrations: z.array(z.string()).optional(),
   prayerGoal: z.number().optional(),
   sortCriteria: z.array(sortCriterionSchema).optional(),
   defaultPrayerFrequency: defaultPrayerFrequencySchema.optional(),
-}).passthrough()
+})

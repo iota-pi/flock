@@ -3,36 +3,20 @@ import { mergeWith } from 'lodash-es'
 import { generateItemId } from '../utils'
 import { ITEM_TYPES, ItemId, ItemType } from '../shared/itemTypes'
 import {
-  baseItemSchema,
-  groupItemSchema,
-  itemSchema,
-  noteSchema,
-  personItemSchema,
-  topicItemSchema,
+  readItemSchema,
+  type BaseItem as StandardBaseItem,
+  type GroupItem,
+  type Note,
+  type PersonItem,
+  type TopicItem,
 } from '../shared/schemas/items'
 
 export const ERROR_ITEM_TYPE = 'error'
 
-export type Note = z.infer<typeof noteSchema>
+export type { Note }
 
-type StandardBaseItem = z.infer<typeof baseItemSchema>
-
-export type BaseItem = Omit<StandardBaseItem, 'id' | 'type'> & {
-  id: ItemId
-  type: ItemType | typeof ERROR_ITEM_TYPE
-}
-
-export type PersonItem = Omit<z.infer<typeof personItemSchema>, 'id'> & {
-  id: ItemId
-}
-
-export type GroupItem = Omit<z.infer<typeof groupItemSchema>, 'id' | 'members'> & {
-  id: ItemId
-  members: ItemId[]
-}
-
-export type TopicItem = Omit<z.infer<typeof topicItemSchema>, 'id'> & {
-  id: ItemId
+export type BaseItem = StandardBaseItem & {
+  type: StandardBaseItem['type'] | typeof ERROR_ITEM_TYPE
 }
 
 export type ErrorItem = Omit<BaseItem, 'type'> & {
@@ -47,6 +31,7 @@ export type ErrorItem = Omit<BaseItem, 'type'> & {
 export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
+type foo = ErrorItem['id']
 export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>
 
 export type LocalChangeItem<T> = T & { hasLocalChanges?: boolean }
@@ -131,7 +116,7 @@ export function checkProperties(items: Item[]): { error: boolean, errors: Array<
   const errors: Array<{ id: string, message: string }> = []
 
   for (const [index, item] of items.entries()) {
-    const result = itemSchema.safeParse(item)
+    const result = readItemSchema.safeParse(item)
     if (result.success) {
       continue
     }
@@ -176,7 +161,8 @@ export function getItemName(
   item?: Partial<Item> & Pick<Item, 'type'>,
 ): string {
   if (item === undefined) return ''
-  return (item.name || '').trim()
+  const name = (item as unknown as StandardBaseItem).name
+  return (name || '').trim()
 }
 
 function compareNames(a: BaseItem, b: BaseItem) {
@@ -184,17 +170,19 @@ function compareNames(a: BaseItem, b: BaseItem) {
 }
 
 export function compareIds(a: Item, b: Item) {
-  return +(a.id > b.id) - +(a.id < b.id)
+  const aId = (a as unknown as StandardBaseItem).id
+  const bId = (b as unknown as StandardBaseItem).id
+  return +(aId > bId) - +(aId < bId)
 }
 
 export function compareItems(a: Item, b: Item) {
-  if (a.archived !== b.archived) {
-    return +a.archived - +b.archived
+  if ((a as unknown as StandardBaseItem).archived !== (b as unknown as StandardBaseItem).archived) {
+    return +(a as unknown as StandardBaseItem).archived - +(b as unknown as StandardBaseItem).archived
   } else if (a.type !== b.type) {
     const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
     return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
   }
-  return compareNames(a, b) || compareIds(a, b)
+  return compareNames(a as BaseItem, b as BaseItem) || compareIds(a, b)
 }
 
 export function filterArchived<T extends Item>(items: T[]): T[] {
