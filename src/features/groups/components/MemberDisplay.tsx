@@ -5,12 +5,11 @@ import {
 import DeleteIcon from '@mui/icons-material/Close'
 import type { GroupItem, Item, PersonItem } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
-import { useItemsById, useSortCriteria } from '../../../state/selectors'
+import { useItemsByIds, useSortCriteria } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { sortItems } from '../../../utils/customSort'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { useAutomergeItemsById } from '../../../sync/useAutomerge'
 
 
 interface Props {
@@ -27,14 +26,19 @@ function MemberDisplay({
   onChange,
 }: Props) {
   const pushActive = useNavigationStore(state => state.pushActive)
-  const getItemsById = useItemsById()
   const [sortCriteria] = useSortCriteria()
+  
+  const unsortedMembers = useItemsByIds<PersonItem>(memberIds)
+
+  const members = useMemo(
+    () => sortItems(unsortedMembers, sortCriteria),
+    [unsortedMembers, sortCriteria],
+  )
 
   const sortedMemberIds = useMemo(
-    () => sortItems(getItemsById<PersonItem>(memberIds), sortCriteria).map(m => m.id),
-    [getItemsById, memberIds, sortCriteria],
+    () => members.map(m => m.id),
+    [members],
   )
-  const members = useAutomergeItemsById(sortedMemberIds)
 
   const handleClickItem = useCallback(
     (item: Item) => {

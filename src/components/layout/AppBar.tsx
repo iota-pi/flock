@@ -1,7 +1,6 @@
 import {
   AppBar as MuiAppBar,
   Box,
-  CircularProgress,
   IconButton,
   styled,
   Theme,

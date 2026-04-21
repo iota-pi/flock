@@ -1,5 +1,4 @@
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
-import { CircularProgress, Box } from '@mui/material'
 import { useLoggedIn } from '../../state/selectors'
 import { useAuthStore } from '../../state/authStore'
 

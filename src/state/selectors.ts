@@ -18,7 +18,6 @@ import {
 } from '../sync/useAutomerge'
 
 const EMPTY_ARRAY: Item[] = []
-const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
 const EMPTY_DEFAULT_PRAYER_FREQUENCY: NonNullable<Metadata['defaultPrayerFrequency']> = {}
 
 type SearchItemsResult = {
@@ -149,26 +148,6 @@ export function useItemIds(itemType?: Item['type']): string[] {
   return useDeepMemo(nextIds)
 }
 
-export const useItemMap = () => {
-  const visibleItems = useVisibleItems()
-
-  const nextMap = useMemo(
-    () => {
-      if (visibleItems.length === 0) {
-        return EMPTY_ITEM_MAP
-      }
-
-      return visibleItems.reduce<Record<ItemId, Item>>((result, item) => {
-        result[item.id] = item
-        return result
-      }, {})
-    },
-    [visibleItems],
-  )
-
-  return useDeepMemo(nextMap)
-}
-
 export const useItem = (id: ItemId) => {
   const authReady = useAuthReady()
   const item = useAutomergeItem<Item>(id)
@@ -182,17 +161,6 @@ export const useItem = (id: ItemId) => {
   }
 
   return item
-}
-
-export function useItemsById() {
-  const itemMap = useItemMap()
-
-  return useCallback(
-    <T extends Item>(ids: ItemId[]) => ids
-      .map(id => itemMap[id])
-      .filter((item): item is T => item !== undefined),
-    [itemMap],
-  )
 }
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
@@ -299,22 +267,22 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue: Exclude<Metadata[K], undefined>,
 ): [
-  Exclude<Metadata[K], undefined>,
-  SetMetadata<K>,
-]
+    Exclude<Metadata[K], undefined>,
+    SetMetadata<K>,
+  ]
 export function useMetadata<K extends MetadataKey>(
   key: K,
 ): [
-  Metadata[K],
-  SetMetadata<K>,
-]
+    Metadata[K],
+    SetMetadata<K>,
+  ]
 export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [
-  Metadata[K],
-  SetMetadata<K>,
-] {
+    Metadata[K],
+    SetMetadata<K>,
+  ] {
   // Workaround type inference quirks with overloads
   const defaultedValue = defaultValue as Exclude<Metadata[K], undefined>
   const value = useMetadataValue(key, defaultedValue)

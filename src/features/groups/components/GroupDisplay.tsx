@@ -2,12 +2,11 @@ import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
 import type { GroupItem, Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
-import { useItemIds, useItemsById } from '../../../state/selectors'
+import { useItemIds, useItemsByIds } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { storeItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
-import { useAutomergeItemsById } from '../../../sync/useAutomerge'
 
 interface Props {
   editable?: boolean,
@@ -20,18 +19,18 @@ function GroupDisplay({
   itemId,
 }: Props) {
   const allGroupIds = useItemIds('group')
-  const getItemsById = useItemsById()
+  const allGroups = useItemsByIds<GroupItem>(allGroupIds)
   const pushActive = useNavigationStore(state => state.pushActive)
   
-  const currentGroupIds = useMemo(
-    () => {
-      const groups = getItemsById<GroupItem>(allGroupIds)
-      return groups.filter(g => g.members.includes(itemId)).map(g => g.id)
-    },
-    [allGroupIds, getItemsById, itemId],
+  const currentGroups = useMemo(
+    () => allGroups.filter(g => g.members.includes(itemId)),
+    [allGroups, itemId],
   )
 
-  const currentGroups = useAutomergeItemsById<GroupItem>(currentGroupIds)
+  const currentGroupIds = useMemo(
+    () => currentGroups.map(g => g.id),
+    [currentGroups],
+  )
 
   const handleSelect = useCallback(
     (group: GroupItem) => {

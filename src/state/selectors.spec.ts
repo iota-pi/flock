@@ -4,14 +4,14 @@ import type { Item } from './items'
 import {
   useAuthReady,
   useItem,
-  useItemMap,
-  useItems,
+  useItemIds,
   useItemsByIds,
   useLoggedIn,
   usePracticalFilterCount,
   usePrayerScheduleInputs,
   useSearchItems,
   useSortCriteria,
+  useVisibleItems,
 } from './selectors'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
@@ -115,18 +115,18 @@ describe('state selectors', () => {
     expect(ready.result.current).toBe(true)
   })
 
-  it('useItems returns full list when no type filter is passed', () => {
-    const { result } = renderHook(() => useItems())
-    expect(result.current.map(item => item.id)).toEqual(['person-1', 'group-1', 'topic-1'])
+  it('useVisibleItems returns full list', () => {
+    const { result } = renderHook(() => useVisibleItems())
+    expect(result.current.map((item: Item) => item.id)).toEqual(['person-1', 'group-1', 'topic-1'])
   })
 
-  it('useItems filters by type', () => {
-    const { result } = renderHook(() => useItems<Item>('person'))
-    expect(result.current.map(item => item.id)).toEqual(['person-1'])
+  it('useItemIds filters by type', () => {
+    const { result } = renderHook(() => useItemIds('person'))
+    expect(result.current).toEqual(['person-1'])
   })
 
-  it('useItems keeps stable typed list when unrelated item changes', () => {
-    const { result, rerender } = renderHook(() => useItems<Item>('group'))
+  it('useItemIds keeps stable typed list when unrelated item changes', () => {
+    const { result, rerender } = renderHook(() => useItemIds('group'))
     const firstResult = result.current
 
     act(() => {
@@ -139,26 +139,9 @@ describe('state selectors', () => {
     })
 
     expect(result.current).toBe(firstResult)
-    expect(result.current.map(item => item.id)).toEqual(['group-1'])
+    expect(result.current).toEqual(['group-1'])
   })
 
-  it('useItemMap returns an id keyed item map', () => {
-    const { result } = renderHook(() => useItemMap())
-    expect(result.current['person-1']?.name).toBe('Alice')
-    expect(result.current['group-1']?.name).toBe('Core Group')
-  })
-
-  it('useItemMap keeps stable map for semantically unchanged updates', () => {
-    const { result, rerender } = renderHook(() => useItemMap())
-    const firstResult = result.current
-
-    act(() => {
-      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
-      rerender()
-    })
-
-    expect(result.current).toBe(firstResult)
-  })
 
   it('useItem returns the selected item by id', () => {
     const { result } = renderHook(() => useItem('topic-1'))

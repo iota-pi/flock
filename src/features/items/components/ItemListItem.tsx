@@ -188,7 +188,7 @@ export function ItemListItem(props: ItemListItemProps) {
   )
   const groupLookup = useMemo(
     () => (currentItem ? groupsByMemberId?.get(currentItem.id) : undefined),
-    [currentItem?.id, groupsByMemberId],
+    [currentItem, groupsByMemberId],
   )
   const tags = useMemo(
     () => {
