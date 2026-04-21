@@ -26,7 +26,7 @@ import {
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
 import { deleteItem } from '../mutations/itemMutations'
-import { useAutomergeItemDocument } from 'src/sync/useAutomerge'
+import { useAutomergeItemCommands, useAutomergeItemDocument } from 'src/sync/useAutomerge'
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
@@ -59,8 +59,8 @@ function ItemDrawer({
 }: Props) {
   const {
     item: automergeItem,
-    change: changeAutomergeItem,
   } = useAutomergeItemDocument(item.id)
+  const { applyItemUpdate } = useAutomergeItemCommands(item.id)
 
   const resolvedItem = useMemo(() => {
     if (item.isNew || !automergeItem) {
@@ -77,22 +77,8 @@ function ItemDrawer({
     <T extends Item>(
       data: Partial<T> | ((prev: Item) => Item),
     ) => {
-      changeAutomergeItem(draft => {
-        if (typeof draft.id !== 'string' || draft.id.length === 0) {
-          draft.id = item.id
-        }
-
-        if (typeof draft.type !== 'string' || draft.type.length === 0) {
-          draft.type = resolvedItem.type
-        }
-
-        if (typeof data === 'function') {
-          const nextItem = data(draft)
-          Object.assign(draft, nextItem)
-          return
-        }
-
-        Object.assign(draft, data)
+      applyItemUpdate(data as Partial<Item> | ((prev: Item) => Item), {
+        fallbackType: resolvedItem.type,
       })
 
       if (typeof data === 'function') {
@@ -100,7 +86,7 @@ function ItemDrawer({
       }
       return onChange(data)
     },
-    [changeAutomergeItem, item.id, onChange, resolvedItem.type],
+    [applyItemUpdate, onChange, resolvedItem.type],
   )
 
   const handleClose = useCallback(

@@ -10,6 +10,12 @@ import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
 } from './automergeConstants'
+import {
+  awaitHandleReadyIfNeeded,
+  findRepoDocHandle,
+  readReadyObjectSnapshot,
+  tryResolveNonReadyHandle,
+} from './automergeHandleUtils'
 
 export const ACCOUNT_METADATA_DOCUMENT_ID = ACCOUNT_INDEX_DOCUMENT_ID
 
@@ -20,7 +26,7 @@ export type AutomergeIndexDocument = {
 }
 
 type RepoDoc = Record<string, unknown>
-type RepoDocHandle = DocHandle<RepoDoc>
+type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
 type EnsureHandleOptions = {
   createIfMissing?: boolean
@@ -103,19 +109,7 @@ function createIndexInitialDocument(accountId?: string | null): RepoDoc {
 
 function getRepoHandle(documentId: string): RepoDocHandle {
   const documentUrl = toAutomergeUrlFromItemId(documentId)
-  return getAutomergeRepo().findWithProgress<RepoDoc>(documentUrl).handle as RepoDocHandle
-}
-
-function tryResolveNonReadyHandle(handle: RepoDocHandle): void {
-  if (handle.isReady() || handle.isUnavailable()) {
-    return
-  }
-
-  try {
-    handle.doneLoading()
-  } catch {
-    // Keep handle in current state.
-  }
+  return findRepoDocHandle<RepoDoc>(getAutomergeRepo(), documentUrl)
 }
 
 async function ensureDocumentHandle(
@@ -126,17 +120,17 @@ async function ensureDocumentHandle(
   const documentUrl = toAutomergeUrlFromItemId(documentId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
-  let handle = repo.findWithProgress<RepoDoc>(documentUrl).handle as RepoDocHandle
+  let handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
 
   if (options.awaitReady === false) {
     tryResolveNonReadyHandle(handle)
   }
 
-  if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
-    await handle.whenReady(['ready', 'unavailable'])
+  if (options.awaitReady !== false) {
+    await awaitHandleReadyIfNeeded(handle)
   }
 
-  if (handle.isUnavailable() && options.createIfMissing) {
+  if ((handle?.isUnavailable() || !handle) && options.createIfMissing) {
     try {
       repo.delete(resolvedDocumentId)
     } catch (error) {
@@ -159,8 +153,8 @@ async function ensureDocumentHandle(
       tryResolveNonReadyHandle(handle)
     }
 
-    if (options.awaitReady !== false && !handle.isReady() && !handle.isUnavailable()) {
-      await handle.whenReady(['ready', 'unavailable'])
+    if (options.awaitReady !== false) {
+      await awaitHandleReadyIfNeeded(handle)
     }
   }
 
@@ -168,20 +162,8 @@ async function ensureDocumentHandle(
 }
 
 function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
-  if (!handle.isReady()) {
-    tryResolveNonReadyHandle(handle)
-  }
-
-  if (!handle.isReady()) {
-    return null
-  }
-
-  try {
-    const doc = handle.doc()
-    return isPlainObject(doc) ? (doc as RepoDoc) : null
-  } catch {
-    return null
-  }
+  const snapshot = readReadyObjectSnapshot(handle, { resolvePending: true })
+  return (snapshot && isPlainObject(snapshot)) ? snapshot : null
 }
 
 function readDocumentSnapshot(documentId: string): RepoDoc | null {
@@ -283,12 +265,10 @@ async function seedImportedDocument(documentId: string, binary: Uint8Array): Pro
     docId: resolvedDocumentId,
   }) as RepoDocHandle
 
-  if (!handle.isReady() && !handle.isUnavailable()) {
-    tryResolveNonReadyHandle(handle)
-  }
+  tryResolveNonReadyHandle(handle)
 
-  if (!handle.isReady() && !handle.isUnavailable()) {
-    await handle.whenReady(['ready', 'unavailable'])
+  if (!handle?.isReady() && !handle?.isUnavailable()) {
+    await awaitHandleReadyIfNeeded(handle)
   }
 }
 
@@ -336,7 +316,7 @@ export async function withAutomergeDocumentChange(
     awaitReady: false,
   })
 
-  if (handle.isUnavailable() || !handle.isReady()) {
+  if (!handle || handle.isUnavailable() || !handle.isReady()) {
     return false
   }
 
@@ -588,7 +568,7 @@ export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string
     const handle = await ensureDocumentHandle(documentId, {
       awaitReady: false,
     })
-    if (!handle.isReady()) {
+    if (!handle || !handle.isReady()) {
       continue
     }
 

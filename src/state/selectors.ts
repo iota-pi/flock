@@ -18,7 +18,6 @@ import {
 
 const EMPTY_ARRAY: Item[] = []
 const EMPTY_ITEM_MAP: Record<ItemId, Item> = {}
-const EMPTY_METADATA: Metadata = {}
 const EMPTY_DEFAULT_PRAYER_FREQUENCY: NonNullable<Metadata['defaultPrayerFrequency']> = {}
 
 type SearchItemsResult = {
@@ -104,11 +103,11 @@ export function useMetadataValue<K extends MetadataKey>(
   const value = useAutomergeMetadataValue(key, defaultValue!)
 
   // Wait for auth before returning real data to prevent flash-of-empty states
-  if (!authReady) {
-    return defaultValue as Metadata[K]
-  }
+  const resolvedValue = authReady
+    ? value
+    : defaultValue as Metadata[K]
 
-  return value
+  return useDeepMemo(resolvedValue)
 }
 
 export function useItems<T extends Item>(itemType: T['type']): T[]

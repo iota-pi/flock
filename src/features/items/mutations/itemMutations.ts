@@ -4,6 +4,8 @@ import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { accountMetadataSchema } from '../../../shared/schemas/metadata'
+import { groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
 import {
   addAutomergeItemIdsToIndex,
   withAutomergeMetadataChange,
@@ -14,6 +16,12 @@ import {
   removeAutomergeItemIdsFromIndex,
   withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
+
+const strictItemWriteSchema = personItemSchema.strict()
+  .or(groupItemSchema.strict())
+  .or(topicItemSchema.strict())
+
+const strictMetadataWriteSchema = accountMetadataSchema.strict()
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -29,6 +37,15 @@ function normalizeItemsInput(items: Item | Item[]): Item[] {
 
     if (item.type === ERROR_ITEM_TYPE || !ITEM_TYPES.includes(item.type)) {
       throw new Error(`Invalid item: unsupported type ${String(item.type)}`)
+    }
+
+    const parsed = strictItemWriteSchema.safeParse(item)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+        .join('; ')
+
+      throw new Error(`Invalid item payload for ${item.id}: ${issues}`)
     }
 
     deduped.set(item.id, item)
@@ -54,6 +71,15 @@ function normalizeItemIds(itemIds: ItemId | ItemId[]): ItemId[] {
 function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     throw new Error('Invalid metadata payload')
+  }
+
+  const parsed = strictMetadataWriteSchema.safeParse(metadata)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+      .join('; ')
+
+    throw new Error(`Invalid metadata payload: ${issues}`)
   }
 
   return metadata

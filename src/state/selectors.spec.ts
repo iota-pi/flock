@@ -21,7 +21,7 @@ const useAutomergeMocks = vi.hoisted(() => ({
   useAutomergeItems: vi.fn(),
   useAutomergeItemsById: vi.fn(),
   useAutomergeItem: vi.fn(),
-  useAutomergeMetadataSnapshot: vi.fn(),
+  useAutomergeMetadataValue: vi.fn(),
 }))
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
@@ -32,7 +32,7 @@ vi.mock('../sync/useAutomerge', () => ({
   useAutomergeItems: useAutomergeMocks.useAutomergeItems,
   useAutomergeItemsById: useAutomergeMocks.useAutomergeItemsById,
   useAutomergeItem: useAutomergeMocks.useAutomergeItem,
-  useAutomergeMetadataSnapshot: useAutomergeMocks.useAutomergeMetadataSnapshot,
+  useAutomergeMetadataValue: useAutomergeMocks.useAutomergeMetadataValue,
 }))
 
 const itemsFixture: Item[] = [
@@ -89,7 +89,12 @@ describe('state selectors', () => {
     useAutomergeMocks.useAutomergeItem.mockImplementation((itemId: string) => (
       automergeItemsState.find(item => item.id === itemId) || null
     ))
-    useAutomergeMocks.useAutomergeMetadataSnapshot.mockImplementation(() => automergeMetadataState as any)
+    useAutomergeMocks.useAutomergeMetadataValue.mockImplementation(
+      (key: string, defaultValue?: unknown) => {
+        const metadataValue = automergeMetadataState[key]
+        return metadataValue === undefined ? defaultValue : metadataValue
+      },
+    )
 
     useAuthStore.getState().updateAuth({
       account: 'acct-1',

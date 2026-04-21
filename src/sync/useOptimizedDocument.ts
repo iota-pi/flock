@@ -3,6 +3,11 @@ import { useRepo } from '@automerge/automerge-repo-react-hooks'
 import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
 import deepEqual from 'fast-deep-equal'
 import { createDebouncedNotifier } from './syncUtils'
+import {
+  findRepoDocHandle,
+  readHandleDocSafely,
+  readReadyObjectSnapshot,
+} from './automergeHandleUtils'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -18,34 +23,7 @@ type OptimizedDocumentStore<TDoc extends object, TSnapshot> = {
   snapshotByDocRef: WeakMap<object, TSnapshot>
 }
 
-function findRepoDocHandle<TDoc extends object>(repo: Repo, documentUrl: AutomergeUrl): DocHandle<TDoc> | undefined {
-  try {
-    return repo.findWithProgress<TDoc>(documentUrl).handle as DocHandle<TDoc>
-  } catch {
-    return undefined
-  }
-}
-
-function readReadySnapshot(handle: RepoDocHandle): RepoDoc | null {
-  if (!handle || !handle.isReady() || handle.isUnavailable()) {
-    return null
-  }
-
-  try {
-    const doc = handle.doc()
-    return (!doc || typeof doc !== 'object' || Array.isArray(doc)) ? null : (doc as RepoDoc)
-  } catch {
-    return null
-  }
-}
-
-function readHandleDoc<TDoc extends object>(handle: DocHandle<TDoc>): TDoc | undefined {
-  try {
-    return handle.doc()
-  } catch {
-    return undefined
-  }
-}
+const readReadySnapshot = (handle: RepoDocHandle): RepoDoc | null => readReadyObjectSnapshot(handle)
 
 function readProjectedSnapshot<TDoc extends object, TSnapshot>(
   store: OptimizedDocumentStore<TDoc, TSnapshot>,
@@ -90,7 +68,7 @@ function syncStoreSnapshotFromHandle<TDoc extends object, TSnapshot>(
     return hasChanged
   }
 
-  const nextDoc = readHandleDoc(currentHandle)
+  const nextDoc = readHandleDocSafely(currentHandle)
   if (nextDoc === store.currentDoc) {
     return false
   }

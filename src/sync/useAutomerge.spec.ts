@@ -5,7 +5,12 @@ import { z } from 'zod'
 import type { Item } from '../state/items'
 import { ACCOUNT_METADATA_DOCUMENT_ID } from './automergeDocStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
-import { useAutomergeItems, useAutomergeItemsById } from './useAutomerge'
+import {
+  useAutomergeItemSelector,
+  useAutomergeItems,
+  useAutomergeItemsById,
+  useAutomergeMetadataSnapshot,
+} from './useAutomerge'
 
 type Listener = () => void
 
@@ -345,10 +350,102 @@ describe('useAutomergeItems', () => {
     expect(result.current.map(item => item.id)).toEqual([targetItemId])
     expect(findWithProgressSpy).not.toHaveBeenCalledWith(indexUrl)
   })
+
+  it('returns an explicit error item when parsing fails', () => {
+    const itemId = 'item-bad'
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+    const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, buildIndexDoc([itemId]))],
+        [itemUrl, new MockDocHandle(true, false, {
+          id: itemId,
+          name: 'Broken',
+          notes: 'invalid',
+          type: 'person',
+        })],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeItems<Item>())
+
+    expect(result.current).toHaveLength(1)
+    expect(result.current[0]?.type).toBe('error')
+    expect(result.current[0]?.id).toBe(itemId)
+  })
+
+  it('supports granular selectors for item primitives', () => {
+    const itemId = 'item-selector'
+    const itemUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
+    const handle = new MockDocHandle(true, false, buildPersonDoc(itemId, 'Selector Name'))
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [itemUrl, handle],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeItemSelector(
+      itemId,
+      item => item?.name || '',
+      '',
+    ))
+
+    expect(result.current).toBe('Selector Name')
+
+    act(() => {
+      handle.setDoc({
+        ...buildPersonDoc(itemId, 'Selector Name'),
+        description: 'Description changed',
+      })
+      handle.emit('change')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(60)
+    })
+
+    expect(result.current).toBe('Selector Name')
+  })
 })
 
 describe('useAutomergeMetadataSnapshot', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('reads metadata from the index document', () => {
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, {
+          metadata: {
+            prayerGoal: 3,
+          },
+        })],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
+    expect(result.current.prayerGoal).toBe(3)
+  })
+
+  it('returns empty metadata for invalid metadata payloads', () => {
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl
+
+    useRepoMock.mockReturnValue(
+      createMockRepo(new Map([
+        [indexUrl, new MockDocHandle(true, false, {
+          metadata: {
+            prayerGoal: 'bad-value',
+          },
+        })],
+      ])),
+    )
+
+    const { result } = renderHook(() => useAutomergeMetadataSnapshot())
+    expect(result.current).toEqual({})
   })
 })
