@@ -268,22 +268,22 @@ export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue: Exclude<Metadata[K], undefined>,
 ): [
-    Exclude<Metadata[K], undefined>,
-    SetMetadata<K>,
-  ]
+  Exclude<Metadata[K], undefined>,
+  SetMetadata<K>,
+]
 export function useMetadata<K extends MetadataKey>(
   key: K,
 ): [
-    Metadata[K],
-    SetMetadata<K>,
-  ]
+  Metadata[K],
+  SetMetadata<K>,
+]
 export function useMetadata<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): [
-    Metadata[K],
-    SetMetadata<K>,
-  ] {
+  Metadata[K],
+  SetMetadata<K>,
+] {
   // Workaround type inference quirks with overloads
   const defaultedValue = defaultValue as Exclude<Metadata[K], undefined>
   const value = useMetadataValue(key, defaultedValue)

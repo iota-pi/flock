@@ -6,10 +6,15 @@ import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item, LocalChangeItem } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
+import { useAutomergeItems } from '../../../sync/useAutomerge'
 
-vi.mock('../../../state/selectors', () => ({
-  useItems: vi.fn(),
-}))
+vi.mock('../../../sync/useAutomerge', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../sync/useAutomerge')>()
+  return {
+    ...actual,
+    useAutomergeItems: vi.fn(),
+  }
+})
 
 vi.mock('../../../components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,
@@ -30,8 +35,6 @@ vi.mock('../../../components/NotesSection', () => ({
 vi.mock('../../../components/drawers/utils/CollapsibleSection', () => ({
   default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
 }))
-
-const { useItems } = await import('../../../state/selectors')
 
 function renderWithTheme(ui: React.ReactNode) {
   return render(
@@ -54,7 +57,7 @@ describe('ItemFormContent', () => {
       name: 'Initial Name',
     } as LocalChangeItem<Item>
 
-    vi.mocked(useItems).mockReturnValue([])
+    vi.mocked(useAutomergeItems).mockReturnValue([])
 
     renderWithTheme(
       <ItemFormContent
@@ -82,7 +85,7 @@ describe('ItemFormContent', () => {
       name: 'John Doe',
     } as LocalChangeItem<Item>
 
-    vi.mocked(useItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
+    vi.mocked(useAutomergeItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
 
     renderWithTheme(
       <ItemFormContent

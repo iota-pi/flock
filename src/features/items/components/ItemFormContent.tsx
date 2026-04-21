@@ -7,7 +7,6 @@ import {
 } from '@mui/material'
 import {
   LocalChangeItem,
-  GroupItem,
   Item,
 } from '../../../state/items'
 import DebouncedTextField, { type DebouncedTextFieldControls } from '../../../components/ui/DebouncedTextField'
@@ -19,6 +18,7 @@ import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
 import ItemFormNotesSection from './ItemFormNotesSection'
 import ItemFormFrequencySection from './ItemFormFrequencySection'
 import ItemFormRelationshipsSection from './ItemFormRelationshipsSection'
+import type { GroupItem } from '../../../shared/schemas/items'
 
 type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
   & Partial<Pick<GroupItem, 'memberPrayerFrequency' | 'memberPrayerTarget'>>

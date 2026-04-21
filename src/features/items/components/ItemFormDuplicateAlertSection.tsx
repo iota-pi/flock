@@ -3,7 +3,7 @@ import { Collapse, Grid } from '@mui/material'
 import { ERROR_ITEM_TYPE, getItemName, type Item } from '../../../state/items'
 import type { ItemType } from '../../../shared/itemTypes'
 import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
-import { useItems } from '../../../state/selectors'
+import { useAutomergeItems } from '../../../sync/useAutomerge'
 
 type ItemFormDuplicateAlertSectionProps = {
   hasDescription: boolean
@@ -18,7 +18,7 @@ export default function ItemFormDuplicateAlertSection({
   itemType,
   nameValue,
 }: ItemFormDuplicateAlertSectionProps) {
-  const allItems = useItems()
+  const allItems = useAutomergeItems()
   const targetName = getItemName({ name: nameValue, type: itemType })
   const duplicates = useMemo(
     () => allItems.filter(i => i.type === itemType && i.id !== itemId && getItemName(i) === targetName),
