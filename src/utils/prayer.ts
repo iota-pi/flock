@@ -1,6 +1,6 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
 import { compareItems, filterArchived, Item } from '../state/items'
-import type { GroupItem } from '../state/items'
+import type { GroupItem } from '../shared/schemas/items'
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
 

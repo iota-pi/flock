@@ -18,10 +18,11 @@ import {
   UnarchiveIcon,
 } from './Icons'
 import { useItemsByIds } from '../state/selectors'
-import { ERROR_ITEM_TYPE, Item } from '../state/items'
+import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useNavigationStore } from '../state/navigationStore'
+import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
 const GroupDialog = lazy(() => import('./dialogs/GroupDialog'))

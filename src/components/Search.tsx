@@ -24,7 +24,6 @@ import {
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
 import {
-  ERROR_ITEM_TYPE,
   getBlankItem,
   getItemName,
   Item,
@@ -45,6 +44,7 @@ import {
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
 import { upperFirst } from 'lodash-es'
+import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {

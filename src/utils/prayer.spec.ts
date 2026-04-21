@@ -4,7 +4,8 @@ import {
   getPrayerSchedule,
   getNaturalPrayerGoal,
 } from './prayer'
-import type { Item, GroupItem } from '../state/items'
+import type { Item } from '../state/items'
+import type { GroupItem } from 'src/shared/schemas/items'
 
 function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
   return {

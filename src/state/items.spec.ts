@@ -7,9 +7,9 @@ import {
   isValid,
   checkProperties,
   Item,
-  GroupItem,
 } from './items'
 import { importPeople } from '../utils/importUtils'
+import { GroupItem } from 'src/shared/schemas/items'
 
 describe('items helpers', () => {
   it('creates blank person with defaults', () => {

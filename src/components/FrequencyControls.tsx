@@ -9,7 +9,7 @@ import {
   Select,
   SelectChangeEvent,
 } from '@mui/material'
-import { GroupItem, Item } from '../state/items'
+import { Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import {
   Due,
@@ -21,6 +21,7 @@ import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
 import { useItems } from '../state/selectors'
+import { GroupItem } from 'src/shared/schemas/items'
 
 type OnChangeData<T extends Item> = Partial<
   { prayerFrequency: T['prayerFrequency'] } & (

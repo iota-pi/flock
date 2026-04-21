@@ -1,12 +1,13 @@
 import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { GroupItem, Item } from '../../../state/items'
+import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItemIds, useItemsByIds } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { storeItems } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { GroupItem } from 'src/shared/schemas/items'
 
 interface Props {
   editable?: boolean,
@@ -21,7 +22,7 @@ function GroupDisplay({
   const allGroupIds = useItemIds('group')
   const allGroups = useItemsByIds<GroupItem>(allGroupIds)
   const pushActive = useNavigationStore(state => state.pushActive)
-  
+
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
     [allGroups, itemId],

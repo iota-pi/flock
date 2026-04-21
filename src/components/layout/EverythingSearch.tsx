@@ -3,11 +3,12 @@ import {
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { ERROR_ITEM_TYPE, Item } from '../../state/items'
+import { Item } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'
 import { createItem } from '../../features/items/mutations/itemMutations'
+import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
 
 interface Props {
   label: string,

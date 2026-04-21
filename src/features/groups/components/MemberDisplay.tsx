@@ -3,13 +3,14 @@ import {
   useMemo,
 } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { GroupItem, Item, PersonItem } from '../../../state/items'
+import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItemsByIds, useSortCriteria } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { sortItems } from '../../../utils/customSort'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
+import { GroupItem, PersonItem } from 'src/shared/schemas/items'
 
 
 interface Props {
@@ -27,7 +28,7 @@ function MemberDisplay({
 }: Props) {
   const pushActive = useNavigationStore(state => state.pushActive)
   const [sortCriteria] = useSortCriteria()
-  
+
   const unsortedMembers = useItemsByIds<PersonItem>(memberIds)
 
   const members = useMemo(

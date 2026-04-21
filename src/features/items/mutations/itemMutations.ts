@@ -1,11 +1,11 @@
-import { ERROR_ITEM_TYPE, getBlankItem, GroupItem, type Item } from '../../../state/items'
-import { ITEM_TYPES, ItemId, type ItemType } from '../../../shared/itemTypes'
+import { getBlankItem, type Item } from '../../../state/items'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, type ItemType } from '../../../shared/itemTypes'
 import type { AccountMetadata } from '../../../state/metadata'
 import { getAccountId } from '../../../api/util'
 import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { accountMetadataSchema } from '../../../shared/schemas/metadata'
-import { groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
+import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
 import {
   addAutomergeItemIdsToIndex,
   withAutomergeMetadataChange,

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Collapse, Grid } from '@mui/material'
-import { ERROR_ITEM_TYPE, getItemName, type Item } from '../../../state/items'
-import type { ItemType } from '../../../shared/itemTypes'
+import { getItemName, type Item } from '../../../state/items'
+import { ERROR_ITEM_TYPE, type ItemType } from '../../../shared/itemTypes'
 import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
 import { useAutomergeItems } from '../../../sync/useAutomerge'
 

@@ -1,5 +1,5 @@
 import type { PageId } from '../../src/components/pages/types'
-import type { GroupItem, PersonItem } from '../../src/state/items'
+import { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
 function generateLocalItemId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -226,9 +226,8 @@ Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<stri
   return cy
     .window()
     .its('localStorage')
-    .then(localStorageRef => readStoredAccountId(localStorageRef))
-    .then(accountId => {
-      const stableAccountId = accountId || 'session-account'
+    .then(localStorageRef => {
+      const stableAccountId = readStoredAccountId(localStorageRef) || 'session-account'
       Cypress.env('TEST_ACCOUNT_ID', stableAccountId)
       return stableAccountId
     })

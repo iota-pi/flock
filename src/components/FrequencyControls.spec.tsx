@@ -4,7 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import getTheme from '../theme'
 import { useItems } from '../state/selectors'
-import { GroupItem } from '../state/items'
+import { GroupItem } from '../shared/schemas/items'
 
 // Mocks
 vi.mock('../state/selectors', () => ({

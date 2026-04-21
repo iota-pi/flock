@@ -7,9 +7,10 @@ import {
   DialogTitle,
   Grid,
 } from '@mui/material'
-import { GroupItem, Item } from '../../state/items'
+import { Item } from '../../state/items'
 import Search from '../Search'
 import { storeItems } from '../../features/items/mutations/itemMutations'
+import { GroupItem } from 'src/shared/schemas/items'
 
 interface Props {
   items: Item[],

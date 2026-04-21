@@ -1,10 +1,11 @@
 import { useCallback, useMemo } from 'react'
 import { Grid } from '@mui/material'
-import type { GroupItem, Item, LocalChangeItem } from '../../../state/items'
+import type { Item, LocalChangeItem } from '../../../state/items'
 import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
 import GroupDisplay from '../../groups/components/GroupDisplay'
 import MemberDisplay from '../../groups/components/MemberDisplay'
 import { GroupIcon, PersonIcon } from '../../../components/Icons'
+import { GroupItem } from 'src/shared/schemas/items'
 
 type ItemFormRelationshipsSectionProps = {
   defaultExpandAccordions: boolean
