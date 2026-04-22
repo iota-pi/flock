@@ -1,12 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { RepoContext } from '@automerge/automerge-repo-react-hooks'
 import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item, LocalChangeItem } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
 import { useAutomergeItems } from '../../../sync/useAutomerge'
+import { Repo } from '@automerge/automerge-repo'
 
 vi.mock('../../../sync/useAutomerge', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../sync/useAutomerge')>()
@@ -36,11 +37,15 @@ vi.mock('../../../components/drawers/utils/CollapsibleSection', () => ({
   default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
 }))
 
-function renderWithTheme(ui: React.ReactNode) {
+const testRepo = new Repo({ network: [], storage: undefined })
+
+function renderWithContext(ui: React.ReactNode) {
   return render(
-    <ThemeProvider theme={getTheme(false)}>
-      {ui}
-    </ThemeProvider>,
+    <RepoContext.Provider value={testRepo}>
+      <ThemeProvider theme={getTheme(false)}>
+        {ui}
+      </ThemeProvider>,
+    </RepoContext.Provider>
   )
 }
 
@@ -59,7 +64,7 @@ describe('ItemFormContent', () => {
 
     vi.mocked(useAutomergeItems).mockReturnValue([])
 
-    renderWithTheme(
+    renderWithContext(
       <ItemFormContent
         item={item}
         handleChange={handleChange}
@@ -87,7 +92,7 @@ describe('ItemFormContent', () => {
 
     vi.mocked(useAutomergeItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
 
-    renderWithTheme(
+    renderWithContext(
       <ItemFormContent
         item={item}
         handleChange={handleChange}

@@ -17,6 +17,9 @@ export default defineConfig({
         'src/utils/testUtils.ts',
       ],
     },
+    alias: {
+      'src': '/src',
+    },
     projects: [
       {
         extends: true,

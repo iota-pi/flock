@@ -7,6 +7,7 @@ import {
 import download from 'js-file-download'
 import BasePage from './BasePage'
 import type { Item } from '../../state/items'
+import { useItems } from '../../state/selectors'
 import useSettings from '../../hooks/useSettings'
 import { useDialogState } from '../../hooks/useDialogState'
 import type { RestorePayload } from '../../types/backup'
@@ -15,7 +16,9 @@ import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 
 function SettingsPage() {
-  const { actions, values } = useSettings()
+  const items = useItems()
+  const existingPeople = items.filter(item => item.type === 'person')
+  const { actions, values } = useSettings(items)
   const goalDialog = useDialogState('goal')
   const restoreDialog = useDialogState('restore')
   const offlineRecoveryDialog = useDialogState('offlineRecovery')
@@ -92,6 +95,7 @@ function SettingsPage() {
       <SettingsItemsList actionHandlers={actionHandlers} values={values} />
 
       <SettingsDialogs
+        existingPeople={existingPeople}
         defaultFrequencies={values.defaultFrequencies}
         dialogs={{
           defaultFrequency: defaultFrequencyDialog,

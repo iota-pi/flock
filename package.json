@@ -42,7 +42,7 @@
     "@tanstack/react-virtual": "^3.13.12",
     "@trpc/client": "^11.13.4",
     "@trpc/server": "^11.13.4",
-    "@vitejs/plugin-react": "^5.1.2",
+    "@vitejs/plugin-react": "^6.0.1",
     "@zxcvbn-ts/core": "^3.0.4",
     "@zxcvbn-ts/language-common": "^3.0.4",
     "@zxcvbn-ts/language-en": "^3.0.2",
@@ -68,7 +68,6 @@
     "react-router": "^7.9.6",
     "react-swipeable": "^7.0.2",
     "usehooks-ts": "^3.1.1",
-    "vite-tsconfig-paths": "^6.0.3",
     "web-push": "^3.6.7",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"
@@ -89,8 +88,8 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/web-push": "^3",
-    "@vitest/coverage-v8": "^4.0.16",
-    "@vitest/eslint-plugin": "^1.5.2",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/eslint-plugin": "^1.6.16",
     "axe-core": "^4.11.1",
     "bestzip": "^2.2.1",
     "browserslist": "^4.28.1",
@@ -108,13 +107,13 @@
     "source-map-explorer": "^2.5.2",
     "sst": "^3.17.37",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.4",
-    "vite": "^7.3.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.0",
+    "vite": "^8.0.9",
     "vite-plugin-pwa": "^1.2.0",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.0.16"
+    "vitest": "^4.1.5"
   },
   "eslintConfig": {
     "extends": "react-app"

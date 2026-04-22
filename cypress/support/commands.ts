@@ -274,12 +274,17 @@ Cypress.Commands.add(
       return cy
     } else {
       return cy.window().then(win => {
-        return win.mutations.then(mutations => {
+        const mutations = win.mutations
+        if (!mutations) {
+          throw new Error('Expected mutations API to be available on window')
+        }
+
+        return mutations.then(mutationsApi => {
           const person = {
             ...makeBlankPerson(),
             ...data,
           }
-          return mutations.mutateStoreItems(person)
+          return mutationsApi.storeItems(person, { addToIndex: true })
         })
       })
     }
@@ -303,12 +308,17 @@ Cypress.Commands.add(
       return cy
     } else {
       return cy.window().then(win => {
-        return win.mutations.then(mutations => {
+        const mutations = win.mutations
+        if (!mutations) {
+          throw new Error('Expected mutations API to be available on window')
+        }
+
+        return mutations.then(mutationsApi => {
           const group = {
             ...makeBlankGroup(),
             ...data,
           }
-          return mutations.mutateStoreItems(group)
+          return mutationsApi.storeItems(group, { addToIndex: true })
         })
       })
     }

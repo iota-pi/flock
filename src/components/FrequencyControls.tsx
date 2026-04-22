@@ -20,8 +20,9 @@ import {
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
-import { useItems } from '../state/selectors'
 import { GroupItem } from 'src/shared/schemas/items'
+import { useItemsByIds } from 'src/state/selectors'
+import { ItemId } from 'src/shared/itemTypes'
 
 type OnChangeData<T extends Item> = Partial<
   { prayerFrequency: T['prayerFrequency'] } & (
@@ -36,18 +37,18 @@ const TextColorTransition = styled(InlineText)(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }))
 
-type PersonProps = {
+type BaseProps = {
   id: Item['id'],
   lastPrayer?: number,
   onChange: (data: OnChangeData<Item>) => void,
   prayerFrequency: Item['prayerFrequency'],
 }
 
-type GroupProps = {
-  id: Item['id'],
-  lastPrayer?: number,
-  onChange: (data: OnChangeData<GroupItem>) => void,
-  prayerFrequency: GroupItem['prayerFrequency'],
+type PersonProps = BaseProps & {
+  partOfGroups: ItemId[],
+}
+
+type GroupProps = BaseProps & {
   memberPrayerFrequency: GroupItem['memberPrayerFrequency'],
   memberPrayerTarget: GroupItem['memberPrayerTarget'],
 }
@@ -74,15 +75,8 @@ function FrequencyControls(props: Props) {
     }
   }
 
-  const allGroups = useItems<GroupItem>('group')
-  const partOfGroups = useMemo(
-    () => (
-      isGroup
-        ? []
-        : allGroups.filter(g => g.members.includes(props.id))
-    ),
-    [allGroups, isGroup, props.id],
-  )
+  const partOfGroupIds = isGroup ? [] : ((props as PersonProps).partOfGroups)
+  const partOfGroups = useItemsByIds<GroupItem>(partOfGroupIds)
   const inheritedFrequency = useMemo(() => {
     let frequency: FrequencyOrDays = 'none'
     let group: GroupItem | null = null

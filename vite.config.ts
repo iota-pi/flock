@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import viteTsconfigPaths from 'vite-tsconfig-paths';
 import browserslistToEsbuild from 'browserslist-to-esbuild';
 import { VitePWA } from 'vite-plugin-pwa';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
@@ -20,7 +19,6 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    viteTsconfigPaths(),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -60,6 +58,9 @@ export default defineConfig({
       : null,
     visualizer() as any,
   ].filter(Boolean),
+  resolve: {
+    tsconfigPaths: true,
+  },
   server: {
     port: 3000,
   },

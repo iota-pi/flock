@@ -3,18 +3,18 @@ import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   signOutVault,
 } from '../api/vault'
-import { useItems, useMetadata } from '../state/selectors'
+import { useMetadata } from '../state/selectors'
 import type { Frequency } from '../utils/frequencies'
 import { useToastStore } from '../state/toastStore'
 import { useAuth } from './useAuth'
 import useBackupAndRestore from './useBackupAndRestore'
 import useThemeSettings from './useThemeSettings'
 import useSubscriptionSettings from './useSubscriptionSettings'
+import type { Item } from '../state/items'
 
-export default function useSettings() {
+export default function useSettings(items: Item[]) {
   const { account } = useAuth()
   const setMessage = useToastStore(state => state.setMessage)
-  const items = useItems()
 
   const {
     actions: backupActions,

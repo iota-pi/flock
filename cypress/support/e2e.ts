@@ -45,7 +45,7 @@ Cypress.Commands.overwrite(
       ...(options || {}),
     }
 
-    const assertViolations = (violations: Array<{ id: string; impact: string | null; nodes: unknown[] }>) => {
+    const assertViolations = (violations: Array<{ id: string; impact?: string | null; nodes: unknown[] }>) => {
       const details = violations
         .map(violation => `${violation.id}(${violation.impact}):${violation.nodes.length}`)
         .join(', ')

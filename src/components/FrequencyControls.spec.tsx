@@ -3,12 +3,11 @@ import FrequencyControls from './FrequencyControls'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import getTheme from '../theme'
-import { useItems } from '../state/selectors'
+import { useItemsByIds } from '../state/selectors'
 import { GroupItem } from '../shared/schemas/items'
 
-// Mocks
 vi.mock('../state/selectors', () => ({
-  useItems: vi.fn(),
+  useItemsByIds: vi.fn(),
 }))
 
 const lightTheme = getTheme(false)
@@ -27,13 +26,14 @@ describe('FrequencyControls', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useItems).mockReturnValue([])
+    vi.mocked(useItemsByIds).mockReturnValue([])
   })
 
   it('renders frequency picker for person', () => {
     renderWithTheme(
       <FrequencyControls
         id={personId}
+        partOfGroups={[]}
         prayerFrequency="weekly"
         onChange={mockOnChange}
       />
@@ -50,6 +50,7 @@ describe('FrequencyControls', () => {
         id={personId}
         prayerFrequency="weekly"
         lastPrayer={lastPrayer}
+        partOfGroups={[]}
         onChange={mockOnChange}
       />
     )
@@ -73,13 +74,14 @@ describe('FrequencyControls', () => {
       memberPrayerTarget: 'one'
     }
 
-    vi.mocked(useItems).mockReturnValue([group])
+    vi.mocked(useItemsByIds).mockReturnValue([group])
 
     renderWithTheme(
       <FrequencyControls
         id={personId}
         prayerFrequency="monthly"
         onChange={mockOnChange}
+        partOfGroups={[group.id]}
       />
     )
 

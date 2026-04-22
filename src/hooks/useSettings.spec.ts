@@ -29,7 +29,6 @@ vi.mock('../features/items/mutations/itemMutations', () => ({
 }))
 
 vi.mock('../state/selectors', () => ({
-  useItems: () => [{ id: 'i1', type: 'person', name: 'N', archived: false }],
   useMetadata: (_key: string, defaultValue?: unknown) => [defaultValue, vi.fn()],
 }))
 
@@ -75,6 +74,8 @@ vi.mock('../sync/automergeDocStore', () => ({
 }))
 
 describe('useSettings backup portability', () => {
+  const mockItems = [{ id: 'i1', type: 'person', name: 'N', archived: false } as any]
+
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -82,7 +83,7 @@ describe('useSettings backup portability', () => {
   it('exports metadata and automerge binaries in a v2 payload', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
 
-    const { result } = renderHook(() => useSettings())
+    const { result } = renderHook(() => useSettings(mockItems))
 
     let json = ''
     await act(async () => {
@@ -100,7 +101,7 @@ describe('useSettings backup portability', () => {
     mocks.restoreFromBinaries.mockResolvedValue(['i1'])
     mocks.setMetadata.mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useSettings())
+    const { result } = renderHook(() => useSettings(mockItems))
 
     await act(async () => {
       await result.current.actions.handleConfirmRestore({

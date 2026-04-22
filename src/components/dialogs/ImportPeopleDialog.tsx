@@ -11,23 +11,23 @@ import { DropzoneArea } from 'mui-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
 import { useCallback, useMemo, useState } from 'react'
 import { Item } from '../../state/items'
-import { useItems } from '../../state/selectors'
 import { UploadIcon } from '../Icons'
 import { importPeople } from 'src/utils/importUtils'
 
 
 interface Props {
+  existingPeople: Item[],
   onClose: () => void,
   onConfirm: (items: Item[]) => void,
   open: boolean,
 }
 
 function ImportPeopleDialog({
+  existingPeople,
   onClose,
   onConfirm,
   open,
 }: Props) {
-  const existingPeople = useItems('person')
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
 

@@ -16,6 +16,7 @@ type DialogState = {
 }
 
 type SettingsDialogsProps = {
+  existingPeople: Item[]
   defaultFrequencies: Partial<Record<'person' | 'group', Frequency>>
   dialogs: {
     defaultFrequency: DialogState
@@ -35,6 +36,7 @@ type SettingsDialogsProps = {
 }
 
 export default function SettingsDialogs({
+  existingPeople,
   defaultFrequencies,
   dialogs,
   handlers,
@@ -57,6 +59,7 @@ export default function SettingsDialogs({
         open={dialogs.offlineRecovery.isOpen}
       />
       <ImportPeopleDialog
+        existingPeople={existingPeople}
         onClose={dialogs.import.closeDialog}
         onConfirm={handlers.onImportConfirm}
         open={dialogs.import.isOpen}
