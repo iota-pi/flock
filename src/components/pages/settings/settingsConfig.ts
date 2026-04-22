@@ -20,7 +20,7 @@ export type SettingsActionId =
   | 'openSubscriptionDialog'
   | 'exportData'
   | 'openRestoreDialog'
-  | 'openOfflineRecoveryDialog'
+  | 'openRecoveryDialog'
   | 'openImportDialog'
 
 export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue'
@@ -32,7 +32,7 @@ type SettingsItemConfig = {
   icon?: MuiIconType
   action: SettingsActionId
   valueRenderer?: SettingsValueRenderer
-  disabledWhen?: 'noItemCache'
+  disabledWhen?: 'noItemCache' | 'noRecoveryItems'
 }
 
 type SettingsDividerConfig = {
@@ -108,10 +108,11 @@ export const settingsConfig: SettingsConfigEntry[] = [
   },
   {
     type: 'item',
-    id: 'offline-recovery',
-    title: 'Offline data recovery',
+    id: 'data-recovery',
+    title: 'Corrupted data recovery',
     icon: RestoreIcon,
-    action: 'openOfflineRecoveryDialog',
+    action: 'openRecoveryDialog',
+    disabledWhen: 'noRecoveryItems',
   },
   {
     type: 'item',

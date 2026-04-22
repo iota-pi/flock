@@ -9,14 +9,14 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { useOfflineRecovery } from '../../hooks/useOfflineRecovery'
+import { useDataRecovery } from '../../hooks/useDataRecovery'
 
 interface Props {
   onClose: () => void
   open: boolean
 }
 
-function OfflineRecoveryDialog({ onClose, open }: Props) {
+function DataRecoveryDialog({ onClose, open }: Props) {
   const {
     recoveryItems,
     isRetrying,
@@ -24,16 +24,16 @@ function OfflineRecoveryDialog({ onClose, open }: Props) {
     handleRetryCorruptedItem,
     handleForceOverwriteCorruptedItem,
     handleForceDeleteCorruptedItem,
-  } = useOfflineRecovery()
+  } = useDataRecovery()
 
   return (
     <Dialog onClose={onClose} open={open} fullWidth maxWidth="md">
-      <DialogTitle>Offline Data Recovery</DialogTitle>
+      <DialogTitle>Corrupted Data Recovery</DialogTitle>
 
       <DialogContent>
         {recoveryItems.length === 0 ? (
           <Typography color="textSecondary">
-            No offline recovery actions are required right now.
+            No corrupted data recovery actions are required right now.
           </Typography>
         ) : (
           <Stack spacing={2}>
@@ -116,4 +116,4 @@ function OfflineRecoveryDialog({ onClose, open }: Props) {
   )
 }
 
-export default OfflineRecoveryDialog
+export default DataRecoveryDialog

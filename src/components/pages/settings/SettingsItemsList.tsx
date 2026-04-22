@@ -15,6 +15,7 @@ type SettingsValues = {
   goal: number
   naturalGoal: number
   itemCacheExists: boolean
+  recoveryItemsExist: boolean
 }
 
 type SettingsItemsListProps = {
@@ -82,9 +83,10 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
           return <Divider key={item.key} />
         }
 
-        const disabled = item.disabledWhen === 'noItemCache'
-          ? !values.itemCacheExists
-          : undefined
+        const disabled = (
+          (item.disabledWhen === 'noItemCache' && !values.itemCacheExists)
+          || (item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist)
+        )
 
         return (
           <SettingsItem

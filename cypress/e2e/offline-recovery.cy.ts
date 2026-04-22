@@ -54,18 +54,18 @@ function seedManualRecoveryEntry(id: string, label: string) {
   })
 }
 
-describe('Offline recovery', () => {
+describe('Data recovery', () => {
   it('shows seeded failed mutations and supports discard recovery flow', () => {
     const uniqueId = Date.now().toString().slice(-6)
     seedManualRecoveryEntry(`recovery-${uniqueId}`, `failed-${uniqueId}`)
 
     cy.page('settings')
-    cy.contains('Offline data recovery').should('be.visible').click()
-    cy.contains('Offline Data Recovery').should('be.visible')
+    cy.contains('Corrupted data recovery').should('be.visible').click()
+    cy.contains('Corrupted Data Recovery').should('be.visible')
     cy.checkA11y('[role="dialog"]')
     cy.contains('button', 'Retry').should('have.length', 1)
 
     cy.contains('button', 'Dismiss').click()
-    cy.contains('No offline recovery actions are required right now.').should('be.visible')
+    cy.contains('No corrupted data recovery actions are required right now.').should('be.visible')
   })
 })

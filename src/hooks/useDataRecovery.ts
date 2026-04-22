@@ -29,7 +29,7 @@ function mutateDraftToMatchSnapshot(
   }
 }
 
-export function useOfflineRecovery() {
+export function useDataRecovery() {
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
   const [recoveryItems, setRecoveryItems] = useState<ManualRecoveryEntry[]>([])

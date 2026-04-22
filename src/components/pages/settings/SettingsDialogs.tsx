@@ -5,7 +5,7 @@ import type { RestorePayload } from '../../../types/backup'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))
-const OfflineRecoveryDialog = lazy(() => import('../../dialogs/OfflineRecoveryDialog'))
+const DataRecoveryDialog = lazy(() => import('../../dialogs/DataRecoveryDialog'))
 const ImportPeopleDialog = lazy(() => import('../../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../../dialogs/DefaultFrequencyDialog'))
@@ -22,7 +22,7 @@ type SettingsDialogsProps = {
     defaultFrequency: DialogState
     goal: DialogState
     import: DialogState
-    offlineRecovery: DialogState
+    dataRecovery: DialogState
     restore: DialogState
     subscription: DialogState
   }
@@ -54,9 +54,9 @@ export default function SettingsDialogs({
         onConfirm={handlers.onRestoreConfirm}
         open={dialogs.restore.isOpen}
       />
-      <OfflineRecoveryDialog
-        onClose={dialogs.offlineRecovery.closeDialog}
-        open={dialogs.offlineRecovery.isOpen}
+      <DataRecoveryDialog
+        onClose={dialogs.dataRecovery.closeDialog}
+        open={dialogs.dataRecovery.isOpen}
       />
       <ImportPeopleDialog
         existingPeople={existingPeople}

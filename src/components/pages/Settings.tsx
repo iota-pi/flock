@@ -21,7 +21,7 @@ function SettingsPage() {
   const { actions, values } = useSettings(items)
   const goalDialog = useDialogState('goal')
   const restoreDialog = useDialogState('restore')
-  const offlineRecoveryDialog = useDialogState('offlineRecovery')
+  const recoveryDialog = useDialogState('dataRecovery')
   const importDialog = useDialogState('import')
   const subscriptionDialog = useDialogState('subscription')
   const defaultFrequencyDialog = useDialogState('defaultFrequency')
@@ -53,7 +53,7 @@ function SettingsPage() {
       void onExport()
     },
     openRestoreDialog: restoreDialog.openDialog,
-    openOfflineRecoveryDialog: offlineRecoveryDialog.openDialog,
+    openRecoveryDialog: recoveryDialog.openDialog,
     openImportDialog: importDialog.openDialog,
   }
 
@@ -100,7 +100,7 @@ function SettingsPage() {
           defaultFrequency: defaultFrequencyDialog,
           goal: goalDialog,
           import: importDialog,
-          offlineRecovery: offlineRecoveryDialog,
+          dataRecovery: recoveryDialog,
           restore: restoreDialog,
           subscription: subscriptionDialog,
         }}

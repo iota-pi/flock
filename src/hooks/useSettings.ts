@@ -11,6 +11,7 @@ import useBackupAndRestore from './useBackupAndRestore'
 import useThemeSettings from './useThemeSettings'
 import useSubscriptionSettings from './useSubscriptionSettings'
 import type { Item } from '../state/items'
+import { useDataRecovery } from './useDataRecovery'
 
 export default function useSettings(items: Item[]) {
   const { account } = useAuth()
@@ -27,6 +28,9 @@ export default function useSettings(items: Item[]) {
   const {
     actions: subscriptionActions,
   } = useSubscriptionSettings({ setMessage })
+
+  const { recoveryItems } = useDataRecovery()
+  const recoveryItemsExist = recoveryItems.length > 0
 
   // Actions
   const handleSignOut = useCallback(
@@ -73,6 +77,7 @@ export default function useSettings(items: Item[]) {
       defaultFrequencies,
       goal,
       itemCacheExists: backupValues.itemCacheExists,
+      recoveryItemsExist,
       naturalGoal,
     },
   }

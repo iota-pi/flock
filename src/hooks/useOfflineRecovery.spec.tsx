@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useOfflineRecovery } from './useOfflineRecovery'
+import { useDataRecovery } from './useDataRecovery'
 
 const mocks = vi.hoisted(() => ({
   readManualRecoveryEntries: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('../state/toastStore', () => ({
   ),
 }))
 
-describe('useOfflineRecovery', () => {
+describe('useDataRecovery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -42,7 +42,7 @@ describe('useOfflineRecovery', () => {
     ]
     mocks.readManualRecoveryEntries.mockResolvedValue(failedEntries)
 
-    const { result } = renderHook(() => useOfflineRecovery())
+    const { result } = renderHook(() => useDataRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems).toEqual(failedEntries)
@@ -53,7 +53,7 @@ describe('useOfflineRecovery', () => {
     mocks.readManualRecoveryEntries.mockResolvedValue([{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }])
     mocks.removeManualRecoveryEntryById.mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useOfflineRecovery())
+    const { result } = renderHook(() => useDataRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems.length).toBe(1)
@@ -71,7 +71,7 @@ describe('useOfflineRecovery', () => {
     mocks.readManualRecoveryEntries.mockResolvedValue([entry])
     mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useOfflineRecovery())
+    const { result } = renderHook(() => useDataRecovery())
 
     await waitFor(() => {
       expect(result.current.recoveryItems.length).toBe(1)
@@ -105,7 +105,7 @@ describe('useOfflineRecovery', () => {
       prayerFrequency: 'none',
     })
 
-    const { result } = renderHook(() => useOfflineRecovery())
+    const { result } = renderHook(() => useDataRecovery())
 
     await act(async () => {
       await result.current.handleForceOverwriteCorruptedItem('item-1')
