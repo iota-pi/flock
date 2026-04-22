@@ -190,7 +190,8 @@ export function markItemLocalChange<T extends Partial<Item>>(item: T): LocalChan
 }
 
 export function stripLocalItemState<T extends Item>(item: LocalChangeItem<T>): T {
-  return { ...item, hasLocalChanges: undefined, isNew: undefined }
+  const { hasLocalChanges, isNew, ...rest } = item
+  return rest as T
 }
 
 export function convertItem<T extends Item, S extends StandardItem>(item: T, type: S['type']): S {

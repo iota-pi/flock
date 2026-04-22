@@ -17,11 +17,11 @@ import {
   withAutomergeDocumentChange,
 } from '../../../sync/automergeDocStore'
 
-const strictItemWriteSchema = personItemSchema.strict()
-  .or(groupItemSchema.strict())
-  .or(topicItemSchema.strict())
+const stripItemWriteSchema = personItemSchema.strip()
+  .or(groupItemSchema.strip())
+  .or(topicItemSchema.strip())
 
-const strictMetadataWriteSchema = accountMetadataSchema.strict()
+const stripMetadataWriteSchema = accountMetadataSchema.strip()
 
 function normalizeItemsInput(items: Item | Item[]): Item[] {
   const incoming = Array.isArray(items) ? items : [items]
@@ -39,7 +39,7 @@ function normalizeItemsInput(items: Item | Item[]): Item[] {
       throw new Error(`Invalid item: unsupported type ${String(item.type)}`)
     }
 
-    const parsed = strictItemWriteSchema.safeParse(item)
+    const parsed = stripItemWriteSchema.safeParse(item)
     if (!parsed.success) {
       const issues = parsed.error.issues
         .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
@@ -73,7 +73,7 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
     throw new Error('Invalid metadata payload')
   }
 
-  const parsed = strictMetadataWriteSchema.safeParse(metadata)
+  const parsed = stripMetadataWriteSchema.safeParse(metadata)
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
