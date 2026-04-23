@@ -2,7 +2,6 @@ import {
   parseAutomergeUrl,
   stringifyAutomergeUrl,
   type AutomergeUrl,
-  type AnyDocumentId,
   type BinaryDocumentId,
 } from '@automerge/automerge-repo/slim'
 
@@ -64,7 +63,7 @@ function ensureMapping(itemId: string): { url: AutomergeUrl; documentId: string 
   }
 }
 
-export function toAutomergeUrlFromItemId(itemId: string): AnyDocumentId {
+export function toAutomergeUrlFromItemId(itemId: string): AutomergeUrl {
   return ensureMapping(itemId).url
 }
 
