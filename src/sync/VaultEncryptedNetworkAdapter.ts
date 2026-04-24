@@ -5,6 +5,7 @@ import {
   type PeerMetadata,
   type Repo,
   type StorageId,
+  type DocumentId,
   interpretAsDocumentId,
 } from '@automerge/automerge-repo/slim'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
@@ -13,6 +14,7 @@ import { SyncTransportService } from './SyncTransportService'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
 import type { RealtimeDirectSyncPush } from '../shared/realtime'
+import { readItemSchema, errorItemSchema } from '../shared/schemas/items'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -50,6 +52,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private transportService = new SyncTransportService()
   private pullQueueManager = new SyncPullQueueManager()
 
+  private syncBatchTimeout: number | null = null
+  private syncBatch: Map<string, Uint8Array[]> = new Map()
+
+  private heartbeatInterval: number | null = null
+  private lastMessageTime: number = Date.now()
+
   constructor() {
     super()
     this.readyPromise = new Promise<void>(resolve => {
@@ -61,6 +69,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
 
     this.transportService.on('message', async (payload: unknown) => {
+      this.lastMessageTime = Date.now()
       if (!payload || typeof payload !== 'object') return
       const anyPayload = payload as Record<string, unknown>
 
@@ -108,8 +117,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     if (this.account) {
       this.transportService.start(this.account)
+      this.startHeartbeat()
     } else {
       this.transportService.stop()
+      this.stopHeartbeat()
     }
 
     if (!this.connected) {
@@ -159,18 +170,54 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    const accountAtSend = this.account
     const itemId = toVaultItemIdFromAutomergeId(documentId)
 
-    this.transportService.enqueueSend(async () => {
-      if (!accountAtSend || !this.connected || this.account !== accountAtSend) {
-        this.emit('close')
-        return
-      }
+    let messages = this.syncBatch.get(itemId)
+    if (!messages) {
+      messages = []
+      this.syncBatch.set(itemId, messages)
+    }
+    messages.push(message.data as Uint8Array)
 
-      const encryptedMessage = await encryptSyncMessage(message.data as Uint8Array)
-      this.transportService.sendRaw('repo_sync_push', itemId, encryptedMessage)
-    })
+    if (this.syncBatchTimeout === null) {
+      this.syncBatchTimeout = window.setTimeout(() => this.flushSyncBatch(), 0)
+    }
+  }
+
+  private flushSyncBatch(): void {
+    this.syncBatchTimeout = null
+    const accountAtSend = this.account
+    
+    for (const [itemId, messages] of this.syncBatch.entries()) {
+      this.transportService.enqueueSend(async () => {
+        if (!accountAtSend || !this.connected || this.account !== accountAtSend) {
+          this.emit('close')
+          return
+        }
+
+        let totalLength = 0
+        for (const m of messages) {
+          totalLength += 4 + m.length
+        }
+        const combined = new Uint8Array(totalLength)
+        const view = new DataView(combined.buffer)
+        let offset = 0
+        for (const m of messages) {
+          view.setUint32(offset, m.length, false)
+          offset += 4
+          combined.set(m, offset)
+          offset += m.length
+        }
+
+        const encryptedMessage = await encryptSyncMessage(combined)
+        const envelope = {
+          version: '1.0',
+          ...encryptedMessage,
+        }
+        this.transportService.sendRaw('repo_sync_push', itemId, envelope)
+      })
+    }
+    this.syncBatch.clear()
   }
 
   disconnect(): void {
@@ -190,6 +237,29 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
   }
 
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.lastMessageTime = Date.now()
+    this.heartbeatInterval = window.setInterval(() => {
+      if (!this.account || !this.connected) return
+
+      if (Date.now() - this.lastMessageTime > 45000) {
+        console.warn('[VaultEncryptedNetworkAdapter] Heartbeat timeout. Closing transport.')
+        this.emit('close')
+        return
+      }
+
+      this.transportService.sendRaw('sync_ping', '', {})
+    }, 30000)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      window.clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+  }
+
   private handleRealtimeItemHints(itemIds: string[]): void {
     if (!this.account) return
     void this.pullQueueManager.enqueuePull(itemIds).catch(error => {
@@ -205,17 +275,52 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
       clearManualRecoveryForItems([itemId]).catch(console.error)
-      this.emit('message', {
-        type: 'sync',
-        senderId: VAULT_PEER_ID,
-        targetId: this.peerId!,
-        documentId: documentId,
-        data: decrypted,
-      })
+      
+      const isBatched = 'version' in payload.encryptedMessage && (payload.encryptedMessage as Record<string, unknown>).version === '1.0'
+
+      if (isBatched) {
+        let offset = 0
+        const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
+        while (offset < decrypted.byteLength) {
+          const length = view.getUint32(offset, false)
+          offset += 4
+          const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
+          offset += length
+           
+          this.validateAndEmit(msg, documentId)
+        }
+      } else {
+        this.validateAndEmit(decrypted, documentId)
+      }
     } catch (error) {
       console.error('[VaultEncryptedNetworkAdapter] Failed to decrypt direct push payload', error)
       this.handleRealtimeItemHints([payload.itemId])
     }
+  }
+
+  private validateAndEmit(data: Uint8Array, documentId: DocumentId): void {
+    let parsedObj: unknown = data
+    try {
+      parsedObj = JSON.parse(new TextDecoder().decode(data))
+    } catch {
+      // Fallback for raw binary payloads
+    }
+
+    if (parsedObj && typeof parsedObj === 'object' && !(parsedObj instanceof Uint8Array)) {
+      const isValid = readItemSchema.safeParse(parsedObj).success || errorItemSchema.safeParse(parsedObj).success
+      if (!isValid) {
+        console.warn('[VaultEncryptedNetworkAdapter] Validation failed. Dropping poison document.')
+        return
+      }
+    }
+
+    this.emit('message', {
+      type: 'sync',
+      senderId: VAULT_PEER_ID,
+      targetId: this.peerId!,
+      documentId: documentId,
+      data: data,
+    })
   }
 }
 

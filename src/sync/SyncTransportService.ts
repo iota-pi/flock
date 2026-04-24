@@ -4,6 +4,20 @@ import env from '../env'
 import { getApiAuthToken } from '../api/runtime'
 import { EventEmitter } from 'eventemitter3'
 
+export class UnauthorizedError extends Error {
+  constructor(message = 'Unauthorized') {
+    super(message)
+    this.name = 'UnauthorizedError'
+  }
+}
+
+export class NetworkTimeoutError extends Error {
+  constructor(message = 'Network Timeout') {
+    super(message)
+    this.name = 'NetworkTimeoutError'
+  }
+}
+
 export class SyncTransportService extends EventEmitter {
   private transport: RealtimeWebSocketTransport | null = null
   private account: string | null = null

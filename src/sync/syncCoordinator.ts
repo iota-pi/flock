@@ -5,13 +5,17 @@ import {
   startAutomergeSyncDispatcher,
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
-import { getAutomergeRepo } from './automergeRepo'
+import { getAutomergeRepo, getVaultNetworkAdapter } from './automergeRepo'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { AutomergeIndexDocument } from './automergeDocStore'
 import type { DocHandle } from '@automerge/automerge-repo/slim'
+import { UnauthorizedError, NetworkTimeoutError } from './SyncTransportService'
 
 let indexHandle: DocHandle<AutomergeIndexDocument> | null = null
+const knownItemIds = new Set<string>()
+let reconnectAttempts = 0
+let reconnectTimeout: number | null = null
 
 function handleIndexChange(): void {
   if (!indexHandle || !indexHandle.isReady()) return
@@ -19,8 +23,9 @@ function handleIndexChange(): void {
   if (doc?.itemIds && Array.isArray(doc.itemIds)) {
     const repo = getAutomergeRepo()
     for (const id of doc.itemIds) {
-      if (typeof id === 'string') {
+      if (typeof id === 'string' && !knownItemIds.has(id)) {
         repo.find(toAutomergeUrlFromItemId(id))
+        knownItemIds.add(id)
       }
     }
   }
@@ -28,6 +33,12 @@ function handleIndexChange(): void {
 
 
 function getErrorMessage(error: unknown): string {
+  if (error instanceof UnauthorizedError) {
+    return 'Authentication failed. Please log in again.'
+  }
+  if (error instanceof NetworkTimeoutError) {
+    return 'Connection timed out. Please check your internet connection.'
+  }
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message
   }
@@ -36,11 +47,12 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function startSync(account: string): Promise<void> {
-  const { clearFatalError, setFatalError } = useSyncStore.getState()
+  const { clearFatalError, setFatalError, setSyncStatus } = useSyncStore.getState()
 
   try {
-    await ensureItemsBootstrap(account)
     clearFatalError()
+    setSyncStatus('connecting')
+
     startAutomergeSyncDispatcher(account)
 
     const repo = getAutomergeRepo(account)
@@ -51,6 +63,27 @@ export async function startSync(account: string): Promise<void> {
 
     indexHandle.on('change', handleIndexChange)
     handleIndexChange()
+
+    await ensureItemsBootstrap(account)
+
+    const adapter = getVaultNetworkAdapter(account)
+    adapter.on('close', () => {
+      setSyncStatus('offline')
+      if (reconnectTimeout) {
+        window.clearTimeout(reconnectTimeout)
+      }
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
+      reconnectAttempts += 1
+      reconnectTimeout = window.setTimeout(() => {
+        setSyncStatus('connecting')
+        adapter.setAccount(account)
+      }, delay)
+    })
+
+    adapter.on('peer-candidate', () => {
+      reconnectAttempts = 0
+      setSyncStatus('syncing')
+    })
   } catch (error) {
     stopSync()
     console.error('[syncCoordinator] bootstrap failed', error)
@@ -64,6 +97,12 @@ export function stopSync(): void {
     indexHandle.off('change', handleIndexChange)
     indexHandle = null
   }
+  knownItemIds.clear()
+  if (reconnectTimeout) {
+    window.clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+  reconnectAttempts = 0
   stopAutomergeSyncDispatcher()
 }
 

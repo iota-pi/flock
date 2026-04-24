@@ -1,13 +1,13 @@
 import { create } from 'zustand'
 
 interface SyncState {
-  isSyncing: boolean
+  status: 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded'
   fatalError: string | null
   syncWarning: string | null
 }
 
 interface SyncStore extends SyncState {
-  setIsSyncing: (status: boolean) => void
+  setSyncStatus: (status: SyncState['status']) => void
   setFatalError: (message: string) => void
   clearFatalError: () => void
   setSyncWarning: (message: string) => void
@@ -15,15 +15,15 @@ interface SyncStore extends SyncState {
 }
 
 const initialSyncState: SyncState = {
-  isSyncing: false,
+  status: 'idle',
   fatalError: null,
   syncWarning: null,
 }
 
 export const useSyncStore = create<SyncStore>(set => ({
   ...initialSyncState,
-  setIsSyncing: status => {
-    set(() => ({ isSyncing: status }))
+  setSyncStatus: status => {
+    set(() => ({ status }))
   },
   setFatalError: message => {
     set(() => ({ fatalError: message }))

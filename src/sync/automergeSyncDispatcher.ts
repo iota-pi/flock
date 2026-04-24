@@ -11,5 +11,5 @@ export function startAutomergeSyncDispatcher(account: string): void {
 
 export function stopAutomergeSyncDispatcher(): void {
   setVaultNetworkAccount(null)
-  useSyncStore.getState().setIsSyncing(false)
+  useSyncStore.getState().setSyncStatus('idle')
 }

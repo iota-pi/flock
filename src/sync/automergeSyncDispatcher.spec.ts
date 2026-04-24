@@ -17,7 +17,7 @@ import {
 function resetSyncState(): void {
   useSyncStore.setState({
     fatalError: null,
-    isSyncing: false,
+    status: 'idle',
     syncWarning: null,
   })
 }
@@ -41,11 +41,11 @@ describe('automergeSyncDispatcher', () => {
   })
 
   it('stops vault network account wiring and clears syncing state', () => {
-    useSyncStore.getState().setIsSyncing(true)
+    useSyncStore.getState().setSyncStatus('syncing')
 
     stopAutomergeSyncDispatcher()
 
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith(null)
-    expect(useSyncStore.getState().isSyncing).toBe(false)
+    expect(useSyncStore.getState().status).toBe('idle')
   })
 })
