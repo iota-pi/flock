@@ -29,10 +29,11 @@ type RepoDoc = Record<string, unknown>
 type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
 type EnsureHandleOptions = {
-  createIfMissing?: boolean
-  initialValue?: RepoDoc
   awaitReady?: boolean
-}
+} & (
+  | { createIfMissing?: false | undefined; initialValue?: never }
+  | { createIfMissing: true; initialValue: RepoDoc }
+)
 
 type ChangeDocumentOptions = {
   createIfMissing?: boolean
@@ -98,15 +99,6 @@ function hasAnyKeys(value: Record<string, unknown>): boolean {
   return Object.keys(value).length > 0
 }
 
-function createIndexInitialDocument(accountId?: string | null): RepoDoc {
-  const normalizedAccountId = normalizeItemId(accountId) || ''
-  return {
-    accountId: normalizedAccountId,
-    itemIds: [],
-    metadata: {},
-  }
-}
-
 function getRepoHandle(documentId: string): RepoDocHandle {
   const documentUrl = toAutomergeUrlFromItemId(documentId)
   return findRepoDocHandle<RepoDoc>(getAutomergeRepo(), documentUrl)
@@ -140,9 +132,7 @@ async function ensureDocumentHandle(
       })
     }
 
-    const initialValue = options.initialValue || (documentId === ACCOUNT_INDEX_DOCUMENT_ID
-      ? createIndexInitialDocument()
-      : { id: documentId })
+    const initialValue = options.initialValue!
 
     const binary = Automerge.save(Automerge.from(initialValue))
     handle = repo.import<RepoDoc>(binary, {
@@ -230,9 +220,15 @@ function mutateDraftToMatchSnapshot(
 }
 
 async function ensureIndexDocument(accountId: string): Promise<void> {
+  const initialValue = {
+    accountId: normalizeItemId(accountId) || '',
+    itemIds: [],
+    metadata: {},
+  }
+
   await ensureDocumentHandle(ACCOUNT_INDEX_DOCUMENT_ID, {
     createIfMissing: true,
-    initialValue: createIndexInitialDocument(accountId),
+    initialValue,
     awaitReady: false,
   })
 
@@ -245,7 +241,7 @@ async function ensureIndexDocument(accountId: string): Promise<void> {
     },
     {
       createIfMissing: true,
-      initialValue: createIndexInitialDocument(accountId),
+      initialValue,
     },
   )
 }
@@ -286,7 +282,11 @@ async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
     mutateDraftToMatchSnapshot(metadataDraft, cloneValue(legacyMetadata) as Record<string, unknown>)
   }, {
     createIfMissing: true,
-    initialValue: createIndexInitialDocument(accountId),
+    initialValue: {
+      accountId: normalizeItemId(accountId) || '',
+      itemIds: [],
+      metadata: {},
+    },
   })
 }
 
@@ -314,7 +314,7 @@ export async function withAutomergeDocumentChange(
     createIfMissing: options.createIfMissing,
     initialValue: options.initialValue,
     awaitReady: false,
-  })
+  } as EnsureHandleOptions)
 
   if (!handle || handle.isUnavailable() || !handle.isReady()) {
     return false
@@ -347,7 +347,11 @@ export async function withAutomergeMetadataChange(
     },
     {
       createIfMissing: options.createIfMissing ?? true,
-      initialValue: options.initialValue || createIndexInitialDocument(),
+      initialValue: options.initialValue || {
+        accountId: '',
+        itemIds: [],
+        metadata: {},
+      },
     },
   )
 }
@@ -371,7 +375,11 @@ export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<voi
     },
     {
       createIfMissing: true,
-      initialValue: createIndexInitialDocument(),
+      initialValue: {
+        accountId: '',
+        itemIds: [],
+        metadata: {},
+      },
     },
   )
 }
@@ -392,7 +400,11 @@ export async function removeAutomergeItemIdsFromIndex(itemIds: string[]): Promis
     },
     {
       createIfMissing: true,
-      initialValue: createIndexInitialDocument(),
+      initialValue: {
+        accountId: '',
+        itemIds: [],
+        metadata: {},
+      },
       addToIndex: false,
     },
   )

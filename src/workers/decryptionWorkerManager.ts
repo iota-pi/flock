@@ -49,3 +49,4 @@ export async function mergeObjectsInWorker<T extends Record<string, unknown>>(in
 
   return merged as T
 }
+

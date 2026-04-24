@@ -6,8 +6,6 @@ import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './autome
 import { decryptSyncMessage } from './automergeSyncCrypto'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
 import type { RealtimeDirectSyncPush } from '../shared/realtime'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
-
 function normalizeItemIds(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return []
@@ -32,18 +30,6 @@ function normalizeEventItemIds(payload: { data?: { itemIds?: unknown; deletedIte
   ]
 }
 
-function withIndexDocumentPriority(itemIds: string[]): string[] {
-  const normalized = normalizeItemIds(itemIds)
-  const deduped = new Set<string>([ACCOUNT_INDEX_DOCUMENT_ID])
-
-  for (const itemId of normalized) {
-    if (itemId !== ACCOUNT_INDEX_DOCUMENT_ID) {
-      deduped.add(itemId)
-    }
-  }
-
-  return Array.from(deduped)
-}
 
 export class UnifiedSyncTransport extends EventEmitter {
   private transportService = new SyncTransportService()
@@ -116,8 +102,7 @@ export class UnifiedSyncTransport extends EventEmitter {
 
   enqueuePull(itemIds: string[]): void {
     if (!this.account) return
-    const prioritized = withIndexDocumentPriority(itemIds)
-    void this.pullQueueManager.enqueuePull(prioritized).catch(error => {
+    void this.pullQueueManager.enqueuePull(itemIds).catch(error => {
       console.error('[UnifiedSyncTransport] enqueuePull failed', error)
     })
   }

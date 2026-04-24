@@ -5,6 +5,7 @@ import {
   SyncPushBatchSchema,
   SyncPushMessageSchema,
 } from '../../../shared/schemas/trpc'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from '../../../sync/automergeConstants'
 import {
   pullAutomergeSyncBatch,
   pullAutomergeSyncMessages,
@@ -27,5 +28,12 @@ export const syncRouter = router({
 
   pullBatch: protectedProcedure
     .input(SyncPullBatchSchema)
-    .query(async ({ input }) => pullAutomergeSyncBatch(input)),
+    .query(async ({ input }) => {
+      const indexIndex = input.cursors.findIndex(c => c.itemId === ACCOUNT_INDEX_DOCUMENT_ID)
+      if (indexIndex > 0) {
+        const [indexCursor] = input.cursors.splice(indexIndex, 1)
+        input.cursors.unshift(indexCursor)
+      }
+      return pullAutomergeSyncBatch(input)
+    }),
 })
