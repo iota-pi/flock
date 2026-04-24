@@ -9,6 +9,7 @@ import {
   type BackgroundSyncPushBatch,
 } from './sync/backgroundSyncPushQueue'
 import { getActiveSessionToken } from './sync/workerAuthStore'
+import { pushSyncBatchWithToken } from './api/vault/SyncWorkerClient'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -44,26 +45,16 @@ async function pushBackgroundSyncBatch(batch: BackgroundSyncPushBatch): Promise<
   }
 
   try {
-    const response = await fetch(`${env.VAULT_ENDPOINT}/sync/push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${activeToken}`,
-      },
-      body: JSON.stringify({
-        account: batch.account,
-        messages: batch.messages.map(message => ({
-          itemId: message.itemId,
-          encryptedMessage: message.encryptedMessage,
-        })),
-      }),
+    await pushSyncBatchWithToken({
+      account: batch.account,
+      authToken: activeToken,
+      messages: batch.messages.map(message => ({
+        itemId: message.itemId,
+        encryptedMessage: message.encryptedMessage,
+      })),
     })
 
-    if (response.ok) {
-      return 'success'
-    }
-
-    return isRetryableHttpStatus(response.status) ? 'retry' : 'drop'
+    return 'success'
   } catch {
     return 'retry'
   }

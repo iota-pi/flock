@@ -58,3 +58,36 @@ export const PrayerCompletionBodySchema = z.object({
   account: z.string().min(1),
   completedAt: z.number(),
 })
+
+const SyncEncryptedMessageSchema = z.object({
+  iv: z.string().min(1),
+  cipher: z.string().min(1),
+})
+
+export const SyncPushMessageSchema = z.object({
+  account: z.string().min(1),
+  itemId: z.string().min(1),
+  encryptedMessage: SyncEncryptedMessageSchema,
+})
+
+export const SyncPushBatchSchema = z.object({
+  account: z.string().min(1),
+  messages: z.array(z.object({
+    itemId: z.string().min(1),
+    encryptedMessage: SyncEncryptedMessageSchema,
+  })).min(1),
+})
+
+export const SyncPullMessageSchema = z.object({
+  account: z.string().min(1),
+  itemId: z.string().min(1),
+  cursor: z.number().int().min(0).optional(),
+})
+
+export const SyncPullBatchSchema = z.object({
+  account: z.string().min(1),
+  cursors: z.array(z.object({
+    itemId: z.string().min(1),
+    cursor: z.number().int().min(0).optional(),
+  })).min(1),
+})

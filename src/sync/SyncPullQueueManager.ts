@@ -1,4 +1,4 @@
-import { pullSyncBatch } from '../api/vault/httpSyncTransport'
+import { pullSyncBatch } from '../api/vault/SyncClient'
 import { decryptSyncMessage } from './automergeSyncCrypto'
 import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
