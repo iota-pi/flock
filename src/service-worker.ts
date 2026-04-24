@@ -27,10 +27,6 @@ type SyncEventLike = ExtendableEvent & {
   tag?: string
 }
 
-function isRetryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
-}
-
 async function pushBackgroundSyncBatch(batch: BackgroundSyncPushBatch): Promise<'success' | 'drop' | 'retry'> {
   if (!env.VAULT_ENDPOINT) {
     return 'drop'

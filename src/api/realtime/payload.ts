@@ -1,6 +1,7 @@
 import type {
   RealtimeEventEnvelope,
   RealtimeSyncPing,
+  RealtimeDirectSyncPush,
 } from '../../shared/realtime'
 
 function normalizeRealtimeItemIds(value: unknown): string[] {
@@ -20,19 +21,23 @@ function normalizeRealtimeItemIds(value: unknown): string[] {
   return Array.from(normalized)
 }
 
-export function parseRealtimePayload(rawData: string | null | undefined): RealtimeEventEnvelope | RealtimeSyncPing | null {
+export function parseRealtimePayload(rawData: string | null | undefined): RealtimeEventEnvelope | RealtimeSyncPing | RealtimeDirectSyncPush | null {
   if (!rawData) {
     return null
   }
 
   try {
-    const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing
+    const payload = JSON.parse(rawData) as RealtimeEventEnvelope | RealtimeSyncPing | RealtimeDirectSyncPush
 
     if ('action' in payload && payload.action === 'sync_ping') {
       return {
         ...payload,
         itemIds: normalizeRealtimeItemIds(payload.itemIds),
       }
+    }
+
+    if ('action' in payload && payload.action === 'direct_sync_push') {
+      return payload
     }
 
     if ('eventType' in payload && 'account' in payload) {

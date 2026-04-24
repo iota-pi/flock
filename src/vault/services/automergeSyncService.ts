@@ -1,4 +1,4 @@
-import { publishSyncPing } from '../realtime/hub'
+import { publishSyncPing, publishDirectSyncPush } from '../realtime/hub'
 import { resolveAutomergeSyncConfig } from './automergeSyncConfig'
 import {
   createDynamoAutomergeSyncRepository,
@@ -43,6 +43,7 @@ type AutomergeSyncServiceDeps = {
   createCursor?: () => number
   now?: () => number
   publishSyncPing: (account: string, itemIds: string[]) => Promise<void>
+  publishDirectSyncPush: (account: string, itemId: string, encryptedMessage: SyncMessagePayload, cursor: number) => Promise<void>
   repository: AutomergeSyncRepository
 }
 
@@ -87,7 +88,12 @@ function createAutomergeSyncService({
   async function pushAutomergeSyncMessage(input: PushSyncMessageInput): Promise<{ success: true; cursor: number }> {
     const cursor = await appendSyncMessage(input)
 
-    await publishSyncPingInput(input.account, [input.itemId])
+    const payloadSize = input.encryptedMessage.iv.length + input.encryptedMessage.cipher.length
+    if (payloadSize < 10000) {
+      await publishDirectSyncPush(input.account, input.itemId, input.encryptedMessage, cursor)
+    } else {
+      await publishSyncPingInput(input.account, [input.itemId])
+    }
 
     return {
       success: true,
@@ -96,6 +102,8 @@ function createAutomergeSyncService({
   }
 
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
+    const uniquePingIds = new Set<string>()
+
     const results = await Promise.all(
       input.messages.map(async message => {
         const cursor = await appendSyncMessage({
@@ -104,13 +112,19 @@ function createAutomergeSyncService({
           encryptedMessage: message.encryptedMessage,
         })
 
+        const payloadSize = message.encryptedMessage.iv.length + message.encryptedMessage.cipher.length
+        if (payloadSize < 10000) {
+          await publishDirectSyncPush(input.account, message.itemId, message.encryptedMessage, cursor)
+        } else {
+          uniquePingIds.add(message.itemId)
+        }
+
         return { itemId: message.itemId, cursor }
       })
     )
 
-    const uniqueItemIds = Array.from(new Set(input.messages.map(message => message.itemId)))
-    if (uniqueItemIds.length > 0) {
-      await publishSyncPingInput(input.account, uniqueItemIds)
+    if (uniquePingIds.size > 0) {
+      await publishSyncPingInput(input.account, Array.from(uniquePingIds))
     }
 
     return {
@@ -186,6 +200,7 @@ function createAutomergeSyncService({
 
 const automergeSyncService = createAutomergeSyncService({
   publishSyncPing,
+  publishDirectSyncPush,
   repository: createDynamoAutomergeSyncRepository(resolveAutomergeSyncConfig()),
 })
 

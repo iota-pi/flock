@@ -38,6 +38,12 @@ type SyncPingPayload = {
   itemIds: string[]
 }
 
+type DirectSyncPushPayload = {
+  action: 'direct_sync_push'
+  itemId: string
+  encryptedMessage: { iv: string; cipher: string }
+  cursor: number
+}
 async function getNextEventId(account: string): Promise<number> {
   const counterKey = {
     account,
@@ -296,6 +302,17 @@ export async function publishSyncPing(account: string, itemIds: string[]): Promi
   const payload: SyncPingPayload = {
     action: 'sync_ping',
     itemIds,
+  }
+
+  await broadcastPayloadToApiGatewayConnections(account, payload)
+}
+
+export async function publishDirectSyncPush(account: string, itemId: string, encryptedMessage: { iv: string; cipher: string }, cursor: number): Promise<void> {
+  const payload: DirectSyncPushPayload = {
+    action: 'direct_sync_push',
+    itemId,
+    encryptedMessage,
+    cursor,
   }
 
   await broadcastPayloadToApiGatewayConnections(account, payload)

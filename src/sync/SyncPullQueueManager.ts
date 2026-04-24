@@ -4,15 +4,19 @@ import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import localforage from 'localforage'
+import { debounce } from 'lodash-es'
 
 const RETRY_PULL_DELAY_MS = 750
 
 export class SyncPullQueueManager {
   private account: string | null = null
   private readonly pendingPullItemIds = new Set<string>()
-  private readonly cursorByItemId = new Map<string, number>()
+  private cursorByItemId = new Map<string, number>()
   private isPulling = false
   private pullRetryTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private cursorStore: LocalForage | null = null
+  private readonly saveCursorsDebounced = debounce(() => this.saveCursors(), 1000)
 
   public onMessageParsed: (itemId: string, documentId: DocumentId, message: Uint8Array) => void = () => {}
 
@@ -21,6 +25,36 @@ export class SyncPullQueueManager {
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
     this.clearPullRetryTimeout()
+
+    if (account) {
+      this.cursorStore = localforage.createInstance({
+        name: 'flock-sync-cursors',
+        storeName: `cursors-${account}`,
+      })
+      this.loadCursors()
+    } else {
+      this.cursorStore = null
+    }
+  }
+
+  private async loadCursors(): Promise<void> {
+    if (!this.cursorStore) return
+    try {
+      const stored = await this.cursorStore.getItem<[string, number][]>('cursorByItemId')
+      if (stored && Array.isArray(stored)) {
+        this.cursorByItemId = new Map(stored)
+      }
+    } catch (error) {
+      console.error('[SyncPullQueueManager] Failed to load cursors', error)
+    }
+  }
+
+  private saveCursors(): void {
+    if (!this.cursorStore) return
+    const data = Array.from(this.cursorByItemId.entries())
+    this.cursorStore.setItem('cursorByItemId', data).catch(error => {
+      console.error('[SyncPullQueueManager] Failed to save cursors', error)
+    })
   }
 
   clear(): void {
@@ -30,9 +64,16 @@ export class SyncPullQueueManager {
   }
 
   removeKnownItemIds(itemIds: string[]): void {
+    let changed = false
     for (const itemId of itemIds) {
       this.pendingPullItemIds.delete(itemId)
-      this.cursorByItemId.delete(itemId)
+      if (this.cursorByItemId.has(itemId)) {
+        this.cursorByItemId.delete(itemId)
+        changed = true
+      }
+    }
+    if (changed) {
+      this.saveCursorsDebounced()
     }
   }
 
@@ -88,6 +129,7 @@ export class SyncPullQueueManager {
     if (queued.length === 0) return
 
     const successfullyPulledItemIds = new Set<string>()
+    let cursorsUpdated = false
 
     try {
       const response = await pullSyncBatch({
@@ -130,7 +172,12 @@ export class SyncPullQueueManager {
 
         if (highestCursor > 0) {
           this.cursorByItemId.set(itemId, highestCursor)
+          cursorsUpdated = true
         }
+      }
+
+      if (cursorsUpdated) {
+        this.saveCursorsDebounced()
       }
     } catch (error) {
       console.error('[SyncPullQueueManager] Pull sync batch failed', error)
