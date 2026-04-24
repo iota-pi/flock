@@ -103,6 +103,23 @@ export default $config({
       },
     })
 
+    const syncMessagesTable = new sst.aws.Dynamo('FlockSyncMessages', {
+      fields: {
+        syncId: 'string',
+        cursor: 'number',
+      },
+      primaryIndex: { hashKey: 'syncId', rangeKey: 'cursor' },
+      transform: {
+        table: args => {
+          args.name = `FlockSyncMessages_${stage}`
+          args.ttl = {
+            attributeName: 'expiresAt',
+            enabled: true,
+          }
+        },
+      },
+    })
+
     // -----------------------------------------------------------------
     // Vault API Lambda + Function URL
     // -----------------------------------------------------------------
@@ -119,6 +136,7 @@ export default $config({
         ITEMS_TABLE: itemsTable.name,
         REALTIME_REPLAY_LOG_TABLE: replayLogTable.name,
         REALTIME_CONNECTIONS_TABLE: realtimeConnectionsTable.name,
+        SYNC_MESSAGES_TABLE: syncMessagesTable.name,
         REALTIME_CONNECTIONS_ACCOUNT_GSI: 'AccountIndex',
         REALTIME_CONNECTION_TTL_SECONDS: String(2 * 60 * 60),
         REALTIME_DISABLE_WS_PUSH: isProd ? '0' : '1',
@@ -128,6 +146,7 @@ export default $config({
         itemsTable,
         replayLogTable,
         realtimeConnectionsTable,
+        syncMessagesTable,
       ],
     })
 
@@ -295,8 +314,9 @@ export default $config({
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
         ITEMS_TABLE: itemsTable.name,
+        SYNC_MESSAGES_TABLE: syncMessagesTable.name,
       },
-      link: [accountsTable, itemsTable],
+      link: [accountsTable, itemsTable, syncMessagesTable],
     })
 
     // -----------------------------------------------------------------

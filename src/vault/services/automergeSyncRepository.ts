@@ -1,10 +1,12 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
   DynamoDBDocumentClient,
-  GetCommand,
-  UpdateCommand,
+  PutCommand,
+  QueryCommand,
 } from '@aws-sdk/lib-dynamodb'
 import type { AutomergeSyncConfig } from './automergeSyncConfig'
+
+const SYNC_MESSAGE_TTL = 60 * 24 * 60 * 60
 
 export type StoredSyncMessage = {
   cursor: number
@@ -37,37 +39,28 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
 
   return {
     async appendSyncMessage(input: AppendSyncMessageInput): Promise<void> {
-      await docClient.send(new UpdateCommand({
-        TableName: config.itemsTable,
-        Key: {
-          account: input.account,
-          item: input.itemId,
-        },
-        UpdateExpression: 'SET #syncMessages = list_append(if_not_exists(#syncMessages, :empty), :newEntries), #lastModified = :lastModified',
-        ExpressionAttributeNames: {
-          '#syncMessages': 'syncMessages',
-          '#lastModified': 'syncLastModified',
-        },
-        ExpressionAttributeValues: {
-          ':empty': [],
-          ':newEntries': [input.entry],
-          ':lastModified': input.lastModified,
+      await docClient.send(new PutCommand({
+        TableName: config.syncMessagesTable,
+        Item: {
+          syncId: `${input.account}#${input.itemId}`,
+          cursor: input.entry.cursor,
+          encryptedMessage: input.entry.encryptedMessage,
+          createdAt: input.entry.createdAt,
+          expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
         },
       }))
     },
 
     async getSyncMessages(input: { account: string; itemId: string }): Promise<StoredSyncMessage[]> {
-      const response = await docClient.send(new GetCommand({
-        TableName: config.itemsTable,
-        Key: {
-          account: input.account,
-          item: input.itemId,
+      const response = await docClient.send(new QueryCommand({
+        TableName: config.syncMessagesTable,
+        KeyConditionExpression: 'syncId = :syncId',
+        ExpressionAttributeValues: {
+          ':syncId': `${input.account}#${input.itemId}`,
         },
       }))
 
-      return Array.isArray(response.Item?.syncMessages)
-        ? response.Item.syncMessages as StoredSyncMessage[]
-        : []
+      return (response.Items as StoredSyncMessage[]) || []
     },
   }
 }

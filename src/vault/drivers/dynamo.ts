@@ -40,7 +40,7 @@ import type { ItemId } from '../../shared/itemTypes'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches', 'syncMessages']
+const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
 
 const MAX_ITEM_SIZE = 50000
 const MAX_BATCH_GET_ITEMS = 100
