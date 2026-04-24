@@ -5,12 +5,40 @@ import {
   type PeerMetadata,
   type Repo,
   type StorageId,
+  interpretAsDocumentId,
 } from '@automerge/automerge-repo/slim'
-import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
-import { encryptSyncMessage } from './automergeSyncCrypto'
-import { UnifiedSyncTransport } from './UnifiedSyncTransport'
+import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { encryptSyncMessage, decryptSyncMessage } from './automergeSyncCrypto'
+import { SyncTransportService } from './SyncTransportService'
+import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
+import type { RealtimeDirectSyncPush } from '../shared/realtime'
 
 const VAULT_PEER_ID = 'vault' as PeerId
+
+function normalizeItemIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const deduped = new Set<string>()
+  for (const itemId of value) {
+    if (typeof itemId !== 'string' || itemId.length === 0) {
+      continue
+    }
+
+    deduped.add(toVaultItemIdFromAutomergeId(itemId))
+  }
+
+  return Array.from(deduped)
+}
+
+function normalizeEventItemIds(payload: { data?: { itemIds?: unknown; deletedItemIds?: unknown } }): string[] {
+  return [
+    ...normalizeItemIds(payload.data?.itemIds),
+    ...normalizeItemIds(payload.data?.deletedItemIds),
+  ]
+}
 
 export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -19,7 +47,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
 
-  private transport = new UnifiedSyncTransport()
+  private transportService = new SyncTransportService()
+  private pullQueueManager = new SyncPullQueueManager()
 
   constructor() {
     super()
@@ -27,19 +56,41 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.readyPromiseResolver = resolve
     })
 
-    this.transport.on('close', () => {
+    this.transportService.on('close', () => {
       this.emit('close')
     })
 
-    this.transport.on('message', payload => {
+    this.transportService.on('message', async (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return
+      const anyPayload = payload as Record<string, unknown>
+
+      if ('action' in anyPayload) {
+        if (anyPayload.action === 'sync_ping') {
+          this.handleRealtimeItemHints(normalizeItemIds(anyPayload.itemIds))
+          return
+        }
+
+        if (anyPayload.action === 'direct_sync_push') {
+          await this.handleDirectSyncPush(anyPayload as unknown as RealtimeDirectSyncPush)
+          return
+        }
+      }
+
+      if ('eventType' in anyPayload && (anyPayload.eventType === 'items.updated' || anyPayload.eventType === 'items.deleted')) {
+        this.handleRealtimeItemHints(normalizeEventItemIds({ data: anyPayload.data as { itemIds?: unknown; deletedItemIds?: unknown } }))
+      }
+    })
+
+    this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
+      clearManualRecoveryForItems([itemId]).catch(console.error)
       this.emit('message', {
         type: 'sync',
         senderId: VAULT_PEER_ID,
         targetId: this.peerId!,
-        documentId: payload.documentId,
-        data: payload.message,
+        documentId: documentId,
+        data: message,
       })
-    })
+    }
   }
 
   attachRepo(_: Repo): void {
@@ -53,7 +104,13 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
 
     this.account = nextAccount
-    this.transport.setAccount(this.account)
+    this.pullQueueManager.setAccount(this.account)
+
+    if (this.account) {
+      this.transportService.start(this.account)
+    } else {
+      this.transportService.stop()
+    }
 
     if (!this.connected) {
       return
@@ -105,21 +162,21 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     const accountAtSend = this.account
     const itemId = toVaultItemIdFromAutomergeId(documentId)
 
-    this.transport.enqueueSend(async () => {
+    this.transportService.enqueueSend(async () => {
       if (!accountAtSend || !this.connected || this.account !== accountAtSend) {
         this.emit('close')
         return
       }
 
       const encryptedMessage = await encryptSyncMessage(message.data as Uint8Array)
-      this.transport.sendRaw('repo_sync_push', itemId, encryptedMessage)
+      this.transportService.sendRaw('repo_sync_push', itemId, encryptedMessage)
     })
   }
 
   disconnect(): void {
     this.connected = false
-    this.transport.clearQueue()
-    this.transport.setAccount(null)
+    this.pullQueueManager.clear()
+    this.transportService.stop()
     this.emit('close')
   }
 
@@ -131,6 +188,34 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         isEphemeral: false,
       },
     })
+  }
+
+  private handleRealtimeItemHints(itemIds: string[]): void {
+    if (!this.account) return
+    void this.pullQueueManager.enqueuePull(itemIds).catch(error => {
+      console.error('[VaultEncryptedNetworkAdapter] enqueuePull failed', error)
+    })
+  }
+
+  private async handleDirectSyncPush(payload: RealtimeDirectSyncPush): Promise<void> {
+    try {
+      if (!payload.encryptedMessage?.iv || !payload.encryptedMessage?.cipher) return
+      const decrypted = await decryptSyncMessage(payload.encryptedMessage)
+      const itemId = toVaultItemIdFromAutomergeId(payload.itemId)
+      const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+
+      clearManualRecoveryForItems([itemId]).catch(console.error)
+      this.emit('message', {
+        type: 'sync',
+        senderId: VAULT_PEER_ID,
+        targetId: this.peerId!,
+        documentId: documentId,
+        data: decrypted,
+      })
+    } catch (error) {
+      console.error('[VaultEncryptedNetworkAdapter] Failed to decrypt direct push payload', error)
+      this.handleRealtimeItemHints([payload.itemId])
+    }
   }
 }
 

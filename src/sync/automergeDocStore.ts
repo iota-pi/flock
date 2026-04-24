@@ -202,22 +202,6 @@ function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item |
   return normalizedItem as Item
 }
 
-function mutateDraftToMatchSnapshot(
-  draft: RepoDoc,
-  snapshot: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(draft)) {
-    if (!(key in snapshot) || snapshot[key] === undefined) {
-      delete draft[key]
-    }
-  }
-
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (value !== undefined) {
-      draft[key] = value
-    }
-  }
-}
 
 async function ensureIndexDocument(accountId: string): Promise<void> {
   const initialValue = {
@@ -279,7 +263,17 @@ async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
       return
     }
 
-    mutateDraftToMatchSnapshot(metadataDraft, cloneValue(legacyMetadata) as Record<string, unknown>)
+    const legacySnapshot = cloneValue(legacyMetadata) as Record<string, unknown>
+    for (const key of Object.keys(metadataDraft)) {
+      if (!(key in legacySnapshot) || legacySnapshot[key] === undefined) {
+        delete metadataDraft[key]
+      }
+    }
+    for (const [key, value] of Object.entries(legacySnapshot)) {
+      if (value !== undefined) {
+        metadataDraft[key] = value
+      }
+    }
   }, {
     createIfMissing: true,
     initialValue: {
@@ -511,7 +505,16 @@ export async function upsertAutomergeMetadataSnapshot(
   const nextMetadata = cloneValue(metadata || {}) as Record<string, unknown>
 
   await withAutomergeMetadataChange(metadataDraft => {
-    mutateDraftToMatchSnapshot(metadataDraft, nextMetadata)
+    for (const key of Object.keys(metadataDraft)) {
+      if (!(key in nextMetadata) || nextMetadata[key] === undefined) {
+        delete metadataDraft[key]
+      }
+    }
+    for (const [key, value] of Object.entries(nextMetadata)) {
+      if (value !== undefined) {
+        metadataDraft[key] = value
+      }
+    }
   })
 }
 
