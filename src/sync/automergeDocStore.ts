@@ -1,15 +1,15 @@
 import * as Automerge from '@automerge/automerge'
 import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
+import { z } from 'zod'
+import { accountMetadataSchema } from '../shared/schemas/metadata'
+import { readItemSchema, errorItemSchema, ErrorItem } from '../shared/schemas/items'
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { getAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
-import {
-  ACCOUNT_INDEX_DOCUMENT_ID,
-  LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
-} from './automergeConstants'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import {
   awaitHandleReadyIfNeeded,
   findRepoDocHandle,
@@ -31,9 +31,9 @@ type RepoDocHandle = DocHandle<RepoDoc> | undefined
 type EnsureHandleOptions = {
   awaitReady?: boolean
 } & (
-  | { createIfMissing?: false | undefined; initialValue?: never }
-  | { createIfMissing: true; initialValue: RepoDoc }
-)
+    | { createIfMissing?: false | undefined; initialValue?: never }
+    | { createIfMissing: true; initialValue: RepoDoc }
+  )
 
 type ChangeDocumentOptions = {
   createIfMissing?: boolean
@@ -56,32 +56,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeItemId(raw: unknown): string | null {
-  if (typeof raw !== 'string') {
-    return null
-  }
-
-  const trimmed = raw.trim()
-  return trimmed.length > 0 ? trimmed : null
+  const result = z.string().trim().min(1).safeParse(raw)
+  return result.success ? result.data : null
 }
 
 function normalizeItemIds(raw: unknown): string[] {
-  if (!Array.isArray(raw)) {
-    return []
-  }
+  const result = z.array(z.string().trim().min(1)).safeParse(raw)
+  if (!result.success) return []
 
   const deduped = new Set<string>()
 
-  for (const entry of raw) {
-    const normalized = normalizeItemId(entry)
-    if (!normalized) {
-      continue
-    }
-
-    if (
-      normalized === ACCOUNT_INDEX_DOCUMENT_ID
-      || normalized === LEGACY_ACCOUNT_METADATA_DOCUMENT_ID
-      || deduped.has(normalized)
-    ) {
+  for (const normalized of result.data) {
+    if (normalized === ACCOUNT_INDEX_DOCUMENT_ID || deduped.has(normalized)) {
       continue
     }
 
@@ -92,12 +78,10 @@ function normalizeItemIds(raw: unknown): string[] {
 }
 
 function normalizeMetadata(raw: unknown): AccountMetadata {
-  return isPlainObject(raw) ? (raw as AccountMetadata) : {}
+  const result = accountMetadataSchema.safeParse(raw)
+  return result.success ? result.data as AccountMetadata : {}
 }
 
-function hasAnyKeys(value: Record<string, unknown>): boolean {
-  return Object.keys(value).length > 0
-}
 
 function getRepoHandle(documentId: string): RepoDocHandle {
   const documentUrl = toAutomergeUrlFromItemId(documentId)
@@ -134,10 +118,12 @@ async function ensureDocumentHandle(
 
     const initialValue = options.initialValue!
 
-    const binary = Automerge.save(Automerge.from(initialValue))
-    handle = repo.import<RepoDoc>(binary, {
-      docId: resolvedDocumentId,
-    }) as RepoDocHandle
+    handle = repo.create<RepoDoc>()
+    handle.change(doc => {
+      for (const [key, value] of Object.entries(initialValue)) {
+        doc[key] = value
+      }
+    })
 
     if (options.awaitReady === false) {
       tryResolveNonReadyHandle(handle)
@@ -174,15 +160,8 @@ function getIndexSnapshot(): AutomergeIndexDocument {
   }
 }
 
-function getLegacyMetadataSnapshot(): AccountMetadata {
-  return normalizeMetadata(readDocumentSnapshot(LEGACY_ACCOUNT_METADATA_DOCUMENT_ID))
-}
-
 function isItemDocumentId(documentId: string): boolean {
-  return (
-    documentId !== ACCOUNT_INDEX_DOCUMENT_ID
-    && documentId !== LEGACY_ACCOUNT_METADATA_DOCUMENT_ID
-  )
+  return documentId !== ACCOUNT_INDEX_DOCUMENT_ID
 }
 
 function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
@@ -195,11 +174,29 @@ function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item |
     ? item
     : { ...item, id: itemId }
 
-  if (typeof normalizedItem.type !== 'string' || normalizedItem.type.length === 0) {
-    return null
+  const parsed = readItemSchema.safeParse(normalizedItem)
+  if (parsed.success) {
+    return parsed.data as Item
   }
 
-  return normalizedItem as Item
+  const errorParsed = errorItemSchema.safeParse(normalizedItem)
+  if (errorParsed.success) {
+    return errorParsed.data as unknown as Item
+  }
+
+  return {
+    id: itemId,
+    type: 'error',
+    name: 'Corrupt Item',
+    description: 'This item could not be parsed.',
+    created: typeof normalizedItem.created === 'number' ? normalizedItem.created : Date.now(),
+    archived: !!normalizedItem.archived,
+    prayerFrequency: 'none',
+    notes: [],
+    prayedFor: [],
+    originalType: normalizedItem.type as ErrorItem['originalType'],
+    rawSnapshot: snapshot,
+  } as unknown as Item
 }
 
 
@@ -250,38 +247,6 @@ async function seedImportedDocument(documentId: string, binary: Uint8Array): Pro
   if (!handle?.isReady() && !handle?.isUnavailable()) {
     await awaitHandleReadyIfNeeded(handle)
   }
-}
-
-async function migrateLegacyMetadataSnapshot(accountId: string): Promise<void> {
-  const legacyMetadata = getLegacyMetadataSnapshot()
-  if (!hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
-    return
-  }
-
-  await withAutomergeMetadataChange(metadataDraft => {
-    if (hasAnyKeys(metadataDraft)) {
-      return
-    }
-
-    const legacySnapshot = cloneValue(legacyMetadata) as Record<string, unknown>
-    for (const key of Object.keys(metadataDraft)) {
-      if (!(key in legacySnapshot) || legacySnapshot[key] === undefined) {
-        delete metadataDraft[key]
-      }
-    }
-    for (const [key, value] of Object.entries(legacySnapshot)) {
-      if (value !== undefined) {
-        metadataDraft[key] = value
-      }
-    }
-  }, {
-    createIfMissing: true,
-    initialValue: {
-      accountId: normalizeItemId(accountId) || '',
-      itemIds: [],
-      metadata: {},
-    },
-  })
 }
 
 export function resolvePendingAutomergeHandles(): void {
@@ -416,7 +381,6 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     return
   }
 
-  await migrateLegacyMetadataSnapshot(normalizedAccount)
   initializedAccounts.add(normalizedAccount)
 }
 
@@ -429,11 +393,6 @@ export function listAutomergeDocumentIds(): string[] {
     ACCOUNT_INDEX_DOCUMENT_ID,
     ...listAutomergeItemIds(),
   ])
-
-  const legacyMetadata = getLegacyMetadataSnapshot()
-  if (hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
-    documentIds.add(LEGACY_ACCOUNT_METADATA_DOCUMENT_ID)
-  }
 
   return Array.from(documentIds)
 }
@@ -462,12 +421,7 @@ export function getAutomergeItem(itemId: string): Item | null {
 }
 
 export function getAutomergeMetadata(): AccountMetadata {
-  const indexMetadata = normalizeMetadata(getIndexSnapshot().metadata)
-  if (hasAnyKeys(indexMetadata as Record<string, unknown>)) {
-    return indexMetadata
-  }
-
-  return getLegacyMetadataSnapshot()
+  return normalizeMetadata(getIndexSnapshot().metadata)
 }
 
 export async function hydrateAutomergeDocumentBinary(
@@ -485,15 +439,6 @@ export async function hydrateAutomergeDocumentBinary(
     await addAutomergeItemIdsToIndex([normalizedDocumentId])
     return
   }
-
-  if (normalizedDocumentId === LEGACY_ACCOUNT_METADATA_DOCUMENT_ID) {
-    const legacyMetadata = getLegacyMetadataSnapshot()
-    if (hasAnyKeys(legacyMetadata as Record<string, unknown>)) {
-      await upsertAutomergeMetadataSnapshot(legacyMetadata, {
-        markLocalChange: false,
-      })
-    }
-  }
 }
 
 export async function upsertAutomergeMetadataSnapshot(
@@ -504,18 +449,20 @@ export async function upsertAutomergeMetadataSnapshot(
 
   const nextMetadata = cloneValue(metadata || {}) as Record<string, unknown>
 
-  await withAutomergeMetadataChange(metadataDraft => {
-    for (const key of Object.keys(metadataDraft)) {
-      if (!(key in nextMetadata) || nextMetadata[key] === undefined) {
-        delete metadataDraft[key]
-      }
+  await withAutomergeDocumentChange(
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    doc => {
+      doc.metadata = nextMetadata
+    },
+    {
+      createIfMissing: true,
+      initialValue: {
+        accountId: '',
+        itemIds: [],
+        metadata: {},
+      },
     }
-    for (const [key, value] of Object.entries(nextMetadata)) {
-      if (value !== undefined) {
-        metadataDraft[key] = value
-      }
-    }
-  })
+  )
 }
 
 export async function removeAutomergeItem(itemId: string): Promise<void> {
@@ -546,7 +493,6 @@ export async function clearAutomergeDocStore(): Promise<void> {
   const repo = getAutomergeRepo()
   const documentIds = Array.from(new Set([
     ...listAutomergeDocumentIds(),
-    LEGACY_ACCOUNT_METADATA_DOCUMENT_ID,
   ]))
 
   for (const documentId of documentIds) {
