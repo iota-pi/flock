@@ -23,7 +23,10 @@ export async function fetchItems(
   )
 
   const items = await resultPromise
-  const finalItems = typeof cacheTime === 'number'
+  const isDeltaSync = typeof cacheTime === 'number'
+  const isFetchMany = Array.isArray(ids) && ids.length > 0
+
+  const finalItems = (isDeltaSync || isFetchMany)
     ? items
     : items.filter(item => item.metadata?.deleted !== true)
 

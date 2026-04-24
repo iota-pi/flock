@@ -60,10 +60,6 @@ export default $config({
       transform: {
         table: (args, opts) => {
           args.name = `FlockItems_${stage}`
-          args.ttl = {
-            attributeName: 'ttl',
-            enabled: true,
-          }
         },
       },
     })

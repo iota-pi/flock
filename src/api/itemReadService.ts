@@ -100,35 +100,36 @@ async function decryptAutomergeBranchBinary(encryptedAutomergeDoc: string): Prom
 }
 
 async function hydrateFetchedItemEnvelope(item: FetchedVaultEnvelope): Promise<void> {
-  if (item.metadata?.deleted === true) {
-    return
-  }
-
   let binary: Uint8Array | null = null
 
-  if (Array.isArray(item.branches) && item.branches.length > 0) {
-    for (const branch of item.branches) {
-      if (!branch || typeof branch.encryptedAutomergeDoc !== 'string' || branch.encryptedAutomergeDoc.length === 0) {
-        continue
-      }
+  if (item.metadata?.deleted === true) {
+    const snapshot = { id: item.item, deleted: true }
+    binary = Automerge.save(Automerge.from(snapshot))
+  } else {
+    if (Array.isArray(item.branches) && item.branches.length > 0) {
+      for (const branch of item.branches) {
+        if (!branch || typeof branch.encryptedAutomergeDoc !== 'string' || branch.encryptedAutomergeDoc.length === 0) {
+          continue
+        }
 
-      try {
-        binary = await decryptAutomergeBranchBinary(branch.encryptedAutomergeDoc)
-        break
-      } catch {
-        // Continue trying remaining branches.
+        try {
+          binary = await decryptAutomergeBranchBinary(branch.encryptedAutomergeDoc)
+          break
+        } catch {
+          // Continue trying remaining branches.
+        }
       }
     }
-  }
 
-  if (!binary && typeof item.cipher === 'string' && item.cipher.length > 0 && typeof item.metadata?.iv === 'string' && item.metadata.iv.length > 0) {
-    const decrypted = await decryptObject({ iv: item.metadata.iv, cipher: item.cipher }).catch(() => null)
-    if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
-      const snapshot = { ...(decrypted as Record<string, unknown>) }
-      if (typeof snapshot.id !== 'string' || snapshot.id.length === 0) {
-        snapshot.id = item.item
+    if (!binary && typeof item.cipher === 'string' && item.cipher.length > 0 && typeof item.metadata?.iv === 'string' && item.metadata.iv.length > 0) {
+      const decrypted = await decryptObject({ iv: item.metadata.iv, cipher: item.cipher }).catch(() => null)
+      if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
+        const snapshot = { ...(decrypted as Record<string, unknown>) }
+        if (typeof snapshot.id !== 'string' || snapshot.id.length === 0) {
+          snapshot.id = item.item
+        }
+        binary = Automerge.save(Automerge.from(snapshot))
       }
-      binary = Automerge.save(Automerge.from(snapshot))
     }
   }
 

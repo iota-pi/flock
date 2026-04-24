@@ -46,7 +46,6 @@ const MAX_ITEM_SIZE = 50000
 const MAX_BATCH_GET_ITEMS = 100
 const MAX_BATCH_GET_RETRIES = 5
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
-const ITEM_TTL_SECONDS = 30 * 24 * 60 * 60
 const MAX_ACTIVE_SESSIONS = 8
 
 type WritableVaultItem = VaultItem & {
@@ -88,13 +87,9 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
 
-  const isTombstone = item.metadata.deleted === true
   const persistedItem: PersistedVaultItem = {
     ...item,
     ...(modifiedAt !== undefined ? { modifiedAt } : {}),
-    ttl: isTombstone
-      ? Math.floor(Date.now() / 1000) + ITEM_TTL_SECONDS
-      : undefined,
   }
 
   const params: PutCommandInput = {
