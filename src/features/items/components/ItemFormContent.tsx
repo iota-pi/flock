@@ -28,7 +28,7 @@ const DESCRIPTION_MAX_LENGTH = 500
 
 interface ItemFormContentProps {
   item: LocalChangeItem<Item>,
-  handleChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
+  handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
   autoFocusName?: boolean,
   fromPrayerPage?: boolean,
   hideHeaderFields?: boolean,
@@ -50,14 +50,14 @@ function ItemFormContent({
 
   const handleNameCommit = useCallback(
     (nextName: string) => {
-      handleChange<Item>({ name: nextName })
+      handleChange({ name: nextName })
     },
     [handleChange],
   )
 
   const handleDescriptionCommit = useCallback(
     (nextDescription: string) => {
-      handleChange<Item>({ description: nextDescription })
+      handleChange({ description: nextDescription })
     },
     [handleChange],
   )
@@ -67,21 +67,21 @@ function ItemFormContent({
 
   const handleNotesChange = useCallback(
     (notes: Item['notes']) => {
-      handleChange<Item>({ notes })
+      handleChange({ notes })
     },
     [handleChange],
   )
 
   const handleFrequencyChange = useCallback(
     (data: FrequencyUpdate) => {
-      handleChange<Item>(data)
+      handleChange(data)
     },
     [handleChange],
   )
 
   const handleRelationshipsChange = useCallback(
     (data: Partial<Pick<GroupItem, 'members'>>) => {
-      handleChange<Item>(data)
+      handleChange(data)
     },
     [handleChange],
   )
@@ -90,7 +90,7 @@ function ItemFormContent({
   const handleRemoveDescription = useCallback(() => {
     descriptionDebounceControlsRef.current?.cancel()
     setDescriptionValue('')
-    handleChange<Item>({ description: '' })
+    handleChange({ description: '' })
     setShowDescription(false)
   }, [handleChange])
 

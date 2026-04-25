@@ -23,7 +23,7 @@ import usePrayerSync from './usePrayerSync'
 
 export type PrayerFlowActions = {
   handleBack: () => void
-  handleChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void
+  handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => void
   handleCheck: (item: Item) => void
   handleCloseEditDrawer: () => void
   handleEditDrawerChange: (
@@ -263,7 +263,7 @@ export default function usePrayerFlow(): PrayerFlowController {
           dispatchFlow({ type: 'set-active-index', index: currentFlow.index - 1 })
         },
 
-        handleChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => {
+        handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => {
           const currentFlow = flowRef.current
           if (currentFlow.type !== 'active') {
             return

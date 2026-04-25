@@ -33,7 +33,7 @@ interface Props {
   onEditDrawerChange: (
     data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
-  onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
+  onItemChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
 }
 
 function PrayerActiveView({

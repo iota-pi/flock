@@ -74,19 +74,15 @@ function ItemDrawer({
   }, [automergeItem, item])
 
   const handleChange = useCallback(
-    <T extends Item>(
-      data: Partial<T> | ((prev: Item) => Item),
-    ) => {
-      applyItemUpdate(data as Partial<Item> | ((prev: Item) => Item), {
-        fallbackType: resolvedItem.type,
-      })
+    (data: Partial<Item> | ((prev: Item) => Item)) => {
+      applyItemUpdate(data)
 
       if (typeof data === 'function') {
         return onChange(data)
       }
       return onChange(data)
     },
-    [applyItemUpdate, onChange, resolvedItem.type],
+    [applyItemUpdate, onChange],
   )
 
   const handleClose = useCallback(

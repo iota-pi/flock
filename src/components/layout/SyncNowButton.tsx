@@ -9,9 +9,9 @@ import { ensureItemsBootstrap } from '../../api/itemReadService'
 import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
-  const syncInProgress = useSyncStore(state => state.isSyncing)
+  const syncStatus = useSyncStore(state => state.status)
   const activeRequests = useUiStore(state => state.activeRequests)
-  const storeIsSyncing = syncInProgress || activeRequests > 0
+  const storeIsSyncing = syncStatus === 'syncing' || activeRequests > 0
   const isOnline = useOnlineStatus()
 
   const [isSyncing, setIsSyncing] = useState<boolean>(storeIsSyncing)
