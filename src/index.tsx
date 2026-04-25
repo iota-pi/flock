@@ -6,9 +6,7 @@ import * as vault from './api/vault'
 import * as mutations from './features/items/mutations/itemMutations'
 import ThemedApp from './ThemedApp'
 import * as Automerge from '@automerge/automerge/slim'
-// @ts-expect-error - No types available for the internal base64 file
-// eslint-disable-next-line import-x/no-unresolved
-import automergeWasmBase64 from '@automerge/automerge/automerge.wasm.base64.js'
+import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
   'Failed to fetch',
@@ -76,7 +74,7 @@ Sentry.init({
 
 async function initializeApp() {
   try {
-    await Automerge.initializeBase64Wasm(automergeWasmBase64)
+    await Automerge.initializeWasm(wasmUrl)
 
     const rootElement = document.getElementById('root')!
     const root = createRoot(rootElement)
