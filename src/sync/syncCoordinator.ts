@@ -14,19 +14,57 @@ import { UnauthorizedError, NetworkTimeoutError } from './SyncTransportService'
 
 let indexHandle: DocHandle<AutomergeIndexDocument> | null = null
 const knownItemIds = new Set<string>()
+let pendingFetchQueue: string[] = []
+const FETCH_CHUNK_SIZE = 10
+let processQueueTimeout: number | null = null
 let reconnectAttempts = 0
 let reconnectTimeout: number | null = null
+
+function processFetchQueue(): void {
+  if (pendingFetchQueue.length === 0) {
+    if (processQueueTimeout !== null) {
+      window.clearTimeout(processQueueTimeout)
+      processQueueTimeout = null
+    }
+    return
+  }
+
+  const currentChunk = pendingFetchQueue.splice(0, FETCH_CHUNK_SIZE)
+  const repo = getAutomergeRepo()
+
+  for (const id of currentChunk) {
+    knownItemIds.add(id)
+    repo.find(toAutomergeUrlFromItemId(id))
+  }
+
+  processQueueTimeout = window.setTimeout(processFetchQueue, 10)
+}
 
 function handleIndexChange(): void {
   if (!indexHandle || !indexHandle.isReady()) return
   const doc = indexHandle.doc()
   if (doc?.itemIds && Array.isArray(doc.itemIds)) {
-    const repo = getAutomergeRepo()
+    const incomingIds = new Set<string>()
     for (const id of doc.itemIds) {
-      if (typeof id === 'string' && !knownItemIds.has(id)) {
-        repo.find(toAutomergeUrlFromItemId(id))
-        knownItemIds.add(id)
+      if (typeof id === 'string') {
+        incomingIds.add(id)
       }
+    }
+
+    for (const id of incomingIds) {
+      if (!knownItemIds.has(id)) {
+        pendingFetchQueue.push(id)
+      }
+    }
+
+    for (const id of knownItemIds) {
+      if (!incomingIds.has(id)) {
+        knownItemIds.delete(id)
+      }
+    }
+
+    if (processQueueTimeout === null) {
+      processQueueTimeout = window.setTimeout(processFetchQueue, 0)
     }
   }
 }
@@ -57,7 +95,7 @@ export async function startSync(account: string): Promise<void> {
 
     const repo = getAutomergeRepo(account)
     indexHandle = await repo.find<AutomergeIndexDocument>(toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID))
-    
+
     if (!indexHandle) return
     await indexHandle.whenReady(['ready', 'unavailable'])
 
@@ -98,6 +136,11 @@ export function stopSync(): void {
     indexHandle = null
   }
   knownItemIds.clear()
+  pendingFetchQueue = []
+  if (processQueueTimeout !== null) {
+    window.clearTimeout(processQueueTimeout)
+    processQueueTimeout = null
+  }
   if (reconnectTimeout) {
     window.clearTimeout(reconnectTimeout)
     reconnectTimeout = null
