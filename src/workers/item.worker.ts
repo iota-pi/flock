@@ -1,7 +1,7 @@
 import { FilterCriterion, filterItems } from '../utils/customFilter'
 import { SortCriterion, sortItems } from '../utils/customSort'
 import { Item } from '../state/items'
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { expose } from 'comlink'
 
 const workerApi = {

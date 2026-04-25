@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import type { VaultBranch } from '../shared/itemTypes'
 import { toBytes } from '../api/vault/crypto'
 

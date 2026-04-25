@@ -3,7 +3,7 @@ import type { FilterCriterion } from '../utils/customFilter'
 import type { SortCriterion } from '../utils/customSort'
 import { filterItems } from '../utils/customFilter'
 import { sortItems } from '../utils/customSort'
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { wrap, type Remote } from 'comlink'
 
 type ItemWorkerApi = {
@@ -36,7 +36,7 @@ function resetWorker(reason: string, error?: unknown): void {
     console.error(reason)
   }
 
-  ;(worker as { terminate?: () => void } | null)?.terminate?.()
+  ; (worker as { terminate?: () => void } | null)?.terminate?.()
   worker = null
   workerApi = null
 }

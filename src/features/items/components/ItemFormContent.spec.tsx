@@ -7,7 +7,7 @@ import ItemFormContent from './ItemFormContent'
 import type { Item, LocalChangeItem } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
 import { useAutomergeItems } from '../../../sync/useAutomerge'
-import { Repo } from '@automerge/automerge-repo'
+import { Repo } from '@automerge/automerge-repo/slim'
 
 vi.mock('../../../sync/useAutomerge', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../sync/useAutomerge')>()

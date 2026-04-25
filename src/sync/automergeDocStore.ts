@@ -1,4 +1,4 @@
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
 import { z } from 'zod'
 import { accountMetadataSchema } from '../shared/schemas/metadata'

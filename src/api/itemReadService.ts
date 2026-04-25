@@ -1,5 +1,5 @@
 import type { AccountMetadata } from '../state/metadata'
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { hasApiAuthToken } from './runtime'
 import { trpcClient } from './trpcClient'
 import { fetchMany } from './vault/client'

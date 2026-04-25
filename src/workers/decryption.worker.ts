@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { expose } from 'comlink'
 
 type MergeObjectsWorkerInput = {

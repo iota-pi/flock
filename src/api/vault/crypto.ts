@@ -1,4 +1,4 @@
-import * as Automerge from '@automerge/automerge'
+import * as Automerge from '@automerge/automerge/slim'
 import { encodeEncryptedAutomergeDoc } from '../../shared/automergeBranchCipher'
 
 export interface CryptoResult {

@@ -5,6 +5,10 @@ import { registerSW } from 'virtual:pwa-register'
 import * as vault from './api/vault'
 import * as mutations from './features/items/mutations/itemMutations'
 import ThemedApp from './ThemedApp'
+import * as Automerge from '@automerge/automerge/slim'
+// @ts-expect-error - No types available for the internal base64 file
+// eslint-disable-next-line import-x/no-unresolved
+import automergeWasmBase64 from '@automerge/automerge/automerge.wasm.base64.js'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
   'Failed to fetch',
@@ -70,14 +74,27 @@ Sentry.init({
   },
 })
 
+async function initializeApp() {
+  try {
+    await Automerge.initializeBase64Wasm(automergeWasmBase64)
 
-const rootElement = document.getElementById('root')!
-const root = createRoot(rootElement)
-root.render(<ThemedApp />)
+    const rootElement = document.getElementById('root')!
+    const root = createRoot(rootElement)
+    root.render(<ThemedApp />)
 
-registerSW()
+    registerSW()
 
-if (window.Cypress) {
-  window.vault = Promise.resolve(vault)
-  window.mutations = Promise.resolve(mutations)
+    if (window.Cypress) {
+      window.vault = Promise.resolve(vault)
+      window.mutations = Promise.resolve(mutations)
+    }
+  } catch (error) {
+    console.error('Failed to initialize application core:', error)
+    const rootElement = document.getElementById('root')
+    if (rootElement) {
+      rootElement.innerText = 'Failed to initialize application core. Please refresh the page.'
+    }
+  }
 }
+
+initializeApp()

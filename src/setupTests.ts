@@ -51,3 +51,5 @@ if (typeof (globalThis as any).TextDecoder === 'undefined') {
 if (!process.env.DYNAMODB_ENDPOINT) {
   process.env.DYNAMODB_ENDPOINT = 'http://localhost:8000'
 }
+
+import '@automerge/automerge'
