@@ -2,8 +2,6 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
-import * as vault from './api/vault'
-import * as mutations from './features/items/mutations/itemMutations'
 import ThemedApp from './ThemedApp'
 import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
@@ -72,10 +70,10 @@ Sentry.init({
   },
 })
 
-async function initializeApp() {
-  try {
-    await Automerge.initializeWasm(wasmUrl)
+await Automerge.initializeWasm(wasmUrl)
 
+function initializeApp() {
+  try {
     const rootElement = document.getElementById('root')!
     const root = createRoot(rootElement)
     root.render(<ThemedApp />)
@@ -83,8 +81,8 @@ async function initializeApp() {
     registerSW()
 
     if (window.Cypress) {
-      window.vault = Promise.resolve(vault)
-      window.mutations = Promise.resolve(mutations)
+      window.vault = import('./api/vault')
+      window.mutations = import('./features/items/mutations/itemMutations')
     }
   } catch (error) {
     console.error('Failed to initialize application core:', error)

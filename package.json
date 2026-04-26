@@ -16,6 +16,7 @@
     "initdb": "tsx src/vault/drivers/init.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
     "start": "docker compose up -d && concurrently -n \"APP,API\" -c \"cyan,magenta\" \"yarn dev\" \"yarn dev:vault\"",
+    "preview": "vite preview",
     "test": "vitest",
     "coverage": "vitest run --coverage",
     "e2e": "cypress run"
@@ -117,18 +118,6 @@
   },
   "eslintConfig": {
     "extends": "react-app"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
   },
   "resolutions": {
     "@types/react": "^18.2.45",

@@ -122,7 +122,6 @@ function ImportPeopleDialog({
         <DropzoneArea
           acceptedFiles={['.csv']}
           dropzoneText="Upload a CSV file here"
-          fileObjects={null} // Shouldn't be needed, seems to be a TS glitch
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}

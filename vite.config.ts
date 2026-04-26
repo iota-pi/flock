@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import browserslistToEsbuild from 'browserslist-to-esbuild';
 import { VitePWA } from 'vite-plugin-pwa';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 import wasm from 'vite-plugin-wasm';
@@ -14,7 +13,7 @@ const sentryProject = process.env.SENTRY_PROJECT;
 const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 
 export default defineConfig({
-  base: '',
+  base: '/',
   plugins: [
     wasm(),
     topLevelAwait(),
@@ -54,6 +53,7 @@ export default defineConfig({
         org: sentryOrg,
         project: sentryProject,
         authToken: sentryAuthToken,
+        disable: true,
       })
       : null,
     visualizer() as any,
@@ -65,16 +65,13 @@ export default defineConfig({
     port: 3000,
   },
   build: {
-    target: browserslistToEsbuild(),
+    target: 'es2020',
     outDir: 'dist/app',
     sourcemap: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.match(/@automerge\/automerge/)) {
-              return 'vendor-automerge'
-            }
             if (id.match(/react\/|react-dom\//)) {
               return 'vendor-react'
             }
