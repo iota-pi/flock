@@ -1,5 +1,5 @@
 describe('Drawer behavior', () => {
-  it('allows switching between stacked and base drawers', () => {
+  it('allows switching between drawers', () => {
     const uniqueId = Date.now().toString().slice(-6, -2)
     const bilboName = `Bilbo Baggins_${uniqueId}`
     const frodoName = `Frodo Baggins_${uniqueId}`
@@ -15,9 +15,9 @@ describe('Drawer behavior', () => {
     cy.addToGroup(fellowshipName)
 
     cy.contains(fellowshipName).click()
-    cy.dataCy('add-description').last().click()
-    cy.dataCy('description').last().type('9v9')
-    cy.dataCy('memberPrayerFrequency').last().click()
+    cy.dataCy('add-description').click()
+    cy.dataCy('description').type('9v9')
+    cy.dataCy('memberPrayerFrequency').click()
     cy.dataCy('frequency-weekly').click()
     cy.dataCy('section-members').contains(frodoName).click()
     cy.saveDrawer()

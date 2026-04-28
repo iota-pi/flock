@@ -29,19 +29,19 @@ const noOp = () => {}
 
 const StyledDrawer = styled(
   SwipeableDrawer,
-  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'stacked' && p !== 'permanent' },
-)<{ fullScreen: boolean, permanent: boolean, stacked: boolean }>(
-  ({ fullScreen, permanent, stacked, theme }): CSSObject => {
+  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'permanent' },
+)<{ fullScreen: boolean, permanent: boolean }>(
+  ({ fullScreen, permanent, theme }): CSSObject => {
     const drawerWidth: CSSObject = (
       fullScreen ? {
         width: '100vw',
       } : {
-        width: stacked ? '35vw' : '45vw',
+        width: '45vw',
         [theme.breakpoints.down('lg')]: {
-          width: stacked ? '55vw' : '70vw',
+          width: '70vw',
         },
         [theme.breakpoints.down('md')]: {
-          width: stacked ? '70vw' : '85vw',
+          width: '85vw',
         },
         [theme.breakpoints.only('xs')]: {
           width: '100vw',
@@ -112,7 +112,6 @@ interface BaseProps {
   onExited?: () => void,
   onUnmount?: () => void,
   open: boolean,
-  stacked?: boolean,
   alwaysTemporary?: boolean,
 }
 interface SpecificProps {
@@ -146,13 +145,12 @@ function BaseDrawer({
   onExited,
   onUnmount,
   open,
-  stacked = false,
   typeIcon: Icon,
 }: PropsWithChildren<Props>) {
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
 
-  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary
+  const permanentDrawer = largeScreen && !alwaysTemporary
   const showBackButton = onBack && (
     alwaysShowBack || (
       !hideBackButton && (xsScreen || permanentDrawer)
@@ -255,7 +253,6 @@ function BaseDrawer({
         open={open}
         permanent={permanentDrawer}
         SlideProps={{ onExited }}
-        stacked={stacked}
         variant={permanentDrawer ? 'permanent' : 'temporary'}
       >
         {permanentDrawer && (

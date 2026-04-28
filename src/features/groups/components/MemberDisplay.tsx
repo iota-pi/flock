@@ -26,7 +26,7 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const pushActive = useNavigationStore(state => state.pushActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
   const [sortCriteria] = useSortCriteria()
 
   const unsortedMembers = useItemsByIds<PersonItem>(memberIds)
@@ -43,9 +43,9 @@ function MemberDisplay({
 
   const handleClickItem = useCallback(
     (item: Item) => {
-      pushActive({ item: item.id })
+      setDrawer({ item: item.id })
     },
-    [pushActive],
+    [setDrawer],
   )
   const handleSelect = useCallback(
     (item: Item) => {

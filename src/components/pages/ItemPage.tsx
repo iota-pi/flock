@@ -26,7 +26,7 @@ interface Props {
 function ItemPage({
   itemType,
 }: Props) {
-  const replaceActive = useNavigationStore(state => state.replaceActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
   const itemIds = useItemIds(itemType)
@@ -60,21 +60,21 @@ function ItemPage({
         return
       }
 
-      replaceActive({ item: item.id })
+      setDrawer({ item: item.id })
     },
-    [replaceActive],
+    [setDrawer],
   )
   const handleClickAdd = useCallback(
     () => {
       void createItem(itemType, {
         prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
       }).then(createdItem => {
-        replaceActive({ item: createdItem.id, initialItem: createdItem as StandardItem })
+        setDrawer({ item: createdItem.id, initialItem: createdItem as StandardItem })
       }).catch(error => {
         console.error(error)
       })
     },
-    [defaultFrequencies, itemType, replaceActive],
+    [defaultFrequencies, itemType, setDrawer],
   )
   const handleCheck = useCallback(
     (item: Item) => toggleSelected(item.id),

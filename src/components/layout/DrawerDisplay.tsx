@@ -1,5 +1,5 @@
 import { Theme, useMediaQuery } from '@mui/material'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import { useLoggedIn } from 'src/state/selectors'
@@ -10,106 +10,83 @@ import ItemDrawer from 'src/features/items/components/ItemDrawer'
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 const noop = () => {}
 
-function getDrawerItemId(drawer?: DrawerData): string | undefined {
+function getDrawerItemId(drawer?: DrawerData | null): string | undefined {
   return drawer?.item
 }
 
-function isHashRoutedDrawer(drawer: DrawerData): boolean {
+function isHashRoutedDrawer(drawer: DrawerData | null): boolean {
+  if (!drawer) return false
   return drawer.disableRouting !== true
 }
 
-function useDrawerRouting(drawers: DrawerData[]) {
-  const clearDrawers = useNavigationStore(state => state.clearDrawers)
+function useDrawerRouting(activeDrawer: DrawerData | null) {
+  const setDrawer = useNavigationStore(state => state.setDrawer)
   const removeActive = useNavigationStore(state => state.removeActive)
   const routerLocation = useLocation()
   const navigate = useNavigate()
-  const hashRoutedDrawers = useMemo(
-    () => drawers.filter(isHashRoutedDrawer),
-    [drawers],
-  )
-  const prevHashRoutedDrawers = usePrevious(hashRoutedDrawers)
+
+  const isHashRouted = isHashRoutedDrawer(activeDrawer)
   const prevPathname = usePrevious(routerLocation.pathname)
   const prevLocationHash = usePrevious(routerLocation.hash)
 
   useEffect(
     () => {
-      if (prevPathname && prevPathname !== routerLocation.pathname && drawers.length > 0) {
-        clearDrawers()
-      }
-    },
-    [clearDrawers, drawers.length, prevPathname, routerLocation.pathname],
-  )
-
-  useEffect(
-    () => {
-      if (!prevHashRoutedDrawers) {
-        return
-      }
-
-      const topItem = getDrawerItemId(hashRoutedDrawers[hashRoutedDrawers.length - 1])
-      const prevTopItem = getDrawerItemId(prevHashRoutedDrawers[prevHashRoutedDrawers.length - 1])
-      const currentHash = routerLocation.hash.replace(/^#/, '')
-
-      if (hashRoutedDrawers.length === prevHashRoutedDrawers.length) {
-        if (topItem && topItem !== prevTopItem) {
-          navigate(`#${topItem}`, { replace: true })
-        }
-      } else if (hashRoutedDrawers.length < prevHashRoutedDrawers.length && prevTopItem === currentHash) {
-        navigate(-1)
-      } else if (hashRoutedDrawers.length > prevHashRoutedDrawers.length && topItem) {
-        navigate(`#${topItem}`)
-      }
-    },
-    [hashRoutedDrawers, navigate, prevHashRoutedDrawers, routerLocation],
-  )
-
-  useEffect(
-    () => {
-      if (hashRoutedDrawers.length === 0) {
-        return
-      }
-
-      const topDrawer = drawers[drawers.length - 1]
-      if (!topDrawer || !isHashRoutedDrawer(topDrawer)) {
-        return
-      }
-
-      const id = routerLocation.hash.replace(/^#/, '')
-
-      const topItemId = getDrawerItemId(topDrawer)
-      const secondTopItem = getDrawerItemId(hashRoutedDrawers[hashRoutedDrawers.length - 2])
-
-      if (prevLocationHash !== routerLocation.hash && secondTopItem === id) {
+      if (prevPathname && prevPathname !== routerLocation.pathname && activeDrawer) {
         removeActive()
-      } else if (prevLocationHash && !id && drawers.length > 0) {
-        // Only close if the hash that was removed matches the current top item
-        const prevId = prevLocationHash.replace(/^#/, '')
-        if (prevId === topItemId) {
+      }
+    },
+    [activeDrawer, prevPathname, removeActive, routerLocation.pathname],
+  )
+
+  const prevActiveDrawer = usePrevious(activeDrawer)
+
+  useEffect(
+    () => {
+      const activeItemId = getDrawerItemId(activeDrawer)
+      const prevActiveItemId = getDrawerItemId(prevActiveDrawer)
+      const currentHash = routerLocation.hash.replace(/^#/, '')
+      const prevHash = prevLocationHash?.replace(/^#/, '')
+
+      // Drawer was opened or its item changed programmatically
+      if (activeDrawer && activeDrawer !== prevActiveDrawer) {
+        if (isHashRouted && activeItemId && activeItemId !== currentHash) {
+          navigate(`#${activeItemId}`)
+        }
+      }
+      // Drawer was closed programmatically (and it was hash routed)
+      else if (!activeDrawer && prevActiveDrawer && isHashRoutedDrawer(prevActiveDrawer)) {
+        if (currentHash === prevActiveItemId) {
+          navigate(-1)
+        }
+      }
+      // URL Hash changed by user navigation (e.g. back button or link)
+      else if (currentHash !== prevHash) {
+        if (currentHash) {
+          if (currentHash !== activeItemId) {
+            setDrawer({ item: currentHash })
+          }
+        } else if (isHashRouted) {
           removeActive()
         }
       }
     },
-    [drawers, hashRoutedDrawers, prevLocationHash, removeActive, routerLocation],
+    [activeDrawer, isHashRouted, navigate, prevActiveDrawer, prevLocationHash, removeActive, routerLocation.hash, setDrawer],
   )
 }
 
 function IndividualDrawer({
   drawer,
-  open,
   onClose,
   onExited,
-  stacked,
 }: {
-  drawer: DrawerData,
-  open: boolean,
+  drawer: DrawerData | null,
   onClose: () => void,
   onExited: () => void,
-  stacked: boolean,
 }) {
   const isPrayerEditDrawer = (
-    drawer.fromPrayerPage === true
-    && drawer.disableRouting === true
-    && !!drawer.onChange
+    drawer?.fromPrayerPage === true
+    && drawer?.disableRouting === true
+    && !!drawer?.onChange
   )
   const lookupItemId = useMemo(
     () => getDrawerItemId(drawer) || generateItemId(),
@@ -120,10 +97,12 @@ function IndividualDrawer({
     (
       data: Parameters<NonNullable<DrawerData['onChange']>>[0],
     ) => {
-      drawer.onChange?.(data)
+      drawer?.onChange?.(data)
     },
     [drawer],
   )
+
+  const open = drawer ? (drawer.open ?? true) : false
 
   if (isPrayerEditDrawer) {
     return (
@@ -137,7 +116,6 @@ function IndividualDrawer({
         onClose={onClose}
         onExited={onExited}
         open={open}
-        stacked={drawer.stacked ?? false}
       />
     )
   }
@@ -145,114 +123,63 @@ function IndividualDrawer({
   return (
     <ItemDrawer
       itemId={lookupItemId}
-      initialItem={drawer.initialItem}
+      initialItem={drawer?.initialItem}
       onBack={onClose}
       onChange={noop}
       onClose={onClose}
       onExited={onExited}
       open={open}
-      stacked={drawer.stacked ?? stacked}
     />
   )
 }
 
 function DrawerDisplay() {
   const removeActive = useNavigationStore(state => state.removeActive)
-  const drawers = useNavigationStore(state => state.drawers)
+  const activeDrawer = useNavigationStore(state => state.activeDrawer)
   const loggedIn = useLoggedIn()
   const page = usePage()
-  const [closingDrawerId, setClosingDrawerId] = useState<string | null>(null)
 
   const baseDrawerIsPermanent = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
-  const topDrawer = drawers[drawers.length - 1]
-  const topDrawerId = topDrawer?.id || null
-  const activeClosingDrawerId = closingDrawerId && topDrawerId === closingDrawerId
-    ? closingDrawerId
-    : null
 
   const handleClose = useCallback(
     () => {
-      if (!topDrawerId || !topDrawer) {
+      if (!activeDrawer) {
         return
       }
 
-      topDrawer.onCloseRequest?.()
-      setClosingDrawerId(topDrawerId)
+      activeDrawer.onCloseRequest?.()
+      removeActive()
     },
-    [topDrawer, topDrawerId],
+    [activeDrawer, removeActive],
   )
 
   const handleExited = useCallback(
-    (drawer: DrawerData) => {
-      if (closingDrawerId === drawer.id) {
-        setClosingDrawerId(null)
-      }
-
-      drawer.onExited?.()
-
-      if (drawers[drawers.length - 1]?.id === drawer.id) {
-        removeActive()
-      }
-    },
-    [closingDrawerId, drawers, removeActive],
-  )
-
-  const handleImmediateClose = useCallback(
     () => {
-      if (!topDrawer) {
-        return
+      if (activeDrawer) {
+        activeDrawer.onExited?.()
       }
-
-      topDrawer.onCloseRequest?.()
-      topDrawer.onExited?.()
-      setClosingDrawerId(null)
-      removeActive()
     },
-    [removeActive, topDrawer],
+    [activeDrawer],
   )
 
-  const shouldUseImmediateClose = (
-    baseDrawerIsPermanent
-    && drawers.length === 1
-    && topDrawer?.alwaysTemporary !== true
-  )
+  const onClose = handleClose
 
-  const onClose = shouldUseImmediateClose
-    ? handleImmediateClose
-    : handleClose
-
-  const drawerOpenById = useMemo(() => {
-    const result = new Map<string, boolean>()
-    for (const drawer of drawers) {
-      result.set(
-        drawer.id,
-        (drawer.open ?? true) && drawer.id !== activeClosingDrawerId,
-      )
-    }
-    return result
-  }, [activeClosingDrawerId, drawers])
-
-  useDrawerRouting(drawers)
+  useDrawerRouting(activeDrawer)
 
   const showPlaceholder = (
     loggedIn
-    && drawers.length === 0
+    && !activeDrawer
     && baseDrawerIsPermanent
     && !page?.noPlaceholderDrawer
   )
 
   return (
     <>
-      {drawers.map((drawer, i) => (
-        <IndividualDrawer
-          key={drawer.id}
-          drawer={drawer}
-          open={drawerOpenById.get(drawer.id) ?? true}
-          onClose={onClose}
-          onExited={() => handleExited(drawer)}
-          stacked={i > 0}
-        />
-      ))}
+      <IndividualDrawer
+        drawer={activeDrawer}
+        onClose={onClose}
+        onExited={handleExited}
+      />
 
       {showPlaceholder && (
         <Suspense fallback={null}>

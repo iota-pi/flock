@@ -21,7 +21,7 @@ function GroupDisplay({
 }: Props) {
   const allGroupIds = useItemIds('group')
   const allGroups = useItemsByIds<GroupItem>(allGroupIds)
-  const pushActive = useNavigationStore(state => state.pushActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
 
   const currentGroups = useMemo(
     () => allGroups.filter(g => g.members.includes(itemId)),
@@ -62,9 +62,9 @@ function GroupDisplay({
   )
   const handleClickGroup = useCallback(
     (group: Item) => {
-      pushActive({ item: group.id })
+      setDrawer({ item: group.id })
     },
-    [pushActive],
+    [setDrawer],
   )
 
   return (

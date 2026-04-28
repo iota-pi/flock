@@ -57,15 +57,10 @@ interface MultipleItemsProps extends BaseProps {
 }
 
 const selectActiveDrawerItemIds = (state: ReturnType<typeof useNavigationStore.getState>) => {
-  const activeDrawerItemIds = new Set<string>()
-
-  for (const drawer of state.drawers) {
-    if (drawer.item) {
-      activeDrawerItemIds.add(drawer.item)
-    }
+  if (state.activeDrawer?.item) {
+    return [state.activeDrawer.item]
   }
-
-  return Array.from(activeDrawerItemIds).sort()
+  return []
 }
 
 function ItemList(props: MultipleItemsProps) {

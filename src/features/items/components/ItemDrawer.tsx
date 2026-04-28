@@ -62,7 +62,6 @@ function ItemDrawer({
   onClose,
   onExited,
   open,
-  stacked,
 }: Props) {
   const {
     item: automergeItem,
@@ -231,7 +230,6 @@ function ItemDrawer({
       onClose={handleClose}
       onExited={onExited}
       open={open}
-      stacked={stacked}
       typeIcon={resolvedItem ? getIconType(resolvedItem.type) : undefined}
     >
       <Suspense

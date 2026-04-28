@@ -312,14 +312,10 @@ export function useMetadata<K extends MetadataKey>(
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
 export const useIsActive = () => {
-  const drawers = useNavigationStore(state => state.drawers)
+  const activeDrawer = useNavigationStore(state => state.activeDrawer)
   return useCallback(
-    (itemId: ItemId) => (
-      drawers.findIndex(drawer => (
-        drawer.item === itemId
-      )) > -1
-    ),
-    [drawers],
+    (itemId: ItemId) => activeDrawer?.item === itemId,
+    [activeDrawer],
   )
 }
 

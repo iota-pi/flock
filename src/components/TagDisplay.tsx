@@ -123,7 +123,7 @@ function TagDisplay({
   vertical = false,
 }: Props) {
   const theme = useTheme()
-  const replaceActive = useNavigationStore(state => state.replaceActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
   const limitedTags = useMemo(
     () => (max && tags.length > max ? tags.slice(0, max - 1) : tags),
     [max, tags],
@@ -160,10 +160,10 @@ function TagDisplay({
   )
   const handleLinkedTagClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>, linkedId: ItemId) => {
-      replaceActive({ item: linkedId })
+      setDrawer({ item: linkedId })
       event.stopPropagation()
     },
-    [replaceActive],
+    [setDrawer],
   )
   const containerStyle = vertical
     ? CONTAINER_VERTICAL_STYLE

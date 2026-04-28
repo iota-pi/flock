@@ -21,7 +21,7 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const replaceActive = useNavigationStore(state => state.replaceActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
   const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {
@@ -46,23 +46,23 @@ function EverythingSearch({
       } = itemToCreate
 
       void createItem(type, overrides).then(createdItem => {
-        replaceActive({ item: createdItem.id, initialItem: createdItem as StandardItem })
+        setDrawer({ item: createdItem.id, initialItem: createdItem as StandardItem })
       }).catch(error => {
         console.error(error)
       })
     },
-    [replaceActive],
+    [setDrawer],
   )
   const handleSelect = useCallback(
     (item: Item) => {
       if (item) {
-        replaceActive({ item: item.id })
+        setDrawer({ item: item.id })
       }
       if (onSelect) {
         onSelect(item)
       }
     },
-    [onSelect, replaceActive],
+    [onSelect, setDrawer],
   )
 
   return (

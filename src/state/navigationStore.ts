@@ -18,28 +18,26 @@ export interface DrawerData {
   onCloseRequest?: () => void
   onExited?: () => void
   open?: boolean
-  stacked?: boolean
 }
 
 type DrawerPayload = Partial<Omit<DrawerData, 'id'>>
 
 interface NavigationState {
-  drawers: DrawerData[]
+  activeDrawer: DrawerData | null
   selected: ItemId[]
 }
 
 interface NavigationStore extends NavigationState {
   setSelected: (selected: ItemId[]) => void
   toggleSelected: (itemId: ItemId) => void
-  replaceActive: (payload: DrawerPayload) => void
-  pushActive: (payload: DrawerPayload) => void
+  setDrawer: (payload: DrawerPayload) => void
   removeActive: () => void
   clearDrawers: () => void
   pruneItemDrawers: (itemIds: ItemId[]) => void
 }
 
 const initialNavigationState: NavigationState = {
-  drawers: [],
+  activeDrawer: null,
   selected: [],
 }
 
@@ -55,55 +53,28 @@ export const useNavigationStore = create<NavigationStore>(set => ({
         : [...state.selected, itemId],
     }))
   },
-  replaceActive: payload => {
-    set(state => {
-      const lastDrawer = state.drawers[state.drawers.length - 1]
-      const nextDrawer: DrawerData = {
-        id: lastDrawer ? lastDrawer.id : generateItemId(),
-        ...payload,
-      }
-      const drawers = [...state.drawers]
-      if (lastDrawer) {
-        drawers[drawers.indexOf(lastDrawer)] = nextDrawer
-      } else {
-        drawers.push(nextDrawer)
-      }
-      return { drawers }
-    })
-  },
-  pushActive: payload => {
+  setDrawer: payload => {
     set(state => ({
-      drawers: [
-        ...state.drawers,
-        {
-          id: generateItemId(),
-          ...payload,
-        },
-      ],
+      activeDrawer: {
+        id: state.activeDrawer ? state.activeDrawer.id : generateItemId(),
+        ...payload,
+      },
     }))
   },
   removeActive: () => {
-    set(state => ({
-      drawers: state.drawers.slice(0, -1),
+    set(() => ({
+      activeDrawer: null,
     }))
   },
   clearDrawers: () => {
-    set(() => ({ drawers: [] }))
+    set(() => ({ activeDrawer: null }))
   },
   pruneItemDrawers: itemIds => {
     set(state => {
-      const newDrawers: typeof state.drawers = []
-      let modified = false
-      for (const drawer of state.drawers) {
-        if (drawer.item && itemIds.includes(drawer.item)) {
-          modified = true
-        } else {
-          newDrawers.push(drawer)
-        }
-      }
+      const isDrawerItemPruned = state.activeDrawer?.item && itemIds.includes(state.activeDrawer.item)
 
       return {
-        drawers: modified ? newDrawers : state.drawers,
+        activeDrawer: isDrawerItemPruned ? null : state.activeDrawer,
         selected: state.selected.filter(id => !itemIds.includes(id)),
       }
     })

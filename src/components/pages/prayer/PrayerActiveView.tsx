@@ -47,26 +47,24 @@ function PrayerActiveView({
   onEditDrawerChange,
   onItemChange,
 }: Props) {
-  const drawers = useNavigationStore(state => state.drawers)
-  const pushActive = useNavigationStore(state => state.pushActive)
-  const replaceActive = useNavigationStore(state => state.replaceActive)
+  const setDrawer = useNavigationStore(state => state.setDrawer)
 
   const activeItem = items[activeIndex]
 
-  const topDrawer = drawers[drawers.length - 1]
-  const topPrayerDrawer = (
-    topDrawer
-    && topDrawer.fromPrayerPage === true
-    && topDrawer.disableRouting === true
-    && typeof topDrawer.item !== 'string'
-    && !!topDrawer.onChange
+  const activeDrawer = useNavigationStore(state => state.activeDrawer)
+  const activePrayerDrawer = (
+    activeDrawer
+    && activeDrawer.fromPrayerPage === true
+    && activeDrawer.disableRouting === true
+    && typeof activeDrawer.item !== 'string'
+    && !!activeDrawer.onChange
   )
-    ? topDrawer
+    ? activeDrawer
     : undefined
 
   useEffect(
     () => {
-      if (!isEditDrawerOpen && !topPrayerDrawer) {
+      if (!isEditDrawerOpen && !activePrayerDrawer) {
         return
       }
 
@@ -78,35 +76,29 @@ function PrayerActiveView({
         onChange: onEditDrawerChange,
         onCloseRequest: onCloseEditDrawer,
         open: isEditDrawerOpen,
-        stacked: false,
       }
 
       const requiresSync = (
-        !topPrayerDrawer
-        || topPrayerDrawer.item !== nextPrayerDrawerPayload.item
-        || topPrayerDrawer.onChange !== nextPrayerDrawerPayload.onChange
-        || topPrayerDrawer.onCloseRequest !== nextPrayerDrawerPayload.onCloseRequest
-        || topPrayerDrawer.open !== nextPrayerDrawerPayload.open
+        !activePrayerDrawer
+        || activePrayerDrawer.item !== nextPrayerDrawerPayload.item
+        || activePrayerDrawer.onChange !== nextPrayerDrawerPayload.onChange
+        || activePrayerDrawer.onCloseRequest !== nextPrayerDrawerPayload.onCloseRequest
+        || activePrayerDrawer.open !== nextPrayerDrawerPayload.open
       )
 
       if (!requiresSync) {
         return
       }
 
-      if (topPrayerDrawer) {
-        replaceActive(nextPrayerDrawerPayload)
-      } else {
-        pushActive(nextPrayerDrawerPayload)
-      }
+      setDrawer(nextPrayerDrawerPayload)
     },
     [
       activeItem.id,
       isEditDrawerOpen,
       onCloseEditDrawer,
       onEditDrawerChange,
-      pushActive,
-      replaceActive,
-      topPrayerDrawer,
+      setDrawer,
+      activePrayerDrawer,
     ],
   )
 

@@ -32,7 +32,6 @@ function PlaceholderDrawer({
   alwaysTemporary,
   onClose,
   open,
-  stacked,
 }: BaseDrawerProps) {
   const page = usePage()
 
@@ -52,7 +51,6 @@ function PlaceholderDrawer({
       hideTypeIcon
       onClose={onClose}
       open={open}
-      stacked={stacked}
     >
       <Box
         display="flex"
