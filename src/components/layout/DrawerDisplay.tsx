@@ -5,8 +5,8 @@ import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import { useLoggedIn } from 'src/state/selectors'
 import { generateItemId, usePrevious } from 'src/utils'
 import { usePage } from '../pages'
+import ItemDrawer from 'src/features/items/components/ItemDrawer'
 
-const ItemDrawer = lazy(() => import('src/features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
 const noop = () => {}
 
@@ -127,36 +127,32 @@ function IndividualDrawer({
 
   if (isPrayerEditDrawer) {
     return (
-      <Suspense fallback={null}>
-        <ItemDrawer
-          alwaysTemporary={drawer.alwaysTemporary}
-          fromPrayerPage={drawer.fromPrayerPage}
-          itemId={lookupItemId}
-          initialItem={drawer.initialItem}
-          onBack={onClose}
-          onChange={handlePrayerChange}
-          onClose={onClose}
-          onExited={onExited}
-          open={open}
-          stacked={drawer.stacked ?? false}
-        />
-      </Suspense>
+      <ItemDrawer
+        alwaysTemporary={drawer.alwaysTemporary}
+        fromPrayerPage={drawer.fromPrayerPage}
+        itemId={lookupItemId}
+        initialItem={drawer.initialItem}
+        onBack={onClose}
+        onChange={handlePrayerChange}
+        onClose={onClose}
+        onExited={onExited}
+        open={open}
+        stacked={drawer.stacked ?? false}
+      />
     )
   }
 
   return (
-    <Suspense fallback={null}>
-      <ItemDrawer
-        itemId={lookupItemId}
-        initialItem={drawer.initialItem}
-        onBack={onClose}
-        onChange={noop}
-        onClose={onClose}
-        onExited={onExited}
-        open={open}
-        stacked={drawer.stacked ?? stacked}
-      />
-    </Suspense>
+    <ItemDrawer
+      itemId={lookupItemId}
+      initialItem={drawer.initialItem}
+      onBack={onClose}
+      onChange={noop}
+      onClose={onClose}
+      onExited={onExited}
+      open={open}
+      stacked={drawer.stacked ?? stacked}
+    />
   )
 }
 

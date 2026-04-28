@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useMemo,
 } from 'react'
@@ -29,10 +31,10 @@ import {
 import { getLastPrayedFor } from '../../../utils/prayer'
 import { deleteItem } from '../mutations/itemMutations'
 import { useAutomergeItemCommands, useAutomergeItemDocument } from 'src/sync/useAutomerge'
-import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
-import DelayedRender from '../../../components/ui/DelayedRender'
+
+const ItemFormContent = lazy(() => import('./ItemFormContent'))
 
 
 interface Props extends BaseDrawerProps {
@@ -232,21 +234,18 @@ function ItemDrawer({
       stacked={stacked}
       typeIcon={resolvedItem ? getIconType(resolvedItem.type) : undefined}
     >
-      {resolvedItem ? (
-        <DelayedRender
-          delayMs={50}
-          fallback={<CircularProgress size={24} sx={{ mt: 2 }} />}
-        >
+      <Suspense
+        fallback={<CircularProgress size={24} sx={{ mt: 2 }} />}
+      >
+        {resolvedItem && (
           <ItemFormContent
-            key={resolvedItem.id}
+            key={itemId}
             handleChange={handleChange}
             item={resolvedItem}
             fromPrayerPage={fromPrayerPage}
           />
-        </DelayedRender>
-      ) : (
-        <CircularProgress size={24} sx={{ mt: 2 }} />
-      )}
+        )}
+      </Suspense>
     </BaseDrawer>
   )
 }

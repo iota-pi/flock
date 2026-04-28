@@ -27,7 +27,7 @@ function DelayedRender({
     }
   }, [delayMs, shouldRender])
 
-  if (!shouldRender) {
+  if (!shouldRender || !children) {
     return <>{fallback}</>
   }
 
