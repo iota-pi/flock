@@ -3,6 +3,7 @@ import {
   useMemo,
 } from 'react'
 import {
+  CircularProgress,
   ListItemIcon,
   ListItemText,
   MenuItem,
@@ -14,6 +15,7 @@ import {
   isValid,
   Item,
   LocalChangeItem,
+  StandardItem,
 } from '../../../state/items'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
 import { isSameDay } from '../../../utils'
@@ -30,11 +32,13 @@ import { useAutomergeItemCommands, useAutomergeItemDocument } from 'src/sync/use
 import ItemFormContent from './ItemFormContent'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
+import DelayedRender from '../../../components/ui/DelayedRender'
 
 
 interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
-  item: LocalChangeItem<Item>,
+  itemId: string,
+  initialItem?: StandardItem,
   onChange: (
     item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
@@ -49,7 +53,8 @@ export interface ItemAndChangeCallback {
 function ItemDrawer({
   alwaysTemporary,
   fromPrayerPage = false,
-  item,
+  itemId,
+  initialItem,
   onBack,
   onChange,
   onClose,
@@ -59,19 +64,18 @@ function ItemDrawer({
 }: Props) {
   const {
     item: automergeItem,
-  } = useAutomergeItemDocument(item.id)
-  const { applyItemUpdate } = useAutomergeItemCommands(item.id)
+  } = useAutomergeItemDocument(itemId)
+  const { applyItemUpdate } = useAutomergeItemCommands(itemId)
 
-  const resolvedItem = useMemo(() => {
-    if (item.isNew || !automergeItem) {
-      return item
+  const resolvedItem = useMemo((): LocalChangeItem<Item> | null => {
+    if (automergeItem) {
+      return automergeItem as LocalChangeItem<Item>
     }
-
-    return {
-      ...automergeItem,
-      isNew: item.isNew,
-    } as LocalChangeItem<Item>
-  }, [automergeItem, item])
+    if (initialItem) {
+      return initialItem as LocalChangeItem<Item>
+    }
+    return null
+  }, [automergeItem, initialItem])
 
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {
@@ -108,23 +112,24 @@ function ItemDrawer({
 
   const handleDelete = useCallback(
     () => {
-      deleteItem(item.id)
+      deleteItem(itemId)
         .catch(error => console.error(error))
       onClose()
     },
-    [item.id, onClose],
+    [itemId, onClose],
   )
 
-  const { archived } = resolvedItem
-  const lastPrayer = getLastPrayedFor(resolvedItem)
+  const archived = resolvedItem?.archived ?? false
+  const lastPrayer = resolvedItem ? getLastPrayedFor(resolvedItem) : 0
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
+  const isNew = (resolvedItem as LocalChangeItem<Item> & { isNew?: boolean } | null)?.isNew ?? false
 
   const archiveMenuItem = useMemo(
     () => (
       <MenuItem
         data-cy="archive"
         key="archive"
-        disabled={resolvedItem.isNew}
+        disabled={isNew}
         onClick={() => {
           handleChange({ archived: !archived })
         }}
@@ -135,16 +140,18 @@ function ItemDrawer({
         <ListItemText>{archived ? 'Unarchive' : 'Archive'}</ListItemText>
       </MenuItem>
     ),
-    [archived, handleChange, resolvedItem.isNew],
+    [archived, handleChange, isNew],
   )
 
   const changeTypeMenuItems = useMemo(
-    () => ITEM_TYPES.filter(t => t !== resolvedItem.type).map(itemType => (
+    () => ITEM_TYPES.filter(t => t !== resolvedItem?.type).map(itemType => (
       <MenuItem
         data-cy="change-type"
         key={itemType}
         onClick={() => {
-          handleChange(i => convertItem(i, itemType))
+          if (resolvedItem) {
+            handleChange(i => convertItem(i, itemType))
+          }
         }}
       >
         <ListItemIcon>
@@ -153,7 +160,7 @@ function ItemDrawer({
         <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
       </MenuItem>
     )),
-    [resolvedItem.type, handleChange],
+    [resolvedItem, handleChange],
   )
 
   const markPrayedMenuItem = useMemo(
@@ -161,7 +168,7 @@ function ItemDrawer({
       <MenuItem
         data-cy="mark-prayed"
         key="mark-prayed"
-        disabled={resolvedItem.isNew}
+        disabled={isNew}
         onClick={() => {
           handleChange(prev => {
             let prayedFor = prev.prayedFor
@@ -184,11 +191,11 @@ function ItemDrawer({
         </ListItemText>
       </MenuItem>
     ),
-    [handleChange, resolvedItem.isNew, isPrayedForToday],
+    [handleChange, isNew, isPrayedForToday],
   )
 
   const headerActions = useMemo(
-    () => (
+    () => resolvedItem ? (
       <ItemViewTopBar
         compact
         item={resolvedItem}
@@ -200,16 +207,16 @@ function ItemDrawer({
         ]}
         showEditButton={false}
       />
-    ),
+    ) : undefined,
     [archiveMenuItem, changeTypeMenuItems, fromPrayerPage, markPrayedMenuItem, resolvedItem],
   )
 
   return (
     <BaseDrawer
       ActionProps={{
-        canSave: isValid(resolvedItem),
-        itemIsNew: resolvedItem.isNew,
-        itemName: getItemName(resolvedItem),
+        canSave: resolvedItem ? isValid(resolvedItem) : false,
+        itemIsNew: isNew,
+        itemName: resolvedItem ? getItemName(resolvedItem) : '',
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
@@ -217,20 +224,29 @@ function ItemDrawer({
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}
-      itemKey={item.id}
+      itemKey={itemId}
       onBack={onBack}
       onClose={handleClose}
       onExited={onExited}
       open={open}
       stacked={stacked}
-      typeIcon={getIconType(resolvedItem.type)}
+      typeIcon={resolvedItem ? getIconType(resolvedItem.type) : undefined}
     >
-      <ItemFormContent
-        key={resolvedItem.id}
-        handleChange={handleChange}
-        item={resolvedItem}
-        fromPrayerPage={fromPrayerPage}
-      />
+      {resolvedItem ? (
+        <DelayedRender
+          delayMs={50}
+          fallback={<CircularProgress size={24} sx={{ mt: 2 }} />}
+        >
+          <ItemFormContent
+            key={resolvedItem.id}
+            handleChange={handleChange}
+            item={resolvedItem}
+            fromPrayerPage={fromPrayerPage}
+          />
+        </DelayedRender>
+      ) : (
+        <CircularProgress size={24} sx={{ mt: 2 }} />
+      )}
     </BaseDrawer>
   )
 }

@@ -3,7 +3,7 @@ import {
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Item } from '../../state/items'
+import { Item, StandardItem } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'
@@ -46,7 +46,7 @@ function EverythingSearch({
       } = itemToCreate
 
       void createItem(type, overrides).then(createdItem => {
-        replaceActive({ item: createdItem.id })
+        replaceActive({ item: createdItem.id, initialItem: createdItem as StandardItem })
       }).catch(error => {
         console.error(error)
       })

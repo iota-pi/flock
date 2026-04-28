@@ -1,12 +1,10 @@
 import { Theme, useMediaQuery } from '@mui/material'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { isItem } from 'src/state/items'
 import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import { useLoggedIn } from 'src/state/selectors'
 import { generateItemId, usePrevious } from 'src/utils'
 import { usePage } from '../pages'
-import { useAutomergeItem } from 'src/sync/useAutomerge'
 
 const ItemDrawer = lazy(() => import('src/features/items/components/ItemDrawer'))
 const PlaceholderDrawer = lazy(() => import('../drawers/Placeholder'))
@@ -117,7 +115,6 @@ function IndividualDrawer({
     () => getDrawerItemId(drawer) || generateItemId(),
     [drawer],
   )
-  const item = useAutomergeItem(lookupItemId)
 
   const handlePrayerChange = useCallback(
     (
@@ -128,13 +125,14 @@ function IndividualDrawer({
     [drawer],
   )
 
-  if (isPrayerEditDrawer && item) {
+  if (isPrayerEditDrawer) {
     return (
       <Suspense fallback={null}>
         <ItemDrawer
           alwaysTemporary={drawer.alwaysTemporary}
           fromPrayerPage={drawer.fromPrayerPage}
-          item={item}
+          itemId={lookupItemId}
+          initialItem={drawer.initialItem}
           onBack={onClose}
           onChange={handlePrayerChange}
           onClose={onClose}
@@ -146,23 +144,20 @@ function IndividualDrawer({
     )
   }
 
-  if (item && isItem(item)) {
-    return (
-      <Suspense fallback={null}>
-        <ItemDrawer
-          item={item}
-          onBack={onClose}
-          onChange={noop}
-          onClose={onClose}
-          onExited={onExited}
-          open={open}
-          stacked={drawer.stacked ?? stacked}
-        />
-      </Suspense>
-    )
-  }
-
-  return null
+  return (
+    <Suspense fallback={null}>
+      <ItemDrawer
+        itemId={lookupItemId}
+        initialItem={drawer.initialItem}
+        onBack={onClose}
+        onChange={noop}
+        onClose={onClose}
+        onExited={onExited}
+        open={open}
+        stacked={drawer.stacked ?? stacked}
+      />
+    </Suspense>
+  )
 }
 
 function DrawerDisplay() {
