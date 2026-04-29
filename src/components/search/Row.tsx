@@ -1,13 +1,6 @@
 import { CSSProperties, HTMLAttributes } from 'react'
-import { styled } from '@mui/material'
 import OptionComponent from './Option'
 import { AnySearchable } from './types'
-
-const OptionHolder = styled('li')({
-  // Force border-box sizing so MUI's padding does not exceed virtual row height calculations
-  boxSizing: 'border-box',
-  padding: 0,
-})
 
 interface SearchableRowSettings {
   showDescriptions: boolean,
@@ -22,20 +15,23 @@ export type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, Sear
 interface SearchableRowProps {
   itemData: PropsAndOption[],
   index: number,
+  measureRef?: (node: HTMLElement | null) => void,
   style?: CSSProperties,
 }
 
 export default function SearchableRow(
   props: SearchableRowProps,
 ) {
-  const { itemData, index, style } = props
+  const { itemData, index, measureRef, style } = props
   const [optionProps, option, settings] = itemData[index]
 
   return (
-    <OptionHolder
+    <li
       {...optionProps}
       key={option.id}
       style={style}
+      ref={measureRef}
+      data-index={index}
     >
       <OptionComponent
         option={option}
@@ -45,6 +41,6 @@ export default function SearchableRow(
         showCheckbox={settings.showCheckboxes}
         selected={settings.selected}
       />
-    </OptionHolder>
+    </li>
   )
 }

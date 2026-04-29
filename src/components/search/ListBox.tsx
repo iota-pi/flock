@@ -2,7 +2,6 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'rea
 import { useVirtualizer } from '@tanstack/react-virtual'
 import SearchableRow, { PropsAndOption } from './Row'
 
-const LISTBOX_PADDING = 8
 const FALLBACK_RENDER_COUNT = 20
 
 export interface SearchListVirtualizerApi {
@@ -82,10 +81,6 @@ const ListBoxComponent = forwardRef<
       <div
         ref={ref}
         {...listboxProps}
-        style={{
-          paddingTop: LISTBOX_PADDING,
-          paddingBottom: LISTBOX_PADDING,
-        }}
       >
         <div
           className={className}
@@ -116,6 +111,7 @@ const ListBoxComponent = forwardRef<
                     key={row[1].id}
                     itemData={itemData}
                     index={virtualRow.index}
+                    measureRef={virtualizer.measureElement}
                     style={{
                       left: 0,
                       position: 'absolute',

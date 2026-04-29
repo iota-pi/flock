@@ -17,17 +17,20 @@ const AutocompleteOption = styled('div')(({ theme }) => ({
   alignItems: 'center',
   display: 'flex',
   minWidth: 0,
-  padding: theme.spacing(1.75, 0),
+  padding: theme.spacing(1, 0),
+  lineHeight: 1,
 }))
 const OptionIconHolder = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  paddingRight: theme.spacing(2),
+  paddingLeft: theme.spacing(0.5),
+  paddingRight: theme.spacing(2.5),
 }))
-const OptionName = styled(InlineText)({
+const OptionName = styled(InlineText)(({ theme }) => ({
   flexGrow: 1,
   minWidth: 0,
-})
+  lineHeight: 1,
+}))
 
 export default function OptionComponent({
   option,
@@ -120,13 +123,13 @@ export default function OptionComponent({
             </Typography>
 
             {showDescription && clippedDescription && (
-              <InlineText
+              <OptionName
                 color="text.secondary"
                 fontSize={getFontSize}
                 noWrap
               >
                 {clippedDescription}
-              </InlineText>
+              </OptionName>
             )}
           </Box>
         )}
