@@ -250,7 +250,7 @@ export async function deleteItems(
     await storeItems(updates, { addToIndex: false })
   }
 
-  useNavigationStore.getState().pruneItemDrawers(ids)
+  useNavigationStore.getState().closeIfOpen(ids)
 
   return ids
 }
@@ -268,7 +268,7 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
     await removeAutomergeItem(itemId)
   }
 
-  useNavigationStore.getState().pruneItemDrawers(ids)
+  useNavigationStore.getState().closeIfOpen(ids)
   return ids
 }
 

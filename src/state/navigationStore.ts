@@ -23,7 +23,7 @@ export interface DrawerData {
 type DrawerPayload = Partial<Omit<DrawerData, 'id'>>
 
 interface NavigationState {
-  activeDrawer: DrawerData | null
+  drawer: DrawerData | null
   selected: ItemId[]
 }
 
@@ -31,13 +31,12 @@ interface NavigationStore extends NavigationState {
   setSelected: (selected: ItemId[]) => void
   toggleSelected: (itemId: ItemId) => void
   setDrawer: (payload: DrawerPayload) => void
-  removeActive: () => void
-  clearDrawers: () => void
-  pruneItemDrawers: (itemIds: ItemId[]) => void
+  removeDrawer: () => void
+  closeIfOpen: (itemIds: ItemId[]) => void
 }
 
 const initialNavigationState: NavigationState = {
-  activeDrawer: null,
+  drawer: null,
   selected: [],
 }
 
@@ -55,26 +54,23 @@ export const useNavigationStore = create<NavigationStore>(set => ({
   },
   setDrawer: payload => {
     set(state => ({
-      activeDrawer: {
-        id: state.activeDrawer ? state.activeDrawer.id : generateItemId(),
+      drawer: {
+        id: state.drawer ? state.drawer.id : generateItemId(),
         ...payload,
       },
     }))
   },
-  removeActive: () => {
+  removeDrawer: () => {
     set(() => ({
-      activeDrawer: null,
+      drawer: null,
     }))
   },
-  clearDrawers: () => {
-    set(() => ({ activeDrawer: null }))
-  },
-  pruneItemDrawers: itemIds => {
+  closeIfOpen: itemIds => {
     set(state => {
-      const isDrawerItemPruned = state.activeDrawer?.item && itemIds.includes(state.activeDrawer.item)
+      const shouldClose = state.drawer?.item && itemIds.includes(state.drawer.item)
 
       return {
-        activeDrawer: isDrawerItemPruned ? null : state.activeDrawer,
+        drawer: shouldClose ? null : state.drawer,
         selected: state.selected.filter(id => !itemIds.includes(id)),
       }
     })

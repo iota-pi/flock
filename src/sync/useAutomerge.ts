@@ -411,22 +411,29 @@ export function useAutomergeItemsById<TItem extends Item = Item>(
 }
 
 export function useAutomergeItemDocument<TItem extends Item = Item>(
-  itemId: string,
+  itemId: string | null,
   schema?: ItemSchema<TItem>,
 ): UseAutomergeItemDocumentResult<TItem> {
   const resolvedSchema = resolveItemSchema(schema)
   const enableFallbacks = resolvedSchema === defaultItemSchema
 
   const documentUrl = useMemo(
-    () => toAutomergeUrlFromItemId(itemId) as AutomergeUrl,
+    () => itemId ? toAutomergeUrlFromItemId(itemId) as AutomergeUrl : null,
     [itemId],
   )
 
   const projectItemSnapshot = useCallback(
-    (itemDoc: TItem | undefined): TItem | null => parseItemFromDoc(itemId, itemDoc, resolvedSchema, {
-      enableErrorFallback: enableFallbacks,
-      enableLenientRead: enableFallbacks,
-    }),
+    (itemDoc: TItem | undefined): TItem | null => (
+      itemId !== null ? parseItemFromDoc(
+        itemId,
+        itemDoc,
+        resolvedSchema,
+        {
+          enableErrorFallback: enableFallbacks,
+          enableLenientRead: enableFallbacks,
+        },
+      ) : null
+    ),
     [itemId, resolvedSchema, enableFallbacks],
   )
 
@@ -486,7 +493,7 @@ export function useAutomergeItemSelector<TSnapshot, TItem extends Item = Item>(
 }
 
 export function useAutomergeItemCommands<TItem extends Item = Item>(
-  itemId: string,
+  itemId: string | null,
   schema?: ItemSchema<TItem>,
 ): UseAutomergeItemCommandsResult<TItem> {
   const resolvedSchema = resolveItemSchema(schema)
@@ -496,6 +503,10 @@ export function useAutomergeItemCommands<TItem extends Item = Item>(
     (
       update: ItemUpdate<TItem>,
     ) => {
+      if (itemId === null) {
+        throw new Error('Cannot apply item update to null item')
+      }
+
       const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
       const handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
 

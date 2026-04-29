@@ -39,16 +39,11 @@ const ItemFormContent = lazy(() => import('./ItemFormContent'))
 
 interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
-  itemId: string,
+  itemId: string | null,
   initialItem?: StandardItem,
   onChange: (
     item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
-}
-
-export interface ItemAndChangeCallback {
-  item: Item,
-  handleChange: <S extends Item>(data: Partial<Omit<S, 'type' | 'id'>>) => void,
 }
 
 
@@ -113,8 +108,9 @@ function ItemDrawer({
 
   const handleDelete = useCallback(
     () => {
-      deleteItem(itemId)
-        .catch(error => console.error(error))
+      if (itemId !== null) {
+        deleteItem(itemId).catch(error => console.error(error))
+      }
       onClose()
     },
     [itemId, onClose],
@@ -225,7 +221,7 @@ function ItemDrawer({
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}
-      itemKey={itemId}
+      itemKey={itemId ?? undefined}
       onBack={onBack}
       onClose={handleClose}
       onExited={onExited}

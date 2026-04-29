@@ -51,15 +51,15 @@ function PrayerActiveView({
 
   const activeItem = items[activeIndex]
 
-  const activeDrawer = useNavigationStore(state => state.activeDrawer)
+  const drawer = useNavigationStore(state => state.drawer)
   const activePrayerDrawer = (
-    activeDrawer
-    && activeDrawer.fromPrayerPage === true
-    && activeDrawer.disableRouting === true
-    && typeof activeDrawer.item !== 'string'
-    && !!activeDrawer.onChange
+    drawer
+    && drawer.fromPrayerPage === true
+    && drawer.disableRouting === true
+    && typeof drawer.item !== 'string'
+    && !!drawer.onChange
   )
-    ? activeDrawer
+    ? drawer
     : undefined
 
   useEffect(

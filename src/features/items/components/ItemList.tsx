@@ -57,8 +57,8 @@ interface MultipleItemsProps extends BaseProps {
 }
 
 const selectActiveDrawerItemIds = (state: ReturnType<typeof useNavigationStore.getState>) => {
-  if (state.activeDrawer?.item) {
-    return [state.activeDrawer.item]
+  if (state.drawer?.item) {
+    return [state.drawer.item]
   }
   return []
 }
