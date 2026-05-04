@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useSyncStore } from '../state/syncStore'
-import { startSync, stopSync } from './syncCoordinator'
+import { ensureItemsBootstrap } from '../api/itemReadService'
 
 export default function useSyncCoordinatorLifecycle(
   account: string | null | undefined,
@@ -8,9 +8,7 @@ export default function useSyncCoordinatorLifecycle(
 ): void {
   useEffect(
     () => {
-      const { clearFatalError } = useSyncStore.getState()
-      stopSync()
-
+      const { clearFatalError, setSyncStatus } = useSyncStore.getState()
       if (!enabled || !account) {
         if (!account) {
           clearFatalError()
@@ -19,11 +17,17 @@ export default function useSyncCoordinatorLifecycle(
       }
 
       void (async () => {
-        await startSync(account)
+        try {
+          clearFatalError()
+          setSyncStatus('connecting')
+          await ensureItemsBootstrap(account)
+        } catch (error) {
+          console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
+        }
       })()
 
       return () => {
-        stopSync()
+        // Nothing to clean up
       }
     },
     [account, enabled],

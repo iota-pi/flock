@@ -13,10 +13,10 @@ import type { RestorePayload } from '../../types/backup'
 import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
-import { useAutomergeItems } from 'src/sync/useAutomerge'
+import { useVisibleItems } from 'src/state/selectors'
 
 function SettingsPage() {
-  const items = useAutomergeItems()
+  const items = useVisibleItems()
   const existingPeople = items.filter(item => item.type === 'person')
   const { actions, values } = useSettings(items)
   const goalDialog = useDialogState('goal')

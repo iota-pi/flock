@@ -6,13 +6,8 @@ import {
 import { exportData } from '../api/vault'
 import type { BackupPayloadV2, RestorePayload } from '../types/backup'
 import type { Item } from '../state/items'
-import {
-  clearAutomergeDocStore,
-  exportAllBinaries,
-  getAutomergeItems,
-  getAutomergeMetadata,
-  restoreFromBinaries,
-} from '../sync/automergeDocStore'
+import { SyncBridge } from '../sync/SyncBridge'
+import { useDataStore } from '../state/dataStore'
 import type { BaseToastMessage } from '../state/toastStore'
 
 type SetMessage = (payload: BaseToastMessage) => void
@@ -40,7 +35,7 @@ export default function useBackupAndRestore({
 
   const handleClearCache = useCallback(
     async () => {
-      await clearAutomergeDocStore()
+      await SyncBridge.clearAutomergeDocStore()
       setCacheClearCounter(c => c + 1)
       setMessage({ message: 'Item cache cleared' })
     },
@@ -50,8 +45,8 @@ export default function useBackupAndRestore({
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = getAutomergeMetadata()
-        const documents = await exportAllBinaries()
+        const currentMetadata = useDataStore.getState().metadata
+        const documents = await SyncBridge.exportAllBinaries()
         const backupPayload: BackupPayloadV2 = {
           version: 2,
           metadata: currentMetadata,
@@ -77,7 +72,7 @@ export default function useBackupAndRestore({
           await setMetadata(payload.metadata)
         }
 
-        await restoreFromBinaries(payload.documents)
+        await SyncBridge.restoreFromBinaries(payload.documents)
 
         setMessage({ message: 'Restore successful' })
         return true
@@ -105,9 +100,10 @@ export default function useBackupAndRestore({
     [setMessage],
   )
 
+  const itemsLength = Object.values(useDataStore.getState().items).length
   const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? getAutomergeItems().length > 0 : false),
-    [cacheClearCounter],
+    () => (cacheClearCounter ? itemsLength > 0 : false),
+    [cacheClearCounter, itemsLength],
   )
 
   return {

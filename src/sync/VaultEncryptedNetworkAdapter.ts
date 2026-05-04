@@ -57,6 +57,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   private heartbeatInterval: number | null = null
   private lastMessageTime: number = Date.now()
+  private reconnectAttempts: number = 0
+  private reconnectTimeout: number | null = null
 
   constructor() {
     super()
@@ -64,8 +66,25 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.readyPromiseResolver = resolve
     })
 
+    this.transportService.on('open', () => {
+      this.reconnectAttempts = 0
+    })
+
     this.transportService.on('close', () => {
       this.emit('close')
+      if (this.reconnectTimeout) {
+        self.clearTimeout(this.reconnectTimeout)
+      }
+      if (!this.account) return
+
+      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
+      this.reconnectAttempts += 1
+      this.reconnectTimeout = self.setTimeout(() => {
+        if (this.account) {
+          this.transportService.start(this.account)
+          this.startHeartbeat()
+        }
+      }, delay)
     })
 
     this.transportService.on('message', async (payload: unknown) => {
@@ -119,6 +138,11 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.transportService.start(this.account)
       this.startHeartbeat()
     } else {
+      if (this.reconnectTimeout) {
+        self.clearTimeout(this.reconnectTimeout)
+        this.reconnectTimeout = null
+      }
+      this.reconnectAttempts = 0
       this.transportService.stop()
       this.stopHeartbeat()
     }
@@ -180,14 +204,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     messages.push(message.data as Uint8Array)
 
     if (this.syncBatchTimeout === null) {
-      this.syncBatchTimeout = window.setTimeout(() => this.flushSyncBatch(), 0)
+      this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 0)
     }
   }
 
   private flushSyncBatch(): void {
     this.syncBatchTimeout = null
     const accountAtSend = this.account
-    
+
     for (const [itemId, messages] of this.syncBatch.entries()) {
       this.transportService.enqueueSend(async () => {
         if (!accountAtSend || !this.connected || this.account !== accountAtSend) {
@@ -240,7 +264,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private startHeartbeat(): void {
     this.stopHeartbeat()
     this.lastMessageTime = Date.now()
-    this.heartbeatInterval = window.setInterval(() => {
+    this.heartbeatInterval = self.setInterval(() => {
       if (!this.account || !this.connected) return
 
       if (Date.now() - this.lastMessageTime > 45000) {
@@ -255,7 +279,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   private stopHeartbeat(): void {
     if (this.heartbeatInterval) {
-      window.clearInterval(this.heartbeatInterval)
+      self.clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
     }
   }
@@ -275,7 +299,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
       clearManualRecoveryForItems([itemId]).catch(console.error)
-      
+
       const isBatched = 'version' in payload.encryptedMessage && (payload.encryptedMessage as Record<string, unknown>).version === '1.0'
 
       if (isBatched) {
@@ -286,7 +310,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
           offset += 4
           const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
           offset += length
-           
+
           this.validateAndEmit(msg, documentId)
         }
       } else {

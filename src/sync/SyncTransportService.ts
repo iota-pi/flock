@@ -73,10 +73,6 @@ export class SyncTransportService extends EventEmitter {
       .catch(error => {
         console.error('[SyncTransportService] Failed to push message. Reconnecting transport.', error)
         this.emit('close')
-        // Automatically recover transport if it fails instead of bricking
-        if (this.account) {
-          this.start(this.account)
-        }
       })
   }
 

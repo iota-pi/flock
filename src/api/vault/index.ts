@@ -6,7 +6,6 @@ import {
 } from '../../sync/workerAuthStore'
 import {
   clearAutomergeDocStore,
-  initializeAutomergeDocStore,
 } from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
@@ -139,6 +138,16 @@ export async function initialiseVault({
   return keyHash
 }
 
+export function getStoredVaultKey(): string | null {
+  const stored = readStoredMetadata()
+  return stored?.key || null
+}
+
+export async function initWorkerVault(exportedKey: string) {
+  key = await importVaultKey(exportedKey)
+  keyHash = await hashVaultKey(key)
+}
+
 export async function loginVault({
   password,
   salt,
@@ -150,9 +159,6 @@ export async function loginVault({
 }) {
   await initialiseVault({ password, salt, iterations })
   await establishSessionFromKeyHash(keyHash)
-  void initializeAutomergeDocStore(getAccountId()).catch(err => {
-    console.error('[vault] initializeAutomergeDocStore failed (background):', err)
-  })
   await storeVault()
 }
 
@@ -174,11 +180,6 @@ export async function loadVault() {
         key = await importVaultKey(stored.key)
         const nextKeyHash = await hashVaultKey(getKey())
         await establishSessionFromKeyHash(nextKeyHash)
-        if (stored.account) {
-          void initializeAutomergeDocStore(stored.account).catch(err => {
-            console.error('[vault] loadVault: initializeAutomergeDocStore failed (background):', err)
-          })
-        }
         setApiSessionExpiredHandler(handleSessionExpired)
         updateAuth({ loggedIn: true })
       }

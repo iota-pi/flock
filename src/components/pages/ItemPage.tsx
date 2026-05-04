@@ -8,7 +8,7 @@ import {
   useItemIds,
   usePracticalFilterCount,
   useMetadata,
-  useSortCriteria,
+  useSortCriteria, useItemsByIds 
 } from 'src/state/selectors'
 import BasePage from './BasePage'
 import { useUiStore } from 'src/state/uiStore'
@@ -17,7 +17,6 @@ import {
   processItemsSnapshot,
 } from 'src/workers/itemWorkerManager'
 import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
-import { useAutomergeItemsById } from 'src/sync/useAutomerge'
 
 interface Props {
   itemType: ItemType,
@@ -30,7 +29,7 @@ function ItemPage({
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
   const itemIds = useItemIds(itemType)
-  const rawItems = useAutomergeItemsById(itemIds)
+  const rawItems = useItemsByIds(itemIds)
   const selected = useNavigationStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})

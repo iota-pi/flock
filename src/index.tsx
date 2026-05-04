@@ -1,3 +1,5 @@
+// TODO: enable StrictMode
+// import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved

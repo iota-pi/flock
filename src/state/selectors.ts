@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import deepEqual from 'fast-deep-equal'
 import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
@@ -9,13 +9,7 @@ import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useNavigationStore } from './navigationStore'
-import {
-  useAutomergeItem,
-  useAutomergeItemIds,
-  useAutomergeItems,
-  useAutomergeItemsById,
-  useAutomergeMetadataValue,
-} from '../sync/useAutomerge'
+import { useDataStore } from './dataStore'
 import { GroupItem } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
@@ -49,21 +43,15 @@ const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
   items: EMPTY_ARRAY,
 }
 
+/* eslint-disable react-hooks/refs */
 function useDeepMemo<T>(value: T): T {
-  const [cache] = useState(() => new Map<number, T>())
+  const ref = useRef<T>(value)
 
-  for (const cachedValue of cache.values()) {
-    if (deepEqual(cachedValue, value)) {
-      return cachedValue
-    }
+  if (!deepEqual(ref.current, value)) {
+    ref.current = value
   }
 
-  if (cache.size > 50) {
-    cache.clear()
-  }
-
-  cache.set(cache.size, value)
-  return value
+  return ref.current
 }
 
 function isVisibleItem(item: Item | null | undefined): item is Item {
@@ -75,7 +63,8 @@ export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state
 
 export function useVisibleItems(): Item[] {
   const authReady = useAuthReady()
-  const items = useAutomergeItems<Item>()
+  const itemsMap = useDataStore(state => state.items)
+  const itemIds = useDataStore(state => state.itemIds)
 
   return useMemo(
     () => {
@@ -83,15 +72,15 @@ export function useVisibleItems(): Item[] {
         return EMPTY_ARRAY
       }
 
-      return items.filter(isVisibleItem)
+      return itemIds.map(id => itemsMap[id]).filter(isVisibleItem)
     },
-    [authReady, items],
+    [authReady, itemsMap, itemIds],
   )
 }
 
 export function useVisibleItemIds(): string[] {
   const authReady = useAuthReady()
-  const itemIds = useAutomergeItemIds()
+  const itemIds = useDataStore(state => state.itemIds)
 
   return useMemo(
     () => {
@@ -117,10 +106,10 @@ export function useMetadataValue<K extends MetadataKey>(
   defaultValue?: Metadata[K],
 ): Metadata[K] {
   const authReady = useAuthReady()
-  const value = useAutomergeMetadataValue(key, defaultValue!)
+  const value = useDataStore(state => state.metadata[key])
 
   // Wait for auth before returning real data to prevent flash-of-empty states
-  const resolvedValue = authReady
+  const resolvedValue = authReady && value !== undefined
     ? value
     : defaultValue as Metadata[K]
 
@@ -129,7 +118,7 @@ export function useMetadataValue<K extends MetadataKey>(
 
 export function useItemIds(itemType?: Item['type']): string[] {
   const authReady = useAuthReady()
-  const visibleItems = useAutomergeItems()
+  const visibleItems = useVisibleItems()
 
   const nextIds = useMemo(
     () => {
@@ -151,7 +140,7 @@ export function useItemIds(itemType?: Item['type']): string[] {
 
 export const useItem = (id: ItemId) => {
   const authReady = useAuthReady()
-  const item = useAutomergeItem<Item>(id)
+  const item = useDataStore(state => state.items[id as string])
 
   if (!authReady) {
     return undefined
@@ -166,7 +155,7 @@ export const useItem = (id: ItemId) => {
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
   const authReady = useAuthReady()
-  const itemsById = useAutomergeItemsById<T>(ids)
+  const itemsMap = useDataStore(state => state.items)
 
   const nextItems = useMemo(
     () => {
@@ -174,9 +163,9 @@ export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
         return EMPTY_ARRAY as T[]
       }
 
-      return itemsById.filter(isVisibleItem) as T[]
+      return ids.map(id => itemsMap[id as string]).filter(isVisibleItem) as T[]
     },
-    [authReady, ids.length, itemsById],
+    [authReady, ids, itemsMap],
   )
 
   return useDeepMemo(nextItems)
@@ -329,30 +318,35 @@ export interface GroupLookupData {
 }
 
 export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
-  const groupIds = useItemIds('group')
-  const groups = useItemsByIds<GroupItem>(groupIds)
+  const visibleItems = useVisibleItems()
 
-  return useMemo(() => {
-    const lookup = new Map<ItemId, GroupLookupData>()
-    for (const group of groups) {
-      if (group.archived) {
-        continue
-      }
+  return useMemo(
+    () => {
+      const lookup = new Map<ItemId, GroupLookupData>()
 
-      const members = Array.isArray(group.members) ? group.members : []
-      for (const memberId of members) {
-        const existing = lookup.get(memberId as ItemId)
-        if (existing) {
-          existing.tags.push(group.name || '')
-          existing.groupIds.push(group.id as ItemId)
-        } else {
-          lookup.set(memberId as ItemId, {
-            tags: [group.name || ''],
-            groupIds: [group.id as ItemId],
-          })
+      for (const item of visibleItems) {
+        if (item.type !== 'group' || item.archived) {
+          continue
+        }
+
+        const group = item as GroupItem
+        const members = Array.isArray(group.members) ? group.members : []
+
+        for (const memberId of members) {
+          const existing = lookup.get(memberId as ItemId)
+          if (existing) {
+            existing.tags.push(group.name || '')
+            existing.groupIds.push(group.id as ItemId)
+          } else {
+            lookup.set(memberId as ItemId, {
+              tags: [group.name || ''],
+              groupIds: [group.id as ItemId],
+            })
+          }
         }
       }
-    }
-    return lookup
-  }, [groups])
+      return lookup
+    },
+    [visibleItems],
+  )
 }

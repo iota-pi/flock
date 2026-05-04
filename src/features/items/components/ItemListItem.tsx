@@ -20,8 +20,7 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, isItem, type Item } from 'src/state/items'
-import { useAutomergeItem } from 'src/sync/useAutomerge'
-import { GroupLookupData } from 'src/state/selectors'
+import { useItem, GroupLookupData  } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
 
 const FADED_OPACITY = 0.65
@@ -117,7 +116,7 @@ export function ItemListItem(props: ItemListItemProps) {
     wrapText,
   } = useItemListContext()
 
-  const item = useAutomergeItem(itemId)
+  const item = useItem(itemId)
 
   const currentItem = item
 

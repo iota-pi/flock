@@ -16,9 +16,11 @@ import {
   getItemTypeLabel,
   isValid,
   Item,
-  LocalChangeItem,
   StandardItem,
 } from '../../../state/items'
+import { useDataStore } from '../../../state/dataStore'
+import { SyncBridge } from '../../../sync/SyncBridge'
+import { useItem } from '../../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
 import { isSameDay } from '../../../utils'
 import {
@@ -30,7 +32,6 @@ import {
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
 import { deleteItem } from '../mutations/itemMutations'
-import { useAutomergeItemCommands, useAutomergeItemDocument } from 'src/sync/useAutomerge'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
 
@@ -58,31 +59,35 @@ function ItemDrawer({
   onExited,
   open,
 }: Props) {
-  const {
-    item: automergeItem,
-  } = useAutomergeItemDocument(itemId)
-  const { applyItemUpdate } = useAutomergeItemCommands(itemId)
+  const storeItem = useItem(itemId ?? '')
 
-  const resolvedItem = useMemo((): LocalChangeItem<Item> | null => {
-    if (automergeItem) {
-      return automergeItem as LocalChangeItem<Item>
+  const resolvedItem = useMemo((): Item | null => {
+    if (storeItem) {
+      return storeItem
     }
     if (initialItem) {
-      return initialItem as LocalChangeItem<Item>
+      return initialItem
     }
     return null
-  }, [automergeItem, initialItem])
+  }, [storeItem, initialItem])
 
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {
-      applyItemUpdate(data)
+      if (!itemId || !resolvedItem) return
+      
+      const changes = typeof data === 'function' ? data(resolvedItem) : data
+      
+      useDataStore.getState().optimisticUpdateItem(itemId, changes)
+      
+      const mutationId = crypto.randomUUID()
+      SyncBridge.mutateItem(mutationId, itemId, changes).catch(error => console.error(error))
 
       if (typeof data === 'function') {
         return onChange(data)
       }
       return onChange(data)
     },
-    [applyItemUpdate, onChange],
+    [itemId, resolvedItem, onChange],
   )
 
   const handleClose = useCallback(
@@ -119,7 +124,7 @@ function ItemDrawer({
   const archived = resolvedItem?.archived ?? false
   const lastPrayer = resolvedItem ? getLastPrayedFor(resolvedItem) : 0
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-  const isNew = (resolvedItem as LocalChangeItem<Item> & { isNew?: boolean } | null)?.isNew ?? false
+  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
 
   const archiveMenuItem = useMemo(
     () => (

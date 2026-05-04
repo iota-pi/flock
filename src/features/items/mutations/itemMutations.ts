@@ -6,16 +6,8 @@ import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { accountMetadataSchema } from '../../../shared/schemas/metadata'
 import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
-import {
-  addAutomergeItemIdsToIndex,
-  withAutomergeMetadataChange,
-  getAutomergeItems,
-  getAutomergeMetadata,
-  initializeAutomergeDocStore,
-  removeAutomergeItem,
-  removeAutomergeItemIdsFromIndex,
-  withAutomergeDocumentChange,
-} from '../../../sync/automergeDocStore'
+import { SyncBridge } from '../../../sync/SyncBridge'
+import { useDataStore } from '../../../state/dataStore'
 
 const stripItemWriteSchema = personItemSchema.strip()
   .or(groupItemSchema.strip())
@@ -85,36 +77,13 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
   return metadata
 }
 
-function normalizeItemForAutomerge(item: Item): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(item)) as Record<string, unknown>
-}
-
-function normalizeMetadataForAutomerge(metadata: AccountMetadata): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(metadata || {})) as Record<string, unknown>
-}
+// Removed Automerge normalization helpers
 
 type StoreItemsOptions = {
   addToIndex?: boolean
 }
 
 type CreateItemOverrides = Partial<Omit<Item, 'id' | 'type'>>
-
-function mutateDraftToMatchSnapshot(
-  draft: Record<string, unknown>,
-  next: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(draft)) {
-    if (!(key in next) || next[key] === undefined) {
-      delete draft[key]
-    }
-  }
-
-  for (const [key, value] of Object.entries(next)) {
-    if (value !== undefined) {
-      draft[key] = value
-    }
-  }
-}
 
 function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
   return allItems
@@ -145,47 +114,17 @@ function buildDeletionUpdates(allItems: Item[], ids: ItemId[]): Item[] {
   return [...groupsToUpdate, ...tombstones]
 }
 
-async function ensureAutomergeStoreReady(): Promise<void> {
-  await initializeAutomergeDocStore(getAccountId())
-}
-
-let metadataUpdateQueue: Promise<void> = Promise.resolve()
-
-function enqueueMetadataUpdate(task: () => Promise<AccountMetadata>): Promise<AccountMetadata> {
-  const operation = metadataUpdateQueue.then(task)
-  metadataUpdateQueue = operation.then(
-    () => undefined,
-    () => undefined,
-  )
-
-  return operation
-}
-
 export async function storeItems(
   items: Item | Item[],
   options: StoreItemsOptions = {},
 ): Promise<Item[]> {
   const current = normalizeItemsInput(items)
-  await ensureAutomergeStoreReady()
 
   for (const item of current) {
-    const normalizedItem = normalizeItemForAutomerge(item)
-    await withAutomergeDocumentChange(
-      item.id,
-      doc => {
-        mutateDraftToMatchSnapshot(doc, normalizedItem)
-
-        if (typeof doc.id !== 'string' || doc.id.length === 0) {
-          doc.id = item.id
-        }
-      },
-      {
-        addToIndex: options.addToIndex,
-        createIfMissing: true,
-        initialValue: { id: item.id },
-      },
-    )
+    useDataStore.getState().optimisticUpdateItem(item.id, item)
   }
+
+  await SyncBridge.storeItems(current)
 
   return current
 }
@@ -194,8 +133,6 @@ export async function createItem(
   itemType: ItemType,
   overrides: CreateItemOverrides = {},
 ): Promise<Item> {
-  await ensureAutomergeStoreReady()
-
   const baseItem = getBlankItem(itemType, true)
   const nextItem = {
     ...baseItem,
@@ -204,25 +141,8 @@ export async function createItem(
     type: itemType,
   } as Item
 
-  const normalizedItem = normalizeItemForAutomerge(nextItem as Item)
-
-  await withAutomergeDocumentChange(
-    nextItem.id,
-    doc => {
-      mutateDraftToMatchSnapshot(doc, normalizedItem)
-
-      if (typeof doc.id !== 'string' || doc.id.length === 0) {
-        doc.id = nextItem.id
-      }
-    },
-    {
-      addToIndex: false,
-      createIfMissing: true,
-      initialValue: normalizedItem,
-    },
-  )
-
-  await addAutomergeItemIdsToIndex([nextItem.id])
+  useDataStore.getState().optimisticUpdateItem(nextItem.id, nextItem)
+  await SyncBridge.createItem(nextItem)
 
   return nextItem
 }
@@ -234,15 +154,12 @@ export async function deleteItems(
   },
 ): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
-  await ensureAutomergeStoreReady()
 
-  let allItems = options?.allItems ?? getAutomergeItems()
+  let allItems = options?.allItems ?? Object.values(useDataStore.getState().items)
   if (allItems.length === 0) {
     await ensureItemsBootstrap(getAccountId(), { force: true })
-    allItems = getAutomergeItems()
+    allItems = Object.values(useDataStore.getState().items)
   }
-
-  await removeAutomergeItemIdsFromIndex(ids)
 
   const updates = buildDeletionUpdates(allItems, ids)
 
@@ -262,12 +179,12 @@ export async function deleteItem(itemId: ItemId): Promise<ItemId> {
 
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
-  await ensureAutomergeStoreReady()
 
   for (const itemId of ids) {
-    await removeAutomergeItem(itemId)
+    useDataStore.getState().updateItemFromServer(itemId, null)
   }
 
+  await SyncBridge.hardDeleteItems(ids)
   useNavigationStore.getState().closeIfOpen(ids)
   return ids
 }
@@ -275,24 +192,15 @@ export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemI
 export async function setMetadata(
   metadata: AccountMetadata | ((previous: AccountMetadata) => AccountMetadata),
 ): Promise<AccountMetadata> {
-  return enqueueMetadataUpdate(async () => {
-    await ensureAutomergeStoreReady()
+  const currentMetadata = useDataStore.getState().metadata
+  const nextMetadata = sanitizeMetadata(
+    typeof metadata === 'function'
+      ? metadata({ ...currentMetadata })
+      : metadata,
+  )
 
-    const currentMetadata = getAutomergeMetadata() as AccountMetadata
-    const nextMetadata = sanitizeMetadata(
-      typeof metadata === 'function'
-        ? (metadata as (previous: AccountMetadata) => AccountMetadata)({
-          ...currentMetadata,
-        })
-        : metadata,
-    )
+  useDataStore.getState().updateMetadataFromServer(nextMetadata)
+  await SyncBridge.mutateMetadata(nextMetadata)
 
-    const normalizedMetadata = normalizeMetadataForAutomerge(nextMetadata)
-
-    await withAutomergeMetadataChange(metadataDraft => {
-      mutateDraftToMatchSnapshot(metadataDraft, normalizedMetadata)
-    })
-
-    return nextMetadata
-  })
+  return nextMetadata
 }
