@@ -26,7 +26,7 @@ const OptionIconHolder = styled('div')(({ theme }) => ({
   paddingLeft: theme.spacing(0.5),
   paddingRight: theme.spacing(2.5),
 }))
-const OptionName = styled(InlineText)(({ theme }) => ({
+const OptionName = styled(InlineText)(() => ({
   flexGrow: 1,
   minWidth: 0,
   lineHeight: 1,
