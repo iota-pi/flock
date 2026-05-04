@@ -12,6 +12,7 @@ import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { createDebouncedNotifier, normalizeItemIds, parseWithSchema } from './syncUtils'
 import { useOptimizedDocument } from './useOptimizedDocument'
 import { findRepoDocHandle, readReadyObjectSnapshot } from './automergeHandleUtils'
+import { useSyncStore } from '../state/syncStore'
 
 const EMPTY_ITEMS: Item[] = []
 const EMPTY_ITEM_IDS: string[] = []
@@ -297,6 +298,7 @@ function useAutomergeItemsFromIds<TItem extends Item = Item>(
 ): TItem[] {
   const resolvedSchema = resolveItemSchema(schema) as ItemSchema<TItem>
   const repo = useRepo()
+  const syncGeneration = useSyncStore(state => state.generation)
 
   const normalizedItemIds = useMemo(
     () => normalizeItemIds(itemIds),
@@ -317,7 +319,8 @@ function useAutomergeItemsFromIds<TItem extends Item = Item>(
 
     syncItemsSnapshot(nextStore)
     return nextStore
-  }, [normalizedItemIds, repo, resolvedSchema])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedItemIds, repo, resolvedSchema, syncGeneration])
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {

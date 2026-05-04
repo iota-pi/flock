@@ -10,6 +10,7 @@ import { getAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
+import { useSyncStore } from '../state/syncStore'
 import {
   awaitHandleReadyIfNeeded,
   findRepoDocHandle,
@@ -559,6 +560,8 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
   }
 
   await addAutomergeItemIdsToIndex(restoredItemIds)
+
+  useSyncStore.getState().incrementGeneration()
 
   return restoredItemIds
 }

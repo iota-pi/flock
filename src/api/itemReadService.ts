@@ -14,6 +14,7 @@ import {
   upsertAutomergeMetadataSnapshot,
 } from '../sync/automergeDocStore'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
+import { useSyncStore } from '../state/syncStore'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -203,6 +204,7 @@ export async function ensureItemsBootstrap(
 
       if (fetchedItems.length > 0) {
         await hydrateFetchedItemsLocally(fetchedItems)
+        useSyncStore.getState().incrementGeneration()
       }
 
       if (fetchedItemIds.length > 0) {

@@ -8,6 +8,7 @@ import {
   readHandleDocSafely,
   readReadyObjectSnapshot,
 } from './automergeHandleUtils'
+import { useSyncStore } from '../state/syncStore'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -94,10 +95,12 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
   debounceMs = 50,
 ): readonly [TSnapshot, (changeFn: (draft: TDoc) => void) => void, DocHandle<TDoc> | undefined] {
   const repo = useRepo()
+  const syncGeneration = useSyncStore(state => state.generation)
 
   const handle = useMemo(
     () => (documentUrl ? findRepoDocHandle<TDoc>(repo, documentUrl) : undefined),
-    [repo, documentUrl],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [repo, documentUrl, syncGeneration],
   )
 
   const store = useMemo((): OptimizedDocumentStore<TDoc, TSnapshot> => {
@@ -147,7 +150,14 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
       const currentHandle = store.handle
 
       if (currentHandle && !currentHandle.isUnavailable() && !currentHandle.isReady()) {
-        throw currentHandle.whenReady()
+        const isDeleted = (
+          currentHandle.state === 'deleted'
+          || (typeof (currentHandle as unknown as Record<string, unknown>).isDeleted === 'function' && (currentHandle as unknown as { isDeleted: () => boolean }).isDeleted())
+        )
+        
+        if (!isDeleted) {
+          throw currentHandle.whenReady()
+        }
       }
 
       return store.currentSnapshot
