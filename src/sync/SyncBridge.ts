@@ -2,6 +2,7 @@
 import * as Comlink from 'comlink'
 import type { SyncApi, SyncCallbacks } from '../workers/syncProtocol'
 import { useDataStore } from '../state/dataStore'
+import { useSyncStore } from '../state/syncStore'
 import { getStoredVaultKey } from '../api/vault'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
@@ -10,24 +11,32 @@ export const SyncBridge = {
   initialize: async (accountId: string) => {
     if (syncApi) return
 
+    useSyncStore.getState().setSyncStatus('connecting')
     const worker = new Worker(new URL('../workers/sync.worker.ts', import.meta.url), { type: 'module' })
     syncApi = Comlink.wrap<SyncApi>(worker)
 
     const callbacks: SyncCallbacks = {
-      onReady: state => {
-        useDataStore.getState().setFullState(state)
+      onReady: () => {
+        console.info('[SyncBridge] onReady')
+      },
+      onStatusChange: status => {
+        console.info('[SyncBridge] onStatusChange', status)
+        useSyncStore.getState().setSyncStatus(status)
       },
       onItemUpdated: (id, item) => {
+        console.info('[SyncBridge] onItemUpdated', id, item)
         useDataStore.getState().updateItemFromServer(id, item)
       },
       onIndexUpdated: itemIds => {
+        console.info('[SyncBridge] onIndexUpdated', itemIds)
         useDataStore.getState().updateIndexFromServer(itemIds)
       },
       onMetadataUpdated: metadata => {
+        console.info('[SyncBridge] onMetadataUpdated', metadata)
         useDataStore.getState().updateMetadataFromServer(metadata)
       },
       onMutationFailed: (mutationId, error) => {
-        // Implement toast notification here if needed
+        // Implement toast notification/Sentry logging here if needed
         console.error(`Mutation ${mutationId} failed: ${error}`)
       },
     }
@@ -35,7 +44,9 @@ export const SyncBridge = {
     const vaultKey = getStoredVaultKey()
     if (!vaultKey) throw new Error('Vault key not found in storage')
 
+    console.info('[SyncBridge] Initialising repo for account', accountId)
     await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks) as any)
+    console.info('[SyncBridge] Repo initialised')
   },
 
   mutateItem: async (mutationId: string, id: string, changes: any) => {

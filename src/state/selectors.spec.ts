@@ -15,6 +15,7 @@ import {
 } from './selectors'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
+import { useDataStore } from './dataStore'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 
 const useAutomergeMocks = vi.hoisted(() => ({
@@ -78,23 +79,25 @@ let automergeItemsState: Item[] = itemsFixture
 let automergeMetadataState: Record<string, unknown> = {}
 
 describe('state selectors', () => {
+  function updateStore() {
+    const itemsMap: Record<string, Item> = {}
+    automergeItemsState.forEach(item => {
+      itemsMap[item.id] = item
+    })
+
+    useDataStore.setState({
+      status: 'ready',
+      items: itemsMap,
+      itemIds: automergeItemsState.map(i => i.id),
+      metadata: automergeMetadataState,
+    })
+  }
+
   beforeEach(() => {
     automergeItemsState = itemsFixture
     automergeMetadataState = {}
 
-    useAutomergeMocks.useAutomergeItems.mockImplementation(() => automergeItemsState)
-    useAutomergeMocks.useAutomergeItemsById.mockImplementation((ids: string[]) => ids
-      .map(itemId => automergeItemsState.find(item => item.id === itemId))
-      .filter((item): item is Item => item !== undefined))
-    useAutomergeMocks.useAutomergeItem.mockImplementation((itemId: string) => (
-      automergeItemsState.find(item => item.id === itemId) || null
-    ))
-    useAutomergeMocks.useAutomergeMetadataValue.mockImplementation(
-      (key: string, defaultValue?: unknown) => {
-        const metadataValue = automergeMetadataState[key]
-        return metadataValue === undefined ? defaultValue : metadataValue
-      },
-    )
+    updateStore()
 
     useAuthStore.getState().updateAuth({
       account: 'acct-1',
@@ -135,6 +138,7 @@ describe('state selectors', () => {
           ? { ...item, name: 'Alice Updated' }
           : item
       ))
+      updateStore()
       rerender()
     })
 
@@ -187,6 +191,7 @@ describe('state selectors', () => {
 
     act(() => {
       automergeItemsState = automergeItemsState.map(item => ({ ...item }))
+      updateStore()
       rerender()
     })
 
@@ -216,6 +221,7 @@ describe('state selectors', () => {
           ? { ...item, name: 'Alice Updated' }
           : item
       ))
+      updateStore()
       rerender()
     })
 
@@ -230,6 +236,7 @@ describe('state selectors', () => {
     act(() => {
       automergeItemsState = automergeItemsState.map(item => ({ ...item }))
       automergeMetadataState = { ...automergeMetadataState }
+      updateStore()
       rerender()
     })
 
@@ -245,6 +252,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         prayerGoal: 7,
       }
+      updateStore()
       rerender()
     })
 
@@ -261,6 +269,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         sortCriteria: [{ type: 'name', reverse: false }],
       }
+      updateStore()
       rerender()
     })
 
@@ -271,6 +280,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         prayerGoal: 9,
       }
+      updateStore()
       rerender()
     })
 
@@ -281,6 +291,7 @@ describe('state selectors', () => {
         ...automergeMetadataState,
         sortCriteria: [{ type: 'created', reverse: false }],
       }
+      updateStore()
       rerender()
     })
 

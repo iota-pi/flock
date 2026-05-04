@@ -134,7 +134,7 @@ export async function initialiseVault({
   salt: string,
 }) {
   key = await deriveVaultKey({ password, salt, iterations })
-  keyHash = await hashVaultKey(getKey())
+  keyHash = await hashVaultKey(key)
   return keyHash
 }
 
@@ -178,7 +178,7 @@ export async function loadVault() {
 
       if (stored?.key) {
         key = await importVaultKey(stored.key)
-        const nextKeyHash = await hashVaultKey(getKey())
+        const nextKeyHash = await hashVaultKey(key)
         await establishSessionFromKeyHash(nextKeyHash)
         setApiSessionExpiredHandler(handleSessionExpired)
         updateAuth({ loggedIn: true })

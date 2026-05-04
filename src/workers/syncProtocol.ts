@@ -1,9 +1,11 @@
 import type { Remote } from 'comlink'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
+import { SyncStatus } from 'src/state/syncStore';
 
 export interface SyncCallbacks {
-  onReady: (state: { items: Record<string, Item>; itemIds: string[]; metadata: AccountMetadata }) => void
+  onReady: () => void
+  onStatusChange: (status: SyncStatus) => void,
   onItemUpdated: (id: string, item: Item | null) => void
   onIndexUpdated: (itemIds: string[]) => void
   onMetadataUpdated: (metadata: AccountMetadata) => void

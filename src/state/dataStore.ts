@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type { Item } from './items'
 import type { AccountMetadata } from './metadata'
-import type { ItemId } from '../shared/itemTypes'
 
 interface DataState {
   status: 'initializing' | 'ready'

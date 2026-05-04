@@ -36,8 +36,6 @@ export function getAutomergeRepo(accountId?: string | null): Repo {
       ],
     })
 
-    adapter.attachRepo(repo)
-
     repos.set(accountKey, repo)
   }
   return repos.get(accountKey)!

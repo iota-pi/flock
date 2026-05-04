@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 
+export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded'
+
 interface SyncState {
-  status: 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded'
+  status: SyncStatus
   fatalError: string | null
   syncWarning: string | null
   generation: number

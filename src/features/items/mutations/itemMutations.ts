@@ -77,12 +77,6 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
   return metadata
 }
 
-// Removed Automerge normalization helpers
-
-type StoreItemsOptions = {
-  addToIndex?: boolean
-}
-
 type CreateItemOverrides = Partial<Omit<Item, 'id' | 'type'>>
 
 function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
@@ -116,7 +110,6 @@ function buildDeletionUpdates(allItems: Item[], ids: ItemId[]): Item[] {
 
 export async function storeItems(
   items: Item | Item[],
-  options: StoreItemsOptions = {},
 ): Promise<Item[]> {
   const current = normalizeItemsInput(items)
 
@@ -164,7 +157,7 @@ export async function deleteItems(
   const updates = buildDeletionUpdates(allItems, ids)
 
   if (updates.length > 0) {
-    await storeItems(updates, { addToIndex: false })
+    await storeItems(updates)
   }
 
   useNavigationStore.getState().closeIfOpen(ids)

@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import useSettings from './useSettings'
+import type { Item } from 'src/state/items'
 
 const mocks = vi.hoisted(() => ({
   exportData: vi.fn(),
@@ -65,16 +66,16 @@ vi.mock('../api/itemReadService', () => ({
   getCachedMetadata: mocks.getCachedMetadata,
 }))
 
-vi.mock('../sync/automergeDocStore', () => ({
-  clearAutomergeDocStore: mocks.clearAutomergeDocStore,
-  exportAllBinaries: mocks.exportAllBinaries,
-  getAutomergeItems: mocks.getAutomergeItems,
-  getAutomergeMetadata: mocks.getAutomergeMetadata,
-  restoreFromBinaries: mocks.restoreFromBinaries,
+vi.mock('../sync/SyncBridge', () => ({
+  SyncBridge: {
+    clearAutomergeDocStore: mocks.clearAutomergeDocStore,
+    exportAllBinaries: mocks.exportAllBinaries,
+    restoreFromBinaries: mocks.restoreFromBinaries,
+  }
 }))
 
 describe('useSettings backup portability', () => {
-  const mockItems = [{ id: 'i1', type: 'person', name: 'N', archived: false } as any]
+  const mockItems = [{ id: 'i1', type: 'person', name: 'N', archived: false } as Item]
 
   beforeEach(() => {
     vi.clearAllMocks()

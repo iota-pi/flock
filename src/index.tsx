@@ -5,8 +5,6 @@ import * as Sentry from '@sentry/react'
 // eslint-disable-next-line import-x/no-unresolved
 import { registerSW } from 'virtual:pwa-register'
 import ThemedApp from './ThemedApp'
-import * as Automerge from '@automerge/automerge/slim'
-import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 const NETWORK_ERROR_MATCHERS: Array<string | RegExp> = [
   'Failed to fetch',
@@ -71,8 +69,6 @@ Sentry.init({
     return event
   },
 })
-
-await Automerge.initializeWasm(wasmUrl)
 
 function initializeApp() {
   try {

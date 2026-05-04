@@ -121,10 +121,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  attachRepo(_: Repo): void {
-    // No-op for the adapter itself, bootstrapping is handled by the application layer
-  }
-
   setAccount(account: string | null): void {
     const nextAccount = account && account.length > 0 ? account : null
     if (this.account === nextAccount) {

@@ -21,16 +21,19 @@ import {
   clearAutomergeDocStore,
   exportAllBinaries,
   restoreFromBinaries,
+  AutomergeIndexDocument,
 } from '../sync/automergeDocStore'
 import { initWorkerVault } from '../api/vault'
-import { getAutomergeRepo, setVaultNetworkAccount } from '../sync/automergeRepo'
+import { getAutomergeRepo, getVaultNetworkAdapter, setVaultNetworkAccount } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
 class SyncWorker implements SyncApi {
-  private callbacks: Comlink.Remote<SyncCallbacks> | null = null
   private accountId: string | null = null
+  private callbacks: Comlink.Remote<SyncCallbacks> | null = null
   private subscribedHandles = new Set<string>()
+  private reconnectAttempts = 0
+  private reconnectTimeout: number | null = null
 
   async initRepo(accountId: string, vaultKey: string, callbacks: Comlink.Remote<SyncCallbacks>) {
     this.accountId = accountId
@@ -38,52 +41,66 @@ class SyncWorker implements SyncApi {
 
     await initWorkerVault(vaultKey)
 
+    // Load Automerge WASM module
     await Automerge.initializeWasm(wasmUrl)
 
+    // Initialise Automerge repo
     setVaultNetworkAccount(accountId)
     await initializeAutomergeDocStore(accountId)
 
     const repo = getAutomergeRepo(accountId)
-
-    const itemsList = getAutomergeItems()
-    const items: Record<string, Item> = {}
-    itemsList.forEach(i => items[i.id] = i)
-    const itemIds = listAutomergeItemIds()
-    const metadata = getAutomergeMetadata()
-
-    await callbacks.onReady({ items, itemIds, metadata })
-
     const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
-    const indexHandle = await repo.find(indexUrl)
-    indexHandle.on('change', () => {
-      const newItemIds = listAutomergeItemIds()
+    const indexHandle = await repo.find<AutomergeIndexDocument>(indexUrl)
+    if (!indexHandle) return
+    await indexHandle.whenReady(['ready', 'unavailable'])
+
+    const handleIndexChange = () => {
+      const indexDoc = indexHandle.doc()
+      if (!indexDoc) return
+      const newItemIds = indexDoc.itemIds || []
       if (this.callbacks) {
         this.callbacks.onIndexUpdated(newItemIds).catch(console.error)
-        
-        const newMetadata = getAutomergeMetadata()
+
+        const newMetadata = indexDoc.metadata || {}
         this.callbacks.onMetadataUpdated(newMetadata).catch(console.error)
       }
 
       this.subscribeToItems(newItemIds, repo)
-    })
+    }
 
-    this.subscribeToItems(itemIds, repo)
+    indexHandle.on('change', handleIndexChange)
+    handleIndexChange()
+
+    await this.callbacks.onReady()
   }
 
   private subscribeToItems(itemIds: string[], repo: Repo) {
+    // Subscribe to new items
     for (const id of itemIds) {
       if (this.subscribedHandles.has(id)) continue
       this.subscribedHandles.add(id)
 
       const url = toAutomergeUrlFromItemId(id)
-      repo.find(url).then((handle: any) => {
+      repo.find(url).then(handle => {
         handle.on('change', () => {
           const item = getAutomergeItem(id)
-          if (this.callbacks) {
-            this.callbacks.onItemUpdated(id, item).catch(console.error)
-          }
+          this.callbacks?.onItemUpdated(id, item).catch(console.error)
         })
       }).catch(console.error)
+
+      // Trigger an immediate update for the item in case it changed while not subscribed
+      this.callbacks?.onItemUpdated(id, getAutomergeItem(id)).catch(console.error)
+    }
+
+    // Unsubscribe from removed items
+    for (const subscribedId of this.subscribedHandles) {
+      if (!itemIds.includes(subscribedId)) {
+        this.subscribedHandles.delete(subscribedId)
+        const url = toAutomergeUrlFromItemId(subscribedId)
+        repo.find(url).then(handle => {
+          handle.off('change')
+        }).catch(console.error)
+      }
     }
   }
 

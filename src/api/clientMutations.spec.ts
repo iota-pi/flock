@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
-import {
-  getAutomergeItems,
-  getAutomergeMetadata,
-  initializeAutomergeDocStore,
-  withAutomergeDocumentChange,
-  withAutomergeMetadataChange,
-} from '../sync/automergeDocStore'
+import { SyncBridge } from '../sync/SyncBridge'
 import { ensureItemsBootstrap } from './itemReadService'
 import { setApiAuthToken } from './runtime'
+import { useDataStore } from '../state/dataStore'
 
 const metadataState: Record<string, unknown> = {}
 
@@ -17,18 +12,16 @@ const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
 }))
 
-vi.mock('../sync/automergeDocStore', async importOriginal => {
-  const actual = await importOriginal<typeof import('../sync/automergeDocStore')>()
-  return {
-    ...actual,
-    getAutomergeItems: vi.fn(() => []),
-    getAutomergeItem: vi.fn(() => null),
-    getAutomergeMetadata: vi.fn(() => ({})),
-    initializeAutomergeDocStore: vi.fn(),
-    withAutomergeDocumentChange: vi.fn(async () => true),
-    withAutomergeMetadataChange: vi.fn(async () => true),
+vi.mock('../sync/SyncBridge', () => ({
+  SyncBridge: {
+    storeItems: vi.fn(async () => true),
+    createItem: vi.fn(async () => true),
+    deleteItem: vi.fn(async () => true),
+    hardDeleteItems: vi.fn(async () => true),
+    mutateMetadata: vi.fn(async () => true),
+    clearAutomergeDocStore: vi.fn(async () => true),
   }
-})
+}))
 
 vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'test-account'),
@@ -46,6 +39,7 @@ vi.mock('../state/navigationStore', () => ({
   useNavigationStore: {
     getState: () => ({
       pruneItemDrawers: mocks.pruneItemDrawers,
+      closeIfOpen: vi.fn(),
     }),
   },
 }))
@@ -57,22 +51,14 @@ describe('local-first mutations', () => {
       delete metadataState[key]
     }
 
-    vi.mocked(getAutomergeMetadata).mockImplementation(() => ({
-      ...metadataState,
-    } as any))
-    vi.mocked(withAutomergeMetadataChange).mockImplementation(async (change: (draft: Record<string, unknown>) => void) => {
-      const draft = { ...metadataState }
-      change(draft)
-      for (const key of Object.keys(metadataState)) {
-        delete metadataState[key]
-      }
-      Object.assign(metadataState, draft)
-      return true
+    vi.mocked(SyncBridge.mutateMetadata).mockImplementation(async (changes: any) => {
+      Object.assign(metadataState, changes)
+      return true as any
     })
 
     setApiAuthToken('')
     vi.mocked(ensureItemsBootstrap).mockResolvedValue()
-    vi.mocked(getAutomergeItems).mockReturnValue([])
+    useDataStore.setState({ items: {}, metadata: metadataState })
   })
 
   it('stores single-item snapshots', async () => {
@@ -81,19 +67,12 @@ describe('local-first mutations', () => {
     const result = await storeItems(item)
 
     expect(result[0].id).toBe('p1')
-    expect(initializeAutomergeDocStore).toHaveBeenCalledWith('test-account')
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith(
-      'p1',
-      expect.any(Function),
-      expect.objectContaining({
-        createIfMissing: true,
-      }),
-    )
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith([expect.objectContaining({ id: 'p1' })])
   })
 
   it('rejects invalid item payloads before storing', async () => {
     await expect(storeItems({ id: '', type: 'person' } as unknown as Item)).rejects.toBeTruthy()
-    expect(withAutomergeDocumentChange).not.toHaveBeenCalled()
+    expect(SyncBridge.storeItems).not.toHaveBeenCalled()
   })
 
   it('stores batch updates for all ids', async () => {
@@ -102,9 +81,10 @@ describe('local-first mutations', () => {
 
     await storeItems([first, second])
 
-    expect(withAutomergeDocumentChange).toHaveBeenCalledTimes(2)
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p2', expect.any(Function), expect.any(Object))
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'p1' }),
+      expect.objectContaining({ id: 'p2' }),
+    ])
   })
 
   it('deletes with group updates and tombstones', async () => {
@@ -113,21 +93,22 @@ describe('local-first mutations', () => {
       members: ['p1'],
     }
     const person = getBlankPerson('p1', false)
-    vi.mocked(getAutomergeItems).mockReturnValue([group, person])
+    useDataStore.setState({ items: { g1: group, p1: person } as any })
 
     await deleteItems('p1')
 
     expect(ensureItemsBootstrap).not.toHaveBeenCalled()
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('g1', expect.any(Function), expect.any(Object))
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith('p1', expect.any(Function), expect.any(Object))
-    expect(mocks.pruneItemDrawers).toHaveBeenCalledWith(['p1'])
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'g1', members: [] }),
+      expect.objectContaining({ id: 'p1', deleted: true }),
+    ]))
   })
 
   it('updates metadata locally', async () => {
     const result = await setMetadata({ prayerGoal: 20 } as any)
 
     expect(result.prayerGoal).toBe(20)
-    expect(withAutomergeMetadataChange).toHaveBeenCalledTimes(1)
+    expect(SyncBridge.mutateMetadata).toHaveBeenCalledTimes(1)
   })
 
   it('serializes functional metadata updates to avoid stale overwrites', async () => {
@@ -146,3 +127,4 @@ describe('local-first mutations', () => {
     expect(metadataState.sortCriteria).toEqual([{ type: 'name', reverse: false }])
   })
 })
+

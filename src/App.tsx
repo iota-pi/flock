@@ -50,12 +50,6 @@ function RootLayout() {
   const miniMenu = rawMiniMenu === undefined ? defaultMini : rawMiniMenu
   const openMenu = rawOpenMenu === undefined ? defaultOpen : rawOpenMenu
 
-  useEffect(() => {
-    if (loggedIn && accountId) {
-      SyncBridge.initialize(accountId).catch(console.error)
-    }
-  }, [loggedIn, accountId])
-
   const handleToggleMiniMenu = useCallback(
     () => setMiniMenu(m => (
       m !== undefined && miniMenu !== defaultMini ? undefined : !miniMenu
