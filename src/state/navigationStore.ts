@@ -14,9 +14,6 @@ export interface DrawerData {
   alwaysTemporary?: boolean
   disableRouting?: boolean
   fromPrayerPage?: boolean
-  onChange?: DrawerOnChange
-  onCloseRequest?: () => void
-  onExited?: () => void
   open?: boolean
 }
 

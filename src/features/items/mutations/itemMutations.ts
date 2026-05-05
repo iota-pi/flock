@@ -110,6 +110,24 @@ function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): It
   return [...groupsToUpdate, ...tombstones]
 }
 
+export function mutateItem(
+  itemId: string,
+  changes: Partial<Item>,
+): Promise<void> {
+  const currentItems = useDataStore.getState().items
+  const item = currentItems[itemId] as Item | undefined
+  if (!item) {
+    throw new Error(`Item not found: ${itemId}`)
+  }
+
+  const updatedItem = { ...item, ...changes } as Item
+
+  useDataStore.getState().optimisticUpdateItem(itemId, updatedItem)
+
+  const mutationId = crypto.randomUUID()
+  return SyncBridge.mutateItem(mutationId, itemId, changes)
+}
+
 export async function storeItems(
   items: Item | Item[],
 ): Promise<Item[]> {

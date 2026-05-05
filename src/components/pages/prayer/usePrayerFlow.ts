@@ -19,7 +19,6 @@ import {
   PRAYER_FLOW_INITIAL_STATE,
   prayerFlowReducer,
 } from './prayerFlowReducer'
-import usePrayerSync from './usePrayerSync'
 
 export type PrayerFlowActions = {
   handleBack: () => void
@@ -93,7 +92,6 @@ function useLatestRef<T>(value: T) {
 
 export default function usePrayerFlow(): PrayerFlowController {
   const location = useLocation()
-  const { queuePrayedForSync, saveLocalItem } = usePrayerSync()
 
   const today = useToday()
   const prevTodayRef = useRef(today)
@@ -187,8 +185,6 @@ export default function usePrayerFlow(): PrayerFlowController {
   const isPrayedForTodayRef = useLatestRef(isPrayedForToday)
   const showUntilRef = useLatestRef(showUntil)
   const recordPrayerForRef = useLatestRef(recordPrayerFor)
-  const queuePrayedForSyncRef = useLatestRef(queuePrayedForSync)
-  const saveLocalItemRef = useLatestRef(saveLocalItem)
   const completedRef = useLatestRef(completed)
   const allVisiblePrayedRef = useLatestRef(allVisiblePrayed)
   const canKeepPrayingRef = useLatestRef(canKeepPraying)
@@ -312,11 +308,7 @@ export default function usePrayerFlow(): PrayerFlowController {
             && JSON.stringify(existing.prayedFor) !== JSON.stringify(currentItem.prayedFor)
           )
 
-          if (prayedForChanged) {
-            queuePrayedForSyncRef.current(currentItem)
-          } else {
-            saveLocalItemRef.current(currentItem)
-          }
+
         },
 
         handleEditDrawerChange: (
@@ -380,7 +372,6 @@ export default function usePrayerFlow(): PrayerFlowController {
             index: currentFlow.index,
             timestamp: prayerTimestamp,
           })
-          queuePrayedForSyncRef.current(prayerUpdate.item)
 
           const nextIndex = currentFlow.index + 1
           if (nextIndex >= localItemsRef.current.length) {

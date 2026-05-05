@@ -31,7 +31,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { deleteItems } from '../mutations/itemMutations'
+import { deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
 
@@ -42,9 +42,6 @@ interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
   itemId: string | null,
   initialItem?: StandardItem,
-  onChange: (
-    item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
-  ) => void,
 }
 
 
@@ -54,9 +51,7 @@ function ItemDrawer({
   itemId,
   initialItem,
   onBack,
-  onChange,
   onClose,
-  onExited,
   open,
 }: Props) {
   const storeItem = useItem(itemId ?? '')
@@ -77,17 +72,9 @@ function ItemDrawer({
 
       const changes = typeof data === 'function' ? data(resolvedItem) : data
 
-      useDataStore.getState().optimisticUpdateItem(itemId, changes)
-
-      const mutationId = crypto.randomUUID()
-      SyncBridge.mutateItem(mutationId, itemId, changes).catch(error => console.error(error))
-
-      if (typeof data === 'function') {
-        return onChange(data)
-      }
-      return onChange(data)
+      mutateItem(itemId, changes).catch(error => console.error(error))
     },
-    [itemId, resolvedItem, onChange],
+    [itemId, resolvedItem],
   )
 
   const handleClose = useCallback(
@@ -229,7 +216,6 @@ function ItemDrawer({
       itemKey={itemId ?? undefined}
       onBack={onBack}
       onClose={handleClose}
-      onExited={onExited}
       open={open}
       typeIcon={resolvedItem ? getIconType(resolvedItem.type) : undefined}
     >

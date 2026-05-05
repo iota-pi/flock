@@ -89,30 +89,13 @@ function DrawerDisplay() {
         return
       }
 
-      drawer.onCloseRequest?.()
       removeActive()
     },
     [drawer, removeActive],
   )
 
-  const handleExited = useCallback(
-    () => {
-      if (drawer) {
-        drawer.onExited?.()
-      }
-    },
-    [drawer],
-  )
-
   const lookupItemId = useMemo(
     () => getDrawerItemId(drawer),
-    [drawer],
-  )
-
-  const handleChange = useCallback(
-    (data: Parameters<NonNullable<DrawerData['onChange']>>[0]) => {
-      drawer?.onChange?.(data)
-    },
     [drawer],
   )
 
@@ -140,9 +123,7 @@ function DrawerDisplay() {
         itemId={lookupItemId}
         initialItem={drawer?.initialItem}
         onBack={handleClose}
-        onChange={handleChange}
         onClose={handleClose}
-        onExited={handleExited}
         open={open}
       />
     )

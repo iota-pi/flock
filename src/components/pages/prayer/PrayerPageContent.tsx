@@ -10,22 +10,16 @@ import { BackIcon, NextIcon } from '../../Icons'
 
 type PrayerPageContentProps = {
   flow: PrayerFlowController
-  isEditDrawerOpen: boolean
   isGoalDialogOpen: boolean
-  onCloseEditDrawer: () => void
   onCloseGoalDialog: () => void
   onEditGoal: () => void
-  onOpenEditDrawer: () => void
 }
 
 export default function PrayerPageContent({
   flow,
-  isEditDrawerOpen,
   isGoalDialogOpen,
-  onCloseEditDrawer,
   onCloseGoalDialog,
   onEditGoal,
-  onOpenEditDrawer,
 }: PrayerPageContentProps) {
   const { actions, progress, schedule, stepper, view } = flow
 
@@ -71,13 +65,10 @@ export default function PrayerPageContent({
                   <PrayerActiveView
                     activeIndex={view.activeIndex}
                     items={schedule.localItems}
-                    isEditDrawerOpen={isEditDrawerOpen && view.current.type === 'active'}
                     onBack={actions.handleBack}
-                    onCloseEditDrawer={onCloseEditDrawer}
                     onEditDrawerChange={actions.handleEditDrawerChange}
                     onItemChange={actions.handleChange}
                     onNext={actions.handleNext}
-                    onOpenEditDrawer={onOpenEditDrawer}
                   />
                 </Box>
               )}

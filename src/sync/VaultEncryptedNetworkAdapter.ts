@@ -177,7 +177,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   send(message: Message): void {
-    console.debug('[VaultEncryptedNetworkAdapter] send called with message:', message, this.connected, this.account)
     if (!this.connected || !this.account || message.targetId !== VAULT_PEER_ID) {
       return
     }

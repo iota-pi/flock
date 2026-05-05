@@ -4,7 +4,7 @@ import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
 import { useItemIds, useItemsByIds } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
-import { storeItems } from '../../items/mutations/itemMutations'
+import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { GroupItem } from 'src/shared/schemas/items'
@@ -35,34 +35,28 @@ function GroupDisplay({
 
   const handleSelect = useCallback(
     (group: GroupItem) => {
-      const newGroup: GroupItem = {
-        ...group,
-        members: [...group.members, itemId],
-      }
+      const members = [...group.members, itemId]
 
-      void storeItems(newGroup).catch(error => {
+      void mutateItem(group.id, { members }).catch(error => {
         console.error(error)
       })
     },
     [itemId],
   )
   const handleRemove = useCallback(
-    (group: Item) => {
-      const g = group as GroupItem
-      const newGroup: GroupItem = {
-        ...g,
-        members: g.members.filter(m => m !== itemId),
-      }
+    (item: Item) => {
+      const group = item as GroupItem
+      const members = group.members.filter(m => m !== itemId)
 
-      void storeItems(newGroup).catch(error => {
+      void mutateItem(group.id, { members }).catch(error => {
         console.error(error)
       })
     },
     [itemId],
   )
-  const handleClickGroup = useCallback(
-    (group: Item) => {
-      setDrawer({ item: group.id })
+  const handleClickItem = useCallback(
+    (item: Item) => {
+      setDrawer({ item: item.id })
     },
     [setDrawer],
   )
@@ -92,7 +86,7 @@ function GroupDisplay({
         getActionIcon={editable ? () => <DeleteIcon /> : undefined}
         itemIds={currentGroupIds}
         noItemsHint="Not in any groups"
-        onClick={handleClickGroup}
+        onClick={handleClickItem}
         onClickAction={editable ? handleRemove : undefined}
         paddingBottom={0}
         showIcons

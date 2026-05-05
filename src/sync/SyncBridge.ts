@@ -17,14 +17,11 @@ export const SyncBridge = {
     syncApi = Comlink.wrap<SyncApi>(worker)
 
     const callbacks: SyncCallbacks = {
-      onReady: async () => {
-        console.info('[SyncBridge] onReady')
-      },
+      onReady: async () => {},
       onStatusChange: async status => {
         useSyncStore.getState().setSyncStatus(status)
       },
       onItemUpdated: async (id, item) => {
-        console.info(`[SyncBridge] onItemUpdated: ${id}, item:`, item)
         useDataStore.getState().updateItemFromServer(id, item)
       },
       onIndexUpdated: async itemIds => {
@@ -47,7 +44,6 @@ export const SyncBridge = {
 
   mutateItem: async (mutationId: string, id: string, changes: Partial<Item>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
-    console.info(`[SyncBridge] mutateItem: ${mutationId}, ${id}, changes:`, changes)
     await syncApi.mutateItem(mutationId, id, changes)
   },
 

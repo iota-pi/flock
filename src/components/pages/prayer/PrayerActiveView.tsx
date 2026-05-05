@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import {
   Box,
   Container,
@@ -10,7 +10,6 @@ import {
   Item,
   LocalChangeItem,
 } from 'src/state/items'
-import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {
@@ -21,15 +20,13 @@ import {
 import { isSameDay } from 'src/utils'
 import { getLastPrayedFor } from 'src/utils/prayer'
 import SwipeableCarousel from '../../ui/SwipeableCarousel'
+import { useNavigationStore } from 'src/state/navigationStore'
 
 interface Props {
   activeIndex: number,
   items: LocalChangeItem<Item>[],
-  isEditDrawerOpen: boolean,
   onBack: () => void,
   onNext: () => void,
-  onOpenEditDrawer: () => void,
-  onCloseEditDrawer: () => void,
   onEditDrawerChange: (
     data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
   ) => void,
@@ -39,71 +36,28 @@ interface Props {
 function PrayerActiveView({
   activeIndex,
   items,
-  isEditDrawerOpen,
   onBack,
   onNext,
-  onOpenEditDrawer,
-  onCloseEditDrawer,
-  onEditDrawerChange,
   onItemChange,
 }: Props) {
   const setDrawer = useNavigationStore(state => state.setDrawer)
-
   const activeItem = items[activeIndex]
-
-  const drawer = useNavigationStore(state => state.drawer)
-  const activePrayerDrawer = (
-    drawer
-    && drawer.fromPrayerPage === true
-    && drawer.disableRouting === true
-    && typeof drawer.item !== 'string'
-    && !!drawer.onChange
-  )
-    ? drawer
-    : undefined
-
-  useEffect(
-    () => {
-      if (!isEditDrawerOpen && !activePrayerDrawer) {
-        return
-      }
-
-      const nextPrayerDrawerPayload: Partial<Omit<DrawerData, 'id'>> = {
-        alwaysTemporary: true,
-        disableRouting: true,
-        fromPrayerPage: true,
-        item: activeItem.id,
-        onChange: onEditDrawerChange,
-        onCloseRequest: onCloseEditDrawer,
-        open: isEditDrawerOpen,
-      }
-
-      const requiresSync = (
-        !activePrayerDrawer
-        || activePrayerDrawer.item !== nextPrayerDrawerPayload.item
-        || activePrayerDrawer.onChange !== nextPrayerDrawerPayload.onChange
-        || activePrayerDrawer.onCloseRequest !== nextPrayerDrawerPayload.onCloseRequest
-        || activePrayerDrawer.open !== nextPrayerDrawerPayload.open
-      )
-
-      if (!requiresSync) {
-        return
-      }
-
-      setDrawer(nextPrayerDrawerPayload)
-    },
-    [
-      activeItem.id,
-      isEditDrawerOpen,
-      onCloseEditDrawer,
-      onEditDrawerChange,
-      setDrawer,
-      activePrayerDrawer,
-    ],
-  )
 
   const activeItemArchived = activeItem.archived
   const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
+
+  const handleOpenEditDrawer = useCallback(
+    () => {
+      setDrawer({
+        item: activeItem.id,
+        fromPrayerPage: true,
+        alwaysTemporary: true,
+        disableRouting: true,
+        open: true,
+      })
+    },
+    [activeItem.id, setDrawer],
+  )
 
   const markPrayedMenuItem = useMemo(
     () => (
@@ -192,7 +146,7 @@ function PrayerActiveView({
           markPrayedMenuItem,
           archiveMenuItem,
         ]}
-        onEdit={onOpenEditDrawer}
+        onEdit={handleOpenEditDrawer}
       />
 
       <SwipeableCarousel activeIndex={activeIndex} onBack={onBack} onNext={onNext}>

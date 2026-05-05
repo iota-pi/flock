@@ -17,7 +17,6 @@ export default function useSyncCoordinatorLifecycle(
       }
 
       clearFatalError()
-      console.log('[useSyncCoordinatorLifecycle] Initializing sync coordinator for account:', account)
       SyncBridge.initialize(account).catch(error => {
         console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
       })

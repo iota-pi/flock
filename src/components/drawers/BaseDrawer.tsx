@@ -109,7 +109,6 @@ const TopRightActionsHolder = styled('div')(({ theme }) => ({
 interface BaseProps {
   onBack?: () => void,
   onClose: (disableSave?: boolean) => void,
-  onExited?: () => void,
   onUnmount?: () => void,
   open: boolean,
   alwaysTemporary?: boolean,
@@ -142,7 +141,6 @@ function BaseDrawer({
   itemKey,
   onBack,
   onClose,
-  onExited,
   onUnmount,
   open,
   typeIcon: Icon,
@@ -252,7 +250,6 @@ function BaseDrawer({
         onKeyDown={handleKeyDown}
         open={open}
         permanent={permanentDrawer}
-        SlideProps={{ onExited }}
         variant={permanentDrawer ? 'permanent' : 'temporary'}
       >
         {permanentDrawer && (

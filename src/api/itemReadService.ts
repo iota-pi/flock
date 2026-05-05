@@ -2,7 +2,7 @@ import type { AccountMetadata } from '../state/metadata'
 import * as Automerge from '@automerge/automerge/slim'
 import { hasApiAuthToken } from './runtime'
 import { trpcClient } from './trpcClient'
-import { fetchMany } from './vault/client'
+import { fetchMany } from './vault/ItemClient'
 import { decryptObject, getVaultKey } from './vault'
 import type { CachedVaultItem, VaultItem } from './vault/clientTypes'
 import {
@@ -15,7 +15,6 @@ import {
 } from '../sync/automergeDocStore'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 import { useSyncStore } from '../state/syncStore'
-import { useAuthStore } from 'src/state/authStore'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
