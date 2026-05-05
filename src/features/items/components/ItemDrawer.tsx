@@ -31,7 +31,7 @@ import {
   UnarchiveIcon,
 } from '../../../components/Icons'
 import { getLastPrayedFor } from '../../../utils/prayer'
-import { deleteItem } from '../mutations/itemMutations'
+import { deleteItems } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
 
@@ -74,11 +74,11 @@ function ItemDrawer({
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {
       if (!itemId || !resolvedItem) return
-      
+
       const changes = typeof data === 'function' ? data(resolvedItem) : data
-      
+
       useDataStore.getState().optimisticUpdateItem(itemId, changes)
-      
+
       const mutationId = crypto.randomUUID()
       SyncBridge.mutateItem(mutationId, itemId, changes).catch(error => console.error(error))
 
@@ -114,7 +114,7 @@ function ItemDrawer({
   const handleDelete = useCallback(
     () => {
       if (itemId !== null) {
-        deleteItem(itemId).catch(error => console.error(error))
+        deleteItems(itemId).catch(error => console.error(error))
       }
       onClose()
     },

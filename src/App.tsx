@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
 import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   Container,
   styled,
   Toolbar,
@@ -16,9 +15,6 @@ import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
-import { useAuthStore } from './state/authStore'
-import { useDataStore } from './state/dataStore'
-import { SyncBridge } from './sync/SyncBridge'
 import { useSyncStore } from './state/syncStore'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
@@ -36,8 +32,6 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
-  const accountId = useAuthStore(state => state.account)
-  const dataStatus = useDataStore(state => state.status)
   const syncWarning = useSyncStore(state => state.syncWarning)
   const clearSyncWarning = useSyncStore(state => state.clearSyncWarning)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
@@ -70,14 +64,6 @@ function RootLayout() {
     },
     [xs],
   )
-
-  if (loggedIn && dataStatus === 'initializing') {
-    return (
-      <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress />
-      </Box>
-    )
-  }
 
   return (
     <Root>

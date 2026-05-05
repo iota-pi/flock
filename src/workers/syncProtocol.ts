@@ -4,19 +4,18 @@ import type { AccountMetadata } from '../state/metadata'
 import { SyncStatus } from 'src/state/syncStore';
 
 export interface SyncCallbacks {
-  onReady: () => void
-  onStatusChange: (status: SyncStatus) => void,
-  onItemUpdated: (id: string, item: Item | null) => void
-  onIndexUpdated: (itemIds: string[]) => void
-  onMetadataUpdated: (metadata: AccountMetadata) => void
-  onMutationFailed: (mutationId: string, error: string) => void
+  onReady: () => Promise<void>,
+  onStatusChange: (status: SyncStatus) => Promise<void>,
+  onItemUpdated: (id: string, item: Item | null) => Promise<void>,
+  onIndexUpdated: (itemIds: string[]) => Promise<void>,
+  onMetadataUpdated: (metadata: AccountMetadata) => Promise<void>,
+  onMutationFailed: (mutationId: string, error: string) => Promise<void>,
 }
 
 export interface SyncApi {
-  initRepo: (accountId: string, vaultKey: string, callbacks: Remote<SyncCallbacks>) => Promise<void>
+  initRepo: (accountId: string, vaultKey: string, callbacks: SyncCallbacks) => Promise<void>
   mutateItem: (mutationId: string, id: string, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
-  deleteItem: (id: string) => Promise<void>
   hardDeleteItems: (itemIds: string[]) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
   mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>

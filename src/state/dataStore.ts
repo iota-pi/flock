@@ -10,7 +10,6 @@ interface DataState {
 }
 
 interface DataActions {
-  setFullState: (payload: { items: Record<string, Item>; itemIds: string[]; metadata: AccountMetadata }) => void
   updateItemFromServer: (id: string, item: Item | null) => void
   updateIndexFromServer: (itemIds: string[]) => void
   updateMetadataFromServer: (metadata: AccountMetadata) => void
@@ -25,13 +24,6 @@ export const useDataStore = create<DataStore>(set => ({
   itemIds: [],
   metadata: {},
 
-  setFullState: payload => set(() => ({
-    status: 'ready',
-    items: payload.items,
-    itemIds: payload.itemIds,
-    metadata: payload.metadata,
-  })),
-
   updateItemFromServer: (id, item) => set(state => {
     const nextItems = { ...state.items }
     if (item) {
@@ -39,7 +31,15 @@ export const useDataStore = create<DataStore>(set => ({
     } else {
       delete nextItems[id]
     }
-    return { items: nextItems }
+
+    let nextStatus = state.status
+    if (nextStatus === 'initializing') {
+      if (Object.keys(nextItems).length >= state.itemIds.length) {
+        nextStatus = 'ready'
+      }
+    }
+
+    return { items: nextItems, status: nextStatus }
   }),
 
   updateIndexFromServer: itemIds => set(() => ({ itemIds })),

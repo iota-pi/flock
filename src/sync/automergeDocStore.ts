@@ -166,7 +166,7 @@ function isItemDocumentId(documentId: string): boolean {
   return documentId !== ACCOUNT_INDEX_DOCUMENT_ID
 }
 
-function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
+export function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
   if (!snapshot) {
     return null
   }
@@ -281,9 +281,7 @@ export async function withAutomergeDocumentChange(
     return false
   }
 
-  handle.change(doc => {
-    change(doc as RepoDoc)
-  })
+  handle.change(change)
 
   return true
 }
@@ -327,12 +325,16 @@ export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<voi
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
+      let hasNewId = false
       const next = new Set(current)
       for (const itemId of normalized) {
+        hasNewId ||= !next.has(itemId)
         next.add(itemId)
       }
 
-      doc.itemIds = Array.from(next)
+      if (hasNewId) {
+        doc.itemIds = Array.from(next)
+      }
     },
     {
       createIfMissing: true,

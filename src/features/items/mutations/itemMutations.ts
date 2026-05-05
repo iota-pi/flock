@@ -1,8 +1,6 @@
 import { getBlankItem, type Item } from '../../../state/items'
 import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, type ItemType } from '../../../shared/itemTypes'
 import type { AccountMetadata } from '../../../state/metadata'
-import { getAccountId } from '../../../api/util'
-import { ensureItemsBootstrap } from '../../../api/itemReadService'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { accountMetadataSchema } from '../../../shared/schemas/metadata'
 import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
@@ -79,22 +77,26 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
 
 type CreateItemOverrides = Partial<Omit<Item, 'id' | 'type'>>
 
-function updateGroupsForDeletedMembers(allItems: Item[], idsSet: Set<ItemId>): Item[] {
-  return allItems
-    .filter((item): item is GroupItem => item.type === 'group' && item.members.some(memberId => idsSet.has(memberId)))
+function updateGroupsForDeletedMembers(allItems: Record<ItemId, Item>, idsSet: Set<ItemId>): Item[] {
+  return Object.values(allItems)
+    .filter(
+      (item): item is GroupItem => (
+        item.type === 'group'
+        && item.members.some(memberId => idsSet.has(memberId))
+      )
+    )
     .map(group => ({
       ...group,
       members: group.members.filter(memberId => !idsSet.has(memberId)),
     }))
 }
 
-function buildDeletionUpdates(allItems: Item[], ids: ItemId[]): Item[] {
+function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): Item[] {
   const idsSet = new Set(ids)
   const groupsToUpdate = updateGroupsForDeletedMembers(allItems, idsSet)
-  const itemsById = new Map(allItems.map(item => [item.id, item]))
 
   const tombstones: Item[] = ids.flatMap(id => {
-    const item = itemsById.get(id)
+    const item = allItems[id]
     if (!item) {
       return []
     }
@@ -142,19 +144,11 @@ export async function createItem(
 
 export async function deleteItems(
   itemIds: ItemId | ItemId[],
-  options?: {
-    allItems?: Item[]
-  },
 ): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
 
-  let allItems = options?.allItems ?? Object.values(useDataStore.getState().items)
-  if (allItems.length === 0) {
-    await ensureItemsBootstrap(getAccountId(), { force: true })
-    allItems = Object.values(useDataStore.getState().items)
-  }
-
-  const updates = buildDeletionUpdates(allItems, ids)
+  const currentItems = useDataStore.getState().items
+  const updates = buildDeletionUpdates(currentItems, ids)
 
   if (updates.length > 0) {
     await storeItems(updates)
@@ -163,11 +157,6 @@ export async function deleteItems(
   useNavigationStore.getState().closeIfOpen(ids)
 
   return ids
-}
-
-export async function deleteItem(itemId: ItemId): Promise<ItemId> {
-  const [deletedId] = await deleteItems(itemId)
-  return deletedId
 }
 
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {

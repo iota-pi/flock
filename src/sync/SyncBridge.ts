@@ -4,6 +4,7 @@ import type { SyncApi, SyncCallbacks } from '../workers/syncProtocol'
 import { useDataStore } from '../state/dataStore'
 import { useSyncStore } from '../state/syncStore'
 import { getStoredVaultKey } from '../api/vault'
+import type { Item } from 'src/state/items'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 
@@ -16,26 +17,22 @@ export const SyncBridge = {
     syncApi = Comlink.wrap<SyncApi>(worker)
 
     const callbacks: SyncCallbacks = {
-      onReady: () => {
+      onReady: async () => {
         console.info('[SyncBridge] onReady')
       },
-      onStatusChange: status => {
-        console.info('[SyncBridge] onStatusChange', status)
+      onStatusChange: async status => {
         useSyncStore.getState().setSyncStatus(status)
       },
-      onItemUpdated: (id, item) => {
-        console.info('[SyncBridge] onItemUpdated', id, item)
+      onItemUpdated: async (id, item) => {
         useDataStore.getState().updateItemFromServer(id, item)
       },
-      onIndexUpdated: itemIds => {
-        console.info('[SyncBridge] onIndexUpdated', itemIds)
+      onIndexUpdated: async itemIds => {
         useDataStore.getState().updateIndexFromServer(itemIds)
       },
-      onMetadataUpdated: metadata => {
-        console.info('[SyncBridge] onMetadataUpdated', metadata)
+      onMetadataUpdated: async metadata => {
         useDataStore.getState().updateMetadataFromServer(metadata)
       },
-      onMutationFailed: (mutationId, error) => {
+      onMutationFailed: async (mutationId, error) => {
         // Implement toast notification/Sentry logging here if needed
         console.error(`Mutation ${mutationId} failed: ${error}`)
       },
@@ -44,24 +41,18 @@ export const SyncBridge = {
     const vaultKey = getStoredVaultKey()
     if (!vaultKey) throw new Error('Vault key not found in storage')
 
-    console.info('[SyncBridge] Initialising repo for account', accountId)
-    await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks) as any)
-    console.info('[SyncBridge] Repo initialised')
+    await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks))
   },
 
-  mutateItem: async (mutationId: string, id: string, changes: any) => {
+  mutateItem: async (mutationId: string, id: string, changes: Partial<Item>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
+    console.info(`[SyncBridge] mutateItem: ${mutationId}, ${id}, changes:`, changes)
     await syncApi.mutateItem(mutationId, id, changes)
   },
 
   createItem: async (item: any) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.createItem(item)
-  },
-
-  deleteItem: async (id: string) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.deleteItem(id)
   },
 
   hardDeleteItems: async (itemIds: string[]) => {

@@ -1,14 +1,25 @@
 import { lazy, type ReactNode } from 'react'
-import { Box } from '@mui/material'
+import { Box, CircularProgress } from '@mui/material'
 import GeneralMessage from '../GeneralMessage'
-import { useLoggedIn } from '../../state/selectors'
 import AsyncBoundary from '../ui/AsyncBoundary'
+import { useLoggedIn } from 'src/state/selectors'
+import { useDataStore } from 'src/state/dataStore'
 
 const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
 const SelectedActions = lazy(() => import('../SelectedActions'))
 
 function MainLayout({ children }: { children: ReactNode }) {
   const loggedIn = useLoggedIn()
+  const dataStatus = useDataStore(state => state.status)
+
+  let content = children
+  if (loggedIn && dataStatus === 'initializing') {
+    content = (
+      <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    )
+  }
 
   return (
     <Box
@@ -29,7 +40,7 @@ function MainLayout({ children }: { children: ReactNode }) {
           overflow="hidden"
           position="relative"
         >
-          {children}
+          {content}
         </Box>
 
         <Box flexShrink={0} overflow="hidden">

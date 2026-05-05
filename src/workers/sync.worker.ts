@@ -8,8 +8,6 @@ import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
   initializeAutomergeDocStore,
-  getAutomergeItems,
-  listAutomergeItemIds,
   getAutomergeMetadata,
   withAutomergeDocumentChange,
   withAutomergeMetadataChange,
@@ -22,21 +20,19 @@ import {
   exportAllBinaries,
   restoreFromBinaries,
   AutomergeIndexDocument,
+  normalizeItemSnapshot,
 } from '../sync/automergeDocStore'
 import { initWorkerVault } from '../api/vault'
-import { getAutomergeRepo, getVaultNetworkAdapter, setVaultNetworkAccount } from '../sync/automergeRepo'
+import { getAutomergeRepo, setVaultNetworkAccount } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
+import { RepoDoc } from 'src/sync/useOptimizedDocument'
 
 class SyncWorker implements SyncApi {
-  private accountId: string | null = null
-  private callbacks: Comlink.Remote<SyncCallbacks> | null = null
+  private callbacks: SyncCallbacks | null = null
   private subscribedHandles = new Set<string>()
-  private reconnectAttempts = 0
-  private reconnectTimeout: number | null = null
 
-  async initRepo(accountId: string, vaultKey: string, callbacks: Comlink.Remote<SyncCallbacks>) {
-    this.accountId = accountId
+  async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.callbacks = callbacks
 
     await initWorkerVault(vaultKey)
@@ -82,14 +78,15 @@ class SyncWorker implements SyncApi {
 
       const url = toAutomergeUrlFromItemId(id)
       repo.find(url).then(handle => {
-        handle.on('change', () => {
-          const item = getAutomergeItem(id)
+        const item = normalizeItemSnapshot(id, handle.doc())
+        const handleChange = () => {
           this.callbacks?.onItemUpdated(id, item).catch(console.error)
-        })
-      }).catch(console.error)
+        }
+        handle.on('change', handleChange)
 
-      // Trigger an immediate update for the item in case it changed while not subscribed
-      this.callbacks?.onItemUpdated(id, getAutomergeItem(id)).catch(console.error)
+        // Trigger an immediate update for the item in case it changed while not subscribed
+        handleChange()
+      }).catch(console.error)
     }
 
     // Unsubscribe from removed items
@@ -106,7 +103,7 @@ class SyncWorker implements SyncApi {
 
   async mutateItem(mutationId: string, id: string, changes: Partial<Item>) {
     try {
-      await withAutomergeDocumentChange(id, (doc: any) => {
+      await withAutomergeDocumentChange(id, (doc: RepoDoc) => {
         for (const [key, value] of Object.entries(changes)) {
           if (value === undefined) delete doc[key]
           else doc[key] = value
@@ -131,15 +128,6 @@ class SyncWorker implements SyncApi {
       await addAutomergeItemIdsToIndex([item.id])
     } catch (err: any) {
       this.callbacks?.onMutationFailed('create', err.message).catch(console.error)
-    }
-  }
-
-  async deleteItem(id: string) {
-    try {
-      await removeAutomergeItemIdsFromIndex([id])
-      await removeAutomergeItem(id)
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('delete', err.message).catch(console.error)
     }
   }
 
