@@ -24,6 +24,7 @@ export const SyncBridge = {
         useSyncStore.getState().setSyncStatus(status)
       },
       onItemUpdated: async (id, item) => {
+        console.info(`[SyncBridge] onItemUpdated: ${id}, item:`, item)
         useDataStore.getState().updateItemFromServer(id, item)
       },
       onIndexUpdated: async itemIds => {

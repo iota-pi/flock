@@ -79,8 +79,8 @@ class SyncWorker implements SyncApi {
 
       const url = toAutomergeUrlFromItemId(id)
       repo.find(url).then(handle => {
-        const item = normalizeItemSnapshot(id, handle.doc())
         const handleChange = () => {
+          const item = normalizeItemSnapshot(id, handle.doc())
           this.callbacks?.onItemUpdated(id, item).catch(console.error)
         }
         handle.on('change', handleChange)
