@@ -16,14 +16,11 @@ export default function useSyncCoordinatorLifecycle(
         return
       }
 
-      void (async () => {
-        try {
-          clearFatalError()
-          await SyncBridge.initialize(account)
-        } catch (error) {
-          console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
-        }
-      })()
+      clearFatalError()
+      console.log('[useSyncCoordinatorLifecycle] Initializing sync coordinator for account:', account)
+      SyncBridge.initialize(account).catch(error => {
+        console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
+      })
     },
     [account, enabled],
   )

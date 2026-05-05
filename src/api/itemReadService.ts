@@ -15,6 +15,7 @@ import {
 } from '../sync/automergeDocStore'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 import { useSyncStore } from '../state/syncStore'
+import { useAuthStore } from 'src/state/authStore'
 
 type FetchItemsOptions = {
   forceFullSync?: boolean
@@ -100,7 +101,7 @@ async function decryptAutomergeBranchBinary(encryptedAutomergeDoc: string): Prom
   return new Uint8Array(plaintext)
 }
 
-async function hydrateFetchedItemEnvelope(item: FetchedVaultEnvelope): Promise<void> {
+async function hydrateFetchedItemEnvelope(accountId: string, item: FetchedVaultEnvelope): Promise<void> {
   let binary: Uint8Array | null = null
 
   if (item.metadata?.deleted === true) {
@@ -135,14 +136,14 @@ async function hydrateFetchedItemEnvelope(item: FetchedVaultEnvelope): Promise<v
   }
 
   if (binary) {
-    await hydrateAutomergeDocumentBinary(item.item, binary)
+    await hydrateAutomergeDocumentBinary(accountId, item.item, binary)
   }
 }
 
-async function hydrateFetchedItemsLocally(items: FetchedVaultEnvelope[]): Promise<void> {
+async function hydrateFetchedItemsLocally(accountId: string, items: FetchedVaultEnvelope[]): Promise<void> {
   await Promise.allSettled(items.map(async item => {
     try {
-      await hydrateFetchedItemEnvelope(item)
+      await hydrateFetchedItemEnvelope(accountId, item)
     } catch (error) {
       console.error('[itemReadService] failed to hydrate fetched item envelope', {
         itemId: item.item,
@@ -153,7 +154,7 @@ async function hydrateFetchedItemsLocally(items: FetchedVaultEnvelope[]): Promis
 }
 
 async function hydrateMetadataIfNeeded(accountId: string, force = false): Promise<void> {
-  const localMetadata = getAutomergeMetadata()
+  const localMetadata = getAutomergeMetadata(accountId)
   if (!force && hasMetadataSnapshot(localMetadata)) {
     return
   }
@@ -168,7 +169,7 @@ async function hydrateMetadataIfNeeded(accountId: string, force = false): Promis
   }
 
   try {
-    await upsertAutomergeMetadataSnapshot(response.metadata, {
+    await upsertAutomergeMetadataSnapshot(accountId, response.metadata, {
       markLocalChange: false,
     })
   } catch (error) {
@@ -192,7 +193,7 @@ export async function ensureItemsBootstrap(
   const bootstrap = (async () => {
     await initializeAutomergeDocStore(accountId)
 
-    const knownItemIds = listAutomergeItemIds()
+    const knownItemIds = listAutomergeItemIds(accountId)
     if (!shouldForce && bootstrappedAccounts.has(accountId) && knownItemIds.length > 0) {
       return
     }
@@ -203,12 +204,12 @@ export async function ensureItemsBootstrap(
       const fetchedItemIds = normalizeItemIds(fetchedItems)
 
       if (fetchedItems.length > 0) {
-        await hydrateFetchedItemsLocally(fetchedItems)
+        await hydrateFetchedItemsLocally(accountId, fetchedItems)
         useSyncStore.getState().incrementGeneration()
       }
 
       if (fetchedItemIds.length > 0) {
-        await addAutomergeItemIdsToIndex(fetchedItemIds)
+        await addAutomergeItemIdsToIndex(accountId, fetchedItemIds)
       }
     }
 

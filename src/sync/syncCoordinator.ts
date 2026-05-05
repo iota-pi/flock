@@ -11,6 +11,7 @@ import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { AutomergeIndexDocument } from './automergeDocStore'
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 import { UnauthorizedError, NetworkTimeoutError } from './SyncTransportService'
+import { useAuthStore } from 'src/state/authStore'
 
 let indexHandle: DocHandle<AutomergeIndexDocument> | null = null
 const knownItemIds = new Set<string>()
@@ -30,7 +31,7 @@ function processFetchQueue(): void {
   }
 
   const currentChunk = pendingFetchQueue.splice(0, FETCH_CHUNK_SIZE)
-  const repo = getAutomergeRepo()
+  const repo = getAutomergeRepo(useAuthStore.getState().account)
 
   for (const id of currentChunk) {
     knownItemIds.add(id)

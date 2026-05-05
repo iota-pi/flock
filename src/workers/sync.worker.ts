@@ -26,13 +26,14 @@ import { initWorkerVault } from '../api/vault'
 import { getAutomergeRepo, setVaultNetworkAccount } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { RepoDoc } from 'src/sync/useOptimizedDocument'
 
 class SyncWorker implements SyncApi {
+  private accountId: string | null = null
   private callbacks: SyncCallbacks | null = null
   private subscribedHandles = new Set<string>()
 
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
+    this.accountId = accountId
     this.callbacks = callbacks
 
     await initWorkerVault(vaultKey)
@@ -103,7 +104,7 @@ class SyncWorker implements SyncApi {
 
   async mutateItem(mutationId: string, id: string, changes: Partial<Item>) {
     try {
-      await withAutomergeDocumentChange(id, (doc: RepoDoc) => {
+      await withAutomergeDocumentChange(this.accountId!, id, doc => {
         for (const [key, value] of Object.entries(changes)) {
           if (value === undefined) delete doc[key]
           else doc[key] = value
@@ -112,7 +113,7 @@ class SyncWorker implements SyncApi {
     } catch (err: any) {
       if (this.callbacks) {
         this.callbacks.onMutationFailed(mutationId, err.message).catch(console.error)
-        const trueState = getAutomergeItem(id)
+        const trueState = getAutomergeItem(this.accountId!, id)
         this.callbacks.onItemUpdated(id, trueState).catch(console.error)
       }
     }
@@ -120,12 +121,12 @@ class SyncWorker implements SyncApi {
 
   async createItem(item: Item) {
     try {
-      await withAutomergeDocumentChange(item.id, (doc: any) => {
+      await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
         for (const [key, value] of Object.entries(item)) {
           doc[key] = value
         }
-      }, { createIfMissing: true, initialValue: item as any })
-      await addAutomergeItemIdsToIndex([item.id])
+      }, { createIfMissing: true, initialValue: item })
+      await addAutomergeItemIdsToIndex(this.accountId!, [item.id])
     } catch (err: any) {
       this.callbacks?.onMutationFailed('create', err.message).catch(console.error)
     }
@@ -133,9 +134,9 @@ class SyncWorker implements SyncApi {
 
   async hardDeleteItems(itemIds: string[]) {
     try {
-      await removeAutomergeItemIdsFromIndex(itemIds)
+      await removeAutomergeItemIdsFromIndex(this.accountId!, itemIds)
       for (const id of itemIds) {
-        await removeAutomergeItem(id)
+        await removeAutomergeItem(this.accountId!, id)
       }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('hardDelete', err.message).catch(console.error)
@@ -145,17 +146,17 @@ class SyncWorker implements SyncApi {
   async storeItems(items: Item[]) {
     try {
       for (const item of items) {
-        await withAutomergeDocumentChange(item.id, (doc: any) => {
+        await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined) delete doc[key]
             else doc[key] = value
           }
-        }, { createIfMissing: true, initialValue: item as any })
+        }, { createIfMissing: true, initialValue: item })
       }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('store', err.message).catch(console.error)
       for (const item of items) {
-        const trueState = getAutomergeItem(item.id)
+        const trueState = getAutomergeItem(this.accountId!, item.id)
         this.callbacks?.onItemUpdated(item.id, trueState).catch(console.error)
       }
     }
@@ -163,27 +164,27 @@ class SyncWorker implements SyncApi {
 
   async mutateMetadata(changes: Partial<AccountMetadata>) {
     try {
-      await withAutomergeMetadataChange((metadataDraft: any) => {
+      await withAutomergeMetadataChange(this.accountId!, metadataDraft => {
         for (const [key, value] of Object.entries(changes)) {
           metadataDraft[key] = value
         }
       })
     } catch (err: any) {
       this.callbacks?.onMutationFailed('metadata', err.message).catch(console.error)
-      this.callbacks?.onMetadataUpdated(getAutomergeMetadata()).catch(console.error)
+      this.callbacks?.onMetadataUpdated(getAutomergeMetadata(this.accountId!)).catch(console.error)
     }
   }
 
   async clearAutomergeDocStore() {
-    await clearAutomergeDocStore()
+    await clearAutomergeDocStore(this.accountId!)
   }
 
   async exportAllBinaries() {
-    return await exportAllBinaries()
+    return await exportAllBinaries(this.accountId!)
   }
 
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    return await restoreFromBinaries(documents)
+    return await restoreFromBinaries(this.accountId!, documents)
   }
 }
 

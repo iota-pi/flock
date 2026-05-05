@@ -32,10 +32,9 @@ type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
 type EnsureHandleOptions = {
   awaitReady?: boolean
-} & (
-    | { createIfMissing?: false | undefined; initialValue?: never }
-    | { createIfMissing: true; initialValue: RepoDoc }
-  )
+  createIfMissing?: boolean
+  initialValue?: RepoDoc
+}
 
 type ChangeDocumentOptions = {
   createIfMissing?: boolean
@@ -85,16 +84,17 @@ function normalizeMetadata(raw: unknown): AccountMetadata {
 }
 
 
-function getRepoHandle(documentId: string): RepoDocHandle {
+function getRepoHandle(accountId: string, documentId: string): RepoDocHandle {
   const documentUrl = toAutomergeUrlFromItemId(documentId)
-  return findRepoDocHandle<RepoDoc>(getAutomergeRepo(), documentUrl)
+  return findRepoDocHandle<RepoDoc>(getAutomergeRepo(accountId), documentUrl)
 }
 
 async function ensureDocumentHandle(
+  accountId: string,
   documentId: string,
   options: EnsureHandleOptions = {},
 ): Promise<RepoDocHandle> {
-  const repo = getAutomergeRepo()
+  const repo = getAutomergeRepo(accountId)
   const documentUrl = toAutomergeUrlFromItemId(documentId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
@@ -144,17 +144,17 @@ function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
   return (snapshot && isPlainObject(snapshot)) ? snapshot : null
 }
 
-function readDocumentSnapshot(documentId: string): RepoDoc | null {
+function readDocumentSnapshot(accountId: string, documentId: string): RepoDoc | null {
   const normalizedDocumentId = normalizeItemId(documentId)
   if (!normalizedDocumentId) {
     return null
   }
 
-  return snapshotFromHandle(getRepoHandle(normalizedDocumentId))
+  return snapshotFromHandle(getRepoHandle(accountId, normalizedDocumentId))
 }
 
-function getIndexSnapshot(): AutomergeIndexDocument {
-  const rawIndex = readDocumentSnapshot(ACCOUNT_INDEX_DOCUMENT_ID)
+function getIndexSnapshot(accountId: string): AutomergeIndexDocument {
+  const rawIndex = readDocumentSnapshot(accountId, ACCOUNT_INDEX_DOCUMENT_ID)
   return {
     accountId: normalizeItemId(rawIndex?.accountId) || undefined,
     itemIds: normalizeItemIds(rawIndex?.itemIds),
@@ -209,13 +209,14 @@ async function ensureIndexDocument(accountId: string): Promise<void> {
     metadata: {},
   }
 
-  await ensureDocumentHandle(ACCOUNT_INDEX_DOCUMENT_ID, {
+  await ensureDocumentHandle(accountId, ACCOUNT_INDEX_DOCUMENT_ID, {
     createIfMissing: true,
     initialValue,
     awaitReady: false,
   })
 
   await withAutomergeDocumentChange(
+    accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       if (typeof doc.accountId !== 'string' || doc.accountId.length === 0) {
@@ -229,8 +230,8 @@ async function ensureIndexDocument(accountId: string): Promise<void> {
   )
 }
 
-async function seedImportedDocument(documentId: string, binary: Uint8Array): Promise<void> {
-  const repo = getAutomergeRepo()
+async function seedImportedDocument(accountId: string, documentId: string, binary: Uint8Array): Promise<void> {
+  const repo = getAutomergeRepo(accountId)
   const documentUrl = toAutomergeUrlFromItemId(documentId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
@@ -256,6 +257,7 @@ export function resolvePendingAutomergeHandles(): void {
 }
 
 export async function withAutomergeDocumentChange(
+  accountId: string,
   documentId: string,
   change: (draft: RepoDoc) => void,
   options: ChangeDocumentOptions = {},
@@ -268,14 +270,18 @@ export async function withAutomergeDocumentChange(
   const shouldAddToIndex = options.addToIndex !== false && isItemDocumentId(normalizedDocumentId)
 
   if (shouldAddToIndex) {
-    await addAutomergeItemIdsToIndex([normalizedDocumentId])
+    await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
   }
 
-  const handle = await ensureDocumentHandle(normalizedDocumentId, {
-    createIfMissing: options.createIfMissing,
-    initialValue: options.initialValue,
-    awaitReady: false,
-  } as EnsureHandleOptions)
+  const handle = await ensureDocumentHandle(
+    accountId,
+    normalizedDocumentId,
+    {
+      createIfMissing: options.createIfMissing,
+      initialValue: options.initialValue,
+      awaitReady: false,
+    }
+  )
 
   if (!handle || handle.isUnavailable() || !handle.isReady()) {
     return false
@@ -287,10 +293,12 @@ export async function withAutomergeDocumentChange(
 }
 
 export async function withAutomergeMetadataChange(
+  accountId: string,
   change: (metadataDraft: RepoDoc) => void,
   options: ChangeDocumentOptions = {},
 ): Promise<boolean> {
   return withAutomergeDocumentChange(
+    accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       let metadataDraft = isPlainObject(doc.metadata)
@@ -315,13 +323,14 @@ export async function withAutomergeMetadataChange(
   )
 }
 
-export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<void> {
+export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: string[]): Promise<void> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
   }
 
   await withAutomergeDocumentChange(
+    accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
@@ -347,7 +356,7 @@ export async function addAutomergeItemIdsToIndex(itemIds: string[]): Promise<voi
   )
 }
 
-export async function removeAutomergeItemIdsFromIndex(itemIds: string[]): Promise<void> {
+export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds: string[]): Promise<void> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
@@ -356,6 +365,7 @@ export async function removeAutomergeItemIdsFromIndex(itemIds: string[]): Promis
   const removeSet = new Set(normalized)
 
   await withAutomergeDocumentChange(
+    accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
@@ -388,24 +398,24 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   initializedAccounts.add(normalizedAccount)
 }
 
-export function listAutomergeItemIds(): string[] {
-  return getIndexSnapshot().itemIds || []
+export function listAutomergeItemIds(accountId: string): string[] {
+  return getIndexSnapshot(accountId).itemIds || []
 }
 
-export function listAutomergeDocumentIds(): string[] {
+export function listAutomergeDocumentIds(accountId: string): string[] {
   const documentIds = new Set<string>([
     ACCOUNT_INDEX_DOCUMENT_ID,
-    ...listAutomergeItemIds(),
+    ...listAutomergeItemIds(accountId),
   ])
 
   return Array.from(documentIds)
 }
 
-export function getAutomergeItems(): Item[] {
+export function getAutomergeItems(accountId: string): Item[] {
   const items: Item[] = []
 
-  for (const itemId of listAutomergeItemIds()) {
-    const item = getAutomergeItem(itemId)
+  for (const itemId of listAutomergeItemIds(accountId)) {
+    const item = getAutomergeItem(accountId, itemId)
     if (item) {
       items.push(item)
     }
@@ -414,21 +424,22 @@ export function getAutomergeItems(): Item[] {
   return items
 }
 
-export function getAutomergeItem(itemId: string): Item | null {
+export function getAutomergeItem(accountId: string, itemId: string): Item | null {
   const normalizedItemId = normalizeItemId(itemId)
   if (!normalizedItemId) {
     return null
   }
 
-  const snapshot = readDocumentSnapshot(normalizedItemId)
+  const snapshot = readDocumentSnapshot(accountId, normalizedItemId)
   return normalizeItemSnapshot(normalizedItemId, snapshot)
 }
 
-export function getAutomergeMetadata(): AccountMetadata {
-  return normalizeMetadata(getIndexSnapshot().metadata)
+export function getAutomergeMetadata(accountId: string): AccountMetadata {
+  return normalizeMetadata(getIndexSnapshot(accountId).metadata)
 }
 
 export async function hydrateAutomergeDocumentBinary(
+  accountId: string,
   documentId: string,
   binary: Uint8Array,
 ): Promise<void> {
@@ -437,15 +448,16 @@ export async function hydrateAutomergeDocumentBinary(
     return
   }
 
-  await seedImportedDocument(normalizedDocumentId, binary)
+  await seedImportedDocument(accountId, normalizedDocumentId, binary)
 
   if (isItemDocumentId(normalizedDocumentId)) {
-    await addAutomergeItemIdsToIndex([normalizedDocumentId])
+    await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
     return
   }
 }
 
 export async function upsertAutomergeMetadataSnapshot(
+  accountId: string,
   metadata: AccountMetadata,
   options: UpsertMetadataOptions = {},
 ): Promise<void> {
@@ -454,6 +466,7 @@ export async function upsertAutomergeMetadataSnapshot(
   const nextMetadata = cloneValue(metadata || {}) as Record<string, unknown>
 
   await withAutomergeDocumentChange(
+    accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       doc.metadata = nextMetadata
@@ -469,15 +482,15 @@ export async function upsertAutomergeMetadataSnapshot(
   )
 }
 
-export async function removeAutomergeItem(itemId: string): Promise<void> {
+export async function removeAutomergeItem(accountId: string, itemId: string): Promise<void> {
   const normalizedItemId = normalizeItemId(itemId)
   if (!normalizedItemId) {
     return
   }
 
-  await removeAutomergeItemIdsFromIndex([normalizedItemId])
+  await removeAutomergeItemIdsFromIndex(accountId, [normalizedItemId])
 
-  const repo = getAutomergeRepo()
+  const repo = getAutomergeRepo(accountId)
   const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)
 
   try {
@@ -493,10 +506,10 @@ export async function removeAutomergeItem(itemId: string): Promise<void> {
   }
 }
 
-export async function clearAutomergeDocStore(): Promise<void> {
-  const repo = getAutomergeRepo()
+export async function clearAutomergeDocStore(accountId: string): Promise<void> {
+  const repo = getAutomergeRepo(accountId)
   const documentIds = Array.from(new Set([
-    ...listAutomergeDocumentIds(),
+    ...listAutomergeDocumentIds(accountId),
   ]))
 
   for (const documentId of documentIds) {
@@ -526,11 +539,11 @@ export async function clearAutomergeDocStore(): Promise<void> {
   }
 }
 
-export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
+export async function exportAllBinaries(accountId: string): Promise<Partial<Record<ItemId, string>>> {
   const exported: Partial<Record<ItemId, string>> = {}
 
-  for (const documentId of listAutomergeDocumentIds()) {
-    const handle = await ensureDocumentHandle(documentId, {
+  for (const documentId of listAutomergeDocumentIds(accountId)) {
+    const handle = await ensureDocumentHandle(accountId, documentId, {
       awaitReady: false,
     })
     if (!handle || !handle.isReady()) {
@@ -544,7 +557,7 @@ export async function exportAllBinaries(): Promise<Partial<Record<ItemId, string
   return exported
 }
 
-export async function restoreFromBinaries(documents: Partial<Record<ItemId, string>>): Promise<string[]> {
+export async function restoreFromBinaries(accountId: string, documents: Partial<Record<ItemId, string>>): Promise<string[]> {
   const restoredItemIds: string[] = []
 
   for (const [documentId, encodedBinary] of Object.entries(documents)) {
@@ -552,7 +565,7 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
       continue
     }
 
-    await hydrateAutomergeDocumentBinary(documentId, decodeBase64ToBytes(encodedBinary))
+    await hydrateAutomergeDocumentBinary(accountId, documentId, decodeBase64ToBytes(encodedBinary))
 
     const normalizedDocumentId = normalizeItemId(documentId)
     if (!normalizedDocumentId || !isItemDocumentId(normalizedDocumentId)) {
@@ -562,7 +575,7 @@ export async function restoreFromBinaries(documents: Partial<Record<ItemId, stri
     restoredItemIds.push(normalizedDocumentId)
   }
 
-  await addAutomergeItemIdsToIndex(restoredItemIds)
+  await addAutomergeItemIdsToIndex(accountId, restoredItemIds)
 
   useSyncStore.getState().incrementGeneration()
 

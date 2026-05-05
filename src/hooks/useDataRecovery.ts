@@ -11,6 +11,7 @@ import {
   getAutomergeItem,
   withAutomergeDocumentChange,
 } from '../sync/automergeDocStore'
+import { useAuthStore } from 'src/state/authStore'
 
 function mutateDraftToMatchSnapshot(
   draft: Record<string, unknown>,
@@ -30,6 +31,7 @@ function mutateDraftToMatchSnapshot(
 }
 
 export function useDataRecovery() {
+  const account = useAuthStore(state => state.account)
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
   const [recoveryItems, setRecoveryItems] = useState<ManualRecoveryEntry[]>([])
@@ -57,7 +59,7 @@ export function useDataRecovery() {
   const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
-      const localItem = getAutomergeItem(itemId)
+      const localItem = getAutomergeItem(account, itemId)
       if (!localItem) {
         setMessage({
           severity: 'error',
@@ -72,6 +74,7 @@ export function useDataRecovery() {
       }
 
       await withAutomergeDocumentChange(
+        account,
         itemId,
         doc => {
           mutateDraftToMatchSnapshot(doc, localSnapshot)
@@ -95,9 +98,10 @@ export function useDataRecovery() {
   const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
-      const existing = getAutomergeItem(itemId)
+      const existing = getAutomergeItem(account, itemId)
 
       await withAutomergeDocumentChange(
+        account,
         itemId,
         doc => {
           doc.id = itemId

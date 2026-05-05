@@ -198,18 +198,18 @@ export async function storeVault() {
 }
 
 export async function signOutVault() {
-  const { updateAuth } = useAuthStore.getState()
+  const { account, updateAuth } = useAuthStore.getState()
   key = null
   keyHash = ''
   session = ''
   setApiAuthToken('')
 
-  updateAuth({ account: '', loggedIn: false })
-
   clearStoredMetadata()
   await clearActiveSessionToken()
-  await clearAutomergeDocStore()
+  await clearAutomergeDocStore(account)
   await clearManualRecoveryEntries()
+
+  updateAuth({ account: '', loggedIn: false })
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {

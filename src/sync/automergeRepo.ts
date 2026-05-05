@@ -15,43 +15,39 @@ function getFastHash(str: string): string {
   return Math.abs(hash).toString(36)
 }
 
-export function getAutomergeRepo(accountId?: string | null): Repo {
-  const resolvedAccount = accountId !== undefined ? accountId : useAuthStore.getState().account
-  const accountKey = resolvedAccount || 'public'
-  if (!repos.has(accountKey)) {
+export function getAutomergeRepo(accountId: string): Repo {
+  if (!repos.has(accountId)) {
     const adapter = new VaultEncryptedNetworkAdapter()
-    vaultNetworkAdapters.set(accountKey, adapter)
+    vaultNetworkAdapters.set(accountId, adapter)
 
-    const dbName = resolvedAccount
-      ? `flock-automerge-db-${getFastHash(resolvedAccount)}`
+    const dbName = accountId
+      ? `flock-automerge-db-${getFastHash(accountId)}`
       : 'flock-automerge-db'
 
     const repo = new Repo({
       storage: new IndexedDBStorageAdapter(dbName),
       network: [
         new BroadcastChannelNetworkAdapter({
-          channelName: `flock-automerge-broadcast-${accountKey}`,
+          channelName: `flock-automerge-broadcast-${accountId}`,
         }),
         adapter,
       ],
     })
 
-    repos.set(accountKey, repo)
+    repos.set(accountId, repo)
   }
-  return repos.get(accountKey)!
+  return repos.get(accountId)!
 }
 
-export function getVaultNetworkAdapter(accountId?: string | null): VaultEncryptedNetworkAdapter {
-  const resolvedAccount = accountId !== undefined ? accountId : useAuthStore.getState().account
-  const accountKey = resolvedAccount || 'public'
-  if (!vaultNetworkAdapters.has(accountKey)) {
-    getAutomergeRepo(resolvedAccount)
+export function getVaultNetworkAdapter(accountId: string): VaultEncryptedNetworkAdapter {
+  if (!vaultNetworkAdapters.has(accountId)) {
+    getAutomergeRepo(accountId)
   }
-  return vaultNetworkAdapters.get(accountKey)!
+  return vaultNetworkAdapters.get(accountId)!
 }
 
-export function setVaultNetworkAccount(account: string | null): void {
+export function setVaultNetworkAccount(accountId: string): void {
   // Sets the session for the given account's network adapter.
-  getVaultNetworkAdapter(account).setAccount(account)
+  getVaultNetworkAdapter(accountId).setAccount(accountId)
 }
 

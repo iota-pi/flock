@@ -5,6 +5,7 @@ import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
 import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
+import { useAuthStore } from 'src/state/authStore'
 
 export function usePrayerSchedule() {
   const {
@@ -52,7 +53,7 @@ export function usePrayerSchedule() {
     [todaysGoal, schedule],
   )
   const visibleSchedule = useStableArray(rawVisibleSchedule)
-  
+
   const visibleScheduleIds = useMemo(
     () => scheduleIds.slice(0, todaysGoal),
     [todaysGoal, scheduleIds],
@@ -76,7 +77,9 @@ export function usePrayerSchedule() {
         prayedFor = [...prayedFor, new Date().getTime()]
       }
 
+      const account = useAuthStore.getState().account
       void withAutomergeDocumentChange(
+        account,
         item.id,
         doc => {
           doc.prayedFor = prayedFor
