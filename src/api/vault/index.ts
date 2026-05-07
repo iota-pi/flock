@@ -2,6 +2,7 @@ import type { WebPushSubscription } from '../../vault/types'
 import { useAuthStore } from '../../state/authStore'
 import {
   clearActiveSessionToken,
+  getActiveSessionToken,
   setActiveSessionToken,
 } from '../../sync/workerAuthStore'
 import {
@@ -145,7 +146,12 @@ export function getStoredVaultKey(): string | null {
 
 export async function initWorkerVault(exportedKey: string) {
   key = await importVaultKey(exportedKey)
-  keyHash = await hashVaultKey(key)
+  const sessionToken = await getActiveSessionToken()
+  if (sessionToken) {
+    setApiAuthToken(sessionToken)
+  } else {
+    console.warn('[SyncWorker] Missing session token for realtime sync; network pushes will not start.')
+  }
 }
 
 export async function loginVault({

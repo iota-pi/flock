@@ -43,6 +43,7 @@ export const accountsRouter = router({
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
       const loginAuthTokenHash = hashString(input.authToken)
+      // TODO: this calls getAccount twice - once in checkSession and once in getAccount. We should combine these into a single call to avoid redundant work
       const valid = await ctx.vault.checkSession({
         account: input.account,
         session: loginAuthTokenHash,

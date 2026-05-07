@@ -40,7 +40,7 @@ export class SyncTransportService extends EventEmitter {
       account,
       endpoint: env.VAULT_WS_ENDPOINT,
       getLastEventId: () => 0,
-      getToken: () => getApiAuthToken(),
+      getToken: getApiAuthToken,
       onOpen: () => {
         this.resetSendQueue()
         this.emit('open')
