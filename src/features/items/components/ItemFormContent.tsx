@@ -5,10 +5,7 @@ import {
   InputAdornment,
   Tooltip,
 } from '@mui/material'
-import {
-  LocalChangeItem,
-  Item,
-} from '../../../state/items'
+import { Item } from '../../../state/items'
 import DebouncedTextField, { type DebouncedTextFieldControls } from '../../../components/ui/DebouncedTextField'
 import {
   DeleteIcon,
@@ -27,7 +24,7 @@ const NAME_REQUIRED_MESSAGE = 'Name is required'
 const DESCRIPTION_MAX_LENGTH = 500
 
 interface ItemFormContentProps {
-  item: LocalChangeItem<Item>,
+  item: Item,
   handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
   autoFocusName?: boolean,
   fromPrayerPage?: boolean,

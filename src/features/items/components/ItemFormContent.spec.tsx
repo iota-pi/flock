@@ -4,7 +4,7 @@ import { ThemeProvider } from '@mui/material'
 import { RepoContext } from '@automerge/automerge-repo-react-hooks'
 import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
-import type { Item, LocalChangeItem } from '../../../state/items'
+import type { Item } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
 import { useAutomergeItems } from '../../../sync/useAutomerge'
 import { Repo } from '@automerge/automerge-repo/slim'
@@ -60,7 +60,7 @@ describe('ItemFormContent', () => {
     const item = {
       ...getBlankPerson('item-1', false),
       name: 'Initial Name',
-    } as LocalChangeItem<Item>
+    } as Item
 
     vi.mocked(useAutomergeItems).mockReturnValue([])
 
@@ -88,7 +88,7 @@ describe('ItemFormContent', () => {
     const item = {
       ...getBlankPerson('item-1', false),
       name: 'John Doe',
-    } as LocalChangeItem<Item>
+    } as Item
 
     vi.mocked(useAutomergeItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
 

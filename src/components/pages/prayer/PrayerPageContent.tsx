@@ -64,9 +64,8 @@ export default function PrayerPageContent({
                 >
                   <PrayerActiveView
                     activeIndex={view.activeIndex}
-                    items={schedule.localItems}
+                    items={schedule.visibleItems}
                     onBack={actions.handleBack}
-                    onEditDrawerChange={actions.handleEditDrawerChange}
                     onItemChange={actions.handleChange}
                     onNext={actions.handleNext}
                   />

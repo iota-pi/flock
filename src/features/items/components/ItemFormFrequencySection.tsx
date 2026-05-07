@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { Grid } from '@mui/material'
-import type { Item, LocalChangeItem } from '../../../state/items'
+import type { Item } from '../../../state/items'
 import FrequencyControls from '../../../components/FrequencyControls'
 import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
 import { FrequencyIcon } from '../../../components/Icons'
@@ -14,7 +14,7 @@ type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
 type ItemFormFrequencySectionProps = {
   defaultExpandAccordions: boolean
   disabled: boolean
-  item: LocalChangeItem<Item>
+  item: Item
   onChange: (data: FrequencyUpdate) => void
 }
 

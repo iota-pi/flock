@@ -6,10 +6,7 @@ import {
   ListItemText,
   MenuItem,
 } from '@mui/material'
-import {
-  Item,
-  LocalChangeItem,
-} from 'src/state/items'
+import { Item } from 'src/state/items'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {
@@ -24,12 +21,9 @@ import { useNavigationStore } from 'src/state/navigationStore'
 
 interface Props {
   activeIndex: number,
-  items: LocalChangeItem<Item>[],
+  items: Item[],
   onBack: () => void,
   onNext: () => void,
-  onEditDrawerChange: (
-    data: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
-  ) => void,
   onItemChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
 }
 
