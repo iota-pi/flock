@@ -142,8 +142,6 @@ export default function usePrayerFlow(): PrayerFlowController {
     [showOverview, today],
   )
 
-  const isActiveViewPrepared = true
-
   const firstUnprayedIndex = useMemo(
     () => {
       const index = visibleSchedule.findIndex(item => !isPrayedForToday(item))
@@ -169,14 +167,13 @@ export default function usePrayerFlow(): PrayerFlowController {
     : undefined
   const showOverlay = flow.type !== 'overview'
   const viewTrackTransform = showOverlay ? 'translateX(-50%)' : 'translateX(0%)'
-  const transitionDurationMs = isActiveViewPrepared ? 320 : 360
-  const shouldPreRenderActive = !overlayFlow && flow.type === 'overview' && isActiveViewPrepared
+  const transitionDurationMs = 320
+  const shouldPreRenderActive = !overlayFlow && flow.type === 'overview'
   const activeViewIndex = overlayFlow?.type === 'active' ? overlayFlow.index : firstUnprayedIndex
   const activeViewItem = visibleSchedule[activeViewIndex]
   const shouldRenderActiveView = !!overlayActiveItem || (shouldPreRenderActive && !!activeViewItem)
   const hideActiveView = !overlayActiveItem
   const isActiveFlow = flow.type === 'active'
-  const isFinishedFlow = flow.type === 'finished'
   const stepperSteps = visibleSchedule.length
   const stepperActiveStep = isActiveFlow ? flow.index : undefined
   const showActiveNavButtons = isActiveFlow
