@@ -1,5 +1,6 @@
 import type { WebPushSubscription } from '../../vault/types'
 import { useAuthStore } from '../../state/authStore'
+import { useToastStore } from '../../state/toastStore'
 import {
   clearActiveSessionToken,
   getActiveSessionToken,
@@ -31,6 +32,7 @@ import {
   importVaultKey,
   type CryptoResult,
 } from './crypto'
+import { TRPCError } from '@trpc/server'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
@@ -175,6 +177,7 @@ export async function loadVault() {
 
   loadVaultInFlight = (async () => {
     const { updateAuth } = useAuthStore.getState()
+    const { setMessage } = useToastStore.getState()
     const stored = readStoredMetadata()
 
     try {
@@ -185,9 +188,20 @@ export async function loadVault() {
       if (stored?.key) {
         key = await importVaultKey(stored.key)
         const nextKeyHash = await hashVaultKey(key)
-        await establishSessionFromKeyHash(nextKeyHash)
-        setApiSessionExpiredHandler(handleSessionExpired)
-        updateAuth({ loggedIn: true })
+        try {
+          await establishSessionFromKeyHash(nextKeyHash)
+          setApiSessionExpiredHandler(handleSessionExpired)
+          updateAuth({ loggedIn: true })
+        } catch (error) {
+          if (error instanceof Error && error.name === 'TRPCClientError' && (error as TRPCError).code === 'UNAUTHORIZED') {
+            console.error('[vault] loadVault login failed', error)
+            await signOutVault()
+            setMessage({
+              severity: 'error',
+              message: 'Login failed. Please sign in again.',
+            })
+          }
+        }
       }
     } finally {
       updateAuth({ initializing: false })
