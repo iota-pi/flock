@@ -150,6 +150,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       self.clearInterval(this.pollIntervalId)
       this.pollIntervalId = null
     }
+    if (this.syncBatchTimeout) {
+      self.clearTimeout(this.syncBatchTimeout)
+      this.syncBatchTimeout = null
+    }
   }
 
   private async executePoll(): Promise<void> {

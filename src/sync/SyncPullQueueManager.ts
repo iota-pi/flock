@@ -58,27 +58,6 @@ export class SyncPullQueueManager {
     this.cursorByItemId.clear()
   }
 
-  removeKnownItemIds(itemIds: string[]): void {
-    let changed = false
-    for (const itemId of itemIds) {
-      this.pendingPullItemIds.delete(itemId)
-      if (this.cursorByItemId.has(itemId)) {
-        this.cursorByItemId.delete(itemId)
-        changed = true
-      }
-    }
-    if (changed) {
-      this.saveCursorsDebounced()
-    }
-  }
-
-  async enqueuePull(itemIds: string[]): Promise<void> {
-    for (const itemId of itemIds) {
-      if (itemId.length > 0) {
-        this.pendingPullItemIds.add(itemId)
-      }
-    }
-  }
 
   getAllCursors(): Array<{ itemId: string; cursor: number }> {
     // Always include the account index so we discover new items from other devices

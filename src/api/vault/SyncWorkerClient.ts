@@ -54,11 +54,6 @@ export type PullSyncMessagesResponse = {
   }>
 }
 
-export type PollSyncBatchResponse = {
-  success: boolean
-  pushResults: Array<{ itemId: string; cursor: number }>
-  pullResults: PullSyncMessagesResponse[]
-}
 
 export async function pollSyncBatchWithToken(input: {
   account: string

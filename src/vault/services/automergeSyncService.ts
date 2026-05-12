@@ -81,15 +81,6 @@ function createAutomergeSyncService({
     return cursor
   }
 
-  async function pushAutomergeSyncMessage(input: PushSyncMessageInput): Promise<{ success: true; cursor: number }> {
-    const cursor = await appendSyncMessage(input)
-
-    return {
-      success: true,
-      cursor,
-    }
-  }
-
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
     const results = await Promise.all(
       input.messages.map(async message => {
@@ -168,9 +159,7 @@ function createAutomergeSyncService({
 
   return {
     pullAutomergeSyncBatch,
-    pullAutomergeSyncMessages,
     pushAutomergeSyncBatch,
-    pushAutomergeSyncMessage,
   }
 }
 
@@ -179,6 +168,4 @@ const automergeSyncService = createAutomergeSyncService({
 })
 
 export const pullAutomergeSyncBatch = automergeSyncService.pullAutomergeSyncBatch
-export const pullAutomergeSyncMessages = automergeSyncService.pullAutomergeSyncMessages
 export const pushAutomergeSyncBatch = automergeSyncService.pushAutomergeSyncBatch
-export const pushAutomergeSyncMessage = automergeSyncService.pushAutomergeSyncMessage

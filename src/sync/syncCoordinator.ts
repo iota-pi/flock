@@ -98,14 +98,15 @@ export async function startSync(account: string): Promise<void> {
 
     setSyncStatus('syncing')
   } catch (error) {
-    stopSync()
+    const stopPromise = stopSync()
     console.error('[syncCoordinator] bootstrap failed', error)
     Sentry.captureException(error)
     setFatalError(getErrorMessage(error))
+    await stopPromise
   }
 }
 
-export function stopSync(): void {
+export async function stopSync(): Promise<void> {
   if (indexHandle) {
     indexHandle.off('change', handleIndexChange)
     indexHandle = null
@@ -116,6 +117,6 @@ export function stopSync(): void {
     window.clearTimeout(processQueueTimeout)
     processQueueTimeout = null
   }
-  stopAutomergeSyncDispatcher()
+  await stopAutomergeSyncDispatcher()
 }
 
