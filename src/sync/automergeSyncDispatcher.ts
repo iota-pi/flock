@@ -1,15 +1,15 @@
 import { useSyncStore } from '../state/syncStore'
 import { setVaultNetworkAccount } from './automergeRepo'
 
-export function startAutomergeSyncDispatcher(account: string): void {
+export async function startAutomergeSyncDispatcher(account: string): Promise<void> {
   if (!account) {
     return
   }
 
-  setVaultNetworkAccount(account)
+  await setVaultNetworkAccount(account)
 }
 
-export function stopAutomergeSyncDispatcher(): void {
-  setVaultNetworkAccount(null)
+export async function stopAutomergeSyncDispatcher(): Promise<void> {
+  await setVaultNetworkAccount(null)
   useSyncStore.getState().setSyncStatus('idle')
 }

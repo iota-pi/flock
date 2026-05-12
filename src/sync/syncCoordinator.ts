@@ -5,12 +5,11 @@ import {
   startAutomergeSyncDispatcher,
   stopAutomergeSyncDispatcher,
 } from './automergeSyncDispatcher'
-import { getAutomergeRepo, getVaultNetworkAdapter } from './automergeRepo'
+import { getAutomergeRepo } from './automergeRepo'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { AutomergeIndexDocument } from './automergeDocStore'
 import type { DocHandle } from '@automerge/automerge-repo/slim'
-import { UnauthorizedError, NetworkTimeoutError } from './SyncTransportService'
 import { useAuthStore } from 'src/state/authStore'
 
 let indexHandle: DocHandle<AutomergeIndexDocument> | null = null
@@ -18,8 +17,6 @@ const knownItemIds = new Set<string>()
 let pendingFetchQueue: string[] = []
 const FETCH_CHUNK_SIZE = 10
 let processQueueTimeout: number | null = null
-let reconnectAttempts = 0
-let reconnectTimeout: number | null = null
 
 function processFetchQueue(): void {
   if (pendingFetchQueue.length === 0) {
@@ -72,12 +69,6 @@ function handleIndexChange(): void {
 
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof UnauthorizedError) {
-    return 'Authentication failed. Please log in again.'
-  }
-  if (error instanceof NetworkTimeoutError) {
-    return 'Connection timed out. Please check your internet connection.'
-  }
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message
   }
@@ -92,7 +83,7 @@ export async function startSync(account: string): Promise<void> {
     clearFatalError()
     setSyncStatus('connecting')
 
-    startAutomergeSyncDispatcher(account)
+    await startAutomergeSyncDispatcher(account)
 
     const repo = getAutomergeRepo(account)
     indexHandle = await repo.find<AutomergeIndexDocument>(toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID))
@@ -105,24 +96,7 @@ export async function startSync(account: string): Promise<void> {
 
     await ensureItemsBootstrap(account)
 
-    const adapter = getVaultNetworkAdapter(account)
-    adapter.on('close', () => {
-      setSyncStatus('offline')
-      if (reconnectTimeout) {
-        window.clearTimeout(reconnectTimeout)
-      }
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
-      reconnectAttempts += 1
-      reconnectTimeout = window.setTimeout(() => {
-        setSyncStatus('connecting')
-        adapter.setAccount(account)
-      }, delay)
-    })
-
-    adapter.on('peer-candidate', () => {
-      reconnectAttempts = 0
-      setSyncStatus('syncing')
-    })
+    setSyncStatus('syncing')
   } catch (error) {
     stopSync()
     console.error('[syncCoordinator] bootstrap failed', error)
@@ -142,11 +116,6 @@ export function stopSync(): void {
     window.clearTimeout(processQueueTimeout)
     processQueueTimeout = null
   }
-  if (reconnectTimeout) {
-    window.clearTimeout(reconnectTimeout)
-    reconnectTimeout = null
-  }
-  reconnectAttempts = 0
   stopAutomergeSyncDispatcher()
 }
 

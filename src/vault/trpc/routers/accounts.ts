@@ -12,7 +12,6 @@ import {
   UpdateMetadataBodySchema,
 } from '../../../shared/schemas/trpc'
 import { hashString } from '../../api/util'
-import { publishRealtimeEvent } from '../../realtime/hub'
 
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
@@ -128,10 +127,6 @@ export const accountsRouter = router({
         expectedMetadataParentVersionId: expectedParentVersionId,
       })
 
-      await publishRealtimeEvent(input.account, 'metadata.updated', {
-        source: 'updateMetadata',
-      })
-
       return { success: true }
     }),
 
@@ -157,10 +152,6 @@ export const accountsRouter = router({
         pushSubscriptions: next,
       })
 
-      await publishRealtimeEvent(input.account, 'metadata.updated', {
-        source: 'addPushSubscription',
-      })
-
       return { success: true }
     }),
 
@@ -178,10 +169,6 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         pushSubscriptions: next,
-      })
-
-      await publishRealtimeEvent(input.account, 'metadata.updated', {
-        source: 'deletePushSubscription',
       })
 
       return { success: true }
@@ -213,10 +200,6 @@ export const accountsRouter = router({
         reminderTimezone: input.reminderTimezone,
       })
 
-      await publishRealtimeEvent(input.account, 'metadata.updated', {
-        source: 'updateReminderSettings',
-      })
-
       return { success: true }
     }),
 
@@ -227,9 +210,7 @@ export const accountsRouter = router({
         account: input.account,
         lastPrayerCompletedAt: input.completedAt,
       })
-      await publishRealtimeEvent(input.account, 'metadata.updated', {
-        source: 'recordPrayerCompletion',
-      })
+
       return { success: true }
     }),
 })

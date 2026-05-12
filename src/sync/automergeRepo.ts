@@ -2,7 +2,7 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import { BroadcastChannelNetworkAdapter } from '@automerge/automerge-repo-network-broadcastchannel'
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { useAuthStore } from '../state/authStore'
+
 
 const vaultNetworkAdapters = new Map<string, VaultEncryptedNetworkAdapter>()
 const repos = new Map<string, Repo>()
@@ -46,8 +46,14 @@ export function getVaultNetworkAdapter(accountId: string): VaultEncryptedNetwork
   return vaultNetworkAdapters.get(accountId)!
 }
 
-export function setVaultNetworkAccount(accountId: string): void {
-  // Sets the session for the given account's network adapter.
-  getVaultNetworkAdapter(accountId).setAccount(accountId)
+export async function setVaultNetworkAccount(accountId: string | null): Promise<void> {
+  if (accountId) {
+    await getVaultNetworkAdapter(accountId).setAccount(accountId)
+  } else {
+    const promises: Promise<void>[] = []
+    for (const adapter of vaultNetworkAdapters.values()) {
+      promises.push(adapter.setAccount(null))
+    }
+    await Promise.all(promises)
+  }
 }
-

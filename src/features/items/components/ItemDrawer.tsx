@@ -18,8 +18,6 @@ import {
   Item,
   StandardItem,
 } from '../../../state/items'
-import { useDataStore } from '../../../state/dataStore'
-import { SyncBridge } from '../../../sync/SyncBridge'
 import { useItem } from '../../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
 import { isSameDay } from '../../../utils'

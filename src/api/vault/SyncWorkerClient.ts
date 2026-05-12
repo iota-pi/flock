@@ -7,8 +7,14 @@ type SyncMessageEnvelope = {
   cipher: string
 }
 
+let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<AppRouter>> } | null = null
+
 function createWorkerSyncClient(authToken: string) {
-  return createTRPCProxyClient<AppRouter>({
+  if (cachedClient && cachedClient.authToken === authToken) {
+    return cachedClient.client
+  }
+
+  const client = createTRPCProxyClient<AppRouter>({
     links: [
       httpBatchLink({
         url: `${env.VAULT_ENDPOINT}/trpc`,
@@ -18,6 +24,9 @@ function createWorkerSyncClient(authToken: string) {
       }),
     ],
   })
+
+  cachedClient = { authToken, client }
+  return client
 }
 
 export async function pushSyncBatchWithToken(input: {
@@ -32,5 +41,41 @@ export async function pushSyncBatchWithToken(input: {
   return client.sync.pushBatch.mutate({
     account: input.account,
     messages: input.messages,
+  })
+}
+
+export type PullSyncMessagesResponse = {
+  success: boolean
+  itemId: string
+  nextCursor: number
+  messages: Array<{
+    cursor: number
+    encryptedMessage: SyncMessageEnvelope
+  }>
+}
+
+export type PollSyncBatchResponse = {
+  success: boolean
+  pushResults: Array<{ itemId: string; cursor: number }>
+  pullResults: PullSyncMessagesResponse[]
+}
+
+export async function pollSyncBatchWithToken(input: {
+  account: string
+  authToken: string
+  pushMessages: Array<{
+    itemId: string
+    encryptedMessage: SyncMessageEnvelope
+  }>
+  pullCursors: Array<{
+    itemId: string
+    cursor?: number
+  }>
+}) {
+  const client = createWorkerSyncClient(input.authToken)
+  return client.sync.pollSync.mutate({
+    account: input.account,
+    pushMessages: input.pushMessages,
+    pullCursors: input.pullCursors,
   })
 }

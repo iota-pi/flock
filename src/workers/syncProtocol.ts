@@ -1,7 +1,6 @@
-import type { Remote } from 'comlink'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { SyncStatus } from 'src/state/syncStore';
+import { SyncStatus } from 'src/state/syncStore'
 
 export interface SyncCallbacks {
   onReady: () => Promise<void>,

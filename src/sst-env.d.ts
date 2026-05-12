@@ -6,6 +6,7 @@
 /// <reference types="vite/client" />
 interface ImportMetaEnv {
   readonly VITE_VAULT_ENDPOINT: string
+  readonly VITE_VAPID_PUBLIC_KEY: string
   readonly VITE_PUBLIC_URL: string
 }
 interface ImportMeta {

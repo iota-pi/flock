@@ -1,11 +1,6 @@
 import { awsLambdaFastify } from '@fastify/aws-lambda'
 import createServer from './api'
 import { handler as migrationHandler } from './migrations'
-import {
-  websocketConnectHandler,
-  websocketDefaultHandler,
-  websocketDisconnectHandler,
-} from './realtime/websocketHandlers'
 
 const proxyPromise = createServer().then(server =>
   awsLambdaFastify(server, {
@@ -22,7 +17,4 @@ const handler = async (event: unknown, context: unknown) => {
 export {
   handler,
   migrationHandler,
-  websocketConnectHandler,
-  websocketDisconnectHandler,
-  websocketDefaultHandler,
 }
