@@ -135,6 +135,7 @@ export default $config({
         queue: pushNotificationsDLQ.arn,
         retry: 3,
       },
+      visibilityTimeout: '120 seconds',
     })
 
     pushNotificationsQueue.subscribe({

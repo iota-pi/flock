@@ -14,19 +14,7 @@ declare module "sst" {
       "type": "sst.cloudflare.StaticSite"
       "url": string
     }
-    "FlockConnections": {
-      "name": string
-      "type": "sst.aws.Dynamo"
-    }
     "FlockItems": {
-      "name": string
-      "type": "sst.aws.Dynamo"
-    }
-    "FlockReplayLog": {
-      "name": string
-      "type": "sst.aws.Dynamo"
-    }
-    "FlockSubscriptions": {
       "name": string
       "type": "sst.aws.Dynamo"
     }
@@ -41,14 +29,6 @@ declare module "sst" {
     "PushNotificationsQueue": {
       "type": "sst.aws.Queue"
       "url": string
-    }
-    "RealtimeWsConnect": {
-      "name": string
-      "type": "sst.aws.Function"
-    }
-    "RealtimeWsDisconnect": {
-      "name": string
-      "type": "sst.aws.Function"
     }
     "VAPID_PRIVATE_KEY": {
       "type": "sst.sst.Secret"
