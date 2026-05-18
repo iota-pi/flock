@@ -4,6 +4,8 @@ const PROD = 'production'
 
 export default $config({
   app(input) {
+    const isDev = process.env.SST_DEV === 'true'
+
     return {
       name: 'flock',
       removal: input?.stage === PROD ? 'retain' : 'remove',
@@ -13,13 +15,14 @@ export default $config({
         aws: {
           region: 'ap-southeast-2',
         },
-        cloudflare: true,
+        ...(isDev ? {} : { cloudflare: true }),
       },
     }
   },
   async run() {
     const stage = $app.stage
     const isProd = stage === PROD
+    const isDev = process.env.SST_DEV === 'true'
 
     const domain =
       isProd
@@ -256,22 +259,24 @@ export default $config({
     // -----------------------------------------------------------------
     // Frontend (Cloudflare Pages)
     // -----------------------------------------------------------------
-    const app = new sst.cloudflare.StaticSite('FlockApp', {
-      path: '.',
-      build: {
-        command: 'yarn build',
-        output: 'dist/app',
-      },
-      domain,
-      environment: {
-        VITE_VAULT_ENDPOINT: vaultApi.url,
-        VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
-        VITE_PUBLIC_URL: publicUrl,
-      },
-    })
+    const app = isDev
+      ? undefined
+      : new sst.cloudflare.StaticSite('FlockApp', {
+          path: '.',
+          build: {
+            command: 'yarn build',
+            output: 'dist/app',
+          },
+          domain,
+          environment: {
+            VITE_VAULT_ENDPOINT: vaultApi.url,
+            VITE_VAPID_PUBLIC_KEY: vapidPublicKey.value,
+            VITE_PUBLIC_URL: publicUrl,
+          },
+        })
 
     return {
-      appUrl: app.url,
+      appUrl: app?.url,
       vaultEndpoint: vaultApi.url,
       migrationsLambda: migrationsLambda.name,
     }
