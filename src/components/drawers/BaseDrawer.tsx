@@ -108,7 +108,7 @@ const TopRightActionsHolder = styled('div')(({ theme }) => ({
 
 interface BaseProps {
   onBack?: () => void,
-  onClose: (disableSave?: boolean) => void,
+  onClose: () => void,
   onUnmount?: () => void,
   open: boolean,
   alwaysTemporary?: boolean,
@@ -177,7 +177,7 @@ function BaseDrawer({
         return () => {
           ActionProps.onSave()
           if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
-            onClose(true)
+            onClose()
           }
         }
       }

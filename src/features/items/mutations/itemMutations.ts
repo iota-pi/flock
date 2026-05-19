@@ -119,6 +119,9 @@ export function mutateItem(
   if (!item) {
     throw new Error(`Item not found: ${itemId}`)
   }
+  if (item.isNew) {
+    changes = { ...changes, isNew: undefined }
+  }
 
   const updatedItem = { ...item, ...changes } as Item
 
@@ -134,7 +137,8 @@ export async function storeItems(
   const current = normalizeItemsInput(items)
 
   for (const item of current) {
-    useDataStore.getState().optimisticUpdateItem(item.id, item)
+    const newItem: Item = { ...item, isNew: undefined }
+    useDataStore.getState().optimisticUpdateItem(item.id, newItem)
   }
 
   await SyncBridge.storeItems(current)

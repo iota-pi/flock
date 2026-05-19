@@ -70,25 +70,31 @@ function ItemDrawer({
     [itemId, resolvedItem],
   )
 
-  const handleClose = useCallback(
+  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
+
+  const cleanupAndClose = useCallback(
     () => {
+      if (itemId !== null && isNew && resolvedItem && !isValid(resolvedItem)) {
+        deleteItems(itemId).catch(error => console.error(error))
+      }
+
       onClose()
     },
-    [onClose],
+    [itemId, isNew, resolvedItem, onClose],
   )
 
   const handleSaveButton = useCallback(
     () => {
-      onClose(true)
+      cleanupAndClose()
     },
-    [onClose],
+    [cleanupAndClose],
   )
 
   const handleCancel = useCallback(
     () => {
-      onClose()
+      cleanupAndClose()
     },
-    [onClose],
+    [cleanupAndClose],
   )
 
   const handleDelete = useCallback(
@@ -99,19 +105,6 @@ function ItemDrawer({
       onClose()
     },
     [itemId, onClose],
-  )
-
-  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
-
-  const cleanupAndClose = useCallback(
-    (disableSave?: boolean) => {
-      if (itemId !== null && isNew && resolvedItem && !isValid(resolvedItem)) {
-        deleteItems(itemId).catch(error => console.error(error))
-      }
-
-      onClose(disableSave)
-    },
-    [itemId, isNew, resolvedItem, onClose],
   )
 
   const archived = resolvedItem?.archived ?? false

@@ -76,7 +76,7 @@ function DrawerActions({
 }: Props) {
   const [showConfirm, setShowConfirm] = useState(false)
 
-  const handleClickDelete = useCallback(
+  const handleInitialClickDelete = useCallback(
     () => {
       if (!itemIsNew) {
         setShowConfirm(true)
@@ -87,6 +87,14 @@ function DrawerActions({
     [itemIsNew, onCancel],
   )
   const handleClickConfirmCancel = useCallback(() => setShowConfirm(false), [])
+
+  const handleDelete = useCallback(
+    () => {
+      setShowConfirm(false)
+      onDelete?.()
+    },
+    [onDelete],
+  )
 
   return (
     <>
@@ -113,7 +121,7 @@ function DrawerActions({
                 color={itemIsNew ? undefined : 'error'}
                 data-cy="drawer-cancel"
                 fullWidth
-                onClick={handleClickDelete}
+                onClick={handleInitialClickDelete}
                 startIcon={itemIsNew ? undefined : <DeleteIcon />}
                 variant="outlined"
               >
@@ -157,7 +165,7 @@ function DrawerActions({
       {onDelete && (
         <ConfirmationDialog
           open={showConfirm}
-          onConfirm={onDelete}
+          onConfirm={handleDelete}
           onCancel={handleClickConfirmCancel}
         >
           <Typography>
