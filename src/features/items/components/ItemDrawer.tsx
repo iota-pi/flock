@@ -101,10 +101,22 @@ function ItemDrawer({
     [itemId, onClose],
   )
 
+  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
+
+  const cleanupAndClose = useCallback(
+    (disableSave?: boolean) => {
+      if (itemId !== null && isNew && resolvedItem && !isValid(resolvedItem)) {
+        deleteItems(itemId).catch(error => console.error(error))
+      }
+
+      onClose(disableSave)
+    },
+    [itemId, isNew, resolvedItem, onClose],
+  )
+
   const archived = resolvedItem?.archived ?? false
   const lastPrayer = resolvedItem ? getLastPrayedFor(resolvedItem) : 0
   const isPrayedForToday = isSameDay(new Date(), new Date(lastPrayer))
-  const isNew = (resolvedItem as Item & { isNew?: boolean } | null)?.isNew ?? false
 
   const archiveMenuItem = useMemo(
     () => (
@@ -208,7 +220,7 @@ function ItemDrawer({
       headerActions={headerActions}
       itemKey={itemId ?? undefined}
       onBack={onBack}
-      onClose={handleClose}
+      onClose={cleanupAndClose}
       open={open}
       typeIcon={resolvedItem ? getIconType(resolvedItem.type) : undefined}
     >
