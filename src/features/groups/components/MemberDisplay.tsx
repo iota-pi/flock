@@ -66,6 +66,11 @@ function MemberDisplay({
     [groupName],
   )
 
+  const getActionIcon = useCallback(
+    () => editable ? <DeleteIcon /> : undefined,
+    [editable],
+  )
+
   return (
     <>
       {editable && (
@@ -88,7 +93,7 @@ function MemberDisplay({
         compact
         dividers
         fullHeight={false}
-        getActionIcon={editable ? () => <DeleteIcon /> : undefined}
+        getActionIcon={getActionIcon}
         itemIds={sortedMemberIds}
         noItemsHint="No group members"
         onClick={handleClickItem}

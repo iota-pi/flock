@@ -61,6 +61,11 @@ function GroupDisplay({
     [setDrawer],
   )
 
+  const getActionIcon = useCallback(
+    () => editable ? <DeleteIcon /> : undefined,
+    [editable],
+  )
+
   return (
     <>
       {editable && (
@@ -83,7 +88,7 @@ function GroupDisplay({
         compact
         dividers
         fullHeight={false}
-        getActionIcon={editable ? () => <DeleteIcon /> : undefined}
+        getActionIcon={getActionIcon}
         itemIds={currentGroupIds}
         noItemsHint="Not in any groups"
         onClick={handleClickItem}
