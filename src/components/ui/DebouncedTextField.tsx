@@ -32,9 +32,11 @@ function DebouncedTextField({
   ...textFieldProps
 }: DebouncedTextFieldProps) {
   const [localValue, setLocalValue] = useState(value)
+  const lastCommittedValueRef = useRef(value)
 
   const handleCommit = useCallback(
     (nextValue: string) => {
+      lastCommittedValueRef.current = nextValue
       onCommit(nextValue)
     },
     [onCommit],
@@ -77,6 +79,10 @@ function DebouncedTextField({
 
   useEffect(
     () => {
+      if (value === lastCommittedValueRef.current) {
+        return
+      }
+
       if (cancelPendingOnExternalChange) {
         cancelDebouncedCommit()
       }
@@ -84,6 +90,7 @@ function DebouncedTextField({
       const timeoutId = globalThis.setTimeout(() => {
         setLocalValue(value)
         onValueChange?.(value)
+        lastCommittedValueRef.current = value
       }, 0)
 
       return () => {
