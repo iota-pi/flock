@@ -122,6 +122,7 @@ function ImportPeopleDialog({
         <DropzoneArea
           acceptedFiles={['.csv']}
           dropzoneText="Upload a CSV file here"
+          fileObjects={null}
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}

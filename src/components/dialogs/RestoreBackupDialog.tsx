@@ -193,6 +193,7 @@ function RestoreBackupDialog({
         <DropzoneArea
           acceptedFiles={['.json']}
           dropzoneText="Upload a backup file here"
+          fileObjects={null}
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}
