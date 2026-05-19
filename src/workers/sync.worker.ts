@@ -87,7 +87,13 @@ class SyncWorker implements SyncApi {
       throw new Error('[sync.worker] No API auth token found, cannot bootstrap legacy items')
     }
 
-    const response = await fetchMany({ cacheTime: null }).catch(() => ({ items: [] as any[] }))
+    const response = await fetchMany({
+      account: this.accountId,
+    }).catch(e => {
+      console.error('[sync.worker] failed to fetch legacy items', e)
+      return { items: [] as any[] }
+    })
+
     const fetchedItems = response.items.filter((entry: any) => entry && typeof entry === 'object' && typeof entry.item === 'string' && entry.item.length > 0)
 
     if (fetchedItems.length === 0) return

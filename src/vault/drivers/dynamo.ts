@@ -27,7 +27,6 @@ import {
 import BaseDriver, {
   AuthData,
   BaseData,
-  CachedVaultItem,
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
@@ -616,143 +615,30 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async fetchMany(
-    {
-      account,
-      ids,
-    }: {
-      account: string,
-      ids: ItemId[],
-    },
-  ) {
-    if (ids.length === 0) {
-      return []
-    }
-
-    // DynamoDB BatchGet rejects duplicate keys in one request.
-    // Keep ordering stable via uniqueIds and rehydrate from a map.
-    const uniqueIds = Array.from(new Set(ids))
-    const keyChunks = chunk(uniqueIds, MAX_BATCH_GET_ITEMS)
-    const itemsById = new Map<ItemId, VaultItem>()
-
-    for (const keyChunk of keyChunks) {
-      let remainingKeys = keyChunk.map(item => ({ account, item }))
-      let retryCount = 0
-
-      while (remainingKeys.length > 0) {
-        let response
-        try {
-          response = await this.client.send(new BatchGetCommand({
-            RequestItems: {
-              [ITEM_TABLE_NAME]: {
-                Keys: remainingKeys,
-              },
-            },
-          }))
-        } catch (error) {
-          retryCount += 1
-          if (!isRetryableAwsError(error) || retryCount > MAX_BATCH_GET_RETRIES) {
-            throw error
-          }
-
-          // Treat retriable transport/service failures as fully unprocessed chunks.
-          const backoffMs = Math.min(1000, 50 * (2 ** (retryCount - 1))) + Math.floor(Math.random() * 25)
-          await new Promise(resolve => setTimeout(resolve, backoffMs))
-          continue
-        }
-
-        const fetchedItems = response.Responses?.[ITEM_TABLE_NAME] as VaultItem[] | undefined
-        if (fetchedItems) {
-          for (const item of fetchedItems) {
-            if (item.item) {
-              itemsById.set(item.item, item)
-            }
-          }
-        }
-
-        const unprocessed = response.UnprocessedKeys?.[ITEM_TABLE_NAME]?.Keys as Array<{ account: string, item: ItemId }> | undefined
-        if (!unprocessed || unprocessed.length === 0) {
-          break
-        }
-
-        retryCount += 1
-        if (retryCount > MAX_BATCH_GET_RETRIES) {
-          throw new Error(`BatchGet exceeded retry limit (${MAX_BATCH_GET_RETRIES}) with ${unprocessed.length} unprocessed keys`)
-        }
-
-        // Exponential backoff with jitter for provisioned throughput spikes.
-        const backoffMs = Math.min(1000, 50 * (2 ** (retryCount - 1))) + Math.floor(Math.random() * 25)
-        await new Promise(resolve => setTimeout(resolve, backoffMs))
-        remainingKeys = unprocessed
-      }
-    }
-
-    return uniqueIds
-      .map(itemId => itemsById.get(itemId))
-      .filter((item): item is VaultItem => !!item)
-  }
-
+  // fetchAll is used only for legacy migration
   async fetchAll(
-    {
-      account,
-      cacheTime,
-    }: {
-      account: string,
-      cacheTime?: number,
-    },
-  ): Promise<CachedVaultItem[]> {
+    { account }: { account: string },
+  ): Promise<VaultItem[]> {
     const items: VaultItem[] = []
     let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
 
     const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
 
-    const isDeltaSync = typeof cacheTime === 'number'
-    let useDeltaIndex = isDeltaSync
-
     while (true) {
-      let queryInput: QueryCommandInput
-      if (useDeltaIndex) {
-        queryInput = {
-          TableName: ITEM_TABLE_NAME,
-          IndexName: 'AccountModifiedIndex',
-          KeyConditionExpression: 'account = :accountid AND modifiedAt > :cacheTime',
-          ExpressionAttributeNames: {
-            '#itemKey': 'item',
-          },
-          ExpressionAttributeValues: {
-            ':accountid': account,
-            ':cacheTime': cacheTime,
-          },
-          ProjectionExpression: projectionExpression,
-          ExclusiveStartKey: lastEvaluatedKey,
-        }
-      } else {
-        queryInput = {
-          TableName: ITEM_TABLE_NAME,
-          KeyConditionExpression: 'account = :accountid',
-          ExpressionAttributeNames: {
-            '#itemKey': 'item',
-          },
-          ExpressionAttributeValues: {
-            ':accountid': account,
-          },
-          ProjectionExpression: projectionExpression,
-          ExclusiveStartKey: lastEvaluatedKey,
-        }
+      const queryInput: QueryCommandInput = {
+        TableName: ITEM_TABLE_NAME,
+        KeyConditionExpression: 'account = :accountid',
+        ExpressionAttributeNames: {
+          '#itemKey': 'item',
+        },
+        ExpressionAttributeValues: {
+          ':accountid': account,
+        },
+        ProjectionExpression: projectionExpression,
+        ExclusiveStartKey: lastEvaluatedKey,
       }
 
-      let response: QueryCommandOutput
-      try {
-        response = await this.client.send(new QueryCommand(queryInput))
-      } catch (error) {
-        if (useDeltaIndex && isMissingDeltaIndexError(error)) {
-          useDeltaIndex = false
-          lastEvaluatedKey = undefined
-          items.length = 0
-          continue
-        }
-        throw error
-      }
+      const response = await this.client.send(new QueryCommand(queryInput))
 
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[])
@@ -763,12 +649,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       }
     }
 
-    if (isDeltaSync && !useDeltaIndex) {
-      return items
-        .filter(item => (item.metadata?.modified || 0) > (cacheTime || 0)) as CachedVaultItem[]
-    }
-
-    return items as CachedVaultItem[]
+    return items
   }
 
   async delete({ account, item }: VaultKey) {

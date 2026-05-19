@@ -60,8 +60,6 @@ export interface VaultItem extends VaultKey, VaultData {
   ttl?: number,
 }
 
-export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
-
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
@@ -100,11 +98,7 @@ export default abstract class BaseDriver<T = unknown> {
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
-  abstract fetchMany(opts: { account: string, ids: ItemId[] }): Promise<VaultItem[]>
-  abstract fetchAll(
-    { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
-  ): Promise<CachedVaultItem[]>
-
+  abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
   abstract delete(key: VaultKey): Promise<void>
 
   async auth(request: FastifyRequest) {

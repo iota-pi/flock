@@ -27,8 +27,6 @@ export const UpdateMetadataBodySchema = z.object({
 
 export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
-  cacheTime: z.number().nullable().optional(),
-  ids: z.array(z.string()).optional(),
 })
 
 export const ItemFormInputSchema = z.object({

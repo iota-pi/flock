@@ -16,10 +16,6 @@ export type AccountCreationResponse = {
   account: string
 }
 
-export type CachedVaultItem = VaultEnvelope & {
-  ttl?: number
-}
-
 export type VaultItem = VaultEnvelope & {
   account?: string
   ttl?: number

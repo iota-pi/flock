@@ -1,6 +1,5 @@
 import type BaseDriver from '../drivers/base'
 import type { VaultItem } from '../drivers/base'
-import type { ItemId } from '../../shared/itemTypes'
 
 type ItemServiceContext = {
   vault: BaseDriver
@@ -8,30 +7,13 @@ type ItemServiceContext = {
 
 export async function fetchItems(
   ctx: ItemServiceContext,
-  input: { account: string; cacheTime?: number | null; ids?: ItemId[] },
+  input: { account: string },
 ): Promise<{ items: VaultItem[]; serverTime: number }> {
-  const { account, cacheTime, ids } = input
-
-  if (cacheTime !== undefined && ids && ids.length > 0) {
-    throw new Error('Cannot use cacheTime and ids together')
-  }
-
-  const resultPromise = (
-    cacheTime !== undefined || !ids || ids.length === 0
-      ? ctx.vault.fetchAll({ account, cacheTime: cacheTime || undefined })
-      : ctx.vault.fetchMany({ account, ids })
-  )
-
-  const items = await resultPromise
-  const isDeltaSync = typeof cacheTime === 'number'
-  const isFetchMany = Array.isArray(ids) && ids.length > 0
-
-  const finalItems = (isDeltaSync || isFetchMany)
-    ? items
-    : items.filter(item => item.metadata?.deleted !== true)
+  const { account } = input
+  const items = await ctx.vault.fetchAll({ account })
 
   return {
-    items: finalItems as VaultItem[],
+    items,
     serverTime: Date.now(),
   }
 }
