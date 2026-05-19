@@ -16,7 +16,6 @@ import {
   getItemTypeLabel,
   isValid,
   Item,
-  StandardItem,
 } from '../../../state/items'
 import { useItem } from '../../../state/selectors'
 import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'

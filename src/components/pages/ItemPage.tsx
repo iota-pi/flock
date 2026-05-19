@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { Theme, useMediaQuery } from '@mui/material'
 import { DeleteIcon } from 'src/components/Icons'
-import { getItemTypeLabel, Item, StandardItem } from 'src/state/items'
+import { getItemTypeLabel, Item } from 'src/state/items'
 import { ERROR_ITEM_TYPE, type ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {

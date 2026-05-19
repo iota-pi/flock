@@ -3,7 +3,7 @@ import {
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { Item, StandardItem } from '../../state/items'
+import { Item } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'

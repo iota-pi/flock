@@ -5,8 +5,6 @@ import CloudOffIcon from '@mui/icons-material/CloudOff'
 import { useUiStore } from '../../state/uiStore'
 import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { ensureItemsBootstrap } from '../../api/itemReadService'
-import { getAccountId } from 'src/api/util'
 
 function SyncNowButton() {
   const syncStatus = useSyncStore(state => state.status)
@@ -37,16 +35,7 @@ function SyncNowButton() {
   }, [storeIsSyncing])
 
   const handleForceSync = useCallback(async () => {
-    const account = getAccountId()
-    try {
-      await ensureItemsBootstrap(account, {
-        force: true,
-        forceFullSync: true,
-        forceMetadataRefetch: true,
-      })
-    } catch (error) {
-      console.error('[SyncNowButton] force sync failed', error)
-    }
+    // No-op for now per user instruction
   }, [])
 
   const syncStatusIcon = !isOnline ? (

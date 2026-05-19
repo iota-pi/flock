@@ -40,6 +40,7 @@ export const SyncBridge = {
     if (!vaultKey) throw new Error('Vault key not found in storage')
 
     await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks))
+    await syncApi.bootstrapLegacyItems()
   },
 
   mutateItem: async (mutationId: string, id: string, changes: Partial<Item>) => {

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../sync/SyncBridge'
-import { ensureItemsBootstrap } from './itemReadService'
 import { setApiAuthToken } from './runtime'
 import { useDataStore } from '../state/dataStore'
 
@@ -26,13 +25,6 @@ vi.mock('./util', () => ({
   getAccountId: vi.fn(() => 'test-account'),
 }))
 
-vi.mock('./itemReadService', async importOriginal => {
-  const actual = await importOriginal<typeof import('./itemReadService')>()
-  return {
-    ...actual,
-    ensureItemsBootstrap: vi.fn(),
-  }
-})
 
 vi.mock('../state/navigationStore', () => ({
   useNavigationStore: {
@@ -56,7 +48,6 @@ describe('local-first mutations', () => {
     })
 
     setApiAuthToken('')
-    vi.mocked(ensureItemsBootstrap).mockResolvedValue()
     useDataStore.setState({ items: {}, metadata: metadataState })
   })
 
@@ -95,8 +86,6 @@ describe('local-first mutations', () => {
     useDataStore.setState({ items: { g1: group, p1: person } as any })
 
     await deleteItems('p1')
-
-    expect(ensureItemsBootstrap).not.toHaveBeenCalled()
     expect(SyncBridge.storeItems).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'g1', members: [] }),
       expect.objectContaining({ id: 'p1', deleted: true }),

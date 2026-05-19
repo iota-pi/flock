@@ -8,8 +8,7 @@ const mocks = vi.hoisted(() => ({
   signOutVault: vi.fn(),
   storeItems: vi.fn(),
   setMetadata: vi.fn(),
-  clearMetadataCache: vi.fn(),
-  getCachedMetadata: vi.fn(() => ({ meta: 'value' })),
+
   exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
@@ -61,10 +60,6 @@ vi.mock('../state/syncStore', () => ({
   },
 }))
 
-vi.mock('../api/itemReadService', () => ({
-  clearMetadataCache: mocks.clearMetadataCache,
-  getCachedMetadata: mocks.getCachedMetadata,
-}))
 
 vi.mock('../sync/SyncBridge', () => ({
   SyncBridge: {

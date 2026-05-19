@@ -21,8 +21,14 @@ import {
   restoreFromBinaries,
   AutomergeIndexDocument,
   normalizeItemSnapshot,
+  hydrateAutomergeDocumentBinary,
+  listAutomergeItemIds,
 } from '../sync/automergeDocStore'
-import { initWorkerVault } from '../api/vault'
+import { fetchMany } from '../api/vault/ItemClient'
+import { decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
+import { hasApiAuthToken } from '../api/runtime'
+import { trpcClient } from '../api/trpcClient'
+import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
 import { getAutomergeRepo, setVaultNetworkAccount } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
@@ -69,6 +75,95 @@ class SyncWorker implements SyncApi {
     handleIndexChange()
 
     await this.callbacks.onReady()
+  }
+
+  async bootstrapLegacyItems() {
+    if (!this.accountId) return
+
+    const knownItemIds = listAutomergeItemIds(this.accountId)
+    if (knownItemIds.length > 0) return
+
+    if (!hasApiAuthToken()) {
+      throw new Error('[sync.worker] No API auth token found, cannot bootstrap legacy items')
+    }
+
+    const response = await fetchMany({ cacheTime: null }).catch(() => ({ items: [] as any[] }))
+    const fetchedItems = response.items.filter((entry: any) => entry && typeof entry === 'object' && typeof entry.item === 'string' && entry.item.length > 0)
+
+    if (fetchedItems.length === 0) return
+
+    const legacySnapshots: Item[] = []
+
+    const promises = fetchedItems.map(async (item: any) => {
+      try {
+        if (item.metadata?.deleted === true) {
+          legacySnapshots.push({ id: item.item, deleted: true } as unknown as Item)
+          return
+        }
+
+        if (Array.isArray(item.branches) && item.branches.length > 0) {
+          for (const branch of item.branches) {
+            if (!branch?.encryptedAutomergeDoc) continue
+            const binary = await this.decryptBranchBinary(branch.encryptedAutomergeDoc)
+            if (binary) {
+              await hydrateAutomergeDocumentBinary(this.accountId!, item.item, binary)
+              return
+            }
+          }
+        }
+
+        if (typeof item.cipher === 'string' && item.cipher.length > 0 && typeof item.metadata?.iv === 'string' && item.metadata.iv.length > 0) {
+          const decrypted = await decryptObject({ iv: item.metadata.iv, cipher: item.cipher }).catch(() => null)
+          if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
+            const snapshot = { ...(decrypted as Record<string, unknown>) }
+            if (!snapshot.id || typeof snapshot.id !== 'string') {
+              snapshot.id = item.item
+            }
+            legacySnapshots.push(snapshot as Item)
+          }
+        }
+      } catch (error) {
+        console.error('[sync.worker] failed to hydrate fetched item envelope', { itemId: item.item, error })
+      }
+    })
+
+    await Promise.allSettled(promises)
+
+    if (legacySnapshots.length > 0) {
+      await this.storeItems(legacySnapshots)
+    }
+
+    await this.hydrateMetadata()
+  }
+
+  private async decryptBranchBinary(encryptedAutomergeDoc: string): Promise<Uint8Array | null> {
+    try {
+      const decoded = decodeEncryptedAutomergeDoc(encryptedAutomergeDoc)
+      const iv = new Uint8Array(decoded.iv.byteLength)
+      iv.set(decoded.iv)
+      const cipher = new Uint8Array(decoded.cipher.byteLength)
+      cipher.set(decoded.cipher)
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, getVaultKey(), cipher)
+      return new Uint8Array(plaintext)
+    } catch {
+      return null
+    }
+  }
+
+  private async hydrateMetadata() {
+    if (!this.accountId || !hasApiAuthToken()) return
+
+    const localMetadata = getAutomergeMetadata(this.accountId)
+    if (Object.keys(localMetadata || {}).length > 0) return
+
+    const response = await trpcClient.accounts.getMetadata.query({ account: this.accountId }).catch(() => null)
+    if (response?.success && !!response.metadata && typeof response.metadata === 'object' && !Array.isArray(response.metadata)) {
+      try {
+        await this.mutateMetadata(response.metadata as AccountMetadata)
+      } catch (error) {
+        console.error('[sync.worker] metadata hydration skipped', error)
+      }
+    }
   }
 
   private subscribeToItems(itemIds: string[], repo: Repo) {

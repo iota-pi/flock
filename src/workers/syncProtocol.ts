@@ -13,6 +13,7 @@ export interface SyncCallbacks {
 
 export interface SyncApi {
   initRepo: (accountId: string, vaultKey: string, callbacks: SyncCallbacks) => Promise<void>
+  bootstrapLegacyItems: () => Promise<void>
   mutateItem: (mutationId: string, id: string, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
   hardDeleteItems: (itemIds: string[]) => Promise<void>
