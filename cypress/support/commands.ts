@@ -284,7 +284,7 @@ Cypress.Commands.add(
             ...makeBlankPerson(),
             ...data,
           }
-          return mutationsApi.storeItems(person, { addToIndex: true })
+          return mutationsApi.storeItems(person)
         })
       })
     }
@@ -318,7 +318,7 @@ Cypress.Commands.add(
             ...makeBlankGroup(),
             ...data,
           }
-          return mutationsApi.storeItems(group, { addToIndex: true })
+          return mutationsApi.storeItems(group)
         })
       })
     }
