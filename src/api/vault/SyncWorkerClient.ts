@@ -5,6 +5,7 @@ import env from '../../env'
 type SyncMessageEnvelope = {
   iv: string
   cipher: string
+  version?: string
 }
 
 let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<AppRouter>> } | null = null

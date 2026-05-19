@@ -8,6 +8,7 @@ import {
 type SyncMessagePayload = {
   iv: string
   cipher: string
+  version?: string
 }
 
 type PushSyncMessageInput = {

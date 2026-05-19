@@ -42,7 +42,16 @@ export const useDataStore = create<DataStore>(set => ({
     return { items: nextItems, status: nextStatus }
   }),
 
-  updateIndexFromServer: itemIds => set(() => ({ itemIds })),
+  updateIndexFromServer: itemIds => set(state => {
+    const nextStatus = state.status === 'initializing' && itemIds.length === 0
+      ? 'ready'
+      : state.status
+
+    return {
+      itemIds,
+      status: nextStatus,
+    }
+  }),
 
   updateMetadataFromServer: metadata => set(() => ({ metadata })),
 

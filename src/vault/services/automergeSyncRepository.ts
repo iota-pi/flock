@@ -13,6 +13,7 @@ export type StoredSyncMessage = {
   encryptedMessage: {
     iv: string
     cipher: string
+    version?: string
   }
   createdAt: number
 }

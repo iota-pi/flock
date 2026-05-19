@@ -69,14 +69,14 @@ export class SyncPullQueueManager {
       itemId,
       cursor,
     }))
-    
+
     // Add pending item IDs that might not have a cursor yet
     for (const itemId of this.pendingPullItemIds) {
       if (!this.cursorByItemId.has(itemId)) {
         cursors.push({ itemId, cursor: 0 })
       }
     }
-    
+
     this.pendingPullItemIds.clear()
     return cursors
   }
@@ -98,8 +98,23 @@ export class SyncPullQueueManager {
           try {
             const decrypted = await decryptSyncMessage(entry.encryptedMessage)
             const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+            const isBatched = entry.encryptedMessage.version === '1.0'
 
-            this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
+            if (isBatched) {
+              let offset = 0
+              const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
+              while (offset < decrypted.byteLength) {
+                const length = view.getUint32(offset, false)
+                offset += 4
+                const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
+                offset += length
+
+                this.onMessageParsed(itemId, documentId as DocumentId, msg)
+              }
+            } else {
+              this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
+            }
+
             successfullyPulledItemIds.add(itemId)
           } catch (error) {
             reportDecryptionFailure({

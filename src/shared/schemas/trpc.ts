@@ -62,6 +62,7 @@ export const PrayerCompletionBodySchema = z.object({
 const SyncEncryptedMessageSchema = z.object({
   iv: z.string().min(1),
   cipher: z.string().min(1),
+  version: z.string().min(1).optional(),
 })
 
 export const SyncPushBatchSchema = z.object({

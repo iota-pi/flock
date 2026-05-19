@@ -136,10 +136,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   private startPolling(): void {
     this.stopPolling()
-    
+
     // Immediate first poll
     void this.executePoll()
-    
+
     this.pollIntervalId = self.setInterval(() => {
       void this.executePoll()
     }, 30000)
@@ -191,6 +191,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
             encryptedMessage: {
               iv: encryptedMessage.iv,
               cipher: encryptedMessage.cipher,
+              version: '1.0',
             }
           }
         })
