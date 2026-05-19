@@ -39,7 +39,6 @@ const ItemFormContent = lazy(() => import('./ItemFormContent'))
 interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
   itemId: string | null,
-  initialItem?: StandardItem,
 }
 
 
@@ -47,7 +46,6 @@ function ItemDrawer({
   alwaysTemporary,
   fromPrayerPage = false,
   itemId,
-  initialItem,
   onBack,
   onClose,
   open,
@@ -58,11 +56,8 @@ function ItemDrawer({
     if (storeItem) {
       return storeItem
     }
-    if (initialItem) {
-      return initialItem
-    }
     return null
-  }, [storeItem, initialItem])
+  }, [storeItem])
 
   const handleChange = useCallback(
     (data: Partial<Item> | ((prev: Item) => Item)) => {

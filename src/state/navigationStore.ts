@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { generateItemId } from '../utils'
 import type { ItemId } from '../shared/itemTypes'
-import type { Item, StandardItem } from './items'
+import type { Item } from './items'
 
 export type DrawerOnChange = (
   item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
@@ -10,7 +10,6 @@ export type DrawerOnChange = (
 export interface DrawerData {
   id: string
   item?: ItemId
-  initialItem?: StandardItem
   alwaysTemporary?: boolean
   disableRouting?: boolean
   fromPrayerPage?: boolean

@@ -8,7 +8,8 @@ import {
   useItemIds,
   usePracticalFilterCount,
   useMetadata,
-  useSortCriteria, useItemsByIds 
+  useSortCriteria,
+  useItemsByIds,
 } from 'src/state/selectors'
 import BasePage from './BasePage'
 import { useUiStore } from 'src/state/uiStore'
@@ -68,7 +69,7 @@ function ItemPage({
       void createItem(itemType, {
         prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
       }).then(createdItem => {
-        setDrawer({ item: createdItem.id, initialItem: createdItem as StandardItem })
+        setDrawer({ item: createdItem.id })
       }).catch(error => {
         console.error(error)
       })

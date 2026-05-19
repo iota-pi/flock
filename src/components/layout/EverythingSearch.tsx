@@ -46,7 +46,7 @@ function EverythingSearch({
       } = itemToCreate
 
       void createItem(type, overrides).then(createdItem => {
-        setDrawer({ item: createdItem.id, initialItem: createdItem as StandardItem })
+        setDrawer({ item: createdItem.id })
       }).catch(error => {
         console.error(error)
       })

@@ -121,7 +121,6 @@ function DrawerDisplay() {
         alwaysTemporary={drawer?.alwaysTemporary}
         fromPrayerPage={drawer?.fromPrayerPage}
         itemId={lookupItemId}
-        initialItem={drawer?.initialItem}
         onBack={handleClose}
         onClose={handleClose}
         open={open}
