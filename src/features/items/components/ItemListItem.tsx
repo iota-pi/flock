@@ -118,64 +118,62 @@ export function ItemListItem(props: ItemListItemProps) {
 
   const item = useItem(itemId)
 
-  const currentItem = item
-
   const handleClick = useCallback(
     () => {
-      if (currentItem) {
-        onClick?.(currentItem)
+      if (item) {
+        onClick?.(item)
       }
     },
-    [currentItem, onClick],
+    [item, onClick],
   )
 
   const handleClickAction = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation()
-      if (!currentItem) {
+      if (!item) {
         return undefined
       }
       if (onClickAction) {
-        return onClickAction(currentItem)
+        return onClickAction(item)
       }
       if (onClick) {
-        return onClick(currentItem)
+        return onClick(item)
       }
       return undefined
     },
-    [currentItem, onClick, onClickAction],
+    [item, onClick, onClickAction],
   )
 
   const handleCheck = useCallback(
     (event: MouseEvent) => {
-      if (onCheck && currentItem) {
+      if (onCheck && item) {
         event.stopPropagation()
-        onCheck(currentItem)
+        onCheck(item)
       }
     },
-    [currentItem, onCheck],
+    [item, onCheck],
   )
 
   const actionIcon = useMemo(
-    () => (currentItem ? getActionIcon?.(currentItem) : undefined),
-    [currentItem, getActionIcon],
+    () => (item ? getActionIcon?.(item) : undefined),
+    [item, getActionIcon],
   )
-  const checked = useMemo(() => (currentItem ? getChecked?.(currentItem) : false), [currentItem, getChecked])
+  const checked = useMemo(() => (item ? getChecked?.(item) : false), [item, getChecked])
   const icon = useMemo(
-    () => (currentItem ? (getIcon?.(currentItem) || getItemIcon(currentItem.type)) : undefined),
-    [currentItem, getIcon],
+    () => (item ? (getIcon?.(item) || getItemIcon(item.type)) : undefined),
+    [item, getIcon],
   )
   const title = useMemo(
-    () => (currentItem ? (getTitle?.(currentItem) || getItemName(currentItem)) : ''),
-    [currentItem, getTitle],
+    () => (item ? (getTitle?.(item) || getItemName(item)) : ''),
+    [item, getTitle],
   )
   const description = useMemo(
     () => {
-      if (!currentItem) {
+      if (!item) {
         return ''
       }
-      const defaultDescription = currentItem.description ?? ''
-      const base = getDescription ? getDescription(currentItem) : defaultDescription
+      const defaultDescription = item.description ?? ''
+      const base = getDescription ? getDescription(item) : defaultDescription
       const clipped = base.slice(0, 100)
       if (clipped.length < base.length) {
         const clippedToWord = clipped.slice(0, clipped.lastIndexOf(' '))
@@ -183,11 +181,11 @@ export function ItemListItem(props: ItemListItemProps) {
       }
       return base
     },
-    [currentItem, getDescription],
+    [item, getDescription],
   )
   const groupLookup = useMemo(
-    () => (currentItem ? groupsByMemberId?.get(currentItem.id) : undefined),
-    [currentItem, groupsByMemberId],
+    () => (item ? groupsByMemberId?.get(item.id) : undefined),
+    [item, groupsByMemberId],
   )
   const tags = useMemo(
     () => {
@@ -206,15 +204,15 @@ export function ItemListItem(props: ItemListItemProps) {
 
   const faded = useMemo(
     () => {
-      if (currentItem && isItem(currentItem) && currentItem.archived && fadeArchived) {
+      if (item && isItem(item) && item.archived && fadeArchived) {
         return true
       }
-      if (currentItem && getForceFade && getForceFade(currentItem)) {
+      if (item && getForceFade && getForceFade(item)) {
         return true
       }
       return false
     },
-    [currentItem, fadeArchived, getForceFade],
+    [item, fadeArchived, getForceFade],
   )
   const isHighlighted = highlighted ?? false
 
@@ -227,14 +225,14 @@ export function ItemListItem(props: ItemListItemProps) {
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        slotProps={{ input: { 'aria-labelledby': `${currentItem?.id}-text` } }}
+        slotProps={{ input: { 'aria-labelledby': `${item?.id}-text` } }}
       />
     </CheckboxHolder>
   )
 
   const marginLeft = useTheme().spacing(2)
 
-  if (!currentItem) {
+  if (!item) {
     return (
       <div style={style} ref={measureElement} data-index={index}>
         {dividers && <Divider />}
@@ -283,7 +281,7 @@ export function ItemListItem(props: ItemListItemProps) {
             <StyledListItemText
               faded={faded}
               wrapText={wrapText}
-              id={`${currentItem.id}-text`}
+              id={`${item.id}-text`}
               primary={title}
               secondary={description || undefined}
             />
@@ -291,7 +289,7 @@ export function ItemListItem(props: ItemListItemProps) {
 
           <div style={{ flexGrow: 1 }} />
 
-          {showTags && isItem(currentItem) && (
+          {showTags && isItem(item) && (
             <TagDisplay
               tags={tags}
               linkedIds={groupIds}
