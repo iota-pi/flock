@@ -95,7 +95,7 @@
     "browserslist": "^4.28.1",
     "browserslist-to-esbuild": "^2.1.1",
     "concurrently": "^9.2.1",
-    "cypress": "^15.8.1",
+    "cypress": "^15.15.0",
     "cypress-axe": "^1.7.0",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.1",
