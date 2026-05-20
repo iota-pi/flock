@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDataRecovery } from './useDataRecovery'
+import { useAuthStore } from '../state/authStore'
 
 const mocks = vi.hoisted(() => ({
   readManualRecoveryEntries: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../state/toastStore', () => ({
 describe('useDataRecovery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useAuthStore.getState().updateAuth({ account: 'acct-1', loggedIn: true, initializing: false })
   })
 
   it('loads manual recovery entries from storage', async () => {
@@ -112,6 +114,7 @@ describe('useDataRecovery', () => {
     })
 
     expect(mocks.withAutomergeDocumentChange).toHaveBeenCalledWith(
+      'acct-1',
       'item-1',
       expect.any(Function),
       expect.objectContaining({

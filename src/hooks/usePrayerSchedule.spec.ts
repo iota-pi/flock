@@ -16,14 +16,14 @@ vi.mock('./useToday', () => ({
   useToday: vi.fn(),
 }))
 
-vi.mock('../sync/automergeDocStore', () => ({
-  withAutomergeDocumentChange: vi.fn(async () => true),
+vi.mock('src/features/items/mutations/itemMutations', () => ({
+  mutateItem: vi.fn(async () => undefined),
 }))
 
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
-import { withAutomergeDocumentChange } from '../sync/automergeDocStore'
+import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { Item } from 'src/state/items'
 
 describe('usePrayerSchedule', () => {
@@ -78,11 +78,10 @@ describe('usePrayerSchedule', () => {
       result.current.recordPrayerFor(item as any)
     })
 
-    expect(withAutomergeDocumentChange).toHaveBeenCalledWith(
+    expect(mutateItem).toHaveBeenCalledWith(
       '1',
-      expect.any(Function),
       expect.objectContaining({
-        createIfMissing: true,
+        prayedFor: expect.any(Array),
       }),
     )
   })

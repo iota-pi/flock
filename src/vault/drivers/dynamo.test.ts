@@ -111,7 +111,7 @@ describe('DynamoDriver', function () {
       },
     })
 
-    const [result] = await driver.fetchAll({ account })
+    const result = await driver.get({ account, item: item })
     expect(result.metadata.deleted).toBe(true)
     expect(typeof result.ttl).toBe('number')
   })

@@ -40,10 +40,10 @@ describe('automergeSyncDispatcher', () => {
     expect(mocks.setVaultNetworkAccount).not.toHaveBeenCalled()
   })
 
-  it('stops vault network account wiring and clears syncing state', () => {
+  it('stops vault network account wiring and clears syncing state', async () => {
     useSyncStore.getState().setSyncStatus('syncing')
 
-    stopAutomergeSyncDispatcher()
+    await stopAutomergeSyncDispatcher()
 
     expect(mocks.setVaultNetworkAccount).toHaveBeenCalledWith(null)
     expect(useSyncStore.getState().status).toBe('idle')

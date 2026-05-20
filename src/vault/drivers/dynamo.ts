@@ -6,7 +6,6 @@ import {
   DynamoDBClientConfig,
 } from '@aws-sdk/client-dynamodb'
 import {
-  BatchGetCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -19,7 +18,6 @@ import {
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
 import { randomBytes } from 'crypto'
-import { chunk } from 'lodash-es'
 import {
   almostConstantTimeEqual,
   generateAccountId,
@@ -35,17 +33,15 @@ import BaseDriver, {
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
-import type { ItemId } from '../../shared/itemTypes'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
 
 const MAX_ITEM_SIZE = 50000
-const MAX_BATCH_GET_ITEMS = 100
-const MAX_BATCH_GET_RETRIES = 5
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
+const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type WritableVaultItem = VaultItem & {
   _expectedParentVersionId?: string
@@ -85,10 +81,15 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
+  const shouldSetTtl = item.metadata?.deleted === true && typeof item.ttl !== 'number'
+  const ttl = shouldSetTtl
+    ? Math.floor(Date.now() / 1000) + TOMBSTONE_TTL_SECONDS
+    : item.ttl
 
   const persistedItem: PersistedVaultItem = {
     ...item,
     ...(modifiedAt !== undefined ? { modifiedAt } : {}),
+    ...(ttl !== undefined ? { ttl } : {}),
   }
 
   const params: PutCommandInput = {
@@ -605,7 +606,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       {
         TableName: ITEM_TABLE_NAME,
         Key: { account, item },
-        ProjectionExpression: DATA_ATTRIBUTES.join(','),
+        ProjectionExpression: [...DATA_ATTRIBUTES, '#ttl'].join(','),
+        ExpressionAttributeNames: {
+          '#ttl': 'ttl',
+        },
       },
     ))
     if (response?.Item) {
