@@ -116,7 +116,6 @@ interface BaseProps {
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   alwaysShowBack?: boolean,
-  disableAutoCloseOnSave?: boolean,
   fullScreen?: boolean,
   headerActions?: React.ReactNode,
   hideBackButton?: boolean,
@@ -133,7 +132,6 @@ function BaseDrawer({
   alwaysShowBack = false,
   alwaysTemporary = false,
   children,
-  disableAutoCloseOnSave = false,
   fullScreen = false,
   headerActions,
   hideBackButton = false,
@@ -176,14 +174,14 @@ function BaseDrawer({
       if (ActionProps?.onSave) {
         return () => {
           ActionProps.onSave()
-          if (!permanentDrawer && !disableAutoCloseOnSave) {
+          if (!permanentDrawer) {
             onClose()
           }
         }
       }
       return undefined
     },
-    [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
+    [ActionProps, onClose, permanentDrawer],
   )
 
   const handleKeyDown = useCallback(
