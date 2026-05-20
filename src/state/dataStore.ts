@@ -53,7 +53,12 @@ export const useDataStore = create<DataStore>(set => ({
     }
   }),
 
-  updateMetadataFromServer: metadata => set(() => ({ metadata })),
+  updateMetadataFromServer: metadata => set(state => ({
+    metadata: {
+      ...state.metadata,
+      ...metadata,
+    },
+  })),
 
   optimisticUpdateItem: (id, partial) => set(state => {
     if (!state.items[id]) return state

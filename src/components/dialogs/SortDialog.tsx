@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useMemo, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Dialog,
@@ -117,11 +117,11 @@ function SortDialog({
 
   const [localCriteria, setLocalCriteria] = useState<SortCriterion[]>([])
 
-  const [prevSortCriteria, setPrevSortCriteria] = useState(sortCriteria)
-  if (sortCriteria !== prevSortCriteria) {
-    setPrevSortCriteria(sortCriteria)
-    setLocalCriteria(sortCriteria)
-  }
+  useEffect(() => {
+    if (open) {
+      setLocalCriteria(sortCriteria)
+    }
+  }, [open, sortCriteria])
 
   const chosenCriteria = useMemo(
     () => new Set(localCriteria.map(lc => lc.type)),

@@ -81,6 +81,7 @@ function initializeApp() {
     if (window.Cypress) {
       window.vault = import('./api/vault')
       window.mutations = import('./features/items/mutations/itemMutations')
+      window.syncBridge = import('./sync/SyncBridge').then(mod => mod.SyncBridge)
     }
   } catch (error) {
     console.error('Failed to initialize application core:', error)

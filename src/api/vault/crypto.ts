@@ -171,27 +171,3 @@ function stripUndefinedDeep(value: unknown): unknown {
 
   return value
 }
-
-export async function encryptObjectAsAutomergeWithKey(
-  key: CryptoKey,
-  obj: object,
-): Promise<{ encryptedAutomergeDoc: string, versionId: string }> {
-  const cleanedObject = stripUndefinedDeep(obj) as Record<string, unknown>
-  const doc = Automerge.from(cleanedObject)
-  const binary = Automerge.save(doc)
-
-  const iv = crypto.getRandomValues(new Uint8Array(16))
-  const cipher = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    binary as BufferSource,
-  )
-
-  return {
-    encryptedAutomergeDoc: encodeEncryptedAutomergeDoc({
-      iv,
-      cipher,
-    }),
-    versionId: createVersionId(),
-  }
-}

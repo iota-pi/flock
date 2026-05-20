@@ -23,6 +23,11 @@ function toTrpcSuccessResponse(json: unknown, body?: unknown) {
   ]
 }
 
+function generateMockEncryptedDoc(): string {
+  const randomBytes = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+  return Buffer.from(randomBytes).toString('base64')
+}
+
 describe('Backup and restore', () => {
   it('exports a backup and opens restore dialog', () => {
     cy.page('settings')
@@ -40,38 +45,8 @@ describe('Backup and restore', () => {
     const conflictItemId = `backup-conflict-${Date.now()}`
     const versionA = `backup-v1-${Date.now()}`
     const versionB = `backup-v2-${Date.now()}`
-    let branchA = ''
-    let branchB = ''
-
-    cy.window().then(async (win) => {
-      const vault = await win.vault
-      const [a, b] = await Promise.all([
-        vault.encryptObjectAsAutomerge({
-          id: conflictItemId,
-          name: 'Backup Merge Person',
-          description: 'edited on device A',
-          type: 'person',
-          archived: false,
-          notes: [],
-          prayedFor: [],
-          prayerFrequency: 'none',
-          created: Date.now(),
-        }),
-        vault.encryptObjectAsAutomerge({
-          id: conflictItemId,
-          name: 'Backup Merge Person',
-          description: 'edited on device B',
-          type: 'person',
-          archived: false,
-          notes: [{ id: `n-${Date.now()}`, text: 'note from B', archived: false, time: Date.now() }],
-          prayedFor: [],
-          prayerFrequency: 'none',
-          created: Date.now(),
-        }),
-      ])
-      branchA = a.encryptedAutomergeDoc
-      branchB = b.encryptedAutomergeDoc
-    })
+    const branchA = generateMockEncryptedDoc()
+    const branchB = generateMockEncryptedDoc()
 
     cy.intercept('GET', '**/trpc/items.fetchMany*', (req) => {
       req.reply({

@@ -4,9 +4,28 @@ import type { SyncApi, SyncCallbacks } from '../workers/syncProtocol'
 import { useDataStore } from '../state/dataStore'
 import { useSyncStore } from '../state/syncStore'
 import { getStoredVaultKey } from '../api/vault'
+import { useAuthStore } from '../state/authStore'
 import type { Item } from 'src/state/items'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
+
+async function ensureSyncApi(): Promise<Comlink.Remote<SyncApi>> {
+  if (syncApi) {
+    return syncApi
+  }
+
+  const account = useAuthStore.getState().account
+  if (!account) {
+    throw new Error('SyncBridge not initialized: account missing')
+  }
+
+  await SyncBridge.initialize(account)
+  if (!syncApi) {
+    throw new Error('SyncBridge not initialized')
+  }
+
+  return syncApi
+}
 
 export const SyncBridge = {
   initialize: async (accountId: string) => {

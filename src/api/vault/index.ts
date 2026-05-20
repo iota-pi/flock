@@ -25,7 +25,6 @@ import {
 import {
   decryptWithKey,
   deriveVaultKey,
-  encryptObjectAsAutomergeWithKey,
   encryptWithKey,
   exportVaultKey,
   hashVaultKey,
@@ -242,10 +241,6 @@ export async function decrypt(data: CryptoResult): Promise<string> {
 
 export async function decryptObject({ iv, cipher }: CryptoResult): Promise<object> {
   return JSON.parse(await decrypt({ iv, cipher }))
-}
-
-export async function encryptObjectAsAutomerge(obj: object): Promise<{ encryptedAutomergeDoc: string; versionId: string }> {
-  return encryptObjectAsAutomergeWithKey(getKey(), obj)
 }
 
 export function exportData<T>(payload: T): Promise<CryptoResult> {
