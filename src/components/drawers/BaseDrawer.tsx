@@ -176,7 +176,7 @@ function BaseDrawer({
       if (ActionProps?.onSave) {
         return () => {
           ActionProps.onSave()
-          if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
+          if (!permanentDrawer && !disableAutoCloseOnSave) {
             onClose()
           }
         }

@@ -206,7 +206,6 @@ function ItemDrawer({
         onCancel: handleCancel,
         onDelete: handleDelete,
         onSave: handleSaveButton,
-        promptSave: false,
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}
