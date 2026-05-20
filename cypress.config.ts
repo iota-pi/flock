@@ -4,6 +4,7 @@ import fs from 'fs'
 
 export default defineConfig({
   e2e: {
+    allowCypressEnv: false,
     baseUrl: 'http://localhost:3000',
     video: false,
     // retries: 1,

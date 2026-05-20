@@ -70,7 +70,7 @@ Cypress.Commands.overwrite(
 const TEST_PASSWORD = 'TestPass123!'
 
 const establishSession = () => {
-  Cypress.env('TEST_ACCOUNT_ID', '')
+  Cypress.expose('TEST_ACCOUNT_ID', '')
 
   cy.ensureAccount(TEST_PASSWORD).then(() => {
     cy.page('prayer')

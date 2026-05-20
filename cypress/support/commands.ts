@@ -73,13 +73,13 @@ function getMutationAliasFromUrl(url: string, mode: NetworkMode): string {
 }
 
 function ensureNetworkInterceptors() {
-  if (Cypress.env('NETWORK_INTERCEPTORS_READY')) {
+  if (Cypress.expose('NETWORK_INTERCEPTORS_READY')) {
     return
   }
 
   TRPC_MUTATION_PATTERNS.forEach(pattern => {
     cy.intercept('POST', pattern, req => {
-      const mode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
+      const mode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       req.alias = getMutationAliasFromUrl(req.url, mode)
 
       if (mode === 'offline') {
@@ -101,7 +101,7 @@ function ensureNetworkInterceptors() {
 
   REST_MUTATION_PATTERNS.forEach(pattern => {
     cy.intercept({ method: /PUT|POST/, url: pattern }, req => {
-      const mode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
+      const mode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       req.alias = getMutationAliasFromUrl(req.url, mode)
 
       if (mode === 'offline') {
@@ -121,7 +121,7 @@ function ensureNetworkInterceptors() {
     })
   })
 
-  Cypress.env('NETWORK_INTERCEPTORS_READY', true)
+  Cypress.expose('NETWORK_INTERCEPTORS_READY', true)
 }
 
 function readSyncDbKey<T>(win: Cypress.AUTWindow, key: string): Promise<T | null> {
@@ -180,21 +180,21 @@ Cypress.Commands.add('dataCy', (...dataCy: string[]) => (
 
 Cypress.Commands.add('goOffline', () => {
   cy.log('**Going Offline**')
-  Cypress.env('NETWORK_MODE', 'offline')
+  Cypress.expose('NETWORK_MODE', 'offline')
   ensureNetworkInterceptors()
   return cy
 })
 
 Cypress.Commands.add('goOnline', () => {
   cy.log('**Going Online**')
-  Cypress.env('NETWORK_MODE', 'online')
+  Cypress.expose('NETWORK_MODE', 'online')
   ensureNetworkInterceptors()
   return cy
 })
 
 Cypress.Commands.add('forceServerError', () => {
   cy.log('**Forcing 500 Server Error**')
-  Cypress.env('NETWORK_MODE', 'server-error')
+  Cypress.expose('NETWORK_MODE', 'server-error')
   ensureNetworkInterceptors()
   return cy
 })
@@ -208,7 +208,7 @@ Cypress.Commands.add('getDeadLetterQueue', () => {
 })
 
 Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<string> => {
-  const existing = Cypress.env('TEST_ACCOUNT_ID') as string | undefined
+  const existing = Cypress.expose('TEST_ACCOUNT_ID') as string | undefined
   if (typeof existing === 'string' && existing.length > 0) {
     cy.visit('/login')
     cy.get('#username', { timeout: 15000 }).clear().type(existing)
@@ -228,7 +228,7 @@ Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<stri
     .its('localStorage')
     .then(localStorageRef => {
       const stableAccountId = readStoredAccountId(localStorageRef) || 'session-account'
-      Cypress.env('TEST_ACCOUNT_ID', stableAccountId)
+      Cypress.expose('TEST_ACCOUNT_ID', stableAccountId)
       return stableAccountId
     })
 })
@@ -348,7 +348,7 @@ Cypress.Commands.add(
   (): Cypress.Chainable => {
     return cy.dataCy('drawer-done').last().then($button => {
       const shouldWait = $button.text().toLowerCase().includes('save')
-      const networkMode = (Cypress.env('NETWORK_MODE') as NetworkMode | undefined) || 'online'
+      const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       const shouldWaitForNetwork = shouldWait && networkMode !== 'offline'
 
       if (shouldWaitForNetwork) {
