@@ -5605,22 +5605,26 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@trpc/client@npm:^11.13.4":
-  version: 11.13.4
-  resolution: "@trpc/client@npm:11.13.4"
+"@trpc/client@npm:^11.17.0":
+  version: 11.17.0
+  resolution: "@trpc/client@npm:11.17.0"
   peerDependencies:
-    "@trpc/server": 11.13.4
+    "@trpc/server": 11.17.0
     typescript: ">=5.7.2"
-  checksum: 10c0/e9aec01d20805d284459e54d45827f55e6594f3b61a1b226b84342c668cd97a4553bc43d975901974ddfb66f074b15711b9890c452c2ce95e27b1cc089308c02
+  bin:
+    intent: bin/intent.js
+  checksum: 10c0/f18061128f28a5a5e27551d5facf11e10a591a2e8e28d93601cebf541025f3aee459500d252343e25e4d7e913623cdd3455e1fab23979cb83e174cecd40e3163
   languageName: node
   linkType: hard
 
-"@trpc/server@npm:^11.13.4":
-  version: 11.13.4
-  resolution: "@trpc/server@npm:11.13.4"
+"@trpc/server@npm:^11.17.0":
+  version: 11.17.0
+  resolution: "@trpc/server@npm:11.17.0"
   peerDependencies:
     typescript: ">=5.7.2"
-  checksum: 10c0/46de6f8d4fa66efcf422315f8567a46b33a2efbb77c257c3453e361988e4a58ada3c226faddae9c083712c3124079a32ac99b46d18d3a579f1bb175aa82c7249
+  bin:
+    intent: bin/intent.js
+  checksum: 10c0/84c1a1db748d69f248ef52631e75d4f0fe029f60990b6fdca28356a52d73f8881ab6c0e1ea56026e5a1ab7bbd97d710bc99351290407f5601620bafdfeacf06f
   languageName: node
   linkType: hard
 
@@ -8905,8 +8909,8 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/react": "npm:^16.3.0"
     "@testing-library/user-event": "npm:^14.6.1"
-    "@trpc/client": "npm:^11.13.4"
-    "@trpc/server": "npm:^11.13.4"
+    "@trpc/client": "npm:^11.17.0"
+    "@trpc/server": "npm:^11.17.0"
     "@types/lodash-es": "npm:^4.17.12"
     "@types/node": "npm:^24.10.1"
     "@types/react": "npm:^19.2.7"

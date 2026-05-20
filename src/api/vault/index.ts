@@ -31,7 +31,7 @@ import {
   importVaultKey,
   type CryptoResult,
 } from './crypto'
-import { TRPCError } from '@trpc/server'
+import type { TRPCError } from '@trpc/server'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
