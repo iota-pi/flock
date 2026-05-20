@@ -352,23 +352,17 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               slotProps={{
                 input: {
                   ...InputProps,
-                  startAdornment: (
-                    <>
-                      {InputIcon && (
-                        <InputAdornment position="start">
-                          <InputIcon />
-                        </InputAdornment>
-                      )}
-
-                      {InputProps.startAdornment}
-                    </>
-                  ),
+                  startAdornment: InputIcon ? (
+                    <InputAdornment position="start">
+                      <InputIcon />
+                    </InputAdornment>
+                  ) : InputProps.startAdornment,
                 },
                 inputLabel: InputLabelProps,
                 htmlInput: {
                   ...inputProps,
                   'data-cy': dataCy,
-                }
+                },
               }}
               label={label}
               placeholder={placeholder}
