@@ -15,7 +15,6 @@ import {
   PropsWithChildren,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -216,61 +215,57 @@ function BaseDrawer({
   }, [])
 
   return (
-    <>
-      <StyledDrawer
-        anchor="right"
-        disableSwipeToOpen
-        fullScreen={fullScreen}
-        onClose={handleDrawerClose}
-        onOpen={noOp}
-        onKeyDown={handleKeyDown}
-        open={open}
-        permanent={permanentDrawer}
-        variant={permanentDrawer ? 'permanent' : 'temporary'}
-      >
-        {permanentDrawer && (
-          <Toolbar />
-        )}
+    <StyledDrawer
+      anchor="right"
+      disableSwipeToOpen
+      fullScreen={fullScreen}
+      onClose={handleDrawerClose}
+      onOpen={noOp}
+      onKeyDown={handleKeyDown}
+      open={open}
+      permanent={permanentDrawer}
+      variant={permanentDrawer ? 'permanent' : 'temporary'}
+    >
+      {permanentDrawer && (
+        <Toolbar />
+      )}
 
-        <Layout>
-          <StyledContainer
-            data-cy="drawer-content"
-            ref={containerRef}
-          >
-            <>
-              <Box>
-                {showTypeIcon && Icon && (
-                  <IconHolder>
-                    <Icon />
-                  </IconHolder>
-                )}
-              </Box>
-
-              {(showBackButton || headerActions) && (
-                <TopRightActionsHolder>
-                  {headerActions}
-                  {showBackButton && (
-                    <IconButton aria-label="Go back" data-cy="back-button" onClick={handleBack} size="large">
-                      <RemoveIcon />
-                    </IconButton>
-                  )}
-                </TopRightActionsHolder>
+      <Layout>
+        <StyledContainer
+          data-cy="drawer-content"
+          ref={containerRef}
+        >
+          <>
+            <Box>
+              {showTypeIcon && Icon && (
+                <IconHolder>
+                  <Icon />
+                </IconHolder>
               )}
+            </Box>
 
-              {children}
-            </>
-          </StyledContainer>
+            {(showBackButton || headerActions) && (
+              <TopRightActionsHolder>
+                {headerActions}
+                {showBackButton && (
+                  <IconButton aria-label="Go back" data-cy="back-button" onClick={handleBack} size="large">
+                    <RemoveIcon />
+                  </IconButton>
+                )}
+              </TopRightActionsHolder>
+            )}
 
-          {ActionProps && (
-            <div>
-              <DrawerActions
-                {...ActionProps}
-              />
-            </div>
-          )}
-        </Layout>
-      </StyledDrawer>
-    </>
+            {children}
+          </>
+        </StyledContainer>
+
+        {ActionProps && (
+          <DrawerActions
+            {...ActionProps}
+          />
+        )}
+      </Layout>
+    </StyledDrawer>
   )
 }
 
