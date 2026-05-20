@@ -169,20 +169,7 @@ function BaseDrawer({
     },
     [onBack, onClose],
   )
-  const handleSave = useMemo(
-    () => {
-      if (ActionProps?.onSave) {
-        return () => {
-          ActionProps.onSave()
-          if (!permanentDrawer) {
-            onClose()
-          }
-        }
-      }
-      return undefined
-    },
-    [ActionProps, onClose, permanentDrawer],
-  )
+  const handleSave = ActionProps?.onSave
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -197,14 +184,6 @@ function BaseDrawer({
     [handleSave, onClose],
   )
 
-  const modifiedActionProps = useMemo(
-    () => ActionProps && ({
-      ...ActionProps,
-      onSave: handleSave,
-    } as DrawerActionsProps),
-    [ActionProps, handleSave],
-  )
-
   const prevKey = usePrevious(itemKey)
   const containerRef = createRef<HTMLDivElement>()
   useEffect(
@@ -215,7 +194,6 @@ function BaseDrawer({
     },
     [containerRef, itemKey, prevKey],
   )
-
 
   useHotkeys(
     ['ctrl+s', 'meta+s'],
@@ -283,11 +261,10 @@ function BaseDrawer({
             </>
           </StyledContainer>
 
-          {modifiedActionProps && (
+          {ActionProps && (
             <div>
               <DrawerActions
-                permanentDrawer={permanentDrawer}
-                {...modifiedActionProps}
+                {...ActionProps}
               />
             </div>
           )}

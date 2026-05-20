@@ -24,7 +24,6 @@ interface BaseProps {
   canSend?: boolean,
   itemIsNew?: boolean,
   itemName?: string,
-  permanentDrawer?: boolean,
 }
 
 interface PropsWithSave extends BaseProps {
@@ -66,7 +65,6 @@ function DrawerActions({
   onDone,
   onSave,
   onSkip,
-  permanentDrawer,
 }: Props) {
   const [showConfirm, setShowConfirm] = useState(false)
 
@@ -135,7 +133,7 @@ function DrawerActions({
                 startIcon={<SaveIcon />}
                 variant={itemIsNew ? 'contained' : 'outlined'}
               >
-                {permanentDrawer ? 'Save' : 'Done'}
+                Save
               </Button>
             </Grid>
           )}
