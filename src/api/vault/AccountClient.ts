@@ -5,6 +5,7 @@ import type {
   AccountCreationResponse,
   CreateAccountBody,
 } from './clientTypes'
+import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 export async function createAccount(
   { salt, authToken }: CreateAccountBody,
@@ -12,7 +13,7 @@ export async function createAccount(
   return trpcClient.accounts.createAccount.mutate({
     salt,
     authToken,
-    iterations: 100000,
+    iterations: DEFAULT_CRYPTO_ITERATIONS,
   })
 }
 

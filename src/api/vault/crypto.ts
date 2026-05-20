@@ -1,5 +1,4 @@
-import * as Automerge from '@automerge/automerge/slim'
-import { encodeEncryptedAutomergeDoc } from '../../shared/automergeBranchCipher'
+import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 export interface CryptoResult {
   iv: string,
@@ -42,10 +41,6 @@ type InitialiseKeyParams = {
   iterations?: number,
 }
 
-function createVersionId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
 export async function deriveVaultKey({ password, salt, iterations }: InitialiseKeyParams): Promise<CryptoKey> {
   const enc = new TextEncoder()
   const keyBase = await crypto.subtle.importKey(
@@ -60,7 +55,7 @@ export async function deriveVaultKey({ password, salt, iterations }: InitialiseK
     {
       name: 'PBKDF2',
       salt: enc.encode(salt),
-      iterations: iterations || 100000,
+      iterations: iterations || DEFAULT_CRYPTO_ITERATIONS,
       hash: 'SHA-256',
     },
     keyBase,
