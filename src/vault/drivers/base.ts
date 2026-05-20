@@ -1,6 +1,6 @@
 import { FastifyRequest } from 'fastify'
 import type { ItemType, WebPushSubscription } from '../types'
-import type { ItemId, VaultBranch } from '../../shared/itemTypes'
+import type { VaultBranch } from '../../shared/itemTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 

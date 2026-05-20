@@ -137,56 +137,6 @@ function isConditionalCheckFailure(error: unknown): boolean {
   )
 }
 
-function isMissingDeltaIndexError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  return error.name === 'ValidationException' || error.message.includes('ValidationException')
-}
-
-function isRetryableAwsError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false
-  }
-
-  const typed = error as {
-    name?: unknown
-    code?: unknown
-    message?: unknown
-    retryable?: unknown
-    $metadata?: {
-      httpStatusCode?: unknown
-    }
-  }
-
-  if (typed.retryable === true) {
-    return true
-  }
-
-  const httpStatusCode = typed.$metadata?.httpStatusCode
-  if (typeof httpStatusCode === 'number' && (httpStatusCode === 429 || httpStatusCode >= 500)) {
-    return true
-  }
-
-  const name = String(typed.name || typed.code || '')
-  const message = String(typed.message || '')
-  const retryableTokens = [
-    'ProvisionedThroughputExceededException',
-    'ThrottlingException',
-    'Throttling',
-    'RequestLimitExceeded',
-    'InternalServerError',
-    'ServiceUnavailable',
-    'TimeoutError',
-    'NetworkingError',
-    'ECONNRESET',
-    'ETIMEDOUT',
-  ]
-
-  return retryableTokens.some(token => name.includes(token) || message.includes(token))
-}
-
 function normalizeSessionRecords(value: unknown, now = Date.now()): VaultSessionRecord[] {
   if (!Array.isArray(value)) {
     return []

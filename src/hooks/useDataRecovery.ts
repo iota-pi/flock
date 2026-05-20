@@ -93,7 +93,7 @@ export function useDataRecovery() {
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
     }
-  }, [removeManualRecoveryEntry, setMessage])
+  }, [account, removeManualRecoveryEntry, setMessage])
 
   const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
@@ -121,7 +121,7 @@ export function useDataRecovery() {
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
     }
-  }, [removeManualRecoveryEntry, setMessage])
+  }, [account, removeManualRecoveryEntry, setMessage])
 
   const handleRetryCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
