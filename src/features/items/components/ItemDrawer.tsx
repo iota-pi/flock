@@ -84,16 +84,9 @@ function ItemDrawer({
 
   const handleSaveButton = useCallback(
     () => {
-      cleanupAndClose()
+      onClose()
     },
-    [cleanupAndClose],
-  )
-
-  const handleCancel = useCallback(
-    () => {
-      cleanupAndClose()
-    },
-    [cleanupAndClose],
+    [onClose],
   )
 
   const handleDelete = useCallback(
@@ -203,7 +196,7 @@ function ItemDrawer({
         canSave: resolvedItem ? isValid(resolvedItem) : false,
         itemIsNew: isNew,
         itemName: resolvedItem ? getItemName(resolvedItem) : '',
-        onCancel: handleCancel,
+        onCancel: cleanupAndClose,
         onDelete: handleDelete,
         onSave: handleSaveButton,
       }}
