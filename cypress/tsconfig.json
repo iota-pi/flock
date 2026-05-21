@@ -9,10 +9,11 @@
     "types": [
       "cypress",
       "cypress-axe",
-      "../node_modules/@types/node"
+      "node"
     ]
   },
   "include": [
-    "**/*.ts"
+    "**/*.ts",
+    "../cypress.config.ts"
   ]
 }

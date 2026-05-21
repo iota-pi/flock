@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { defineConfig } from 'cypress'
 import path from 'path'
 import fs from 'fs'
