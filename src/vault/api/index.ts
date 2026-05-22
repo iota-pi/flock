@@ -13,6 +13,8 @@ async function createServer(devMode = false) {
     logger: {
       level: devMode ? 'info' : 'warn',
     },
+    // Allow large payloads for sync operations (especially for initial sync of index documents)
+    bodyLimit: 50 * 1024 * 1024,
   })
   await server.register(cookie)
   await server.register(cors, {
