@@ -8,10 +8,10 @@ import { appRouter } from '../trpc/root'
 import { createContext } from '../trpc/trpc'
 
 
-async function createServer() {
+async function createServer(devMode = false) {
   const server = Fastify({
     logger: {
-      level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
+      level: devMode ? 'info' : 'warn',
     },
   })
   await server.register(cookie)

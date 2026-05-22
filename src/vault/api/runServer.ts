@@ -8,7 +8,7 @@ async function runServer(port = 4000) {
 
   let retries = 10
   while (retries > 0) {
-    const server = await createServer()
+    const server = await createServer(true)
 
     // 1. Track all raw TCP connections so we can sever them instantly
     const sockets = new Set<Socket>()
