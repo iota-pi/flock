@@ -33,7 +33,7 @@ export const syncRouter = router({
           const [indexCursor] = input.pullCursors.splice(indexIndex, 1)
           input.pullCursors.unshift(indexCursor)
         }
-        
+
         const pullResult = await pullAutomergeSyncBatch({
           account: input.account,
           cursors: input.pullCursors,

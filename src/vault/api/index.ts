@@ -26,7 +26,7 @@ async function createServer(devMode = false) {
   })
   await server.register(fastifyAuth)
 
-  const vault = getDriver('dynamo')
+  const vault = getDriver('dynamo', devMode)
   server.decorate('vault', vault)
 
   await server.register(fastifyTRPCPlugin, {

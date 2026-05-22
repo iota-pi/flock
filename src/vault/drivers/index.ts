@@ -5,6 +5,6 @@ const BACKENDS = {
   dynamo: new DynamoDriver(),
 }
 
-export default function getDriver(backend: keyof typeof BACKENDS) {
-  return BACKENDS[backend].connect()
+export default function getDriver(backend: keyof typeof BACKENDS, devMode = false) {
+  return BACKENDS[backend].connect(devMode)
 }

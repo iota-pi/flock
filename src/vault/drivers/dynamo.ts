@@ -249,9 +249,12 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return this
   }
 
-  connect(_options?: T): DynamoDriver {
+  connect(_options?: T, devMode = false): DynamoDriver {
     const options = getConnectionParams(_options)
-    const ddb = new DynamoDBClient(options)
+    const ddb = new DynamoDBClient({
+      ...options,
+      logger: devMode ? console : undefined,
+    })
     this.internalClient = this.getDocumentClient(ddb)
     return this
   }
