@@ -160,14 +160,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.isPolling || !this.account || !this.connected) return
     this.isPolling = true
 
+    const authToken = await getActiveSessionToken()
+    if (!authToken) return
+
+    // 1. Drain the current queue
+    const batchEntries = Array.from(this.syncBatch.entries())
+    this.syncBatch.clear()
+
     try {
-      const authToken = await getActiveSessionToken()
-      if (!authToken) return
-
-      // 1. Drain the current queue
-      const batchEntries = Array.from(this.syncBatch.entries())
-      this.syncBatch.clear()
-
       // 2. Encrypt the outgoing messages
       const pushMessages = await Promise.all(
         batchEntries.map(async ([itemId, messages]) => {
@@ -218,6 +218,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       }
     } catch (error) {
       console.error('[VaultEncryptedNetworkAdapter] Polling failed', error)
+
+      // Restore unsent messages back into the queue for the next poll cycle
+      for (const [itemId, messages] of batchEntries) {
+        const existing = this.syncBatch.get(itemId) || []
+        this.syncBatch.set(itemId, [...messages, ...existing])
+      }
     } finally {
       this.isPolling = false
     }
