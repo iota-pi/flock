@@ -340,30 +340,22 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onHighlightChange={handleHighlightChange}
         options={options}
         renderInput={({ slotProps, ...params }) => {
-          const inputSlotProps = slotProps?.input ?? {}
-          const inputLabelSlotProps = slotProps?.inputLabel
-          const htmlInputSlotProps = slotProps?.htmlInput
+          if (InputIcon && slotProps?.input) {
+            slotProps.input.startAdornment = (
+              <InputAdornment position="start">
+                <InputIcon />
+              </InputAdornment>
+            )
+          }
+          if (dataCy && slotProps?.htmlInput) {
+            (slotProps.htmlInput as any)['data-cy'] = dataCy
+          }
           return (
             <TextField
               {...params}
               autoFocus={autoFocus}
               inputRef={inputRef}
-              slotProps={{
-                ...slotProps,
-                input: {
-                  ...inputSlotProps,
-                  startAdornment: InputIcon ? (
-                    <InputAdornment position="start">
-                      <InputIcon />
-                    </InputAdornment>
-                  ) : inputSlotProps.startAdornment,
-                },
-                inputLabel: inputLabelSlotProps,
-                htmlInput: {
-                  ...htmlInputSlotProps,
-                  'data-cy': dataCy,
-                },
-              }}
+              slotProps={slotProps}
               label={label}
               placeholder={placeholder}
               variant="outlined"
