@@ -340,10 +340,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onHighlightChange={handleHighlightChange}
         options={options}
         renderInput={({ slotProps, ...params }) => {
-          // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
-          // migrate to destructuring slotProps from params and using those instead of
-          // the deprecated InputProps and InputLabelProps.
-          // See: https://github.com/mui/material-ui/issues/45414 for status
           const inputSlotProps = slotProps?.input ?? {}
           const inputLabelSlotProps = slotProps?.inputLabel
           const htmlInputSlotProps = slotProps?.htmlInput
@@ -353,6 +349,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               autoFocus={autoFocus}
               inputRef={inputRef}
               slotProps={{
+                ...slotProps,
                 input: {
                   ...inputSlotProps,
                   startAdornment: InputIcon ? (
