@@ -41,13 +41,19 @@ export default function ErrorPage() {
         <Typography variant="h2" gutterBottom>
           Oops!
         </Typography>
-        <Typography variant="h5" mt={2}>
+        <Typography variant="h5" sx={{
+          mt: 2
+        }}>
           Sorry, something went wrong.
         </Typography>
-        <Typography color="error" mt={2}>
+        <Typography color="error" sx={{
+          mt: 2
+        }}>
           {errorMessage}
         </Typography>
-        <Box mt={4}>
+        <Box sx={{
+          mt: 4
+        }}>
           <Button
             variant="contained"
             color="primary"

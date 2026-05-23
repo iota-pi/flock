@@ -247,7 +247,6 @@ function MainMenu({
       variant="persistent"
     >
       <Toolbar />
-
       <DrawerContent>
         <FlexList>
           {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
@@ -263,7 +262,9 @@ function MainMenu({
             />
           ))}
 
-          <Box flexGrow={1} />
+          <Box sx={{
+            flexGrow: 1
+          }} />
 
           <MainMenuItem
             icon={minimised ? ExpandMenuIcon : ContractMenuIcon}

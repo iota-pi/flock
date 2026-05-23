@@ -44,7 +44,9 @@ function DefaultFrequencyDialog({ open, defaults, onClose, onSave }: Props) {
     <Dialog onClose={onClose} open={open} fullWidth maxWidth="sm">
       <DialogTitle>Default Prayer Frequency</DialogTitle>
       <DialogContent>
-        <Grid container spacing={2} alignItems="center">
+        <Grid container spacing={2} sx={{
+          alignItems: "center"
+        }}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <Typography variant="subtitle1">People</Typography>
             <FrequencyPicker

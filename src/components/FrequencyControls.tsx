@@ -108,14 +108,17 @@ function FrequencyControls(props: Props) {
   return (
     <Grid container spacing={1}>
       {isGroup && (
-        <Grid size={{ xs: 12 }} mt={2}>
-          <Typography variant="body1" color="text.secondary">
+        <Grid size={{ xs: 12 }} sx={{
+          mt: 2
+        }}>
+          <Typography variant="body1" sx={{
+            color: "text.secondary"
+          }}>
             You can choose how often to pray for the group as a whole,
             and for individual members.
           </Typography>
         </Grid>
       )}
-
       <Grid size={{ xs: 12 }}>
         <FrequencyPicker
           frequency={prayerFrequency}
@@ -130,14 +133,19 @@ function FrequencyControls(props: Props) {
           inheritedFrequency.group !== null
           && inheritedFrequencyIsFaster
           && (
-            <Typography variant="body2" color="text.secondary" mt={1}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                mt: 1
+              }}>
               As a member of&nbsp;
-              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              <InlineText variant="inherit">
                 {inheritedFrequency.group.name}
               </InlineText>
               &nbsp;this person will be scheduled at least
               {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
-              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              <InlineText variant="inherit">
                 {inheritedFrequency.frequency}
               </InlineText>
               {typeof inheritedFrequency.frequency === 'string' ? '' : ' days'}
@@ -192,10 +200,13 @@ function FrequencyControls(props: Props) {
           </Grid>
         </>
       )}
-
       <Grid size={{ xs: 12 }}>
         {lastPrayerText ? (
-          <Typography pt={1} color="text.secondary">
+          <Typography
+            sx={{
+              pt: 1,
+              color: "text.secondary"
+            }}>
             {'Last prayed for: '}
             <TextColorTransition color={lastPrayerClass}>
               {lastPrayerText}

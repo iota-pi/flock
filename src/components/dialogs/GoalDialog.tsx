@@ -106,9 +106,9 @@ function GoalDialog({
                     </IconButton>
                   </InputAdornment>
                 ),
-              }
+                'data-cy': 'dialog-goal-input',
+              },
             }}
-            inputProps={{ 'data-cy': 'dialog-goal-input' }}
           />
         </div>
       </DialogContent>

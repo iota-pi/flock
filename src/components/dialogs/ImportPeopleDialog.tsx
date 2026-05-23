@@ -117,7 +117,6 @@ function ImportPeopleDialog({
       <DialogTitle>
         Import People from CSV
       </DialogTitle>
-
       <DialogContent>
         <DropzoneArea
           acceptedFiles={['.csv']}
@@ -130,7 +129,9 @@ function ImportPeopleDialog({
           onChange={handleChange}
         />
 
-        <Box my={2}>
+        <Box sx={{
+          my: 2
+        }}>
           <Alert
             severity={(
               (errorMessage && 'error')
@@ -149,7 +150,9 @@ function ImportPeopleDialog({
         </Box>
 
         {(!errorMessage && importedItems.length > 1) && (
-          <Box mt={2}>
+          <Box sx={{
+            mt: 2
+          }}>
             <Alert severity={overwriteCount > 0 ? 'warning' : 'info'}>
               {`${overwriteCount} ${overwriteCount !== 1 ? 'people' : 'person'} will be overwritten`}
               <br />
@@ -158,7 +161,6 @@ function ImportPeopleDialog({
           </Box>
         )}
       </DialogContent>
-
       <DialogActions>
         <Button
           data-cy="import-cancel"

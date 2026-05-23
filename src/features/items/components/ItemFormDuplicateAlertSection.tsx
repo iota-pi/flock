@@ -30,7 +30,9 @@ export default function ItemFormDuplicateAlertSection({
   const duplicateCount = duplicates.length
 
   return (
-    <Grid size={{ xs: 12 }} mt={-1}>
+    <Grid size={{ xs: 12 }} sx={{
+      mt: -1
+    }}>
       <Collapse in={showDuplicateAlert && duplicateCount > 0}>
         <DuplicateAlert
           count={duplicateCount}

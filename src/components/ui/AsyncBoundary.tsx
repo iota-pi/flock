@@ -18,7 +18,14 @@ type AsyncErrorBoundaryState = {
 
 export function LoadingSpinner() {
   return (
-    <Box display="flex" justifyContent="center" alignItems="center" height="100%" width="100%">
+    <Box
+      sx={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        height: "100%",
+        width: "100%"
+      }}>
       <CircularProgress />
     </Box>
   )

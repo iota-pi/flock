@@ -113,18 +113,25 @@ function FrequencyPicker({
 
   return (
     <Box
-      display="flex"
-      alignItems="flex-start"
-      flexGrow={fullWidth ? 1 : undefined}
-      width={fullWidth ? '100%' : undefined}
-    >
+      sx={{
+        display: "flex",
+        alignItems: "flex-start",
+        flexGrow: fullWidth ? 1 : undefined,
+        width: fullWidth ? '100%' : undefined
+      }}>
       {icon && (
         <IconHolder color={focused ? 'primary' : undefined}>
           {icon}
         </IconHolder>
       )}
-
-      <Grid container spacing={2} columns={12} flexGrow={1} alignItems="flex-end">
+      <Grid
+        container
+        spacing={2}
+        columns={12}
+        sx={{
+          flexGrow: 1,
+          alignItems: "flex-end"
+        }}>
         <Grid size={{ xs: 12, sm: isCustom ? 6 : 12 }}>
           <FormControl className={className} fullWidth={fullWidth} variant="standard">
             {label && (

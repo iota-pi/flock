@@ -78,14 +78,16 @@ function CollapsibleSection({
       expanded={expanded}
       onChange={handleChange}
       square
-      TransitionProps={{ unmountOnExit: true }}
+      slotProps={{ transition: { unmountOnExit: true } }}
       sx={disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
     >
       <StyledAccordionSummary
         aria-controls={`${id}-content`}
         expandIcon={<ExpandMoreIcon />}
       >
-        <Box mr={2}>
+        <Box sx={{
+          mr: 2
+        }}>
           {Icon && (
             <Icon />
           )}
@@ -93,15 +95,14 @@ function CollapsibleSection({
 
         <Typography>{title}</Typography>
       </StyledAccordionSummary>
-
       <Divider />
-
       <StyledAccordionDetails>
-        <Box flexGrow={1}>
+        <Box sx={{
+          flexGrow: 1
+        }}>
           {content}
         </Box>
       </StyledAccordionDetails>
-
       {actions && (
         <AccordionActions>
           {actions}

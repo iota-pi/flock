@@ -6,7 +6,6 @@ import {
   TextField,
 } from '@mui/material'
 import { DatePicker } from '@mui/x-date-pickers'
-import '@mui/lab'
 import {
   FILTER_CRITERIA_DISPLAY_MAP,
   FilterCriterionType,
@@ -106,10 +105,11 @@ export function FilterCriterionDisplay({
     <Stack
       data-cy="filter-criterion"
       direction="row"
-      alignItems="center"
       spacing={2}
-      py={2}
-    >
+      sx={{
+        alignItems: "center",
+        py: 2
+      }}>
       <TextField
         data-cy="filter-criterion-name"
         fullWidth
@@ -127,7 +127,6 @@ export function FilterCriterionDisplay({
           </MenuItem>
         ))}
       </TextField>
-
       <TextField
         data-cy="filter-criterion-operation"
         fullWidth
@@ -143,7 +142,6 @@ export function FilterCriterionDisplay({
           </MenuItem>
         ))}
       </TextField>
-
       {criterionDetails.dataType === 'string' && (
         <TextField
           data-cy="filter-criterion-value"
@@ -202,7 +200,6 @@ export function FilterCriterionDisplay({
           frequency={criterion.value as Frequency}
         />
       )}
-
       <IconButton aria-label="Remove filter criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>

@@ -62,10 +62,11 @@ function SortCriterionField({
     <Stack
       data-cy="sort-criterion"
       direction="row"
-      alignItems="center"
       spacing={2}
-      py={2}
-    >
+      sx={{
+        alignItems: 'center',
+        py: 2
+      }}>
       <TextField
         data-cy="sort-criterion-name"
         fullWidth
@@ -83,7 +84,6 @@ function SortCriterionField({
           </MenuItem>
         ))}
       </TextField>
-
       <TextField
         data-cy="sort-criterion-order"
         fullWidth
@@ -100,7 +100,6 @@ function SortCriterionField({
           {CRITERIA_DISPLAY_MAP[criterion.type].reverse}
         </MenuItem>
       </TextField>
-
       <IconButton aria-label="Remove sort criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
@@ -119,6 +118,8 @@ function SortDialog({
 
   useEffect(() => {
     if (open) {
+      // Align local criteria with global when dialog is opened
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalCriteria(sortCriteria)
     }
   }, [open, sortCriteria])

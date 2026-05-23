@@ -41,10 +41,9 @@ function PrayerOverviewHeader({
       <Grid
         container
         spacing={2}
-        paddingX={2}
-        paddingY={xs ? 1 : 2}
+        sx={{ px: 2, py: xs ? 1 : 2 }}
       >
-        <Grid size={{ xs: 12 }} display="flex" alignItems="center">
+        <Grid size={{ xs: 12 }} sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography>
             {'Daily Goal: '}
             {completed}

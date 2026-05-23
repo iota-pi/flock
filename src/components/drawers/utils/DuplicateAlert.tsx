@@ -31,7 +31,7 @@ const DuplicateAlert = memo(({
       severity={hasDescription ? 'info' : 'warning'}
     >
       <Typography>
-        There {areOrIs} <InlineText fontWeight={500}>{displayCount}</InlineText>
+        There {areOrIs} <InlineText>{displayCount}</InlineText>
         {' other '}
         {getItemTypeLabel(itemType, plural).toLowerCase()}
         {' with this name.'}
@@ -42,7 +42,7 @@ const DuplicateAlert = memo(({
           Please check if this is a duplicate.
           Otherwise, it may be helpful to
           {' '}
-          <InlineText fontWeight={500}>add a description</InlineText>
+          <InlineText>add a description</InlineText>
           {' '}
           to help distinguish between these {getItemTypeLabel(itemType, true).toLowerCase()}.
         </Typography>

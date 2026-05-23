@@ -175,7 +175,9 @@ function LoginPage() {
           </Typography>
 
           {justCreatedAccount && (
-            <Box mb={4}>
+            <Box sx={{
+              mb: 4
+            }}>
               <Alert severity="success">
                 Account successfully created!
                 Please record your account ID and password and login again to continue.
@@ -184,7 +186,12 @@ function LoginPage() {
           )}
 
           <FormContent>
-            <Box display="flex" flexGrow={1} mb={2}>
+            <Box
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mb: 2
+              }}>
               <TextField
                 autoComplete="username"
                 autoFocus
@@ -207,7 +214,12 @@ function LoginPage() {
               />
             </Box>
 
-            <Box display="flex" flexGrow={1} mb={2}>
+            <Box
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mb: 2
+              }}>
               <TextField
                 autoComplete="current-password"
                 fullWidth
@@ -254,7 +266,9 @@ function LoginPage() {
             </Button>
 
             {error && (
-              <Typography color="error" mt={2}>
+              <Typography color="error" sx={{
+                mt: 2
+              }}>
                 {error}
               </Typography>
             )}

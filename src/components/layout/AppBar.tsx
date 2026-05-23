@@ -74,7 +74,9 @@ function AppBar({
     >
       <StyledToolbar>
         <PreSearchContent minimised={minimisedMenu}>
-          <Box mr={2}>
+          <Box sx={{
+            mr: 2
+          }}>
             <IconButton
               edge="start"
               color="inherit"

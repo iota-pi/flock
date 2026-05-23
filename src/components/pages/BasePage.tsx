@@ -105,17 +105,16 @@ function BasePage({
           title={topBarTitle}
         />
       )}
-
-      <Box position="relative">
+      <Box sx={{
+        position: "relative"
+      }}>
         <Fade in={loading}>
           <StyledProgress data-cy='loading-progress' />
         </Fade>
       </Box>
-
       <ContentElement data-cy={`page-content-${page?.id}`}>
         {children}
       </ContentElement>
-
       {fab && (
         <FabContainer>
           <Fab

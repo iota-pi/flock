@@ -163,7 +163,7 @@ function DrawerActions({
           <Typography>
             Are you sure you want to delete
             {' '}
-            <InlineText fontWeight={500}>
+            <InlineText>
               {itemName}
             </InlineText>
             ?

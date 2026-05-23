@@ -60,7 +60,13 @@ function SyncNowButton() {
           sx={{ mr: 1 }}
           aria-label="Sync now"
         >
-          <Box position="relative" display="inline-flex" alignItems="center" justifyContent="center">
+          <Box
+            sx={{
+              position: "relative",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center"
+            }}>
             {(isSyncing
               ? <CircularProgress size={24} color="info" />
               : syncStatusIcon

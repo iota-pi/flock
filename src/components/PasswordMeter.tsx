@@ -56,7 +56,7 @@ export default function PasswordMeter({ score }: PasswordMeterProps) {
       <Typography>
         Password Strength:
         {' '}
-        <InlineText fontWeight={500}>
+        <InlineText>
           {passwordScoreToWord(score)}
         </InlineText>
       </Typography>

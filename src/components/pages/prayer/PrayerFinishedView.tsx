@@ -40,14 +40,15 @@ function PrayerFinishedView({
     >
       <LargeIcon icon={PrayerIcon} />
       <Typography variant="h5">All done!</Typography>
-      <Typography color="text.secondary">
+      <Typography sx={{
+        color: "text.secondary"
+      }}>
         {'You prayed for '}
-        <InlineText variant="inherit" fontWeight="fontWeightMedium">
+        <InlineText variant="inherit">
           {prayedCount}
         </InlineText>
         {` item${prayedCount !== 1 ? 's' : ''} today.`}
       </Typography>
-
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Button
           data-cy="keep-praying"

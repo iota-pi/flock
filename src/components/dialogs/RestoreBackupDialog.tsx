@@ -188,7 +188,6 @@ function RestoreBackupDialog({
       <DialogTitle>
         Restore from backup
       </DialogTitle>
-
       <DialogContent>
         <DropzoneArea
           acceptedFiles={['.json']}
@@ -201,7 +200,9 @@ function RestoreBackupDialog({
           onChange={handleChange}
         />
 
-        <Box my={2}>
+        <Box sx={{
+          my: 2
+        }}>
           {errorMessage && (
             <Alert severity={'error'}>
               {errorMessage}
@@ -217,7 +218,9 @@ function RestoreBackupDialog({
           )}
         </Box>
 
-        <Box mt={2}>
+        <Box sx={{
+          mt: 2
+        }}>
           <Tooltip
             title={hasSettingsMetadata ? '' : 'This backup file does not contain settings.'}
             disableHoverListener={hasSettingsMetadata}
@@ -238,7 +241,9 @@ function RestoreBackupDialog({
         </Box>
 
         <Typography>
-          <InlineText fontWeight={500}>Important!</InlineText>
+          <InlineText>
+            Important!
+          </InlineText>
           {' '}
           Restoring a backup will restore full CRDT histories from the backup file.
           It will not remove any items created after the backup.
@@ -246,7 +251,6 @@ function RestoreBackupDialog({
           We strongly recommend creating another backup before continuing.
         </Typography>
       </DialogContent>
-
       <DialogActions>
         <Button
           data-cy="import-cancel"

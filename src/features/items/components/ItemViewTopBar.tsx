@@ -89,7 +89,6 @@ function ItemViewTopBar({
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
         {getIcon(item.type)}
       </Box>
-
       <Box sx={{ flexGrow: 1, mx: 1.5, minWidth: 0 }}>
         <Typography
           sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -100,15 +99,17 @@ function ItemViewTopBar({
         </Typography>
         {item.description && (
           <Typography
-            color="text.secondary"
-            sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             variant="body2"
-          >
+            sx={{
+              color: "text.secondary",
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
             {item.description}
           </Typography>
         )}
       </Box>
-
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
         {actions}
       </Box>

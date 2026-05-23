@@ -85,7 +85,7 @@ function FilterDialog({
       open={open}
       fullWidth
       maxWidth="sm"
-      TransitionProps={{ onEnter: initializeLocalCriteria }}
+      slotProps={{ transition: { onEnter: initializeLocalCriteria } }}
     >
       <DialogTitle>
         Filter Conditions

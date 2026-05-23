@@ -1,8 +1,8 @@
 import {
   CssBaseline,
   ThemeProvider,
-  StyledEngineProvider,
 } from '@mui/material'
+import { StyledEngineProvider } from '@mui/material/styles'
 import { useMemo } from 'react'
 import App from './App'
 import { useUiStore } from './state/uiStore'

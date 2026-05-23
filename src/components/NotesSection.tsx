@@ -183,9 +183,21 @@ function NotesSection({
   }, [notes, onChange])
 
   return (
-    <Box width="100%">
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-        <Box display="flex" alignItems="center">
+    <Box sx={{
+      width: "100%"
+    }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 1
+        }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center"
+          }}>
           <NotesIcon color="action" sx={{ mr: 1 }} />
           <Typography variant="h6">Notes</Typography>
         </Box>
@@ -198,7 +210,6 @@ function NotesSection({
           Add Note
         </Button>
       </Box>
-
       <List disablePadding ref={activeListRef}>
         {activeNotes.map(note => (
           <NoteItem
@@ -216,9 +227,10 @@ function NotesSection({
           </Typography>
         )}
       </List>
-
       {archivedNotes.length > 0 && (
-        <Box mb={2}>
+        <Box sx={{
+          mb: 2
+        }}>
           <Button
             onClick={() => setShowArchived(!showArchived)}
             size="small"

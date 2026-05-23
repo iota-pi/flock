@@ -80,10 +80,11 @@ function SubscriptionTime({
 
   return (
     <Box
-      alignItems="center"
-      display="flex"
       key={id}
-    >
+      sx={{
+        alignItems: "center",
+        display: "flex"
+      }}>
       <TextField
         fullWidth
         label="Notification time"
@@ -100,7 +101,6 @@ function SubscriptionTime({
           </MenuItem>
         ))}
       </TextField>
-
       <IconButton aria-label="Remove notification time" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
@@ -189,13 +189,14 @@ function SubscriptionDialog({
       <DialogTitle>
         Manage Notifications
       </DialogTitle>
-
       <DialogContentNarrowPadding>
         You can opt-in to receive daily prayer reminders.
 
         <Stack
           spacing={1}
-          paddingY={2}
+          sx={{
+            paddingY: 2
+          }}
         >
           {hours.map(({ hour, id }) => (
             <SubscriptionTime

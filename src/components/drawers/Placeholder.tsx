@@ -53,13 +53,13 @@ function PlaceholderDrawer({
       open={open}
     >
       <Box
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        flexGrow={1}
-        sx={styles}
-      >
+        sx={[{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          flexGrow: 1
+        }, ...(Array.isArray(styles) ? styles : [styles])]}>
         {page && (
           <LargeIcon icon={page.icon} />
         )}
@@ -71,8 +71,7 @@ function PlaceholderDrawer({
               or click the
               {' '}
               <InlineText
-                fontSize="h5.fontSize"
-                fontWeight={700}
+                sx={{ fontSize: 'h5.fontSize' }}
               >
                 +
               </InlineText>

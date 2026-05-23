@@ -29,8 +29,10 @@ function GeneralMessage() {
       open={open}
       autoHideDuration={6000}
       onClose={handleClose}
-      TransitionProps={{
-        onExited: handleExited,
+      slotProps={{
+        transition: {
+          onExited: handleExited,
+        },
       }}
     >
       <Alert severity={severity} onClose={handleClose}>

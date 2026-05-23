@@ -1,6 +1,6 @@
 import { Grid } from '@mui/material'
-import NotesSection from '../../../components/NotesSection'
-import type { Note } from '../../../shared/schemas/items'
+import NotesSection from 'src/components/NotesSection'
+import type { Note } from 'src/shared/schemas/items'
 
 type ItemFormNotesSectionProps = {
   notes: Note[]
@@ -18,8 +18,10 @@ export default function ItemFormNotesSection({
   return (
     <Grid
       size={{ xs: 12 }}
-      mt={1}
-      sx={disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+      sx={[
+        { mt: 1 },
+        disabled ? { opacity: 0.5, pointerEvents: 'none' } : {},
+      ]}
     >
       <NotesSection
         key={itemId}

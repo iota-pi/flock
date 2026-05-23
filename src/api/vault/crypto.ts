@@ -135,34 +135,3 @@ export async function decryptBytesWithKey(key: CryptoKey, payload: CryptoResult)
 
   return new Uint8Array(plaintext)
 }
-
-function stripUndefinedDeep(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value
-      .map(item => stripUndefinedDeep(item))
-      .filter(item => item !== undefined)
-  }
-
-  if (value && typeof value === 'object') {
-    if (
-      value instanceof Date
-      || value instanceof Uint8Array
-      || value instanceof ArrayBuffer
-    ) {
-      return value
-    }
-
-    const cleanedEntries = Object.entries(value as Record<string, unknown>)
-      .flatMap(([entryKey, nestedValue]) => {
-        if (nestedValue === undefined) {
-          return []
-        }
-
-        return [[entryKey, stripUndefinedDeep(nestedValue)] as const]
-      })
-
-    return Object.fromEntries(cleanedEntries)
-  }
-
-  return value
-}

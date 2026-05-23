@@ -23,39 +23,44 @@ function MainLayout({ children }: { children: ReactNode }) {
 
   return (
     <Box
-      display="flex"
-      flexGrow={1}
-      overflow="hidden"
-    >
+      sx={{
+        display: "flex",
+        flexGrow: 1,
+        overflow: "hidden"
+      }}>
       <Box
-        display="flex"
-        flexDirection="column"
-        flexGrow={1}
-        position="relative"
-      >
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          position: "relative"
+        }}>
         <Box
-          display="flex"
-          flexDirection="column"
-          flexGrow={1}
-          overflow="hidden"
-          position="relative"
-        >
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            flexGrow: 1,
+            overflow: "hidden",
+            position: "relative"
+          }}>
           {content}
         </Box>
 
-        <Box flexShrink={0} overflow="hidden">
+        <Box
+          sx={{
+            flexShrink: 0,
+            overflow: "hidden"
+          }}>
           <AsyncBoundary loadingFallback={null}>
             <SelectedActions />
           </AsyncBoundary>
         </Box>
       </Box>
-
       {loggedIn && (
         <AsyncBoundary loadingFallback={null}>
           <DrawerDisplay />
         </AsyncBoundary>
       )}
-
       <GeneralMessage />
     </Box>
   )

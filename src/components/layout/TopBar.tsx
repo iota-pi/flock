@@ -116,17 +116,18 @@ function TopBar({
           />
         </div>
       )}
-
       {title && (
         <TitleHolder>
-          <Typography color="text.secondary">
+          <Typography sx={{
+            color: "text.secondary"
+          }}>
             {title}
           </Typography>
         </TitleHolder>
       )}
-
-      <Box flexGrow={1} />
-
+      <Box sx={{
+        flexGrow: 1
+      }} />
       {filterable && (
         <IconButton
           aria-label="Open filters"
@@ -138,7 +139,6 @@ function TopBar({
           <FilterIcon />
         </IconButton>
       )}
-
       {sortable && (
         <IconButton
           aria-label="Open sort options"
@@ -149,9 +149,7 @@ function TopBar({
           <SortIcon />
         </IconButton>
       )}
-
       <SyncNowButton />
-
       {menuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
@@ -164,7 +162,6 @@ function TopBar({
           <OptionsIcon />
         </IconButton>
       )}
-
       <Menu
         anchorEl={optionsAnchor}
         id={MENU_POPUP_ID}
@@ -185,7 +182,6 @@ function TopBar({
           </MenuItem>
         ))}
       </Menu>
-
       <Suspense fallback={null}>
         <FilterDialog
           onClose={handleCloseFilter}

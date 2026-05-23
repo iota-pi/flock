@@ -64,8 +64,7 @@ function renderValue(renderer: SettingsValueRenderer | undefined, values: Settin
     return (
       <Typography
         color={values.goal < values.naturalGoal ? 'secondary' : 'textPrimary'}
-        fontWeight={500}
-        sx={{ mr: 2 }}
+        sx={{ mr: 2, fontWeight: 500 }}
       >
         {values.goal}
       </Typography>

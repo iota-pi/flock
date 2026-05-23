@@ -80,8 +80,12 @@ function SettingsPage() {
 
   return (
     <BasePage>
-      <Box padding={2}>
-        <Typography variant="h4" fontWeight={300} gutterBottom>
+      <Box sx={{
+        padding: 2
+      }}>
+        <Typography variant="h4" gutterBottom sx={{
+          fontWeight: 300
+        }}>
           Settings
         </Typography>
 
@@ -89,11 +93,8 @@ function SettingsPage() {
           Account ID: {values.account}
         </Typography>
       </Box>
-
       <Divider />
-
       <SettingsItemsList actionHandlers={actionHandlers} values={values} />
-
       <SettingsDialogs
         defaultFrequencies={values.defaultFrequencies}
         dialogs={{

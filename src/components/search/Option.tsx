@@ -86,7 +86,6 @@ export default function OptionComponent({
   return (
     <>
       {option.dividerBefore && <Divider />}
-
       <AutocompleteOption>
         {showCheckbox && (
           <OptionIconHolder>
@@ -102,21 +101,25 @@ export default function OptionComponent({
         {option.create ? (
           <div>
             <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-            <Typography fontWeight={500}>
+            <Typography sx={{ fontWeight: 500 }}>
               {name}
             </Typography>
           </div>
         ) : (
-          <Box minWidth={0}>
-            <Typography display="flex" alignItems="center">
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              sx={{
+                alignItems: 'center',
+                display: 'flex',
+              }}
+            >
               <OptionName noWrap>
                 {name}
               </OptionName>
 
               <InlineText
                 color="text.secondary"
-                fontWeight={300}
-                whiteSpace="pre"
+                sx={{ fontWeight: 300, whiteSpace: 'pre' }}
               >
                 {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
               </InlineText>
@@ -125,8 +128,8 @@ export default function OptionComponent({
             {showDescription && clippedDescription && (
               <OptionName
                 color="text.secondary"
-                fontSize={getFontSize}
                 noWrap
+                sx={{ fontSize: getFontSize }}
               >
                 {clippedDescription}
               </OptionName>

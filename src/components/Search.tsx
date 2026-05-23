@@ -339,11 +339,14 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onChange={handleChange}
         onHighlightChange={handleHighlightChange}
         options={options}
-        renderInput={({ InputProps, InputLabelProps, inputProps, ...params }) => {
+        renderInput={({ slotProps, ...params }) => {
           // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
           // migrate to destructuring slotProps from params and using those instead of
           // the deprecated InputProps and InputLabelProps.
           // See: https://github.com/mui/material-ui/issues/45414 for status
+          const inputSlotProps = slotProps?.input ?? {}
+          const inputLabelSlotProps = slotProps?.inputLabel
+          const htmlInputSlotProps = slotProps?.htmlInput
           return (
             <TextField
               {...params}
@@ -351,16 +354,16 @@ function Search<T extends AnySearchableData = AnySearchableData>({
               inputRef={inputRef}
               slotProps={{
                 input: {
-                  ...InputProps,
+                  ...inputSlotProps,
                   startAdornment: InputIcon ? (
                     <InputAdornment position="start">
                       <InputIcon />
                     </InputAdornment>
-                  ) : InputProps.startAdornment,
+                  ) : inputSlotProps.startAdornment,
                 },
-                inputLabel: InputLabelProps,
+                inputLabel: inputLabelSlotProps,
                 htmlInput: {
-                  ...inputProps,
+                  ...htmlInputSlotProps,
                   'data-cy': dataCy,
                 },
               }}
@@ -377,28 +380,34 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             { showDescriptions, showGroupMemberCounts, showIcons, showCheckboxes: showOptionCheckboxes, selected },
           ]) as React.ReactNode
         }
-        renderTags={(selectedOptions, getTagProps) => (
-          showSelectedChips && (
-            maxChips
-              ? selectedOptions.slice(0, maxChips)
-              : selectedOptions
-          ).map((option, index) => (
+        renderValue={(selectedOptions, getItemProps) => {
+          if (!showSelectedChips) {
+            return null
+          }
+
+          const visibleOptions = maxChips
+            ? selectedOptions.slice(0, maxChips)
+            : selectedOptions
+
+          const chips = visibleOptions.map((option, index) => (
             <Chip
-              {...getTagProps({ index })}
+              {...getItemProps({ index })}
               label={getName(option)}
               icon={getIcon(option.type)}
             />
-          )).concat(
-            maxChips && selectedOptions.length > maxChips
-              ? [
-                <Chip
-                  key="more"
-                  label={`+${selectedOptions.length - maxChips}`}
-                />
-              ]
-              : []
-          )
-        )}
+          ))
+
+          if (maxChips && selectedOptions.length > maxChips) {
+            chips.push(
+              <Chip
+                key="more"
+                label={`+${selectedOptions.length - maxChips}`}
+              />
+            )
+          }
+
+          return chips
+        }}
         value={selectedSearchables}
       />
     </ThemeProvider>

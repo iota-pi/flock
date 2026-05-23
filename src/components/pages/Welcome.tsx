@@ -89,7 +89,13 @@ function WelcomePage() {
             </LargeText>
           </div>
 
-          <Grid container spacing={2} justifyContent="center" width="100%">
+          <Grid
+            container
+            spacing={2}
+            sx={{
+              justifyContent: "center",
+              width: "100%"
+            }}>
             <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 color="primary"

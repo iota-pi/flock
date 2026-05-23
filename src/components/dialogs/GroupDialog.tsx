@@ -95,9 +95,10 @@ function GroupDialog({
       <DialogTitle>
         Add/Remove from Groups
       </DialogTitle>
-
       <DialogContent>
-        <Grid container spacing={2} paddingTop={1}>
+        <Grid container spacing={2} sx={{
+          paddingTop: 1
+        }}>
           <Grid size={{ xs: 12 }}>
             <Search<GroupItem>
               autoFocus
@@ -126,7 +127,6 @@ function GroupDialog({
           </Grid>
         </Grid>
       </DialogContent>
-
       <DialogActions>
         <Button
           disabled={addGroups.length + removeGroups.length === 0}

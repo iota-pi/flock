@@ -29,7 +29,6 @@ function DataRecoveryDialog({ onClose, open }: Props) {
   return (
     <Dialog onClose={onClose} open={open} fullWidth maxWidth="md">
       <DialogTitle>Corrupted Data Recovery</DialogTitle>
-
       <DialogContent>
         {recoveryItems.length === 0 ? (
           <Typography color="textSecondary">
@@ -39,9 +38,15 @@ function DataRecoveryDialog({ onClose, open }: Props) {
           <Stack spacing={2}>
             {recoveryItems.map(item => (
               <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-                  <Stack flexGrow={1} spacing={0.5}>
-                    <Typography variant="subtitle1" fontWeight={500}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{
+                  alignItems: { sm: 'center' }
+                }}>
+                  <Stack spacing={0.5} sx={{
+                    flexGrow: 1
+                  }}>
+                    <Typography variant="subtitle1" sx={{
+                      fontWeight: 500
+                    }}>
                       Corrupted item requires manual recovery
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
@@ -106,7 +111,6 @@ function DataRecoveryDialog({ onClose, open }: Props) {
           </Stack>
         )}
       </DialogContent>
-
       <DialogActions>
         <Button fullWidth variant="outlined" onClick={onClose}>
           Close

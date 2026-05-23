@@ -35,14 +35,19 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
   return (
     <Dialog open={open}>
       <DialogTitle>
-        <Box display="flex" alignItems="center">
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center"
+          }}>
           Account Created
-          <Box ml={1}>
+          <Box sx={{
+            ml: 1
+          }}>
             <SuccessIcon color="success" />
           </Box>
         </Box>
       </DialogTitle>
-
       <DialogContent>
         <Typography>
           Your account has been created successfully.
@@ -83,7 +88,6 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
           />
         </FormGroup>
       </DialogContent>
-
       <DialogActions>
         <Button
           color="primary"

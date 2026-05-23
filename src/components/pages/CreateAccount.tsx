@@ -240,7 +240,9 @@ function CreateAccountPage() {
             </Button>
 
             {error && (
-              <Typography color="error" mt={2}>
+              <Typography color="error" sx={{
+                mt: 2
+              }}>
                 {error}
               </Typography>
             )}

@@ -25,15 +25,22 @@ function SettingsItem({
       data-cy={id}
       onClick={onClick}
     >
-      <Box flexGrow={1}>
-        <Box py={1}>
+      <Box sx={{
+        flexGrow: 1
+      }}>
+        <Box sx={{
+          py: 1
+        }}>
           <Typography>
             {title}
           </Typography>
         </Box>
       </Box>
-
-      <Box display="flex" alignItems="center">
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center"
+        }}>
         {value}
 
         {Icon && (
