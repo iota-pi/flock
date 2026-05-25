@@ -156,41 +156,6 @@ class SyncWorker implements SyncApi {
     }
   }
 
-  private stripUndefinedDeep(value: unknown): unknown {
-    if (Array.isArray(value)) {
-      return value
-        .map(item => this.stripUndefinedDeep(item))
-        .filter(item => item !== undefined)
-    }
-
-    if (value && typeof value === 'object') {
-      if (
-        value instanceof Date
-        || value instanceof Uint8Array
-        || value instanceof ArrayBuffer
-      ) {
-        return value
-      }
-
-      const cleanedEntries = Object.entries(value as Record<string, unknown>)
-        .flatMap(([entryKey, nestedValue]) => {
-          if (nestedValue === undefined) {
-            return []
-          }
-
-          return [[entryKey, this.stripUndefinedDeep(nestedValue)] as const]
-        })
-
-      return Object.fromEntries(cleanedEntries)
-    }
-
-    return value
-  }
-
-  private createVersionId() {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-
   private async hydrateMetadata() {
     if (!this.accountId || !hasApiAuthToken()) return
 
