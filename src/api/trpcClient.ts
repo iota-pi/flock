@@ -3,12 +3,12 @@ import type { AppRouter } from '../vault/trpc/root'
 import env from '../env'
 import { getApiAuthToken, trackedFetch } from './runtime'
 
-function getTrpcLinks() {
+export function getTrpcLinks(authToken?: string) {
   return [
     httpBatchLink({
       url: `${env.VAULT_ENDPOINT}/trpc`,
       headers: () => {
-        const token = getApiAuthToken()
+        const token = authToken || getApiAuthToken()
         return token ? { Authorization: `Basic ${token}` } : {}
       },
       fetch: trackedFetch,

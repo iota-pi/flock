@@ -22,4 +22,5 @@ export interface SyncApi {
   clearAutomergeDocStore: () => Promise<void>
   exportAllBinaries: () => Promise<Partial<Record<string, string>>>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
+  forceSync: () => Promise<void>,
 }

@@ -73,6 +73,11 @@ export const SyncBridge = {
     await syncApi.bootstrapLegacyItems()
   },
 
+  forceSync: async () => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.forceSync()
+  },
+
   mutateItem: async (mutationId: string, id: string, changes: Partial<Item>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.mutateItem(mutationId, id, changes)

@@ -5,6 +5,7 @@ import CloudOffIcon from '@mui/icons-material/CloudOff'
 import { useUiStore } from '../../state/uiStore'
 import { useSyncStore } from '../../state/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { SyncBridge } from 'src/sync/SyncBridge'
 
 function SyncNowButton() {
   const syncStatus = useSyncStore(state => state.status)
@@ -34,8 +35,8 @@ function SyncNowButton() {
     }
   }, [storeIsSyncing])
 
-  const handleForceSync = useCallback(async () => {
-    // No-op for now per user instruction
+  const handleForceSync = useCallback(() => {
+    void SyncBridge.forceSync()
   }, [])
 
   const syncStatusIcon = !isOnline ? (

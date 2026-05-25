@@ -124,6 +124,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
+  flush(): Promise<void> {
+    return this.flushSyncBatch()
+  }
+
   private async flushSyncBatch(): Promise<void> {
     this.syncBatchTimeout = null
     if (this.isPolling) {

@@ -29,7 +29,11 @@ import { decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'
 import { trpcClient } from '../api/trpcClient'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
-import { getAutomergeRepo, setVaultNetworkAccount } from '../sync/automergeRepo'
+import {
+  getAutomergeRepo,
+  getVaultNetworkAdapter,
+  setVaultNetworkAccount,
+} from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
@@ -286,6 +290,15 @@ class SyncWorker implements SyncApi {
 
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
     return await restoreFromBinaries(this.accountId!, documents)
+  }
+
+  async forceSync() {
+    const adapter = getVaultNetworkAdapter(this.accountId!)
+    try {
+      await adapter.flush()
+    } catch (err) {
+      console.error('[sync.worker] forceSync failed', err)
+    }
   }
 }
 
