@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Comlink from 'comlink'
-import type { SyncApi, SyncCallbacks } from '../workers/syncProtocol'
-import { useDataStore } from '../state/dataStore'
-import { useSyncStore } from '../state/syncStore'
-import { getStoredVaultKey } from '../api/vault'
+import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
+import { useDataStore } from 'src/state/dataStore'
+import { useUiStore } from 'src/state/uiStore'
+import { useSyncStore } from 'src/state/syncStore'
+import { getStoredVaultKey } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
@@ -63,6 +64,12 @@ export const SyncBridge = {
       onMutationFailed: async (mutationId, error) => {
         // Implement toast notification/Sentry logging here if needed
         console.error(`Mutation ${mutationId} failed: ${error}`)
+      },
+      onStartRequest: async () => {
+        useUiStore.getState().startRequest()
+      },
+      onFinishRequest: async () => {
+        useUiStore.getState().finishRequest()
       },
     }
 

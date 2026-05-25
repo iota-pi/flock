@@ -15,40 +15,54 @@ function getFastHash(str: string): string {
   return Math.abs(hash).toString(36)
 }
 
-export function getAutomergeRepo(accountId: string): Repo {
-  if (!repos.has(accountId)) {
-    const adapter = new VaultEncryptedNetworkAdapter()
-    vaultNetworkAdapters.set(accountId, adapter)
-
-    const dbName = accountId
-      ? `flock-automerge-db-${getFastHash(accountId)}`
-      : 'flock-automerge-db'
-
-    const repo = new Repo({
-      storage: new IndexedDBStorageAdapter(dbName),
-      network: [
-        new BroadcastChannelNetworkAdapter({
-          channelName: `flock-automerge-broadcast-${accountId}`,
-        }),
-        adapter,
-      ],
-    })
-
-    repos.set(accountId, repo)
+export function initAutomergeRepo(
+  accountId: string,
+  adapter: VaultEncryptedNetworkAdapter,
+) {
+  if (repos.has(accountId)) {
+    throw new Error(`Automerge repo for account ${accountId} has already been initialized`)
   }
-  return repos.get(accountId)!
+
+  const dbName = accountId
+    ? `flock-automerge-db-${getFastHash(accountId)}`
+    : 'flock-automerge-db'
+
+  const repo = new Repo({
+    storage: new IndexedDBStorageAdapter(dbName),
+    network: [
+      new BroadcastChannelNetworkAdapter({
+        channelName: `flock-automerge-broadcast-${accountId}`,
+      }),
+      adapter,
+    ],
+  })
+  repos.set(accountId, repo)
+
+  return repo
 }
 
-export function getVaultNetworkAdapter(accountId: string): VaultEncryptedNetworkAdapter {
-  if (!vaultNetworkAdapters.has(accountId)) {
-    getAutomergeRepo(accountId)
+export function getAutomergeRepo(accountId: string): Repo {
+  const repo = repos.get(accountId)
+  if (!repo) {
+    throw new Error(`Automerge repo for account ${accountId} has not been initialized`)
   }
-  return vaultNetworkAdapters.get(accountId)!
+  return repo
+}
+
+export function getVaultNetworkAdapter(accountId: string): VaultEncryptedNetworkAdapter | undefined {
+  return vaultNetworkAdapters.get(accountId)
+}
+
+export function setVaultNetworkAdapter(accountId: string, adapter: VaultEncryptedNetworkAdapter) {
+  if (vaultNetworkAdapters.has(accountId)) {
+    throw new Error(`VaultEncryptedNetworkAdapter for account ${accountId} has already been set`)
+  }
+  vaultNetworkAdapters.set(accountId, adapter)
 }
 
 export async function setVaultNetworkAccount(accountId: string | null): Promise<void> {
   if (accountId) {
-    await getVaultNetworkAdapter(accountId).setAccount(accountId)
+    await getVaultNetworkAdapter(accountId)?.setAccount(accountId)
   } else {
     const promises: Promise<void>[] = []
     for (const adapter of vaultNetworkAdapters.values()) {

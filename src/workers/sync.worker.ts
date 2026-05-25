@@ -29,16 +29,14 @@ import { decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'
 import { trpcClient } from '../api/trpcClient'
 import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
-import {
-  getAutomergeRepo,
-  getVaultNetworkAdapter,
-  setVaultNetworkAccount,
-} from '../sync/automergeRepo'
+import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
+import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
+  private adapter: VaultEncryptedNetworkAdapter | null = null
   private callbacks: SyncCallbacks | null = null
   private subscribedHandles = new Set<string>()
 
@@ -52,10 +50,14 @@ class SyncWorker implements SyncApi {
     await Automerge.initializeWasm(wasmUrl)
 
     // Initialise Automerge repo
-    setVaultNetworkAccount(accountId)
+    this.adapter = new VaultEncryptedNetworkAdapter()
+    this.adapter.onStartRequest = callbacks.onStartRequest
+    this.adapter.onFinishRequest = callbacks.onFinishRequest
+    this.adapter.setAccount(accountId)
+    const repo = initAutomergeRepo(accountId, this.adapter)
     await initializeAutomergeDocStore(accountId)
 
-    const repo = getAutomergeRepo(accountId)
+
     const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
     const indexHandle = await repo.find<AutomergeIndexDocument>(indexUrl)
     if (!indexHandle) return
@@ -293,9 +295,8 @@ class SyncWorker implements SyncApi {
   }
 
   async forceSync() {
-    const adapter = getVaultNetworkAdapter(this.accountId!)
     try {
-      await adapter.flush()
+      await this.adapter?.flush()
     } catch (err) {
       console.error('[sync.worker] forceSync failed', err)
     }

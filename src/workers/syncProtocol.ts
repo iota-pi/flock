@@ -9,6 +9,8 @@ export interface SyncCallbacks {
   onIndexUpdated: (itemIds: string[]) => Promise<void>,
   onMetadataUpdated: (metadata: AccountMetadata) => Promise<void>,
   onMutationFailed: (mutationId: string, error: string) => Promise<void>,
+  onStartRequest: () => Promise<void>,
+  onFinishRequest: () => Promise<void>,
 }
 
 export interface SyncApi {

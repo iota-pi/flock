@@ -29,6 +29,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private syncBatchTimeout: number | null = null
   private syncBatch: Map<string, Uint8Array[]> = new Map()
 
+  onStartRequest: (() => void) | null = null
+  onFinishRequest: (() => void) | null = null
+
   constructor() {
     super()
     this.readyPromise = new Promise<void>(resolve => {
@@ -171,6 +174,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     const batchEntries = Array.from(this.syncBatch.entries())
     this.syncBatch.clear()
 
+    this.onStartRequest?.()
     try {
       // 2. Encrypt the outgoing messages
       const pushMessages = await Promise.all(
@@ -229,6 +233,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         this.syncBatch.set(itemId, [...messages, ...existing])
       }
     } finally {
+      this.onFinishRequest?.()
       this.isPolling = false
     }
   }

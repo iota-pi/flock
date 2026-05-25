@@ -20,22 +20,16 @@ function isCypressRuntime(): boolean {
   return typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
 }
 
-function startRequest() {
-  useUiStore.getState().startRequest()
-}
-
-function finishRequest(error?: string) {
-  useUiStore.getState().finishRequest(error)
-}
-
 async function trackedRequest<T>(factory: () => Promise<T>): Promise<T> {
-  startRequest()
+  useUiStore.getState().startRequest()
   try {
     const result = await factory()
-    finishRequest()
+    useUiStore.getState().finishRequest()
     return result
   } catch (error) {
-    finishRequest('A request to the server failed. Please retry later.')
+    useUiStore.getState().finishRequest(
+      'A request to the server failed. Please retry later.',
+    )
     throw error
   }
 }
