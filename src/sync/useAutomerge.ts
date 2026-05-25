@@ -58,7 +58,7 @@ type ItemsStoreState<TItem extends Item> = {
 
 const defaultItemSchema = readItemSchema as ItemSchema<Item>
 
-const lenientBaseItemReadSchema = z.object({
+const lenientBaseItemReadSchema = z.looseObject({
   archived: z.boolean().optional(),
   created: z.number().optional(),
   deleted: z.boolean().optional(),
@@ -69,22 +69,22 @@ const lenientBaseItemReadSchema = z.object({
   notes: z.array(noteSchema).optional(),
   prayedFor: z.array(z.number()).optional(),
   prayerFrequency: frequencySchema.optional(),
-}).passthrough()
+})
 
 const lenientPersonItemReadSchema = lenientBaseItemReadSchema.extend({
   type: z.literal('person'),
-}).passthrough()
+})
 
 const lenientGroupItemReadSchema = lenientBaseItemReadSchema.extend({
   memberPrayerFrequency: frequencySchema.optional(),
   memberPrayerTarget: z.enum(['one', 'all']).optional(),
   members: z.array(z.string()).optional(),
   type: z.literal('group'),
-}).passthrough()
+})
 
 const lenientTopicItemReadSchema = lenientBaseItemReadSchema.extend({
   type: z.literal('topic'),
-}).passthrough()
+})
 
 const lenientItemReadSchema = z.discriminatedUnion('type', [
   lenientPersonItemReadSchema,
