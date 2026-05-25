@@ -10,7 +10,7 @@ interface DataState {
 }
 
 interface DataActions {
-  updateItemFromServer: (id: string, item: Item | null) => void
+  updateItemsFromServer: (updates: Array<{ id: string, item: Item | null }>) => void
   updateIndexFromServer: (itemIds: string[]) => void
   updateMetadataFromServer: (metadata: AccountMetadata) => void
   optimisticUpdateItem: (id: string, partial: Partial<Item>) => void
@@ -24,12 +24,14 @@ export const useDataStore = create<DataStore>(set => ({
   itemIds: [],
   metadata: {},
 
-  updateItemFromServer: (id, item) => set(state => {
+  updateItemsFromServer: updates => set(state => {
     const nextItems = { ...state.items }
-    if (item) {
-      nextItems[id] = item
-    } else {
-      delete nextItems[id]
+    for (const update of updates) {
+      if (update.item) {
+        nextItems[update.id] = update.item
+      } else {
+        delete nextItems[update.id]
+      }
     }
 
     let nextStatus = state.status

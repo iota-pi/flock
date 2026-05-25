@@ -184,9 +184,7 @@ export async function deleteItems(
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
 
-  for (const itemId of ids) {
-    useDataStore.getState().updateItemFromServer(itemId, null)
-  }
+  useDataStore.getState().updateItemsFromServer(ids.map(id => ({ id, item: null })))
 
   await SyncBridge.hardDeleteItems(ids)
   useNavigationStore.getState().closeIfOpen(ids)

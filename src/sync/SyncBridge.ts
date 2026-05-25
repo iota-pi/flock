@@ -7,6 +7,25 @@ import { getStoredVaultKey } from '../api/vault'
 import type { Item } from 'src/state/items'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
+const ITEM_UPDATE_BATCH_MAX = 50
+
+const pendingItemUpdates = new Map<string, Item | null>()
+let itemUpdateFlushHandle: number | null = null
+
+const flushItemUpdates = () => {
+  if (pendingItemUpdates.size === 0) return
+
+  const updates = Array.from(pendingItemUpdates.entries()).map(([id, item]) => ({ id, item }))
+  pendingItemUpdates.clear()
+  itemUpdateFlushHandle = null
+
+  useDataStore.getState().updateItemsFromServer(updates)
+}
+
+const scheduleItemUpdateFlush = () => {
+  if (itemUpdateFlushHandle !== null) return
+  itemUpdateFlushHandle = requestAnimationFrame(flushItemUpdates)
+}
 
 export const SyncBridge = {
   initialize: async (accountId: string) => {
@@ -22,7 +41,18 @@ export const SyncBridge = {
         useSyncStore.getState().setSyncStatus(status)
       },
       onItemUpdated: async (id, item) => {
-        useDataStore.getState().updateItemFromServer(id, item)
+        pendingItemUpdates.set(id, item)
+
+        if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
+          if (itemUpdateFlushHandle !== null) {
+            cancelAnimationFrame(itemUpdateFlushHandle)
+            itemUpdateFlushHandle = null
+          }
+          flushItemUpdates()
+          return
+        }
+
+        scheduleItemUpdateFlush()
       },
       onIndexUpdated: async itemIds => {
         useDataStore.getState().updateIndexFromServer(itemIds)
