@@ -210,17 +210,15 @@ function SubscriptionDialog({
         </Stack>
 
         <Stack spacing={1}>
-          <Stack>
-            <Button
-              data-cy="subscription-add-time"
-              disabled={hours.length > 0}
-              fullWidth
-              onClick={handleAdd}
-              variant="outlined"
-            >
-              Add Notification
-            </Button>
-          </Stack>
+          <Button
+            data-cy="subscription-add-time"
+            disabled={hours.length > 0}
+            fullWidth
+            onClick={handleAdd}
+            variant="outlined"
+          >
+            Add Notification
+          </Button>
 
           <Stack spacing={1} direction="row">
             <Button
