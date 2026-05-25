@@ -107,7 +107,7 @@ export function VirtualizedItemList({
     getScrollElement: () => listNode,
     estimateSize: () => defaultRowHeight,
     getItemKey: index => itemIds[index] || index,
-    overscan: 5,
+    overscan: 10,
     measureElement: useDynamicHeight
       ? element => element.getBoundingClientRect().height
       : undefined,
