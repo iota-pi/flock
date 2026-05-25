@@ -149,6 +149,7 @@ function ItemPage({
       onClickFab={handleClickAdd}
       onSelectAll={handleSelectAll}
       showFilter
+      showLoading={false}
       showSort
       topBar
       topBarTitle={itemCountText}

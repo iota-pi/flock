@@ -7,6 +7,7 @@ import { usePage } from '.'
 
 interface BaseProps {
   noScrollContainer?: boolean,
+  showLoading?: boolean,
 }
 interface FabProps {
   fab: true,
@@ -82,6 +83,7 @@ function BasePage({
   onSelectAll,
   noScrollContainer,
   showFilter = false,
+  showLoading = true,
   showSort = false,
   topBar,
   topBarTitle,
@@ -105,13 +107,15 @@ function BasePage({
           title={topBarTitle}
         />
       )}
-      <Box sx={{
-        position: "relative"
-      }}>
-        <Fade in={loading}>
-          <StyledProgress data-cy='loading-progress' />
-        </Fade>
-      </Box>
+      {showLoading && (
+        <Box sx={{
+          position: "relative"
+        }}>
+          <Fade in={loading}>
+            <StyledProgress data-cy='loading-progress' />
+          </Fade>
+        </Box>
+      )}
       <ContentElement data-cy={`page-content-${page?.id}`}>
         {children}
       </ContentElement>
