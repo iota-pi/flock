@@ -90,6 +90,7 @@ const ListBoxComponent = forwardRef<
             width: '100%',
             overflowY: 'auto',
           }}
+          role="listbox"
         >
           <ul
             style={{
