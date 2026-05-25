@@ -39,10 +39,11 @@ function RootLayout() {
 
   const [rawMiniMenu, setMiniMenu] = useState<boolean>()
   const [rawOpenMenu, setOpenMenu] = useState<boolean>()
-  const defaultMini = small
+  const defaultMini = small && !xs
   const defaultOpen = !xs
   const miniMenu = rawMiniMenu === undefined ? defaultMini : rawMiniMenu
   const openMenu = rawOpenMenu === undefined ? defaultOpen : rawOpenMenu
+  const floatingMenu = xs
 
   const handleToggleMiniMenu = useCallback(
     () => setMiniMenu(m => (
@@ -74,6 +75,7 @@ function RootLayout() {
             onToggleMenu={handleToggleShowMenu}
           />
           <MainMenu
+            floating={floatingMenu}
             minimised={miniMenu}
             open={openMenu}
             onClick={handleMenuClick}

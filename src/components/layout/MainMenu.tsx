@@ -54,6 +54,7 @@ const FlexList = styled(List)({
 })
 
 interface Props {
+  floating?: boolean,
   minimised?: boolean,
   onClick: () => void,
   onMinimise: () => void,
@@ -62,6 +63,7 @@ interface Props {
 
 
 function MainMenu({
+  floating = false,
   minimised = false,
   onClick,
   onMinimise,
@@ -129,7 +131,7 @@ function MainMenu({
     <StyledDrawer
       minimised={minimised}
       open={open}
-      variant="persistent"
+      variant={floating ? 'temporary' : 'permanent'}
     >
       <Toolbar />
       <DrawerContent>
@@ -147,18 +149,20 @@ function MainMenu({
             />
           ))}
 
-          <Box sx={{
-            flexGrow: 1
-          }} />
+          {!floating && (
+            <>
+              <div style={{ flexGrow: 1 }} />
 
-          <MainMenuItem
-            icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
-            id="minimise"
-            minimisedMenu={minimised}
-            name="Collapse Menu"
-            onClick={onMinimise}
-            selected={false}
-          />
+              <MainMenuItem
+                icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
+                id="minimise"
+                minimisedMenu={minimised}
+                name="Collapse Menu"
+                onClick={onMinimise}
+                selected={false}
+              />
+            </>
+          )}
         </FlexList>
       </DrawerContent>
     </StyledDrawer>
