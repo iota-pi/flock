@@ -12,13 +12,6 @@ import { useDataStore } from './dataStore'
 import { GroupItem } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
-const EMPTY_DEFAULT_PRAYER_FREQUENCY: NonNullable<Metadata['defaultPrayerFrequency']> = {}
-
-type SearchItemsResult = {
-  defaultFrequencies: NonNullable<Metadata['defaultPrayerFrequency']>,
-  items: Item[],
-}
-
 type PrayerScheduleInputs = {
   items: Item[],
   prayerGoal: number | undefined,
@@ -37,10 +30,6 @@ const EMPTY_PRAYER_SCHEDULE_INPUTS: PrayerScheduleInputs = {
   prayerGoal: undefined,
 }
 
-const EMPTY_SEARCH_ITEMS_RESULT: SearchItemsResult = {
-  defaultFrequencies: EMPTY_DEFAULT_PRAYER_FREQUENCY,
-  items: EMPTY_ARRAY,
-}
 
 /* eslint-disable react-hooks/refs */
 function useDeepMemo<T>(value: T): T {
@@ -172,10 +161,9 @@ export function usePrayerScheduleInputs(): PrayerScheduleInputs {
   return useDeepMemo(nextValue)
 }
 
-export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
+export function useSearchItems(options: SearchItemsOptions): Item[] {
   const visibleItems = useVisibleItems()
   const sortCriteria = useMetadataValue('sortCriteria', DEFAULT_CRITERIA)
-  const defaultPrayerFrequency = useMetadataValue('defaultPrayerFrequency', EMPTY_DEFAULT_PRAYER_FREQUENCY)
   const {
     isOpen,
     includeArchived,
@@ -212,21 +200,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
     [filteredItems, isOpen, sortCriteria],
   )
 
-  const nextValue = useMemo(
-    () => {
-      if (!isOpen) {
-        return EMPTY_SEARCH_ITEMS_RESULT
-      }
-
-      return {
-        defaultFrequencies: defaultPrayerFrequency,
-        items: sortedItems,
-      }
-    },
-    [isOpen, defaultPrayerFrequency, sortedItems],
-  )
-
-  return useDeepMemo(nextValue)
+  return useDeepMemo(sortedItems)
 }
 
 type SetMetadata<K extends MetadataKey> = (value: Metadata[K] | ((prev: Metadata[K]) => Metadata[K])) => Promise<void>

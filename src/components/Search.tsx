@@ -29,7 +29,7 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useItemsByIds, useSearchItems } from '../state/selectors'
+import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import {
@@ -131,10 +131,8 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   const handleOpen = useCallback(() => setIsOpen(true), [])
   const handleClose = useCallback(() => setIsOpen(false), [])
 
-  const {
-    defaultFrequencies,
-    items,
-  } = useSearchItems({
+  const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
+  const items = useSearchItems({
     isOpen,
     includeArchived,
     selectedItemIds,
