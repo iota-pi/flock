@@ -1,11 +1,11 @@
-import { getBlankItem, type Item } from '../../../state/items'
-import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, type ItemType } from '../../../shared/itemTypes'
-import type { AccountMetadata } from '../../../state/metadata'
-import { useNavigationStore } from '../../../state/navigationStore'
-import { accountMetadataSchema } from '../../../shared/schemas/metadata'
-import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from '../../../shared/schemas/items'
-import { SyncBridge } from '../../../sync/SyncBridge'
-import { useDataStore } from '../../../state/dataStore'
+import { getBlankItem, type Item } from 'src/state/items'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, type ItemType } from 'src/shared/itemTypes'
+import type { AccountMetadata } from 'src/state/metadata'
+import { useNavigationStore } from 'src/state/navigationStore'
+import { accountMetadataSchema } from 'src/shared/schemas/metadata'
+import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
+import { SyncBridge } from 'src/sync/SyncBridge'
+import { useDataStore } from 'src/state/dataStore'
 
 const stripItemWriteSchema = personItemSchema.strip()
   .or(groupItemSchema.strip())

@@ -1,12 +1,12 @@
 import { useCallback } from 'react'
 import { Grid } from '@mui/material'
-import type { Item } from '../../../state/items'
-import FrequencyControls from '../../../components/FrequencyControls'
-import CollapsibleSection from '../../../components/drawers/utils/CollapsibleSection'
-import { FrequencyIcon } from '../../../components/Icons'
-import { getLastPrayedFor } from '../../../utils/prayer'
+import type { Item } from 'src/state/items'
+import FrequencyControls from 'src/components/FrequencyControls'
+import CollapsibleSection from 'src/components/drawers/utils/CollapsibleSection'
+import { FrequencyIcon } from 'src/components/Icons'
+import { getLastPrayedFor } from 'src/utils/prayer'
 import { GroupItem } from 'src/shared/schemas/items'
-import { useGroupLookupMap } from '../../../state/selectors'
+import { useGroupLookupMap } from 'src/state/selectors'
 
 type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
   & Partial<Pick<GroupItem, 'memberPrayerFrequency' | 'memberPrayerTarget'>>

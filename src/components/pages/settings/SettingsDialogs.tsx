@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react'
-import type { Frequency } from '../../../utils/frequencies'
-import type { Item } from '../../../state/items'
-import type { RestorePayload } from '../../../types/backup'
+import type { Frequency } from 'src/utils/frequencies'
+import type { Item } from 'src/state/items'
+import type { RestorePayload } from 'src/types/backup'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))

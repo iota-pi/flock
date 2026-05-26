@@ -5,13 +5,13 @@ import {
   Menu,
   Typography,
 } from '@mui/material'
-import { Item } from '../../../state/items'
+import { Item } from 'src/state/items'
 import {
   EditIcon,
   getIcon,
   MoreOptionsIcon,
-} from '../../../components/Icons'
-import DelayedRender from '../../../components/ui/DelayedRender'
+} from 'src/components/Icons'
+import DelayedRender from 'src/components/ui/DelayedRender'
 
 interface Props {
   item: Pick<Item, 'type' | 'name' | 'description'>,

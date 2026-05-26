@@ -5,17 +5,17 @@ import {
   InputAdornment,
   Tooltip,
 } from '@mui/material'
-import { Item } from '../../../state/items'
-import DebouncedTextField, { type DebouncedTextFieldControls } from '../../../components/ui/DebouncedTextField'
+import { Item } from 'src/state/items'
+import DebouncedTextField, { type DebouncedTextFieldControls } from 'src/components/ui/DebouncedTextField'
 import {
   DeleteIcon,
   NotesIcon,
-} from '../../../components/Icons'
+} from 'src/components/Icons'
 import ItemFormDuplicateAlertSection from './ItemFormDuplicateAlertSection'
 import ItemFormNotesSection from './ItemFormNotesSection'
 import ItemFormFrequencySection from './ItemFormFrequencySection'
 import ItemFormRelationshipsSection from './ItemFormRelationshipsSection'
-import type { GroupItem } from '../../../shared/schemas/items'
+import type { GroupItem } from 'src/shared/schemas/items'
 
 type FrequencyUpdate = Partial<Pick<Item, 'prayerFrequency'>>
   & Partial<Pick<GroupItem, 'memberPrayerFrequency' | 'memberPrayerTarget'>>

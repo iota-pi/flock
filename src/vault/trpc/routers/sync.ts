@@ -2,8 +2,8 @@ import { protectedProcedure, router } from '../trpc'
 import {
   SyncPushBatchSchema,
   SyncPollBatchSchema,
-} from '../../../shared/schemas/trpc'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../../../sync/automergeConstants'
+} from 'src/shared/schemas/trpc'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from 'src/sync/automergeConstants'
 import {
   pullAutomergeSyncBatch,
   pushAutomergeSyncBatch,

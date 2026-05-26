@@ -1,12 +1,12 @@
 import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
-import type { Item } from '../../../state/items'
-import type { ItemId } from '../../../shared/itemTypes'
-import { useGroupLookupMap, useItemsOfType } from '../../../state/selectors'
+import type { Item } from 'src/state/items'
+import type { ItemId } from 'src/shared/itemTypes'
+import { useGroupLookupMap } from 'src/state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { mutateItem } from '../../items/mutations/itemMutations'
-import Search from '../../../components/Search'
-import { useNavigationStore } from '../../../state/navigationStore'
+import Search from 'src/components/Search'
+import { useNavigationStore } from 'src/state/navigationStore'
 import { GroupItem } from 'src/shared/schemas/items'
 
 interface Props {

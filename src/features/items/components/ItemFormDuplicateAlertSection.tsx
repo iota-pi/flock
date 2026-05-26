@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import { Collapse, Grid } from '@mui/material'
-import { getItemName, type Item } from '../../../state/items'
-import { ERROR_ITEM_TYPE, type ItemType } from '../../../shared/itemTypes'
-import DuplicateAlert from '../../../components/drawers/utils/DuplicateAlert'
-import { useVisibleItems } from '../../../state/selectors'
+import { getItemName, type Item } from 'src/state/items'
+import { ERROR_ITEM_TYPE, type ItemType } from 'src/shared/itemTypes'
+import DuplicateAlert from 'src/components/drawers/utils/DuplicateAlert'
+import { useVisibleItems } from 'src/state/selectors'
 
 type ItemFormDuplicateAlertSectionProps = {
   hasDescription: boolean

@@ -4,9 +4,9 @@ import { ThemeProvider } from '@mui/material'
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import getTheme from '../../../theme'
+import getTheme from 'src/theme'
 import FilterDialog from './FilterDialog'
-import type { FilterCriterion } from '../../../utils/customFilter'
+import type { FilterCriterion } from 'src/utils/customFilter'
 
 const setUi = vi.fn()
 const initialFilters: FilterCriterion[] = [
@@ -19,7 +19,7 @@ const initialFilters: FilterCriterion[] = [
   },
 ]
 
-vi.mock('../../../state/uiStore', () => ({
+vi.mock('src/state/uiStore', () => ({
   useUiStore: (selector: (state: { setUi: typeof setUi, filters: FilterCriterion[] }) => unknown) => selector({
     setUi,
     filters: initialFilters,

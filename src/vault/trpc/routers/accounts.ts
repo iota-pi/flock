@@ -10,7 +10,7 @@ import {
   PushSubscriptionDeleteBodySchema,
   ReminderSettingsBodySchema,
   UpdateMetadataBodySchema,
-} from '../../../shared/schemas/trpc'
+} from 'src/shared/schemas/trpc'
 import { hashString } from '../../api/util'
 
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
