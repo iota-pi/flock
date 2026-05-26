@@ -39,7 +39,6 @@ import {
   removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId,
 } from '../sync/manualRecoveryStore'
-import { setOnRecoveryItemsChangedListener, setOnToastMessageListener } from '../api/syncHealthCoordinator'
 
 function mutateDraftToMatchSnapshot(
   draft: Record<string, unknown>,
@@ -102,16 +101,6 @@ class SyncWorker implements SyncApi {
 
     indexHandle.on('change', handleIndexChange)
     handleIndexChange()
-
-    setOnRecoveryItemsChangedListener(() => {
-      void this.pushRecoveryItems()
-    })
-
-    setOnToastMessageListener((toast) => {
-      if (this.callbacks && this.callbacks.onToastMessage) {
-        this.callbacks.onToastMessage(toast.severity, toast.message).catch(console.error)
-      }
-    })
 
     await this.callbacks.onReady()
   }

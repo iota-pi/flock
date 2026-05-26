@@ -4,7 +4,6 @@ import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
-import { useToastStore } from 'src/state/toastStore'
 import { getStoredVaultKey } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
@@ -82,9 +81,6 @@ export const SyncBridge = {
         for (const listener of recoveryEntriesListeners) {
           listener(entries)
         }
-      },
-      onToastMessage: async (severity, message) => {
-        useToastStore.getState().setMessage({ severity, message })
       },
     }
 

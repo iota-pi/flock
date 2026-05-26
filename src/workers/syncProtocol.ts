@@ -13,7 +13,6 @@ export interface SyncCallbacks {
   onStartRequest: () => Promise<void>,
   onFinishRequest: () => Promise<void>,
   onRecoveryItemsChanged: (entries: ManualRecoveryEntry[]) => Promise<void>,
-  onToastMessage?: (severity: 'success' | 'warning' | 'error' | 'info', message: string) => Promise<void>,
 }
 
 export interface SyncApi {

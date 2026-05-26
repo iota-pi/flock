@@ -7,31 +7,11 @@ import {
   upsertManualRecoveryEntry,
 } from '../sync/manualRecoveryStore'
 import { normalizeSyncError } from '../shared/syncErrors'
-import { useToastStore } from '../state/toastStore'
 
 let onRecoveryItemsChangedListener: (() => void) | null = null
 
 export function setOnRecoveryItemsChangedListener(listener: () => void): void {
   onRecoveryItemsChangedListener = listener
-}
-
-export type ToastSeverity = 'success' | 'warning' | 'error' | 'info'
-export type ToastMessage = {
-  severity: ToastSeverity
-  message: string
-}
-let onToastMessageListener: ((toast: ToastMessage) => void) | null = null
-
-export function setOnToastMessageListener(listener: (toast: ToastMessage) => void): void {
-  onToastMessageListener = listener
-}
-
-function showToast(severity: ToastSeverity, message: string): void {
-  if (onToastMessageListener) {
-    onToastMessageListener({ severity, message })
-  } else {
-    useToastStore.getState().setMessage({ severity, message })
-  }
 }
 
 type DecryptionFailedEvent = {
@@ -110,10 +90,6 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
   onRecoveryItemsChangedListener?.()
 
   const count = await readManualRecoveryCount()
-  showToast(
-    'warning',
-    reason || 'A corrupted item was detected. Recovery will be attempted automatically.'
-  )
 
   if (count > 0) {
     Sentry.captureMessage('Manual recovery required for corrupted items', {
@@ -165,10 +141,6 @@ export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<vo
   const nextCount = await readManualRecoveryCount()
   if (nextCount !== previousCount) {
     onRecoveryItemsChangedListener?.()
-    showToast(
-      'success',
-      'Recovered a corrupted item revision.'
-    )
   }
 }
 
@@ -195,11 +167,6 @@ export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
     itemId: event.itemId,
     error: normalizedError,
   })
-
-  showToast(
-    'warning',
-    reason || 'A corrupted item was detected. Recovery will be attempted automatically.'
-  )
 
   if (event.source === 'worker' && typeof event.itemId === 'string') {
     attemptAutoRecovery(event.itemId).catch(error => {
