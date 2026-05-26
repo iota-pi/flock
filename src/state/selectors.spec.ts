@@ -2,7 +2,6 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Item } from './items'
 import {
-  useAuthReady,
   useItem,
   useItemIds,
   useItemsByIds,
@@ -110,12 +109,10 @@ describe('state selectors', () => {
     })
   })
 
-  it('useLoggedIn and useAuthReady read auth store flags', () => {
+  it('useLoggedIn read auth store flags', () => {
     const loggedIn = renderHook(() => useLoggedIn())
-    const ready = renderHook(() => useAuthReady())
 
     expect(loggedIn.result.current).toBe(true)
-    expect(ready.result.current).toBe(true)
   })
 
   it('useVisibleItems returns full list', () => {

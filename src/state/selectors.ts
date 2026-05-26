@@ -58,22 +58,14 @@ function isVisibleItem(item: Item | null | undefined): item is Item {
 }
 
 export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
-export const useAuthReady = () => useAuthStore(state => state.loggedIn && !state.initializing)
 
 export function useVisibleItems(): Item[] {
-  const authReady = useAuthReady()
   const itemsMap = useDataStore(state => state.items)
   const itemIds = useDataStore(state => state.itemIds)
 
   return useMemo(
-    () => {
-      if (!authReady) {
-        return EMPTY_ARRAY
-      }
-
-      return itemIds.map(id => itemsMap[id]).filter(isVisibleItem)
-    },
-    [authReady, itemsMap, itemIds],
+    () => itemIds.map(id => itemsMap[id]).filter(isVisibleItem),
+    [itemsMap, itemIds],
   )
 }
 
@@ -88,11 +80,10 @@ function useMetadataValue<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): Metadata[K] {
-  const authReady = useAuthReady()
   const value = useDataStore(state => state.metadata[key])
 
   // Wait for auth before returning real data to prevent flash-of-empty states
-  const resolvedValue = authReady && value !== undefined
+  const resolvedValue = value !== undefined
     ? value
     : defaultValue as Metadata[K]
 
@@ -100,34 +91,24 @@ function useMetadataValue<K extends MetadataKey>(
 }
 
 export function useItemIds(itemType?: Item['type']): string[] {
-  const authReady = useAuthReady()
   const visibleItems = useVisibleItems()
 
   const nextIds = useMemo(
     () => {
-      if (!authReady) {
-        return []
-      }
-
       const filtered = itemType
         ? visibleItems.filter(item => isVisibleItem(item) && item.type === itemType)
         : visibleItems.filter(isVisibleItem)
 
       return filtered.map(item => item.id as string)
     },
-    [authReady, itemType, visibleItems],
+    [itemType, visibleItems],
   )
 
   return useDeepMemo(nextIds)
 }
 
 export const useItem = (id: ItemId) => {
-  const authReady = useAuthReady()
   const item = useDataStore(state => state.items[id as string])
-
-  if (!authReady) {
-    return undefined
-  }
 
   if (!item || item.deleted) {
     return undefined
@@ -137,31 +118,29 @@ export const useItem = (id: ItemId) => {
 }
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
-  const authReady = useAuthReady()
   const itemsMap = useDataStore(state => state.items)
 
   const nextItems = useMemo(
     () => {
-      if (!authReady || ids.length === 0) {
+      if (ids.length === 0) {
         return EMPTY_ARRAY as T[]
       }
 
       return ids.map(id => itemsMap[id as string]).filter(isVisibleItem) as T[]
     },
-    [authReady, ids, itemsMap],
+    [ids, itemsMap],
   )
 
   return useDeepMemo(nextItems)
 }
 
 export function usePrayerScheduleInputs(): PrayerScheduleInputs {
-  const authReady = useAuthReady()
   const visibleItems = useVisibleItems()
   const prayerGoal = useMetadataValue('prayerGoal')
 
   const nextValue = useMemo(
     () => {
-      if (!authReady) {
+      if (visibleItems.length === 0) {
         return EMPTY_PRAYER_SCHEDULE_INPUTS
       }
 
@@ -170,14 +149,13 @@ export function usePrayerScheduleInputs(): PrayerScheduleInputs {
         prayerGoal,
       }
     },
-    [authReady, prayerGoal, visibleItems],
+    [prayerGoal, visibleItems],
   )
 
   return useDeepMemo(nextValue)
 }
 
 export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
-  const authReady = useAuthReady()
   const visibleItems = useVisibleItems()
   const sortCriteria = useMetadataValue('sortCriteria', DEFAULT_CRITERIA)
   const defaultPrayerFrequency = useMetadataValue('defaultPrayerFrequency', EMPTY_DEFAULT_PRAYER_FREQUENCY)
@@ -191,7 +169,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
 
   const filteredItems = useMemo(
     () => {
-      if (!authReady || !isOpen) {
+      if (!isOpen) {
         return EMPTY_ARRAY
       }
 
@@ -203,23 +181,23 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
         && (showSelectedOptions || !selectedIdSet.has(item.id))
       ))
     },
-    [authReady, includeArchived, isOpen, selectedItemIds, showSelectedOptions, types, visibleItems],
+    [includeArchived, isOpen, selectedItemIds, showSelectedOptions, types, visibleItems],
   )
 
   const sortedItems = useMemo(
     () => {
-      if (!authReady || !isOpen) {
+      if (!isOpen) {
         return EMPTY_ARRAY
       }
 
       return sortItems(filteredItems, sortCriteria)
     },
-    [authReady, filteredItems, isOpen, sortCriteria],
+    [filteredItems, isOpen, sortCriteria],
   )
 
   const nextValue = useMemo(
     () => {
-      if (!authReady || !isOpen) {
+      if (!isOpen) {
         return EMPTY_SEARCH_ITEMS_RESULT
       }
 
@@ -228,7 +206,7 @@ export function useSearchItems(options: SearchItemsOptions): SearchItemsResult {
         items: sortedItems,
       }
     },
-    [authReady, isOpen, defaultPrayerFrequency, sortedItems],
+    [isOpen, defaultPrayerFrequency, sortedItems],
   )
 
   return useDeepMemo(nextValue)
