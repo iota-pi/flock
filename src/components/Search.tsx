@@ -13,8 +13,6 @@ import {
   InputAdornment,
   Paper,
   PaperProps,
-  Popper,
-  styled,
   TextField,
   ThemeProvider,
 } from '@mui/material'
@@ -46,15 +44,6 @@ import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
 import { upperFirst } from 'lodash-es'
 import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/itemTypes'
 
-const StyledPopper = styled(Popper)({
-  [`& .${autocompleteClasses.listbox}`]: {
-    boxSizing: 'border-box',
-    '& ul': {
-      padding: 0,
-      margin: 0,
-    },
-  },
-})
 
 function ThemedPaper({ children, ...props }: PaperProps) {
   const darkMode = useUiStore(state => state.darkMode)
@@ -317,7 +306,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         isOptionEqualToValue={(a, b) => a.id === b.id}
         slots={{
           paper: ThemedPaper,
-          popper: StyledPopper,
         }}
         slotProps={{
           listbox: {
@@ -326,6 +314,17 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             onItemsBuilt: handleItemsBuilt,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any,
+          popper: {
+            sx: {
+              [`& .${autocompleteClasses.listbox}`]: {
+                boxSizing: 'border-box',
+                '& ul': {
+                  padding: 0,
+                  margin: 0,
+                },
+              },
+            },
+          },
         }}
         multiple
         noOptionsText={noItemsText}

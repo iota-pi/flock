@@ -6,7 +6,7 @@ import {
   PrayerIcon,
   TopicIcon,
 } from '../Icons'
-import { InternalRouteConfig, MenuRouteConfig } from './types'
+import type { InternalRouteConfig, MenuRouteConfig } from './types'
 
 const CreateAccountPage = lazy(() => import('./CreateAccount'))
 const ItemPage = lazy(() => import('./ItemPage'))
