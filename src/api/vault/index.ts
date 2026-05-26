@@ -30,18 +30,12 @@ import {
 } from './crypto'
 import type { TRPCError } from '@trpc/server'
 import { SyncBridge } from 'src/sync/SyncBridge'
+import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata } from './util'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
 
 export interface VaultImportExportData {
-  key: string,
-}
-
-export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
-
-type VaultStoredMetadata = {
-  account: string,
   key: string,
 }
 
@@ -72,22 +66,6 @@ export function getVaultKey() {
 
 export function getVaultSession() {
   return session
-}
-
-function readStoredMetadata(): VaultStoredMetadata | null {
-  const serialized = localStorage.getItem(VAULT_STORAGE_KEY)
-  if (serialized) {
-    try {
-      const parsed = JSON.parse(serialized) as Partial<VaultStoredMetadata>
-      if (typeof parsed.account === 'string' && typeof parsed.key === 'string') {
-        return { account: parsed.account, key: parsed.key }
-      }
-    } catch {
-      localStorage.removeItem(VAULT_STORAGE_KEY)
-    }
-  }
-
-  return null
 }
 
 async function writeStoredMetadata() {
@@ -136,11 +114,6 @@ export async function initialiseVault({
   key = await deriveVaultKey({ password, salt, iterations })
   keyHash = await hashVaultKey(key)
   return keyHash
-}
-
-export function getStoredVaultKey(): string | null {
-  const stored = readStoredMetadata()
-  return stored?.key || null
 }
 
 export async function initWorkerVault(exportedKey: string) {
