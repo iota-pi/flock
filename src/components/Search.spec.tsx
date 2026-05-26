@@ -6,9 +6,15 @@ import { ThemeProvider } from '@mui/material'
 import getTheme from '../theme'
 
 // Mocks
-vi.mock('../state/selectors', () => ({
-  useSearchItems: vi.fn(),
-}))
+vi.mock('../state/selectors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../state/selectors')>()
+  return {
+    ...actual,
+    useItemsByIds: vi.fn(),
+    useMetadata: vi.fn(),
+    useSearchItems: vi.fn(),
+  }
+})
 vi.mock('../state/uiStore', () => ({
   useUiStore: vi.fn(),
 }))
@@ -26,7 +32,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
   )
 }
 
-import { useSearchItems } from '../state/selectors'
+import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
 
@@ -43,13 +49,14 @@ describe('Search Component', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useSearchItems).mockImplementation(options => ({
-      defaultFrequencies: {},
-      items: items.filter(item => (
+    vi.mocked(useSearchItems).mockImplementation(options => (
+      items.filter(item => (
         options.types[item.type]
         && (options.includeArchived || !item.archived)
-      )),
-    }))
+      ))
+    ))
+    vi.mocked(useItemsByIds).mockReturnValue([])
+    vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
     vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 
@@ -93,10 +100,7 @@ describe('Search Component', () => {
       name: 'HasNote',
       notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
     }
-    vi.mocked(useSearchItems).mockReturnValue({
-      defaultFrequencies: {},
-      items: [...items, itemWithNote],
-    })
+    vi.mocked(useSearchItems).mockReturnValue([...items, itemWithNote])
 
     renderWithTheme(<Search searchSummary />) // searchSummary enables note search
 
@@ -164,9 +168,10 @@ describe('Search Component', () => {
 
   it('renders selected chips with max chip overflow', () => {
     const selected = [items[0], items[1], items[2]]
+    vi.mocked(useItemsByIds).mockReturnValue(selected)
     renderWithTheme(
       <Search
-        selectedItems={selected}
+        selectedItemIds={selected.map(item => item.id)}
         showSelectedChips
         maxChips={2}
       />

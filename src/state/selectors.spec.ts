@@ -223,7 +223,7 @@ describe('state selectors', () => {
     })
 
     expect(result.current).not.toBe(firstResult)
-    expect(result.current.items.find(item => item.id === 'person-1')?.name).toBe('Alice Updated')
+    expect(result.current.find(item => item.id === 'person-1')?.name).toBe('Alice Updated')
   })
 
   it('usePrayerScheduleInputs keeps stable snapshot for semantically unchanged updates', () => {
