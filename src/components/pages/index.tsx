@@ -4,11 +4,11 @@ import { useAuthStore } from '../../state/authStore'
 
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
-import { Page, PageId } from './types'
+import { Page, ProtectedPageId } from './types'
 import ErrorPage from './ErrorPage'
 import AsyncBoundary, { LoadingSpinner } from '../ui/AsyncBoundary'
 
-export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
+export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [ProtectedPageId, typeof PROTECTED_ROUTES[ProtectedPageId]][])
   .map(([id, config]) => ({ ...config, id }))
 
 

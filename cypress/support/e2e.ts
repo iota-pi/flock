@@ -1,6 +1,6 @@
 /// <reference types="cypress" />
 import 'cypress-axe'
-import type { PageId } from '../../src/components/pages/types'
+import type { ProtectedPageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
 declare global {
@@ -23,7 +23,7 @@ declare global {
 
       createAccount(password: string): Chainable
       login(credentials: { username: string, password: string }): Chainable
-      page(page: PageId): Chainable
+      page(page: ProtectedPageId): Chainable
 
       createPerson(data: Partial<PersonItem>, manual?: boolean): Chainable
       createGroup(data: Partial<GroupItem>, manual?: boolean): Chainable

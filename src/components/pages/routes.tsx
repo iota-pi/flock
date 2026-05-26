@@ -6,7 +6,12 @@ import {
   PrayerIcon,
   TopicIcon,
 } from '../Icons'
-import type { InternalRouteConfig, MenuRouteConfig } from './types'
+import type {
+  InternalRouteConfig,
+  MenuRouteConfig,
+  ProtectedPageId,
+  PublicPageId,
+} from './types'
 
 const CreateAccountPage = lazy(() => import('./CreateAccount'))
 const ItemPage = lazy(() => import('./ItemPage'))
@@ -32,7 +37,7 @@ export const PUBLIC_ROUTES = {
     requiresAuth: false,
     page: <CreateAccountPage />,
   },
-} as const satisfies Record<string, InternalRouteConfig>
+} as const satisfies Record<PublicPageId, InternalRouteConfig>
 
 // Main menu routes
 export const PROTECTED_ROUTES = {
@@ -75,12 +80,9 @@ export const PROTECTED_ROUTES = {
     noPlaceholderDrawer: true,
     page: <SettingsPage />,
   },
-} as const satisfies Record<string, MenuRouteConfig>
+} as const satisfies Record<ProtectedPageId, MenuRouteConfig>
 
 export const ROUTES = {
   ...PUBLIC_ROUTES,
   ...PROTECTED_ROUTES,
 }
-
-export type InternalPageId = keyof typeof PUBLIC_ROUTES
-export type PageId = keyof typeof PROTECTED_ROUTES

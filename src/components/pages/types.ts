@@ -1,8 +1,18 @@
 import type { ReactNode } from 'react'
 import type { MuiIconType } from '../Icons'
-import type { InternalPageId, PageId } from './routes'
 
-export type { InternalPageId, PageId }
+export type PublicPageId = (
+  | 'welcome'
+  | 'login'
+  | 'signup'
+)
+export type ProtectedPageId = (
+  | 'prayer'
+  | 'people'
+  | 'groups'
+  | 'topics'
+  | 'settings'
+)
 
 interface BasePageConfig {
   path: string
@@ -26,5 +36,5 @@ export interface MenuRouteConfig extends BasePageConfig {
 }
 
 export interface Page extends MenuRouteConfig {
-  id: PageId
+  id: ProtectedPageId
 }

@@ -7,7 +7,7 @@ import {
   Toolbar,
 } from '@mui/material'
 import { pages, usePage } from '../pages'
-import { PageId } from '../pages/routes'
+import { ProtectedPageId } from '../pages/types'
 import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
 import { useNavigationStore } from '../../state/navigationStore'
 import { MainMenuItem } from './MainMenuItem'
@@ -67,11 +67,11 @@ function MainMenu({
   const setSelected = useNavigationStore(state => state.setSelected)
   const navigate = useNavigate()
   const page = usePage()
-  const previousPageIdRef = useRef<PageId | undefined>(page?.id)
-  const currentPageIdRef = useRef<PageId | undefined>(page?.id)
+  const previousPageIdRef = useRef<ProtectedPageId | undefined>(page?.id)
+  const currentPageIdRef = useRef<ProtectedPageId | undefined>(page?.id)
 
   const pagePathById = useMemo(
-    () => new Map<PageId, string>(pages.map(menuPage => [menuPage.id, menuPage.path])),
+    () => new Map<ProtectedPageId, string>(pages.map(menuPage => [menuPage.id, menuPage.path])),
     [],
   )
 
@@ -101,7 +101,7 @@ function MainMenu({
   )
 
   const handleClick = useCallback(
-    (pageId?: PageId) => {
+    (pageId?: ProtectedPageId) => {
       const currentPageId = currentPageIdRef.current
 
       if (pageId && currentPageId !== pageId) {

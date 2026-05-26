@@ -3,24 +3,24 @@ import { Box, Typography } from '@mui/material'
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 import LargeIcon from '../ui/LargeIcon'
 import { usePage } from '../pages'
-import { InternalPageId, PageId } from '../pages/types'
+import { PublicPageId, ProtectedPageId } from '../pages/types'
 import InlineText from '../ui/InlineText'
 
 
-const pagesWithAddButton: PageId[] = [
+const pagesWithAddButton: ProtectedPageId[] = [
   'groups',
   'people',
   'topics',
 ]
 
-const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
+const itemNameMap: Record<Exclude<ProtectedPageId, PublicPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'item',
   settings: 'item',
   topics: 'topic',
 }
-const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
+const addNameMap: Record<Exclude<ProtectedPageId, PublicPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'prayer point',

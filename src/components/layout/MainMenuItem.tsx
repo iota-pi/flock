@@ -8,16 +8,16 @@ import {
   styled,
 } from '@mui/material'
 import type { MuiIconType } from '../Icons'
-import type { PageId } from '../pages/types'
+import type { ProtectedPageId } from '../pages/types'
 import type { MinimisedProp } from './types'
 
 interface MainMenuItemProps {
   dividerBefore?: boolean,
   icon: MuiIconType,
-  id: PageId | MenuActionId,
+  id: ProtectedPageId | MenuActionId,
   minimisedMenu: boolean,
   name: string,
-  onClick: (pageId?: PageId) => void,
+  onClick: (pageId?: ProtectedPageId) => void,
   selected: boolean,
   warningCount?: number,
 }

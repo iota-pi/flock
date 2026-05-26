@@ -1,4 +1,4 @@
-import type { PageId } from '../../src/components/pages/types'
+import type { ProtectedPageId } from '../../src/components/pages/types'
 import { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
 function generateLocalItemId(): string {
@@ -247,7 +247,7 @@ Cypress.Commands.add('createAccount', (password: string): Cypress.Chainable => {
 
 Cypress.Commands.add(
   'page',
-  (page: PageId): Cypress.Chainable => {
+  (page: ProtectedPageId): Cypress.Chainable => {
     cy.dataCy(`page-${page}`).click({ force: true })
     const expectedPath = page === 'prayer' ? '/' : `/${page}`
     cy.location('pathname').should('equal', expectedPath)
