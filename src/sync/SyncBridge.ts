@@ -4,14 +4,20 @@ import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
+import { useToastStore } from 'src/state/toastStore'
 import { getStoredVaultKey } from 'src/api/vault'
 import type { Item } from 'src/state/items'
+import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
+import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 const ITEM_UPDATE_BATCH_MAX = 50
 
 const pendingItemUpdates = new Map<string, Item | null>()
 let itemUpdateFlushHandle: number | null = null
+
+let recoveryEntries: ManualRecoveryEntry[] = []
+const recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
 
 const flushItemUpdates = () => {
   if (pendingItemUpdates.size === 0) return
@@ -71,6 +77,15 @@ export const SyncBridge = {
       onFinishRequest: async () => {
         useUiStore.getState().finishRequest()
       },
+      onRecoveryItemsChanged: async entries => {
+        recoveryEntries = entries
+        for (const listener of recoveryEntriesListeners) {
+          listener(entries)
+        }
+      },
+      onToastMessage: async (severity, message) => {
+        useToastStore.getState().setMessage({ severity, message })
+      },
     }
 
     const vaultKey = getStoredVaultKey()
@@ -78,6 +93,10 @@ export const SyncBridge = {
 
     await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks))
     await syncApi.bootstrapLegacyItems()
+
+    setOnRecoveryItemsChangedListener(() => {
+      void SyncBridge.listRecoveryItems()
+    })
   },
 
   forceSync: async () => {
@@ -124,4 +143,43 @@ export const SyncBridge = {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     return await syncApi.restoreFromBinaries(documents)
   },
+
+  retryRecoveryItem: async (itemId: string) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.retryRecoveryItem(itemId)
+  },
+
+  forceOverwriteRecoveryItem: async (itemId: string) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.forceOverwriteRecoveryItem(itemId)
+  },
+
+  forceDeleteRecoveryItem: async (itemId: string) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.forceDeleteRecoveryItem(itemId)
+  },
+
+  dismissRecoveryItem: async (entryId: string) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.dismissRecoveryItem(entryId)
+  },
+
+  listRecoveryItems: async (): Promise<ManualRecoveryEntry[]> => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    const entries = await syncApi.listRecoveryItems()
+    recoveryEntries = entries
+    for (const listener of recoveryEntriesListeners) {
+      listener(entries)
+    }
+    return entries
+  },
+
+  subscribeRecoveryItems: (listener: (entries: ManualRecoveryEntry[]) => void) => {
+    recoveryEntriesListeners.add(listener)
+    listener(recoveryEntries)
+    return () => {
+      recoveryEntriesListeners.delete(listener)
+    }
+  },
 }
+

@@ -1,26 +1,26 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDataRecovery } from './useDataRecovery'
-import { useAuthStore } from '../state/authStore'
 
 const mocks = vi.hoisted(() => ({
-  readManualRecoveryEntries: vi.fn(),
-  removeManualRecoveryEntryById: vi.fn(),
-  removeManualRecoveryEntryByItemId: vi.fn(),
   setMessage: vi.fn(),
-  getAutomergeItem: vi.fn(),
-  withAutomergeDocumentChange: vi.fn(async () => true),
+  dismissRecoveryItem: vi.fn(),
+  retryRecoveryItem: vi.fn(),
+  forceOverwriteRecoveryItem: vi.fn(),
+  forceDeleteRecoveryItem: vi.fn(),
+  listRecoveryItems: vi.fn(),
+  subscribeRecoveryItems: vi.fn(),
 }))
 
-vi.mock('../sync/manualRecoveryStore', () => ({
-  readManualRecoveryEntries: mocks.readManualRecoveryEntries,
-  removeManualRecoveryEntryById: mocks.removeManualRecoveryEntryById,
-  removeManualRecoveryEntryByItemId: mocks.removeManualRecoveryEntryByItemId,
-}))
-
-vi.mock('../sync/automergeDocStore', () => ({
-  getAutomergeItem: mocks.getAutomergeItem,
-  withAutomergeDocumentChange: mocks.withAutomergeDocumentChange,
+vi.mock('../sync/SyncBridge', () => ({
+  SyncBridge: {
+    dismissRecoveryItem: mocks.dismissRecoveryItem,
+    retryRecoveryItem: mocks.retryRecoveryItem,
+    forceOverwriteRecoveryItem: mocks.forceOverwriteRecoveryItem,
+    forceDeleteRecoveryItem: mocks.forceDeleteRecoveryItem,
+    listRecoveryItems: mocks.listRecoveryItems,
+    subscribeRecoveryItems: mocks.subscribeRecoveryItems,
+  },
 }))
 
 vi.mock('../state/toastStore', () => ({
@@ -32,9 +32,15 @@ vi.mock('../state/toastStore', () => ({
 }))
 
 describe('useDataRecovery', () => {
+  let currentEntries: any[] = []
+
   beforeEach(() => {
     vi.clearAllMocks()
-    useAuthStore.getState().updateAuth({ account: 'acct-1', loggedIn: true, initializing: false })
+    currentEntries = []
+    mocks.subscribeRecoveryItems.mockImplementation(listener => {
+      listener(currentEntries)
+      return () => {}
+    })
   })
 
   it('loads manual recovery entries from storage', async () => {
@@ -42,7 +48,8 @@ describe('useDataRecovery', () => {
       { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 },
       { id: 'r2', itemId: 'item-2', reason: 'failed', createdAt: 2 },
     ]
-    mocks.readManualRecoveryEntries.mockResolvedValue(failedEntries)
+    currentEntries = failedEntries
+    mocks.listRecoveryItems.mockResolvedValue(failedEntries)
 
     const { result } = renderHook(() => useDataRecovery())
 
@@ -52,8 +59,10 @@ describe('useDataRecovery', () => {
   })
 
   it('dismisses a recovery entry and refreshes the recovery list', async () => {
-    mocks.readManualRecoveryEntries.mockResolvedValue([{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }])
-    mocks.removeManualRecoveryEntryById.mockResolvedValue(undefined)
+    const failedEntries = [{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }]
+    currentEntries = failedEntries
+    mocks.listRecoveryItems.mockResolvedValue(failedEntries)
+    mocks.dismissRecoveryItem.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useDataRecovery())
 
@@ -65,13 +74,14 @@ describe('useDataRecovery', () => {
       await result.current.handleDismissRecoveryItem('r1')
     })
 
-    expect(mocks.removeManualRecoveryEntryById).toHaveBeenCalledWith('r1')
+    expect(mocks.dismissRecoveryItem).toHaveBeenCalledWith('r1')
   })
 
   it('retries a corrupted item and updates status message', async () => {
-    const entry = { id: 'r1', itemId: 'item-corrupted-1', reason: 'failed', createdAt: 1 }
-    mocks.readManualRecoveryEntries.mockResolvedValue([entry])
-    mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
+    const failedEntries = [{ id: 'r1', itemId: 'item-corrupted-1', reason: 'failed', createdAt: 1 }]
+    currentEntries = failedEntries
+    mocks.listRecoveryItems.mockResolvedValue(failedEntries)
+    mocks.retryRecoveryItem.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useDataRecovery())
 
@@ -83,7 +93,7 @@ describe('useDataRecovery', () => {
       await result.current.handleRetryCorruptedItem('item-corrupted-1')
     })
 
-    expect(mocks.removeManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-corrupted-1')
+    expect(mocks.retryRecoveryItem).toHaveBeenCalledWith('item-corrupted-1')
     expect(mocks.setMessage).toHaveBeenCalledWith({
       severity: 'info',
       message: 'Retry queued for item-corrupted-1.',
@@ -92,20 +102,10 @@ describe('useDataRecovery', () => {
   })
 
   it('force overwrite applies local item snapshot', async () => {
-    const entry = { id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }
-    mocks.readManualRecoveryEntries.mockResolvedValue([entry])
-    mocks.removeManualRecoveryEntryByItemId.mockResolvedValue(undefined)
-    mocks.getAutomergeItem.mockReturnValue({
-      id: 'item-1',
-      type: 'person',
-      name: 'Alice',
-      prayedFor: [],
-      notes: [],
-      description: '',
-      archived: false,
-      created: 0,
-      prayerFrequency: 'none',
-    })
+    const failedEntries = [{ id: 'r1', itemId: 'item-1', reason: 'failed', createdAt: 1 }]
+    currentEntries = failedEntries
+    mocks.listRecoveryItems.mockResolvedValue(failedEntries)
+    mocks.forceOverwriteRecoveryItem.mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useDataRecovery())
 
@@ -113,13 +113,7 @@ describe('useDataRecovery', () => {
       await result.current.handleForceOverwriteCorruptedItem('item-1')
     })
 
-    expect(mocks.withAutomergeDocumentChange).toHaveBeenCalledWith(
-      'acct-1',
-      'item-1',
-      expect.any(Function),
-      expect.objectContaining({
-        createIfMissing: true,
-      }),
-    )
+    expect(mocks.forceOverwriteRecoveryItem).toHaveBeenCalledWith('item-1')
   })
 })
+

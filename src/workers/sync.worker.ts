@@ -33,6 +33,30 @@ import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import {
+  type ManualRecoveryEntry,
+  readManualRecoveryEntries,
+  removeManualRecoveryEntryById,
+  removeManualRecoveryEntryByItemId,
+} from '../sync/manualRecoveryStore'
+import { setOnRecoveryItemsChangedListener, setOnToastMessageListener } from '../api/syncHealthCoordinator'
+
+function mutateDraftToMatchSnapshot(
+  draft: Record<string, unknown>,
+  snapshot: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(draft)) {
+    if (!(key in snapshot) || snapshot[key] === undefined) {
+      delete draft[key]
+    }
+  }
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value !== undefined) {
+      draft[key] = value
+    }
+  }
+}
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -57,7 +81,6 @@ class SyncWorker implements SyncApi {
     const repo = initAutomergeRepo(accountId, this.adapter)
     await initializeAutomergeDocStore(accountId)
 
-
     const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
     const indexHandle = await repo.find<AutomergeIndexDocument>(indexUrl)
     if (!indexHandle) return
@@ -79,6 +102,16 @@ class SyncWorker implements SyncApi {
 
     indexHandle.on('change', handleIndexChange)
     handleIndexChange()
+
+    setOnRecoveryItemsChangedListener(() => {
+      void this.pushRecoveryItems()
+    })
+
+    setOnToastMessageListener((toast) => {
+      if (this.callbacks && this.callbacks.onToastMessage) {
+        this.callbacks.onToastMessage(toast.severity, toast.message).catch(console.error)
+      }
+    })
 
     await this.callbacks.onReady()
   }
@@ -301,6 +334,85 @@ class SyncWorker implements SyncApi {
       console.error('[sync.worker] forceSync failed', err)
     }
   }
+
+  private async pushRecoveryItems() {
+    if (this.callbacks) {
+      try {
+        const entries = await readManualRecoveryEntries()
+        await this.callbacks.onRecoveryItemsChanged(entries)
+      } catch (error) {
+        console.error('[sync.worker] Failed to push recovery entries change', error)
+      }
+    }
+  }
+
+  async retryRecoveryItem(itemId: string) {
+    await removeManualRecoveryEntryByItemId(itemId)
+    await this.pushRecoveryItems()
+  }
+
+  async forceOverwriteRecoveryItem(itemId: string) {
+    const localItem = getAutomergeItem(this.accountId!, itemId)
+    if (!localItem) {
+      throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
+    }
+
+    const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
+    if (Array.isArray(localItem.prayedFor)) {
+      localSnapshot.prayedFor = [...localItem.prayedFor]
+    }
+
+    await withAutomergeDocumentChange(
+      this.accountId!,
+      itemId,
+      doc => {
+        mutateDraftToMatchSnapshot(doc, localSnapshot)
+        if (typeof doc.id !== 'string' || doc.id.length === 0) {
+          doc.id = itemId
+        }
+      },
+      {
+        createIfMissing: true,
+        initialValue: { id: itemId },
+      },
+    )
+
+    await removeManualRecoveryEntryByItemId(itemId)
+    await this.pushRecoveryItems()
+  }
+
+  async forceDeleteRecoveryItem(itemId: string) {
+    const existing = getAutomergeItem(this.accountId!, itemId)
+
+    await withAutomergeDocumentChange(
+      this.accountId!,
+      itemId,
+      doc => {
+        doc.id = itemId
+        doc.type = existing?.type || 'person'
+        doc.deleted = true
+      },
+      {
+        createIfMissing: true,
+        initialValue: {
+          id: itemId,
+        },
+      },
+    )
+
+    await removeManualRecoveryEntryByItemId(itemId)
+    await this.pushRecoveryItems()
+  }
+
+  async dismissRecoveryItem(entryId: string) {
+    await removeManualRecoveryEntryById(entryId)
+    await this.pushRecoveryItems()
+  }
+
+  async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
+    return await readManualRecoveryEntries()
+  }
 }
 
 Comlink.expose(new SyncWorker())
+

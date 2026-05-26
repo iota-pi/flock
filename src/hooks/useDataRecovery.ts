@@ -1,140 +1,84 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  type ManualRecoveryEntry,
-  readManualRecoveryEntries,
-  removeManualRecoveryEntryById,
-  removeManualRecoveryEntryByItemId,
-} from '../sync/manualRecoveryStore'
+import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 import { useToastStore } from '../state/toastStore'
 import type { ItemId } from '../shared/itemTypes'
-import {
-  getAutomergeItem,
-  withAutomergeDocumentChange,
-} from '../sync/automergeDocStore'
-import { useAuthStore } from 'src/state/authStore'
-
-function mutateDraftToMatchSnapshot(
-  draft: Record<string, unknown>,
-  snapshot: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(draft)) {
-    if (!(key in snapshot) || snapshot[key] === undefined) {
-      delete draft[key]
-    }
-  }
-
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (value !== undefined) {
-      draft[key] = value
-    }
-  }
-}
+import { SyncBridge } from '../sync/SyncBridge'
 
 export function useDataRecovery() {
-  const account = useAuthStore(state => state.account)
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
   const [recoveryItems, setRecoveryItems] = useState<ManualRecoveryEntry[]>([])
 
-  const refreshRecoveryItems = useCallback(async (): Promise<ManualRecoveryEntry[]> => {
-    const next = await readManualRecoveryEntries()
-    setRecoveryItems(next)
-    return next
+  useEffect(() => {
+    // Fetch initial list
+    void SyncBridge.listRecoveryItems().catch(console.error)
+
+    // Subscribe to live updates from SyncBridge
+    const unsubscribe = SyncBridge.subscribeRecoveryItems(entries => {
+      setRecoveryItems(entries)
+    })
+
+    return unsubscribe
   }, [])
 
-  useEffect(() => {
-    void refreshRecoveryItems()
-  }, [refreshRecoveryItems])
-
-  const removeManualRecoveryEntry = useCallback(async (itemId: ItemId) => {
-    await removeManualRecoveryEntryByItemId(itemId)
-    await refreshRecoveryItems()
-  }, [refreshRecoveryItems])
-
   const handleDismissRecoveryItem = useCallback(async (id: string) => {
-    await removeManualRecoveryEntryById(id)
-    await refreshRecoveryItems()
-  }, [refreshRecoveryItems])
+    try {
+      await SyncBridge.dismissRecoveryItem(id)
+    } catch (error: any) {
+      setMessage({
+        severity: 'error',
+        message: error.message || `Failed to dismiss recovery item.`,
+      })
+    }
+  }, [setMessage])
 
   const handleForceOverwriteCorruptedItem = useCallback(async (itemId: ItemId) => {
     setIsRetrying(itemId)
     try {
-      const localItem = getAutomergeItem(account, itemId)
-      if (!localItem) {
-        setMessage({
-          severity: 'error',
-          message: `No local item found for ${itemId}. Force delete is available instead.`,
-        })
-        return
-      }
-
-      const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
-      if (Array.isArray(localItem.prayedFor)) {
-        localSnapshot.prayedFor = [...localItem.prayedFor]
-      }
-
-      await withAutomergeDocumentChange(
-        account,
-        itemId,
-        doc => {
-          mutateDraftToMatchSnapshot(doc, localSnapshot)
-          if (typeof doc.id !== 'string' || doc.id.length === 0) {
-            doc.id = itemId
-          }
-        },
-        {
-          createIfMissing: true,
-          initialValue: { id: itemId },
-        },
-      )
-
-      await removeManualRecoveryEntry(itemId)
+      await SyncBridge.forceOverwriteRecoveryItem(itemId)
       setMessage({ message: `Recovered ${itemId} using local cache.` })
-    } finally {
-      setIsRetrying(current => (current === itemId ? null : current))
-    }
-  }, [account, removeManualRecoveryEntry, setMessage])
-
-  const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
-    setIsRetrying(itemId)
-    try {
-      const existing = getAutomergeItem(account, itemId)
-
-      await withAutomergeDocumentChange(
-        account,
-        itemId,
-        doc => {
-          doc.id = itemId
-          doc.type = existing?.type || 'person'
-          doc.deleted = true
-        },
-        {
-          createIfMissing: true,
-          initialValue: {
-            id: itemId,
-          },
-        },
-      )
-
-      await removeManualRecoveryEntry(itemId)
-      setMessage({ message: `Deleted corrupted server item ${itemId}.` })
-    } finally {
-      setIsRetrying(current => (current === itemId ? null : current))
-    }
-  }, [account, removeManualRecoveryEntry, setMessage])
-
-  const handleRetryCorruptedItem = useCallback(async (itemId: ItemId) => {
-    setIsRetrying(itemId)
-    try {
-      await removeManualRecoveryEntry(itemId)
+    } catch (error: any) {
       setMessage({
-        severity: 'info',
-        message: `Retry queued for ${itemId}.`,
+        severity: 'error',
+        message: error.message || `Failed to overwrite ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
     }
-  }, [removeManualRecoveryEntry, setMessage])
+  }, [setMessage])
+
+  const handleForceDeleteCorruptedItem = useCallback(async (itemId: ItemId) => {
+    setIsRetrying(itemId)
+    try {
+      await SyncBridge.forceDeleteRecoveryItem(itemId)
+      setMessage({ message: `Deleted corrupted server item ${itemId}.` })
+    } catch (error: any) {
+      setMessage({
+        severity: 'error',
+        message: error.message || `Failed to force delete ${itemId}.`,
+      })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [setMessage])
+
+  const handleRetryCorruptedItem = useCallback(async (itemId: ItemId) => {
+    setIsRetrying(itemId)
+    try {
+      await SyncBridge.retryRecoveryItem(itemId)
+      setMessage({
+        severity: 'info',
+        message: `Retry queued for ${itemId}.`,
+      })
+    } catch (error: any) {
+      setMessage({
+        severity: 'error',
+        message: error.message || `Failed to retry ${itemId}.`,
+      })
+    } finally {
+      setIsRetrying(current => (current === itemId ? null : current))
+    }
+  }, [setMessage])
 
   return {
     recoveryItems,
@@ -145,3 +89,4 @@ export function useDataRecovery() {
     handleForceDeleteCorruptedItem,
   }
 }
+

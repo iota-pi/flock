@@ -64,6 +64,8 @@ vi.mock('../sync/SyncBridge', () => ({
     clearAutomergeDocStore: mocks.clearAutomergeDocStore,
     exportAllBinaries: mocks.exportAllBinaries,
     restoreFromBinaries: mocks.restoreFromBinaries,
+    listRecoveryItems: vi.fn(async () => []),
+    subscribeRecoveryItems: vi.fn(() => () => {}),
   }
 }))
 

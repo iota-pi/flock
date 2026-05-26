@@ -1,6 +1,7 @@
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { SyncStatus } from 'src/state/syncStore'
+import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 
 export interface SyncCallbacks {
   onReady: () => Promise<void>,
@@ -11,6 +12,8 @@ export interface SyncCallbacks {
   onMutationFailed: (mutationId: string, error: string) => Promise<void>,
   onStartRequest: () => Promise<void>,
   onFinishRequest: () => Promise<void>,
+  onRecoveryItemsChanged: (entries: ManualRecoveryEntry[]) => Promise<void>,
+  onToastMessage?: (severity: 'success' | 'warning' | 'error' | 'info', message: string) => Promise<void>,
 }
 
 export interface SyncApi {
@@ -25,4 +28,10 @@ export interface SyncApi {
   exportAllBinaries: () => Promise<Partial<Record<string, string>>>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   forceSync: () => Promise<void>,
+  retryRecoveryItem: (itemId: string) => Promise<void>
+  forceOverwriteRecoveryItem: (itemId: string) => Promise<void>
+  forceDeleteRecoveryItem: (itemId: string) => Promise<void>
+  dismissRecoveryItem: (entryId: string) => Promise<void>
+  listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
 }
+
