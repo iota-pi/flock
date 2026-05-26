@@ -18,7 +18,7 @@ export type StoredSyncMessage = {
   createdAt: number
 }
 
-export type AppendSyncMessageInput = {
+type AppendSyncMessageInput = {
   account: string
   itemId: string
   entry: StoredSyncMessage

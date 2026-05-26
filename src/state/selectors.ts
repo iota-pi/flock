@@ -8,7 +8,6 @@ import type { ItemId } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
-import { useNavigationStore } from './navigationStore'
 import { useDataStore } from './dataStore'
 import { GroupItem } from 'src/shared/schemas/items'
 
@@ -78,30 +77,14 @@ export function useVisibleItems(): Item[] {
   )
 }
 
-export function useVisibleItemIds(): string[] {
-  const authReady = useAuthReady()
-  const itemIds = useDataStore(state => state.itemIds)
-
-  return useMemo(
-    () => {
-      if (!authReady) {
-        return []
-      }
-
-      return itemIds
-    },
-    [authReady, itemIds],
-  )
-}
-
-export function useMetadataValue<K extends MetadataKey>(
+function useMetadataValue<K extends MetadataKey>(
   key: K,
 ): Metadata[K]
-export function useMetadataValue<K extends MetadataKey>(
+function useMetadataValue<K extends MetadataKey>(
   key: K,
   defaultValue: Exclude<Metadata[K], undefined>,
 ): Exclude<Metadata[K], undefined>
-export function useMetadataValue<K extends MetadataKey>(
+function useMetadataValue<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): Metadata[K] {
@@ -299,14 +282,6 @@ export function useMetadata<K extends MetadataKey>(
 }
 
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
-
-export const useIsActive = () => {
-  const activeDrawer = useNavigationStore(state => state.drawer)
-  return useCallback(
-    (itemId: ItemId) => activeDrawer?.item === itemId,
-    [activeDrawer],
-  )
-}
 
 export const usePracticalFilterCount = () => useUiStore(state => (
   state.filters.filter(isPracticalFilterCriterion).length

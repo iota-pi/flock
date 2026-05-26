@@ -42,15 +42,7 @@ type ChangeDocumentOptions = {
   addToIndex?: boolean
 }
 
-type UpsertMetadataOptions = {
-  markLocalChange?: boolean
-}
-
 const initializedAccounts = new Set<string>()
-
-function cloneValue<T>(value: T): T {
-  return structuredClone(value)
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -252,10 +244,6 @@ async function seedImportedDocument(accountId: string, documentId: string, binar
   }
 }
 
-export function resolvePendingAutomergeHandles(): void {
-  // Doc handle lifecycle is managed by automerge-repo.
-}
-
 export async function withAutomergeDocumentChange(
   accountId: string,
   documentId: string,
@@ -402,26 +390,13 @@ export function listAutomergeItemIds(accountId: string): string[] {
   return getIndexSnapshot(accountId).itemIds || []
 }
 
-export function listAutomergeDocumentIds(accountId: string): string[] {
+function listAutomergeDocumentIds(accountId: string): string[] {
   const documentIds = new Set<string>([
     ACCOUNT_INDEX_DOCUMENT_ID,
     ...listAutomergeItemIds(accountId),
   ])
 
   return Array.from(documentIds)
-}
-
-export function getAutomergeItems(accountId: string): Item[] {
-  const items: Item[] = []
-
-  for (const itemId of listAutomergeItemIds(accountId)) {
-    const item = getAutomergeItem(accountId, itemId)
-    if (item) {
-      items.push(item)
-    }
-  }
-
-  return items
 }
 
 export function getAutomergeItem(accountId: string, itemId: string): Item | null {
@@ -454,32 +429,6 @@ export async function hydrateAutomergeDocumentBinary(
     await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
     return
   }
-}
-
-export async function upsertAutomergeMetadataSnapshot(
-  accountId: string,
-  metadata: AccountMetadata,
-  options: UpsertMetadataOptions = {},
-): Promise<void> {
-  void options.markLocalChange
-
-  const nextMetadata = cloneValue(metadata || {}) as Record<string, unknown>
-
-  await withAutomergeDocumentChange(
-    accountId,
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    doc => {
-      doc.metadata = nextMetadata
-    },
-    {
-      createIfMissing: true,
-      initialValue: {
-        accountId: '',
-        itemIds: [],
-        metadata: {},
-      },
-    }
-  )
 }
 
 export async function removeAutomergeItem(accountId: string, itemId: string): Promise<void> {

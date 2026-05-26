@@ -35,7 +35,6 @@
     "@formkit/auto-animate": "^0.9.0",
     "@hookform/resolvers": "^5.2.2",
     "@mui/icons-material": "^9.0.1",
-    "@mui/lab": "^9.0.0-beta.3",
     "@mui/material": "^9.0.1",
     "@mui/x-date-pickers": "^9.3.0",
     "@sentry/react": "^10.46.0",
@@ -59,7 +58,6 @@
     "lodash-es": "^4.17.23",
     "match-sorter": "^8.2.0",
     "mui-file-dropzone": "^4.0.2",
-    "partysocket": "^1.1.16",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.72.0",
@@ -73,11 +71,11 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@aws-sdk/client-apigatewaymanagementapi": "^3.1010.0",
     "@aws-sdk/client-dynamodb": "^3.958.0",
     "@aws-sdk/client-sqs": "^3.1010.0",
     "@aws-sdk/core": "^3.957.0",
     "@aws-sdk/lib-dynamodb": "^3.958.0",
+    "@eslint/js": "^10.0.1",
     "@sentry/vite-plugin": "^5.1.1",
     "@stylistic/eslint-plugin": "^5.5.0",
     "@testing-library/dom": "^10.4.1",
@@ -87,13 +85,10 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@types/web-push": "^3",
+    "@types/web-push": "^3.6.4",
     "@vitest/coverage-v8": "^4.1.5",
-    "@vitest/eslint-plugin": "^1.6.16",
+    "@vitest/eslint-plugin": "^1.6.18",
     "axe-core": "^4.11.1",
-    "bestzip": "^2.2.1",
-    "browserslist": "^4.28.1",
-    "browserslist-to-esbuild": "^2.1.1",
     "concurrently": "^9.2.1",
     "cypress": "^15.15.0",
     "cypress-axe": "^1.7.0",
@@ -103,6 +98,7 @@
     "eslint-plugin-import-x": "^4.16.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "knip": "^6.14.2",
     "rollup-plugin-visualizer": "^6.0.5",
     "source-map-explorer": "^2.5.2",
     "sst": "^3.17.37",
@@ -113,7 +109,8 @@
     "vite-plugin-pwa": "^1.2.0",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.7",
+    "workbox-precaching": "^7.4.1"
   },
   "eslintConfig": {
     "extends": "react-app"
@@ -122,5 +119,5 @@
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.17"
   },
-  "packageManager": "yarn@4.1.0"
+  "packageManager": "yarn@4.15.0"
 }

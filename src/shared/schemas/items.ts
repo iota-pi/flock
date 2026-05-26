@@ -24,7 +24,7 @@ export const noteSchema = z.looseObject({
   time: z.number().int().positive(),
 })
 
-export const baseItemSchema = z.looseObject({
+const baseItemSchema = z.looseObject({
   archived: z.boolean(),
   created: z.number().int().positive(),
   deleted: z.boolean().optional(),
@@ -73,20 +73,10 @@ export const readItemSchema = z.discriminatedUnion('type', [
   topicItemSchema,
 ])
 
-export const insertPersonSchema = personItemSchema.strict()
-export const insertGroupSchema = groupItemSchema.strict()
-export const insertTopicSchema = topicItemSchema.strict()
-
-export const insertItemSchema = z.discriminatedUnion('type', [
-  insertPersonSchema,
-  insertGroupSchema,
-  insertTopicSchema,
-])
-
 export type Note = z.infer<typeof noteSchema>
 export type BaseItem = z.infer<typeof baseItemSchema>
 export type PersonItem = z.infer<typeof personItemSchema>
 export type GroupItem = z.infer<typeof groupItemSchema>
 export type TopicItem = z.infer<typeof topicItemSchema>
-export type Item = z.infer<typeof readItemSchema>
+export type StandardItem = z.infer<typeof readItemSchema>
 export type ErrorItem = z.infer<typeof errorItemSchema>

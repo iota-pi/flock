@@ -4,7 +4,8 @@ import tseslint from 'typescript-eslint'
 import importPlugin from 'eslint-plugin-import-x'
 import stylistic from '@stylistic/eslint-plugin'
 import reactHooks from 'eslint-plugin-react-hooks'
-
+import vitest from '@vitest/eslint-plugin'
+import react from 'eslint-plugin-react'
 
 export default defineConfig([
   globalIgnores([
@@ -29,9 +30,19 @@ export default defineConfig([
     plugins: {
       '@stylistic': stylistic,
       'react-hooks': reactHooks,
+      react,
+      vitest,
+    },
+    settings: {
+      react: {
+        version: 'detect',
+      },
     },
     rules: {
+      ...react.configs.flat.recommended.rules,
+      ...react.configs.flat['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
+      ...vitest.configs.recommended.rules,
       'arrow-parens': ['error', 'as-needed'],
       'lines-between-class-members': ['error', 'always', { exceptAfterSingleLine: true }],
       'no-console': ['error', { allow: ['warn', 'error', 'info'] }],

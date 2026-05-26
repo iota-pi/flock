@@ -6,13 +6,9 @@ import { createDebouncedNotifier } from './syncUtils'
 import {
   findRepoDocHandle,
   readHandleDocSafely,
-  readReadyObjectSnapshot,
 } from './automergeHandleUtils'
 import { useSyncStore } from '../state/syncStore'
 
-export type RepoDoc = Record<string, unknown>
-export type RepoDocHandle = DocHandle<RepoDoc> | undefined
-export type Repo = ReturnType<typeof useRepo>
 export type OptimizedDocumentEvent = 'change' | 'heads-changed' | 'delete'
 
 type OptimizedDocumentStore<TDoc extends object, TSnapshot> = {
@@ -24,7 +20,6 @@ type OptimizedDocumentStore<TDoc extends object, TSnapshot> = {
   snapshotByDocRef: WeakMap<object, TSnapshot>
 }
 
-const readReadySnapshot = (handle: RepoDocHandle): RepoDoc | null => readReadyObjectSnapshot(handle)
 
 function readProjectedSnapshot<TDoc extends object, TSnapshot>(
   store: OptimizedDocumentStore<TDoc, TSnapshot>,
@@ -154,7 +149,7 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
           currentHandle.state === 'deleted'
           || (typeof (currentHandle as unknown as Record<string, unknown>).isDeleted === 'function' && (currentHandle as unknown as { isDeleted: () => boolean }).isDeleted())
         )
-        
+
         if (!isDeleted) {
           throw currentHandle.whenReady()
         }
@@ -184,5 +179,3 @@ export function useOptimizedDocument<TDoc extends object, TSnapshot>(
 
   return [snapshot, changeDoc, handle] as const
 }
-
-export { findRepoDocHandle, readReadySnapshot }

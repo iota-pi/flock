@@ -4,14 +4,13 @@ import { generateItemId } from '../utils'
 import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId, type ItemType } from '../shared/itemTypes'
 import {
   readItemSchema,
+  type StandardItem,
   type BaseItem,
   type ErrorItem,
   type GroupItem,
   type PersonItem,
   type TopicItem,
 } from '../shared/schemas/items'
-
-export type StandardItem = PersonItem | GroupItem | TopicItem
 
 export type Item = StandardItem | ErrorItem
 export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>

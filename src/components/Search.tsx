@@ -348,7 +348,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             )
           }
           if (dataCy && slotProps?.htmlInput) {
-            (slotProps.htmlInput as any)['data-cy'] = dataCy
+            slotProps.htmlInput['data-cy'] = dataCy
           }
           return (
             <TextField
@@ -379,6 +379,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             : selectedOptions
 
           const chips = visibleOptions.map((option, index) => (
+            // eslint-disable-next-line react/jsx-key
             <Chip
               {...getItemProps({ index })}
               label={getName(option)}

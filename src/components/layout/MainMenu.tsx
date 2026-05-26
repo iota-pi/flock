@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  Box,
   Drawer,
   List,
   styled,

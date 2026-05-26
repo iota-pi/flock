@@ -1,6 +1,6 @@
 import { Item } from '../../state/items'
 
-export interface SearchableItem<T extends Item = Item> {
+interface SearchableItem<T extends Item = Item> {
   create?: false,
   data: T,
   dividerBefore?: boolean,
@@ -8,7 +8,7 @@ export interface SearchableItem<T extends Item = Item> {
   id: string,
   type: T['type'],
 }
-export interface SearchableAddItem<T extends Item = Item> {
+interface SearchableAddItem<T extends Item = Item> {
   create: true,
   data?: undefined,
   default: Partial<T> & Pick<T, 'type'>,

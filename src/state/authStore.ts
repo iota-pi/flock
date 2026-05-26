@@ -22,7 +22,3 @@ export const useAuthStore = create<AuthStore>(set => ({
   ...initialAuthState,
   updateAuth: payload => set(payload),
 }))
-
-export function getInitialAuthState(): AccountState {
-  return initialAuthState
-}

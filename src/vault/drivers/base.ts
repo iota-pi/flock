@@ -9,7 +9,7 @@ export interface VaultKey {
   item: string,
 }
 
-export interface VaultMetaData {
+interface VaultMetaData {
   type: ItemType,
   iv: string,
   modified: number,
@@ -22,7 +22,7 @@ export interface VaultMetaData {
  * - Legacy: has cipher, no branches
  * - Branching: has branches array, may or may not have cipher (depending on migration state)
  */
-export interface VaultData {
+interface VaultData {
   metadata: VaultMetaData,
   cipher?: string, // Optional for branching format
   branches?: VaultBranch[], // New branching format
@@ -41,7 +41,7 @@ export interface VaultSessionRecord {
   expiry: number,
 }
 
-export interface VaultAccount extends BaseData {
+interface VaultAccount extends BaseData {
   metadata: Record<string, unknown>,
   sessions?: VaultSessionRecord[],
   pushSubscriptions?: WebPushSubscription[],

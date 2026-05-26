@@ -1,11 +1,6 @@
 import { create } from 'zustand'
 import { generateItemId } from '../utils'
 import type { ItemId } from '../shared/itemTypes'
-import type { Item } from './items'
-
-export type DrawerOnChange = (
-  item: Partial<Omit<Item, 'type' | 'id'>> | ((prev: Item) => Item),
-) => void
 
 export interface DrawerData {
   id: string

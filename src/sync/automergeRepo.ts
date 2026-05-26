@@ -4,7 +4,6 @@ import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-index
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 
 
-const vaultNetworkAdapters = new Map<string, VaultEncryptedNetworkAdapter>()
 const repos = new Map<string, Repo>()
 
 function getFastHash(str: string): string {
@@ -47,27 +46,4 @@ export function getAutomergeRepo(accountId: string): Repo {
     throw new Error(`Automerge repo for account ${accountId} has not been initialized`)
   }
   return repo
-}
-
-export function getVaultNetworkAdapter(accountId: string): VaultEncryptedNetworkAdapter | undefined {
-  return vaultNetworkAdapters.get(accountId)
-}
-
-export function setVaultNetworkAdapter(accountId: string, adapter: VaultEncryptedNetworkAdapter) {
-  if (vaultNetworkAdapters.has(accountId)) {
-    throw new Error(`VaultEncryptedNetworkAdapter for account ${accountId} has already been set`)
-  }
-  vaultNetworkAdapters.set(accountId, adapter)
-}
-
-export async function setVaultNetworkAccount(accountId: string | null): Promise<void> {
-  if (accountId) {
-    await getVaultNetworkAdapter(accountId)?.setAccount(accountId)
-  } else {
-    const promises: Promise<void>[] = []
-    for (const adapter of vaultNetworkAdapters.values()) {
-      promises.push(adapter.setAccount(null))
-    }
-    await Promise.all(promises)
-  }
 }

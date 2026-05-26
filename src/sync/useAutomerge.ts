@@ -44,7 +44,6 @@ type RepoDoc = Record<string, unknown>
 type Repo = ReturnType<typeof useRepo>
 type AutomergeIndexDocument = z.infer<typeof automergeIndexDocumentSchema>
 type ItemSchema<TItem extends Item> = z.ZodType<TItem>
-type ItemUpdate<TItem extends Item> = Partial<TItem> | ((prev: TItem) => TItem)
 
 
 type ItemsStoreState<TItem extends Item> = {
@@ -91,17 +90,6 @@ const lenientItemReadSchema = z.discriminatedUnion('type', [
   lenientGroupItemReadSchema,
   lenientTopicItemReadSchema,
 ])
-
-export type UseAutomergeItemDocumentResult<TItem extends Item> = {
-  item: TItem | null
-  change: (changeFn: (draft: TItem) => void) => void
-}
-
-export type UseAutomergeItemCommandsResult<TItem extends Item> = {
-  applyItemUpdate: (
-    update: ItemUpdate<TItem>,
-  ) => void
-}
 
 type ParseItemOptions = {
   enableErrorFallback?: boolean
@@ -382,7 +370,7 @@ export function useAutomergeItems<TItem extends Item = Item>(schema?: ItemSchema
   return useAutomergeItemsById<TItem>(itemIds, schema)
 }
 
-export function useAutomergeItemIds(): string[] {
+function useAutomergeItemIds(): string[] {
   const indexUrl = useMemo(
     () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
     [],
@@ -411,53 +399,6 @@ export function useAutomergeItemsById<TItem extends Item = Item>(
   schema?: ItemSchema<TItem>,
 ): TItem[] {
   return useAutomergeItemsFromIds<TItem>(itemIds, schema)
-}
-
-export function useAutomergeItemDocument<TItem extends Item = Item>(
-  itemId: string | null,
-  schema?: ItemSchema<TItem>,
-): UseAutomergeItemDocumentResult<TItem> {
-  const resolvedSchema = resolveItemSchema(schema)
-  const enableFallbacks = resolvedSchema === defaultItemSchema
-
-  const documentUrl = useMemo(
-    () => itemId ? toAutomergeUrlFromItemId(itemId) as AutomergeUrl : null,
-    [itemId],
-  )
-
-  const projectItemSnapshot = useCallback(
-    (itemDoc: TItem | undefined): TItem | null => (
-      itemId !== null ? parseItemFromDoc(
-        itemId,
-        itemDoc,
-        resolvedSchema,
-        {
-          enableErrorFallback: enableFallbacks,
-          enableLenientRead: enableFallbacks,
-        },
-      ) : null
-    ),
-    [itemId, resolvedSchema, enableFallbacks],
-  )
-
-  const [item, change] = useOptimizedDocument<TItem, TItem | null>(
-    documentUrl,
-    projectItemSnapshot,
-    null,
-  )
-
-  return useMemo(
-    () => ({
-      item,
-      change,
-    }),
-    [change, item],
-  )
-}
-
-export function useAutomergeItem<TItem extends Item = Item>(itemId: string, schema?: ItemSchema<TItem>): TItem | null {
-  const { item } = useAutomergeItemDocument(itemId, schema)
-  return item
 }
 
 export function useAutomergeItemSelector<TSnapshot, TItem extends Item = Item>(
@@ -495,66 +436,6 @@ export function useAutomergeItemSelector<TSnapshot, TItem extends Item = Item>(
   return selectedSnapshot
 }
 
-export function useAutomergeItemCommands<TItem extends Item = Item>(
-  itemId: string | null,
-  schema?: ItemSchema<TItem>,
-): UseAutomergeItemCommandsResult<TItem> {
-  const resolvedSchema = resolveItemSchema(schema)
-  const repo = useRepo()
-
-  const applyItemUpdate = useCallback(
-    (
-      update: ItemUpdate<TItem>,
-    ) => {
-      if (itemId === null) {
-        throw new Error('Cannot apply item update to null item')
-      }
-
-      const documentUrl = toAutomergeUrlFromItemId(itemId) as AutomergeUrl
-      const handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
-
-      if (!handle) {
-        throw new Error(`Automerge handle missing for item: ${itemId}`)
-      }
-
-      if (!handle.isReady()) {
-        throw new Error(`Automerge handle not ready for item: ${itemId}`)
-      }
-
-      if (handle.isUnavailable()) {
-        throw new Error(`Automerge handle unavailable for item: ${itemId}`)
-      }
-
-      handle.change(draft => {
-        if (typeof draft.id !== 'string' || draft.id.length === 0) {
-          draft.id = itemId
-        }
-
-        if (typeof update === 'function') {
-          const currentDraft = structuredClone(draft) as TItem
-          const nextSnapshot = update(currentDraft)
-          Object.assign(draft, nextSnapshot)
-        } else {
-          Object.assign(draft, update)
-        }
-
-        const validation = resolvedSchema.safeParse(draft)
-        if (!validation.success) {
-          throw new Error(`Blocked invalid Automerge item mutation for ${itemId}: ${validation.error.message}`)
-        }
-      })
-    },
-    [repo, itemId, resolvedSchema],
-  )
-
-  return useMemo(
-    () => ({
-      applyItemUpdate,
-    }),
-    [applyItemUpdate],
-  )
-}
-
 function normalizeMetadataFromIndex(indexDoc: AutomergeIndexDocument | undefined): AccountMetadata {
   const metadata = parseWithSchema(indexDoc?.metadata, accountMetadataSchema)
   return metadata || EMPTY_METADATA
@@ -581,39 +462,4 @@ export function useAutomergeMetadataSnapshot(): AccountMetadata {
   )
 
   return metadata
-}
-
-export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
-  key: K,
-): AccountMetadata[K]
-export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
-  key: K,
-  defaultValue: NonNullable<AccountMetadata[K]>,
-): NonNullable<AccountMetadata[K]>
-export function useAutomergeMetadataValue<K extends keyof AccountMetadata>(
-  key: K,
-  defaultValue?: AccountMetadata[K],
-): AccountMetadata[K] {
-  const indexUrl = useMemo(
-    () => toAutomergeUrlFromItemId(ACCOUNT_METADATA_DOCUMENT_ID) as AutomergeUrl,
-    [],
-  )
-
-  const projectMetadataProperty = useCallback(
-    (indexDoc: RepoDoc | undefined): AccountMetadata[K] => {
-      const parsedIndexDoc = parseWithSchema(indexDoc, automergeIndexDocumentSchema) || undefined
-      const metadata = normalizeMetadataFromIndex(parsedIndexDoc)
-
-      return metadata[key] === undefined ? (defaultValue as AccountMetadata[K]) : metadata[key]
-    },
-    [key, defaultValue],
-  )
-
-  const [value] = useOptimizedDocument<RepoDoc, AccountMetadata[K]>(
-    indexUrl,
-    projectMetadataProperty,
-    defaultValue as AccountMetadata[K],
-  )
-
-  return value
 }

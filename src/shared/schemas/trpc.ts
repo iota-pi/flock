@@ -29,11 +29,6 @@ export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
 })
 
-export const ItemFormInputSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(120),
-  description: z.string().max(500).optional().default(''),
-})
-
 export const PushSubscriptionBodySchema = z.object({
   account: z.string().min(1),
   endpoint: z.string().min(1),

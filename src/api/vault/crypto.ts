@@ -18,7 +18,7 @@ function fromBytes(array: ArrayBuffer): string {
   return btoa(chunks.join(''))
 }
 
-export function toBytes(str: string): ArrayBuffer {
+function toBytes(str: string): ArrayBuffer {
   const decoded = atob(str)
   const bytes = new Uint8Array(decoded.length)
 

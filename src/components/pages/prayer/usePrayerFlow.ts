@@ -13,7 +13,7 @@ import { isSameDay } from '../../../utils'
 import { mutateItem } from '../../../features/items/mutations/itemMutations'
 import { type FlowState, usePrayerFlowStore } from '../../../state/prayerFlowStore'
 
-export type PrayerFlowActions = {
+type PrayerFlowActions = {
   handleBack: () => void
   handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => void
   handleCheck: (item: Item) => void
@@ -25,7 +25,7 @@ export type PrayerFlowActions = {
   handleStepClick: (index: number) => void
 }
 
-export type PrayerFlowProgressSlice = {
+type PrayerFlowProgressSlice = {
   allVisiblePrayed: boolean
   canKeepPraying: boolean
   completed: number
@@ -33,13 +33,13 @@ export type PrayerFlowProgressSlice = {
   naturalGoal: number
 }
 
-export type PrayerFlowScheduleSlice = {
+type PrayerFlowScheduleSlice = {
   isPrayedForToday: (item: Item) => boolean
   visibleItems: Item[]
   visibleItemsIds: string[]
 }
 
-export type PrayerFlowViewSlice = {
+type PrayerFlowViewSlice = {
   activeIndex: number
   current: FlowState
   hideActive: boolean
@@ -52,7 +52,7 @@ export type PrayerFlowViewSlice = {
   transitionDurationMs: number
 }
 
-export type PrayerFlowStepperSlice = {
+type PrayerFlowStepperSlice = {
   activeStep: number | undefined
   steps: number
 }

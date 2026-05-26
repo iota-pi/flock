@@ -1,11 +1,14 @@
 import type {
-  ItemId,
   StandardItemEnvelope,
   TombstoneItemEnvelope,
 } from '../../shared/itemTypes'
 import type { LegacyItemEnvelope } from '../../sync/legacyTypes'
 
-export type VaultEnvelope = LegacyItemEnvelope | StandardItemEnvelope | TombstoneItemEnvelope
+type VaultEnvelope = (
+  LegacyItemEnvelope
+  | StandardItemEnvelope
+  | TombstoneItemEnvelope
+)
 
 export type CreateAccountBody = {
   salt: string
@@ -35,5 +38,3 @@ export type ReminderSettingsResponse = {
   reminderTime: string
   reminderTimezone: string
 }
-
-export type { ItemId }

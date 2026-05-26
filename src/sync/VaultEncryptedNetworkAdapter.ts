@@ -254,8 +254,4 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       },
     })
   }
-
-
 }
-
-export { VAULT_PEER_ID }

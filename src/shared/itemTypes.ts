@@ -16,7 +16,7 @@ export type VaultBranch = {
   parentIds: string[],
 }
 
-export type VaultBranchList = [VaultBranch, ...VaultBranch[]]
+type VaultBranchList = [VaultBranch, ...VaultBranch[]]
 
 export type ItemEnvelopeMetadata = {
   type: ItemType,

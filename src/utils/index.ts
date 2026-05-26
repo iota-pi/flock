@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 export const APP_NAME = 'Flock'
 
@@ -16,12 +16,6 @@ export function formatDate(date: Date) {
 
 export function isSameDay(d1: Date, d2: Date) {
   return formatDate(d1) === formatDate(d2)
-}
-
-export function useToday() {
-  const todayStr = new Date().toDateString()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => new Date(), [todayStr])
 }
 
 export function usePrevious<T>(value: T): T | undefined {

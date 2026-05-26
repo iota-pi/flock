@@ -1,47 +1,4 @@
-import deepEqual from 'fast-deep-equal'
 import { z } from 'zod'
-
-export type StableSnapshot<T> = {
-  value: T
-}
-
-export function stableSerialize(value: unknown): string {
-  if (value === null || value === undefined) {
-    return String(value)
-  }
-
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return JSON.stringify(value)
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(stableSerialize).join(',')}]`
-  }
-
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-
-    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(',')}}`
-  }
-
-  return JSON.stringify(String(value))
-}
-
-export function readStableSnapshot<T>(
-  value: T,
-  snapshotRef: { current: StableSnapshot<T> | null },
-): T {
-  if (snapshotRef.current && deepEqual(snapshotRef.current.value, value)) {
-    return snapshotRef.current.value
-  }
-
-  snapshotRef.current = {
-    value,
-  }
-
-  return value
-}
 
 export function normalizeItemIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) {

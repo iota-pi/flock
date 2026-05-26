@@ -4,7 +4,7 @@ import type { InternalPageId, PageId } from './routes'
 
 export type { InternalPageId, PageId }
 
-export interface BasePageConfig {
+interface BasePageConfig {
   path: string
   requiresAuth: boolean
 }

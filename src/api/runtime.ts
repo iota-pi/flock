@@ -1,10 +1,9 @@
 import { useUiStore } from '../state/uiStore'
-import { useToastStore } from '../state/toastStore'
 
 let authToken = ''
 let onSessionExpired: (() => void) | null = null
 
-export class ApiHttpError extends Error {
+class ApiHttpError extends Error {
   readonly status: number
   readonly url: string
 
@@ -94,15 +93,4 @@ if (typeof window !== 'undefined' && (window as Window & { Cypress?: unknown }).
 
 export function getApiAuthToken() {
   return authToken
-}
-
-export function handleVaultError(error: Error, message: string) {
-  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
-    return
-  }
-  console.error(error)
-  useToastStore.getState().setMessage({
-    message,
-    severity: 'error',
-  })
 }
