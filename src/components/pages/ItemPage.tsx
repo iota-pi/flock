@@ -13,10 +13,9 @@ import {
 import BasePage from './BasePage'
 import { useUiStore } from 'src/state/uiStore'
 import { useNavigationStore } from 'src/state/navigationStore'
-import {
-  processItemsSnapshot,
-} from 'src/workers/itemWorkerManager'
 import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
+import { filterItems } from 'src/utils/customFilter'
+import { sortItems } from 'src/utils/customSort'
 
 interface Props {
   itemType: ItemType,
@@ -34,18 +33,14 @@ function ItemPage({
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
+  const totalApplicable = rawItems.length
 
-  const {
-    results: items,
-    totalApplicable,
-  } = useMemo(
-    () => (
-      processItemsSnapshot({
-        items: rawItems,
-        filters,
-        sortCriteria,
-      })
-    ),
+  const items = useMemo(
+    () => {
+      const filtered = filterItems(rawItems, filters)
+      const results = sortItems(filtered, sortCriteria)
+      return results
+    },
     [rawItems, filters, sortCriteria],
   )
 
