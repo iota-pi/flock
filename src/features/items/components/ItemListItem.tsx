@@ -189,7 +189,7 @@ export function ItemListItem(props: ItemListItemProps) {
   )
   const tags = useMemo(
     () => {
-      const groupNames = groupLookup?.tags ?? []
+      const groupNames = groupLookup?.groupNames ?? []
       if (filterTags) {
         return groupNames.filter(filterTags)
       }

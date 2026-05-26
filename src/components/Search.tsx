@@ -29,7 +29,7 @@ import {
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useSearchItems } from '../state/selectors'
+import { useItemsByIds, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import getTheme from '../theme'
 import {
@@ -44,7 +44,7 @@ import {
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
 import { upperFirst } from 'lodash-es'
-import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/itemTypes'
 
 const StyledPopper = styled(Popper)({
   [`& .${autocompleteClasses.listbox}`]: {
@@ -84,7 +84,7 @@ interface Props<T> {
   onCreate?: (item: Item) => void,
   onRemove?: (item: T) => void,
   onSelect?: (item: T) => void,
-  selectedItems?: T[],
+  selectedItemIds?: ItemId[],
   searchDescription?: boolean,
   searchSummary?: boolean,
   showDescriptions?: boolean,
@@ -98,7 +98,7 @@ interface Props<T> {
 }
 
 const DARK_THEME = getTheme(true)
-const EMPTY_ITEMS: never[] = []
+const EMPTY_ITEM_IDS: string[] = []
 
 function Search<T extends AnySearchableData = AnySearchableData>({
   autoFocus,
@@ -115,7 +115,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   onCreate,
   onRemove,
   onSelect,
-  selectedItems = EMPTY_ITEMS as T[],
+  selectedItemIds = EMPTY_ITEM_IDS,
   searchDescription = false,
   searchSummary = false,
   showDescriptions = true,
@@ -126,10 +126,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showOptionCheckboxes = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const selectedItemIds = useMemo(
-    () => selectedItems.map(s => (typeof s === 'string' ? s : s.id)),
-    [selectedItems],
-  )
+  const selectedItems = useItemsByIds(selectedItemIds)
   const [isOpen, setIsOpen] = useState(false)
   const handleOpen = useCallback(() => setIsOpen(true), [])
   const handleClose = useCallback(() => setIsOpen(false), [])

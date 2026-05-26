@@ -5,11 +5,10 @@ import { getItemTypeLabel, Item } from 'src/state/items'
 import { ERROR_ITEM_TYPE, type ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {
-  useItemIds,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
-  useItemsByIds,
+  useItemsOfType,
 } from 'src/state/selectors'
 import BasePage from './BasePage'
 import { useUiStore } from 'src/state/uiStore'
@@ -29,8 +28,7 @@ function ItemPage({
   const setDrawer = useNavigationStore(state => state.setDrawer)
   const setSelected = useNavigationStore(state => state.setSelected)
   const toggleSelected = useNavigationStore(state => state.toggleSelected)
-  const itemIds = useItemIds(itemType)
-  const rawItems = useItemsByIds(itemIds)
+  const rawItems = useItemsOfType(itemType)
   const selected = useNavigationStore(state => state.selected)
   const filters = useUiStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})

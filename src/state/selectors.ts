@@ -4,7 +4,7 @@ import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
-import type { ItemId } from '../shared/itemTypes'
+import type { GroupLookupData, ItemId } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
@@ -69,6 +69,23 @@ export function useVisibleItems(): Item[] {
   )
 }
 
+export function useItemsOfType<T extends Item>(itemType?: Item['type']): T[] {
+  const visibleItems = useVisibleItems()
+
+  const nextItems = useMemo(
+    () => {
+      if (!itemType) {
+        return visibleItems as T[]
+      }
+
+      return visibleItems.filter(item => item.type === itemType) as T[]
+    },
+    [itemType, visibleItems],
+  )
+
+  return useDeepMemo(nextItems)
+}
+
 function useMetadataValue<K extends MetadataKey>(
   key: K,
 ): Metadata[K]
@@ -96,8 +113,8 @@ export function useItemIds(itemType?: Item['type']): string[] {
   const nextIds = useMemo(
     () => {
       const filtered = itemType
-        ? visibleItems.filter(item => isVisibleItem(item) && item.type === itemType)
-        : visibleItems.filter(isVisibleItem)
+        ? visibleItems.filter(item => item.type === itemType)
+        : visibleItems
 
       return filtered.map(item => item.id as string)
     },
@@ -265,20 +282,15 @@ export const usePracticalFilterCount = () => useUiStore(state => (
   state.filters.filter(isPracticalFilterCriterion).length
 ))
 
-export interface GroupLookupData {
-  tags: string[]
-  groupIds: ItemId[]
-}
-
 export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
-  const visibleItems = useVisibleItems()
+  const groupItems = useItemsOfType<GroupItem>('group')
 
   return useMemo(
     () => {
       const lookup = new Map<ItemId, GroupLookupData>()
 
-      for (const item of visibleItems) {
-        if (item.type !== 'group' || item.archived) {
+      for (const item of groupItems) {
+        if (item.archived) {
           continue
         }
 
@@ -288,11 +300,11 @@ export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
         for (const memberId of members) {
           const existing = lookup.get(memberId as ItemId)
           if (existing) {
-            existing.tags.push(group.name || '')
+            existing.groupNames.push(group.name || '')
             existing.groupIds.push(group.id as ItemId)
           } else {
             lookup.set(memberId as ItemId, {
-              tags: [group.name || ''],
+              groupNames: [group.name || ''],
               groupIds: [group.id as ItemId],
             })
           }
@@ -300,6 +312,6 @@ export function useGroupLookupMap(): ReadonlyMap<ItemId, GroupLookupData> {
       }
       return lookup
     },
-    [visibleItems],
+    [groupItems],
   )
 }

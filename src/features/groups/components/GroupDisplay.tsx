@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import DeleteIcon from '@mui/icons-material/Close'
 import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/itemTypes'
-import { useItemIds, useItemsByIds } from '../../../state/selectors'
+import { useGroupLookupMap, useItemsOfType } from '../../../state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from '../../../components/Search'
@@ -19,18 +19,12 @@ function GroupDisplay({
   editable = true,
   itemId,
 }: Props) {
-  const allGroupIds = useItemIds('group')
-  const allGroups = useItemsByIds<GroupItem>(allGroupIds)
+  const groupLookupMap = useGroupLookupMap()
   const setDrawer = useNavigationStore(state => state.setDrawer)
 
   const currentGroups = useMemo(
-    () => allGroups.filter(g => g.members.includes(itemId)),
-    [allGroups, itemId],
-  )
-
-  const currentGroupIds = useMemo(
-    () => currentGroups.map(g => g.id),
-    [currentGroups],
+    () => groupLookupMap.get(itemId)?.groupIds || [],
+    [groupLookupMap, itemId],
   )
 
   const handleSelect = useCallback(
@@ -75,7 +69,7 @@ function GroupDisplay({
           noItemsText="No groups found"
           onSelect={handleSelect}
           onRemove={handleRemove}
-          selectedItems={currentGroups}
+          selectedItemIds={currentGroups}
           types={{ group: true }}
           searchDescription
           showIcons={false}
@@ -89,7 +83,7 @@ function GroupDisplay({
         dividers
         fullHeight={false}
         getActionIcon={getActionIcon}
-        itemIds={currentGroupIds}
+        itemIds={currentGroups}
         noItemsHint="Not in any groups"
         onClick={handleClickItem}
         onClickAction={editable ? handleRemove : undefined}

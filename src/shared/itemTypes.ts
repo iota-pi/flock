@@ -41,3 +41,8 @@ export type TombstoneItemEnvelope = {
     deleted: true,
   },
 }
+
+export interface GroupLookupData {
+  groupNames: string[]
+  groupIds: ItemId[]
+}
