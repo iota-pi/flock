@@ -373,14 +373,17 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             ? selectedOptions.slice(0, maxChips)
             : selectedOptions
 
-          const chips = visibleOptions.map((option, index) => (
-            // eslint-disable-next-line react/jsx-key
-            <Chip
-              {...getItemProps({ index })}
-              label={getName(option)}
-              icon={getIcon(option.type)}
-            />
-          ))
+          const chips = visibleOptions.map((option, index) => {
+            const { key, ...props } = getItemProps({ index })
+            return (
+              <Chip
+                {...props}
+                key={key}
+                label={getName(option)}
+                icon={getIcon(option.type)}
+              />
+            )
+          })
 
           if (maxChips && selectedOptions.length > maxChips) {
             chips.push(
