@@ -1,12 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material'
-import { RepoContext } from '@automerge/automerge-repo-react-hooks'
 import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
-import { Repo } from '@automerge/automerge-repo/slim'
 
 vi.mock('../../../components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,
@@ -28,15 +26,11 @@ vi.mock('../../../components/drawers/utils/CollapsibleSection', () => ({
   default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
 }))
 
-const testRepo = new Repo({ network: [], storage: undefined })
-
 function renderWithContext(ui: React.ReactNode) {
   return render(
-    <RepoContext.Provider value={testRepo}>
-      <ThemeProvider theme={getTheme(false)}>
-        {ui}
-      </ThemeProvider>,
-    </RepoContext.Provider>
+    <ThemeProvider theme={getTheme(false)}>
+      {ui}
+    </ThemeProvider>,
   )
 }
 

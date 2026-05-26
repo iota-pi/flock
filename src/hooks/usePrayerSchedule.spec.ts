@@ -68,7 +68,7 @@ describe('usePrayerSchedule', () => {
     expect(result.current.visibleSchedule.map(i => i.id)).toEqual(['1', '2', '3'])
   })
 
-  it('recordPrayerFor updates local automerge doc', () => {
+  it('recordPrayerFor updates local state', () => {
     const item = { id: '1', type: 'person', name: 'Alice', prayedFor: [] }
     vi.mocked(getLastPrayedFor).mockReturnValue(0)
 

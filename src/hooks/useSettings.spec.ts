@@ -12,8 +12,6 @@ const mocks = vi.hoisted(() => ({
   exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
-  getAutomergeItems: vi.fn(() => []),
-  getAutomergeMetadata: vi.fn(() => ({})),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -76,7 +74,7 @@ describe('useSettings backup portability', () => {
     vi.clearAllMocks()
   })
 
-  it('exports metadata and automerge binaries in a v2 payload', async () => {
+  it('exports metadata and items in a v2 payload', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
 
     const { result } = renderHook(() => useSettings(mockItems))

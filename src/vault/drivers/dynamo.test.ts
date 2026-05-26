@@ -49,7 +49,7 @@ describe('DynamoDriver', function () {
     const iv = 'there'
     const modified = new Date().getTime()
     const baseBranch = {
-      encryptedAutomergeDoc: 'branch-base',
+      doc: 'branch-base',
       versionId: 'v1',
       parentIds: [],
     }
@@ -67,7 +67,7 @@ describe('DynamoDriver', function () {
         account,
         item,
         branches: [{
-          encryptedAutomergeDoc: 'branch-next',
+          doc: 'branch-next',
           versionId: 'v2',
           parentIds: ['wrong-parent'],
         }],
@@ -81,7 +81,7 @@ describe('DynamoDriver', function () {
       account,
       item,
       branches: [{
-        encryptedAutomergeDoc: 'branch-next',
+        doc: 'branch-next',
         versionId: 'v2',
         parentIds: ['v1'],
       }],

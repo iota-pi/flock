@@ -6,12 +6,12 @@ export type ItemId = string
 
 /**
  * Branching Format: New CRDT-based storage format
- * - encryptedAutomergeDoc: Uint8Array serialized Automerge document (binary)
+ * - doc: Uint8Array serialized Automerge document (binary)
  * - versionId: Unique identifier for this specific version
  * - parentIds: Array of parent version IDs (enables lineage tracking & conflict detection)
  */
 export type VaultBranch = {
-  encryptedAutomergeDoc: string, // Base64-encoded Uint8Array
+  doc: string, // Base64-encoded Uint8Array
   versionId: string,
   parentIds: string[],
 }

@@ -17,22 +17,8 @@ import { useUiStore } from './uiStore'
 import { useDataStore } from './dataStore'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 
-const useAutomergeMocks = vi.hoisted(() => ({
-  useAutomergeItems: vi.fn(),
-  useAutomergeItemsById: vi.fn(),
-  useAutomergeItem: vi.fn(),
-  useAutomergeMetadataValue: vi.fn(),
-}))
-
 vi.mock('../features/items/mutations/itemMutations', () => ({
   setMetadata: vi.fn(async () => ({})),
-}))
-
-vi.mock('../sync/useAutomerge', () => ({
-  useAutomergeItems: useAutomergeMocks.useAutomergeItems,
-  useAutomergeItemsById: useAutomergeMocks.useAutomergeItemsById,
-  useAutomergeItem: useAutomergeMocks.useAutomergeItem,
-  useAutomergeMetadataValue: useAutomergeMocks.useAutomergeMetadataValue,
 }))
 
 const itemsFixture: Item[] = [
@@ -74,27 +60,27 @@ const itemsFixture: Item[] = [
   },
 ]
 
-let automergeItemsState: Item[] = itemsFixture
-let automergeMetadataState: Record<string, unknown> = {}
+let itemsState: Item[] = itemsFixture
+let metadataState: Record<string, unknown> = {}
 
 describe('state selectors', () => {
   function updateStore() {
     const itemsMap: Record<string, Item> = {}
-    automergeItemsState.forEach(item => {
+    itemsState.forEach(item => {
       itemsMap[item.id] = item
     })
 
     useDataStore.setState({
       status: 'ready',
       items: itemsMap,
-      itemIds: automergeItemsState.map(i => i.id),
-      metadata: automergeMetadataState,
+      itemIds: itemsState.map(i => i.id),
+      metadata: metadataState,
     })
   }
 
   beforeEach(() => {
-    automergeItemsState = itemsFixture
-    automergeMetadataState = {}
+    itemsState = itemsFixture
+    metadataState = {}
 
     updateStore()
 
@@ -130,7 +116,7 @@ describe('state selectors', () => {
     const firstResult = result.current
 
     act(() => {
-      automergeItemsState = automergeItemsState.map(item => (
+      itemsState = itemsState.map(item => (
         item.id === 'person-1'
           ? { ...item, name: 'Alice Updated' }
           : item
@@ -187,7 +173,7 @@ describe('state selectors', () => {
     const firstResult = result.current
 
     act(() => {
-      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
+      itemsState = itemsState.map(item => ({ ...item }))
       updateStore()
       rerender()
     })
@@ -213,7 +199,7 @@ describe('state selectors', () => {
     const firstResult = result.current
 
     act(() => {
-      automergeItemsState = automergeItemsState.map(item => (
+      itemsState = itemsState.map(item => (
         item.id === 'person-1'
           ? { ...item, name: 'Alice Updated' }
           : item
@@ -231,8 +217,8 @@ describe('state selectors', () => {
     const firstResult = result.current
 
     act(() => {
-      automergeItemsState = automergeItemsState.map(item => ({ ...item }))
-      automergeMetadataState = { ...automergeMetadataState }
+      itemsState = itemsState.map(item => ({ ...item }))
+      metadataState = { ...metadataState }
       updateStore()
       rerender()
     })
@@ -245,8 +231,8 @@ describe('state selectors', () => {
     const firstResult = result.current
 
     act(() => {
-      automergeMetadataState = {
-        ...automergeMetadataState,
+      metadataState = {
+        ...metadataState,
         prayerGoal: 7,
       }
       updateStore()
@@ -262,8 +248,8 @@ describe('state selectors', () => {
     const firstSortCriteria = result.current[0]
 
     act(() => {
-      automergeMetadataState = {
-        ...automergeMetadataState,
+      metadataState = {
+        ...metadataState,
         sortCriteria: [{ type: 'name', reverse: false }],
       }
       updateStore()
@@ -273,8 +259,8 @@ describe('state selectors', () => {
     expect(result.current[0]).toBe(firstSortCriteria)
 
     act(() => {
-      automergeMetadataState = {
-        ...automergeMetadataState,
+      metadataState = {
+        ...metadataState,
         prayerGoal: 9,
       }
       updateStore()
@@ -284,8 +270,8 @@ describe('state selectors', () => {
     expect(result.current[0]).toBe(firstSortCriteria)
 
     act(() => {
-      automergeMetadataState = {
-        ...automergeMetadataState,
+      metadataState = {
+        ...metadataState,
         sortCriteria: [{ type: 'created', reverse: false }],
       }
       updateStore()

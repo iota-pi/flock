@@ -115,8 +115,8 @@ class SyncWorker implements SyncApi {
 
         if (Array.isArray(item.branches) && item.branches.length > 0) {
           for (const branch of item.branches) {
-            if (!branch?.encryptedAutomergeDoc) continue
-            const binary = await this.decryptBranchBinary(branch.encryptedAutomergeDoc)
+            if (!branch?.doc) continue
+            const binary = await this.decryptBranchBinary(branch.doc)
             if (binary) {
               await hydrateAutomergeDocumentBinary(this.accountId!, item.item, binary)
               return

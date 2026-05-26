@@ -59,8 +59,8 @@ describe('Backup and restore', () => {
                 items: [{
                   item: conflictItemId,
                   branches: [
-                    { encryptedAutomergeDoc: branchA, versionId: versionA, parentIds: [] },
-                    { encryptedAutomergeDoc: branchB, versionId: versionB, parentIds: [versionA] },
+                    { doc: branchA, versionId: versionA, parentIds: [] },
+                    { doc: branchB, versionId: versionB, parentIds: [versionA] },
                   ],
                   metadata: { type: 'person', iv: '', modified: Date.now() },
                 }],
