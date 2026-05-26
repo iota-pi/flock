@@ -32,6 +32,7 @@ import {
   type CryptoResult,
 } from './crypto'
 import type { TRPCError } from '@trpc/server'
+import { SyncBridge } from 'src/sync/SyncBridge'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
@@ -217,15 +218,15 @@ export async function storeVault() {
 }
 
 export async function signOutVault() {
-  const { account, updateAuth } = useAuthStore.getState()
+  const { updateAuth } = useAuthStore.getState()
   key = null
   keyHash = ''
   session = ''
   setApiAuthToken('')
 
   clearStoredMetadata()
+  await SyncBridge.clearAutomergeDocStore()
   await clearActiveSessionToken()
-  await clearAutomergeDocStore(account)
   await clearManualRecoveryEntries()
 
   updateAuth({ account: '', loggedIn: false })
