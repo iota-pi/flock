@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import FrequencyControls from './FrequencyControls'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { ThemeProvider } from '@mui/material'
@@ -89,6 +90,36 @@ describe('FrequencyControls', () => {
     expect(screen.getByText('My Group')).toBeTruthy()
   })
 
+  it('does not show inherited frequency message when not faster', () => {
+    const group: GroupItem = {
+      id: 'g1',
+      name: 'Slow Group',
+      type: 'group',
+      description: '',
+      created: 0,
+      archived: false,
+      prayedFor: [],
+      prayerFrequency: 'none',
+      notes: [],
+      members: [personId],
+      memberPrayerFrequency: 'monthly',
+      memberPrayerTarget: 'one',
+    }
+
+    vi.mocked(useItemsByIds).mockReturnValue([group])
+
+    renderWithTheme(
+      <FrequencyControls
+        id={personId}
+        prayerFrequency="weekly"
+        onChange={mockOnChange}
+        partOfGroups={[group.id]}
+      />
+    )
+
+    expect(screen.queryByText(/As a member of/)).toBeNull()
+  })
+
   it('renders additional controls for groups', () => {
     const groupId = 'g1'
     const groupProps = {
@@ -108,5 +139,29 @@ describe('FrequencyControls', () => {
     expect(screen.getByText('Pray For')).toBeTruthy()
     expect(screen.getByText('How often')).toBeTruthy()
     expect(screen.getByText(/choose how often to pray for the group/)).toBeTruthy()
+  })
+
+  it('updates member prayer target for groups', async () => {
+    const user = userEvent.setup()
+    const groupId = 'g2'
+    const groupProps = {
+      memberPrayerFrequency: 'weekly',
+      memberPrayerTarget: 'one',
+      prayerFrequency: 'monthly',
+    } as const
+
+    renderWithTheme(
+      <FrequencyControls
+        id={groupId}
+        {...groupProps}
+        onChange={mockOnChange}
+      />
+    )
+
+    const targetSelect = screen.getByLabelText('Pray For')
+    await user.click(targetSelect)
+    await user.click(screen.getByText('Every group member'))
+
+    expect(mockOnChange).toHaveBeenCalledWith({ memberPrayerTarget: 'all' })
   })
 })

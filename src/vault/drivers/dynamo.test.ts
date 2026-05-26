@@ -116,6 +116,18 @@ describe('DynamoDriver', function () {
     expect(typeof result.ttl).toBe('number')
   })
 
+  it('set rejects oversized items', async () => {
+    const account = generateAccountId()
+    const item = generateItemId()
+    const type: ItemType = 'person'
+    const modified = new Date().getTime()
+    const cipher = 'x'.repeat(60000)
+
+    await expect(
+      driver.set({ account, item, cipher, metadata: { type, iv: 'iv', modified } })
+    ).rejects.toThrow('exceeds maximum')
+  })
+
   it('fetchAll works', async () => {
     const account = generateAccountId()
     const individuals = []
@@ -268,5 +280,39 @@ describe('DynamoDriver', function () {
     expect(
       await driver.checkSession({ account, session })
     ).toEqual({ success: true })
+  })
+
+  it('normalizes sessions when updating account data', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata,
+      salt,
+      iterations,
+      session,
+    })
+
+    const now = Date.now()
+    const sessions = Array.from({ length: 9 }, (_, i) => ({
+      token: `session-${i + 1}`,
+      expiry: now + (i + 1) * 1000,
+    }))
+
+    await driver.updateAccountData({
+      account,
+      sessions: [
+        { token: 'expired', expiry: now - 1000 },
+        ...sessions,
+        { token: 'session-3', expiry: now + 5000 },
+      ],
+    })
+
+    const result = await driver.getAccount({ account, session: 'session-9' })
+    const tokens = result.sessions?.map(entry => entry.token) ?? []
+
+    expect(tokens.length).toBe(8)
+    expect(tokens).toContain('session-9')
+    expect(tokens).not.toContain('session-1')
   })
 })

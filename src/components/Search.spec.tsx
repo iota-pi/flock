@@ -161,4 +161,20 @@ describe('Search Component', () => {
     const createdItem = mockOnCreate.mock.calls[0][0]
     expect(createdItem.name).toBe('NewUser')
   })
+
+  it('renders selected chips with max chip overflow', () => {
+    const selected = [items[0], items[1], items[2]]
+    renderWithTheme(
+      <Search
+        selectedItems={selected}
+        showSelectedChips
+        maxChips={2}
+      />
+    )
+
+    expect(screen.getByText('Alice')).toBeTruthy()
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.getByText('+1')).toBeTruthy()
+    expect(screen.queryByText('Group A')).toBeNull()
+  })
 })
