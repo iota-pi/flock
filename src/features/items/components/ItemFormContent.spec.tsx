@@ -1,12 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ThemeProvider } from '@mui/material'
-import getTheme from '../../../theme'
+import getTheme from 'src/theme'
 import ItemFormContent from './ItemFormContent'
-import type { Item } from '../../../state/items'
-import { getBlankPerson } from '../../../state/items'
+import type { Item } from 'src/state/items'
+import { getBlankPerson } from 'src/state/items'
 
-vi.mock('../../../components/FrequencyControls', () => ({
+vi.mock('src/components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,
 }))
 
@@ -18,11 +18,11 @@ vi.mock('../../groups/components/MemberDisplay', () => ({
   default: () => <div data-testid="member-display" />,
 }))
 
-vi.mock('../../../components/NotesSection', () => ({
+vi.mock('src/components/NotesSection', () => ({
   default: () => <div data-testid="notes-section" />,
 }))
 
-vi.mock('../../../components/drawers/utils/CollapsibleSection', () => ({
+vi.mock('src/components/drawers/utils/CollapsibleSection', () => ({
   default: ({ content }: { content: React.ReactNode }) => <div>{content}</div>,
 }))
 

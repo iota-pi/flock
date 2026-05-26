@@ -5,13 +5,13 @@ import {
   useState,
 } from 'react'
 import { useLocation } from 'react-router'
-import { Item } from '../../../state/items'
-import { usePrayerSchedule } from '../../../hooks/usePrayerSchedule'
-import { useToday } from '../../../hooks/useToday'
-import { recordPrayerCompletion } from '../../../api/vault'
-import { isSameDay } from '../../../utils'
-import { mutateItem } from '../../../features/items/mutations/itemMutations'
-import { type FlowState, usePrayerFlowStore } from '../../../state/prayerFlowStore'
+import { Item } from 'src/state/items'
+import { usePrayerSchedule } from 'src/hooks/usePrayerSchedule'
+import { useToday } from 'src/hooks/useToday'
+import { recordPrayerCompletion } from 'src/api/vault'
+import { isSameDay } from 'src/utils'
+import { mutateItem } from 'src/features/items/mutations/itemMutations'
+import { type FlowState, usePrayerFlowStore } from 'src/state/prayerFlowStore'
 
 type PrayerFlowActions = {
   handleBack: () => void

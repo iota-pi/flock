@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
 import { useSwipeable } from 'react-swipeable'
-import type { Item } from '../../../state/items'
-import ItemList from '../../../features/items/components/ItemList'
+import type { Item } from 'src/state/items'
+import ItemList from 'src/features/items/components/ItemList'
 import PrayerOverviewHeader from './PrayerOverviewHeader'
 import { memo } from 'react'
 

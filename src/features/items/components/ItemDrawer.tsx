@@ -16,18 +16,18 @@ import {
   getItemTypeLabel,
   isValid,
   Item,
-} from '../../../state/items'
-import { useItem } from '../../../state/selectors'
-import BaseDrawer, { BaseDrawerProps } from '../../../components/drawers/BaseDrawer'
-import { isSameDay } from '../../../utils'
+} from 'src/state/items'
+import { useItem } from 'src/state/selectors'
+import BaseDrawer, { BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
+import { isSameDay } from 'src/utils'
 import {
   ArchiveIcon,
   getIcon,
   getIconType,
   PrayerIcon,
   UnarchiveIcon,
-} from '../../../components/Icons'
-import { getLastPrayedFor } from '../../../utils/prayer'
+} from 'src/components/Icons'
+import { getLastPrayedFor } from 'src/utils/prayer'
 import { deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'

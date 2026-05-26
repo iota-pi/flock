@@ -9,14 +9,14 @@ import {
   Divider,
   SxProps,
 } from '@mui/material'
-import { Item } from '../../../state/items'
-import { useGroupLookupMap } from '../../../state/selectors'
+import { Item } from 'src/state/items'
+import { useGroupLookupMap } from 'src/state/selectors'
 import { ItemListContextProvider } from './ItemListContext'
 import {
   StandardItemList,
   VirtualizedItemList,
 } from './ItemListStrategies'
-import { useNavigationStore } from '../../../state/navigationStore'
+import { useNavigationStore } from 'src/state/navigationStore'
 import { useShallow } from 'zustand/react/shallow'
 import type { GroupLookupData } from 'src/shared/itemTypes'
 

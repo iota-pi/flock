@@ -7,10 +7,10 @@ import {
   DialogTitle,
   Divider,
 } from '@mui/material'
-import { useUiStore } from '../../../state/uiStore'
-import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from '../../../utils/customFilter'
+import { useUiStore } from 'src/state/uiStore'
+import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from 'src/utils/customFilter'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
-import type { FilterCriterion } from '../../../utils/customFilter'
+import type { FilterCriterion } from 'src/utils/customFilter'
 
 interface Props {
   onClose: () => void,

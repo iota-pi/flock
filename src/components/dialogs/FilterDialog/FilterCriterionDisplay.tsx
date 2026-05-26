@@ -13,10 +13,10 @@ import {
   getBaseValue,
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
-} from '../../../utils/customFilter'
+} from 'src/utils/customFilter'
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
-import { Frequency } from '../../../utils/frequencies'
+import { Frequency } from 'src/utils/frequencies'
 
 export function FilterCriterionDisplay({
   chosenCriteria,

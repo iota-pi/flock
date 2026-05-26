@@ -1,7 +1,7 @@
 import { router, protectedProcedure } from '../trpc'
 import {
   FetchItemsInputSchema,
-} from '../../../shared/schemas/trpc'
+} from 'src/shared/schemas/trpc'
 import {
   fetchItems,
 } from '../../services/itemService'
