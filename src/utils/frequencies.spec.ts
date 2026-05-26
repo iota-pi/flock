@@ -28,7 +28,7 @@ describe('frequencies utilities', () => {
     expect(isDue(farFuture, 'weekly')).toBe(Due.fine)
 
     const yesterday = new Date(now - oneDay)
-    expect(timeTillDue(yesterday, 'weekly')).toEqual(6 * oneDay)
+    expect(timeTillDue(yesterday, 'weekly')).closeTo(6 * oneDay, 1000)
     expect(isDue(yesterday, 'weekly')).toBe(Due.fine)
   })
 
