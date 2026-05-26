@@ -6,9 +6,6 @@ import {
   getActiveSessionToken,
   setActiveSessionToken,
 } from '../../sync/workerAuthStore'
-import {
-  clearAutomergeDocStore,
-} from '../../sync/automergeDocStore'
 import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
