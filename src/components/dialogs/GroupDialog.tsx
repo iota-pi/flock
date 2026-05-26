@@ -85,6 +85,8 @@ function GroupDialog({
     [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],
   )
 
+  const addGroupsIds = useMemo(() => addGroups.map(g => g.id), [addGroups])
+
   return (
     <Dialog
       onClose={onClose}
@@ -106,7 +108,7 @@ function GroupDialog({
               onClear={handleClearAdd}
               onRemove={handleRemoveAdd}
               onSelect={handleSelectAdd}
-              selectedItems={addGroups}
+              selectedItemIds={addGroupsIds}
               showIcons
               showSelectedChips
               types={{ group: true }}
@@ -119,7 +121,7 @@ function GroupDialog({
               onClear={handleClearRemove}
               onRemove={handleRemoveRemove}
               onSelect={handleSelectRemove}
-              selectedItems={removeGroups}
+              selectedItemIds={removeGroupsIds}
               showIcons
               showSelectedChips
               types={{ group: true }}

@@ -20,8 +20,9 @@ import {
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, isItem, type Item } from 'src/state/items'
-import { useItem, GroupLookupData  } from 'src/state/selectors'
+import { useItem } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
+import type { GroupLookupData } from 'src/shared/itemTypes'
 
 const FADED_OPACITY = 0.65
 

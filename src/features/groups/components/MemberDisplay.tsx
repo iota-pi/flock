@@ -80,7 +80,7 @@ function MemberDisplay({
           noItemsText="No people found"
           onSelect={handleSelect}
           onRemove={handleRemove}
-          selectedItems={members as PersonItem[]}
+          selectedItemIds={sortedMemberIds}
           types={{ person: true }}
           searchDescription
           showIcons={false}

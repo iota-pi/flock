@@ -1,8 +1,8 @@
 import { type CSSProperties, ReactNode, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Item } from '../../../state/items'
-import { type GroupLookupData } from '../../../state/selectors'
 import { ItemListItem } from './ItemListItem'
+import type { GroupLookupData } from 'src/shared/itemTypes'
 
 type ItemListRendererProps = {
   filterTags?: (tag: string) => boolean

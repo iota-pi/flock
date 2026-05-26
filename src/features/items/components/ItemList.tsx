@@ -10,7 +10,7 @@ import {
   SxProps,
 } from '@mui/material'
 import { Item } from '../../../state/items'
-import { useGroupLookupMap, type GroupLookupData } from '../../../state/selectors'
+import { useGroupLookupMap } from '../../../state/selectors'
 import { ItemListContextProvider } from './ItemListContext'
 import {
   StandardItemList,
@@ -18,6 +18,7 @@ import {
 } from './ItemListStrategies'
 import { useNavigationStore } from '../../../state/navigationStore'
 import { useShallow } from 'zustand/react/shallow'
+import type { GroupLookupData } from 'src/shared/itemTypes'
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20
