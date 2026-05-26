@@ -6,16 +6,7 @@ import getTheme from '../../../theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item } from '../../../state/items'
 import { getBlankPerson } from '../../../state/items'
-import { useAutomergeItems } from '../../../sync/useAutomerge'
 import { Repo } from '@automerge/automerge-repo/slim'
-
-vi.mock('../../../sync/useAutomerge', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../../sync/useAutomerge')>()
-  return {
-    ...actual,
-    useAutomergeItems: vi.fn(),
-  }
-})
 
 vi.mock('../../../components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,
@@ -62,8 +53,6 @@ describe('ItemFormContent', () => {
       name: 'Initial Name',
     } as Item
 
-    vi.mocked(useAutomergeItems).mockReturnValue([])
-
     renderWithContext(
       <ItemFormContent
         item={item}
@@ -89,8 +78,6 @@ describe('ItemFormContent', () => {
       ...getBlankPerson('item-1', false),
       name: 'John Doe',
     } as Item
-
-    vi.mocked(useAutomergeItems).mockReturnValue([item, { ...getBlankPerson('item-2', false), name: 'John Doe' }])
 
     renderWithContext(
       <ItemFormContent

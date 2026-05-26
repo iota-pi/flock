@@ -13,7 +13,6 @@ import {
 } from '../shared/schemas/items'
 
 export type Item = StandardItem | ErrorItem
-export type ItemForType<T extends Item['type']> = Extract<Item, { type: T }>
 
 function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
   if (!candidate || typeof candidate !== 'object') {

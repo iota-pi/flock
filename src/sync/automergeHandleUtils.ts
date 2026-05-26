@@ -43,7 +43,7 @@ export async function awaitHandleReadyIfNeeded<TDoc extends object>(
   await handle.whenReady(['ready', 'unavailable'])
 }
 
-export function readHandleDocSafely<TDoc extends object>(handle: DocHandle<TDoc> | undefined): TDoc | undefined {
+function readHandleDocSafely<TDoc extends object>(handle: DocHandle<TDoc> | undefined): TDoc | undefined {
   if (!handle) {
     return undefined
   }

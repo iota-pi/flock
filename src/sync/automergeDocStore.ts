@@ -9,7 +9,7 @@ import type { AccountMetadata } from '../state/metadata'
 import { getAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
-import { ACCOUNT_INDEX_DOCUMENT_ID as _ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { useSyncStore } from '../state/syncStore'
 import {
   awaitHandleReadyIfNeeded,
@@ -18,8 +18,7 @@ import {
   tryResolveNonReadyHandle,
 } from './automergeHandleUtils'
 
-export const ACCOUNT_INDEX_DOCUMENT_ID = _ACCOUNT_INDEX_DOCUMENT_ID
-export const ACCOUNT_METADATA_DOCUMENT_ID = ACCOUNT_INDEX_DOCUMENT_ID
+export { ACCOUNT_INDEX_DOCUMENT_ID }
 
 export type AutomergeIndexDocument = {
   accountId?: string

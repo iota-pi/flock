@@ -17,7 +17,7 @@ export const frequencySchema = z.union([
   z.enum(FREQUENCY_VALUES),
 ]).catch('none')
 
-export const noteSchema = z.looseObject({
+const noteSchema = z.looseObject({
   id: z.string(),
   text: z.string(),
   archived: z.boolean(),
