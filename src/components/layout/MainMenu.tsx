@@ -11,14 +11,10 @@ import { PageId } from '../pages/routes'
 import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
 import { useNavigationStore } from '../../state/navigationStore'
 import { MainMenuItem } from './MainMenuItem'
+import type { MinimisedProp } from './types'
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
-
-export type MinimisedProp = {
-  minimised: boolean,
-  hasWarning?: boolean,
-}
 
 const StyledDrawer = styled(
   Drawer,

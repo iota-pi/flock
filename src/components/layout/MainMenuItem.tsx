@@ -9,7 +9,7 @@ import {
 } from '@mui/material'
 import type { MuiIconType } from '../Icons'
 import type { PageId } from '../pages/types'
-import type { MinimisedProp } from './MainMenu'
+import type { MinimisedProp } from './types'
 
 interface MainMenuItemProps {
   dividerBefore?: boolean,
