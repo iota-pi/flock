@@ -38,7 +38,8 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
 
-const MAX_ITEM_SIZE = 50000
+const MAX_ITEM_SIZE = 50_000
+const MAX_INDEX_ITEM_SIZE = 400_000
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -52,7 +53,8 @@ type PersistedVaultItem = VaultItem & {
 }
 
 /**
- * Validates a VaultItem supports both legacy cipher and new branches format
+ * Validates a VaultItem.
+ * Supports both legacy cipher and new branches format
  * - Legacy: must have cipher and iv
  * - Branching: must have branches array
  * - Tombstone: needs only metadata.type
@@ -71,9 +73,11 @@ function validateItem(item: VaultItem) {
       `Invalid item format: must be either legacy (cipher+iv) or branching (branches array). Item: ${JSON.stringify(item)}`,
     )
   }
+
   const itemLength = JSON.stringify(item).length
-  if (itemLength > MAX_ITEM_SIZE) {
-    throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
+  const maxSize = item.item === '__account_index__' ? MAX_INDEX_ITEM_SIZE : MAX_ITEM_SIZE
+  if (itemLength > maxSize) {
+    throw new Error(`Item length (${itemLength}) exceeds maximum (${maxSize})`)
   }
 }
 
