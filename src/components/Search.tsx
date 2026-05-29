@@ -6,21 +6,19 @@ import {
   useRef,
   useState,
 } from 'react'
-import {
-  Autocomplete,
-  autocompleteClasses,
-  Chip,
-  InputAdornment,
-  Paper,
-  PaperProps,
-  TextField,
-  ThemeProvider,
-} from '@mui/material'
+import TextField from '@mui/material/TextField'
+import { ThemeProvider } from '@mui/material/styles'
+import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
+import Chip from '@mui/material/Chip'
+import InputAdornment from '@mui/material/InputAdornment'
+import Paper, { PaperProps } from '@mui/material/Paper'
 import {
   AutocompleteChangeReason,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
+import { upperFirst } from 'lodash-es'
+
 import {
   getBlankItem,
   getItemName,
@@ -41,7 +39,6 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
-import { upperFirst } from 'lodash-es'
 import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/itemTypes'
 
 

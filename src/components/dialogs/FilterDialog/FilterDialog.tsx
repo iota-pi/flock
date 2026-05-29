@@ -1,16 +1,16 @@
 import { useCallback, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
+
 import { useUiStore } from 'src/state/uiStore'
 import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from 'src/utils/customFilter'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from 'src/utils/customFilter'
+
 
 interface Props {
   onClose: () => void,

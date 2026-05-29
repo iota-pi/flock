@@ -1,11 +1,10 @@
 import { memo, useCallback, useMemo } from 'react'
-import {
-  Box,
-  Container,
-  ListItemIcon,
-  ListItemText,
-  MenuItem,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import MenuItem from '@mui/material/MenuItem'
+
 import { Item } from 'src/state/items'
 import ItemFormContent from 'src/features/items/components/ItemFormContent'
 import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
@@ -18,6 +17,7 @@ import { isSameDay } from 'src/utils'
 import { getLastPrayedFor } from 'src/utils/prayer'
 import SwipeableCarousel from '../../ui/SwipeableCarousel'
 import { useNavigationStore } from 'src/state/navigationStore'
+
 
 interface Props {
   activeIndex: number,

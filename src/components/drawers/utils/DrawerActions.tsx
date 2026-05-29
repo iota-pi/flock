@@ -2,17 +2,18 @@ import {
   useCallback,
   useState,
 } from 'react'
-import {
-  Button,
-  Container,
-  Divider,
-  Grid,
-  styled,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import Divider from '@mui/material/Divider'
+import Grid from '@mui/material/Grid'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import ConfirmationDialog from '../../dialogs/ConfirmationDialog'
 import { DeleteIcon, SaveIcon } from '../../Icons'
 import InlineText from '../../ui/InlineText'
+
+
 
 
 const StyledContainer = styled(Container)(({ theme }) => ({

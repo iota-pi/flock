@@ -1,15 +1,15 @@
 import { memo, useCallback } from 'react'
-import {
-  Badge,
-  Divider,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  styled,
-} from '@mui/material'
+import Badge from '@mui/material/Badge'
+import Divider from '@mui/material/Divider'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import { styled } from '@mui/material/styles'
+
 import type { MuiIconType } from '../Icons'
 import type { ProtectedPageId } from '../pages/types'
 import type { MinimisedProp } from './types'
+
 
 interface MainMenuItemProps {
   dividerBefore?: boolean,

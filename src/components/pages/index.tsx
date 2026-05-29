@@ -1,12 +1,12 @@
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
-import { useLoggedIn } from '../../state/selectors'
-import { useAuthStore } from '../../state/authStore'
-
+import { useLoggedIn } from 'src/state/selectors'
+import { useAuthStore } from 'src/state/authStore'
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { Page, ProtectedPageId } from './types'
 import ErrorPage from './ErrorPage'
 import AsyncBoundary, { LoadingSpinner } from '../ui/AsyncBoundary'
+
 
 export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [ProtectedPageId, typeof PROTECTED_ROUTES[ProtectedPageId]][])
   .map(([id, config]) => ({ ...config, id }))

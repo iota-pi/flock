@@ -4,12 +4,11 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import {
-  CircularProgress,
-  ListItemIcon,
-  ListItemText,
-  MenuItem,
-} from '@mui/material'
+import CircularProgress from '@mui/material/CircularProgress'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import MenuItem from '@mui/material/MenuItem'
+
 import {
   convertItem,
   getItemName,
@@ -31,6 +30,7 @@ import { getLastPrayedFor } from 'src/utils/prayer'
 import { deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES } from 'src/shared/itemTypes'
+
 
 const ItemFormContent = lazy(() => import('./ItemFormContent'))
 

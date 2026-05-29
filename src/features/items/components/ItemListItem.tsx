@@ -5,24 +5,23 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import {
-  Checkbox,
-  Divider,
-  IconButton,
-  ListItemButton,
-  ListItemIcon,
-  type ListItemIconProps,
-  ListItemText,
-  type ListItemTextProps,
-  styled,
-  useTheme,
-} from '@mui/material'
+import Checkbox from '@mui/material/Checkbox'
+import Divider from '@mui/material/Divider'
+import IconButton from '@mui/material/IconButton'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import { styled, useTheme } from '@mui/material/styles'
+import type { ListItemIconProps } from '@mui/material/ListItemIcon'
+import type { ListItemTextProps } from '@mui/material/ListItemText'
+
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
 import { getItemName, isItem, type Item } from 'src/state/items'
 import { useItem } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
 import type { GroupLookupData } from 'src/shared/itemTypes'
+
 
 const FADED_OPACITY = 0.65
 

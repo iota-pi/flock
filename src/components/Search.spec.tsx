@@ -1,12 +1,13 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Search from './Search'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { ThemeProvider } from '@mui/material'
+import { ThemeProvider } from '@mui/material/styles'
+
 import getTheme from '../theme'
 
+
 // Mocks
-vi.mock('../state/selectors', async (importOriginal) => {
+vi.mock('../state/selectors', async importOriginal => {
   const actual = await importOriginal<typeof import('../state/selectors')>()
   return {
     ...actual,
@@ -22,6 +23,10 @@ vi.mock('../utils/customSort', () => ({
   sortItems: vi.fn(items => items),
 }))
 
+import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
+import { useUiStore } from '../state/uiStore'
+import { Item } from '../state/items'
+
 const lightTheme = getTheme(false)
 
 const renderWithTheme = (ui: React.ReactNode) => {
@@ -31,10 +36,6 @@ const renderWithTheme = (ui: React.ReactNode) => {
     </ThemeProvider>
   )
 }
-
-import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
-import { useUiStore } from '../state/uiStore'
-import { Item } from '../state/items'
 
 describe('Search Component', () => {
   const mockOnSelect = vi.fn()

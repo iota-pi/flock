@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+
 const WebPushSubscriptionKeysSchema = z.object({
   p256dh: z.string(),
   auth: z.string(),

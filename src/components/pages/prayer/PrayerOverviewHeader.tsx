@@ -1,13 +1,12 @@
 import { Fragment } from 'react'
-import {
-  Box,
-  Button,
-  Divider,
-  Grid,
-  IconButton,
-  Typography,
-  useMediaQuery,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Divider from '@mui/material/Divider'
+import Grid from '@mui/material/Grid'
+import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import {
   EditIcon,
   NextIcon,

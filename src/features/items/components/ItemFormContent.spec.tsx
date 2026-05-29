@@ -1,10 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ThemeProvider } from '@mui/material'
+import { ThemeProvider } from '@mui/material/styles'
+
 import getTheme from 'src/theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item } from 'src/state/items'
 import { getBlankPerson } from 'src/state/items'
+
 
 vi.mock('src/components/FrequencyControls', () => ({
   default: () => <div data-testid="frequency-controls" />,

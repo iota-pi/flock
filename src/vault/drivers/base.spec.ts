@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
+
 import BaseDriver, { VaultAccountWithAuth, VaultItem } from './base'
 import { HttpError } from '../api/errors'
+
 
 class TestDriver extends BaseDriver {
   checkSessionMock = vi.fn()

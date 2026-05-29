@@ -1,5 +1,6 @@
 import { type MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
-import { TextField, type TextFieldProps } from '@mui/material'
+import { type TextFieldProps } from '@mui/material'
+import TextField from '@mui/material/TextField'
 import { useDebounceCallback } from 'usehooks-ts'
 
 export type DebouncedTextFieldControls = {

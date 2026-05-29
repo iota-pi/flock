@@ -1,9 +1,12 @@
 import { lazy, type ReactNode } from 'react'
-import { Box, CircularProgress } from '@mui/material'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+
 import GeneralMessage from '../GeneralMessage'
 import AsyncBoundary from '../ui/AsyncBoundary'
 import { useLoggedIn } from 'src/state/selectors'
 import { useDataStore } from 'src/state/dataStore'
+
 
 const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
 const SelectedActions = lazy(() => import('../SelectedActions'))

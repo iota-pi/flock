@@ -1,17 +1,16 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { DateCalendar } from '@mui/x-date-pickers'
-import {
-  Box,
-  Button,
-  Collapse,
-  IconButton,
-  List,
-  ListItem,
-  Popover,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
+import IconButton from '@mui/material/IconButton'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import Popover from '@mui/material/Popover'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+
 import {
   AddIcon,
   ArchiveIcon,
@@ -25,6 +24,7 @@ import DelayedRender from './ui/DelayedRender'
 import type { Note } from '../shared/schemas/items'
 import { formatDate, generateItemId } from '../utils'
 import DebouncedTextField from './ui/DebouncedTextField'
+
 
 interface Props {
   notes: Note[],

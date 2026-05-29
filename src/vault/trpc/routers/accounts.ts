@@ -13,6 +13,7 @@ import {
 } from 'src/shared/schemas/trpc'
 import { hashString } from '../../api/util'
 
+
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 

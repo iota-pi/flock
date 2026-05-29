@@ -1,5 +1,8 @@
 import { memo, useState } from 'react'
-import { Alert, styled, Typography } from '@mui/material'
+import Alert from '@mui/material/Alert'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import { getItemTypeLabel } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import InlineText from '../../ui/InlineText'

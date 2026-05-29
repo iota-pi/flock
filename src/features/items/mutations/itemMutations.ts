@@ -7,6 +7,7 @@ import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 's
 import { SyncBridge } from 'src/sync/SyncBridge'
 import { useDataStore } from 'src/state/dataStore'
 
+
 const stripItemWriteSchema = personItemSchema.strip()
   .or(groupItemSchema.strip())
   .or(topicItemSchema.strip())

@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { Box, Typography } from '@mui/material'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 import LargeIcon from '../ui/LargeIcon'
 import { usePage } from '../pages'

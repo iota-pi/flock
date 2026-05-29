@@ -1,18 +1,18 @@
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  MenuItem,
-  Stack,
-  styled,
-  TextField,
-} from '@mui/material'
 import { ChangeEvent, useCallback, useEffect, useState } from 'react'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
+import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import MenuItem from '@mui/material/MenuItem'
+import { styled } from '@mui/material/styles'
+
 import { checkSubscription } from '../../utils/pushNotifications'
 import { RemoveIcon } from '../Icons'
+
 
 interface Props {
   onClose: () => void,

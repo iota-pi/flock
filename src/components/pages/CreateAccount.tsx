@@ -1,29 +1,32 @@
 import { MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import {
-  Button,
-  Collapse,
-  Container,
-  IconButton,
-  InputAdornment,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
-import Visibility from '@mui/icons-material/Visibility'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
+import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+
 import { ROUTES } from './routes'
-import { HomeIcon, PasswordIcon } from '../Icons'
-import { useUiStore } from '../../state/uiStore'
-import { createAccount, initialiseVault } from '../../api/vault'
-import { generateSalt } from '../../api/vault/crypto'
-import { usePasswordStrength } from '../../hooks/usePasswordStrength'
+import {
+  HomeIcon,
+  PasswordIcon,
+  VisibilityIcon,
+  VisibilityOffIcon,
+} from '../Icons'
+import { useUiStore } from 'src/state/uiStore'
+import { createAccount, initialiseVault } from 'src/api/vault'
+import { generateSalt } from 'src/api/vault/crypto'
+import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
-import { useAuthStore } from '../../state/authStore'
+import { useAuthStore } from 'src/state/authStore'
+
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -205,7 +208,7 @@ function CreateAccountPage() {
                         onMouseDown={handleMouseDownVisibility}
                         size="large"
                       >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                        {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                       </IconButton>
                     </InputAdornment>
                   ),

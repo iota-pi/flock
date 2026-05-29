@@ -1,11 +1,9 @@
-import {
-  alpha,
-  LinearProgress,
-  styled,
-  Theme,
-  Typography,
-} from '@mui/material'
+import { alpha, styled, Theme } from '@mui/material/styles'
+import Typography from '@mui/material/Typography'
+import LinearProgress from '@mui/material/LinearProgress'
+
 import InlineText from './ui/InlineText'
+
 
 function passwordScoreToWord(score: number) {
   const words = ['', 'very bad', 'not good', 'passable', 'okay']

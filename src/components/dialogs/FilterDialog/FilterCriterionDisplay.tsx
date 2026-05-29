@@ -1,11 +1,10 @@
 import { ChangeEvent, useCallback, useMemo } from 'react'
-import {
-  IconButton,
-  MenuItem,
-  Stack,
-  TextField,
-} from '@mui/material'
+import IconButton from '@mui/material/IconButton'
+import MenuItem from '@mui/material/MenuItem'
+import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
 import { DatePicker } from '@mui/x-date-pickers'
+
 import {
   FILTER_CRITERIA_DISPLAY_MAP,
   FilterCriterionType,
@@ -17,6 +16,7 @@ import {
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
 import { Frequency } from 'src/utils/frequencies'
+
 
 export function FilterCriterionDisplay({
   chosenCriteria,

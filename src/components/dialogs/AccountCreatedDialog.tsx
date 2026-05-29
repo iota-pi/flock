@@ -1,19 +1,19 @@
 import { ChangeEvent, useState } from 'react'
-import {
-  Box,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  FormGroup,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import FormGroup from '@mui/material/FormGroup'
+import { styled } from '@mui/material/styles'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+
 import { SuccessIcon } from '../Icons'
+
 
 const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),

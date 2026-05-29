@@ -2,13 +2,13 @@ import {
   ReactNode,
   useMemo,
 } from 'react'
-import {
-  List,
-  ListItem,
-  ListItemText,
-  Divider,
-  SxProps,
-} from '@mui/material'
+import ListItemText from '@mui/material/ListItemText'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import Divider from '@mui/material/Divider'
+import { SxProps } from '@mui/material/styles'
+import { useShallow } from 'zustand/react/shallow'
+
 import { Item } from 'src/state/items'
 import { useGroupLookupMap } from 'src/state/selectors'
 import { ItemListContextProvider } from './ItemListContext'
@@ -17,8 +17,8 @@ import {
   VirtualizedItemList,
 } from './ItemListStrategies'
 import { useNavigationStore } from 'src/state/navigationStore'
-import { useShallow } from 'zustand/react/shallow'
 import type { GroupLookupData } from 'src/shared/itemTypes'
+
 
 const DEFAULT_ROW_HEIGHT = 58
 const FALLBACK_RENDER_COUNT = 20

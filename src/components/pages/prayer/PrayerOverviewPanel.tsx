@@ -1,9 +1,11 @@
-import { Box } from '@mui/material'
+import { memo } from 'react'
 import { useSwipeable } from 'react-swipeable'
+import Box from '@mui/material/Box'
+
 import type { Item } from 'src/state/items'
 import ItemList from 'src/features/items/components/ItemList'
 import PrayerOverviewHeader from './PrayerOverviewHeader'
-import { memo } from 'react'
+
 
 type Props = {
   completed: number,

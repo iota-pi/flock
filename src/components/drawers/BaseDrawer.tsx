@@ -1,15 +1,4 @@
 import {
-  Box,
-  Container,
-  CSSObject,
-  IconButton,
-  styled,
-  SwipeableDrawer,
-  Theme,
-  Toolbar,
-  useMediaQuery,
-} from '@mui/material'
-import {
   createRef,
   KeyboardEvent as ReactKeyboardEvent,
   PropsWithChildren,
@@ -18,6 +7,14 @@ import {
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import SwipeableDrawer from '@mui/material/SwipeableDrawer'
+import Toolbar from '@mui/material/Toolbar'
+import { CSSObject, styled, Theme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
 import type { ItemId } from '../../shared/itemTypes'

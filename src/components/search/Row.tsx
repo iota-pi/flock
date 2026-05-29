@@ -2,6 +2,7 @@ import { CSSProperties, HTMLAttributes } from 'react'
 import OptionComponent from './Option'
 import { AnySearchable } from './types'
 
+
 interface SearchableRowSettings {
   showDescriptions: boolean,
   showGroupMemberCounts: boolean,

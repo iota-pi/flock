@@ -1,9 +1,11 @@
-import { SvgIcon, SvgIconProps, SvgIconTypeMap } from '@mui/material'
+import SvgIcon, { SvgIconProps, SvgIconTypeMap } from '@mui/material/SvgIcon'
 import type { OverridableComponent } from '@mui/material/OverridableComponent'
 
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
+import CloudDoneIcon from '@mui/icons-material/CloudDone'
+import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CollapseIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
@@ -31,6 +33,8 @@ import SortIcon from '@mui/icons-material/Sort'
 import SuccessIcon from '@mui/icons-material/CheckCircle'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningIcon from '@mui/icons-material/Warning'
 import TopicIcon from '@mui/icons-material/Lightbulb'
 
@@ -49,6 +53,8 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CloudDoneIcon,
+  CloudOffIcon,
   CollapseIcon,
   DeleteIcon,
   DownloadIcon,
@@ -78,6 +84,8 @@ export {
   SuccessIcon,
   UnarchiveIcon,
   UploadIcon,
+  VisibilityOffIcon,
+  VisibilityIcon,
   WarningIcon,
   TopicIcon,
 }

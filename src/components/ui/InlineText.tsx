@@ -1,4 +1,5 @@
-import { Typography, TypographyProps } from '@mui/material'
+import Typography, { TypographyProps } from '@mui/material/Typography'
+
 
 const InlineText = (props: TypographyProps) => (
   <Typography

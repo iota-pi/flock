@@ -1,16 +1,16 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  IconButton,
-  MenuItem,
-  Stack,
-  TextField,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
+import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
+import Divider from '@mui/material/Divider'
+import MenuItem from '@mui/material/MenuItem'
+
 import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,
@@ -19,6 +19,7 @@ import {
 } from '../../utils/customSort'
 import { RemoveIcon } from '../Icons'
 import { useSortCriteria } from '../../state/selectors'
+
 
 interface Props {
   onClose: () => void,

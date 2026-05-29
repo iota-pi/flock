@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashString } from '../../api/util'
 import { accountsRouter } from './accounts'
+
 
 function createContext(overrides?: { authToken?: string, checkSessionSuccess?: boolean }) {
   const checkSessionSuccess = overrides?.checkSessionSuccess ?? true

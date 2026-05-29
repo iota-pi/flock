@@ -51,6 +51,12 @@ export default defineConfig([
       'import-x/no-rename-default': 'off',
       '@stylistic/semi': ['error', 'never'],
       '@stylistic/indent': ['error', 2],
+      "no-restricted-imports": [
+        "error",
+        {
+          "patterns": [{ "regex": "^@mui/[^/]+$" }],
+        },
+      ],
     },
   },
   {

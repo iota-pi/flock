@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
-import { Alert, Snackbar } from '@mui/material'
+import Alert from '@mui/material/Alert'
+import Snackbar from '@mui/material/Snackbar'
+
 import { useToastStore } from '../state/toastStore'
 
 

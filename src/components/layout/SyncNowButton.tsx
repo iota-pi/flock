@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Box, CircularProgress, IconButton, Tooltip } from '@mui/material'
-import CloudDoneIcon from '@mui/icons-material/CloudDone'
-import CloudOffIcon from '@mui/icons-material/CloudOff'
-import { useUiStore } from '../../state/uiStore'
-import { useSyncStore } from '../../state/syncStore'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+
+import { CloudDoneIcon, CloudOffIcon } from '../Icons'
+import { useUiStore } from 'src/state/uiStore'
+import { useSyncStore } from 'src/state/syncStore'
+import { useOnlineStatus } from 'src/hooks/useOnlineStatus'
 import { SyncBridge } from 'src/sync/SyncBridge'
+
 
 function SyncNowButton() {
   const syncStatus = useSyncStore(state => state.status)

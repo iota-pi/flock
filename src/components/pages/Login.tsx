@@ -1,25 +1,28 @@
 import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import {
-  Alert,
-  Box,
-  Button,
-  Container,
-  IconButton,
-  InputAdornment,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
-import Visibility from '@mui/icons-material/Visibility'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
-import { useUiStore } from '../../state/uiStore'
-import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
-import { getSecurityParams, loginVault } from '../../api/vault'
-import { useAuth } from '../../hooks/useAuth'
-import { useAuthStore } from '../../state/authStore'
+import { useUiStore } from 'src/state/uiStore'
+import {
+  HomeIcon,
+  PasswordIcon,
+  PersonIcon,
+  VisibilityIcon,
+  VisibilityOffIcon,
+} from '../Icons'
+import { getSecurityParams, loginVault } from 'src/api/vault'
+import { useAuth } from 'src/hooks/useAuth'
+import { useAuthStore } from 'src/state/authStore'
 
 
 const Root = styled('div')({
@@ -238,7 +241,7 @@ function LoginPage() {
                           onMouseDown={handleMouseDownVisibility}
                           size="large"
                         >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                          {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                         </IconButton>
                       </InputAdornment>
                     ),

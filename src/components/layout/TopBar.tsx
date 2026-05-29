@@ -1,21 +1,19 @@
 import { lazy, Suspense, useCallback, useState } from 'react'
-import {
-  Box,
-  Checkbox,
-  IconButton,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  Paper,
-  styled,
-  Theme,
-  Typography,
-  useMediaQuery,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import IconButton from '@mui/material/IconButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { styled, Theme } from '@mui/material/styles'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
 import { usePracticalFilterCount } from 'src/state/selectors'
 import SyncNowButton from './SyncNowButton'
 import { useDialogState } from 'src/hooks/useDialogState'
+
 
 const SortDialog = lazy(() => import('../dialogs/SortDialog'))
 const FilterDialog = lazy(() => import('../dialogs/FilterDialog'))

@@ -3,18 +3,16 @@ import {
   useCallback,
   useState,
 } from 'react'
-import {
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  AccordionActions,
-  Typography,
-  Divider,
-  Box,
-  styled,
-} from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { MuiIconType } from '../../Icons'
+import Accordion from '@mui/material/Accordion'
+import AccordionSummary from '@mui/material/AccordionSummary'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import AccordionActions from '@mui/material/AccordionActions'
+import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
+import { ExpandIcon, MuiIconType } from '../../Icons'
 
 const StyledAccordion = styled(Accordion)(({ theme }) => ({
   '& .MuiAccordion-root': {
@@ -83,7 +81,7 @@ function CollapsibleSection({
     >
       <StyledAccordionSummary
         aria-controls={`${id}-content`}
-        expandIcon={<ExpandMoreIcon />}
+        expandIcon={<ExpandIcon />}
       >
         <Box sx={{
           mr: 2

@@ -1,13 +1,12 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
-import {
-  Button,
-  Container,
-  Grid,
-  Link,
-  styled,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import Grid from '@mui/material/Grid'
+import Link from '@mui/material/Link'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import { ROUTES } from './routes'
 import AboutDrawer from '../drawers/AboutDrawer'
 

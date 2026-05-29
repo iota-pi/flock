@@ -1,5 +1,6 @@
 import { getAuthToken, hashString } from './util'
 
+
 describe('vault api util', () => {
   it('hashString produces consistent base64 output', () => {
     const a = hashString('hello')

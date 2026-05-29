@@ -1,12 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ThemeProvider } from '@mui/material'
+import { ThemeProvider } from '@mui/material/styles'
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import getTheme from 'src/theme'
 import FilterDialog from './FilterDialog'
 import type { FilterCriterion } from 'src/utils/customFilter'
+
 
 const setUi = vi.fn()
 const initialFilters: FilterCriterion[] = [

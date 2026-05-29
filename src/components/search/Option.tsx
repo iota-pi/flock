@@ -1,17 +1,16 @@
 import { useCallback, useMemo } from 'react'
-import {
-  Box,
-  Checkbox,
-  Divider,
-  styled,
-  Theme,
-  Typography,
-} from '@mui/material'
-import { getItemTypeLabel } from '../../state/items'
+import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+import { styled, Theme } from '@mui/material/styles'
+
+import { getItemTypeLabel } from 'src/state/items'
 import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
 import { getName, isSearchableStandardItem } from './utils'
+
 
 const AutocompleteOption = styled('div')(({ theme }) => ({
   alignItems: 'center',

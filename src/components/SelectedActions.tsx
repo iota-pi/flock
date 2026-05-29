@@ -1,13 +1,12 @@
 import { Fragment, lazy, memo, Suspense, useCallback, useMemo, useState } from 'react'
-import {
-  Divider,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  styled,
-  Typography,
-} from '@mui/material'
+import List from '@mui/material/List'
+import Typography from '@mui/material/Typography'
+import Divider from '@mui/material/Divider'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import { styled } from '@mui/material/styles'
+
 import {
   ArchiveIcon,
   DeleteIcon,
@@ -24,9 +23,11 @@ import { deleteItems, hardDeleteItems, storeItems } from '../features/items/muta
 import { useNavigationStore } from '../state/navigationStore'
 import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
 
+
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
 const GroupDialog = lazy(() => import('./dialogs/GroupDialog'))
 const FrequencyDialog = lazy(() => import('./dialogs/FrequencyDialog'))
+
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,

@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import {
-  Box,
-  IconButton,
-  Menu,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import Typography from '@mui/material/Typography'
+
 import { Item } from 'src/state/items'
 import {
   EditIcon,
@@ -12,6 +11,7 @@ import {
   MoreOptionsIcon,
 } from 'src/components/Icons'
 import DelayedRender from 'src/components/ui/DelayedRender'
+
 
 interface Props {
   item: Pick<Item, 'type' | 'name' | 'description'>,

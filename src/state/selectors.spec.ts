@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import type { Item } from './items'
 import {
   useItem,
@@ -16,6 +16,7 @@ import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useDataStore } from './dataStore'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
+
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
   setMetadata: vi.fn(async () => ({})),

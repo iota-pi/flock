@@ -1,6 +1,9 @@
 import { ReactNode, useCallback } from 'react'
-import { Box, IconButton } from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+
 import { HomeIcon } from '../../Icons'
+
 
 interface Props {
   steps: number,

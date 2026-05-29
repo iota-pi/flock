@@ -1,6 +1,7 @@
 import createServer from '.'
 import type { Socket } from 'net'
 
+
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 async function runServer(port = 4000) {

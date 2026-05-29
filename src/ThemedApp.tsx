@@ -1,9 +1,7 @@
-import {
-  CssBaseline,
-  ThemeProvider,
-} from '@mui/material'
-import { StyledEngineProvider } from '@mui/material/styles'
 import { useMemo } from 'react'
+import { StyledEngineProvider, ThemeProvider } from '@mui/material/styles'
+import CssBaseline from '@mui/material/CssBaseline'
+
 import App from './App'
 import { useUiStore } from './state/uiStore'
 import getTheme from './theme'

@@ -1,15 +1,15 @@
-import {
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import CircularProgress from '@mui/material/CircularProgress'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Paper from '@mui/material/Paper'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
+
 import { useDataRecovery } from '../../hooks/useDataRecovery'
+
 
 interface Props {
   onClose: () => void

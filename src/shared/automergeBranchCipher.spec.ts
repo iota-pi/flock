@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
 import {
   decodeEncryptedAutomergeDoc,
   encodeEncryptedAutomergeDoc,
 } from './automergeBranchCipher'
+
 
 function toBase64(bytes: Uint8Array): string {
   let binary = ''

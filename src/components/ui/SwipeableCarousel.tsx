@@ -1,6 +1,8 @@
 import { ReactNode, useCallback } from 'react'
-import { Box, SxProps, Theme } from '@mui/material'
 import { useSwipeable } from 'react-swipeable'
+import Box from '@mui/material/Box'
+import { SxProps, Theme } from '@mui/material/styles'
+
 
 type SwipeEvent = {
   deltaX: number

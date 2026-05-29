@@ -1,6 +1,11 @@
 import { memo, ReactNode } from 'react'
-import { Box, IconButton, ListItemButton, Typography } from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
+import ListItemButton from '@mui/material/ListItemButton'
+
 import type { MuiIconType } from './Icons'
+
 
 interface SettingsItemProps {
   disabled?: boolean,

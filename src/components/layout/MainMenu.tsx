@@ -1,17 +1,17 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router'
-import {
-  Drawer,
-  List,
-  styled,
-  Toolbar,
-} from '@mui/material'
+import Drawer from '@mui/material/Drawer'
+import List from '@mui/material/List'
+import Toolbar from '@mui/material/Toolbar'
+import { styled } from '@mui/material/styles'
+
 import { pages, usePage } from '../pages'
 import { ProtectedPageId } from '../pages/types'
 import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
-import { useNavigationStore } from '../../state/navigationStore'
+import { useNavigationStore } from 'src/state/navigationStore'
 import { MainMenuItem } from './MainMenuItem'
 import type { MinimisedProp } from './types'
+
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10

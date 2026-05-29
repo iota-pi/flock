@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from './authStore'
+
 
 vi.mock('../api/db', () => ({
   syncDB: {

@@ -1,12 +1,15 @@
-import { Theme, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { Theme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
 import { useLoggedIn } from 'src/state/selectors'
 import { usePrevious } from 'src/utils'
 import { usePage } from '../pages'
 import ItemDrawer from 'src/features/items/components/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
+
 
 const noop = () => {}
 

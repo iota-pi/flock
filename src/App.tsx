@@ -1,16 +1,14 @@
 import { useCallback, useState } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet } from 'react-router'
-import {
-  Alert,
-  Box,
-  Button,
-  Container,
-  styled,
-  Toolbar,
-  Typography,
-  useMediaQuery,
-} from '@mui/material'
-import { Theme } from '@mui/material/styles'
+import { Theme, styled } from '@mui/material/styles'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import Toolbar from '@mui/material/Toolbar'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
@@ -19,6 +17,7 @@ import { useSyncStore } from './state/syncStore'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
 import AppProviders from './app/AppProviders'
+
 
 const Root = styled('div')({
   display: 'flex',

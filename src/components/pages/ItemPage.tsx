@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
-import { Theme, useMediaQuery } from '@mui/material'
+import { Theme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import { DeleteIcon } from 'src/components/Icons'
 import { getItemTypeLabel, Item } from 'src/state/items'
 import { ERROR_ITEM_TYPE, type ItemType } from 'src/shared/itemTypes'
@@ -16,6 +17,7 @@ import { useNavigationStore } from 'src/state/navigationStore'
 import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
 import { filterItems } from 'src/utils/customFilter'
 import { sortItems } from 'src/utils/customSort'
+
 
 interface Props {
   itemType: ItemType,

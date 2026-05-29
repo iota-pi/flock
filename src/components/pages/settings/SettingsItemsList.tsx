@@ -1,12 +1,11 @@
 import { ReactNode } from 'react'
-import {
-  Checkbox,
-  Divider,
-  FormControlLabel,
-  List,
-  styled,
-  Typography,
-} from '@mui/material'
+import Divider from '@mui/material/Divider'
+import { styled } from '@mui/material/styles'
+import Typography from '@mui/material/Typography'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import List from '@mui/material/List'
+
 import SettingsItem from '../../SettingsItem'
 import { SettingsActionId, settingsConfig, SettingsValueRenderer } from './settingsConfig'
 

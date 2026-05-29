@@ -1,16 +1,15 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Typography from '@mui/material/Typography'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Tooltip from '@mui/material/Tooltip'
+
 import { DropzoneArea } from 'mui-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { UploadIcon } from '../Icons'
@@ -20,6 +19,7 @@ import {
   type BackupPayloadV2,
   type RestorePayload,
 } from '../../types/backup'
+
 
 function isBackupPayloadV2(payload: unknown): payload is BackupPayloadV2 {
   if (!payload || typeof payload !== 'object') {

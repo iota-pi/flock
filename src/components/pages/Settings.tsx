@@ -1,19 +1,19 @@
 import { useCallback } from 'react'
-import {
-  Box,
-  Divider,
-  Typography,
-} from '@mui/material'
 import download from 'js-file-download'
+import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+
 import BasePage from './BasePage'
-import type { Item } from '../../state/items'
-import useSettings from '../../hooks/useSettings'
-import { useDialogState } from '../../hooks/useDialogState'
-import type { RestorePayload } from '../../types/backup'
+import type { Item } from 'src/state/items'
+import useSettings from 'src/hooks/useSettings'
+import { useDialogState } from 'src/hooks/useDialogState'
+import type { RestorePayload } from 'src/types/backup'
 import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
+
 
 function SettingsPage() {
   const items = useVisibleItems()

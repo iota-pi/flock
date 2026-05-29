@@ -1,4 +1,6 @@
-import { Link, Typography } from '@mui/material'
+import Typography from '@mui/material/Typography'
+import Link from '@mui/material/Link'
+
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
 
 function AboutDrawer({

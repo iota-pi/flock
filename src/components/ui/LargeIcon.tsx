@@ -1,5 +1,6 @@
-import { Theme } from '@mui/material'
 import { useCallback } from 'react'
+import { Theme } from '@mui/material/styles'
+
 import { MuiIconType } from '../Icons'
 
 

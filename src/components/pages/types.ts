@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { MuiIconType } from '../Icons'
 
+
 export type PublicPageId = (
   | 'welcome'
   | 'login'

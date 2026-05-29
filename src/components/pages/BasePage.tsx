@@ -1,9 +1,15 @@
 import { PropsWithChildren, ReactNode } from 'react'
-import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material'
+import Box from '@mui/material/Box'
+import Fab from '@mui/material/Fab'
+import Fade from '@mui/material/Fade'
+import LinearProgress from '@mui/material/LinearProgress'
+import { styled } from '@mui/material/styles'
+
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
-import { useUiStore } from '../../state/uiStore'
+import { useUiStore } from 'src/state/uiStore'
 import { usePage } from '.'
+
 
 interface BaseProps {
   noScrollContainer?: boolean,

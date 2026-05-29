@@ -2,7 +2,7 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import DeleteIcon from '@mui/icons-material/Close'
+
 import type { Item } from 'src/state/items'
 import type { ItemId } from 'src/shared/itemTypes'
 import { useItemsByIds, useSortCriteria } from 'src/state/selectors'
@@ -11,6 +11,7 @@ import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
 import { useNavigationStore } from 'src/state/navigationStore'
 import { GroupItem, PersonItem } from 'src/shared/schemas/items'
+import { RemoveIcon } from 'src/components/Icons'
 
 
 interface Props {
@@ -67,7 +68,7 @@ function MemberDisplay({
   )
 
   const getActionIcon = useCallback(
-    () => editable ? <DeleteIcon /> : undefined,
+    () => editable ? <RemoveIcon /> : undefined,
     [editable],
   )
 

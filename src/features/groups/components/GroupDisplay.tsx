@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import DeleteIcon from '@mui/icons-material/Close'
+
 import type { Item } from 'src/state/items'
 import type { ItemId } from 'src/shared/itemTypes'
 import { useGroupLookupMap } from 'src/state/selectors'
@@ -8,6 +8,7 @@ import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from 'src/components/Search'
 import { useNavigationStore } from 'src/state/navigationStore'
 import { GroupItem } from 'src/shared/schemas/items'
+import { RemoveIcon } from 'src/components/Icons'
 
 interface Props {
   editable?: boolean,
@@ -56,7 +57,7 @@ function GroupDisplay({
   )
 
   const getActionIcon = useCallback(
-    () => editable ? <DeleteIcon /> : undefined,
+    () => editable ? <RemoveIcon /> : undefined,
     [editable],
   )
 
