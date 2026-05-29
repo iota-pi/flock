@@ -4,6 +4,7 @@ import { useToastStore } from '../state/toastStore'
 import type { ItemId } from '../shared/itemTypes'
 import { SyncBridge } from '../sync/SyncBridge'
 
+
 export function useDataRecovery() {
   const setMessage = useToastStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
@@ -24,10 +25,10 @@ export function useDataRecovery() {
   const handleDismissRecoveryItem = useCallback(async (id: string) => {
     try {
       await SyncBridge.dismissRecoveryItem(id)
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         severity: 'error',
-        message: error.message || `Failed to dismiss recovery item.`,
+        message: (error as Error).message || `Failed to dismiss recovery item.`,
       })
     }
   }, [setMessage])
@@ -37,10 +38,10 @@ export function useDataRecovery() {
     try {
       await SyncBridge.forceOverwriteRecoveryItem(itemId)
       setMessage({ message: `Recovered ${itemId} using local cache.` })
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         severity: 'error',
-        message: error.message || `Failed to overwrite ${itemId}.`,
+        message: (error as Error).message || `Failed to overwrite ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -52,10 +53,10 @@ export function useDataRecovery() {
     try {
       await SyncBridge.forceDeleteRecoveryItem(itemId)
       setMessage({ message: `Deleted corrupted server item ${itemId}.` })
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         severity: 'error',
-        message: error.message || `Failed to force delete ${itemId}.`,
+        message: (error as Error).message || `Failed to force delete ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))
@@ -70,10 +71,10 @@ export function useDataRecovery() {
         severity: 'info',
         message: `Retry queued for ${itemId}.`,
       })
-    } catch (error: any) {
+    } catch (error: unknown) {
       setMessage({
         severity: 'error',
-        message: error.message || `Failed to retry ${itemId}.`,
+        message: (error as Error).message || `Failed to retry ${itemId}.`,
       })
     } finally {
       setIsRetrying(current => (current === itemId ? null : current))

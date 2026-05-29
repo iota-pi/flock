@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
-import { DateCalendar } from '@mui/x-date-pickers'
+import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'

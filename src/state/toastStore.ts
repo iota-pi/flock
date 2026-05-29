@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { AlertColor } from '@mui/material'
+import type { AlertColor } from '@mui/material/Alert'
+
 
 export interface BaseToastMessage {
   severity?: AlertColor

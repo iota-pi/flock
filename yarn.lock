@@ -27,21 +27,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge-repo-react-hooks@npm:^2.5.5":
-  version: 2.5.5
-  resolution: "@automerge/automerge-repo-react-hooks@npm:2.5.5"
-  dependencies:
-    "@automerge/automerge": "npm:2.2.8 - 3"
-    "@automerge/automerge-repo": "npm:2.5.5"
-    eventemitter3: "npm:^5.0.1"
-    react-usestateref: "npm:^1.0.8"
-  peerDependencies:
-    react: ^18.0.0 || ^19.0.0
-    react-dom: ^18.0.0 || ^19.0.0
-  checksum: 10c0/6076eb405ba4969fbec944eafe2d643842e6ce23d031f7a1de78b880e83847c043cd658aad075779b636bf6151c9419fc0185f08e9a782e6bad56b815c423356
-  languageName: node
-  linkType: hard
-
 "@automerge/automerge-repo-storage-indexeddb@npm:^2.5.5":
   version: 2.5.5
   resolution: "@automerge/automerge-repo-storage-indexeddb@npm:2.5.5"
@@ -265,7 +250,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@aws-sdk/core@npm:3.957.0, @aws-sdk/core@npm:^3.957.0":
+"@aws-sdk/core@npm:3.957.0":
   version: 3.957.0
   resolution: "@aws-sdk/core@npm:3.957.0"
   dependencies:
@@ -8619,11 +8604,9 @@ __metadata:
     "@automerge/automerge": "npm:^3.2.5"
     "@automerge/automerge-repo": "npm:^2.5.5"
     "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.5.5"
-    "@automerge/automerge-repo-react-hooks": "npm:^2.5.5"
     "@automerge/automerge-repo-storage-indexeddb": "npm:^2.5.5"
     "@aws-sdk/client-dynamodb": "npm:^3.958.0"
     "@aws-sdk/client-sqs": "npm:^3.1010.0"
-    "@aws-sdk/core": "npm:^3.957.0"
     "@aws-sdk/lib-dynamodb": "npm:^3.958.0"
     "@emotion/react": "npm:^11.11.1"
     "@emotion/styled": "npm:^11.11.0"
@@ -11747,15 +11730,6 @@ __metadata:
     react: ">=16.6.0"
     react-dom: ">=16.6.0"
   checksum: 10c0/2ba754ba748faefa15f87c96dfa700d5525054a0141de8c75763aae6734af0740e77e11261a1e8f4ffc08fd9ab78510122e05c21c2d79066c38bb6861a886c82
-  languageName: node
-  linkType: hard
-
-"react-usestateref@npm:^1.0.8":
-  version: 1.0.9
-  resolution: "react-usestateref@npm:1.0.9"
-  peerDependencies:
-    react: ">16.0.0"
-  checksum: 10c0/3d05cbac1ce7329d5515a8c887e2b6478e732adc43ecdcfe9e23027c2c856f9101cf02503882232a0e96c157edc0fad01b29924204d93255319ac25e17d8b974
   languageName: node
   linkType: hard
 

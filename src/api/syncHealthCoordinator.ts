@@ -160,7 +160,6 @@ export function initializeSyncHealthWatchers(): void {
 
 export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
   const normalizedError = normalizeSyncError(event.error)
-  const reason = normalizedError.message || 'Failed to decrypt item'
 
   console.error('[Decryption] Failed to decrypt item', {
     source: event.source,

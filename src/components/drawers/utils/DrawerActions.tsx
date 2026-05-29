@@ -14,8 +14,6 @@ import { DeleteIcon, SaveIcon } from '../../Icons'
 import InlineText from '../../ui/InlineText'
 
 
-
-
 const StyledContainer = styled(Container)(({ theme }) => ({
   paddingTop: theme.spacing(2),
   paddingBottom: theme.spacing(2),

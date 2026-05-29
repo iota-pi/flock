@@ -3,7 +3,7 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
-import { DatePicker } from '@mui/x-date-pickers'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 
 import {
   FILTER_CRITERIA_DISPLAY_MAP,
