@@ -112,6 +112,13 @@ function DrawerDisplay() {
     && baseDrawerIsPermanent
     && !page?.noPlaceholderDrawer
   )
+  const showDrawer = loggedIn && (
+    !!drawer || showPlaceholder
+  )
+
+  if (!showDrawer) {
+    return null
+  }
 
   return (
     showPlaceholder ? (

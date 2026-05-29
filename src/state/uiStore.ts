@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../utils/customFilter'
 import { useToastStore } from './toastStore'
+
 
 export interface UIState {
   activeRequests: number,
