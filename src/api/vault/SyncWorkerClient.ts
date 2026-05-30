@@ -1,6 +1,7 @@
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../../vault/trpc/root'
 import env from '../../env'
+import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 type SyncMessageEnvelope = {
   iv: string
@@ -73,5 +74,17 @@ export async function pollSyncBatchWithToken(input: {
     account: input.account,
     pushMessages: input.pushMessages,
     pullCursors: input.pullCursors,
+  })
+}
+
+export async function putSnapshotsWithToken(input: {
+  account: string
+  authToken: string
+  snapshots: VaultSnapshotInput[]
+}): Promise<{ success: boolean; persisted: number; total: number }> {
+  const client = createWorkerSyncClient(input.authToken)
+  return client.items.putSnapshots.mutate({
+    account: input.account,
+    snapshots: input.snapshots,
   })
 }

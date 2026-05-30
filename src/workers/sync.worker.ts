@@ -25,20 +25,24 @@ import {
   listAutomergeItemIds,
 } from '../sync/automergeDocStore'
 import { fetchMany } from '../api/vault/ItemClient'
-import { decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
+import { CryptoResult, decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'
 import { trpcClient } from '../api/trpcClient'
-import { decodeEncryptedAutomergeDoc } from '../shared/automergeBranchCipher'
+import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import { getActiveSessionToken } from '../sync/workerAuthStore'
+import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
+import { ITEM_TYPES } from '../shared/itemTypes'
 import {
   type ManualRecoveryEntry,
   readManualRecoveryEntries,
   removeManualRecoveryEntryById,
   removeManualRecoveryEntryByItemId,
 } from '../sync/manualRecoveryStore'
+import { decryptBytesWithKey, encryptBytesWithKey } from 'src/api/vault/crypto'
 
 function mutateDraftToMatchSnapshot(
   draft: Record<string, unknown>,
@@ -57,11 +61,25 @@ function mutateDraftToMatchSnapshot(
   }
 }
 
+function normalizeSnapshotType(type: Item['type'], originalType?: Item['type']): string {
+  const resolvedType = (
+    (type === 'error' && originalType) ? originalType : type
+  )
+  const isValidType = ITEM_TYPES.includes(resolvedType as (typeof ITEM_TYPES)[number])
+  return isValidType
+    ? resolvedType
+    : 'person'
+}
+
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
   private adapter: VaultEncryptedNetworkAdapter | null = null
   private callbacks: SyncCallbacks | null = null
   private subscribedHandles = new Set<string>()
+  private repo: Repo | null = null
+  private dirtyDocuments = new Set<string>()
+  private snapshotPushInFlight = false
+  private snapshotPushPending = false
 
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.accountId = accountId
@@ -76,8 +94,10 @@ class SyncWorker implements SyncApi {
     this.adapter = new VaultEncryptedNetworkAdapter()
     this.adapter.onStartRequest = callbacks.onStartRequest
     this.adapter.onFinishRequest = callbacks.onFinishRequest
+    this.adapter.onSnapshotNeeded = () => this.scheduleSnapshotPush()
     this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
+    this.repo = repo
     await initializeAutomergeDocStore(accountId)
 
     const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
@@ -105,6 +125,20 @@ class SyncWorker implements SyncApi {
     await this.callbacks.onReady()
   }
 
+  private markDocumentDirty(documentId: string) {
+    if (!documentId) return
+    this.dirtyDocuments.add(documentId)
+  }
+
+  private scheduleSnapshotPush() {
+    if (this.snapshotPushInFlight) {
+      this.snapshotPushPending = true
+      return
+    }
+
+    void this.pushSnapshots()
+  }
+
   async bootstrapLegacyItems() {
     if (!this.accountId) return
 
@@ -118,7 +152,7 @@ class SyncWorker implements SyncApi {
     const response = await fetchMany({
       account: this.accountId,
     }).catch(e => {
-      console.error('[sync.worker] failed to fetch legacy items', e)
+      console.error('[sync.worker] failed to fetch item snapshots', e)
       return { items: [] as any[] }
     })
 
@@ -126,23 +160,20 @@ class SyncWorker implements SyncApi {
 
     if (fetchedItems.length === 0) return
 
-    const legacySnapshots: Item[] = []
+    const snapshots: Item[] = []
 
     const promises = fetchedItems.map(async (item: any) => {
       try {
         if (item.metadata?.deleted === true) {
-          legacySnapshots.push({ id: item.item, deleted: true } as unknown as Item)
+          snapshots.push({ id: item.item, deleted: true } as unknown as Item)
           return
         }
 
-        if (Array.isArray(item.branches) && item.branches.length > 0) {
-          for (const branch of item.branches) {
-            if (!branch?.doc) continue
-            const binary = await this.decryptBranchBinary(branch.doc)
-            if (binary) {
-              await hydrateAutomergeDocumentBinary(this.accountId!, item.item, binary)
-              return
-            }
+        if (item.snapshot) {
+          const binary = await this.decryptSnapshotBinary(item.snapshot)
+          if (binary) {
+            await hydrateAutomergeDocumentBinary(this.accountId!, item.item, binary)
+            return
           }
         }
 
@@ -153,7 +184,7 @@ class SyncWorker implements SyncApi {
             if (!snapshot.id || typeof snapshot.id !== 'string') {
               snapshot.id = item.item
             }
-            legacySnapshots.push(snapshot as Item)
+            snapshots.push(snapshot as Item)
           }
         }
       } catch (error) {
@@ -163,22 +194,16 @@ class SyncWorker implements SyncApi {
 
     await Promise.allSettled(promises)
 
-    if (legacySnapshots.length > 0) {
-      await this.storeItems(legacySnapshots)
+    if (snapshots.length > 0) {
+      await this.storeItems(snapshots)
     }
 
     await this.hydrateMetadata()
   }
 
-  private async decryptBranchBinary(encryptedAutomergeDoc: string): Promise<Uint8Array | null> {
+  private async decryptSnapshotBinary(encryptedAutomergeDoc: CryptoResult): Promise<Uint8Array | null> {
     try {
-      const decoded = decodeEncryptedAutomergeDoc(encryptedAutomergeDoc)
-      const iv = new Uint8Array(decoded.iv.byteLength)
-      iv.set(decoded.iv)
-      const cipher = new Uint8Array(decoded.cipher.byteLength)
-      cipher.set(decoded.cipher)
-      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, getVaultKey(), cipher)
-      return new Uint8Array(plaintext)
+      return decryptBytesWithKey(getVaultKey(), encryptedAutomergeDoc)
     } catch {
       return null
     }
@@ -233,12 +258,15 @@ class SyncWorker implements SyncApi {
 
   async mutateItem(mutationId: string, id: string, changes: Partial<Item>) {
     try {
-      await withAutomergeDocumentChange(this.accountId!, id, doc => {
+      const updated = await withAutomergeDocumentChange(this.accountId!, id, doc => {
         for (const [key, value] of Object.entries(changes)) {
           if (value === undefined) delete doc[key]
           else doc[key] = value
         }
       })
+      if (updated) {
+        this.markDocumentDirty(id)
+      }
     } catch (err: any) {
       if (this.callbacks) {
         this.callbacks.onMutationFailed(mutationId, err.message).catch(console.error)
@@ -250,12 +278,15 @@ class SyncWorker implements SyncApi {
 
   async createItem(item: Item) {
     try {
-      await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
+      const updated = await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
         for (const [key, value] of Object.entries(item)) {
           doc[key] = value
         }
       }, { createIfMissing: true, initialValue: item })
       await addAutomergeItemIdsToIndex(this.accountId!, [item.id])
+      if (updated) {
+        this.markDocumentDirty(item.id)
+      }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('create', err.message).catch(console.error)
     }
@@ -275,12 +306,15 @@ class SyncWorker implements SyncApi {
   async storeItems(items: Item[]) {
     try {
       for (const item of items) {
-        await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
+        const updated = await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined) delete doc[key]
             else doc[key] = value
           }
         }, { createIfMissing: true, initialValue: item })
+        if (updated) {
+          this.markDocumentDirty(item.id)
+        }
       }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('store', err.message).catch(console.error)
@@ -293,11 +327,14 @@ class SyncWorker implements SyncApi {
 
   async mutateMetadata(changes: Partial<AccountMetadata>) {
     try {
-      await withAutomergeMetadataChange(this.accountId!, metadataDraft => {
+      const updated = await withAutomergeMetadataChange(this.accountId!, metadataDraft => {
         for (const [key, value] of Object.entries(changes)) {
           metadataDraft[key] = value
         }
       })
+      if (updated) {
+        this.markDocumentDirty(ACCOUNT_INDEX_DOCUMENT_ID)
+      }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('metadata', err.message).catch(console.error)
       this.callbacks?.onMetadataUpdated(getAutomergeMetadata(this.accountId!)).catch(console.error)
@@ -321,6 +358,125 @@ class SyncWorker implements SyncApi {
       await this.adapter?.flush()
     } catch (err) {
       console.error('[sync.worker] forceSync failed', err)
+    }
+  }
+
+  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+    if (this.snapshotPushInFlight) {
+      this.snapshotPushPending = true
+      return { persisted: 0, total: 0 }
+    }
+
+    this.snapshotPushInFlight = true
+
+    try {
+      if (!this.accountId || !this.repo) {
+        return { persisted: 0, total: 0 }
+      }
+
+      const authToken = await getActiveSessionToken()
+      if (!authToken) {
+        return { persisted: 0, total: 0 }
+      }
+
+      if (this.dirtyDocuments.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
+        this.dirtyDocuments.delete(ACCOUNT_INDEX_DOCUMENT_ID)
+      }
+
+      const dirtyItemIds = Array.from(this.dirtyDocuments)
+      if (dirtyItemIds.length === 0) {
+        return { persisted: 0, total: 0 }
+      }
+
+      let persisted = 0
+      let total = 0
+
+      for (let start = 0; start < dirtyItemIds.length; start += 25) {
+        const slice = dirtyItemIds.slice(start, start + 25)
+        const snapshots: VaultSnapshotInput[] = []
+
+        for (const itemId of slice) {
+          const snapshot = await this.buildSnapshot(itemId)
+          if (snapshot) {
+            snapshots.push(snapshot)
+          }
+        }
+
+        if (snapshots.length === 0) {
+          continue
+        }
+
+        total += snapshots.length
+
+        const response = await putSnapshotsWithToken({
+          account: this.accountId,
+          authToken,
+          snapshots,
+        })
+
+        if (response?.success) {
+          persisted += response.persisted
+          for (const snapshot of snapshots) {
+            this.dirtyDocuments.delete(snapshot.itemId)
+          }
+        }
+      }
+
+      return { persisted, total }
+    } finally {
+      this.snapshotPushInFlight = false
+      if (this.snapshotPushPending) {
+        this.snapshotPushPending = false
+        this.scheduleSnapshotPush()
+      }
+    }
+  }
+
+  private async buildSnapshot(itemId: string): Promise<VaultSnapshotInput | null> {
+    if (!this.repo || !this.accountId) {
+      return null
+    }
+
+    const documentUrl = toAutomergeUrlFromItemId(itemId)
+    const handle = await this.repo.find(documentUrl).catch(() => undefined)
+    if (!handle) {
+      return null
+    }
+
+    await handle.whenReady(['ready', 'unavailable'])
+    if (!handle.isReady() || handle.isUnavailable()) {
+      return null
+    }
+
+    const doc = handle.doc()
+    if (!doc) {
+      return null
+    }
+
+    const binary = Automerge.save(doc)
+    if (!binary || binary.byteLength === 0) {
+      return null
+    }
+
+    let encryptedDoc: CryptoResult
+    try {
+      encryptedDoc = await encryptBytesWithKey(getVaultKey(), binary)
+    } catch (error) {
+      console.error('[sync.worker] failed to encrypt snapshot binary', error)
+      return null
+    }
+
+    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
+    if (!itemSnapshot) {
+      return null
+    }
+
+    return {
+      itemId,
+      snapshot: encryptedDoc,
+      type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
+      modified: Date.now(),
+      deleted: itemSnapshot.deleted === true || undefined,
     }
   }
 

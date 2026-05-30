@@ -36,7 +36,7 @@ import { VersionConflictError } from '../../shared/syncErrors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-const DATA_ATTRIBUTES = ['metadata', 'cipher', 'branches']
+const DATA_ATTRIBUTES = ['metadata', 'cipher', 'snapshot']
 
 const MAX_ITEM_SIZE = 50_000
 const MAX_INDEX_ITEM_SIZE = 400_000
@@ -44,33 +44,29 @@ const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
 
-type WritableVaultItem = VaultItem & {
-  _expectedParentVersionId?: string
-}
-
 type PersistedVaultItem = VaultItem & {
   modifiedAt?: number
 }
 
 /**
  * Validates a VaultItem.
- * Supports both legacy cipher and new branches format
+ * Supports both legacy cipher and snapshot format
  * - Legacy: must have cipher and iv
- * - Branching: must have branches array
+ * - Snapshot: must have snapshot payload
  * - Tombstone: needs only metadata.type
  */
 function validateItem(item: VaultItem) {
   const isTombstone = item.metadata.deleted === true
   const isLegacy = !!item.cipher
-  const isBranching = !!item.branches && item.branches.length > 0
+  const isSnapshot = !!item.snapshot
 
   const hasValidPayload = isTombstone
     ? !!item.metadata.type
-    : (isLegacy || isBranching) && !!item.metadata.type && (isLegacy ? !!item.metadata.iv : true)
+    : (isLegacy || isSnapshot) && !!item.metadata.type && (isLegacy ? !!item.metadata.iv : true)
 
   if (!hasValidPayload) {
     throw new Error(
-      `Invalid item format: must be either legacy (cipher+iv) or branching (branches array). Item: ${JSON.stringify(item)}`,
+      `Invalid item format: must be either legacy (cipher+iv) or snapshot. Item: ${JSON.stringify(item)}`,
     )
   }
 
@@ -81,7 +77,7 @@ function validateItem(item: VaultItem) {
   }
 }
 
-function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): PutCommandInput {
+function getItemPutParams(item: VaultItem): PutCommandInput {
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
@@ -99,27 +95,6 @@ function getItemPutParams(item: VaultItem, expectedParentVersionId?: string): Pu
   const params: PutCommandInput = {
     TableName: ITEM_TABLE_NAME,
     Item: persistedItem,
-  }
-
-  if (persistedItem.branches && persistedItem.branches.length > 0) {
-    if (expectedParentVersionId) {
-      params.ExpressionAttributeNames = {
-        '#branches': 'branches',
-        '#versionId': 'versionId',
-      }
-      params.ConditionExpression = '#branches[0].#versionId = :expectedParentVersionId'
-      params.ExpressionAttributeValues = {
-        ':expectedParentVersionId': expectedParentVersionId,
-      }
-    } else {
-      params.ExpressionAttributeNames = {
-        '#item': 'item',
-        '#branches': 'branches',
-      }
-      // Genesis writes are allowed for brand-new records and lazy upgrades
-      // from legacy rows that do not yet have branches.
-      params.ConditionExpression = 'attribute_not_exists(#item) OR attribute_not_exists(#branches)'
-    }
   }
 
   return params
@@ -400,7 +375,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       sessions,
       reminderTimezone,
       lastPrayerCompletedAt,
-      expectedMetadataParentVersionId,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -410,7 +384,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       sessions?: VaultSessionRecord[],
       reminderTimezone?: string,
       lastPrayerCompletedAt?: number,
-      expectedMetadataParentVersionId?: string,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -433,16 +406,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (metadata && Object.keys(metadata).length > 0) {
       updateExpressions.push('metadata=:metadata')
       expressionAttributeValues[':metadata'] = metadata
-
-      if (typeof expectedMetadataParentVersionId === 'string' && expectedMetadataParentVersionId.length > 0) {
-        conditionExpressions.push('metadata.branches[0].versionId = :expectedParentVersionId')
-        expressionAttributeValues[':expectedParentVersionId'] = expectedMetadataParentVersionId
-      } else {
-        const incomingBranches = (metadata as { branches?: unknown }).branches
-        if (Array.isArray(incomingBranches) && incomingBranches.length > 0) {
-          conditionExpressions.push('attribute_not_exists(metadata.branches)')
-        }
-      }
     }
 
     if (pushSubscriptions) {
@@ -545,8 +508,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   async set(item: VaultItem) {
-    const writable = item as WritableVaultItem
-    const params = getItemPutParams(item, writable._expectedParentVersionId)
+    const params = getItemPutParams(item)
 
     try {
       await this.client.send(new PutCommand(params))

@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify'
 
-import BaseDriver, { VaultAccountWithAuth, VaultItem } from './base'
+import BaseDriver from './base'
 import { HttpError } from '../api/errors'
 
 
@@ -24,15 +24,15 @@ class TestDriver extends BaseDriver {
     return this.checkSessionMock(data)
   }
 
-  async getAccount(): Promise<VaultAccountWithAuth> {
+  async getAccount(): ReturnType<BaseDriver['getAccount']> {
     throw new Error('not implemented')
   }
 
-  async getSecurityParams(): Promise<{ salt: string; iterations: number }> {
+  async getSecurityParams(): ReturnType<BaseDriver['getSecurityParams']> {
     throw new Error('not implemented')
   }
 
-  async getNewAccountId(): Promise<string> {
+  async getNewAccountId(): ReturnType<BaseDriver['getNewAccountId']> {
     throw new Error('not implemented')
   }
 
@@ -44,11 +44,11 @@ class TestDriver extends BaseDriver {
     return this.extendSessionMock(data)
   }
 
-  async fetchAll(): Promise<VaultItem[]> {
+  async fetchAll(): ReturnType<BaseDriver['fetchAll']> {
     throw new Error('not implemented')
   }
 
-  async get(): Promise<VaultItem> {
+  async get(): ReturnType<BaseDriver['get']> {
     throw new Error('not implemented')
   }
 

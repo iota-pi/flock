@@ -1,4 +1,3 @@
-import { decryptSyncMessage } from './automergeSyncCrypto'
 import type { PullSyncMessagesResponse } from '../api/vault/SyncWorkerClient'
 import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
@@ -7,6 +6,8 @@ import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-rep
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import localforage from 'localforage'
 import { debounce } from 'lodash-es'
+import { getVaultKey } from 'src/api/vault'
+import { decryptBytesWithKey } from 'src/api/vault/crypto'
 
 export class SyncPullQueueManager {
   private account: string | null = null
@@ -96,7 +97,7 @@ export class SyncPullQueueManager {
           if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) continue
 
           try {
-            const decrypted = await decryptSyncMessage(entry.encryptedMessage)
+            const decrypted = await decryptBytesWithKey(getVaultKey(), entry.encryptedMessage)
             const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
             const isBatched = entry.encryptedMessage.version === '1.0'
 

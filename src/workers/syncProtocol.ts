@@ -27,6 +27,7 @@ export interface SyncApi {
   exportAllBinaries: () => Promise<Partial<Record<string, string>>>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   forceSync: () => Promise<void>,
+  pushSnapshots: () => Promise<{ persisted: number; total: number }>
   retryRecoveryItem: (itemId: string) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: string) => Promise<void>
   forceDeleteRecoveryItem: (itemId: string) => Promise<void>

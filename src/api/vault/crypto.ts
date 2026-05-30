@@ -1,9 +1,10 @@
+import z from 'zod'
+
+import { CryptoResultSchema } from 'src/shared/schemas/crypto'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
-export interface CryptoResult {
-  iv: string,
-  cipher: string,
-}
+
+export type CryptoResult = z.infer<typeof CryptoResultSchema>
 
 function fromBytes(array: ArrayBuffer): string {
   const bytes = new Uint8Array(array)

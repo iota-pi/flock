@@ -42,57 +42,6 @@ describe('DynamoDriver', function () {
     expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
   })
 
-  it('set enforces branch parent lineage when expected parent is provided', async () => {
-    const account = generateAccountId()
-    const item = generateItemId()
-    const type: ItemType = 'person'
-    const iv = 'there'
-    const modified = new Date().getTime()
-    const baseBranch = {
-      doc: 'branch-base',
-      versionId: 'v1',
-      parentIds: [],
-    }
-
-    await driver.set({
-      account,
-      item,
-      branches: [baseBranch],
-      metadata: { type, iv, modified },
-    } as unknown as Parameters<typeof driver.set>[0])
-
-    // Wrong expected parent should fail.
-    await expect(
-      driver.set({
-        account,
-        item,
-        branches: [{
-          doc: 'branch-next',
-          versionId: 'v2',
-          parentIds: ['wrong-parent'],
-        }],
-        metadata: { type, iv, modified },
-        _expectedParentVersionId: 'wrong-parent',
-      } as unknown as Parameters<typeof driver.set>[0])
-    ).rejects.toThrow('Version conflict')
-
-    // Correct expected parent should succeed.
-    await driver.set({
-      account,
-      item,
-      branches: [{
-        doc: 'branch-next',
-        versionId: 'v2',
-        parentIds: ['v1'],
-      }],
-      metadata: { type, iv, modified },
-      _expectedParentVersionId: 'v1',
-    } as unknown as Parameters<typeof driver.set>[0])
-
-    const result = await driver.get({ account, item })
-    expect(result.branches?.[0]?.versionId).toBe('v2')
-  })
-
   it('set injects ttl for tombstones', async () => {
     const account = generateAccountId()
     const item = generateItemId()

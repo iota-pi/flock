@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { CryptoResultSchema } from './crypto'
+import { VaultSnapshotSchema } from './snapshots'
 
 
 const WebPushSubscriptionKeysSchema = z.object({
@@ -53,11 +55,11 @@ export const PrayerCompletionBodySchema = z.object({
   completedAt: z.number(),
 })
 
-const SyncEncryptedMessageSchema = z.object({
-  iv: z.string().min(1),
-  cipher: z.string().min(1),
-  version: z.string().min(1).optional(),
-})
+const SyncEncryptedMessageSchema = (
+  CryptoResultSchema.extend({
+    version: z.string().min(1).optional(),
+  })
+)
 
 export const SyncPushBatchSchema = z.object({
   account: z.string().min(1),
@@ -77,4 +79,9 @@ export const SyncPollBatchSchema = z.object({
     itemId: z.string().min(1),
     cursor: z.number().int().min(0).optional(),
   })).default([]),
+})
+
+export const PutSnapshotBatchSchema = z.object({
+  account: z.string().min(1),
+  snapshots: z.array(VaultSnapshotSchema).min(1).max(25),
 })

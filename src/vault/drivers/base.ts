@@ -1,6 +1,6 @@
 import { FastifyRequest } from 'fastify'
 import type { ItemType, WebPushSubscription } from '../types'
-import type { VaultBranch } from '../../shared/itemTypes'
+import type { VaultSnapshot } from '../../shared/itemTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 
@@ -18,14 +18,14 @@ interface VaultMetaData {
 }
 
 /**
- * VaultData: Supports both legacy cipher format and new branches format
- * - Legacy: has cipher, no branches
- * - Branching: has branches array, may or may not have cipher (depending on migration state)
+ * VaultData: Supports both legacy cipher format and snapshot format
+ * - Legacy: has cipher and iv
+ * - Snapshot: has snapshot payload
  */
 interface VaultData {
   metadata: VaultMetaData,
-  cipher?: string, // Optional for branching format
-  branches?: VaultBranch[], // New branching format
+  cipher?: string, // Optional for snapshot format
+  snapshot?: VaultSnapshot,
 }
 
 export interface BaseData {
@@ -82,7 +82,6 @@ export default abstract class BaseDriver<T = unknown> {
   // either `metadata` or `session` independently.
   abstract updateAccountData(data: Partial<AuthData> & {
     metadata?: Record<string, unknown>,
-    expectedMetadataParentVersionId?: string,
     session?: string,
     sessions?: VaultSessionRecord[],
     pushSubscriptions?: WebPushSubscription[],

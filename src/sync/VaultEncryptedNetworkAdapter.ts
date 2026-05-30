@@ -6,11 +6,12 @@ import {
   type StorageId,
 } from '@automerge/automerge-repo/slim'
 import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
-import { encryptSyncMessage } from './automergeSyncCrypto'
 import { getActiveSessionToken } from './workerAuthStore'
 import { pollSyncBatchWithToken } from '../api/vault/SyncWorkerClient'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
+import { encryptBytesWithKey } from 'src/api/vault/crypto'
+import { getVaultKey } from 'src/api/vault'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -31,13 +32,13 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   onStartRequest: (() => void) | null = null
   onFinishRequest: (() => void) | null = null
+  onSnapshotNeeded: (() => void) | null = null
 
   constructor() {
     super()
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
-
 
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
       clearManualRecoveryForItems([itemId]).catch(console.error)
@@ -193,7 +194,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
             offset += m.length
           }
 
-          const encryptedMessage = await encryptSyncMessage(combined)
+          const encryptedMessage = await encryptBytesWithKey(getVaultKey(), combined)
           return {
             itemId,
             encryptedMessage: {
@@ -223,6 +224,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       // 5. Process incoming messages
       if (response && response.pullResults) {
         await this.pullQueueManager.processPullResults(response.pullResults)
+      }
+
+      if (pushMessages.length > 0) {
+        self.setTimeout(() => {
+          this.onSnapshotNeeded?.()
+        }, 2000)
       }
     } catch (error) {
       console.error('[VaultEncryptedNetworkAdapter] Polling failed', error)
