@@ -80,6 +80,7 @@ class SyncWorker implements SyncApi {
   private dirtyDocuments = new Set<string>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
+  private snapshotRequestCursor: number | null = null
 
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.accountId = accountId
@@ -94,7 +95,7 @@ class SyncWorker implements SyncApi {
     this.adapter = new VaultEncryptedNetworkAdapter()
     this.adapter.onStartRequest = callbacks.onStartRequest
     this.adapter.onFinishRequest = callbacks.onFinishRequest
-    this.adapter.onSnapshotNeeded = () => this.scheduleSnapshotPush()
+    this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) => this.scheduleSnapshotPush(cursor)
     this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
@@ -130,7 +131,8 @@ class SyncWorker implements SyncApi {
     this.dirtyDocuments.add(documentId)
   }
 
-  private scheduleSnapshotPush() {
+  private scheduleSnapshotPush(cursor: number) {
+    this.snapshotRequestCursor = cursor
     if (this.snapshotPushInFlight) {
       this.snapshotPushPending = true
       return
@@ -370,6 +372,10 @@ class SyncWorker implements SyncApi {
     this.snapshotPushInFlight = true
 
     try {
+      if (this.snapshotRequestCursor === null) {
+        return { persisted: 0, total: 0 }
+      }
+
       if (!this.accountId || !this.repo) {
         return { persisted: 0, total: 0 }
       }
@@ -385,8 +391,11 @@ class SyncWorker implements SyncApi {
 
       const dirtyItemIds = Array.from(this.dirtyDocuments)
       if (dirtyItemIds.length === 0) {
+        this.snapshotRequestCursor = null
         return { persisted: 0, total: 0 }
       }
+
+      const snapshotCursor = this.snapshotRequestCursor
 
       let persisted = 0
       let total = 0
@@ -396,7 +405,7 @@ class SyncWorker implements SyncApi {
         const snapshots: VaultSnapshotInput[] = []
 
         for (const itemId of slice) {
-          const snapshot = await this.buildSnapshot(itemId)
+          const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
           if (snapshot) {
             snapshots.push(snapshot)
           }
@@ -422,17 +431,23 @@ class SyncWorker implements SyncApi {
         }
       }
 
+      if (persisted > 0) {
+        this.snapshotRequestCursor = null
+      }
+
       return { persisted, total }
     } finally {
       this.snapshotPushInFlight = false
       if (this.snapshotPushPending) {
         this.snapshotPushPending = false
-        this.scheduleSnapshotPush()
+        if (this.snapshotRequestCursor !== null) {
+          this.scheduleSnapshotPush(this.snapshotRequestCursor)
+        }
       }
     }
   }
 
-  private async buildSnapshot(itemId: string): Promise<VaultSnapshotInput | null> {
+  private async buildSnapshot(itemId: string, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
     if (!this.repo || !this.accountId) {
       return null
     }
@@ -474,6 +489,7 @@ class SyncWorker implements SyncApi {
     return {
       itemId,
       snapshot: encryptedDoc,
+      snapshotCursor,
       type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
       modified: Date.now(),
       deleted: itemSnapshot.deleted === true || undefined,

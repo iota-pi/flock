@@ -47,6 +47,15 @@ export const itemsRouter = router({
 
       const persisted = results.filter(result => result.status === 'fulfilled').length
 
+      if (persisted > 0) {
+        const snapshotCursor = Math.max(...input.snapshots.map(snapshot => snapshot.snapshotCursor))
+        await ctx.vault.updateAccountData({
+          account: input.account,
+          lastSnapshotCursor: snapshotCursor,
+          lastSnapshotAt: Date.now(),
+        })
+      }
+
       return { success: true, persisted, total: input.snapshots.length }
     }),
 })

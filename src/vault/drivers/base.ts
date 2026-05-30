@@ -49,6 +49,9 @@ interface VaultAccount extends BaseData {
   reminderTime?: string,
   reminderTimezone?: string,
   lastPrayerCompletedAt?: number,
+  lastSnapshotCursor?: number,
+  lastSnapshotAt?: number,
+  lastSnapshotRequestedAt?: number,
   // Salt and iterations are not in AuthData since they are only used client-side for logins
   salt: string,
   iterations: number,
@@ -89,6 +92,9 @@ export default abstract class BaseDriver<T = unknown> {
     reminderTime?: string,
     reminderTimezone?: string,
     lastPrayerCompletedAt?: number,
+    lastSnapshotCursor?: number,
+    lastSnapshotAt?: number,
+    lastSnapshotRequestedAt?: number,
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)

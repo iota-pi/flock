@@ -10,6 +10,8 @@ import {
 } from '../../services/automergeSyncService'
 
 
+const SNAPSHOT_REQUEST_INTERVAL = 30000
+
 export const syncRouter = router({
   pushBatch: protectedProcedure
     .input(SyncPushBatchSchema)
@@ -17,7 +19,7 @@ export const syncRouter = router({
 
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       let pushResults: Array<{ itemId: string; cursor: number }> = []
       if (input.pushMessages.length > 0) {
         const pushResult = await pushAutomergeSyncBatch({
@@ -42,6 +44,24 @@ export const syncRouter = router({
         pullResults = pullResult.results
       }
 
-      return { success: true, pushResults, pullResults }
+      let snapshotRequest: { requested: true; cursor: number; requestedAt: number } | undefined
+      if (pushResults.length > 0) {
+        const account = await ctx.vault.getAccount({
+          account: input.account,
+          session: ctx.authToken,
+        })
+        const now = Date.now()
+        const lastRequestedAt = account.lastSnapshotRequestedAt ?? 0
+        if (now - lastRequestedAt >= SNAPSHOT_REQUEST_INTERVAL) {
+          const cursor = Math.max(...pushResults.map(result => result.cursor))
+          snapshotRequest = { requested: true, cursor, requestedAt: now }
+          await ctx.vault.updateAccountData({
+            account: input.account,
+            lastSnapshotRequestedAt: now,
+          })
+        }
+      }
+
+      return { success: true, pushResults, pullResults, snapshotRequest }
     }),
 })

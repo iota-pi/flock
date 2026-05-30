@@ -32,7 +32,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   onStartRequest: (() => void) | null = null
   onFinishRequest: (() => void) | null = null
-  onSnapshotNeeded: (() => void) | null = null
+  onSnapshotNeeded: ((cursor: number, requestedAt: number) => void) | null = null
 
   constructor() {
     super()
@@ -226,10 +226,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         await this.pullQueueManager.processPullResults(response.pullResults)
       }
 
-      if (pushMessages.length > 0) {
-        self.setTimeout(() => {
-          this.onSnapshotNeeded?.()
-        }, 2000)
+      if (response?.snapshotRequest?.requested) {
+        this.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
       }
     } catch (error) {
       console.error('[VaultEncryptedNetworkAdapter] Polling failed', error)

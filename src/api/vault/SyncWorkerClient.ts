@@ -56,6 +56,25 @@ export type PullSyncMessagesResponse = {
   }>
 }
 
+export type PollSyncBatchResponse = {
+  success: boolean
+  pushResults: Array<{ itemId: string; cursor: number }>
+  pullResults: Array<{
+    success: true
+    itemId: string
+    nextCursor: number
+    messages: Array<{
+      cursor: number
+      encryptedMessage: SyncMessageEnvelope
+    }>
+  }>
+  snapshotRequest?: {
+    requested: true
+    cursor: number
+    requestedAt: number
+  }
+}
+
 
 export async function pollSyncBatchWithToken(input: {
   account: string
@@ -68,7 +87,7 @@ export async function pollSyncBatchWithToken(input: {
     itemId: string
     cursor?: number
   }>
-}) {
+}): Promise<PollSyncBatchResponse> {
   const client = createWorkerSyncClient(input.authToken)
   return client.sync.pollSync.mutate({
     account: input.account,

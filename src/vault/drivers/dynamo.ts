@@ -375,6 +375,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       sessions,
       reminderTimezone,
       lastPrayerCompletedAt,
+      lastSnapshotCursor,
+      lastSnapshotAt,
+      lastSnapshotRequestedAt,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -384,6 +387,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       sessions?: VaultSessionRecord[],
       reminderTimezone?: string,
       lastPrayerCompletedAt?: number,
+      lastSnapshotCursor?: number,
+      lastSnapshotAt?: number,
+      lastSnapshotRequestedAt?: number,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -427,6 +433,18 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof lastPrayerCompletedAt === 'number') {
       updateExpressions.push('lastPrayerCompletedAt = :lastPrayerCompletedAt')
       expressionAttributeValues[':lastPrayerCompletedAt'] = lastPrayerCompletedAt
+    }
+    if (typeof lastSnapshotCursor === 'number') {
+      updateExpressions.push('lastSnapshotCursor = :lastSnapshotCursor')
+      expressionAttributeValues[':lastSnapshotCursor'] = lastSnapshotCursor
+    }
+    if (typeof lastSnapshotAt === 'number') {
+      updateExpressions.push('lastSnapshotAt = :lastSnapshotAt')
+      expressionAttributeValues[':lastSnapshotAt'] = lastSnapshotAt
+    }
+    if (typeof lastSnapshotRequestedAt === 'number') {
+      updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
+      expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
     }
 
     if (updateExpressions.length === 0) {
