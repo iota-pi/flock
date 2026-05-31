@@ -24,6 +24,7 @@ export type AutomergeIndexDocument = {
   accountId?: string
   itemIds?: string[]
   metadata?: AccountMetadata
+  lastModified?: Record<string, number>
 }
 
 type RepoDoc = Record<string, unknown>
@@ -72,6 +73,21 @@ function normalizeItemIds(raw: unknown): string[] {
 function normalizeMetadata(raw: unknown): AccountMetadata {
   const result = accountMetadataSchema.safeParse(raw)
   return result.success ? result.data as AccountMetadata : {}
+}
+
+function normalizeLastModified(raw: unknown): Record<string, number> {
+  if (!isPlainObject(raw)) {
+    return {}
+  }
+
+  const result: Record<string, number> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      result[key] = value
+    }
+  }
+
+  return result
 }
 
 
@@ -150,6 +166,7 @@ function getIndexSnapshot(accountId: string): AutomergeIndexDocument {
     accountId: normalizeItemId(rawIndex?.accountId) || undefined,
     itemIds: normalizeItemIds(rawIndex?.itemIds),
     metadata: normalizeMetadata(rawIndex?.metadata),
+    lastModified: normalizeLastModified(rawIndex?.lastModified),
   }
 }
 
@@ -198,6 +215,7 @@ async function ensureIndexDocument(accountId: string): Promise<void> {
     accountId: normalizeItemId(accountId) || '',
     itemIds: [],
     metadata: {},
+    lastModified: {},
   }
 
   await ensureDocumentHandle(accountId, ACCOUNT_INDEX_DOCUMENT_ID, {
@@ -305,6 +323,7 @@ export async function withAutomergeMetadataChange(
         accountId: '',
         itemIds: [],
         metadata: {},
+        lastModified: {},
       },
     },
   )
@@ -338,6 +357,7 @@ export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: str
         accountId: '',
         itemIds: [],
         metadata: {},
+        lastModified: {},
       },
     },
   )
@@ -356,7 +376,17 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
       const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
+      let lastModified = isPlainObject((doc as AutomergeIndexDocument).lastModified)
+        ? ((doc as AutomergeIndexDocument).lastModified as Record<string, number>)
+        : null
+      if (!lastModified) {
+        lastModified = {}
+        doc.lastModified = lastModified
+      }
       doc.itemIds = current.filter(itemId => !removeSet.has(itemId))
+      for (const itemId of removeSet) {
+        delete lastModified[itemId]
+      }
     },
     {
       createIfMissing: true,
@@ -364,6 +394,7 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
         accountId: '',
         itemIds: [],
         metadata: {},
+        lastModified: {},
       },
       addToIndex: false,
     },

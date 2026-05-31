@@ -154,6 +154,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     return resultPromise
   }
 
+  queuePendingPullItems(itemIds: string[]): void {
+    if (!itemIds || itemIds.length === 0) return
+    for (const itemId of itemIds) {
+      this.pullQueueManager.addPendingItem(itemId)
+    }
+    void this.flush()
+  }
+
   private async flushSyncBatch(): Promise<void> {
     if (this.isPolling) {
       // Poll in-flight — re-schedule for after it finishes

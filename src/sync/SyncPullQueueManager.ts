@@ -110,21 +110,18 @@ export class SyncPullQueueManager {
   }
 
   getAllCursors(): Array<{ itemId: string; cursor: number }> {
+    const cursors: Array<{ itemId: string; cursor: number }> = []
+
     // Always include the account index so we discover new items from other devices
-    if (!this.cursorByItemId.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
-      this.cursorByItemId.set(ACCOUNT_INDEX_DOCUMENT_ID, 0)
-    }
+    const indexCursor = this.cursorByItemId.get(ACCOUNT_INDEX_DOCUMENT_ID) ?? 0
+    this.cursorByItemId.set(ACCOUNT_INDEX_DOCUMENT_ID, indexCursor)
+    cursors.push({ itemId: ACCOUNT_INDEX_DOCUMENT_ID, cursor: indexCursor })
 
-    const cursors = Array.from(this.cursorByItemId.entries()).map(([itemId, cursor]) => ({
-      itemId,
-      cursor,
-    }))
-
-    // Add pending item IDs that might not have a cursor yet
+    // Only include cursors for pending item IDs
     for (const itemId of this.pendingPullItemIds) {
-      if (!this.cursorByItemId.has(itemId)) {
-        cursors.push({ itemId, cursor: 0 })
-      }
+      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
+      const cursor = this.cursorByItemId.get(itemId) ?? 0
+      cursors.push({ itemId, cursor })
     }
 
     return cursors

@@ -3,6 +3,9 @@
 import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
+import type { Repo } from '@automerge/automerge-repo/slim'
+import { debounce } from 'lodash-es'
+
 import type { SyncApi, SyncCallbacks } from './syncProtocol'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
@@ -31,7 +34,7 @@ import { trpcClient } from '../api/trpcClient'
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
-import type { Repo } from '@automerge/automerge-repo/slim'
+
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
@@ -71,6 +74,10 @@ function normalizeSnapshotType(type: Item['type'], originalType?: Item['type']):
     : 'person'
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
   private adapter: VaultEncryptedNetworkAdapter | null = null
@@ -78,9 +85,14 @@ class SyncWorker implements SyncApi {
   private subscribedHandles = new Set<string>()
   private repo: Repo | null = null
   private dirtyDocuments = new Set<string>()
+  private lastModifiedByItemId = new Map<string, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
+  private readonly flushDirtyDocumentsToIndexDebounced = debounce(
+    () => void this.flushDirtyDocumentsToIndex(),
+    1000,
+  )
 
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.accountId = accountId
@@ -118,6 +130,7 @@ class SyncWorker implements SyncApi {
       }
 
       this.subscribeToItems(newItemIds, repo)
+      this.processIndexChangelog(indexDoc, newItemIds)
     }
 
     indexHandle.on('change', handleIndexChange)
@@ -129,6 +142,88 @@ class SyncWorker implements SyncApi {
   private markDocumentDirty(documentId: string) {
     if (!documentId) return
     this.dirtyDocuments.add(documentId)
+    this.flushDirtyDocumentsToIndexDebounced()
+  }
+
+  private processIndexChangelog(indexDoc: AutomergeIndexDocument, itemIds: string[]) {
+    if (!this.adapter) return
+
+    const nextItemIdSet = new Set(itemIds)
+    for (const itemId of this.lastModifiedByItemId.keys()) {
+      if (!nextItemIdSet.has(itemId)) {
+        this.lastModifiedByItemId.delete(itemId)
+      }
+    }
+
+    const lastModified = indexDoc.lastModified
+    if (!isPlainObject(lastModified)) {
+      return
+    }
+
+    const pendingPullItems: string[] = []
+
+    for (const [itemId, rawTimestamp] of Object.entries(lastModified)) {
+      if (!nextItemIdSet.has(itemId)) continue
+      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
+      if (typeof rawTimestamp !== 'number' || !Number.isFinite(rawTimestamp)) continue
+
+      const currentTimestamp = this.lastModifiedByItemId.get(itemId) || 0
+      if (rawTimestamp > currentTimestamp) {
+        this.lastModifiedByItemId.set(itemId, rawTimestamp)
+        pendingPullItems.push(itemId)
+      }
+    }
+
+    if (pendingPullItems.length > 0) {
+      this.adapter.queuePendingPullItems(pendingPullItems)
+    }
+  }
+
+  private async flushDirtyDocumentsToIndex(): Promise<void> {
+    if (!this.accountId) return
+
+    const dirtyItemIds = Array.from(this.dirtyDocuments).filter(
+      itemId => itemId && itemId !== ACCOUNT_INDEX_DOCUMENT_ID,
+    )
+
+    if (dirtyItemIds.length === 0) {
+      return
+    }
+
+    const timestamp = Date.now()
+
+    await withAutomergeDocumentChange(
+      this.accountId,
+      ACCOUNT_INDEX_DOCUMENT_ID,
+      doc => {
+        let lastModified = isPlainObject((doc as AutomergeIndexDocument).lastModified)
+          ? ((doc as AutomergeIndexDocument).lastModified as Record<string, number>)
+          : null
+        if (!lastModified) {
+          lastModified = {}
+          doc.lastModified = lastModified
+        }
+
+        for (const itemId of dirtyItemIds) {
+          lastModified[itemId] = timestamp
+        }
+      },
+      {
+        createIfMissing: true,
+        initialValue: {
+          accountId: '',
+          itemIds: [],
+          metadata: {},
+          lastModified: {},
+        },
+      },
+    ).catch(error => {
+      console.error('[sync.worker] failed to update index lastModified', error)
+    })
+
+    for (const itemId of dirtyItemIds) {
+      this.lastModifiedByItemId.set(itemId, timestamp)
+    }
   }
 
   private scheduleSnapshotPush(cursor: number) {
