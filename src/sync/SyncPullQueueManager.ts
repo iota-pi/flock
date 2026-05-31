@@ -59,6 +59,13 @@ export class SyncPullQueueManager {
     this.cursorByItemId.clear()
   }
 
+  addPendingItem(itemId: string): void {
+    if (!itemId || this.cursorByItemId.has(itemId)) {
+      return
+    }
+    this.pendingPullItemIds.add(itemId)
+  }
+
 
   getAllCursors(): Array<{ itemId: string; cursor: number }> {
     // Always include the account index so we discover new items from other devices

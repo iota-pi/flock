@@ -105,12 +105,27 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    if ((message.type !== 'sync' && message.type !== 'request') || !(message.data instanceof Uint8Array)) {
+    if (message.type === 'request') {
+      this.handleRequestMessage(message)
+    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      this.handleSyncMessage(message)
+    }
+  }
+
+  private handleRequestMessage(message: Message): void {
+    const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
+    if (!documentId) {
       return
     }
 
+    const itemId = toVaultItemIdFromAutomergeId(documentId)
+    this.pullQueueManager.addPendingItem(itemId)
+    void this.flushSyncBatch()
+  }
+
+  private handleSyncMessage(message: Message): void {
     const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
-    if (!documentId) {
+    if (!documentId || !(message.data instanceof Uint8Array)) {
       return
     }
 
