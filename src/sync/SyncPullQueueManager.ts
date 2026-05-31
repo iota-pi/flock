@@ -66,6 +66,49 @@ export class SyncPullQueueManager {
     this.pendingPullItemIds.add(itemId)
   }
 
+  private parseBatchedMessages(itemId: string, documentId: DocumentId, decrypted: Uint8Array): void {
+    let offset = 0
+    const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
+    while (offset < decrypted.byteLength) {
+      const length = view.getUint32(offset, false)
+      offset += 4
+      const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
+      offset += length
+
+      this.onMessageParsed(itemId, documentId, msg)
+    }
+  }
+
+  private async handleMessageEntry(
+    itemId: string,
+    documentId: DocumentId,
+    entry: PullSyncMessagesResponse['messages'][number],
+  ): Promise<{ parsed: boolean; cursor?: number }> {
+    if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) {
+      return { parsed: false }
+    }
+
+    try {
+      const decrypted = await decryptBytesWithKey(getVaultKey(), entry.encryptedMessage)
+      const isBatched = entry.encryptedMessage.version === '1.0'
+
+      if (isBatched) {
+        this.parseBatchedMessages(itemId, documentId, decrypted)
+      } else {
+        this.onMessageParsed(itemId, documentId, decrypted)
+      }
+
+      return { parsed: true, cursor: entry.cursor }
+    } catch (error) {
+      reportDecryptionFailure({
+        source: 'main-thread',
+        itemId,
+        error
+      })
+      return { parsed: false, cursor: entry.cursor }
+    }
+  }
+
   getAllCursors(): Array<{ itemId: string; cursor: number }> {
     // Always include the account index so we discover new items from other devices
     if (!this.cursorByItemId.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
@@ -99,40 +142,16 @@ export class SyncPullQueueManager {
         this.pendingPullItemIds.delete(itemId)
         let highestCursor = this.cursorByItemId.get(itemId) || 0
 
+        const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
+
         for (const entry of result.messages || []) {
-          if (!entry?.encryptedMessage?.iv || !entry?.encryptedMessage?.cipher) continue
-
-          try {
-            const decrypted = await decryptBytesWithKey(getVaultKey(), entry.encryptedMessage)
-            const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
-            const isBatched = entry.encryptedMessage.version === '1.0'
-
-            if (isBatched) {
-              let offset = 0
-              const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
-              while (offset < decrypted.byteLength) {
-                const length = view.getUint32(offset, false)
-                offset += 4
-                const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
-                offset += length
-
-                this.onMessageParsed(itemId, documentId as DocumentId, msg)
-              }
-            } else {
-              this.onMessageParsed(itemId, documentId as DocumentId, decrypted)
-            }
-
+          const handled = await this.handleMessageEntry(itemId, documentId as DocumentId, entry)
+          if (handled.parsed) {
             successfullyPulledItemIds.add(itemId)
-          } catch (error) {
-            reportDecryptionFailure({
-              source: 'main-thread',
-              itemId: itemId,
-              error
-            })
           }
 
-          if (Number.isFinite(entry.cursor)) {
-            highestCursor = Math.max(highestCursor, entry.cursor)
+          if (Number.isFinite(handled.cursor)) {
+            highestCursor = Math.max(highestCursor, handled.cursor!)
           }
         }
 
