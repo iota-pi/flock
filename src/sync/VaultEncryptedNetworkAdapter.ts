@@ -120,7 +120,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     const itemId = toVaultItemIdFromAutomergeId(documentId)
     this.pullQueueManager.addPendingItem(itemId)
-    void this.flushSyncBatch()
+
+    void this.flush()
   }
 
   private handleSyncMessage(message: Message): void {
@@ -138,22 +139,28 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
     messages.push(message.data as Uint8Array)
 
-    if (this.syncBatchTimeout === null) {
-      this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 0)
-    }
+    void this.flush()
   }
 
   flush(): Promise<void> {
-    return this.flushSyncBatch()
+    const resultPromise = new Promise<void>((resolve, reject) => {
+      if (this.syncBatchTimeout === null) {
+        this.syncBatchTimeout = self.setTimeout(
+          () => this.flushSyncBatch().then(resolve).catch(reject),
+          0,
+        )
+      }
+    })
+    return resultPromise
   }
 
   private async flushSyncBatch(): Promise<void> {
-    this.syncBatchTimeout = null
     if (this.isPolling) {
       // Poll in-flight — re-schedule for after it finishes
       this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 500)
     } else {
       void this.executePoll()
+      this.syncBatchTimeout = null
     }
   }
 
@@ -237,6 +244,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       })
 
       // 5. Process incoming messages
+      if (response && response.pushResults) {
+        this.pullQueueManager.processPushResults(response.pushResults)
+      }
+
       if (response && response.pullResults) {
         await this.pullQueueManager.processPullResults(response.pullResults)
       }

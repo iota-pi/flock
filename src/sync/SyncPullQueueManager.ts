@@ -66,7 +66,6 @@ export class SyncPullQueueManager {
     this.pendingPullItemIds.add(itemId)
   }
 
-
   getAllCursors(): Array<{ itemId: string; cursor: number }> {
     // Always include the account index so we discover new items from other devices
     if (!this.cursorByItemId.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
@@ -85,7 +84,6 @@ export class SyncPullQueueManager {
       }
     }
 
-    this.pendingPullItemIds.clear()
     return cursors
   }
 
@@ -98,6 +96,7 @@ export class SyncPullQueueManager {
     try {
       for (const result of results || []) {
         const itemId = result.itemId
+        this.pendingPullItemIds.delete(itemId)
         let highestCursor = this.cursorByItemId.get(itemId) || 0
 
         for (const entry of result.messages || []) {
@@ -141,7 +140,7 @@ export class SyncPullQueueManager {
           highestCursor = Math.max(highestCursor, result.nextCursor)
         }
 
-        if (highestCursor > 0) {
+        if (highestCursor >= 0) {
           this.cursorByItemId.set(itemId, highestCursor)
           cursorsUpdated = true
         }
@@ -161,6 +160,24 @@ export class SyncPullQueueManager {
           console.error('[SyncPullQueueManager] publishRealtimeBusSyncPing failed', error)
         }
       }
+    }
+  }
+
+  processPushResults(results: Array<{ itemId: string; cursor: number }>): void {
+    if (!this.account) return
+    let cursorsUpdated = false
+    for (const res of results) {
+      if (res.itemId && Number.isFinite(res.cursor)) {
+        const current = this.cursorByItemId.get(res.itemId) || 0
+        if (res.cursor > current) {
+          this.cursorByItemId.set(res.itemId, res.cursor)
+          cursorsUpdated = true
+        }
+        this.pendingPullItemIds.delete(res.itemId)
+      }
+    }
+    if (cursorsUpdated) {
+      this.saveCursorsDebounced()
     }
   }
 }
