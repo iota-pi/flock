@@ -62,7 +62,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     await this.pullQueueManager.setAccount(this.account)
 
     if (this.account) {
-      this.startPolling()
+      this.startPolling(true)
     } else {
       this.stopPolling()
     }
@@ -159,19 +159,21 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       // Poll in-flight — re-schedule for after it finishes
       this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 500)
     } else {
-      void this.executePoll()
+      void this.executeWrappedPoll()
       this.syncBatchTimeout = null
     }
   }
 
-  private startPolling(): void {
+  private startPolling(immediate?: boolean): void {
     this.stopPolling()
 
     // Immediate first poll
-    void this.executePoll()
+    if (immediate) {
+      void this.executeWrappedPoll()
+    }
 
     this.pollIntervalId = self.setInterval(() => {
-      void this.executePoll()
+      void this.executeWrappedPoll()
     }, 30000)
   }
 
@@ -186,9 +188,19 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  private async executePoll(): Promise<void> {
-    if (this.isPolling || !this.account || !this.connected) return
+  private async executeWrappedPoll(): Promise<void> {
+    if (this.isPolling || !this.connected) return
     this.isPolling = true
+
+    try {
+      return this.executePoll()
+    } finally {
+      this.isPolling = false
+    }
+  }
+
+  private async executePoll(): Promise<void> {
+    if (!this.account) return
 
     const authToken = await getActiveSessionToken()
     if (!authToken) return
@@ -265,7 +277,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       }
     } finally {
       this.onFinishRequest?.()
-      this.isPolling = false
     }
   }
 
