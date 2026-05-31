@@ -40,60 +40,44 @@ type PushSyncBatchInput = {
 }
 
 type AutomergeSyncServiceDeps = {
-  createCursor?: () => number
   now?: () => number
   repository: AutomergeSyncRepository
-}
-
-function createCursor(): number {
-  return Number(`${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`)
 }
 
 function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyncMessage[] {
   return messages.slice().sort((left, right) => left.cursor - right.cursor)
 }
 
-function filterMessagesAfterCursor(messages: StoredSyncMessage[], fromCursor: number): StoredSyncMessage[] {
-  return sortMessagesAscendingByCursor(
-    messages.filter(message => typeof message.cursor === 'number' && message.cursor > fromCursor),
-  )
-}
-
 function createAutomergeSyncService({
-  createCursor: createCursorInput = createCursor,
   now = Date.now,
   repository,
 }: AutomergeSyncServiceDeps) {
-  async function appendSyncMessage(input: PushSyncMessageInput): Promise<number> {
-    const cursor = createCursorInput()
+  async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
     const timestamp = now()
+    const baseCursor = timestamp * 1000
+    const messagesWithCursor = input.messages.map((message, index) => ({
+      ...message,
+      cursor: baseCursor + index,
+    }))
 
-    await repository.appendSyncMessage({
+    await repository.pushSyncMessagesBatch({
       account: input.account,
-      itemId: input.itemId,
-      entry: {
-        cursor,
-        encryptedMessage: input.encryptedMessage,
-        createdAt: timestamp,
-      },
-      lastModified: timestamp,
+      messages: messagesWithCursor.map(message => ({
+        account: input.account,
+        itemId: message.itemId,
+        entry: {
+          cursor: message.cursor,
+          encryptedMessage: message.encryptedMessage,
+          createdAt: timestamp,
+        },
+        lastModified: timestamp,
+      })),
     })
 
-    return cursor
-  }
-
-  async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
-    const results = await Promise.all(
-      input.messages.map(async message => {
-        const cursor = await appendSyncMessage({
-          account: input.account,
-          itemId: message.itemId,
-          encryptedMessage: message.encryptedMessage,
-        })
-
-        return { itemId: message.itemId, cursor }
-      })
-    )
+    const results = messagesWithCursor.map(message => ({
+      itemId: message.itemId,
+      cursor: message.cursor,
+    }))
 
     return {
       success: true,
@@ -111,9 +95,9 @@ function createAutomergeSyncService({
     const storedMessages = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
+      fromCursor,
     })
-
-    const messages = filterMessagesAfterCursor(storedMessages, fromCursor)
+    const messages = sortMessagesAscendingByCursor(storedMessages)
     const nextCursor = messages.length > 0
       ? messages[messages.length - 1].cursor
       : fromCursor

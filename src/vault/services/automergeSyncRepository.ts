@@ -1,9 +1,11 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
+  BatchWriteCommand,
   DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb'
+import { chunk } from 'lodash-es'
 import type { AutomergeSyncConfig } from './automergeSyncConfig'
 
 const SYNC_MESSAGE_TTL = 60 * 24 * 60 * 60
@@ -25,10 +27,18 @@ type AppendSyncMessageInput = {
   lastModified: number
 }
 
+type PushSyncMessagesBatchInput = {
+  account: string
+  messages: Array<Omit<AppendSyncMessageInput, 'account'>>
+}
+
 export interface AutomergeSyncRepository {
   appendSyncMessage(input: AppendSyncMessageInput): Promise<void>
-  getSyncMessages(input: { account: string; itemId: string }): Promise<StoredSyncMessage[]>
+  pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void>
+  getSyncMessages(input: { account: string; itemId: string; fromCursor?: number }): Promise<StoredSyncMessage[]>
 }
+
+const PUSH_BATCH_SIZE = 25
 
 export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig): AutomergeSyncRepository {
   const ddbClient = new DynamoDBClient({ region: config.awsRegion })
@@ -52,12 +62,55 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
       }))
     },
 
-    async getSyncMessages(input: { account: string; itemId: string }): Promise<StoredSyncMessage[]> {
+    async pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void> {
+      const batches = chunk(input.messages, PUSH_BATCH_SIZE).map(messages =>
+        messages.map(message => ({
+          account: input.account,
+          itemId: message.itemId,
+          entry: message.entry,
+          lastModified: message.lastModified,
+        })),
+      )
+
+      await Promise.all(
+        batches.map(async batch => {
+          const response = await docClient.send(new BatchWriteCommand({
+            RequestItems: {
+              [config.syncMessagesTable]: batch.map(message => ({
+                PutRequest: {
+                  Item: {
+                    syncId: `${input.account}#${message.itemId}`,
+                    cursor: message.entry.cursor,
+                    encryptedMessage: message.entry.encryptedMessage,
+                    createdAt: message.entry.createdAt,
+                    expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
+                  },
+                },
+              })),
+            },
+          }))
+
+          if (response.UnprocessedItems && Object.keys(response.UnprocessedItems).length > 0) {
+            throw new Error('Failed to write all sync messages in batch.')
+          }
+        }),
+      )
+    },
+
+    async getSyncMessages(input: { account: string; itemId: string; fromCursor?: number }): Promise<StoredSyncMessage[]> {
+      const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
+      const hasCursor = typeof fromCursor === 'number'
       const response = await docClient.send(new QueryCommand({
         TableName: config.syncMessagesTable,
-        KeyConditionExpression: 'syncId = :syncId',
+        KeyConditionExpression: hasCursor
+          ? 'syncId = :syncId AND #c > :fromCursor'
+          : 'syncId = :syncId',
+        ExpressionAttributeNames: hasCursor
+          ? { '#c': 'cursor' }
+          : undefined,
         ExpressionAttributeValues: {
           ':syncId': `${input.account}#${input.itemId}`,
+          ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
         },
       }))
 
