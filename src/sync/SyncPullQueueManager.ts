@@ -60,9 +60,7 @@ export class SyncPullQueueManager {
   }
 
   addPendingItem(itemId: string): void {
-    if (!itemId || this.cursorByItemId.has(itemId)) {
-      return
-    }
+    if (!itemId) return
     this.pendingPullItemIds.add(itemId)
   }
 
