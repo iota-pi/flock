@@ -4,7 +4,6 @@ import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { debounce } from 'lodash-es'
 
 import type { SyncApi, SyncCallbacks } from './syncProtocol'
 import type { Item } from '../state/items'
@@ -24,60 +23,19 @@ import {
   restoreFromBinaries,
   AutomergeIndexDocument,
   normalizeItemSnapshot,
-  hydrateAutomergeDocumentBinary,
-  listAutomergeItemIds,
 } from '../sync/automergeDocStore'
-import { fetchMany } from '../api/vault/ItemClient'
-import { CryptoResult, decryptObject, getVaultKey, initWorkerVault } from '../api/vault'
-import { hasApiAuthToken } from '../api/runtime'
-import { trpcClient } from '../api/trpcClient'
-import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
+import { initWorkerVault } from '../api/vault'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
-import { getActiveSessionToken } from '../sync/workerAuthStore'
-import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
-import { ITEM_TYPES, ItemId } from '../shared/itemTypes'
+import { ItemId } from '../shared/itemTypes'
 import type { SyncStatus } from 'src/state/syncStore'
-import {
-  type ManualRecoveryEntry,
-  readManualRecoveryEntries,
-  removeManualRecoveryEntryById,
-  removeManualRecoveryEntryByItemId,
-} from '../sync/manualRecoveryStore'
-import { decryptBytesWithKey, encryptBytesWithKey } from 'src/api/vault/crypto'
+import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 
-function mutateDraftToMatchSnapshot(
-  draft: Record<string, unknown>,
-  snapshot: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(draft)) {
-    if (!(key in snapshot) || snapshot[key] === undefined) {
-      delete draft[key]
-    }
-  }
-
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (value !== undefined) {
-      draft[key] = value
-    }
-  }
-}
-
-function normalizeSnapshotType(type: Item['type'], originalType?: Item['type']): string {
-  const resolvedType = (
-    (type === 'error' && originalType) ? originalType : type
-  )
-  const isValidType = ITEM_TYPES.includes(resolvedType as (typeof ITEM_TYPES)[number])
-  return isValidType
-    ? resolvedType
-    : 'person'
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
+import { SnapshotManager } from './snapshotManager'
+import { RecoveryManager } from './recoveryManager'
+import { LegacyBootstrapper } from './legacyBootstrapper'
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -87,17 +45,31 @@ class SyncWorker implements SyncApi {
   private syncStatus: SyncStatus = 'idle'
   private subscribedIds = new Set<string>()
   private repo: Repo | null = null
-  private dirtyDocuments = new Set<string>()
-  private lastModifiedByItemId = new Map<string, number>()
-  private snapshotPushInFlight = false
-  private snapshotPushPending = false
-  private snapshotRequestCursor: number | null = null
   private releaseLeadershipLock: (() => void) | null = null
   private changeListenersByItemId = new Map<string, () => void>()
-  private readonly flushDirtyDocumentsToIndexDebounced = debounce(
-    () => void this.flushDirtyDocumentsToIndex(),
-    1000,
-  )
+
+  private snapshotManager: SnapshotManager
+  private recoveryManager: RecoveryManager
+  private legacyBootstrapper: LegacyBootstrapper
+
+  constructor() {
+    this.snapshotManager = new SnapshotManager(() => ({
+      accountId: this.accountId,
+      repo: this.repo,
+      adapter: this.adapter,
+    }))
+
+    this.recoveryManager = new RecoveryManager(() => ({
+      accountId: this.accountId,
+      callbacks: this.callbacks,
+    }))
+
+    this.legacyBootstrapper = new LegacyBootstrapper(
+      () => ({ accountId: this.accountId }),
+      (items) => this.storeItems(items),
+      (changes) => this.mutateMetadata(changes),
+    )
+  }
 
   private updateStatus(status: SyncStatus) {
     if (this.syncStatus === status) {
@@ -139,6 +111,7 @@ class SyncWorker implements SyncApi {
 
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.clearListeners()
+    this.snapshotManager.clear()
 
     this.accountId = accountId
     this.callbacks = callbacks
@@ -162,7 +135,9 @@ class SyncWorker implements SyncApi {
         this.updateStatus('idle')
       }
     }
-    this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) => this.scheduleSnapshotPush(cursor)
+    this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) =>
+      this.snapshotManager.scheduleSnapshotPush(cursor)
+
     this.adapter.onAuthFailure = message => {
       this.updateStatus('offline')
       callbacks.onAuthFailure(message).catch(console.error)
@@ -209,7 +184,7 @@ class SyncWorker implements SyncApi {
       }
 
       this.subscribeToItems(newItemIds)
-      this.processIndexChangelog(indexDoc, newItemIds)
+      this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
     }
 
     indexHandle.on('change', handleIndexChange)
@@ -257,186 +232,11 @@ class SyncWorker implements SyncApi {
   }
 
   private markDocumentDirty(documentId: string) {
-    if (!documentId) return
-    this.dirtyDocuments.add(documentId)
-    this.flushDirtyDocumentsToIndexDebounced()
-  }
-
-  private processIndexChangelog(indexDoc: AutomergeIndexDocument, itemIds: string[]) {
-    if (!this.adapter) return
-
-    const nextItemIdSet = new Set(itemIds)
-    for (const itemId of this.lastModifiedByItemId.keys()) {
-      if (!nextItemIdSet.has(itemId)) {
-        this.lastModifiedByItemId.delete(itemId)
-      }
-    }
-
-    const lastModified = indexDoc.lastModified
-    if (!isPlainObject(lastModified)) {
-      return
-    }
-
-    const pendingPullItems: string[] = []
-
-    for (const [itemId, rawTimestamp] of Object.entries(lastModified)) {
-      if (!nextItemIdSet.has(itemId)) continue
-      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
-      if (typeof rawTimestamp !== 'number' || !Number.isFinite(rawTimestamp)) continue
-
-      const currentTimestamp = this.lastModifiedByItemId.get(itemId) || 0
-      if (rawTimestamp > currentTimestamp) {
-        this.lastModifiedByItemId.set(itemId, rawTimestamp)
-        pendingPullItems.push(itemId)
-      }
-    }
-
-    if (pendingPullItems.length > 0) {
-      this.adapter.queuePendingPullItems(pendingPullItems)
-    }
-  }
-
-  private async flushDirtyDocumentsToIndex(): Promise<void> {
-    if (!this.accountId) return
-
-    const dirtyItemIds = Array.from(this.dirtyDocuments).filter(
-      itemId => itemId && itemId !== ACCOUNT_INDEX_DOCUMENT_ID,
-    )
-
-    if (dirtyItemIds.length === 0) {
-      return
-    }
-
-    const timestamp = Date.now()
-
-    await withAutomergeDocumentChange(
-      this.accountId,
-      ACCOUNT_INDEX_DOCUMENT_ID,
-      doc => {
-        let lastModified = isPlainObject((doc as AutomergeIndexDocument).lastModified)
-          ? ((doc as AutomergeIndexDocument).lastModified as Record<string, number>)
-          : null
-        if (!lastModified) {
-          lastModified = {}
-          doc.lastModified = lastModified
-        }
-
-        for (const itemId of dirtyItemIds) {
-          lastModified[itemId] = timestamp
-        }
-      },
-      {
-        createIfMissing: true,
-        initialValue: {
-          accountId: '',
-          itemIds: [],
-          metadata: {},
-          lastModified: {},
-        },
-      },
-    ).catch(error => {
-      console.error('[sync.worker] failed to update index lastModified', error)
-    })
-
-    for (const itemId of dirtyItemIds) {
-      this.lastModifiedByItemId.set(itemId, timestamp)
-    }
-  }
-
-  private scheduleSnapshotPush(cursor: number) {
-    this.snapshotRequestCursor = cursor
-    if (this.snapshotPushInFlight) {
-      this.snapshotPushPending = true
-      return
-    }
-
-    void this.pushSnapshots()
+    this.snapshotManager.markDocumentDirty(documentId)
   }
 
   async bootstrapLegacyItems() {
-    if (!this.accountId) return
-
-    const knownItemIds = listAutomergeItemIds(this.accountId)
-    if (knownItemIds.length > 0) return
-
-    if (!hasApiAuthToken()) {
-      throw new Error('[sync.worker] No API auth token found, cannot bootstrap legacy items')
-    }
-
-    const response = await fetchMany({
-      account: this.accountId,
-    }).catch(e => {
-      console.error('[sync.worker] failed to fetch item snapshots', e)
-      return { items: [] as any[] }
-    })
-
-    const fetchedItems = response.items.filter((entry: any) => entry && typeof entry === 'object' && typeof entry.item === 'string' && entry.item.length > 0)
-
-    if (fetchedItems.length === 0) return
-
-    const snapshots: Item[] = []
-
-    const promises = fetchedItems.map(async (item: any) => {
-      try {
-        if (item.metadata?.deleted === true) {
-          snapshots.push({ id: item.item, deleted: true } as unknown as Item)
-          return
-        }
-
-        if (item.snapshot) {
-          const binary = await this.decryptSnapshotBinary(item.snapshot)
-          if (binary) {
-            await hydrateAutomergeDocumentBinary(this.accountId!, item.item, binary)
-            return
-          }
-        }
-
-        if (typeof item.cipher === 'string' && item.cipher.length > 0 && typeof item.metadata?.iv === 'string' && item.metadata.iv.length > 0) {
-          const decrypted = await decryptObject({ iv: item.metadata.iv, cipher: item.cipher }).catch(() => null)
-          if (decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)) {
-            const snapshot = { ...(decrypted as Record<string, unknown>) }
-            if (!snapshot.id || typeof snapshot.id !== 'string') {
-              snapshot.id = item.item
-            }
-            snapshots.push(snapshot as Item)
-          }
-        }
-      } catch (error) {
-        console.error('[sync.worker] failed to hydrate fetched item envelope', { itemId: item.item, error })
-      }
-    })
-
-    await Promise.allSettled(promises)
-
-    if (snapshots.length > 0) {
-      await this.storeItems(snapshots)
-    }
-
-    await this.hydrateMetadata()
-  }
-
-  private async decryptSnapshotBinary(encryptedAutomergeDoc: CryptoResult): Promise<Uint8Array | null> {
-    try {
-      return decryptBytesWithKey(getVaultKey(), encryptedAutomergeDoc)
-    } catch {
-      return null
-    }
-  }
-
-  private async hydrateMetadata() {
-    if (!this.accountId || !hasApiAuthToken()) return
-
-    const localMetadata = getAutomergeMetadata(this.accountId)
-    if (Object.keys(localMetadata || {}).length > 0) return
-
-    const response = await trpcClient.accounts.getMetadata.query({ account: this.accountId }).catch(() => null)
-    if (response?.success && !!response.metadata && typeof response.metadata === 'object' && !Array.isArray(response.metadata)) {
-      try {
-        await this.mutateMetadata(response.metadata as AccountMetadata)
-      } catch (error) {
-        console.error('[sync.worker] metadata hydration skipped', error)
-      }
-    }
+    await this.legacyBootstrapper.bootstrapLegacyItems()
   }
 
   private subscribeToItems(itemIds: string[]) {
@@ -582,6 +382,7 @@ class SyncWorker implements SyncApi {
   }
 
   async clearAutomergeDocStore() {
+    this.snapshotManager.clear()
     await clearAutomergeDocStore(this.accountId!)
   }
 
@@ -597,221 +398,33 @@ class SyncWorker implements SyncApi {
     try {
       this.adapter?.flush()
     } catch (err) {
-      console.error('[sync.worker] forceSync failed', err)
+      console.error('[SyncWorker] forceSync failed', err)
     }
   }
 
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
-    if (this.snapshotPushInFlight) {
-      this.snapshotPushPending = true
-      return { persisted: 0, total: 0 }
-    }
-
-    this.snapshotPushInFlight = true
-
-    try {
-      if (this.snapshotRequestCursor === null) {
-        return { persisted: 0, total: 0 }
-      }
-
-      if (!this.accountId || !this.repo) {
-        return { persisted: 0, total: 0 }
-      }
-
-      const authToken = await getActiveSessionToken()
-      if (!authToken) {
-        return { persisted: 0, total: 0 }
-      }
-
-      if (this.dirtyDocuments.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
-        this.dirtyDocuments.delete(ACCOUNT_INDEX_DOCUMENT_ID)
-      }
-
-      const dirtyItemIds = Array.from(this.dirtyDocuments)
-      if (dirtyItemIds.length === 0) {
-        this.snapshotRequestCursor = null
-        return { persisted: 0, total: 0 }
-      }
-
-      const snapshotCursor = this.snapshotRequestCursor
-
-      let persisted = 0
-      let total = 0
-
-      for (let start = 0; start < dirtyItemIds.length; start += 25) {
-        const slice = dirtyItemIds.slice(start, start + 25)
-        const snapshots: VaultSnapshotInput[] = []
-
-        for (const itemId of slice) {
-          const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-          if (snapshot) {
-            snapshots.push(snapshot)
-          }
-        }
-
-        if (snapshots.length === 0) {
-          continue
-        }
-
-        total += snapshots.length
-
-        const response = await putSnapshotsWithToken({
-          account: this.accountId,
-          authToken,
-          snapshots,
-        })
-
-        if (response?.success) {
-          persisted += response.persisted
-          for (const snapshot of snapshots) {
-            this.dirtyDocuments.delete(snapshot.itemId)
-          }
-        }
-      }
-
-      if (persisted > 0) {
-        this.snapshotRequestCursor = null
-      }
-
-      return { persisted, total }
-    } finally {
-      this.snapshotPushInFlight = false
-      if (this.snapshotPushPending) {
-        this.snapshotPushPending = false
-        if (this.snapshotRequestCursor !== null) {
-          this.scheduleSnapshotPush(this.snapshotRequestCursor)
-        }
-      }
-    }
-  }
-
-  private async buildSnapshot(itemId: string, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
-    if (!this.repo || !this.accountId) {
-      return null
-    }
-
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    const handle = await this.repo.find(documentUrl).catch(() => undefined)
-    if (!handle) {
-      return null
-    }
-
-    await handle.whenReady(['ready', 'unavailable'])
-    if (!handle.isReady() || handle.isUnavailable()) {
-      return null
-    }
-
-    const doc = handle.doc()
-    if (!doc) {
-      return null
-    }
-
-    const binary = Automerge.save(doc)
-    if (!binary || binary.byteLength === 0) {
-      return null
-    }
-
-    let encryptedDoc: CryptoResult
-    try {
-      encryptedDoc = await encryptBytesWithKey(getVaultKey(), binary)
-    } catch (error) {
-      console.error('[sync.worker] failed to encrypt snapshot binary', error)
-      return null
-    }
-
-    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
-    if (!itemSnapshot) {
-      return null
-    }
-
-    return {
-      itemId,
-      snapshot: encryptedDoc,
-      snapshotCursor,
-      type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
-      modified: Date.now(),
-      deleted: itemSnapshot.deleted === true || undefined,
-    }
-  }
-
-  private async pushRecoveryItems() {
-    if (this.callbacks) {
-      try {
-        const entries = await readManualRecoveryEntries()
-        await this.callbacks.onRecoveryItemsChanged(entries)
-      } catch (error) {
-        console.error('[sync.worker] Failed to push recovery entries change', error)
-      }
-    }
+    return await this.snapshotManager.pushSnapshots()
   }
 
   async retryRecoveryItem(itemId: string) {
-    await removeManualRecoveryEntryByItemId(itemId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.retryRecoveryItem(itemId)
   }
 
   async forceOverwriteRecoveryItem(itemId: string) {
-    const localItem = getAutomergeItem(this.accountId!, itemId)
-    if (!localItem) {
-      throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
-    }
-
-    const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
-    if (Array.isArray(localItem.prayedFor)) {
-      localSnapshot.prayedFor = [...localItem.prayedFor]
-    }
-
-    await withAutomergeDocumentChange(
-      this.accountId!,
-      itemId,
-      doc => {
-        mutateDraftToMatchSnapshot(doc, localSnapshot)
-        if (typeof doc.id !== 'string' || doc.id.length === 0) {
-          doc.id = itemId
-        }
-      },
-      {
-        createIfMissing: true,
-        initialValue: { id: itemId },
-      },
-    )
-
-    await removeManualRecoveryEntryByItemId(itemId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.forceOverwriteRecoveryItem(itemId)
   }
 
   async forceDeleteRecoveryItem(itemId: string) {
-    const existing = getAutomergeItem(this.accountId!, itemId)
-
-    await withAutomergeDocumentChange(
-      this.accountId!,
-      itemId,
-      doc => {
-        doc.id = itemId
-        doc.type = existing?.type || 'person'
-        doc.deleted = true
-      },
-      {
-        createIfMissing: true,
-        initialValue: {
-          id: itemId,
-        },
-      },
-    )
-
-    await removeManualRecoveryEntryByItemId(itemId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.forceDeleteRecoveryItem(itemId)
   }
 
   async dismissRecoveryItem(entryId: string) {
-    await removeManualRecoveryEntryById(entryId)
-    await this.pushRecoveryItems()
+    await this.recoveryManager.dismissRecoveryItem(entryId)
   }
 
   async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
-    return await readManualRecoveryEntries()
+    return await this.recoveryManager.listRecoveryItems()
   }
 }
 
 Comlink.expose(new SyncWorker())
-
