@@ -34,85 +34,104 @@ const scheduleItemUpdateFlush = () => {
   itemUpdateFlushHandle = requestAnimationFrame(flushItemUpdates)
 }
 
+const syncCallbacks: SyncCallbacks = {
+  onReady: async () => {},
+  onStatusChange: async status => {
+    useSyncStore.getState().setSyncStatus(status)
+  },
+  onItemUpdated: async (id, item) => {
+    pendingItemUpdates.set(id, item)
+
+    if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
+      if (itemUpdateFlushHandle !== null) {
+        cancelAnimationFrame(itemUpdateFlushHandle)
+        itemUpdateFlushHandle = null
+      }
+      flushItemUpdates()
+      return
+    }
+
+    scheduleItemUpdateFlush()
+  },
+  onIndexUpdated: async itemIds => {
+    useDataStore.getState().updateIndexFromServer(itemIds)
+  },
+  onMetadataUpdated: async metadata => {
+    useDataStore.getState().updateMetadataFromServer(metadata)
+  },
+  onMutationFailed: async (mutationId, error) => {
+    // Implement toast notification/Sentry logging here if needed
+    console.error(`Mutation ${mutationId} failed: ${error}`)
+  },
+  onStartRequest: async () => {
+    useUiStore.getState().startRequest()
+  },
+  onFinishRequest: async () => {
+    useUiStore.getState().finishRequest()
+  },
+  onAuthFailure: async message => {
+    const syncStore = useSyncStore.getState()
+    syncStore.setSyncStatus('offline')
+    syncStore.setSyncWarning(message)
+  },
+  onRecoveryItemsChanged: async entries => {
+    recoveryEntries = entries
+    for (const listener of recoveryEntriesListeners) {
+      listener(entries)
+    }
+  },
+}
+
 export const SyncBridge = {
   initialize: async (accountId: string) => {
     if (syncApi) return
 
     useSyncStore.getState().setSyncStatus('connecting')
+    const initialOnlineState = navigator.onLine
+
     const worker = new Worker(new URL('../workers/sync.worker.ts', import.meta.url), { type: 'module' })
     syncApi = Comlink.wrap<SyncApi>(worker)
-    const initialOnlineState = typeof navigator === 'undefined' ? true : navigator.onLine
-    void syncApi.setOnlineState(initialOnlineState)
 
-    const callbacks: SyncCallbacks = {
-      onReady: async () => {},
-      onStatusChange: async status => {
-        useSyncStore.getState().setSyncStatus(status)
-      },
-      onItemUpdated: async (id, item) => {
-        pendingItemUpdates.set(id, item)
+    try {
+      void syncApi.setOnlineState(initialOnlineState)
 
-        if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
-          if (itemUpdateFlushHandle !== null) {
-            cancelAnimationFrame(itemUpdateFlushHandle)
-            itemUpdateFlushHandle = null
-          }
-          flushItemUpdates()
-          return
+      const vaultKey = getStoredVaultKey()
+      if (!vaultKey) throw new Error('Vault key not found in storage')
+
+      await syncApi.initRepo(
+        accountId,
+        vaultKey,
+        Comlink.proxy(syncCallbacks),
+      )
+      await syncApi.bootstrapLegacyItems()
+
+      if (!onlineListenerAttached) {
+        onlineListenerAttached = true
+
+        const setWorkerOnlineState = (isOnline: boolean) => {
+          if (!syncApi) return
+          void syncApi.setOnlineState(isOnline)
         }
 
-        scheduleItemUpdateFlush()
-      },
-      onIndexUpdated: async itemIds => {
-        useDataStore.getState().updateIndexFromServer(itemIds)
-      },
-      onMetadataUpdated: async metadata => {
-        useDataStore.getState().updateMetadataFromServer(metadata)
-      },
-      onMutationFailed: async (mutationId, error) => {
-        // Implement toast notification/Sentry logging here if needed
-        console.error(`Mutation ${mutationId} failed: ${error}`)
-      },
-      onStartRequest: async () => {
-        useUiStore.getState().startRequest()
-      },
-      onFinishRequest: async () => {
-        useUiStore.getState().finishRequest()
-      },
-      onAuthFailure: async message => {
-        const syncStore = useSyncStore.getState()
-        syncStore.setSyncStatus('offline')
-        syncStore.setSyncWarning(message)
-      },
-      onRecoveryItemsChanged: async entries => {
-        recoveryEntries = entries
-        for (const listener of recoveryEntriesListeners) {
-          listener(entries)
-        }
-      },
-    }
-
-    const vaultKey = getStoredVaultKey()
-    if (!vaultKey) throw new Error('Vault key not found in storage')
-
-    await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks))
-    await syncApi.bootstrapLegacyItems()
-
-    if (!onlineListenerAttached && typeof window !== 'undefined') {
-      onlineListenerAttached = true
-
-      const setWorkerOnlineState = (isOnline: boolean) => {
-        if (!syncApi) return
-        void syncApi.setOnlineState(isOnline)
+        window.addEventListener(
+          'online',
+          () => setWorkerOnlineState(true),
+        )
+        window.addEventListener(
+          'offline',
+          () => setWorkerOnlineState(false),
+        )
       }
 
-      window.addEventListener('online', () => setWorkerOnlineState(true))
-      window.addEventListener('offline', () => setWorkerOnlineState(false))
+      setOnRecoveryItemsChangedListener(() => {
+        void SyncBridge.listRecoveryItems()
+      })
+    } catch (error) {
+      console.error('Failed to initialize SyncBridge:', error)
+      useSyncStore.getState().setSyncStatus('offline')
+      worker.terminate()
+      syncApi = null
     }
-
-    setOnRecoveryItemsChangedListener(() => {
-      void SyncBridge.listRecoveryItems()
-    })
   },
 
   forceSync: async () => {
