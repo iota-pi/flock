@@ -1,0 +1,242 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
+
+import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { syncBatchStorage } from './VaultPersistence'
+
+
+const mockPollSyncBatchWithToken = vi.fn()
+
+vi.mock('src/api/vault/crypto', () => ({
+  encryptBytesWithKey: vi.fn().mockImplementation(async (_key, bytes: Uint8Array) => {
+    return {
+      iv: 'mock-iv',
+      cipher: 'mock-cipher-' + bytes.length,
+      version: '1.0',
+    }
+  }),
+}))
+
+vi.mock('src/api/vault', () => ({
+  getVaultKey: vi.fn().mockReturnValue('mock-vault-key'),
+}))
+
+vi.mock('../api/vault/SyncWorkerClient', () => ({
+  pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+}))
+
+vi.mock('./workerAuthStore', () => ({
+  getActiveSessionToken: vi.fn().mockResolvedValue('mock-auth-token'),
+}))
+
+describe('VaultEncryptedNetworkAdapter', () => {
+  let adapter: VaultEncryptedNetworkAdapter
+
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+    await syncBatchStorage.clear()
+    adapter = new VaultEncryptedNetworkAdapter()
+    // Keep offline by default to avoid automatic background runs in static tests
+    adapter.setOnlineState(false)
+    await adapter.setAccount('test-account')
+    adapter.setLeader(true)
+    adapter.connect('test-peer' as PeerId)
+  })
+
+  afterEach(async () => {
+    await adapter.disconnect()
+    vi.useRealTimers()
+  })
+
+  it('queues sync messages to IndexedDB (syncBatchStorage) on send()', async () => {
+    const accountId = 'account-queues'
+    await adapter.setAccount(accountId)
+
+    const message1: Message = {
+      type: 'sync',
+      senderId: 'test-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-1' as DocumentId,
+      data: new Uint8Array([1, 2, 3]),
+    }
+
+    adapter.send(message1)
+
+    // Await flush/persistence by advancing fake timers
+    await vi.advanceTimersByTimeAsync(50)
+
+    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    expect(stored).toBeDefined()
+    expect(stored).toHaveLength(1)
+
+    const rawFirst = stored![0] as any
+    const normalized = rawFirst instanceof Uint8Array
+      ? rawFirst
+      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
+
+    expect(Array.from(normalized)).toEqual([1, 2, 3])
+  })
+
+  it('enforces bounds of 2000 messages maximum per item', async () => {
+    const accountId = 'account-bounds'
+    await adapter.setAccount(accountId)
+
+    for (let i = 0; i < 2010; i++) {
+      adapter.send({
+        type: 'sync',
+        senderId: 'test-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: 'automerge:item-1' as any,
+        data: new Uint8Array([i % 256]),
+      })
+    }
+
+    await vi.advanceTimersByTimeAsync(100)
+
+    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    expect(stored).toBeDefined()
+    expect(stored).toHaveLength(2000)
+
+    const rawFirst = stored![0] as any
+    const normalizedFirst = rawFirst instanceof Uint8Array
+      ? rawFirst
+      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
+
+    expect(normalizedFirst[0]).toBe(10) // 2010 - 2000 = 10
+  })
+
+  it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
+    const accountId = 'account-chunking'
+    await adapter.setAccount(accountId)
+
+    mockPollSyncBatchWithToken.mockResolvedValue({
+      success: true,
+      pushResults: [],
+      pullResults: [],
+    })
+
+    // Queue messages for 7 different items while offline to prevent early polls
+    for (let i = 1; i <= 7; i++) {
+      adapter.send({
+        type: 'sync',
+        senderId: 'test-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: `automerge:item-${i}` as DocumentId,
+        data: new Uint8Array([i]),
+      })
+    }
+
+    // Await persistence timeout by advancing fake timers
+    await vi.advanceTimersByTimeAsync(50)
+
+    // Set online and run poll manually and synchronously!
+    ;(adapter as any).isOnline = true
+    const outcome = await (adapter as any).executePoll()
+    expect(outcome).toBe('success')
+    ;(adapter as any).isOnline = false
+
+    // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+
+    const call1 = mockPollSyncBatchWithToken.mock.calls[0][0]
+    const call2 = mockPollSyncBatchWithToken.mock.calls[1][0]
+    expect(call1.pushMessages).toHaveLength(5)
+    expect(call2.pushMessages).toHaveLength(2)
+
+    // Verify all items were transactionally cleaned from IndexedDB
+    for (let i = 1; i <= 7; i++) {
+      const stored = await syncBatchStorage.getItem(`${accountId}:item-${i}`)
+      expect(stored).toBeNull()
+    }
+  })
+
+  it('safely slices successfully sent messages and retains concurrent local edits', async () => {
+    const accountId = 'account-concurrent'
+    await adapter.setAccount(accountId)
+
+    mockPollSyncBatchWithToken.mockImplementation(async () => {
+      // Simulate concurrent local edits added while the poll request is in flight
+      await syncBatchStorage.setItem(`${accountId}:item-1`, [
+        new Uint8Array([10]),
+        new Uint8Array([20]),
+        new Uint8Array([30]),
+      ])
+      return {
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      }
+    })
+
+    // 1. Initial message sent and queued while offline
+    adapter.send({
+      type: 'sync',
+      senderId: 'test-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-1' as DocumentId,
+      data: new Uint8Array([10]),
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    // Set online and run poll manually and synchronously!
+    ;(adapter as any).isOnline = true
+    const outcome = await (adapter as any).executePoll()
+    expect(outcome).toBe('success')
+    ;(adapter as any).isOnline = false
+
+    // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
+    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    expect(stored).toBeDefined()
+    expect(stored).toHaveLength(2)
+
+    const raw0 = stored![0] as any
+    const raw1 = stored![1] as any
+
+    const normalized0 = raw0 instanceof Uint8Array
+      ? raw0
+      : new Uint8Array(Array.from({ ...raw0, length: Object.keys(raw0).length }))
+    const normalized1 = raw1 instanceof Uint8Array
+      ? raw1
+      : new Uint8Array(Array.from({ ...raw1, length: Object.keys(raw1).length }))
+
+    expect(Array.from(normalized0)).toEqual([20])
+    expect(Array.from(normalized1)).toEqual([30])
+  })
+
+  it('retains messages in IndexedDB if the poll call fails', async () => {
+    const accountId = 'account-fails'
+    await adapter.setAccount(accountId)
+
+    mockPollSyncBatchWithToken.mockRejectedValue(new Error('Network error'))
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'test-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-1' as DocumentId,
+      data: new Uint8Array([100]),
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    // Set online and run poll manually and synchronously!
+    ;(adapter as any).isOnline = true
+    const outcome = await (adapter as any).executePoll()
+    expect(outcome).toBe('failure')
+    ;(adapter as any).isOnline = false
+
+    // Message must still exist in IndexedDB due to failure
+    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    expect(stored).toBeDefined()
+    expect(stored).toHaveLength(1)
+
+    const rawFirst = stored![0] as any
+    const normalized = rawFirst instanceof Uint8Array
+      ? rawFirst
+      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
+
+    expect(Array.from(normalized)).toEqual([100])
+  })
+})

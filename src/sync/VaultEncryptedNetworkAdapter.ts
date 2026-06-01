@@ -5,6 +5,8 @@ import {
   type PeerMetadata,
   type StorageId,
 } from '@automerge/automerge-repo/slim'
+import { chunk } from 'lodash-es'
+
 import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
 import { getActiveSessionToken } from './workerAuthStore'
 import { pollSyncBatchWithToken } from '../api/vault/SyncWorkerClient'
@@ -12,6 +14,11 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
 import { encryptBytesWithKey } from 'src/api/vault/crypto'
 import { getVaultKey } from 'src/api/vault'
+import {
+  persistSyncMessages,
+  loadSyncBatch,
+  removeSentSyncMessages,
+} from './VaultPersistence'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -34,7 +41,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private pullQueueManager = new SyncPullQueueManager()
 
   private syncBatchTimeout: number | null = null
-  private syncBatch: Map<string, Uint8Array[]> = new Map()
+  private pendingWrites: Map<string, Uint8Array[]> = new Map()
 
   onStartRequest: (() => void) | null = null
   onFinishRequest: (() => void) | null = null
@@ -77,6 +84,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.account === nextAccount) {
       return
     }
+
+    await this.persistPendingWrites()
 
     this.account = nextAccount
     this.pollingPausedForAuth = false
@@ -184,20 +193,27 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     const itemId = toVaultItemIdFromAutomergeId(documentId)
 
-    let messages = this.syncBatch.get(itemId)
+    let messages = this.pendingWrites.get(itemId)
     if (!messages) {
       messages = []
-      this.syncBatch.set(itemId, messages)
+      this.pendingWrites.set(itemId, messages)
     }
     messages.push(message.data as Uint8Array)
 
     this.flush()
   }
 
+  private async persistPendingWrites(): Promise<void> {
+    if (this.pendingWrites.size === 0 || !this.account) {
+      return
+    }
+    await persistSyncMessages(this.account, this.pendingWrites)
+  }
+
   flush(): void {
     if (this.syncBatchTimeout === null) {
       this.syncBatchTimeout = self.setTimeout(
-        () => this.flushSyncBatch(),
+        () => void this.flushSyncBatch(),
         0,
       )
     }
@@ -211,10 +227,12 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.flush()
   }
 
-  private flushSyncBatch(): void {
+  private async flushSyncBatch(): Promise<void> {
+    await this.persistPendingWrites()
+
     if (this.isPolling) {
       // Poll in-flight — re-schedule for after it finishes
-      this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 500)
+      this.syncBatchTimeout = self.setTimeout(() => void this.flushSyncBatch(), 500)
     } else {
       void this.executeWrappedPoll()
       this.syncBatchTimeout = null
@@ -327,88 +345,112 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     const authToken = await getActiveSessionToken()
     if (!authToken) return 'success'
 
-    // 1. Drain the current queue
-    const batchEntries = Array.from(this.syncBatch.entries())
-    this.syncBatch.clear()
+    // 1. Load pending sync messages from IndexedDB for the current account
+    let batchEntries: [string, Uint8Array[]][] = []
+    try {
+      batchEntries = await loadSyncBatch(this.account)
+    } catch (err) {
+      return 'failure'
+    }
+
+    // 2. Chunk entries using lodash's chunk helper (5 items per chunk)
+    const chunks = chunk(batchEntries, 5)
+
+    const pullCursors = this.pullQueueManager.getAllCursors()
+    if (chunks.length === 0 && pullCursors.length === 0) {
+      return 'success'
+    }
 
     this.onStartRequest?.()
     try {
-      // 2. Encrypt the outgoing messages
-      const pushMessages = await Promise.all(
-        batchEntries.map(async ([itemId, messages]) => {
-          let totalLength = 0
-          for (const m of messages) {
-            totalLength += 4 + m.length
-          }
-          const combined = new Uint8Array(totalLength)
-          const view = new DataView(combined.buffer)
-          let offset = 0
-          for (const m of messages) {
-            view.setUint32(offset, m.length, false)
-            offset += 4
-            combined.set(m, offset)
-            offset += m.length
-          }
-
-          const encryptedMessage = await encryptBytesWithKey(getVaultKey(), combined)
-          return {
-            itemId,
-            encryptedMessage: {
-              iv: encryptedMessage.iv,
-              cipher: encryptedMessage.cipher,
-              version: '1.0',
-            }
-          }
+      // If there are no outgoing messages but we have pull cursors, run a single pull poll
+      if (chunks.length === 0) {
+        const response = await pollSyncBatchWithToken({
+          account: this.account,
+          authToken,
+          pushMessages: [],
+          pullCursors
         })
-      )
 
-      // 3. Get pull cursors
-      const pullCursors = this.pullQueueManager.getAllCursors()
+        if (response && response.pushResults) {
+          this.pullQueueManager.processPushResults(response.pushResults)
+        }
 
-      if (pushMessages.length === 0 && pullCursors.length === 0) {
+        if (response && response.pullResults) {
+          await this.pullQueueManager.processPullResults(response.pullResults)
+        }
+
+        if (response?.snapshotRequest?.requested) {
+          this.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
+        }
+
         return 'success'
       }
 
-      // 4. Execute tRPC call
-      const response = await pollSyncBatchWithToken({
-        account: this.account,
-        authToken,
-        pushMessages,
-        pullCursors
-      })
+      // Process each chunk in a sequence
+      for (const chunkEntry of chunks) {
+        // 3. Encrypt the outgoing messages for this chunk
+        const pushMessages = await Promise.all(
+          chunkEntry.map(async ([itemId, messages]) => {
+            let totalLength = 0
+            for (const m of messages) {
+              totalLength += 4 + m.length
+            }
+            const combined = new Uint8Array(totalLength)
+            const view = new DataView(combined.buffer)
+            let offset = 0
+            for (const m of messages) {
+              view.setUint32(offset, m.length, false)
+              offset += 4
+              combined.set(m, offset)
+              offset += m.length
+            }
 
-      // 5. Process incoming messages
-      if (response && response.pushResults) {
-        this.pullQueueManager.processPushResults(response.pushResults)
-      }
+            const encryptedMessage = await encryptBytesWithKey(getVaultKey(), combined)
+            return {
+              itemId,
+              encryptedMessage: {
+                iv: encryptedMessage.iv,
+                cipher: encryptedMessage.cipher,
+                version: '1.0',
+              }
+            }
+          })
+        )
 
-      if (response && response.pullResults) {
-        await this.pullQueueManager.processPullResults(response.pullResults)
-      }
+        // 4. Execute tRPC call for this chunk
+        const response = await pollSyncBatchWithToken({
+          account: this.account,
+          authToken,
+          pushMessages,
+          pullCursors
+        })
 
-      if (response?.snapshotRequest?.requested) {
-        this.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
+        // 5. Process incoming messages
+        if (response && response.pushResults) {
+          this.pullQueueManager.processPushResults(response.pushResults)
+        }
+
+        if (response && response.pullResults) {
+          await this.pullQueueManager.processPullResults(response.pullResults)
+        }
+
+        if (response?.snapshotRequest?.requested) {
+          this.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
+        }
+
+        // 6. Transactionally remove sent messages from IndexedDB for this chunk
+        await removeSentSyncMessages(this.account, chunkEntry)
       }
 
       return 'success'
     } catch (error) {
       if (this.isAuthError(error)) {
         console.error('[VaultEncryptedNetworkAdapter] Auth failure during polling', error)
-        for (const [itemId, messages] of batchEntries) {
-          const existing = this.syncBatch.get(itemId) || []
-          this.syncBatch.set(itemId, [...messages, ...existing])
-        }
         return 'auth-failure'
       }
 
       console.error('[VaultEncryptedNetworkAdapter] Polling failed', error)
-
-      // Restore unsent messages back into the queue for the next poll cycle
-      for (const [itemId, messages] of batchEntries) {
-        const existing = this.syncBatch.get(itemId) || []
-        this.syncBatch.set(itemId, [...messages, ...existing])
-      }
-
       return 'failure'
     } finally {
       this.onFinishRequest?.()
@@ -440,10 +482,11 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     return message.includes('unauthorized') || message.includes('forbidden')
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     this.connected = false
     this.pullQueueManager.clear()
     this.stopPolling()
+    await this.persistPendingWrites()
     this.emit('close')
   }
 
