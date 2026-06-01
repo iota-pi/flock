@@ -337,16 +337,16 @@ export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: str
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
-      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
-      let hasNewId = false
-      const next = new Set(current)
-      for (const itemId of normalized) {
-        hasNewId ||= !next.has(itemId)
-        next.add(itemId)
+      const indexDoc = doc as AutomergeIndexDocument
+      if (!indexDoc.itemIds) {
+        indexDoc.itemIds = []
       }
-
-      if (hasNewId) {
-        doc.itemIds = Array.from(next)
+      const current = new Set(indexDoc.itemIds)
+      for (const itemId of normalized) {
+        if (!current.has(itemId)) {
+          indexDoc.itemIds.push(itemId)
+          current.add(itemId)
+        }
       }
     },
     {
@@ -373,15 +373,23 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
-      const current = normalizeItemIds((doc as AutomergeIndexDocument).itemIds)
-      let lastModified = isPlainObject((doc as AutomergeIndexDocument).lastModified)
-        ? ((doc as AutomergeIndexDocument).lastModified as Record<string, number>)
+      const indexDoc = doc as AutomergeIndexDocument
+      if (!indexDoc.itemIds) {
+        indexDoc.itemIds = []
+      }
+      let lastModified = isPlainObject(indexDoc.lastModified)
+        ? (indexDoc.lastModified as Record<string, number>)
         : null
       if (!lastModified) {
         lastModified = {}
-        doc.lastModified = lastModified
+        indexDoc.lastModified = lastModified
       }
-      doc.itemIds = current.filter(itemId => !removeSet.has(itemId))
+      for (let i = indexDoc.itemIds.length - 1; i >= 0; i--) {
+        const itemId = indexDoc.itemIds[i]
+        if (removeSet.has(itemId)) {
+          indexDoc.itemIds.splice(i, 1)
+        }
+      }
       for (const itemId of removeSet) {
         delete lastModified[itemId]
       }
