@@ -201,7 +201,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.isPolling = true
 
     try {
-      return this.executePoll()
+      await this.executePoll()
     } finally {
       this.isPolling = false
     }
