@@ -127,12 +127,9 @@ async function ensureDocumentHandle(
 
     const initialValue = options.initialValue!
 
-    handle = repo.create<RepoDoc>()
-    handle.change(doc => {
-      for (const [key, value] of Object.entries(initialValue)) {
-        doc[key] = value
-      }
-    })
+    const newDoc = Automerge.from(initialValue)
+    const binary = Automerge.save(newDoc)
+    handle = repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
 
     if (options.awaitReady === false) {
       tryResolveNonReadyHandle(handle)
