@@ -56,7 +56,9 @@ function createAutomergeSyncService({
 }: AutomergeSyncServiceDeps) {
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
     const timestamp = now()
-    const baseCursor = timestamp * 1000
+    // Generate a random invocation offset between 0 and 79 to prevent collisions from concurrent writes
+    const invocationOffset = Math.floor(Math.random() * 80)
+    const baseCursor = timestamp * 5000 + invocationOffset * 50
     const messagesWithCursor = input.messages.map((message, index) => ({
       ...message,
       cursor: baseCursor + index,
