@@ -167,32 +167,59 @@ class SyncWorker implements SyncApi {
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
     await initializeAutomergeDocStore(accountId)
-
-    const indexUrl = await toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
-    const indexHandle = await repo.find<AutomergeIndexDocument>(indexUrl)
-    if (!indexHandle) return
-    await indexHandle.whenReady(['ready', 'unavailable'])
-
-    const handleIndexChange = () => {
-      const indexDoc = indexHandle.doc()
-      if (!indexDoc) return
-      const newItemIds = indexDoc.itemIds || []
-      if (this.callbacks) {
-        this.callbacks.onIndexUpdated(newItemIds).catch(console.error)
-
-        const newMetadata = indexDoc.metadata || {}
-        this.callbacks.onMetadataUpdated(newMetadata).catch(console.error)
-      }
-
-      this.subscribeToItems(newItemIds)
-      this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
-    }
-
-    indexHandle.on('change', handleIndexChange)
-    handleIndexChange()
+    await this.initIndexDocument()
 
     await this.callbacks.onReady()
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
+  }
+
+  private async getIndexHandle() {
+    if (!this.repo) return
+
+    const indexUrl = await toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
+    const indexHandle = await this.repo.find<AutomergeIndexDocument>(indexUrl)
+    if (!indexHandle) return
+    await indexHandle.whenReady(['ready', 'unavailable'])
+
+    return indexHandle
+  }
+
+  private async initIndexDocument() {
+    const indexHandle = await this.getIndexHandle()
+    if (!indexHandle) return
+
+    indexHandle.on('change', this.handleIndexChange.bind(this))
+    this.handleIndexChange()
+  }
+
+  private async handleIndexChange() {
+    if (!this.accountId) return
+
+    const indexHandle = await this.getIndexHandle()
+    if (!indexHandle) return
+
+    const indexDoc = indexHandle.doc()
+    if (!indexDoc) return
+    const newItemIds = indexDoc.itemIds || []
+    const newItemIdsSet = new Set(newItemIds)
+
+    // Unsubscribe from items that were removed from the index
+    const deletedIds = (
+      Array.from(this.subscribedIds).filter(id => !newItemIdsSet.has(id))
+    )
+    for (const deletedId of deletedIds) {
+      removeAutomergeItem(this.accountId, deletedId).catch(console.error)
+    }
+
+    if (this.callbacks) {
+      this.callbacks.onIndexUpdated(newItemIds).catch(console.error)
+
+      const newMetadata = indexDoc.metadata || {}
+      this.callbacks.onMetadataUpdated(newMetadata).catch(console.error)
+    }
+
+    this.subscribeToItems(newItemIds)
+    this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
   }
 
   private async acquireLeadership(accountId: string) {
