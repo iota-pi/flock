@@ -24,7 +24,7 @@ export class LegacyBootstrapper {
     const { accountId } = this.getContext()
     if (!accountId) return
 
-    const knownItemIds = listAutomergeItemIds(accountId)
+    const knownItemIds = await listAutomergeItemIds(accountId)
     if (knownItemIds.length > 0) return
 
     if (!hasApiAuthToken()) {
@@ -115,7 +115,7 @@ export class LegacyBootstrapper {
     const { accountId } = this.getContext()
     if (!accountId || !hasApiAuthToken()) return
 
-    const localMetadata = getAutomergeMetadata(accountId)
+    const localMetadata = await getAutomergeMetadata(accountId)
     if (Object.keys(localMetadata || {}).length > 0) return
 
     const response = await trpcClient.accounts.getMetadata.query({ account: accountId }).catch(() => null)

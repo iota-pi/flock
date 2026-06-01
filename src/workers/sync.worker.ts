@@ -167,7 +167,7 @@ class SyncWorker implements SyncApi {
     this.repo = repo
     await initializeAutomergeDocStore(accountId)
 
-    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
+    const indexUrl = await toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
     const indexHandle = await repo.find<AutomergeIndexDocument>(indexUrl)
     if (!indexHandle) return
     await indexHandle.whenReady(['ready', 'unavailable'])
@@ -247,19 +247,21 @@ class SyncWorker implements SyncApi {
       if (this.subscribedIds.has(id)) continue
       this.subscribedIds.add(id)
 
-      const url = toAutomergeUrlFromItemId(id)
-      this.repo.find(url).then(handle => {
-        if (!this.subscribedIds.has(id)) return
+      toAutomergeUrlFromItemId(id).then(url => {
+        if (!this.subscribedIds.has(id) || !this.repo) return
+        this.repo.find(url).then(handle => {
+          if (!this.subscribedIds.has(id)) return
 
-        const handleChange = () => {
-          const item = normalizeItemSnapshot(id, handle.doc())
-          this.callbacks?.onItemUpdated(id, item).catch(console.error)
-        }
-        handle.on('change', handleChange)
-        this.changeListenersByItemId.set(id, handleChange)
+          const handleChange = () => {
+            const item = normalizeItemSnapshot(id, handle.doc())
+            this.callbacks?.onItemUpdated(id, item).catch(console.error)
+          }
+          handle.on('change', handleChange)
+          this.changeListenersByItemId.set(id, handleChange)
 
-        // Trigger an immediate update for the item in case it changed while not subscribed
-        handleChange()
+          // Trigger an immediate update for the item in case it changed while not subscribed
+          handleChange()
+        }).catch(console.error)
       }).catch(console.error)
     }
 
@@ -280,9 +282,11 @@ class SyncWorker implements SyncApi {
     this.changeListenersByItemId.delete(itemId)
 
     if (listener) {
-      const url = toAutomergeUrlFromItemId(itemId)
-      this.repo.find(url).then(handle => {
-        handle.off('change', listener)
+      toAutomergeUrlFromItemId(itemId).then(url => {
+        if (!this.repo) return
+        this.repo.find(url).then(handle => {
+          handle.off('change', listener)
+        }).catch(console.error)
       }).catch(console.error)
     }
   }
@@ -301,7 +305,7 @@ class SyncWorker implements SyncApi {
     } catch (err: any) {
       if (this.callbacks) {
         this.callbacks.onMutationFailed(mutationId, err.message).catch(console.error)
-        const trueState = getAutomergeItem(this.accountId!, id)
+        const trueState = await getAutomergeItem(this.accountId!, id)
         this.callbacks.onItemUpdated(id, trueState).catch(console.error)
       }
     }
@@ -359,7 +363,7 @@ class SyncWorker implements SyncApi {
       const combinedMessage = failedItems.map(f => `${f.item.id}: ${f.error.message}`).join(', ')
       this.callbacks?.onMutationFailed('store', combinedMessage).catch(console.error)
       for (const { item } of failedItems) {
-        const trueState = getAutomergeItem(this.accountId!, item.id)
+        const trueState = await getAutomergeItem(this.accountId!, item.id)
         this.callbacks?.onItemUpdated(item.id, trueState).catch(console.error)
       }
     }
@@ -377,7 +381,7 @@ class SyncWorker implements SyncApi {
       }
     } catch (err: any) {
       this.callbacks?.onMutationFailed('metadata', err.message).catch(console.error)
-      this.callbacks?.onMetadataUpdated(getAutomergeMetadata(this.accountId!)).catch(console.error)
+      this.callbacks?.onMetadataUpdated(await getAutomergeMetadata(this.accountId!)).catch(console.error)
     }
   }
 

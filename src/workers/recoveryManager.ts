@@ -40,7 +40,7 @@ export class RecoveryManager {
     const { accountId } = this.getContext()
     if (!accountId) return
 
-    const localItem = getAutomergeItem(accountId, itemId)
+    const localItem = await getAutomergeItem(accountId, itemId)
     if (!localItem) {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
     }
@@ -73,7 +73,7 @@ export class RecoveryManager {
     const { accountId } = this.getContext()
     if (!accountId) return
 
-    const existing = getAutomergeItem(accountId, itemId)
+    const existing = await getAutomergeItem(accountId, itemId)
 
     await withAutomergeDocumentChange(
       accountId,

@@ -226,7 +226,7 @@ export class SnapshotManager {
       return null
     }
 
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
+    const documentUrl = await toAutomergeUrlFromItemId(itemId)
     const handle = await repo.find(documentUrl).catch(() => undefined)
     if (!handle) {
       return null

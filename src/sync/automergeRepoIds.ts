@@ -11,36 +11,14 @@ const documentIdByItemId = new Map<string, string>()
 const itemIdByDocumentId = new Map<string, string>()
 const urlByItemId = new Map<string, AutomergeUrl>()
 
-function hashItemIdToBinary(itemId: string): Uint8Array {
-  // cyrb128-style deterministic hash to a 16-byte Automerge document id seed.
-  let h1 = 1_779_033_703
-  let h2 = 3_144_134_277
-  let h3 = 1_013_904_242
-  let h4 = 2_773_480_762
-
-  for (let index = 0; index < itemId.length; index += 1) {
-    const code = itemId.charCodeAt(index)
-    h1 = h2 ^ Math.imul(h1 ^ code, 597_399_067)
-    h2 = h3 ^ Math.imul(h2 ^ code, 2_869_860_233)
-    h3 = h4 ^ Math.imul(h3 ^ code, 951_274_213)
-    h4 = h1 ^ Math.imul(h4 ^ code, 2_716_044_179)
-  }
-
-  h1 = Math.imul(h3 ^ (h1 >>> 18), 597_399_067)
-  h2 = Math.imul(h4 ^ (h2 >>> 22), 2_869_860_233)
-  h3 = Math.imul(h1 ^ (h3 >>> 17), 951_274_213)
-  h4 = Math.imul(h2 ^ (h4 >>> 19), 2_716_044_179)
-
-  const output = new Uint8Array(16)
-  const view = new DataView(output.buffer)
-  view.setUint32(0, h1 >>> 0, false)
-  view.setUint32(4, h2 >>> 0, false)
-  view.setUint32(8, h3 >>> 0, false)
-  view.setUint32(12, h4 >>> 0, false)
-  return output
+async function hashItemIdToBinary(itemId: string): Promise<Uint8Array> {
+  const enc = new TextEncoder()
+  const data = enc.encode(itemId)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  return new Uint8Array(hashBuffer, 0, 16)
 }
 
-function ensureMapping(itemId: string): { url: AutomergeUrl; documentId: string } {
+async function ensureMapping(itemId: string): Promise<{ url: AutomergeUrl; documentId: string }> {
   const existingUrl = urlByItemId.get(itemId)
   const existingDocumentId = documentIdByItemId.get(itemId)
   if (existingUrl && existingDocumentId) {
@@ -50,7 +28,8 @@ function ensureMapping(itemId: string): { url: AutomergeUrl; documentId: string 
     }
   }
 
-  const url = stringifyAutomergeUrl(hashItemIdToBinary(itemId) as BinaryDocumentId)
+  const binary = await hashItemIdToBinary(itemId)
+  const url = stringifyAutomergeUrl(binary as BinaryDocumentId)
   const { documentId } = parseAutomergeUrl(url)
 
   urlByItemId.set(itemId, url)
@@ -63,8 +42,9 @@ function ensureMapping(itemId: string): { url: AutomergeUrl; documentId: string 
   }
 }
 
-export function toAutomergeUrlFromItemId(itemId: string): AutomergeUrl {
-  return ensureMapping(itemId).url
+export async function toAutomergeUrlFromItemId(itemId: string): Promise<AutomergeUrl> {
+  const mapping = await ensureMapping(itemId)
+  return mapping.url
 }
 
 export function toVaultItemIdFromAutomergeId(documentId: string): string {
