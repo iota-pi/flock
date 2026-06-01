@@ -11,6 +11,7 @@ import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 const ITEM_UPDATE_BATCH_MAX = 50
+let onlineListenerAttached = false
 
 const pendingItemUpdates = new Map<string, Item | null>()
 let itemUpdateFlushHandle: number | null = null
@@ -40,6 +41,8 @@ export const SyncBridge = {
     useSyncStore.getState().setSyncStatus('connecting')
     const worker = new Worker(new URL('../workers/sync.worker.ts', import.meta.url), { type: 'module' })
     syncApi = Comlink.wrap<SyncApi>(worker)
+    const initialOnlineState = typeof navigator === 'undefined' ? true : navigator.onLine
+    void syncApi.setOnlineState(initialOnlineState)
 
     const callbacks: SyncCallbacks = {
       onReady: async () => {},
@@ -94,6 +97,18 @@ export const SyncBridge = {
 
     await syncApi.initRepo(accountId, vaultKey, Comlink.proxy(callbacks))
     await syncApi.bootstrapLegacyItems()
+
+    if (!onlineListenerAttached && typeof window !== 'undefined') {
+      onlineListenerAttached = true
+
+      const setWorkerOnlineState = (isOnline: boolean) => {
+        if (!syncApi) return
+        void syncApi.setOnlineState(isOnline)
+      }
+
+      window.addEventListener('online', () => setWorkerOnlineState(true))
+      window.addEventListener('offline', () => setWorkerOnlineState(false))
+    }
 
     setOnRecoveryItemsChangedListener(() => {
       void SyncBridge.listRecoveryItems()

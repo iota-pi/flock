@@ -18,6 +18,7 @@ const VAULT_PEER_ID = 'vault' as PeerId
 export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
   private connected = false
+  private isOnline = true
   private ready = false
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
@@ -38,6 +39,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   onFinishRequest: (() => void) | null = null
   onSnapshotNeeded: ((cursor: number, requestedAt: number) => void) | null = null
   onAuthFailure: ((message: string) => void) | null = null
+  onPollResult: ((outcome: 'success' | 'failure' | 'auth-failure') => void) | null = null
 
   constructor() {
     super()
@@ -69,7 +71,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     await this.pullQueueManager.setAccount(this.account)
 
     if (this.account) {
-      this.startPolling(true)
+      if (this.isOnline) {
+        this.startPolling(true)
+      }
     } else {
       this.stopPolling()
     }
@@ -104,6 +108,32 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     if (this.account) {
       this.emitPeerCandidate()
+    }
+
+    if (this.account && this.isOnline) {
+      this.startPolling(true)
+    }
+  }
+
+  setOnlineState(isOnline: boolean): void {
+    if (this.isOnline === isOnline) {
+      return
+    }
+
+    this.isOnline = isOnline
+
+    if (!this.connected) {
+      return
+    }
+
+    if (!isOnline) {
+      this.stopPolling()
+      return
+    }
+
+    if (this.account) {
+      this.resetPollBackoff()
+      this.startPolling(true)
     }
   }
 
@@ -200,7 +230,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   private scheduleNextPoll(delayMs: number): void {
-    if (this.pollingPausedForAuth || !this.connected) {
+    if (this.pollingPausedForAuth || !this.connected || !this.isOnline) {
       return
     }
 
@@ -237,7 +267,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   private async executeWrappedPoll(): Promise<void> {
-    if (this.isPolling || !this.connected || this.pollingPausedForAuth) return
+    if (this.isPolling || !this.connected || this.pollingPausedForAuth || !this.isOnline) return
     if (this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
@@ -257,6 +287,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.pollingPausedForAuth = true
       this.stopPolling()
       this.onAuthFailure?.('Sync paused: your session has expired. Please sign in again.')
+      this.onPollResult?.(outcome)
       return
     }
 
@@ -266,11 +297,13 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.resetPollBackoff()
     }
 
+    this.onPollResult?.(outcome)
+
     this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
   }
 
   private async executePoll(): Promise<'success' | 'failure' | 'auth-failure'> {
-    if (!this.account) return 'success'
+    if (!this.account || !this.isOnline) return 'success'
 
     const authToken = await getActiveSessionToken()
     if (!authToken) return 'success'

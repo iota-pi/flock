@@ -18,6 +18,7 @@ export interface SyncCallbacks {
 
 export interface SyncApi {
   initRepo: (accountId: string, vaultKey: string, callbacks: SyncCallbacks) => Promise<void>
+  setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapLegacyItems: () => Promise<void>
   mutateItem: (mutationId: string, id: string, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>

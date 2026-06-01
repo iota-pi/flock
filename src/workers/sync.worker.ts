@@ -39,6 +39,7 @@ import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdap
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { ITEM_TYPES } from '../shared/itemTypes'
+import type { SyncStatus } from 'src/state/syncStore'
 import {
   type ManualRecoveryEntry,
   readManualRecoveryEntries,
@@ -82,6 +83,8 @@ class SyncWorker implements SyncApi {
   private accountId: string | null = null
   private adapter: VaultEncryptedNetworkAdapter | null = null
   private callbacks: SyncCallbacks | null = null
+  private isOnline = true
+  private syncStatus: SyncStatus = 'idle'
   private subscribedHandles = new Set<string>()
   private repo: Repo | null = null
   private dirtyDocuments = new Set<string>()
@@ -94,6 +97,34 @@ class SyncWorker implements SyncApi {
     1000,
   )
 
+  private updateStatus(status: SyncStatus) {
+    if (this.syncStatus === status) {
+      return
+    }
+
+    this.syncStatus = status
+    this.callbacks?.onStatusChange(status).catch(console.error)
+  }
+
+  private applyOnlineState(isOnline: boolean) {
+    this.isOnline = isOnline
+    this.adapter?.setOnlineState(isOnline)
+
+    if (!isOnline) {
+      this.updateStatus('offline')
+      return
+    }
+
+    if (this.syncStatus === 'offline') {
+      this.updateStatus('degraded')
+      return
+    }
+
+    if (this.syncStatus !== 'syncing') {
+      this.updateStatus('idle')
+    }
+  }
+
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.accountId = accountId
     this.callbacks = callbacks
@@ -105,10 +136,39 @@ class SyncWorker implements SyncApi {
 
     // Initialise Automerge repo
     this.adapter = new VaultEncryptedNetworkAdapter()
-    this.adapter.onStartRequest = callbacks.onStartRequest
-    this.adapter.onFinishRequest = callbacks.onFinishRequest
+    this.adapter.onStartRequest = () => {
+      callbacks.onStartRequest().catch(console.error)
+      if (this.isOnline) {
+        this.updateStatus('syncing')
+      }
+    }
+    this.adapter.onFinishRequest = () => {
+      callbacks.onFinishRequest().catch(console.error)
+      if (this.isOnline && this.syncStatus === 'syncing') {
+        this.updateStatus('idle')
+      }
+    }
     this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) => this.scheduleSnapshotPush(cursor)
-    this.adapter.onAuthFailure = message => callbacks.onAuthFailure(message)
+    this.adapter.onAuthFailure = message => {
+      this.updateStatus('offline')
+      callbacks.onAuthFailure(message).catch(console.error)
+    }
+    this.adapter.onPollResult = outcome => {
+      if (!this.isOnline) {
+        return
+      }
+
+      if (outcome === 'failure') {
+        this.updateStatus('degraded')
+      } else if (outcome === 'success') {
+        if (this.syncStatus !== 'syncing') {
+          this.updateStatus('idle')
+        }
+      } else {
+        this.updateStatus('offline')
+      }
+    }
+    this.adapter.setOnlineState(this.isOnline)
     this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
@@ -138,6 +198,11 @@ class SyncWorker implements SyncApi {
     handleIndexChange()
 
     await this.callbacks.onReady()
+    this.updateStatus(this.isOnline ? 'idle' : 'offline')
+  }
+
+  async setOnlineState(isOnline: boolean) {
+    this.applyOnlineState(isOnline)
   }
 
   private markDocumentDirty(documentId: string) {
