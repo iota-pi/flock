@@ -36,7 +36,12 @@ import { VersionConflictError } from '../../shared/syncErrors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-const DATA_ATTRIBUTES = ['metadata', 'cipher', 'snapshot']
+const DATA_ATTRIBUTES = ['#metadata', '#cipher', '#snapshot']
+const DATA_ATTRIBUTE_NAMES = {
+  '#metadata': 'metadata',
+  '#cipher': 'cipher',
+  '#snapshot': 'snapshot',
+}
 
 const MAX_ITEM_SIZE = 50_000
 const MAX_INDEX_ITEM_SIZE = 400_000
@@ -543,8 +548,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       {
         TableName: ITEM_TABLE_NAME,
         Key: { account, item },
-        ProjectionExpression: [...DATA_ATTRIBUTES, '#ttl'].join(','),
+        ProjectionExpression: [...DATA_ATTRIBUTES, '#ttl'].join(', '),
         ExpressionAttributeNames: {
+          ...DATA_ATTRIBUTE_NAMES,
           '#ttl': 'ttl',
         },
       },
@@ -571,6 +577,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         KeyConditionExpression: 'account = :accountid',
         ExpressionAttributeNames: {
           '#itemKey': 'item',
+          ...DATA_ATTRIBUTE_NAMES,
         },
         ExpressionAttributeValues: {
           ':accountid': account,
