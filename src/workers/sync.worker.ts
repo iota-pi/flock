@@ -92,6 +92,7 @@ class SyncWorker implements SyncApi {
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
+  private releaseLeadershipLock: (() => void) | null = null
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
     1000,
@@ -169,6 +170,10 @@ class SyncWorker implements SyncApi {
       }
     }
     this.adapter.setOnlineState(this.isOnline)
+
+    // Start background leader election
+    void this.acquireLeadership(accountId)
+
     this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
@@ -199,6 +204,39 @@ class SyncWorker implements SyncApi {
 
     await this.callbacks.onReady()
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
+  }
+
+  private async acquireLeadership(accountId: string) {
+    if (this.releaseLeadershipLock) {
+      this.releaseLeadershipLock()
+      this.releaseLeadershipLock = null
+    }
+
+    this.adapter?.setLeader(false)
+
+    if (typeof navigator === 'undefined' || !navigator.locks) {
+      this.adapter?.setLeader(true)
+      return
+    }
+
+    const lockName = `flock-sync-leader-${accountId}`
+
+    void navigator.locks.request(lockName, async () => {
+      this.adapter?.setLeader(true)
+      if (this.isOnline && this.syncStatus === 'offline') {
+        this.updateStatus('idle')
+      }
+
+      return new Promise<void>(resolve => {
+        this.releaseLeadershipLock = () => {
+          this.adapter?.setLeader(false)
+          resolve()
+        }
+      })
+    }).catch(err => {
+      console.error('[SyncWorker] Failed to acquire lock, falling back to leader mode', err)
+      this.adapter?.setLeader(true)
+    })
   }
 
   async setOnlineState(isOnline: boolean) {

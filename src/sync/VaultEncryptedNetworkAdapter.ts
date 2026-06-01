@@ -29,6 +29,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private pollBackoffIndex = 0
   private nextPollAt = 0
   private pollingPausedForAuth = false
+  private isLeader = false
 
   private pullQueueManager = new SyncPullQueueManager()
 
@@ -59,6 +60,18 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
+  setLeader(isLeader: boolean): void {
+    if (this.isLeader === isLeader) {
+      return
+    }
+    this.isLeader = isLeader
+    if (this.isLeader && this.account) {
+      this.startPolling(true)
+    } else {
+      this.stopPolling()
+    }
+  }
+
   async setAccount(account: string | null): Promise<void> {
     const nextAccount = account && account.length > 0 ? account : null
     if (this.account === nextAccount) {
@@ -70,10 +83,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.resetPollBackoff()
     await this.pullQueueManager.setAccount(this.account)
 
-    if (this.account) {
-      if (this.isOnline) {
-        this.startPolling(true)
-      }
+    if (this.account && this.isLeader) {
+      this.startPolling(true)
     } else {
       this.stopPolling()
     }
@@ -110,7 +121,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       this.emitPeerCandidate()
     }
 
-    if (this.account && this.isOnline) {
+    if (this.account && this.isOnline && this.isLeader) {
       this.startPolling(true)
     }
   }
@@ -131,7 +142,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    if (this.account) {
+    if (this.account && this.isLeader) {
       this.resetPollBackoff()
       this.startPolling(true)
     }
@@ -139,6 +150,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   send(message: Message): void {
     if (!this.connected || !this.account || message.targetId !== VAULT_PEER_ID) {
+      return
+    }
+
+    if (!this.isLeader) {
       return
     }
 
@@ -209,6 +224,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private startPolling(immediate?: boolean): void {
     this.stopPolling()
 
+    if (!this.isLeader) {
+      return
+    }
+
     // Immediate first poll
     if (immediate) {
       void this.executeWrappedPoll()
@@ -230,7 +249,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   private scheduleNextPoll(delayMs: number): void {
-    if (this.pollingPausedForAuth || !this.connected || !this.isOnline) {
+    if (this.pollingPausedForAuth || !this.connected || !this.isOnline || !this.isLeader) {
       return
     }
 
