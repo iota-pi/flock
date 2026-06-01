@@ -467,8 +467,11 @@ class SyncWorker implements SyncApi {
   }
 
   async storeItems(items: Item[]) {
-    try {
-      for (const item of items) {
+    const succeededIds = new Set<string>()
+    const failedItems: { item: Item; error: any }[] = []
+
+    for (const item of items) {
+      try {
         const updated = await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined) delete doc[key]
@@ -478,10 +481,16 @@ class SyncWorker implements SyncApi {
         if (updated) {
           this.markDocumentDirty(item.id)
         }
+        succeededIds.add(item.id)
+      } catch (err: any) {
+        failedItems.push({ item, error: err })
       }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('store', err.message).catch(console.error)
-      for (const item of items) {
+    }
+
+    if (failedItems.length > 0) {
+      const combinedMessage = failedItems.map(f => `${f.item.id}: ${f.error.message}`).join(', ')
+      this.callbacks?.onMutationFailed('store', combinedMessage).catch(console.error)
+      for (const { item } of failedItems) {
         const trueState = getAutomergeItem(this.accountId!, item.id)
         this.callbacks?.onItemUpdated(item.id, trueState).catch(console.error)
       }
