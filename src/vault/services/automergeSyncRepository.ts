@@ -55,6 +55,37 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
     },
   })
 
+  async function executeBatchWriteWithRetry(
+    requestItems: Record<string, any>,
+    maxRetries = 5,
+  ): Promise<void> {
+    let currentRequestItems = requestItems
+    let attempt = 0
+    let delayMs = 100
+
+    while (true) {
+      const response = await docClient.send(new BatchWriteCommand({
+        RequestItems: currentRequestItems,
+      }))
+
+      const unprocessed = response.UnprocessedItems
+      if (!unprocessed || Object.keys(unprocessed).length === 0) {
+        break
+      }
+
+      attempt++
+      if (attempt > maxRetries) {
+        throw new Error(`Failed to execute BatchWriteCommand after ${maxRetries} attempts due to DynamoDB unprocessed items.`)
+      }
+
+      const jitter = Math.random() * 50
+      await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+      delayMs *= 2
+
+      currentRequestItems = unprocessed
+    }
+  }
+
   return {
     async appendSyncMessage(input: AppendSyncMessageInput): Promise<void> {
       await docClient.send(new PutCommand({
@@ -81,25 +112,21 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
 
       await Promise.all(
         batches.map(async batch => {
-          const response = await docClient.send(new BatchWriteCommand({
-            RequestItems: {
-              [config.syncMessagesTable]: batch.map(message => ({
-                PutRequest: {
-                  Item: {
-                    syncId: `${input.account}#${message.itemId}`,
-                    cursor: message.entry.cursor,
-                    encryptedMessage: message.entry.encryptedMessage,
-                    createdAt: message.entry.createdAt,
-                    expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
-                  },
+          const requestItems: Record<string, any> = {
+            [config.syncMessagesTable]: batch.map(message => ({
+              PutRequest: {
+                Item: {
+                  syncId: `${input.account}#${message.itemId}`,
+                  cursor: message.entry.cursor,
+                  encryptedMessage: message.entry.encryptedMessage,
+                  createdAt: message.entry.createdAt,
+                  expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
                 },
-              })),
-            },
-          }))
-
-          if (response.UnprocessedItems && Object.keys(response.UnprocessedItems).length > 0) {
-            throw new Error('Failed to write all sync messages in batch.')
+              },
+            })),
           }
+
+          await executeBatchWriteWithRetry(requestItems)
         }),
       )
     },
@@ -154,23 +181,18 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
 
         const items = (response.Items as Array<{ cursor: number }>) || []
         if (items.length > 0) {
-          const deleteResponse = await docClient.send(new BatchWriteCommand({
-            RequestItems: {
-              [config.syncMessagesTable]: items.map(item => ({
-                DeleteRequest: {
-                  Key: {
-                    syncId,
-                    cursor: item.cursor,
-                  },
+          const requestItems: Record<string, any> = {
+            [config.syncMessagesTable]: items.map(item => ({
+              DeleteRequest: {
+                Key: {
+                  syncId,
+                  cursor: item.cursor,
                 },
-              })),
-            },
-          }))
-
-          if (deleteResponse.UnprocessedItems && Object.keys(deleteResponse.UnprocessedItems).length > 0) {
-            throw new Error('Failed to delete all sync messages in batch.')
+              },
+            })),
           }
 
+          await executeBatchWriteWithRetry(requestItems)
           deleted += items.length
         }
 
