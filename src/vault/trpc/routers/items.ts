@@ -6,9 +6,15 @@ import {
 import {
   fetchItems,
 } from '../../services/itemService'
+import {
+  createDynamoAutomergeSyncRepository,
+} from '../../services/automergeSyncRepository'
+import { resolveAutomergeSyncConfig } from '../../services/automergeSyncConfig'
 import type { VaultItem } from '../../drivers/base'
 import type { ItemType } from '../../types'
 
+
+const syncRepository = createDynamoAutomergeSyncRepository(resolveAutomergeSyncConfig())
 
 export const itemsRouter = router({
   fetchMany: protectedProcedure
@@ -45,15 +51,26 @@ export const itemsRouter = router({
         })
       )
 
-      const persisted = results.filter(result => result.status === 'fulfilled').length
+      const persistedSnapshots = results
+        .map((result, index) => result.status === 'fulfilled' ? input.snapshots[index] : null)
+        .filter((snapshot): snapshot is typeof input.snapshots[number] => !!snapshot)
+      const persisted = persistedSnapshots.length
 
       if (persisted > 0) {
-        const snapshotCursor = Math.max(...input.snapshots.map(snapshot => snapshot.snapshotCursor))
+        const snapshotCursor = Math.max(...persistedSnapshots.map(snapshot => snapshot.snapshotCursor))
         await ctx.vault.updateAccountData({
           account: input.account,
           lastSnapshotCursor: snapshotCursor,
           lastSnapshotAt: Date.now(),
         })
+
+        await Promise.all(
+          persistedSnapshots.map(snapshot => syncRepository.pruneSyncMessagesUpToCursor({
+            account: input.account,
+            itemId: snapshot.itemId,
+            cursor: snapshot.snapshotCursor,
+          }))
+        )
       }
 
       return { success: true, persisted, total: input.snapshots.length }

@@ -136,7 +136,7 @@ export class SyncPullQueueManager {
     try {
       for (const result of results || []) {
         const itemId = result.itemId
-        this.pendingPullItemIds.delete(itemId)
+        const hasMore = result.hasMore === true
         let highestCursor = this.cursorByItemId.get(itemId) || 0
 
         const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
@@ -159,6 +159,12 @@ export class SyncPullQueueManager {
         if (highestCursor >= 0) {
           this.cursorByItemId.set(itemId, highestCursor)
           cursorsUpdated = true
+        }
+
+        if (hasMore) {
+          this.pendingPullItemIds.add(itemId)
+        } else {
+          this.pendingPullItemIds.delete(itemId)
         }
       }
 

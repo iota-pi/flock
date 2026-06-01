@@ -8,7 +8,8 @@ import {
 import { chunk } from 'lodash-es'
 import type { AutomergeSyncConfig } from './automergeSyncConfig'
 
-const SYNC_MESSAGE_TTL = 60 * 24 * 60 * 60
+const SYNC_MESSAGE_TTL = 7 * 24 * 60 * 60
+const DEFAULT_SYNC_MESSAGE_LIMIT = 200
 
 export type StoredSyncMessage = {
   cursor: number
@@ -35,7 +36,13 @@ type PushSyncMessagesBatchInput = {
 export interface AutomergeSyncRepository {
   appendSyncMessage(input: AppendSyncMessageInput): Promise<void>
   pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void>
-  getSyncMessages(input: { account: string; itemId: string; fromCursor?: number }): Promise<StoredSyncMessage[]>
+  getSyncMessages(input: {
+    account: string
+    itemId: string
+    fromCursor?: number
+    limit?: number
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+  pruneSyncMessagesUpToCursor(input: { account: string; itemId: string; cursor: number }): Promise<number>
 }
 
 const PUSH_BATCH_SIZE = 25
@@ -97,7 +104,12 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
       )
     },
 
-    async getSyncMessages(input: { account: string; itemId: string; fromCursor?: number }): Promise<StoredSyncMessage[]> {
+    async getSyncMessages(input: {
+      account: string
+      itemId: string
+      fromCursor?: number
+      limit?: number
+    }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
       const fromCursor = typeof input.fromCursor === 'number' ? input.fromCursor : undefined
       const hasCursor = typeof fromCursor === 'number'
       const response = await docClient.send(new QueryCommand({
@@ -112,9 +124,60 @@ export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig)
           ':syncId': `${input.account}#${input.itemId}`,
           ...(hasCursor ? { ':fromCursor': fromCursor } : undefined),
         },
+        Limit: input.limit ?? DEFAULT_SYNC_MESSAGE_LIMIT,
       }))
 
-      return (response.Items as StoredSyncMessage[]) || []
+      return {
+        messages: (response.Items as StoredSyncMessage[]) || [],
+        hasMore: !!response.LastEvaluatedKey,
+      }
+    },
+
+    async pruneSyncMessagesUpToCursor(input: { account: string; itemId: string; cursor: number }): Promise<number> {
+      const syncId = `${input.account}#${input.itemId}`
+      let deleted = 0
+      let lastEvaluatedKey: Record<string, unknown> | undefined
+
+      do {
+        const response = await docClient.send(new QueryCommand({
+          TableName: config.syncMessagesTable,
+          KeyConditionExpression: 'syncId = :syncId AND #c <= :cursor',
+          ExpressionAttributeNames: { '#c': 'cursor' },
+          ExpressionAttributeValues: {
+            ':syncId': syncId,
+            ':cursor': input.cursor,
+          },
+          ProjectionExpression: '#c',
+          ExclusiveStartKey: lastEvaluatedKey,
+          Limit: PUSH_BATCH_SIZE,
+        }))
+
+        const items = (response.Items as Array<{ cursor: number }>) || []
+        if (items.length > 0) {
+          const deleteResponse = await docClient.send(new BatchWriteCommand({
+            RequestItems: {
+              [config.syncMessagesTable]: items.map(item => ({
+                DeleteRequest: {
+                  Key: {
+                    syncId,
+                    cursor: item.cursor,
+                  },
+                },
+              })),
+            },
+          }))
+
+          if (deleteResponse.UnprocessedItems && Object.keys(deleteResponse.UnprocessedItems).length > 0) {
+            throw new Error('Failed to delete all sync messages in batch.')
+          }
+
+          deleted += items.length
+        }
+
+        lastEvaluatedKey = response.LastEvaluatedKey
+      } while (lastEvaluatedKey)
+
+      return deleted
     },
   }
 }

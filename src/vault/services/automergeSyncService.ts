@@ -48,6 +48,8 @@ function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyn
   return messages.slice().sort((left, right) => left.cursor - right.cursor)
 }
 
+const SYNC_MESSAGE_PAGE_LIMIT = 200
+
 function createAutomergeSyncService({
   now = Date.now,
   repository,
@@ -90,12 +92,14 @@ function createAutomergeSyncService({
     itemId: string
     nextCursor: number
     messages: StoredSyncMessage[]
+    hasMore: boolean
   }> {
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
-    const storedMessages = await repository.getSyncMessages({
+    const { messages: storedMessages, hasMore } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
       fromCursor,
+      limit: SYNC_MESSAGE_PAGE_LIMIT,
     })
     const messages = sortMessagesAscendingByCursor(storedMessages)
     const nextCursor = messages.length > 0
@@ -107,6 +111,7 @@ function createAutomergeSyncService({
       itemId: input.itemId,
       nextCursor,
       messages,
+      hasMore,
     }
   }
 
@@ -117,6 +122,7 @@ function createAutomergeSyncService({
       itemId: string
       nextCursor: number
       messages: StoredSyncMessage[]
+      hasMore: boolean
     }>
   }> {
     const dedupedCursorsByItemId = new Map<string, number>()

@@ -54,6 +54,7 @@ export type PullSyncMessagesResponse = {
     cursor: number
     encryptedMessage: SyncMessageEnvelope
   }>
+  hasMore: boolean
 }
 
 export type PollSyncBatchResponse = {
@@ -67,6 +68,7 @@ export type PollSyncBatchResponse = {
       cursor: number
       encryptedMessage: SyncMessageEnvelope
     }>
+    hasMore: boolean
   }>
   snapshotRequest?: {
     requested: true

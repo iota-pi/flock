@@ -11,6 +11,7 @@ import {
 
 
 const SNAPSHOT_REQUEST_INTERVAL = 30000
+const SNAPSHOT_REFRESH_INTERVAL = 24 * 60 * 60 * 1000
 
 export const syncRouter = router({
   pushBatch: protectedProcedure
@@ -45,15 +46,22 @@ export const syncRouter = router({
       }
 
       let snapshotRequest: { requested: true; cursor: number; requestedAt: number } | undefined
-      if (pushResults.length > 0) {
+      if (pushResults.length > 0 || input.pullCursors.length > 0) {
         const account = await ctx.vault.getAccount({
           account: input.account,
           session: ctx.authToken,
         })
         const now = Date.now()
         const lastRequestedAt = account.lastSnapshotRequestedAt ?? 0
-        if (now - lastRequestedAt >= SNAPSHOT_REQUEST_INTERVAL) {
-          const cursor = Math.max(...pushResults.map(result => result.cursor))
+        const lastSnapshotAt = account.lastSnapshotAt ?? 0
+        const isSnapshotStale = now - lastSnapshotAt >= SNAPSHOT_REFRESH_INTERVAL
+        const shouldRequestSnapshot = (pushResults.length > 0 || isSnapshotStale)
+          && now - lastRequestedAt >= SNAPSHOT_REQUEST_INTERVAL
+
+        if (shouldRequestSnapshot) {
+          const cursor = pushResults.length > 0
+            ? Math.max(...pushResults.map(result => result.cursor))
+            : (account.lastSnapshotCursor ?? 0)
           snapshotRequest = { requested: true, cursor, requestedAt: now }
           await ctx.vault.updateAccountData({
             account: input.account,
