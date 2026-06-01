@@ -99,7 +99,6 @@ export class SyncPullQueueManager {
       return { parsed: true, cursor: entry.cursor }
     } catch (error) {
       reportDecryptionFailure({
-        source: 'main-thread',
         itemId,
         error
       })

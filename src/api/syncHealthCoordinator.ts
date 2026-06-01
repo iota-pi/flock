@@ -15,7 +15,6 @@ export function setOnRecoveryItemsChangedListener(listener: () => void): void {
 }
 
 type DecryptionFailedEvent = {
-  source: 'worker' | 'main-thread'
   itemId?: string
   error: unknown
 }
@@ -162,12 +161,11 @@ export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
   const normalizedError = normalizeSyncError(event.error)
 
   console.error('[Decryption] Failed to decrypt item', {
-    source: event.source,
     itemId: event.itemId,
     error: normalizedError,
   })
 
-  if (event.source === 'worker' && typeof event.itemId === 'string') {
+  if (typeof event.itemId === 'string') {
     attemptAutoRecovery(event.itemId).catch(error => {
       console.error(`Failed to run auto-recovery after decryption failure for item ${event.itemId}`, error)
     })
