@@ -452,7 +452,7 @@ class SyncWorker implements SyncApi {
 
   async forceSync() {
     try {
-      await this.adapter?.flush()
+      this.adapter?.flush()
     } catch (err) {
       console.error('[sync.worker] forceSync failed', err)
     }

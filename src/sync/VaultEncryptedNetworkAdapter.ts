@@ -121,7 +121,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     const itemId = toVaultItemIdFromAutomergeId(documentId)
     this.pullQueueManager.addPendingItem(itemId)
 
-    void this.flush()
+    this.flush()
   }
 
   private handleSyncMessage(message: Message): void {
@@ -139,19 +139,16 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
     messages.push(message.data as Uint8Array)
 
-    void this.flush()
+    this.flush()
   }
 
-  flush(): Promise<void> {
-    const resultPromise = new Promise<void>((resolve, reject) => {
-      if (this.syncBatchTimeout === null) {
-        this.syncBatchTimeout = self.setTimeout(
-          () => this.flushSyncBatch().then(resolve).catch(reject),
-          0,
-        )
-      }
-    })
-    return resultPromise
+  flush(): void {
+    if (this.syncBatchTimeout === null) {
+      this.syncBatchTimeout = self.setTimeout(
+        () => this.flushSyncBatch(),
+        0,
+      )
+    }
   }
 
   queuePendingPullItems(itemIds: string[]): void {
@@ -159,10 +156,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     for (const itemId of itemIds) {
       this.pullQueueManager.addPendingItem(itemId)
     }
-    void this.flush()
+    this.flush()
   }
 
-  private async flushSyncBatch(): Promise<void> {
+  private flushSyncBatch(): void {
     if (this.isPolling) {
       // Poll in-flight — re-schedule for after it finishes
       this.syncBatchTimeout = self.setTimeout(() => this.flushSyncBatch(), 500)
