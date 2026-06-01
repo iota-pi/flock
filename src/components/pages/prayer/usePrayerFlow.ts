@@ -2,12 +2,12 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from 'react'
 import { useLocation } from 'react-router'
 import { Item } from 'src/state/items'
 import { usePrayerSchedule } from 'src/hooks/usePrayerSchedule'
 import { useToday } from 'src/hooks/useToday'
+import { useEventCallback } from 'src/hooks/useEventCallback'
 import { recordPrayerCompletion } from 'src/api/vault'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
@@ -66,19 +66,6 @@ export type PrayerFlowController = {
   view: PrayerFlowViewSlice
 }
 
-function useLatestRef<T>(value: T) {
-  const ref = useRef(value)
-
-  useEffect(
-    () => {
-      ref.current = value
-    },
-    [value],
-  )
-
-  return ref
-}
-
 function addPrayerForToday(item: Item, timestamp: number): { addedPrayer: boolean; prayedFor: number[] } {
   const alreadyPrayed = item.prayedFor.some(prayedAt => isSameDay(new Date(prayedAt), new Date(timestamp)))
   if (alreadyPrayed) {
@@ -95,7 +82,8 @@ export default function usePrayerFlow(): PrayerFlowController {
   const location = useLocation()
 
   const today = useToday()
-  const prevTodayRef = useRef(today)
+  const todayTime = today.getTime()
+  const prevTodayTimeRef = useRef(todayTime)
 
   const flow = usePrayerFlowStore(state => state.current)
   const lastOverlay = usePrayerFlowStore(state => state.lastOverlay)
@@ -135,12 +123,12 @@ export default function usePrayerFlow(): PrayerFlowController {
 
   useEffect(
     () => {
-      if (today.getTime() !== prevTodayRef.current.getTime()) {
-        prevTodayRef.current = today
+      if (todayTime !== prevTodayTimeRef.current) {
+        prevTodayTimeRef.current = todayTime
         showOverview()
       }
     },
-    [showOverview, today],
+    [showOverview, todayTime],
   )
 
   const firstUnprayedIndex = useMemo(
@@ -180,146 +168,148 @@ export default function usePrayerFlow(): PrayerFlowController {
   const showActiveNavButtons = isActiveFlow
   const isLastActiveStep = isActiveFlow && flow.index >= visibleSchedule.length - 1
 
-  const flowRef = useLatestRef(flow)
-  const visibleScheduleRef = useLatestRef(visibleSchedule)
-  const scheduleRef = useLatestRef(schedule)
-  const isPrayedForTodayRef = useLatestRef(isPrayedForToday)
-  const showUntilRef = useLatestRef(showUntil)
-  const recordPrayerForRef = useLatestRef(recordPrayerFor)
-  const completedRef = useLatestRef(completed)
-  const allVisiblePrayedRef = useLatestRef(allVisiblePrayed)
-  const canKeepPrayingRef = useLatestRef(canKeepPraying)
-  const firstUnprayedIndexRef = useLatestRef(firstUnprayedIndex)
+  const startAtIndex = (fromIndex: number) => {
+    if (!visibleSchedule[fromIndex]) {
+      return
+    }
+    startAt(fromIndex)
+  }
 
-  const [actions] = useState<PrayerFlowActions>(
-    () => {
-      const startAtIndex = (fromIndex: number) => {
-        if (!visibleScheduleRef.current[fromIndex]) {
-          return
+  const handleKeepPraying = useEventCallback(() => {
+    const nextUnprayed: number[] = []
+    const currentVisibleCount = visibleSchedule.length
+    const currentSchedule = schedule
+
+    for (let i = currentVisibleCount; i < currentSchedule.length; i++) {
+      const item = currentSchedule[i]
+      if (item && !isPrayedForToday(item)) {
+        nextUnprayed.push(i)
+        if (nextUnprayed.length === 3) {
+          break
         }
-
-        startAt(fromIndex)
       }
+    }
 
-      const keepPraying = () => {
-        const nextUnprayed: number[] = []
-        const currentVisibleCount = visibleScheduleRef.current.length
-        const currentSchedule = scheduleRef.current
+    if (nextUnprayed.length === 0) {
+      return
+    }
 
-        for (let i = currentVisibleCount; i < currentSchedule.length; i++) {
-          const item = currentSchedule[i]
-          if (item && !isPrayedForTodayRef.current(item)) {
-            nextUnprayed.push(i)
-            if (nextUnprayed.length === 3) {
-              break
-            }
-          }
-        }
+    const firstNewIndex = nextUnprayed[0]
+    const newVisibleCount = nextUnprayed[nextUnprayed.length - 1] + 1
 
-        if (nextUnprayed.length === 0) {
-          return
-        }
+    showUntil(newVisibleCount)
+    setActiveIndex(firstNewIndex)
+  })
 
-        const firstNewIndex = nextUnprayed[0]
-        const newVisibleCount = nextUnprayed[nextUnprayed.length - 1] + 1
+  const handleBack = useEventCallback(() => {
+    if (flow.type !== 'active') {
+      return
+    }
 
-        showUntilRef.current(newVisibleCount)
-        setActiveIndex(firstNewIndex)
-      }
+    if (flow.index === 0) {
+      showOverview()
+      return
+    }
 
-      return {
-        handleBack: () => {
-          const currentFlow = flowRef.current
-          if (currentFlow.type !== 'active') {
-            return
-          }
+    setActiveIndex(flow.index - 1)
+  })
 
-          if (currentFlow.index === 0) {
-            showOverview()
-            return
-          }
+  const handleChange = useEventCallback((data: Partial<Item> | ((prev: Item) => Item)) => {
+    if (flow.type !== 'active') {
+      return
+    }
 
-          setActiveIndex(currentFlow.index - 1)
-        },
+    const currentItem = visibleSchedule[flow.index]
+    if (!currentItem) {
+      return
+    }
 
-        handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => {
-          const currentFlow = flowRef.current
-          if (currentFlow.type !== 'active') {
-            return
-          }
+    if (typeof data === 'function') {
+      const nextItem = data(currentItem)
+      void mutateItem(currentItem.id, nextItem)
+      return
+    }
 
-          const currentItem = visibleScheduleRef.current[currentFlow.index]
-          if (!currentItem) {
-            return
-          }
+    void mutateItem(currentItem.id, data)
+  })
 
-          if (typeof data === 'function') {
-            const nextItem = data(currentItem)
-            void mutateItem(currentItem.id, nextItem)
-            return
-          }
+  const handleCheck = useEventCallback((item: Item) => {
+    recordPrayerFor(item, true)
+  })
 
-          void mutateItem(currentItem.id, data)
-        },
+  const handleGoToOverview = useEventCallback(() => {
+    showOverview()
+  })
 
-        handleCheck: (item: Item) => {
-          recordPrayerForRef.current(item, true)
-        },
+  const handleItemClick = useEventCallback((item: Item) => {
+    const index = visibleSchedule.findIndex(i => i.id === item.id)
+    if (index !== -1) {
+      startAtIndex(index)
+    }
+  })
 
-        handleGoToOverview: () => {
-          showOverview()
-        },
+  const handleNext = useEventCallback(() => {
+    if (flow.type !== 'active') {
+      return
+    }
 
-        handleItemClick: (item: Item) => {
-          const index = visibleScheduleRef.current.findIndex(i => i.id === item.id)
-          if (index !== -1) {
-            startAtIndex(index)
-          }
-        },
+    const currentItem = visibleSchedule[flow.index]
+    if (!currentItem) {
+      return
+    }
 
-        handleKeepPraying: keepPraying,
+    const prayerTimestamp = Date.now()
+    const prayerUpdate = addPrayerForToday(currentItem, prayerTimestamp)
+    if (prayerUpdate.addedPrayer) {
+      void mutateItem(currentItem.id, { prayedFor: prayerUpdate.prayedFor })
+    }
 
-        handleNext: () => {
-          const currentFlow = flowRef.current
-          if (currentFlow.type !== 'active') {
-            return
-          }
+    const nextIndex = flow.index + 1
+    if (nextIndex >= visibleSchedule.length) {
+      recordPrayerCompletion(Date.now()).catch(() => {})
+      finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
+      return
+    }
 
-          const currentItem = visibleScheduleRef.current[currentFlow.index]
-          if (!currentItem) {
-            return
-          }
+    setActiveIndex(nextIndex)
+  })
 
-          const prayerTimestamp = Date.now()
-          const prayerUpdate = addPrayerForToday(currentItem, prayerTimestamp)
-          if (prayerUpdate.addedPrayer) {
-            void mutateItem(currentItem.id, { prayedFor: prayerUpdate.prayedFor })
-          }
+  const handleStartFirst = useEventCallback(() => {
+    if (allVisiblePrayed && canKeepPraying) {
+      handleKeepPraying()
+      return
+    }
 
-          const nextIndex = currentFlow.index + 1
-          if (nextIndex >= visibleScheduleRef.current.length) {
-            recordPrayerCompletion(Date.now()).catch(() => {})
-            finish(completedRef.current + (prayerUpdate.addedPrayer ? 1 : 0))
-            return
-          }
+    startAtIndex(firstUnprayedIndex)
+  })
 
-          setActiveIndex(nextIndex)
-        },
+  const handleStepClick = useEventCallback((index: number) => {
+    setActiveIndex(index)
+  })
 
-        handleStartFirst: () => {
-          if (allVisiblePrayedRef.current && canKeepPrayingRef.current) {
-            keepPraying()
-            return
-          }
-
-          startAtIndex(firstUnprayedIndexRef.current)
-        },
-
-        handleStepClick: (index: number) => {
-          setActiveIndex(index)
-        },
-      }
-    },
+  const actions = useMemo<PrayerFlowActions>(
+    () => ({
+      handleBack,
+      handleChange,
+      handleCheck,
+      handleGoToOverview,
+      handleItemClick,
+      handleKeepPraying,
+      handleNext,
+      handleStartFirst,
+      handleStepClick,
+    }),
+    [
+      handleBack,
+      handleChange,
+      handleCheck,
+      handleGoToOverview,
+      handleItemClick,
+      handleKeepPraying,
+      handleNext,
+      handleStartFirst,
+      handleStepClick,
+    ],
   )
 
   return {
