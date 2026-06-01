@@ -129,7 +129,14 @@ async function ensureDocumentHandle(
 
     const newDoc = Automerge.from(initialValue)
     const binary = Automerge.save(newDoc)
-    handle = repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
+    try {
+      handle = repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
+    } catch (error) {
+      console.error('[automerge] failed to import document', {
+        documentId,
+        error,
+      })
+    }
 
     if (options.awaitReady === false) {
       tryResolveNonReadyHandle(handle)
@@ -461,7 +468,15 @@ export async function hydrateAutomergeDocumentBinary(
     return
   }
 
-  await seedImportedDocument(accountId, normalizedDocumentId, binary)
+  try {
+    await seedImportedDocument(accountId, normalizedDocumentId, binary)
+  } catch (error) {
+    console.error('[automerge] failed to hydrate document', {
+      documentId,
+      error,
+    })
+    return
+  }
 
   if (isItemDocumentId(normalizedDocumentId)) {
     await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
