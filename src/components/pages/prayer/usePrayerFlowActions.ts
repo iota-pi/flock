@@ -5,6 +5,7 @@ import { recordPrayerCompletion } from 'src/api/vault'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { type FlowState } from 'src/state/prayerFlowStore'
+import { SyncBridge } from 'src/sync/SyncBridge'
 
 export type PrayerFlowActions = {
   handleBack: () => void
@@ -165,6 +166,9 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
     if (nextIndex >= visibleSchedule.length) {
       recordPrayerCompletion(Date.now()).catch(() => {})
       finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
+      void SyncBridge.forceSync().catch(err => {
+        console.error('Failed to trigger forceSync after finishing prayer schedule:', err)
+      })
       return
     }
 
