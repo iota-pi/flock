@@ -6,7 +6,7 @@ import { readItemSchema, errorItemSchema, ErrorItem } from '../shared/schemas/it
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { getAutomergeRepo } from './automergeRepo'
+import { getAutomergeDBName, getAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
@@ -508,7 +508,7 @@ export async function clearAutomergeDocStore(accountId: string): Promise<void> {
 
   if (typeof indexedDB !== 'undefined') {
     try {
-      indexedDB.deleteDatabase('flock-automerge-db')
+      indexedDB.deleteDatabase(getAutomergeDBName(accountId))
     } catch {
       // Ignore IndexedDB delete failures in constrained environments.
     }

@@ -14,6 +14,13 @@ function getFastHash(str: string): string {
   return Math.abs(hash).toString(36)
 }
 
+export function getAutomergeDBName(accountId?: string): string {
+  if (accountId) {
+    return `flock-automerge-db-${getFastHash(accountId)}`
+  }
+  return 'flock-automerge-db'
+}
+
 export function initAutomergeRepo(
   accountId: string,
   adapter: VaultEncryptedNetworkAdapter,
@@ -22,9 +29,7 @@ export function initAutomergeRepo(
     throw new Error(`Automerge repo for account ${accountId} has already been initialized`)
   }
 
-  const dbName = accountId
-    ? `flock-automerge-db-${getFastHash(accountId)}`
-    : 'flock-automerge-db'
+  const dbName = getAutomergeDBName(accountId)
 
   const repo = new Repo({
     storage: new IndexedDBStorageAdapter(dbName),
