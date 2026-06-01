@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
+    silent: 'passed-only',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],
