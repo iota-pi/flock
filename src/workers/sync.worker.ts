@@ -114,6 +114,7 @@ class SyncWorker implements SyncApi {
     this.snapshotManager.clear()
 
     this.accountId = accountId
+    await this.snapshotManager.loadLastModified(accountId)
     this.callbacks = callbacks
 
     await initWorkerVault(vaultKey)

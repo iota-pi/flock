@@ -1,6 +1,8 @@
 import { debounce } from 'lodash-es'
 import * as Automerge from '@automerge/automerge/slim'
 import type { Repo } from '@automerge/automerge-repo/slim'
+import localforage from 'localforage'
+
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import {
   ACCOUNT_INDEX_DOCUMENT_ID,
@@ -16,17 +18,21 @@ import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { normalizeSnapshotType, isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 
+
 export class SnapshotManager {
   private dirtyDocuments = new Set<string>()
   private lastModifiedByItemId = new Map<string, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
+  private lastModifiedStore: LocalForage | null = null
 
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
     1000,
   )
+
+  private readonly saveLastModifiedDebounced = debounce(() => this.saveLastModified(), 1000)
 
   constructor(
     private getContext: () => {
@@ -35,6 +41,29 @@ export class SnapshotManager {
       adapter: VaultEncryptedNetworkAdapter | null
     }
   ) {}
+
+  async loadLastModified(accountId: string): Promise<void> {
+    this.lastModifiedStore = localforage.createInstance({
+      name: 'flock-sync-last-modified',
+      storeName: `last-modified-${accountId}`,
+    })
+    try {
+      const stored = await this.lastModifiedStore.getItem<[string, number][]>('lastModifiedByItemId')
+      if (stored && Array.isArray(stored)) {
+        this.lastModifiedByItemId = new Map(stored)
+      }
+    } catch (error) {
+      console.error('[SnapshotManager] Failed to load lastModified timestamps', error)
+    }
+  }
+
+  private saveLastModified(): void {
+    if (!this.lastModifiedStore) return
+    const data = Array.from(this.lastModifiedByItemId.entries())
+    this.lastModifiedStore.setItem('lastModifiedByItemId', data).catch(error => {
+      console.error('[SnapshotManager] Failed to save lastModified timestamps', error)
+    })
+  }
 
   markDocumentDirty(documentId: string) {
     if (!documentId) return
@@ -46,15 +75,20 @@ export class SnapshotManager {
     const { adapter } = this.getContext()
     if (!adapter) return
 
+    let changed = false
     const nextItemIdSet = new Set(itemIds)
     for (const itemId of this.lastModifiedByItemId.keys()) {
       if (!nextItemIdSet.has(itemId)) {
         this.lastModifiedByItemId.delete(itemId)
+        changed = true
       }
     }
 
     const lastModified = indexDoc.lastModified
     if (!isPlainObject(lastModified)) {
+      if (changed) {
+        this.saveLastModifiedDebounced()
+      }
       return
     }
 
@@ -69,7 +103,12 @@ export class SnapshotManager {
       if (rawTimestamp > currentTimestamp) {
         this.lastModifiedByItemId.set(itemId, rawTimestamp)
         pendingPullItems.push(itemId)
+        changed = true
       }
+    }
+
+    if (changed) {
+      this.saveLastModifiedDebounced()
     }
 
     if (pendingPullItems.length > 0) {
@@ -123,6 +162,7 @@ export class SnapshotManager {
     for (const itemId of dirtyItemIds) {
       this.lastModifiedByItemId.set(itemId, timestamp)
     }
+    this.saveLastModifiedDebounced()
   }
 
   scheduleSnapshotPush(cursor: number) {
@@ -276,5 +316,11 @@ export class SnapshotManager {
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
+    if (this.lastModifiedStore) {
+      this.lastModifiedStore.removeItem('lastModifiedByItemId').catch(error => {
+        console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)
+      })
+      this.lastModifiedStore = null
+    }
   }
 }
