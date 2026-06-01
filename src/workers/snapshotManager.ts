@@ -11,8 +11,7 @@ import {
   withAutomergeDocumentChange,
 } from '../sync/automergeDocStore'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
-import { getVaultKey, type CryptoResult } from '../api/vault'
-import { encryptBytesWithKey } from 'src/api/vault/crypto'
+import { encryptBytes, type CryptoResult } from '../api/vault'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { normalizeSnapshotType, isPlainObject } from './utils'
@@ -361,7 +360,7 @@ export class SnapshotManager {
 
     let encryptedDoc: CryptoResult
     try {
-      encryptedDoc = await encryptBytesWithKey(getVaultKey(), binary)
+      encryptedDoc = await encryptBytes(binary)
     } catch (error) {
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
       return null

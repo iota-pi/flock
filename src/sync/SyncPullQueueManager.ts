@@ -6,8 +6,7 @@ import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-rep
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import localforage from 'localforage'
 import { debounce } from 'lodash-es'
-import { getVaultKey } from 'src/api/vault'
-import { decryptBytesWithKey } from 'src/api/vault/crypto'
+import { decryptBytes } from 'src/api/vault'
 
 export class SyncPullQueueManager {
   private account: string | null = null
@@ -87,7 +86,7 @@ export class SyncPullQueueManager {
     }
 
     try {
-      const decrypted = await decryptBytesWithKey(getVaultKey(), entry.encryptedMessage)
+      const decrypted = await decryptBytes(entry.encryptedMessage)
       const isBatched = entry.encryptedMessage.version === '1.0'
 
       if (isBatched) {

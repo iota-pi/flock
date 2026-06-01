@@ -12,8 +12,7 @@ import { getActiveSessionToken } from './workerAuthStore'
 import { pollSyncBatchWithToken } from '../api/vault/SyncWorkerClient'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
-import { encryptBytesWithKey } from 'src/api/vault/crypto'
-import { getVaultKey } from 'src/api/vault'
+import { encryptBytes } from 'src/api/vault'
 import {
   persistSyncMessages,
   loadSyncBatch,
@@ -406,12 +405,13 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
               offset += m.length
             }
 
-            const encryptedMessage = await encryptBytesWithKey(getVaultKey(), combined)
+            const encryptedMessage = await encryptBytes(combined)
             return {
               itemId,
               encryptedMessage: {
                 iv: encryptedMessage.iv,
                 cipher: encryptedMessage.cipher,
+                kver: encryptedMessage.kver,
                 version: '1.0',
               }
             }

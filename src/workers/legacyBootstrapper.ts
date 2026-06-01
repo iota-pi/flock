@@ -6,10 +6,9 @@ import {
   getAutomergeMetadata,
 } from '../sync/automergeDocStore'
 import { fetchMany } from '../api/vault/ItemClient'
-import { decryptObject, getVaultKey, type CryptoResult } from '../api/vault'
+import { decryptObject, decryptBytes, type CryptoResult } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'
 import { trpcClient } from '../api/trpcClient'
-import { decryptBytesWithKey } from 'src/api/vault/crypto'
 
 export class LegacyBootstrapper {
   constructor(
@@ -105,7 +104,7 @@ export class LegacyBootstrapper {
     encryptedAutomergeDoc: CryptoResult,
   ): Promise<Uint8Array | null> {
     try {
-      return decryptBytesWithKey(getVaultKey(), encryptedAutomergeDoc)
+      return decryptBytes(encryptedAutomergeDoc)
     } catch {
       return null
     }

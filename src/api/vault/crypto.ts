@@ -86,7 +86,7 @@ export async function hashVaultKey(key: CryptoKey): Promise<string> {
   return fromBytes(keyHashBytes)
 }
 
-export async function encryptWithKey(key: CryptoKey, plaintext: string): Promise<CryptoResult> {
+export async function encryptWithKey(key: CryptoKey, plaintext: string, kver?: string): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const enc = new TextEncoder()
   const cipher = await crypto.subtle.encrypt(
@@ -98,6 +98,7 @@ export async function encryptWithKey(key: CryptoKey, plaintext: string): Promise
   return {
     iv: fromBytes(iv.buffer),
     cipher: fromBytes(cipher),
+    kver,
   }
 }
 
@@ -111,7 +112,7 @@ export async function decryptWithKey(key: CryptoKey, payload: CryptoResult): Pro
   return new TextDecoder().decode(plaintext)
 }
 
-export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array): Promise<CryptoResult> {
+export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array, kver?: string): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const normalizedBytes = new Uint8Array(bytes.byteLength)
   normalizedBytes.set(bytes)
@@ -124,6 +125,7 @@ export async function encryptBytesWithKey(key: CryptoKey, bytes: Uint8Array): Pr
   return {
     iv: fromBytes(iv.buffer),
     cipher: fromBytes(cipher),
+    kver,
   }
 }
 

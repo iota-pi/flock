@@ -7,6 +7,7 @@ type SyncMessageEnvelope = {
   iv: string
   cipher: string
   version?: string
+  kver?: string
 }
 
 let cachedClient: { authToken: string; client: ReturnType<typeof createTRPCProxyClient<AppRouter>> } | null = null

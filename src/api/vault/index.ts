@@ -26,6 +26,8 @@ import {
   exportVaultKey,
   hashVaultKey,
   importVaultKey,
+  encryptBytesWithKey,
+  decryptBytesWithKey,
   type CryptoResult,
 } from './crypto'
 import type { TRPCError } from '@trpc/server'
@@ -46,22 +48,31 @@ export class VaultNotInitializedError extends Error {
   }
 }
 
-let key: CryptoKey | null = null
+let keyring: Map<string, CryptoKey> = new Map()
+let activeKeyVersion = '1'
 let keyHash = ''
 let session = ''
 let isHandlingSessionExpiry = false
 let loadVaultInFlight: Promise<void> | null = null
 
-function getKey() {
-  if (!key) {
+function getActiveKey(): CryptoKey {
+  const k = keyring.get(activeKeyVersion)
+  if (!k) {
     throw new VaultNotInitializedError()
   }
-
-  return key
+  return k
 }
 
-export function getVaultKey() {
-  return getKey()
+
+export function getVaultKey(kver?: string): CryptoKey {
+  if (!kver) {
+    return getActiveKey()
+  }
+  const k = keyring.get(kver)
+  if (!k) {
+    throw new Error(`Vault key version ${kver} not found in keyring`)
+  }
+  return k
 }
 
 export function getVaultSession() {
@@ -69,9 +80,16 @@ export function getVaultSession() {
 }
 
 async function writeStoredMetadata() {
+  const keyringData: Record<string, string> = {
+    activeVersion: activeKeyVersion,
+  }
+  for (const [ver, k] of keyring.entries()) {
+    keyringData[ver] = await exportVaultKey(k)
+  }
+
   localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({
     account: getAccountId(),
-    key: await exportVaultKey(getKey()),
+    key: JSON.stringify(keyringData),
   } satisfies VaultStoredMetadata))
 }
 
@@ -111,13 +129,35 @@ export async function initialiseVault({
   iterations?: number,
   salt: string,
 }) {
-  key = await deriveVaultKey({ password, salt, iterations })
-  keyHash = await hashVaultKey(key)
+  const derivedKey = await deriveVaultKey({ password, salt, iterations })
+  keyring.clear()
+  keyring.set('1', derivedKey)
+  activeKeyVersion = '1'
+  keyHash = await hashVaultKey(derivedKey)
   return keyHash
 }
 
-export async function initWorkerVault(exportedKey: string) {
-  key = await importVaultKey(exportedKey)
+export async function initWorkerVault(vaultKeyOrKeyring: string) {
+  keyring.clear()
+  try {
+    const keyringData = JSON.parse(vaultKeyOrKeyring)
+    if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+      activeKeyVersion = keyringData.activeVersion as string
+      for (const [ver, expKey] of Object.entries(keyringData)) {
+        if (ver !== 'activeVersion') {
+          keyring.set(ver, await importVaultKey(expKey as string))
+        }
+      }
+    } else {
+      throw new Error('Not a structured keyring')
+    }
+  } catch (e) {
+    // Legacy single key
+    const imported = await importVaultKey(vaultKeyOrKeyring)
+    keyring.set('1', imported)
+    activeKeyVersion = '1'
+  }
+
   const sessionToken = await getActiveSessionToken()
   if (sessionToken) {
     setApiAuthToken(sessionToken)
@@ -156,8 +196,27 @@ export async function loadVault() {
       }
 
       if (stored?.key) {
-        key = await importVaultKey(stored.key)
-        const nextKeyHash = await hashVaultKey(key)
+        keyring.clear()
+        try {
+          const keyringData = JSON.parse(stored.key)
+          if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+            activeKeyVersion = keyringData.activeVersion as string
+            for (const [ver, expKey] of Object.entries(keyringData)) {
+              if (ver !== 'activeVersion') {
+                keyring.set(ver, await importVaultKey(expKey as string))
+              }
+            }
+          } else {
+            throw new Error('Not a structured keyring')
+          }
+        } catch (e) {
+          // Legacy single key
+          const imported = await importVaultKey(stored.key)
+          keyring.set('1', imported)
+          activeKeyVersion = '1'
+        }
+
+        const nextKeyHash = await hashVaultKey(getActiveKey())
         try {
           await establishSessionFromKeyHash(nextKeyHash)
           setApiSessionExpiredHandler(handleSessionExpired)
@@ -189,13 +248,20 @@ export async function storeVault() {
 
 export async function signOutVault() {
   const { updateAuth } = useAuthStore.getState()
-  key = null
+  keyring.clear()
+  activeKeyVersion = '1'
   keyHash = ''
   session = ''
   setApiAuthToken('')
 
   clearStoredMetadata()
-  await SyncBridge.clearAutomergeDocStore()
+  try {
+    await SyncBridge.clearAutomergeDocStore()
+  } catch (err) {
+    if (!(err instanceof Error && err.message.includes('not initialized'))) {
+      throw err
+    }
+  }
   await clearActiveSessionToken()
   await clearManualRecoveryEntries()
 
@@ -203,15 +269,16 @@ export async function signOutVault() {
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
-  return encryptWithKey(getKey(), plaintext)
+  return encryptWithKey(getActiveKey(), plaintext, activeKeyVersion)
 }
 
 export async function decrypt(data: CryptoResult): Promise<string> {
-  return decryptWithKey(getKey(), data)
+  const kver = data.kver || '1'
+  return decryptWithKey(getVaultKey(kver), data)
 }
 
-export async function decryptObject({ iv, cipher }: CryptoResult): Promise<object> {
-  return JSON.parse(await decrypt({ iv, cipher }))
+export async function decryptObject({ iv, cipher, kver }: CryptoResult): Promise<object> {
+  return JSON.parse(await decrypt({ iv, cipher, kver }))
 }
 
 export function exportData<T>(payload: T): Promise<CryptoResult> {
@@ -221,6 +288,15 @@ export function exportData<T>(payload: T): Promise<CryptoResult> {
 export async function importData<T = unknown>(data: CryptoResult): Promise<T> {
   const plainData = await decrypt(data)
   return JSON.parse(plainData) as T
+}
+
+export async function encryptBytes(bytes: Uint8Array): Promise<CryptoResult> {
+  return encryptBytesWithKey(getActiveKey(), bytes, activeKeyVersion)
+}
+
+export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
+  const kver = data.kver || '1'
+  return decryptBytesWithKey(getVaultKey(kver), data)
 }
 
 export async function addPushSubscription(subscription: WebPushSubscription): Promise<void> {

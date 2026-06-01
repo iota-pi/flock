@@ -7,18 +7,17 @@ import { syncBatchStorage } from './VaultPersistence'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
-vi.mock('src/api/vault/crypto', () => ({
-  encryptBytesWithKey: vi.fn().mockImplementation(async (_key, bytes: Uint8Array) => {
+vi.mock('src/api/vault', () => ({
+  encryptBytes: vi.fn().mockImplementation(async (bytes: Uint8Array) => {
     return {
       iv: 'mock-iv',
       cipher: 'mock-cipher-' + bytes.length,
-      version: '1.0',
+      kver: '1',
     }
   }),
-}))
-
-vi.mock('src/api/vault', () => ({
-  getVaultKey: vi.fn().mockReturnValue('mock-vault-key'),
+  decryptBytes: vi.fn().mockImplementation(async (payload: any) => {
+    return new Uint8Array([1, 2, 3])
+  }),
 }))
 
 vi.mock('../api/vault/SyncWorkerClient', () => ({

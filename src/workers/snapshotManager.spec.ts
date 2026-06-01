@@ -12,13 +12,10 @@ vi.mock('../sync/workerAuthStore', () => ({
 }))
 
 vi.mock('src/api/vault', () => ({
-  getVaultKey: vi.fn().mockReturnValue('mock-vault-key'),
-}))
-
-vi.mock('src/api/vault/crypto', () => ({
-  encryptBytesWithKey: vi.fn().mockResolvedValue({
+  encryptBytes: vi.fn().mockResolvedValue({
     iv: 'mock-iv',
     cipher: 'mock-cipher',
+    kver: '1',
   }),
 }))
 
