@@ -38,7 +38,7 @@ import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
-import { ITEM_TYPES } from '../shared/itemTypes'
+import { ITEM_TYPES, ItemId } from '../shared/itemTypes'
 import type { SyncStatus } from 'src/state/syncStore'
 import {
   type ManualRecoveryEntry,
@@ -85,7 +85,7 @@ class SyncWorker implements SyncApi {
   private callbacks: SyncCallbacks | null = null
   private isOnline = true
   private syncStatus: SyncStatus = 'idle'
-  private subscribedHandles = new Set<string>()
+  private subscribedIds = new Set<string>()
   private repo: Repo | null = null
   private dirtyDocuments = new Set<string>()
   private lastModifiedByItemId = new Map<string, number>()
@@ -93,6 +93,7 @@ class SyncWorker implements SyncApi {
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
   private releaseLeadershipLock: (() => void) | null = null
+  private changeListenersByItemId = new Map<string, () => void>()
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
     1000,
@@ -126,7 +127,19 @@ class SyncWorker implements SyncApi {
     }
   }
 
+  private clearListeners() {
+    if (this.repo && this.changeListenersByItemId.size > 0) {
+      for (const id of Array.from(this.subscribedIds)) {
+        this.unsubscribe(id)
+      }
+    }
+    this.subscribedIds.clear()
+    this.changeListenersByItemId.clear()
+  }
+
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
+    this.clearListeners()
+
     this.accountId = accountId
     this.callbacks = callbacks
 
@@ -195,7 +208,7 @@ class SyncWorker implements SyncApi {
         this.callbacks.onMetadataUpdated(newMetadata).catch(console.error)
       }
 
-      this.subscribeToItems(newItemIds, repo)
+      this.subscribeToItems(newItemIds)
       this.processIndexChangelog(indexDoc, newItemIds)
     }
 
@@ -426,19 +439,24 @@ class SyncWorker implements SyncApi {
     }
   }
 
-  private subscribeToItems(itemIds: string[], repo: Repo) {
+  private subscribeToItems(itemIds: string[]) {
+    if (!this.repo) return
+
     // Subscribe to new items
     for (const id of itemIds) {
-      if (this.subscribedHandles.has(id)) continue
-      this.subscribedHandles.add(id)
+      if (this.subscribedIds.has(id)) continue
+      this.subscribedIds.add(id)
 
       const url = toAutomergeUrlFromItemId(id)
-      repo.find(url).then(handle => {
+      this.repo.find(url).then(handle => {
+        if (!this.subscribedIds.has(id)) return
+
         const handleChange = () => {
           const item = normalizeItemSnapshot(id, handle.doc())
           this.callbacks?.onItemUpdated(id, item).catch(console.error)
         }
         handle.on('change', handleChange)
+        this.changeListenersByItemId.set(id, handleChange)
 
         // Trigger an immediate update for the item in case it changed while not subscribed
         handleChange()
@@ -446,14 +464,26 @@ class SyncWorker implements SyncApi {
     }
 
     // Unsubscribe from removed items
-    for (const subscribedId of this.subscribedHandles) {
+    for (const subscribedId of Array.from(this.subscribedIds)) {
       if (!itemIds.includes(subscribedId)) {
-        this.subscribedHandles.delete(subscribedId)
-        const url = toAutomergeUrlFromItemId(subscribedId)
-        repo.find(url).then(handle => {
-          handle.off('change')
-        }).catch(console.error)
+        this.unsubscribe(subscribedId)
       }
+    }
+  }
+
+  private unsubscribe(itemId: ItemId) {
+    if (!this.repo) return
+
+    this.subscribedIds.delete(itemId)
+
+    const listener = this.changeListenersByItemId.get(itemId)
+    this.changeListenersByItemId.delete(itemId)
+
+    if (listener) {
+      const url = toAutomergeUrlFromItemId(itemId)
+      this.repo.find(url).then(handle => {
+        handle.off('change', listener)
+      }).catch(console.error)
     }
   }
 
