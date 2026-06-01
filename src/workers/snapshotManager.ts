@@ -26,6 +26,9 @@ export class SnapshotManager {
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
   private lastModifiedStore: LocalForage | null = null
+  private retryTimeoutId: any = null
+  private retryAttempt = 0
+  private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
 
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
@@ -167,6 +170,10 @@ export class SnapshotManager {
 
   scheduleSnapshotPush(cursor: number) {
     this.snapshotRequestCursor = cursor
+    if (this.retryTimeoutId !== null) {
+      clearTimeout(this.retryTimeoutId)
+      this.retryTimeoutId = null
+    }
     if (this.snapshotPushInFlight) {
       this.snapshotPushPending = true
       return
@@ -175,13 +182,57 @@ export class SnapshotManager {
     void this.pushSnapshots()
   }
 
+  private scheduleRetry() {
+    if (this.retryTimeoutId !== null) {
+      return
+    }
+
+    const delayMs = this.retryDelays[Math.min(this.retryAttempt, this.retryDelays.length - 1)]
+    this.retryAttempt++
+
+    console.log(`[SnapshotManager] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
+
+    this.retryTimeoutId = setTimeout(() => {
+      this.retryTimeoutId = null
+      if (this.snapshotRequestCursor !== null) {
+        void this.pushSnapshots()
+      }
+    }, delayMs)
+  }
+
+  onOnlineStateChange(isOnline: boolean) {
+    if (isOnline) {
+      if (this.snapshotRequestCursor !== null && this.dirtyDocuments.size > 0) {
+        this.retryAttempt = 0
+        if (this.retryTimeoutId !== null) {
+          clearTimeout(this.retryTimeoutId)
+          this.retryTimeoutId = null
+        }
+        void this.pushSnapshots()
+      }
+    } else {
+      if (this.retryTimeoutId !== null) {
+        clearTimeout(this.retryTimeoutId)
+        this.retryTimeoutId = null
+      }
+    }
+  }
+
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
     if (this.snapshotPushInFlight) {
       this.snapshotPushPending = true
       return { persisted: 0, total: 0 }
     }
 
+    if (this.retryTimeoutId !== null) {
+      clearTimeout(this.retryTimeoutId)
+      this.retryTimeoutId = null
+    }
+
     this.snapshotPushInFlight = true
+    let persisted = 0
+    let total = 0
+    let success = true
 
     try {
       if (this.snapshotRequestCursor === null) {
@@ -210,9 +261,6 @@ export class SnapshotManager {
 
       const snapshotCursor = this.snapshotRequestCursor
 
-      let persisted = 0
-      let total = 0
-
       for (let start = 0; start < dirtyItemIds.length; start += 25) {
         const slice = dirtyItemIds.slice(start, start + 25)
         const snapshots: VaultSnapshotInput[] = []
@@ -230,17 +278,25 @@ export class SnapshotManager {
 
         total += snapshots.length
 
-        const response = await putSnapshotsWithToken({
-          account: accountId,
-          authToken,
-          snapshots,
-        })
+        try {
+          const response = await putSnapshotsWithToken({
+            account: accountId,
+            authToken,
+            snapshots,
+          })
 
-        if (response?.success) {
-          persisted += response.persisted
-          for (const snapshot of snapshots) {
-            this.dirtyDocuments.delete(snapshot.itemId)
+          if (response?.success) {
+            persisted += response.persisted
+            for (const snapshot of snapshots) {
+              this.dirtyDocuments.delete(snapshot.itemId)
+            }
+          } else {
+            success = false
           }
+        } catch (error) {
+          console.error('[SnapshotManager] Failed to put snapshots', error)
+          success = false
+          break
         }
       }
 
@@ -248,9 +304,25 @@ export class SnapshotManager {
         this.snapshotRequestCursor = null
       }
 
+      if (success && this.dirtyDocuments.size === 0) {
+        this.retryAttempt = 0
+      }
+
+      return { persisted, total }
+    } catch (error) {
+      console.error('[SnapshotManager] Error during pushSnapshots', error)
+      success = false
       return { persisted, total }
     } finally {
       this.snapshotPushInFlight = false
+
+      const hasDirtyDocs = this.dirtyDocuments.size > 0
+      const hasCursor = this.snapshotRequestCursor !== null
+
+      if (!success && hasDirtyDocs && hasCursor) {
+        this.scheduleRetry()
+      }
+
       if (this.snapshotPushPending) {
         this.snapshotPushPending = false
         if (this.snapshotRequestCursor !== null) {
@@ -316,6 +388,11 @@ export class SnapshotManager {
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
     this.snapshotRequestCursor = null
+    if (this.retryTimeoutId !== null) {
+      clearTimeout(this.retryTimeoutId)
+      this.retryTimeoutId = null
+    }
+    this.retryAttempt = 0
     if (this.lastModifiedStore) {
       this.lastModifiedStore.removeItem('lastModifiedByItemId').catch(error => {
         console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)

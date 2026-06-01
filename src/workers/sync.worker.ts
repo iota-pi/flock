@@ -83,6 +83,7 @@ class SyncWorker implements SyncApi {
   private applyOnlineState(isOnline: boolean) {
     this.isOnline = isOnline
     this.adapter?.setOnlineState(isOnline)
+    this.snapshotManager.onOnlineStateChange(isOnline)
 
     if (!isOnline) {
       this.updateStatus('offline')

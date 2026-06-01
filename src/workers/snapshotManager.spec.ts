@@ -1,0 +1,249 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { SnapshotManager } from './snapshotManager'
+
+const mockPutSnapshotsWithToken = vi.fn()
+
+vi.mock('../api/vault/SyncWorkerClient', () => ({
+  putSnapshotsWithToken: (...args: any[]) => mockPutSnapshotsWithToken(...args),
+}))
+
+vi.mock('../sync/workerAuthStore', () => ({
+  getActiveSessionToken: vi.fn().mockResolvedValue('mock-auth-token'),
+}))
+
+vi.mock('src/api/vault', () => ({
+  getVaultKey: vi.fn().mockReturnValue('mock-vault-key'),
+}))
+
+vi.mock('src/api/vault/crypto', () => ({
+  encryptBytesWithKey: vi.fn().mockResolvedValue({
+    iv: 'mock-iv',
+    cipher: 'mock-cipher',
+  }),
+}))
+
+vi.mock('@automerge/automerge/slim', () => ({
+  save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
+}))
+
+vi.mock('../sync/automergeDocStore', () => ({
+  ACCOUNT_INDEX_DOCUMENT_ID: 'account-index',
+  normalizeItemSnapshot: vi.fn().mockReturnValue({
+    type: 'note',
+  }),
+  withAutomergeDocumentChange: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('../sync/automergeRepoIds', () => ({
+  toAutomergeUrlFromItemId: vi.fn().mockResolvedValue('automerge:item-1'),
+}))
+
+describe('SnapshotManager Retry Mechanism', () => {
+  let manager: SnapshotManager
+  let mockRepo: any
+  let mockHandle: any
+  let context: {
+    accountId: string | null
+    repo: any
+    adapter: any
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+
+    mockHandle = {
+      whenReady: vi.fn().mockResolvedValue(undefined),
+      isReady: vi.fn().mockReturnValue(true),
+      isUnavailable: vi.fn().mockReturnValue(false),
+      doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
+    }
+
+    mockRepo = {
+      find: vi.fn().mockResolvedValue(mockHandle),
+    }
+
+    context = {
+      accountId: 'test-account',
+      repo: mockRepo,
+      adapter: {} as any,
+    }
+
+    manager = new SnapshotManager(() => context)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('successfully pushes snapshots and clears cursor on success', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    // Await execution
+    await vi.runAllTimersAsync()
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect((manager as any).snapshotRequestCursor).toBeNull()
+    expect((manager as any).retryAttempt).toBe(0)
+  })
+
+  it('aggressively schedules retries with exponential backoff on failure', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    // Await the initial push completion
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // Attempt 1: Backoff delay = 2000ms
+    expect((manager as any).retryAttempt).toBe(1)
+    expect((manager as any).retryTimeoutId).toBeDefined()
+
+    // Advance 1999ms, should not have retried yet
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+    // Advance to 2000ms, triggers first retry (attempt 2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect((manager as any).retryAttempt).toBe(2)
+
+    // Attempt 2: Backoff delay = 5000ms
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(3)
+    expect((manager as any).retryAttempt).toBe(3)
+  })
+
+  it('stops early and retries if putSnapshotsWithToken throws an exception', async () => {
+    mockPutSnapshotsWithToken.mockRejectedValue(new Error('Network disconnected'))
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect((manager as any).retryAttempt).toBe(1)
+
+    // Should trigger first retry at 2000ms
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect((manager as any).retryAttempt).toBe(2)
+  })
+
+  it('resets the retry attempt counter to 0 on a successful retry', async () => {
+    // 1. Fail first push
+    mockPutSnapshotsWithToken.mockResolvedValueOnce({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect((manager as any).retryAttempt).toBe(1)
+
+    // 2. Succeed on second attempt (retry)
+    mockPutSnapshotsWithToken.mockResolvedValueOnce({
+      success: true,
+      persisted: 1,
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect((manager as any).retryAttempt).toBe(0)
+    expect((manager as any).retryTimeoutId).toBeNull()
+  })
+
+  it('pauses and clears retry timers when going offline', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect((manager as any).retryAttempt).toBe(1)
+    expect((manager as any).retryTimeoutId).not.toBeNull()
+
+    // Go offline
+    manager.onOnlineStateChange(false)
+    expect((manager as any).retryTimeoutId).toBeNull()
+
+    // Advance time, no additional retry should occur
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('triggers immediate push when coming online with pending snapshots', async () => {
+    // 1. Set up failed push and verify it schedules a retry
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect((manager as any).retryAttempt).toBe(1)
+
+    // 2. Go offline (clears retry timer)
+    manager.onOnlineStateChange(false)
+    expect((manager as any).retryTimeoutId).toBeNull()
+
+    // 3. Make next call succeed
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    // 4. Come back online
+    manager.onOnlineStateChange(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Immediate push should have happened and succeeded
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+    expect((manager as any).retryAttempt).toBe(0)
+    expect((manager as any).snapshotRequestCursor).toBeNull()
+  })
+
+  it('resets all retry properties on clear', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: false,
+      persisted: 0,
+    })
+
+    manager.markDocumentDirty('item-1')
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect((manager as any).retryAttempt).toBe(1)
+    expect((manager as any).retryTimeoutId).not.toBeNull()
+
+    // Clear manager
+    manager.clear()
+
+    expect((manager as any).retryAttempt).toBe(0)
+    expect((manager as any).retryTimeoutId).toBeNull()
+    expect((manager as any).snapshotRequestCursor).toBeNull()
+    expect(Array.from((manager as any).dirtyDocuments)).toHaveLength(0)
+  })
+})
