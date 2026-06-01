@@ -76,6 +76,11 @@ export const SyncBridge = {
       onFinishRequest: async () => {
         useUiStore.getState().finishRequest()
       },
+      onAuthFailure: async message => {
+        const syncStore = useSyncStore.getState()
+        syncStore.setSyncStatus('offline')
+        syncStore.setSyncWarning(message)
+      },
       onRecoveryItemsChanged: async entries => {
         recoveryEntries = entries
         for (const listener of recoveryEntriesListeners) {

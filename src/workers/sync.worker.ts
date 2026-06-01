@@ -108,6 +108,7 @@ class SyncWorker implements SyncApi {
     this.adapter.onStartRequest = callbacks.onStartRequest
     this.adapter.onFinishRequest = callbacks.onFinishRequest
     this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) => this.scheduleSnapshotPush(cursor)
+    this.adapter.onAuthFailure = message => callbacks.onAuthFailure(message)
     this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo

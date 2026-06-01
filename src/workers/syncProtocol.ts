@@ -12,6 +12,7 @@ export interface SyncCallbacks {
   onMutationFailed: (mutationId: string, error: string) => Promise<void>,
   onStartRequest: () => Promise<void>,
   onFinishRequest: () => Promise<void>,
+  onAuthFailure: (message: string) => Promise<void>,
   onRecoveryItemsChanged: (entries: ManualRecoveryEntry[]) => Promise<void>,
 }
 

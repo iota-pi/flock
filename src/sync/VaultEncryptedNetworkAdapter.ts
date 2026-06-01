@@ -24,6 +24,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   private isPolling = false
   private pollIntervalId: number | null = null
+  private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
+  private pollBackoffIndex = 0
+  private nextPollAt = 0
+  private pollingPausedForAuth = false
 
   private pullQueueManager = new SyncPullQueueManager()
 
@@ -33,6 +37,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   onStartRequest: (() => void) | null = null
   onFinishRequest: (() => void) | null = null
   onSnapshotNeeded: ((cursor: number, requestedAt: number) => void) | null = null
+  onAuthFailure: ((message: string) => void) | null = null
 
   constructor() {
     super()
@@ -59,6 +64,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
 
     this.account = nextAccount
+    this.pollingPausedForAuth = false
+    this.resetPollBackoff()
     await this.pullQueueManager.setAccount(this.account)
 
     if (this.account) {
@@ -177,38 +184,96 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       void this.executeWrappedPoll()
     }
 
-    this.pollIntervalId = self.setInterval(() => {
-      void this.executeWrappedPoll()
-    }, 30000)
+    this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
   }
 
   private stopPolling(): void {
     if (this.pollIntervalId) {
-      self.clearInterval(this.pollIntervalId)
+      self.clearTimeout(this.pollIntervalId)
       this.pollIntervalId = null
     }
     if (this.syncBatchTimeout) {
       self.clearTimeout(this.syncBatchTimeout)
       this.syncBatchTimeout = null
     }
+    this.nextPollAt = 0
+  }
+
+  private scheduleNextPoll(delayMs: number): void {
+    if (this.pollingPausedForAuth || !this.connected) {
+      return
+    }
+
+    if (this.pollIntervalId) {
+      self.clearTimeout(this.pollIntervalId)
+    }
+
+    const jitteredDelayMs = this.applyBackoffJitter(delayMs)
+    this.nextPollAt = Date.now() + jitteredDelayMs
+    this.pollIntervalId = self.setTimeout(() => {
+      void this.executeWrappedPoll()
+    }, jitteredDelayMs)
+  }
+
+  private applyBackoffJitter(delayMs: number): number {
+    const jitterWindow = Math.min(15000, Math.floor(delayMs * 0.25))
+    if (jitterWindow <= 0) {
+      return delayMs
+    }
+
+    const offset = Math.floor(Math.random() * (jitterWindow + 1))
+    return delayMs + offset
+  }
+
+  private resetPollBackoff(): void {
+    this.pollBackoffIndex = 0
+  }
+
+  private increasePollBackoff(): void {
+    this.pollBackoffIndex = Math.min(
+      this.pollBackoffIndex + 1,
+      this.pollBackoffStepsMs.length - 1,
+    )
   }
 
   private async executeWrappedPoll(): Promise<void> {
-    if (this.isPolling || !this.connected) return
+    if (this.isPolling || !this.connected || this.pollingPausedForAuth) return
+    if (this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
+    let outcome: 'success' | 'failure' | 'auth-failure' = 'success'
+
     try {
-      await this.executePoll()
+      outcome = await this.executePoll()
     } finally {
       this.isPolling = false
     }
+
+    if (!this.connected || this.pollingPausedForAuth) {
+      return
+    }
+
+    if (outcome === 'auth-failure') {
+      this.pollingPausedForAuth = true
+      this.stopPolling()
+      this.onAuthFailure?.('Sync paused: your session has expired. Please sign in again.')
+      return
+    }
+
+    if (outcome === 'failure') {
+      this.increasePollBackoff()
+    } else {
+      this.resetPollBackoff()
+    }
+
+    this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
   }
 
-  private async executePoll(): Promise<void> {
-    if (!this.account) return
+  private async executePoll(): Promise<'success' | 'failure' | 'auth-failure'> {
+    if (!this.account) return 'success'
 
     const authToken = await getActiveSessionToken()
-    if (!authToken) return
+    if (!authToken) return 'success'
 
     // 1. Drain the current queue
     const batchEntries = Array.from(this.syncBatch.entries())
@@ -249,7 +314,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       const pullCursors = this.pullQueueManager.getAllCursors()
 
       if (pushMessages.length === 0 && pullCursors.length === 0) {
-        return
+        return 'success'
       }
 
       // 4. Execute tRPC call
@@ -272,7 +337,18 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       if (response?.snapshotRequest?.requested) {
         this.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
       }
+
+      return 'success'
     } catch (error) {
+      if (this.isAuthError(error)) {
+        console.error('[VaultEncryptedNetworkAdapter] Auth failure during polling', error)
+        for (const [itemId, messages] of batchEntries) {
+          const existing = this.syncBatch.get(itemId) || []
+          this.syncBatch.set(itemId, [...messages, ...existing])
+        }
+        return 'auth-failure'
+      }
+
       console.error('[VaultEncryptedNetworkAdapter] Polling failed', error)
 
       // Restore unsent messages back into the queue for the next poll cycle
@@ -280,9 +356,36 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         const existing = this.syncBatch.get(itemId) || []
         this.syncBatch.set(itemId, [...messages, ...existing])
       }
+
+      return 'failure'
     } finally {
       this.onFinishRequest?.()
     }
+  }
+
+  private isAuthError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false
+    }
+
+    const anyError = error as { [key: string]: unknown }
+    const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
+      | { httpStatus?: number; code?: string }
+      | undefined
+    const httpStatus = data?.httpStatus
+    if (httpStatus === 401 || httpStatus === 403) {
+      return true
+    }
+
+    const code = data?.code || (anyError.code as string | undefined)
+    if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
+      return true
+    }
+
+    const message = typeof (anyError as { message?: unknown }).message === 'string'
+      ? ((anyError as { message: string }).message).toLowerCase()
+      : ''
+    return message.includes('unauthorized') || message.includes('forbidden')
   }
 
   disconnect(): void {
