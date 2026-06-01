@@ -50,6 +50,57 @@ export default function AppInitializer() {
       })
   }, [clearSyncWarning, setSyncWarning])
 
+  useEffect(() => {
+    const supportsBackgroundSync = 'SyncManager' in window
+    if (supportsBackgroundSync) {
+      return
+    }
+
+    let isDraining = false
+
+    const drainQueue = async () => {
+      if (isDraining) {
+        return
+      }
+
+      if (!navigator.onLine || document.visibilityState !== 'visible') {
+        return
+      }
+
+      if (!('serviceWorker' in navigator)) {
+        return
+      }
+
+      isDraining = true
+      try {
+        const registration = await navigator.serviceWorker.ready
+        registration.active?.postMessage({ type: 'FLOCK_DRAIN_BACKGROUND_SYNC' })
+      } finally {
+        isDraining = false
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void drainQueue()
+      }
+    }
+
+    const handleOnline = () => {
+      void drainQueue()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+
+    void drainQueue()
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
+
   useSyncCoordinatorLifecycle(account, loggedIn)
 
   return null
