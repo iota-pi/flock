@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   forceDeleteRecoveryItem: vi.fn(),
   listRecoveryItems: vi.fn(),
   subscribeRecoveryItems: vi.fn(),
+  shutdown: vi.fn(),
 }))
 
 vi.mock('../sync/SyncBridge', () => ({
@@ -20,6 +21,7 @@ vi.mock('../sync/SyncBridge', () => ({
     forceDeleteRecoveryItem: mocks.forceDeleteRecoveryItem,
     listRecoveryItems: mocks.listRecoveryItems,
     subscribeRecoveryItems: mocks.subscribeRecoveryItems,
+    shutdown: mocks.shutdown,
   },
 }))
 

@@ -10,6 +10,7 @@ import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
 import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
+let workerInstance: Worker | null = null
 const ITEM_UPDATE_BATCH_MAX = 50
 let onlineListenerAttached = false
 
@@ -90,6 +91,7 @@ export const SyncBridge = {
     const initialOnlineState = navigator.onLine
 
     const worker = new Worker(new URL('../workers/sync.worker.ts', import.meta.url), { type: 'module' })
+    workerInstance = worker
     syncApi = Comlink.wrap<SyncApi>(worker)
 
     try {
@@ -130,6 +132,9 @@ export const SyncBridge = {
       console.error('Failed to initialize SyncBridge:', error)
       useSyncStore.getState().setSyncStatus('offline')
       worker.terminate()
+      if (workerInstance === worker) {
+        workerInstance = null
+      }
       syncApi = null
     }
   },
@@ -225,6 +230,26 @@ export const SyncBridge = {
   reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.reencryptAllItems(Comlink.proxy(onProgress))
+  },
+
+  shutdown: async () => {
+    if (itemUpdateFlushHandle !== null) {
+      cancelAnimationFrame(itemUpdateFlushHandle)
+      itemUpdateFlushHandle = null
+    }
+    pendingItemUpdates.clear()
+
+    if (workerInstance) {
+      workerInstance.terminate()
+      workerInstance = null
+    }
+    syncApi = null
+    useSyncStore.getState().setSyncStatus('offline')
+
+    recoveryEntries = []
+    for (const listener of recoveryEntriesListeners) {
+      listener([])
+    }
   },
 }
 

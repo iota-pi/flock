@@ -67,6 +67,7 @@ vi.mock('../sync/SyncBridge', () => ({
     restoreFromBinaries: mocks.restoreFromBinaries,
     listRecoveryItems: vi.fn(async () => []),
     subscribeRecoveryItems: vi.fn(() => () => {}),
+    shutdown: vi.fn(async () => {}),
   }
 }))
 

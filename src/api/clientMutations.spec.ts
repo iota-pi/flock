@@ -17,6 +17,7 @@ vi.mock('../sync/SyncBridge', () => ({
     hardDeleteItems: vi.fn(async () => true),
     mutateMetadata: vi.fn(async () => true),
     clearAutomergeDocStore: vi.fn(async () => true),
+    shutdown: vi.fn(async () => {}),
   }
 }))
 

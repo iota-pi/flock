@@ -336,6 +336,7 @@ export async function signOutVault() {
       throw err
     }
   }
+  await SyncBridge.shutdown()
   await clearActiveSessionToken()
   await clearManualRecoveryEntries()
 
