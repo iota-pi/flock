@@ -216,5 +216,15 @@ export const SyncBridge = {
       recoveryEntriesListeners.delete(listener)
     }
   },
+
+  updateVaultKey: async (vaultKey: string) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.updateVaultKey(vaultKey)
+  },
+
+  reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.reencryptAllItems(Comlink.proxy(onProgress))
+  },
 }
 

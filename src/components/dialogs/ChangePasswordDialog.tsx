@@ -7,24 +7,24 @@ import DialogTitle from '@mui/material/DialogTitle'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
-import Visibility from '@mui/icons-material/Visibility'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
 
 import { changePassword } from 'src/api/vault'
 import { useToastStore } from 'src/state/toastStore'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
-import { SaveIcon } from '../Icons'
+import { SaveIcon, VisibilityIcon, VisibilityOffIcon } from '../Icons'
 
 
 interface Props {
   onClose: () => void,
   open: boolean,
+  onPasswordChanged?: () => void,
 }
 
 export default function ChangePasswordDialog({
   onClose,
   open,
+  onPasswordChanged,
 }: Props) {
   const setMessage = useToastStore(state => state.setMessage)
   const [currentPassword, setCurrentPassword] = useState('')
@@ -68,6 +68,9 @@ export default function ChangePasswordDialog({
         message: 'Password changed successfully',
       })
       handleClose()
+      if (onPasswordChanged) {
+        onPasswordChanged()
+      }
     } catch (err: any) {
       console.error('[ChangePasswordDialog] changePassword failed', err)
       const msg = err instanceof Error ? err.message : 'Failed to change password. Please verify your current password.'
@@ -75,7 +78,7 @@ export default function ChangePasswordDialog({
     } finally {
       setLoading(false)
     }
-  }, [currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage])
+  }, [currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage, onPasswordChanged])
 
   const isValid =
     currentPassword.length > 0 &&
@@ -107,7 +110,7 @@ export default function ChangePasswordDialog({
                       edge="end"
                       onClick={() => setShowCurrentPassword(show => !show)}
                     >
-                      {showCurrentPassword ? <VisibilityOff /> : <Visibility />}
+                      {showCurrentPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
                   </InputAdornment>
                 ),
@@ -138,7 +141,7 @@ export default function ChangePasswordDialog({
                       edge="end"
                       disabled={loading}
                     >
-                      {showNewPassword ? <VisibilityOff /> : <Visibility />}
+                      {showNewPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
                   </InputAdornment>
                 ),

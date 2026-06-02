@@ -32,6 +32,7 @@ import {
   encryptBytesWithKey,
   decryptBytesWithKey,
   generateSalt,
+  generateVaultKey,
   type CryptoResult,
 } from './crypto'
 import type { TRPCError } from '@trpc/server'
@@ -429,4 +430,13 @@ export async function changePassword(currentPassword: string, newPassword: strin
   masterKey = newMasterKey
   keyHash = newAuthToken
   await writeStoredMetadata()
+}
+
+export async function rotateVaultKey(): Promise<void> {
+  const newKey = await generateVaultKey()
+  const currentActiveVer = parseInt(activeKeyVersion, 10)
+  const nextActiveVer = (currentActiveVer + 1).toString()
+  keyring.set(nextActiveVer, newKey)
+  activeKeyVersion = nextActiveVer
+  await storeVault()
 }

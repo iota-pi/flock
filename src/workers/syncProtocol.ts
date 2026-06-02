@@ -35,5 +35,7 @@ export interface SyncApi {
   forceDeleteRecoveryItem: (itemId: string) => Promise<void>
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
+  updateVaultKey: (vaultKey: string) => Promise<void>
+  reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
 }
 

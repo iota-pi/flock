@@ -4,9 +4,9 @@ import type { Socket } from 'net'
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-async function runServer(port = 4000) {
-  process.env.DYNAMODB_ENDPOINT ??= 'http://localhost:8000'
+process.env.DYNAMODB_ENDPOINT ??= 'http://localhost:8000'
 
+async function runServer(port = 4000) {
   let retries = 10
   while (retries > 0) {
     const server = await createServer(true)

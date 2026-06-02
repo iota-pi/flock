@@ -48,7 +48,16 @@ export interface AutomergeSyncRepository {
 const PUSH_BATCH_SIZE = 25
 
 export function createDynamoAutomergeSyncRepository(config: AutomergeSyncConfig): AutomergeSyncRepository {
-  const ddbClient = new DynamoDBClient({ region: config.awsRegion })
+  const customEndpoint = !!process.env.DYNAMODB_ENDPOINT
+  const endpointArgs = customEndpoint ? {
+    credentials: { accessKeyId: 'foo', secretAccessKey: 'bar' },
+    endpoint: process.env.DYNAMODB_ENDPOINT,
+    region: 'local',
+  } : {}
+  const ddbClient = new DynamoDBClient({
+    region: config.awsRegion,
+    ...endpointArgs,
+  })
   const docClient = DynamoDBDocumentClient.from(ddbClient, {
     marshallOptions: {
       removeUndefinedValues: true,

@@ -76,6 +76,14 @@ export async function importVaultKey(rawKey: string): Promise<CryptoKey> {
   )
 }
 
+export async function generateVaultKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt'],
+  )
+}
+
 export async function exportVaultKey(key: CryptoKey): Promise<string> {
   return fromBytes(await crypto.subtle.exportKey('raw', key))
 }

@@ -36,6 +36,7 @@ import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 import { SnapshotManager } from './snapshotManager'
 import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
+import { ReencryptionManager } from './reencryptionManager'
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -51,6 +52,7 @@ class SyncWorker implements SyncApi {
   private snapshotManager: SnapshotManager
   private recoveryManager: RecoveryManager
   private legacyBootstrapper: LegacyBootstrapper
+  private reencryptionManager: ReencryptionManager
 
   constructor() {
     this.snapshotManager = new SnapshotManager(() => ({
@@ -69,6 +71,11 @@ class SyncWorker implements SyncApi {
       (items) => this.storeItems(items),
       (changes) => this.mutateMetadata(changes),
     )
+
+    this.reencryptionManager = new ReencryptionManager(() => ({
+      accountId: this.accountId,
+      repo: this.repo,
+    }))
   }
 
   private updateStatus(status: SyncStatus) {
@@ -457,6 +464,14 @@ class SyncWorker implements SyncApi {
 
   async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
     return await this.recoveryManager.listRecoveryItems()
+  }
+
+  async updateVaultKey(vaultKey: string) {
+    await initWorkerVault(vaultKey)
+  }
+
+  async reencryptAllItems(onProgress?: (done: number, total: number) => void) {
+    await this.reencryptionManager.reencryptAllItems(onProgress)
   }
 }
 

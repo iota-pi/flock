@@ -9,7 +9,8 @@ import {
   decryptBytes,
   storeVault,
   loadVault,
-  signOutVault
+  signOutVault,
+  rotateVaultKey,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
 
@@ -50,10 +51,10 @@ describe('Vault Keyring Integration', () => {
 
     const stored = localStorage.getItem(VAULT_STORAGE_KEY)
     expect(stored).toBeDefined()
-    
+
     const parsed = JSON.parse(stored!)
     expect(parsed.account).toBe('test-account')
-    
+
     const keyData = JSON.parse(parsed.key)
     expect(keyData.activeVersion).toBe('1')
     expect(keyData['1']).toBeDefined()
@@ -90,13 +91,13 @@ describe('Vault Keyring Integration', () => {
       iterations: 1000,
     })
     await storeVault()
-    
+
     // Construct serialized keyring
     const mockStorage = localStorage.getItem(VAULT_STORAGE_KEY)
     const parsed = JSON.parse(mockStorage!)
-    
+
     await signOutVault()
-    
+
     await initWorkerVault(parsed.key)
 
     expect(getVaultKey('1')).toBeDefined()
@@ -145,5 +146,25 @@ describe('Vault Keyring Integration', () => {
 
     const dec = await decrypt(enc)
     expect(dec).toBe('legacy data')
+  })
+
+  it('rotates vault key, updates activeKeyVersion, and encrypts/decrypts with new active key version', async () => {
+    await initialiseVault({
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    const enc1 = await encrypt('data 1')
+    expect(enc1.kver).toBe('1')
+
+    await rotateVaultKey()
+
+    const enc2 = await encrypt('data 2')
+    expect(enc2.kver).toBe('2')
+
+    // Both should decrypt correctly
+    expect(await decrypt(enc1)).toBe('data 1')
+    expect(await decrypt(enc2)).toBe('data 2')
   })
 })

@@ -6,7 +6,6 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import getDriver from '../drivers'
 import { appRouter } from '../trpc/root'
 import { createContext } from '../trpc/trpc'
-import { OnErrorFunction } from '@trpc/server/http'
 
 
 async function createServer(devMode = false) {

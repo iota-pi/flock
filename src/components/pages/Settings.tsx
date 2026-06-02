@@ -26,6 +26,7 @@ function SettingsPage() {
   const subscriptionDialog = useDialogState('subscription')
   const defaultFrequencyDialog = useDialogState('defaultFrequency')
   const changePasswordDialog = useDialogState('changePassword')
+  const reencryptDialog = useDialogState('reencrypt')
 
   const onExport = useCallback(
     async () => {
@@ -107,6 +108,7 @@ function SettingsPage() {
           restore: restoreDialog,
           subscription: subscriptionDialog,
           changePassword: changePasswordDialog,
+          reencrypt: reencryptDialog,
         }}
         existingPeople={existingPeople}
         handlers={{

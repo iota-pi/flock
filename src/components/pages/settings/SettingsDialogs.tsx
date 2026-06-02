@@ -10,10 +10,12 @@ const ImportPeopleDialog = lazy(() => import('../../dialogs/ImportPeopleDialog')
 const SubscriptionDialog = lazy(() => import('../../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../../dialogs/DefaultFrequencyDialog'))
 const ChangePasswordDialog = lazy(() => import('../../dialogs/ChangePasswordDialog'))
+const ReencryptVaultDialog = lazy(() => import('../../dialogs/ReencryptVaultDialog'))
 
 
 type DialogState = {
   isOpen: boolean
+  openDialog: () => void
   closeDialog: () => void
 }
 
@@ -28,6 +30,7 @@ type SettingsDialogsProps = {
     restore: DialogState
     subscription: DialogState
     changePassword: DialogState
+    reencrypt: DialogState
   }
   handlers: {
     onImportConfirm: (items: Item[]) => Promise<void>
@@ -81,6 +84,11 @@ export default function SettingsDialogs({
       <ChangePasswordDialog
         open={dialogs.changePassword.isOpen}
         onClose={dialogs.changePassword.closeDialog}
+        onPasswordChanged={dialogs.reencrypt.openDialog}
+      />
+      <ReencryptVaultDialog
+        open={dialogs.reencrypt.isOpen}
+        onClose={dialogs.reencrypt.closeDialog}
       />
     </Suspense>
   )
