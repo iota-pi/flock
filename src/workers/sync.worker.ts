@@ -171,7 +171,7 @@ class SyncWorker implements SyncApi {
     // Start background leader election
     void this.acquireLeadership(accountId)
 
-    this.adapter.setAccount(accountId)
+    await this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
     await initializeAutomergeDocStore(accountId)
