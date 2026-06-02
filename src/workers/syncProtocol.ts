@@ -37,5 +37,6 @@ export interface SyncApi {
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
+  shutdown: () => Promise<void>
 }
 

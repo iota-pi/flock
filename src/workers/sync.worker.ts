@@ -473,6 +473,21 @@ class SyncWorker implements SyncApi {
   async reencryptAllItems(onProgress?: (done: number, total: number) => void) {
     await this.reencryptionManager.reencryptAllItems(onProgress)
   }
+
+  async shutdown() {
+    if (this.releaseLeadershipLock) {
+      this.releaseLeadershipLock()
+      this.releaseLeadershipLock = null
+    }
+
+    if (this.adapter) {
+      await this.adapter.disconnect()
+      this.adapter = null
+    }
+
+    this.clearListeners()
+    this.repo = null
+  }
 }
 
 Comlink.expose(new SyncWorker())

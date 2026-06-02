@@ -332,9 +332,7 @@ export async function signOutVault() {
   try {
     await SyncBridge.clearAutomergeDocStore()
   } catch (err) {
-    if (!(err instanceof Error && err.message.includes('not initialized'))) {
-      throw err
-    }
+    console.error('Failed to clear Automerge doc store during sign-out:', err)
   }
   await SyncBridge.shutdown()
   await clearActiveSessionToken()

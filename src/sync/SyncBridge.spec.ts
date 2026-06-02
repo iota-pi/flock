@@ -10,6 +10,7 @@ const mockSyncApi = {
   bootstrapLegacyItems: vi.fn().mockResolvedValue(undefined),
   clearAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   listRecoveryItems: vi.fn().mockResolvedValue([]),
+  shutdown: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -61,13 +62,41 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.bootstrapLegacyItems).toHaveBeenCalled()
   })
 
-  it('returns early and does not create a new worker if already initialized', async () => {
+  it('returns early and does not create a new worker if already initialized with the same account', async () => {
     await SyncBridge.initialize('test-account')
     expect(Comlink.wrap).toHaveBeenCalledTimes(1)
 
-    // Call initialize again
+    // Call initialize again with the same account
     await SyncBridge.initialize('test-account')
     expect(Comlink.wrap).toHaveBeenCalledTimes(1)
+  })
+
+  it('terminates the active worker and initializes a new one when initialized with a different account', async () => {
+    let terminateSpy1: any
+    let terminateSpy2: any
+    let workerIndex = 0
+
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        if (workerIndex === 0) {
+          terminateSpy1 = this.terminate
+        } else {
+          terminateSpy2 = this.terminate
+        }
+        workerIndex++
+      }
+    } as any
+
+    await SyncBridge.initialize('account-one')
+    expect(Comlink.wrap).toHaveBeenCalledTimes(1)
+    expect(terminateSpy1).not.toHaveBeenCalled()
+
+    // Call initialize again with a different account
+    await SyncBridge.initialize('account-two')
+    expect(terminateSpy1).toHaveBeenCalledTimes(1)
+    expect(Comlink.wrap).toHaveBeenCalledTimes(2)
+    expect(terminateSpy2).not.toHaveBeenCalled()
   })
 
   it('terminates the active worker and resets state on shutdown', async () => {
@@ -84,6 +113,7 @@ describe('SyncBridge', () => {
     expect(terminateSpy).not.toHaveBeenCalled()
 
     await SyncBridge.shutdown()
+    expect(mockSyncApi.shutdown).toHaveBeenCalledTimes(1)
     expect(terminateSpy).toHaveBeenCalledTimes(1)
     expect(useSyncStore.getState().status).toBe('offline')
 

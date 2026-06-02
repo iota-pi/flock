@@ -11,6 +11,7 @@ import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 let workerInstance: Worker | null = null
+let currentAccountId: string | null = null
 const ITEM_UPDATE_BATCH_MAX = 50
 let onlineListenerAttached = false
 
@@ -85,8 +86,13 @@ const syncCallbacks: SyncCallbacks = {
 
 export const SyncBridge = {
   initialize: async (accountId: string) => {
-    if (syncApi) return
+    if (syncApi && currentAccountId === accountId) return
 
+    if (syncApi || workerInstance) {
+      await SyncBridge.shutdown()
+    }
+
+    currentAccountId = accountId
     useSyncStore.getState().setSyncStatus('connecting')
     const initialOnlineState = navigator.onLine
 
@@ -136,6 +142,7 @@ export const SyncBridge = {
         workerInstance = null
       }
       syncApi = null
+      currentAccountId = null
     }
   },
 
@@ -233,11 +240,26 @@ export const SyncBridge = {
   },
 
   shutdown: async () => {
+    currentAccountId = null
+
     if (itemUpdateFlushHandle !== null) {
       cancelAnimationFrame(itemUpdateFlushHandle)
       itemUpdateFlushHandle = null
     }
     pendingItemUpdates.clear()
+
+    if (syncApi) {
+      try {
+        await Promise.race([
+          syncApi.shutdown(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('Sync worker shutdown timed out')), 1000)
+          ),
+        ])
+      } catch (err) {
+        console.error('[SyncBridge] Failed to shut down worker cleanly:', err)
+      }
+    }
 
     if (workerInstance) {
       workerInstance.terminate()
