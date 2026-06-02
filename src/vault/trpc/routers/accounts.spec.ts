@@ -141,4 +141,68 @@ describe('accountsRouter security contracts', () => {
       code: 'UNAUTHORIZED',
     })
   })
+
+  it('allows changing password when authorized and credentials are correct', async () => {
+    const ctx = createContext()
+    const rawCurrentPassword = 'current-password'
+    const rawNewPassword = 'new-password'
+
+    const clientCurrentAuthToken = hashString(rawCurrentPassword)
+    const clientNewAuthToken = hashString(rawNewPassword)
+
+    const serverStoredAuthToken = hashString(clientCurrentAuthToken)
+
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      authToken: serverStoredAuthToken,
+      sessions: [{ token: 'session-token', expiry: 12345 }],
+      salt: 'salt-1',
+      iterations: 100000,
+    } as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.changePassword({
+      account: 'acct-1',
+      currentAuthToken: clientCurrentAuthToken,
+      newAuthToken: clientNewAuthToken,
+      newSalt: 'new-salt',
+      newIterations: 100000,
+      newKeyring: 'new-keyring',
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      authToken: hashString(clientNewAuthToken),
+      salt: 'new-salt',
+      iterations: 100000,
+      keyring: 'new-keyring',
+      sessions: [{ token: 'session-token', expiry: 12345 }],
+    })
+  })
+
+  it('rejects password change if currentAuthToken is incorrect', async () => {
+    const ctx = createContext()
+    const clientCurrentAuthToken = hashString('correct-password')
+    const serverStoredAuthToken = hashString(clientCurrentAuthToken)
+
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      authToken: serverStoredAuthToken,
+      sessions: [{ token: 'session-token', expiry: 12345 }],
+    } as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.changePassword({
+      account: 'acct-1',
+      currentAuthToken: hashString('incorrect-password-hash'),
+      newAuthToken: hashString('new-password-hash'),
+      newSalt: 'new-salt',
+      newIterations: 100000,
+      newKeyring: 'new-keyring',
+    })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: 'Incorrect current password',
+    })
+  })
 })

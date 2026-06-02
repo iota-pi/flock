@@ -396,6 +396,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotAt,
       lastSnapshotRequestedAt,
       keyring,
+      authToken,
+      salt,
+      iterations,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -409,6 +412,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
       keyring?: string,
+      authToken?: string,
+      salt?: string,
+      iterations?: number,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -468,6 +474,18 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof keyring === 'string') {
       updateExpressions.push('keyring = :keyring')
       expressionAttributeValues[':keyring'] = keyring
+    }
+    if (typeof authToken === 'string') {
+      updateExpressions.push('authToken = :authToken')
+      expressionAttributeValues[':authToken'] = authToken
+    }
+    if (typeof salt === 'string') {
+      updateExpressions.push('salt = :salt')
+      expressionAttributeValues[':salt'] = salt
+    }
+    if (typeof iterations === 'number') {
+      updateExpressions.push('iterations = :iterations')
+      expressionAttributeValues[':iterations'] = iterations
     }
 
     if (updateExpressions.length === 0) {

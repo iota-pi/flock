@@ -58,3 +58,28 @@ export async function updateKeyring(keyring: string): Promise<void> {
   })
   assertSuccess(response, 'updateKeyring')
 }
+
+export async function changePassword({
+  currentAuthToken,
+  newAuthToken,
+  newSalt,
+  newIterations,
+  newKeyring,
+}: {
+  currentAuthToken: string,
+  newAuthToken: string,
+  newSalt: string,
+  newIterations: number,
+  newKeyring: string,
+}): Promise<void> {
+  const account = getAccountId()
+  const response = await trpcClient.accounts.changePassword.mutate({
+    account,
+    currentAuthToken,
+    newAuthToken,
+    newSalt,
+    newIterations,
+    newKeyring,
+  })
+  assertSuccess(response, 'changePassword')
+}

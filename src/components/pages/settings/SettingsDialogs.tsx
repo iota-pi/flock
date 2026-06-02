@@ -9,6 +9,7 @@ const DataRecoveryDialog = lazy(() => import('../../dialogs/DataRecoveryDialog')
 const ImportPeopleDialog = lazy(() => import('../../dialogs/ImportPeopleDialog'))
 const SubscriptionDialog = lazy(() => import('../../dialogs/SubscriptionDialog'))
 const DefaultFrequencyDialog = lazy(() => import('../../dialogs/DefaultFrequencyDialog'))
+const ChangePasswordDialog = lazy(() => import('../../dialogs/ChangePasswordDialog'))
 
 
 type DialogState = {
@@ -26,6 +27,7 @@ type SettingsDialogsProps = {
     dataRecovery: DialogState
     restore: DialogState
     subscription: DialogState
+    changePassword: DialogState
   }
   handlers: {
     onImportConfirm: (items: Item[]) => Promise<void>
@@ -75,6 +77,10 @@ export default function SettingsDialogs({
         defaults={defaultFrequencies}
         onClose={dialogs.defaultFrequency.closeDialog}
         onSave={handlers.onSaveDefaultFrequencies}
+      />
+      <ChangePasswordDialog
+        open={dialogs.changePassword.isOpen}
+        onClose={dialogs.changePassword.closeDialog}
       />
     </Suspense>
   )

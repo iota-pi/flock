@@ -33,6 +33,15 @@ export const UpdateKeyringBodySchema = z.object({
   keyring: z.string().min(1),
 })
 
+export const ChangePasswordBodySchema = z.object({
+  account: z.string().min(1),
+  currentAuthToken: z.string().min(1),
+  newAuthToken: z.string().min(1),
+  newSalt: z.string().min(1),
+  newIterations: z.number().int().min(1),
+  newKeyring: z.string().min(1),
+})
+
 export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
 })

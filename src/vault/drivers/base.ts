@@ -52,7 +52,8 @@ interface VaultAccount extends BaseData {
   lastSnapshotCursor?: number,
   lastSnapshotAt?: number,
   lastSnapshotRequestedAt?: number,
-  // Salt and iterations are not in AuthData since they are only used client-side for logins
+  // Salt, iterations, and authToken are not in AuthData since they are only used client-side for logins
+  authToken: string,
   salt: string,
   iterations: number,
   keyring?: string,
@@ -97,6 +98,9 @@ export default abstract class BaseDriver<T = unknown> {
     lastSnapshotAt?: number,
     lastSnapshotRequestedAt?: number,
     keyring?: string,
+    authToken?: string,
+    salt?: string,
+    iterations?: number,
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)

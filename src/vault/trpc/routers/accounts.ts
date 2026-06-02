@@ -11,6 +11,7 @@ import {
   ReminderSettingsBodySchema,
   UpdateMetadataBodySchema,
   UpdateKeyringBodySchema,
+  ChangePasswordBodySchema,
 } from 'src/shared/schemas/trpc'
 import { hashString } from '../../api/util'
 
@@ -229,6 +230,37 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         keyring: input.keyring,
+      })
+
+      return { success: true }
+    }),
+
+  changePassword: protectedProcedure
+    .input(ChangePasswordBodySchema)
+    .mutation(async ({ ctx, input }) => {
+      const accountData = await ctx.vault.getAccount({
+        account: input.account,
+        session: ctx.authToken,
+      })
+
+      const currentAuthTokenHash = hashString(input.currentAuthToken)
+      if (accountData.authToken !== currentAuthTokenHash) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect current password' })
+      }
+
+      const newAuthTokenHash = hashString(input.newAuthToken)
+
+      const now = Date.now()
+      const currentSessionToken = ctx.authToken
+      const currentSessionExpiry = accountData.sessions?.find(s => s.token === currentSessionToken)?.expiry ?? (now + 30 * 24 * 60 * 60 * 1000)
+
+      await ctx.vault.updateAccountData({
+        account: input.account,
+        authToken: newAuthTokenHash,
+        salt: input.newSalt,
+        iterations: input.newIterations,
+        keyring: input.newKeyring,
+        sessions: [{ token: currentSessionToken, expiry: currentSessionExpiry }],
       })
 
       return { success: true }

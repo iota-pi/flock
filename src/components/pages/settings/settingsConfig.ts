@@ -9,6 +9,7 @@ import {
   RestoreIcon,
   SignOutIcon,
   UploadIcon,
+  PasswordIcon,
 } from '../../Icons'
 
 export type SettingsActionId =
@@ -22,6 +23,7 @@ export type SettingsActionId =
   | 'openRestoreDialog'
   | 'openRecoveryDialog'
   | 'openImportDialog'
+  | 'openChangePasswordDialog'
 
 export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue'
 
@@ -60,6 +62,14 @@ export const settingsConfig: SettingsConfigEntry[] = [
     disabledWhen: 'noItemCache',
   },
   { type: 'divider', key: 'd2' },
+  {
+    type: 'item',
+    id: 'change-password',
+    title: 'Change password',
+    icon: PasswordIcon,
+    action: 'openChangePasswordDialog',
+  },
+  { type: 'divider', key: 'd-pw' },
   {
     type: 'item',
     id: 'darkmode',

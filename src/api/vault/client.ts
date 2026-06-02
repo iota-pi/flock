@@ -5,6 +5,7 @@ export {
   recordPrayerCompletion,
   getKeyring,
   updateKeyring,
+  changePassword,
 } from './AccountClient'
 
 export {

@@ -5,6 +5,7 @@ export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
 export type VaultStoredMetadata = {
   account: string,
   key: string,
+  authToken?: string,
 }
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
@@ -13,7 +14,11 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
     try {
       const parsed = JSON.parse(serialized) as Partial<VaultStoredMetadata>
       if (typeof parsed.account === 'string' && typeof parsed.key === 'string') {
-        return { account: parsed.account, key: parsed.key }
+        return {
+          account: parsed.account,
+          key: parsed.key,
+          authToken: parsed.authToken,
+        }
       }
     } catch {
       localStorage.removeItem(VAULT_STORAGE_KEY)

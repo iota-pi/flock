@@ -25,6 +25,7 @@ function SettingsPage() {
   const importDialog = useDialogState('import')
   const subscriptionDialog = useDialogState('subscription')
   const defaultFrequencyDialog = useDialogState('defaultFrequency')
+  const changePasswordDialog = useDialogState('changePassword')
 
   const onExport = useCallback(
     async () => {
@@ -49,6 +50,7 @@ function SettingsPage() {
     openGoalDialog: goalDialog.openDialog,
     openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
     openSubscriptionDialog: subscriptionDialog.openDialog,
+    openChangePasswordDialog: changePasswordDialog.openDialog,
     exportData: () => {
       void onExport()
     },
@@ -104,6 +106,7 @@ function SettingsPage() {
           dataRecovery: recoveryDialog,
           restore: restoreDialog,
           subscription: subscriptionDialog,
+          changePassword: changePasswordDialog,
         }}
         existingPeople={existingPeople}
         handlers={{

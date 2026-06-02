@@ -20,6 +20,7 @@ import {
   updateReminderSettings as updateReminderSettingsClient,
   getKeyring,
   updateKeyring,
+  changePassword as changePasswordClient,
 } from './client'
 import {
   decryptWithKey,
@@ -30,11 +31,12 @@ import {
   importVaultKey,
   encryptBytesWithKey,
   decryptBytesWithKey,
+  generateSalt,
   type CryptoResult,
 } from './crypto'
 import type { TRPCError } from '@trpc/server'
 import { SyncBridge } from 'src/sync/SyncBridge'
-import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata } from './util'
+import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
@@ -51,6 +53,7 @@ export class VaultNotInitializedError extends Error {
 }
 
 let keyring: Map<string, CryptoKey> = new Map()
+let masterKey: CryptoKey | null = null
 let activeKeyVersion = '1'
 let keyHash = ''
 let session = ''
@@ -92,6 +95,7 @@ async function writeStoredMetadata() {
   localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({
     account: getAccountId(),
     key: JSON.stringify(keyringData),
+    authToken: keyHash,
   } satisfies VaultStoredMetadata))
 }
 
@@ -132,6 +136,7 @@ export async function initialiseVault({
   salt: string,
 }) {
   const derivedKey = await deriveVaultKey({ password, salt, iterations })
+  masterKey = derivedKey
   keyring.clear()
   keyring.set('1', derivedKey)
   activeKeyVersion = '1'
@@ -184,7 +189,8 @@ export async function loginVault({
     const encryptedKeyringStr = await getKeyring()
     if (encryptedKeyringStr) {
       const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
-      const plaintext = await decryptWithKey(getVaultKey('1'), encryptedKeyring)
+      const decryptionKey = masterKey || getVaultKey('1')
+      const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
       const keyringData = JSON.parse(plaintext)
       if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
         activeKeyVersion = keyringData.activeVersion as string
@@ -238,7 +244,7 @@ export async function loadVault() {
           activeKeyVersion = '1'
         }
 
-        const nextKeyHash = await hashVaultKey(getActiveKey())
+        const nextKeyHash = stored.authToken || await hashVaultKey(getActiveKey())
         try {
           await establishSessionFromKeyHash(nextKeyHash)
           setApiSessionExpiredHandler(handleSessionExpired)
@@ -248,7 +254,8 @@ export async function loadVault() {
             const encryptedKeyringStr = await getKeyring()
             if (encryptedKeyringStr) {
               const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
-              const plaintext = await decryptWithKey(getVaultKey('1'), encryptedKeyring)
+              const decryptionKey = masterKey || getVaultKey('1')
+              const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
               const keyringData = JSON.parse(plaintext)
               if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
                 let changed = false
@@ -302,7 +309,8 @@ export async function storeVault() {
         keyringData[ver] = await exportVaultKey(k)
       }
       const plaintext = JSON.stringify(keyringData)
-      const encrypted = await encryptWithKey(getVaultKey('1'), plaintext, '1')
+      const encryptionKey = masterKey || getVaultKey('1')
+      const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
       await updateKeyring(JSON.stringify(encrypted))
     } catch (err) {
       console.error('[vault] Failed to sync keyring to server:', err)
@@ -313,6 +321,7 @@ export async function storeVault() {
 export async function signOutVault() {
   const { updateAuth } = useAuthStore.getState()
   keyring.clear()
+  masterKey = null
   activeKeyVersion = '1'
   keyHash = ''
   session = ''
@@ -379,4 +388,45 @@ export async function updateReminderSettings(
 
 export async function recordPrayerCompletion(completedAt = Date.now()): Promise<void> {
   await recordPrayerCompletionClient(completedAt)
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const { salt: currentSalt, iterations: currentIterations } = await getSecurityParams()
+  const currentMasterKey = await deriveVaultKey({
+    password: currentPassword,
+    salt: currentSalt,
+    iterations: currentIterations,
+  })
+  const currentAuthToken = await hashVaultKey(currentMasterKey)
+
+  const newSalt = generateSalt()
+  const newIterations = DEFAULT_CRYPTO_ITERATIONS
+
+  const newMasterKey = await deriveVaultKey({
+    password: newPassword,
+    salt: newSalt,
+    iterations: newIterations,
+  })
+  const newAuthToken = await hashVaultKey(newMasterKey)
+
+  const keyringData: Record<string, string> = {
+    activeVersion: activeKeyVersion,
+  }
+  for (const [ver, k] of keyring.entries()) {
+    keyringData[ver] = await exportVaultKey(k)
+  }
+  const plaintext = JSON.stringify(keyringData)
+  const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
+
+  await changePasswordClient({
+    currentAuthToken,
+    newAuthToken,
+    newSalt,
+    newIterations,
+    newKeyring: JSON.stringify(encryptedKeyring),
+  })
+
+  masterKey = newMasterKey
+  keyHash = newAuthToken
+  await writeStoredMetadata()
 }

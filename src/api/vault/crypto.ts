@@ -86,6 +86,7 @@ export async function hashVaultKey(key: CryptoKey): Promise<string> {
   return fromBytes(keyHashBytes)
 }
 
+
 export async function encryptWithKey(key: CryptoKey, plaintext: string, kver?: string): Promise<CryptoResult> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const enc = new TextEncoder()
