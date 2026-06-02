@@ -1,6 +1,4 @@
-import { resolveAutomergeSyncConfig } from './automergeSyncConfig'
 import {
-  createDynamoAutomergeSyncRepository,
   type AutomergeSyncRepository,
   type StoredSyncMessage,
 } from './automergeSyncRepository'
@@ -50,7 +48,7 @@ function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyn
 
 const SYNC_MESSAGE_PAGE_LIMIT = 200
 
-function createAutomergeSyncService({
+export function createAutomergeSyncService({
   now = Date.now,
   repository,
 }: AutomergeSyncServiceDeps) {
@@ -156,9 +154,4 @@ function createAutomergeSyncService({
   }
 }
 
-const automergeSyncService = createAutomergeSyncService({
-  repository: createDynamoAutomergeSyncRepository(resolveAutomergeSyncConfig()),
-})
-
-export const pullAutomergeSyncBatch = automergeSyncService.pullAutomergeSyncBatch
-export const pushAutomergeSyncBatch = automergeSyncService.pushAutomergeSyncBatch
+// Removed module-level global singleton to support dynamic per-request instantiations

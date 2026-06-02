@@ -65,6 +65,16 @@ export interface VaultItem extends VaultKey, VaultData {
   ttl?: number,
 }
 
+export type StoredSyncMessage = {
+  cursor: number
+  encryptedMessage: {
+    iv: string
+    cipher: string
+    version?: string
+  }
+  createdAt: number
+}
+
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
   abstract connect(options?: T): BaseDriver<T>
@@ -111,6 +121,35 @@ export default abstract class BaseDriver<T = unknown> {
   abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
   abstract delete(key: VaultKey): Promise<void>
+
+  // Sync message operations
+  abstract appendSyncMessage(input: {
+    account: string
+    itemId: string
+    entry: StoredSyncMessage
+  }): Promise<void>
+
+  abstract pushSyncMessagesBatch(input: {
+    account: string
+    messages: Array<{
+      itemId: string
+      entry: StoredSyncMessage
+      lastModified: number
+    }>
+  }): Promise<void>
+
+  abstract getSyncMessages(input: {
+    account: string
+    itemId: string
+    fromCursor?: number
+    limit?: number
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+
+  abstract pruneSyncMessagesUpToCursor(input: {
+    account: string
+    itemId: string
+    cursor: number
+  }): Promise<number>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account

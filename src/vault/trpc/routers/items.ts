@@ -9,12 +9,8 @@ import {
 import {
   createDynamoAutomergeSyncRepository,
 } from '../../services/automergeSyncRepository'
-import { resolveAutomergeSyncConfig } from '../../services/automergeSyncConfig'
 import type { VaultItem } from '../../drivers/base'
 import type { ItemType } from '../../types'
-
-
-const syncRepository = createDynamoAutomergeSyncRepository(resolveAutomergeSyncConfig())
 
 export const itemsRouter = router({
   fetchMany: protectedProcedure
@@ -64,6 +60,7 @@ export const itemsRouter = router({
           lastSnapshotAt: Date.now(),
         })
 
+        const syncRepository = createDynamoAutomergeSyncRepository(ctx.vault)
         await Promise.all(
           persistedSnapshots.map(snapshot => syncRepository.pruneSyncMessagesUpToCursor({
             account: input.account,

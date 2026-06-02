@@ -59,6 +59,22 @@ class TestDriver extends BaseDriver {
   async delete() {
     throw new Error('not implemented')
   }
+
+  async appendSyncMessage(): ReturnType<BaseDriver['appendSyncMessage']> {
+    throw new Error('not implemented')
+  }
+
+  async pushSyncMessagesBatch(): ReturnType<BaseDriver['pushSyncMessagesBatch']> {
+    throw new Error('not implemented')
+  }
+
+  async getSyncMessages(): ReturnType<BaseDriver['getSyncMessages']> {
+    throw new Error('not implemented')
+  }
+
+  async pruneSyncMessagesUpToCursor(): ReturnType<BaseDriver['pruneSyncMessagesUpToCursor']> {
+    throw new Error('not implemented')
+  }
 }
 
 describe('BaseDriver auth', () => {

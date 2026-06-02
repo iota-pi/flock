@@ -4,10 +4,8 @@ import {
   SyncPollBatchSchema,
 } from 'src/shared/schemas/trpc'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from 'src/sync/automergeConstants'
-import {
-  pullAutomergeSyncBatch,
-  pushAutomergeSyncBatch,
-} from '../../services/automergeSyncService'
+import { createAutomergeSyncService } from '../../services/automergeSyncService'
+import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
 
 
 const SNAPSHOT_REQUEST_INTERVAL = 30000
@@ -16,21 +14,28 @@ const SNAPSHOT_REFRESH_INTERVAL = 24 * 60 * 60 * 1000
 export const syncRouter = router({
   pushBatch: protectedProcedure
     .input(SyncPushBatchSchema)
-    .mutation(async ({ input }) => pushAutomergeSyncBatch(input)),
+    .mutation(async ({ ctx, input }) => {
+      const repository = createDynamoAutomergeSyncRepository(ctx.vault)
+      const service = createAutomergeSyncService({ repository })
+      return service.pushAutomergeSyncBatch(input)
+    }),
 
   pollSync: protectedProcedure
     .input(SyncPollBatchSchema)
     .mutation(async ({ ctx, input }) => {
+      const repository = createDynamoAutomergeSyncRepository(ctx.vault)
+      const service = createAutomergeSyncService({ repository })
+
       let pushResults: Array<{ itemId: string; cursor: number }> = []
       if (input.pushMessages.length > 0) {
-        const pushResult = await pushAutomergeSyncBatch({
+        const pushResult = await service.pushAutomergeSyncBatch({
           account: input.account,
           messages: input.pushMessages,
         })
         pushResults = pushResult.results
       }
 
-      let pullResults: Awaited<ReturnType<typeof pullAutomergeSyncBatch>>['results'] = []
+      let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       if (input.pullCursors.length > 0) {
         const indexIndex = input.pullCursors.findIndex(c => c.itemId === ACCOUNT_INDEX_DOCUMENT_ID)
         if (indexIndex > 0) {
@@ -38,7 +43,7 @@ export const syncRouter = router({
           input.pullCursors.unshift(indexCursor)
         }
 
-        const pullResult = await pullAutomergeSyncBatch({
+        const pullResult = await service.pullAutomergeSyncBatch({
           account: input.account,
           cursors: input.pullCursors,
         })

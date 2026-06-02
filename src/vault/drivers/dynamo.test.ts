@@ -285,4 +285,40 @@ describe('DynamoDriver', function () {
     const result = await driver.getAccount({ account, session })
     expect(result.keyring).toBe(keyringValue)
   })
+
+  it('can append, push, get, and prune sync messages', async () => {
+    const account = generateAccountId()
+    const itemId = 'test-item-123'
+    const entry1 = {
+      cursor: 1001,
+      encryptedMessage: { iv: 'iv1', cipher: 'cipher1' },
+      createdAt: Date.now(),
+    }
+    const entry2 = {
+      cursor: 1002,
+      encryptedMessage: { iv: 'iv2', cipher: 'cipher2' },
+      createdAt: Date.now(),
+    }
+
+    await driver.appendSyncMessage({ account, itemId, entry: entry1 })
+    await driver.pushSyncMessagesBatch({
+      account,
+      messages: [
+        { itemId, entry: entry2, lastModified: Date.now() },
+      ],
+    })
+
+    const result = await driver.getSyncMessages({ account, itemId })
+    expect(result.messages.length).toBe(2)
+    const sorted = result.messages.sort((a, b) => a.cursor - b.cursor)
+    expect(sorted[0].cursor).toBe(1001)
+    expect(sorted[1].cursor).toBe(1002)
+
+    const deleted = await driver.pruneSyncMessagesUpToCursor({ account, itemId, cursor: 1001 })
+    expect(deleted).toBe(1)
+
+    const resultAfterPrune = await driver.getSyncMessages({ account, itemId })
+    expect(resultAfterPrune.messages.length).toBe(1)
+    expect(resultAfterPrune.messages[0].cursor).toBe(1002)
+  })
 })
