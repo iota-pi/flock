@@ -18,6 +18,8 @@ import {
   getSession,
   recordPrayerCompletion as recordPrayerCompletionClient,
   updateReminderSettings as updateReminderSettingsClient,
+  getKeyring,
+  updateKeyring,
 } from './client'
 import {
   decryptWithKey,
@@ -177,6 +179,26 @@ export async function loginVault({
 }) {
   await initialiseVault({ password, salt, iterations })
   await establishSessionFromKeyHash(keyHash)
+
+  try {
+    const encryptedKeyringStr = await getKeyring()
+    if (encryptedKeyringStr) {
+      const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
+      const plaintext = await decryptWithKey(getVaultKey('1'), encryptedKeyring)
+      const keyringData = JSON.parse(plaintext)
+      if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+        activeKeyVersion = keyringData.activeVersion as string
+        for (const [ver, expKey] of Object.entries(keyringData)) {
+          if (ver !== 'activeVersion') {
+            keyring.set(ver, await importVaultKey(expKey as string))
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[vault] Failed to retrieve keyring from server during login:', err)
+  }
+
   await storeVault()
 }
 
@@ -221,6 +243,33 @@ export async function loadVault() {
           await establishSessionFromKeyHash(nextKeyHash)
           setApiSessionExpiredHandler(handleSessionExpired)
           updateAuth({ loggedIn: true })
+
+          try {
+            const encryptedKeyringStr = await getKeyring()
+            if (encryptedKeyringStr) {
+              const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
+              const plaintext = await decryptWithKey(getVaultKey('1'), encryptedKeyring)
+              const keyringData = JSON.parse(plaintext)
+              if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+                let changed = false
+                if (activeKeyVersion !== keyringData.activeVersion) {
+                  activeKeyVersion = keyringData.activeVersion as string
+                  changed = true
+                }
+                for (const [ver, expKey] of Object.entries(keyringData)) {
+                  if (ver !== 'activeVersion' && !keyring.has(ver)) {
+                    keyring.set(ver, await importVaultKey(expKey as string))
+                    changed = true
+                  }
+                }
+                if (changed) {
+                  await storeVault()
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[vault] Failed to sync keyring from server during loadVault:', err)
+          }
         } catch (error) {
           if (error instanceof Error && error.name === 'TRPCClientError' && (error as TRPCError).code === 'UNAUTHORIZED') {
             console.error('[vault] loadVault login failed', error)
@@ -244,6 +293,21 @@ export async function loadVault() {
 
 export async function storeVault() {
   await writeStoredMetadata()
+  if (session) {
+    try {
+      const keyringData: Record<string, string> = {
+        activeVersion: activeKeyVersion,
+      }
+      for (const [ver, k] of keyring.entries()) {
+        keyringData[ver] = await exportVaultKey(k)
+      }
+      const plaintext = JSON.stringify(keyringData)
+      const encrypted = await encryptWithKey(getVaultKey('1'), plaintext, '1')
+      await updateKeyring(JSON.stringify(encrypted))
+    } catch (err) {
+      console.error('[vault] Failed to sync keyring to server:', err)
+    }
+  }
 }
 
 export async function signOutVault() {

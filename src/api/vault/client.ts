@@ -3,6 +3,8 @@ export {
   getSecurityParams,
   getSession,
   recordPrayerCompletion,
+  getKeyring,
+  updateKeyring,
 } from './AccountClient'
 
 export {

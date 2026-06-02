@@ -84,4 +84,61 @@ describe('accountsRouter security contracts', () => {
       expect.objectContaining({ metadata: expect.anything() }),
     )
   })
+
+  it('allows fetching keyring when authorized', async () => {
+    const ctx = createContext()
+    const expectedKeyring = 'encrypted-keyring-data'
+    ctx.vault.getAccount.mockResolvedValueOnce({
+      account: 'acct-1',
+      keyring: expectedKeyring,
+      salt: 'salt-1',
+      iterations: 100000,
+    } as any)
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    const result = await caller.getKeyring({ account: 'acct-1' })
+    expect(result).toEqual({ success: true, keyring: expectedKeyring })
+    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
+      account: 'acct-1',
+      session: 'session-token',
+    })
+  })
+
+  it('blocks unauthorized keyring access when auth token is missing', async () => {
+    const ctx = createContext({ authToken: '' })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.getKeyring({ account: 'acct-1' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+  })
+
+  it('allows updating keyring when authorized', async () => {
+    const ctx = createContext()
+    const caller = accountsRouter.createCaller(ctx as any)
+    const newKeyring = 'new-encrypted-keyring'
+
+    const result = await caller.updateKeyring({
+      account: 'acct-1',
+      keyring: newKeyring,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
+      account: 'acct-1',
+      keyring: newKeyring,
+    })
+  })
+
+  it('blocks unauthorized keyring updates when session validation fails', async () => {
+    const ctx = createContext({ checkSessionSuccess: false })
+    const caller = accountsRouter.createCaller(ctx as any)
+
+    await expect(caller.updateKeyring({
+      account: 'acct-1',
+      keyring: 'some-keyring',
+    })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+  })
 })

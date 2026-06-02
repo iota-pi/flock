@@ -42,3 +42,19 @@ export async function recordPrayerCompletion(completedAt: number): Promise<void>
   })
   assertSuccess(response, 'recordPrayerCompletion')
 }
+
+export async function getKeyring(): Promise<string | undefined> {
+  const account = getAccountId()
+  const response = await trpcClient.accounts.getKeyring.query({ account })
+  assertSuccess(response, 'getKeyring')
+  return response.keyring
+}
+
+export async function updateKeyring(keyring: string): Promise<void> {
+  const account = getAccountId()
+  const response = await trpcClient.accounts.updateKeyring.mutate({
+    account,
+    keyring,
+  })
+  assertSuccess(response, 'updateKeyring')
+}

@@ -10,6 +10,7 @@ import {
   PushSubscriptionDeleteBodySchema,
   ReminderSettingsBodySchema,
   UpdateMetadataBodySchema,
+  UpdateKeyringBodySchema,
 } from 'src/shared/schemas/trpc'
 import { hashString } from '../../api/util'
 
@@ -203,6 +204,31 @@ export const accountsRouter = router({
       await ctx.vault.updateAccountData({
         account: input.account,
         lastPrayerCompletedAt: input.completedAt,
+      })
+
+      return { success: true }
+    }),
+
+  getKeyring: protectedProcedure
+    .input(AccountInputSchema)
+    .query(async ({ ctx, input }) => {
+      const accountData = await ctx.vault.getAccount({
+        account: input.account,
+        session: ctx.authToken,
+      })
+
+      return {
+        success: true,
+        keyring: accountData.keyring,
+      }
+    }),
+
+  updateKeyring: protectedProcedure
+    .input(UpdateKeyringBodySchema)
+    .mutation(async ({ ctx, input }) => {
+      await ctx.vault.updateAccountData({
+        account: input.account,
+        keyring: input.keyring,
       })
 
       return { success: true }

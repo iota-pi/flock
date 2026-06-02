@@ -264,4 +264,25 @@ describe('DynamoDriver', function () {
     expect(tokens).toContain('session-9')
     expect(tokens).not.toContain('session-1')
   })
+
+  it('can save and retrieve keyring', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata,
+      salt,
+      iterations,
+      session,
+    })
+
+    const keyringValue = 'encrypted_keyring_payload_sample'
+    await driver.updateAccountData({
+      account,
+      keyring: keyringValue,
+    })
+
+    const result = await driver.getAccount({ account, session })
+    expect(result.keyring).toBe(keyringValue)
+  })
 })

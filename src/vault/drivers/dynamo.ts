@@ -36,6 +36,7 @@ import { VersionConflictError } from '../../shared/syncErrors'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
+export const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
 const DATA_ATTRIBUTES = ['#metadata', '#cipher', '#snapshot']
 const DATA_ATTRIBUTE_NAMES = {
   '#metadata': 'metadata',
@@ -206,6 +207,17 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         ],
         AttributeDefinitions: [
           { AttributeName: 'account', AttributeType: 'S' },
+        ],
+      },
+      {
+        TableName: SYNC_MESSAGES_TABLE_NAME,
+        KeySchema: [
+          { AttributeName: 'syncId', KeyType: 'HASH' },
+          { AttributeName: 'cursor', KeyType: 'RANGE' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'syncId', AttributeType: 'S' },
+          { AttributeName: 'cursor', AttributeType: 'N' },
         ],
       },
     ]
@@ -383,6 +395,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor,
       lastSnapshotAt,
       lastSnapshotRequestedAt,
+      keyring,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -395,6 +408,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor?: number,
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
+      keyring?: string,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -450,6 +464,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof lastSnapshotRequestedAt === 'number') {
       updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
       expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
+    }
+    if (typeof keyring === 'string') {
+      updateExpressions.push('keyring = :keyring')
+      expressionAttributeValues[':keyring'] = keyring
     }
 
     if (updateExpressions.length === 0) {

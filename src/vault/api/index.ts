@@ -36,6 +36,9 @@ async function createServer(devMode = false) {
     trpcOptions: {
       router: appRouter,
       createContext,
+      onError: ({ path, error }) => {
+        console.error(`[TRPC Error] path=${path}:`, error)
+      },
     },
   })
 

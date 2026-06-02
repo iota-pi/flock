@@ -28,6 +28,11 @@ export const UpdateMetadataBodySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
+export const UpdateKeyringBodySchema = z.object({
+  account: z.string().min(1),
+  keyring: z.string().min(1),
+})
+
 export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
 })

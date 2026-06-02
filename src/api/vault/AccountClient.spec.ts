@@ -3,6 +3,8 @@ import {
   getSecurityParams,
   getSession,
   recordPrayerCompletion,
+  getKeyring,
+  updateKeyring,
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 import { trpcClient } from '../trpcClient'
@@ -15,6 +17,8 @@ vi.mock('../trpcClient', () => ({
       getSecurityParams: { query: vi.fn() },
       login: { mutate: vi.fn() },
       recordPrayerCompletion: { mutate: vi.fn() },
+      getKeyring: { query: vi.fn() },
+      updateKeyring: { mutate: vi.fn() },
     },
   },
 }))
@@ -81,6 +85,31 @@ describe('AccountClient', () => {
     expect(trpcClient.accounts.recordPrayerCompletion.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
       completedAt: 123,
+    })
+  })
+
+  it('fetches keyring for the active account', async () => {
+    vi.mocked(trpcClient.accounts.getKeyring.query).mockResolvedValue({
+      success: true,
+      keyring: 'encrypted-keyring-data',
+    })
+
+    const keyring = await getKeyring()
+    expect(keyring).toBe('encrypted-keyring-data')
+    expect(trpcClient.accounts.getKeyring.query).toHaveBeenCalledWith({
+      account: 'acc-1',
+    })
+  })
+
+  it('updates keyring for the active account', async () => {
+    vi.mocked(trpcClient.accounts.updateKeyring.mutate).mockResolvedValue({
+      success: true,
+    })
+
+    await updateKeyring('new-keyring-data')
+    expect(trpcClient.accounts.updateKeyring.mutate).toHaveBeenCalledWith({
+      account: 'acc-1',
+      keyring: 'new-keyring-data',
     })
   })
 })
