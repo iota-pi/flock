@@ -7,6 +7,30 @@ export const syncBatchStorage = localforage.createInstance({
 
 const MAX_MESSAGES_PER_ITEM = 2000
 
+const writeQueues = new Map<string, Promise<any>>()
+
+/**
+ * Serializes database write operations on a per-key basis to prevent concurrent write corruption.
+ */
+function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(key) || Promise.resolve()
+  const next = (async () => {
+    try {
+      await previous
+    } catch {
+      // Ignore errors from previous tasks in the queue to avoid blocking
+    }
+    return task()
+  })()
+  writeQueues.set(key, next)
+  next.finally(() => {
+    if (writeQueues.get(key) === next) {
+      writeQueues.delete(key)
+    }
+  })
+  return next
+}
+
 /**
  * Persists pending sync writes into the local IndexedDB storage, enforcing bounds on size.
  */
@@ -21,28 +45,32 @@ export async function persistSyncMessages(
   const entries = Array.from(writes.entries())
   writes.clear()
 
-  for (const [itemId, newMessages] of entries) {
+  const promises = entries.map(([itemId, newMessages]) => {
     const key = `${account}:${itemId}`
-    try {
-      const existing: Uint8Array[] | null = await syncBatchStorage.getItem(key)
-      const combined = existing ? [...existing, ...newMessages] : newMessages
+    return enqueue(key, async () => {
+      try {
+        const existing: Uint8Array[] | null = await syncBatchStorage.getItem(key)
+        const combined = existing ? [...existing, ...newMessages] : newMessages
 
-      let bounded = combined
-      if (combined.length > MAX_MESSAGES_PER_ITEM) {
-        console.warn(
-          `[VaultPersistence] Sync batch for item ${itemId} exceeded limit of ${MAX_MESSAGES_PER_ITEM} messages. Truncating to keep the latest ones.`
-        )
-        bounded = combined.slice(-MAX_MESSAGES_PER_ITEM)
+        let bounded = combined
+        if (combined.length > MAX_MESSAGES_PER_ITEM) {
+          console.warn(
+            `[VaultPersistence] Sync batch for item ${itemId} exceeded limit of ${MAX_MESSAGES_PER_ITEM} messages. Truncating to keep the latest ones.`
+          )
+          bounded = combined.slice(-MAX_MESSAGES_PER_ITEM)
+        }
+
+        await syncBatchStorage.setItem(key, bounded)
+      } catch (err) {
+        console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
+        // Put them back in the pending map so we can try again
+        const existingPending = writes.get(itemId) || []
+        writes.set(itemId, [...newMessages, ...existingPending])
       }
+    })
+  })
 
-      await syncBatchStorage.setItem(key, bounded)
-    } catch (err) {
-      console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
-      // Put them back in the pending map so we can try again
-      const existingPending = writes.get(itemId) || []
-      writes.set(itemId, [...newMessages, ...existingPending])
-    }
-  }
+  await Promise.all(promises)
 }
 
 /**
@@ -86,24 +114,28 @@ export async function removeSentSyncMessages(
   account: string,
   chunkEntry: [string, Uint8Array[]][]
 ): Promise<void> {
-  for (const [itemId, sentMessages] of chunkEntry) {
+  const promises = chunkEntry.map(([itemId, sentMessages]) => {
     const key = `${account}:${itemId}`
     const numSent = sentMessages.length
-    try {
-      const current: Uint8Array[] | null = await syncBatchStorage.getItem(key)
-      if (current) {
-        const remaining = current.slice(numSent)
-        if (remaining.length > 0) {
-          await syncBatchStorage.setItem(key, remaining)
-        } else {
-          await syncBatchStorage.removeItem(key)
+    return enqueue(key, async () => {
+      try {
+        const current: Uint8Array[] | null = await syncBatchStorage.getItem(key)
+        if (current) {
+          const remaining = current.slice(numSent)
+          if (remaining.length > 0) {
+            await syncBatchStorage.setItem(key, remaining)
+          } else {
+            await syncBatchStorage.removeItem(key)
+          }
         }
+      } catch (err) {
+        console.error(
+          `[VaultPersistence] Failed to update IndexedDB after sync for ${itemId}`,
+          err
+        )
       }
-    } catch (err) {
-      console.error(
-        `[VaultPersistence] Failed to update IndexedDB after sync for ${itemId}`,
-        err
-      )
-    }
-  }
+    })
+  })
+
+  await Promise.all(promises)
 }

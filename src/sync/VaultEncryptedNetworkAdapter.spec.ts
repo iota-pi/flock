@@ -156,11 +156,24 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
     mockPollSyncBatchWithToken.mockImplementation(async () => {
       // Simulate concurrent local edits added while the poll request is in flight
-      await syncBatchStorage.setItem(`${accountId}:item-1`, [
-        new Uint8Array([10]),
-        new Uint8Array([20]),
-        new Uint8Array([30]),
-      ])
+      // using the real send/append path
+      adapter.send({
+        type: 'sync',
+        senderId: 'test-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: 'automerge:item-1' as DocumentId,
+        data: new Uint8Array([20]),
+      })
+      adapter.send({
+        type: 'sync',
+        senderId: 'test-peer' as PeerId,
+        targetId: 'vault' as PeerId,
+        documentId: 'automerge:item-1' as DocumentId,
+        data: new Uint8Array([30]),
+      })
+      // Flush them to IndexedDB using the real persistence method
+      await (adapter as any).persistPendingWrites()
+
       return {
         success: true,
         pushResults: [],
