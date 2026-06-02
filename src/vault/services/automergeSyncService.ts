@@ -53,10 +53,17 @@ export function createAutomergeSyncService({
   repository,
 }: AutomergeSyncServiceDeps) {
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
+    const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
+    const TIMESTAMP_MULTIPLIER = 10_000_000
+    const MAX_OFFSET = 9_999_000
+
     const timestamp = now()
-    // Generate a random invocation offset between 0 and 79 to prevent collisions from concurrent writes
-    const invocationOffset = Math.floor(Math.random() * 80)
-    const baseCursor = timestamp * 5000 + invocationOffset * 50
+    const relativeTimestampMs = Math.max(0, timestamp - CUSTOM_EPOCH)
+    const relativeTimestampSeconds = Math.floor(relativeTimestampMs / 1000)
+
+    // Generate a random invocation offset to prevent collisions from concurrent writes
+    const invocationOffset = Math.floor(Math.random() * MAX_OFFSET)
+    const baseCursor = relativeTimestampSeconds * TIMESTAMP_MULTIPLIER + invocationOffset
     const messagesWithCursor = input.messages.map((message, index) => ({
       ...message,
       cursor: baseCursor + index,
