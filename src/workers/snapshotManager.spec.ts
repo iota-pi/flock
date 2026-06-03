@@ -243,4 +243,67 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect((manager as any).snapshotRequestCursor).toBeNull()
     expect(Array.from((manager as any).dirtyDocuments)).toHaveLength(0)
   })
+
+  describe('Adaptive Size Batching', () => {
+    it('splits batches when the count reaches 25', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 25,
+      })
+
+      // Mark 30 documents dirty
+      for (let i = 1; i <= 30; i++) {
+        manager.markDocumentDirty(`item-${i}`)
+      }
+
+      manager.scheduleSnapshotPush(42)
+      await vi.runAllTimersAsync()
+
+      // Should have been split into two calls: first with 25, second with 5.
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(25)
+      expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(5)
+    })
+
+    it('splits batches when total estimated payload bytes exceed maxPayloadBytes', async () => {
+      // Create a manager with small maxPayloadBytes, e.g. 200 bytes
+      const testManager = new SnapshotManager(() => context, { maxPayloadBytes: 200 })
+
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      testManager.markDocumentDirty('item-1')
+      testManager.markDocumentDirty('item-2')
+      testManager.scheduleSnapshotPush(42)
+
+      await vi.runAllTimersAsync()
+
+      // Since each mock snapshot is ~140 bytes, two snapshots (280 bytes) will exceed 200 bytes limit.
+      // So they should be pushed in 2 calls.
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(2)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(1)
+    })
+
+    it('sends a single snapshot in its own batch even if it exceeds maxPayloadBytes', async () => {
+      // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
+      const testManager = new SnapshotManager(() => context, { maxPayloadBytes: 10 })
+
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      testManager.markDocumentDirty('item-1')
+      testManager.scheduleSnapshotPush(42)
+
+      await vi.runAllTimersAsync()
+
+      // Should still be pushed in 1 call, not getting stuck.
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
+    })
+  })
 })

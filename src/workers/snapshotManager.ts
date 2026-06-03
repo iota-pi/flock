@@ -17,6 +17,9 @@ import { isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { buildSnapshot } from './snapshotBuilder'
 
+export interface SnapshotManagerOptions {
+  maxPayloadBytes?: number
+}
 
 export class SnapshotManager {
   private dirtyDocuments = new Set<string>()
@@ -28,6 +31,7 @@ export class SnapshotManager {
   private retryTimeoutId: any = null
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
+  private readonly maxPayloadBytes: number
 
   private readonly flushDirtyDocumentsToIndexDebounced = debounce(
     () => void this.flushDirtyDocumentsToIndex(),
@@ -41,8 +45,11 @@ export class SnapshotManager {
       accountId: string | null
       repo: Repo | null
       adapter: VaultEncryptedNetworkAdapter | null
-    }
-  ) {}
+    },
+    options?: SnapshotManagerOptions,
+  ) {
+    this.maxPayloadBytes = options?.maxPayloadBytes ?? 200 * 1024
+  }
 
   async loadLastModified(accountId: string): Promise<void> {
     this.lastModifiedStore = localforage.createInstance({
@@ -220,6 +227,129 @@ export class SnapshotManager {
     }
   }
 
+  private async preparePushContext(): Promise<{
+    accountId: string
+    authToken: string
+    dirtyItemIds: string[]
+    snapshotCursor: number
+  } | null> {
+    if (this.snapshotRequestCursor === null) {
+      return null
+    }
+
+    const { accountId, repo } = this.getContext()
+    if (!accountId || !repo) {
+      return null
+    }
+
+    const authToken = await getActiveSessionToken()
+    if (!authToken) {
+      return null
+    }
+
+    if (this.dirtyDocuments.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
+      this.dirtyDocuments.delete(ACCOUNT_INDEX_DOCUMENT_ID)
+    }
+
+    const dirtyItemIds = Array.from(this.dirtyDocuments)
+    if (dirtyItemIds.length === 0) {
+      this.snapshotRequestCursor = null
+      return null
+    }
+
+    return {
+      accountId,
+      authToken,
+      dirtyItemIds,
+      snapshotCursor: this.snapshotRequestCursor,
+    }
+  }
+
+  private async sendSnapshotBatch(
+    accountId: string,
+    authToken: string,
+    batch: VaultSnapshotInput[],
+  ): Promise<{ success: boolean; persisted: number }> {
+    if (batch.length === 0) {
+      return { success: true, persisted: 0 }
+    }
+    try {
+      const response = await putSnapshotsWithToken({
+        account: accountId,
+        authToken,
+        snapshots: batch,
+      })
+
+      if (response?.success) {
+        for (const snapshot of batch) {
+          this.dirtyDocuments.delete(snapshot.itemId)
+        }
+        return { success: true, persisted: response.persisted }
+      }
+      return { success: false, persisted: 0 }
+    } catch (error) {
+      console.error('[SnapshotManager] Failed to put snapshots', error)
+      return { success: false, persisted: 0 }
+    }
+  }
+
+  private async processSnapshotPush(context: {
+    accountId: string
+    authToken: string
+    dirtyItemIds: string[]
+    snapshotCursor: number
+  }): Promise<{ persisted: number; total: number; success: boolean }> {
+    const { accountId, authToken, dirtyItemIds, snapshotCursor } = context
+    let persisted = 0
+    let total = 0
+    let success = true
+    let currentBatch: VaultSnapshotInput[] = []
+    let currentBatchBytes = 0
+
+    for (const itemId of dirtyItemIds) {
+      const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
+      if (!snapshot) continue
+
+      const snapshotSize = JSON.stringify(snapshot).length
+
+      // Check if we should flush the current batch before adding this snapshot.
+      // Compliance with:
+      // 1. Max array length of 25 snapshots (PutSnapshotBatchSchema limitation).
+      // 2. Max payload bytes. We only check payload bytes if currentBatch is not empty,
+      //    so that a single snapshot that exceeds the byte limit can still be pushed.
+      const wouldExceedCount = currentBatch.length >= 25
+      const wouldExceedBytes = currentBatchBytes + snapshotSize > this.maxPayloadBytes
+
+      if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
+        total += currentBatch.length
+        const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
+        if (!result.success) {
+          success = false
+          break
+        }
+        persisted += result.persisted
+        currentBatch = []
+        currentBatchBytes = 0
+      }
+
+      currentBatch.push(snapshot)
+      currentBatchBytes += snapshotSize
+    }
+
+    // Flush any remaining items in the batch
+    if (success && currentBatch.length > 0) {
+      total += currentBatch.length
+      const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
+      if (!result.success) {
+        success = false
+      } else {
+        persisted += result.persisted
+      }
+    }
+
+    return { persisted, total, success }
+  }
+
   async pushSnapshots(): Promise<{ persisted: number; total: number }> {
     if (this.snapshotPushInFlight) {
       this.snapshotPushPending = true
@@ -237,70 +367,15 @@ export class SnapshotManager {
     let success = true
 
     try {
-      if (this.snapshotRequestCursor === null) {
+      const context = await this.preparePushContext()
+      if (!context) {
         return { persisted: 0, total: 0 }
       }
 
-      const { accountId, repo } = this.getContext()
-      if (!accountId || !repo) {
-        return { persisted: 0, total: 0 }
-      }
-
-      const authToken = await getActiveSessionToken()
-      if (!authToken) {
-        return { persisted: 0, total: 0 }
-      }
-
-      if (this.dirtyDocuments.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
-        this.dirtyDocuments.delete(ACCOUNT_INDEX_DOCUMENT_ID)
-      }
-
-      const dirtyItemIds = Array.from(this.dirtyDocuments)
-      if (dirtyItemIds.length === 0) {
-        this.snapshotRequestCursor = null
-        return { persisted: 0, total: 0 }
-      }
-
-      const snapshotCursor = this.snapshotRequestCursor
-
-      for (let start = 0; start < dirtyItemIds.length; start += 25) {
-        const slice = dirtyItemIds.slice(start, start + 25)
-        const snapshots: VaultSnapshotInput[] = []
-
-        for (const itemId of slice) {
-          const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-          if (snapshot) {
-            snapshots.push(snapshot)
-          }
-        }
-
-        if (snapshots.length === 0) {
-          continue
-        }
-
-        total += snapshots.length
-
-        try {
-          const response = await putSnapshotsWithToken({
-            account: accountId,
-            authToken,
-            snapshots,
-          })
-
-          if (response?.success) {
-            persisted += response.persisted
-            for (const snapshot of snapshots) {
-              this.dirtyDocuments.delete(snapshot.itemId)
-            }
-          } else {
-            success = false
-          }
-        } catch (error) {
-          console.error('[SnapshotManager] Failed to put snapshots', error)
-          success = false
-          break
-        }
-      }
+      const result = await this.processSnapshotPush(context)
+      persisted = result.persisted
+      total = result.total
+      success = result.success
 
       if (persisted > 0) {
         this.snapshotRequestCursor = null
