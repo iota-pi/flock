@@ -38,6 +38,8 @@ import {
 import type { TRPCError } from '@trpc/server'
 import { SyncBridge } from 'src/sync/SyncBridge'
 import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
+import { clearSyncBatch } from 'src/sync/VaultPersistence'
+import { clearScheduledDeletions } from 'src/sync/deletionQueueStore'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
@@ -334,6 +336,9 @@ export async function signOutVault() {
   } catch (err) {
     console.error('Failed to clear Automerge doc store during sign-out:', err)
   }
+  const accountId = getAccountId()
+  await clearSyncBatch(accountId)
+  await clearScheduledDeletions(accountId)
   await SyncBridge.shutdown()
   await clearActiveSessionToken()
   await clearManualRecoveryEntries()
