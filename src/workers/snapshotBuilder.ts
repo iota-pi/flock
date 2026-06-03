@@ -1,0 +1,50 @@
+import * as Automerge from '@automerge/automerge/slim'
+import type { Repo } from '@automerge/automerge-repo/slim'
+import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
+import { normalizeItemSnapshot } from '../sync/automergeDocStore'
+import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
+import { encryptBytes } from '../api/vault'
+import { normalizeSnapshotType } from './utils'
+
+export async function buildSnapshot(
+  repo: Repo,
+  itemId: string,
+  snapshotCursor: number,
+): Promise<VaultSnapshotInput | null> {
+  const documentUrl = await toAutomergeUrlFromItemId(itemId)
+  const handle = await repo.find(documentUrl).catch(() => undefined)
+  if (!handle) {
+    return null
+  }
+
+  await handle.whenReady(['ready', 'unavailable'])
+  if (!handle.isReady() || handle.isUnavailable()) {
+    return null
+  }
+
+  const doc = handle.doc()
+  if (!doc) {
+    return null
+  }
+
+  const binary = Automerge.save(doc)
+  if (!binary || binary.byteLength === 0) {
+    return null
+  }
+
+  const encryptedDoc = await encryptBytes(binary)
+
+  const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
+  if (!itemSnapshot) {
+    return null
+  }
+
+  return {
+    itemId,
+    snapshot: encryptedDoc,
+    snapshotCursor,
+    type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
+    modified: Date.now(),
+    deleted: !!itemSnapshot.deleted || undefined,
+  }
+}

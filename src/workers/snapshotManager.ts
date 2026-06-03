@@ -9,15 +9,13 @@ import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   AutomergeIndexDocument,
-  normalizeItemSnapshot,
   withAutomergeDocumentChange,
 } from '../sync/automergeDocStore'
-import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
-import { encryptBytes, type CryptoResult } from '../api/vault'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
-import { normalizeSnapshotType, isPlainObject } from './utils'
+import { isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import { buildSnapshot } from './snapshotBuilder'
 
 
 export class SnapshotManager {
@@ -342,47 +340,11 @@ export class SnapshotManager {
       return null
     }
 
-    const documentUrl = await toAutomergeUrlFromItemId(itemId)
-    const handle = await repo.find(documentUrl).catch(() => undefined)
-    if (!handle) {
-      return null
-    }
-
-    await handle.whenReady(['ready', 'unavailable'])
-    if (!handle.isReady() || handle.isUnavailable()) {
-      return null
-    }
-
-    const doc = handle.doc()
-    if (!doc) {
-      return null
-    }
-
-    const binary = Automerge.save(doc)
-    if (!binary || binary.byteLength === 0) {
-      return null
-    }
-
-    let encryptedDoc: CryptoResult
     try {
-      encryptedDoc = await encryptBytes(binary)
+      return await buildSnapshot(repo, itemId, snapshotCursor)
     } catch (error) {
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
       return null
-    }
-
-    const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
-    if (!itemSnapshot) {
-      return null
-    }
-
-    return {
-      itemId,
-      snapshot: encryptedDoc,
-      snapshotCursor,
-      type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
-      modified: Date.now(),
-      deleted: itemSnapshot.deleted === true || undefined,
     }
   }
 
