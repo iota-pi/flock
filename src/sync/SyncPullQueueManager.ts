@@ -59,6 +59,7 @@ export class SyncPullQueueManager {
   }
 
   clear(): void {
+    this.saveCursorsDebounced.flush()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
   }
