@@ -62,7 +62,10 @@ export function toVaultItemIdFromAutomergeId(documentId: string): string {
     }
   }
 
-  return itemIdByDocumentId.get(normalizedDocumentId)
+  return (
+    itemIdByDocumentId.get(normalizedDocumentId)
     || itemIdByDocumentId.get(documentId)
+    // documentId should always be in the map, but in case, the documentId is usually the same as the itemId, so we can return it as a fallback
     || normalizedDocumentId
+  )
 }
