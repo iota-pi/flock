@@ -202,6 +202,8 @@ class SyncWorker implements SyncApi {
     const indexHandle = await this.getIndexHandle()
     if (!indexHandle) return
 
+    // Ensure we have exactly one change listener on the index document
+    indexHandle.off('change')
     indexHandle.on('change', this.handleIndexChange.bind(this))
     this.handleIndexChange()
   }
