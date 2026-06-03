@@ -9,6 +9,7 @@ import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
 import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator'
 import type { BackupSyncState } from 'src/types/backup'
+import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 let workerInstance: Worker | null = null
@@ -140,6 +141,31 @@ export const SyncBridge = {
       setOnRecoveryItemsChangedListener(() => {
         void SyncBridge.listRecoveryItems()
       })
+
+      useSyncStore.getState().clearSyncWarning()
+      setupWorkerHealthCheck({
+        worker,
+        accountId,
+        pingFn: async () => {
+          if (syncApi) await syncApi.ping()
+        },
+        isCurrentWorker: () => workerInstance === worker && !!syncApi,
+        onCrash: () => {
+          if (workerInstance === worker) {
+            workerInstance = null
+            syncApi = null
+          }
+        },
+        onRestart: () => {
+          setTimeout(() => {
+            if (currentAccountId === accountId) {
+              SyncBridge.initialize(accountId).catch(err => {
+                console.error('[SyncBridge] Auto-restart initialization failed:', err)
+              })
+            }
+          }, 1000)
+        },
+      })
     } catch (error) {
       console.error('Failed to initialize SyncBridge:', error)
       useSyncStore.getState().setSyncStatus('offline')
@@ -257,6 +283,8 @@ export const SyncBridge = {
 
   shutdown: async () => {
     currentAccountId = null
+    stopWorkerHeartbeat()
+    resetCrashMetrics()
 
     if (itemUpdateFlushHandle !== null) {
       cancelAnimationFrame(itemUpdateFlushHandle)

@@ -42,4 +42,5 @@ export interface SyncApi {
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   shutdown: () => Promise<void>
+  ping: () => Promise<void>
 }

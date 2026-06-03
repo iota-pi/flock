@@ -14,6 +14,7 @@ const mockSyncApi = {
   restoreSyncState: vi.fn().mockResolvedValue(undefined),
   forceSync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
+  ping: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -41,13 +42,14 @@ describe('SyncBridge', () => {
     globalThis.Worker = MockWorker as any
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account', key: 'test-key' }))
     vi.clearAllMocks()
-    useSyncStore.setState({ status: 'idle' })
+    useSyncStore.setState({ status: 'idle', fatalError: null, syncWarning: null })
   })
 
   afterEach(async () => {
     globalThis.Worker = originalWorker
     localStorage.clear()
     await SyncBridge.shutdown()
+    vi.restoreAllMocks()
   })
 
   it('initializes and configures the sync worker', async () => {
@@ -131,5 +133,98 @@ describe('SyncBridge', () => {
 
     await SyncBridge.initialize('test-account')
     expect(Comlink.wrap).toHaveBeenCalledTimes(2)
+  })
+
+  it('attempts to restart the worker if worker.onerror is triggered', async () => {
+    vi.useFakeTimers()
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        capturedWorker = this
+      }
+    } as any
+
+    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
+    await SyncBridge.initialize('test-account')
+    expect(capturedWorker).not.toBeNull()
+
+    // Trigger the onerror handler
+    capturedWorker.onerror(new ErrorEvent('error', { message: 'WASM crash' }))
+
+    // Expect status to be connecting, and reconnect warning set
+    expect(useSyncStore.getState().status).toBe('connecting')
+    expect(useSyncStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+
+    // Fast-forward 1000ms for the restart timer
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(initializeSpy).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it('detects a hung worker via heartbeat and restarts it', async () => {
+    vi.useFakeTimers()
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        capturedWorker = this
+      }
+    } as any
+
+    // Mock ping to hang forever
+    mockSyncApi.ping.mockImplementation(() => new Promise(() => {}))
+
+    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
+    await SyncBridge.initialize('test-account')
+
+    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (5s)
+    await vi.advanceTimersByTimeAsync(20000)
+
+    expect(useSyncStore.getState().status).toBe('connecting')
+    expect(useSyncStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+
+    // Fast-forward another 1000ms for the restart timer
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(initializeSpy).toHaveBeenCalledTimes(2)
+
+    // Clean up mock
+    mockSyncApi.ping.mockReset().mockResolvedValue(undefined)
+    vi.useRealTimers()
+  })
+
+  it('halts auto-restart and sets a fatal error after 3 consecutive crashes', async () => {
+    vi.useFakeTimers()
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        capturedWorker = this
+      }
+    } as any
+
+    const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
+    await SyncBridge.initialize('test-account')
+
+    // First crash
+    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 1' }))
+    await vi.advanceTimersByTimeAsync(1000) // triggers restart
+    expect(initializeSpy).toHaveBeenCalledTimes(2)
+
+    // Second crash
+    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 2' }))
+    await vi.advanceTimersByTimeAsync(1000) // triggers restart
+    expect(initializeSpy).toHaveBeenCalledTimes(3)
+
+    // Third crash
+    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 3' }))
+
+    // No more restarts. Fatal error should be set.
+    expect(useSyncStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
+    expect(useSyncStore.getState().status).toBe('offline')
+    expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
+
+    vi.useRealTimers()
   })
 })

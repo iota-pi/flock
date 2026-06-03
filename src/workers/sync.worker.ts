@@ -539,6 +539,10 @@ export class SyncWorker implements SyncApi {
     this.clearListeners()
     this.repo = null
   }
+
+  async ping() {
+    // No-op method to verify worker responsiveness
+  }
 }
 
 Comlink.expose(new SyncWorker())
