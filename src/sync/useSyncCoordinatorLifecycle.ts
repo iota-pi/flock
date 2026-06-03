@@ -20,6 +20,10 @@ export default function useSyncCoordinatorLifecycle(
       SyncBridge.initialize(account).catch(error => {
         console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
       })
+
+      return () => void SyncBridge.shutdown().catch(error => {
+        console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
+      })
     },
     [account, enabled],
   )
