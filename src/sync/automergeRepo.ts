@@ -53,19 +53,8 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
 
 const repos = new Map<string, Repo>()
 
-function getFastHash(str: string): string {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = Math.imul(31, hash) + str.charCodeAt(i) | 0
-  }
-  return Math.abs(hash).toString(36)
-}
-
-export function getAutomergeDBName(accountId?: string): string {
-  if (accountId) {
-    return `flock-automerge-db-${getFastHash(accountId)}`
-  }
-  return 'flock-automerge-db'
+export function getAutomergeDBName(accountId: string): string {
+  return `flock-automerge-db-${accountId}`
 }
 
 export function initAutomergeRepo(
