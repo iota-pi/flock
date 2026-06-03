@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
+  exportSyncState: vi.fn(async () => ({ cursors: [], pendingSync: [], lastModified: [] })),
+  restoreSyncState: vi.fn(async () => undefined),
+  forceSync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -65,6 +68,9 @@ vi.mock('../sync/SyncBridge', () => ({
     clearAutomergeDocStore: mocks.clearAutomergeDocStore,
     exportAllBinaries: mocks.exportAllBinaries,
     restoreFromBinaries: mocks.restoreFromBinaries,
+    exportSyncState: mocks.exportSyncState,
+    restoreSyncState: mocks.restoreSyncState,
+    forceSync: mocks.forceSync,
     listRecoveryItems: vi.fn(async () => []),
     subscribeRecoveryItems: vi.fn(() => () => {}),
     shutdown: vi.fn(async () => {}),
@@ -78,8 +84,13 @@ describe('useSettings backup portability', () => {
     vi.clearAllMocks()
   })
 
-  it('exports metadata and items in a v2 payload', async () => {
+  it('exports metadata and items in a v2 payload along with sync state', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
+    mocks.exportSyncState.mockResolvedValue({
+      cursors: [['i1', 10]],
+      pendingSync: [['i1', ['msg1']]],
+      lastModified: [['i1', 12345]]
+    })
 
     const { result } = renderHook(() => useSettings(mockItems))
 
@@ -92,10 +103,14 @@ describe('useSettings backup portability', () => {
     expect(parsed).toMatchObject({
       version: 2,
       documents: { i1: 'base64-doc' },
+      cursors: [['i1', 10]],
+      pendingSync: [['i1', ['msg1']]],
+      lastModified: [['i1', 12345]]
     })
+    expect(mocks.exportSyncState).toHaveBeenCalledTimes(1)
   })
 
-  it('restores metadata and binaries without queue side effects', async () => {
+  it('restores metadata, binaries, and sync state without queue side effects', async () => {
     mocks.restoreFromBinaries.mockResolvedValue(['i1'])
     mocks.setMetadata.mockResolvedValue(undefined)
 
@@ -106,11 +121,20 @@ describe('useSettings backup portability', () => {
         version: 2,
         metadata: {},
         documents: { i1: 'base64-doc' },
+        cursors: [['i1', 10]],
+        pendingSync: [['i1', ['msg1']]],
+        lastModified: [['i1', 12345]]
       })
     })
 
     expect(mocks.setMetadata).toHaveBeenCalledTimes(1)
     expect(mocks.restoreFromBinaries).toHaveBeenCalledTimes(1)
+    expect(mocks.restoreSyncState).toHaveBeenCalledWith({
+      cursors: [['i1', 10]],
+      pendingSync: [['i1', ['msg1']]],
+      lastModified: [['i1', 12345]]
+    })
+    expect(mocks.forceSync).toHaveBeenCalledTimes(1)
     expect(mocks.storeItems).not.toHaveBeenCalled()
   })
 })

@@ -482,6 +482,14 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     return message.includes('unauthorized') || message.includes('forbidden')
   }
 
+  exportCursors(): [string, number][] {
+    return this.pullQueueManager.exportCursors()
+  }
+
+  async importCursors(cursors: [string, number][]): Promise<void> {
+    await this.pullQueueManager.importCursors(cursors)
+  }
+
   async disconnect(): Promise<void> {
     this.connected = false
     this.pullQueueManager.clear()

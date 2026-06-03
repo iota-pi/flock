@@ -2,6 +2,7 @@ import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { SyncStatus } from 'src/state/syncStore'
 import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
+import type { BackupSyncState } from '../types/backup'
 
 export interface SyncCallbacks {
   onReady: () => Promise<void>,
@@ -38,6 +39,8 @@ export interface SyncApi {
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
   reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
+  exportSyncState: () => Promise<BackupSyncState>
+  restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   shutdown: () => Promise<void>
 }
 

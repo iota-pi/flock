@@ -156,3 +156,42 @@ export async function removeSentSyncMessages(
 
   await Promise.all(promises)
 }
+
+/**
+ * Clears any pending sync batch messages for a specific account.
+ */
+export async function clearSyncBatch(account: string): Promise<void> {
+  const keysToRemove: string[] = []
+  try {
+    await syncBatchStorage.iterate<any, void>((value, key) => {
+      if (key.startsWith(`${account}:`)) {
+        keysToRemove.push(key)
+      }
+    })
+    await Promise.all(keysToRemove.map(key => syncBatchStorage.removeItem(key)))
+  } catch (err) {
+    console.error(`[VaultPersistence] Failed to clear sync batch for ${account}`, err)
+    throw err
+  }
+}
+
+/**
+ * Restores pending sync batch entries to IndexedDB for the given account.
+ */
+export async function restoreSyncBatch(
+  account: string,
+  pendingSync: [string, Uint8Array[]][]
+): Promise<void> {
+  try {
+    await clearSyncBatch(account)
+    await Promise.all(
+      pendingSync.map(([itemId, messages]) => {
+        const key = `${account}:${itemId}`
+        return syncBatchStorage.setItem(key, messages)
+      })
+    )
+  } catch (err) {
+    console.error(`[VaultPersistence] Failed to restore sync batch for ${account}`, err)
+    throw err
+  }
+}

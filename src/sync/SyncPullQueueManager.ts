@@ -203,4 +203,14 @@ export class SyncPullQueueManager {
       this.saveCursorsDebounced()
     }
   }
+
+  exportCursors(): [string, number][] {
+    return Array.from(this.cursorByItemId.entries())
+  }
+
+  async importCursors(cursors: [string, number][]): Promise<void> {
+    if (!this.cursorStore) return
+    this.cursorByItemId = new Map(cursors)
+    await this.cursorStore.setItem('cursorByItemId', cursors)
+  }
 }

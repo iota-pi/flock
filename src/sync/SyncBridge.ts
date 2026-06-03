@@ -8,6 +8,7 @@ import { getStoredVaultKey } from 'src/api/vault/util'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
 import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator'
+import type { BackupSyncState } from 'src/types/backup'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 let workerInstance: Worker | null = null
@@ -242,6 +243,16 @@ export const SyncBridge = {
   reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.reencryptAllItems(Comlink.proxy(onProgress))
+  },
+
+  exportSyncState: async () => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    return await syncApi.exportSyncState()
+  },
+
+  restoreSyncState: async (state: Partial<BackupSyncState>) => {
+    if (!syncApi) throw new Error('SyncBridge not initialized')
+    await syncApi.restoreSyncState(state)
   },
 
   shutdown: async () => {

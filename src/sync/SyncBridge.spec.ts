@@ -10,6 +10,9 @@ const mockSyncApi = {
   bootstrapLegacyItems: vi.fn().mockResolvedValue(undefined),
   clearAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   listRecoveryItems: vi.fn().mockResolvedValue([]),
+  exportSyncState: vi.fn().mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] }),
+  restoreSyncState: vi.fn().mockResolvedValue(undefined),
+  forceSync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
 }
 

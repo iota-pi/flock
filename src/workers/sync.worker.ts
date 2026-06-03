@@ -37,8 +37,10 @@ import { SnapshotManager } from './snapshotManager'
 import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
-import { resetQuotaExceededStatus } from '../sync/VaultPersistence'
+import { resetQuotaExceededStatus, loadSyncBatch, restoreSyncBatch } from '../sync/VaultPersistence'
+import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Utils'
 import { registerQuotaReporter } from './quotaReporter'
+import type { BackupSyncState } from '../types/backup'
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -480,6 +482,38 @@ class SyncWorker implements SyncApi {
 
   async reencryptAllItems(onProgress?: (done: number, total: number) => void) {
     await this.reencryptionManager.reencryptAllItems(onProgress)
+  }
+
+  async exportSyncState(): Promise<BackupSyncState> {
+    const cursors = this.adapter ? this.adapter.exportCursors() : []
+    const pendingSyncRaw = this.accountId ? await loadSyncBatch(this.accountId) : []
+    const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
+      itemId,
+      messages.map(encodeBytesToBase64)
+    ] as [string, string[]])
+    const lastModified = this.snapshotManager.exportLastModified()
+
+    return {
+      cursors,
+      pendingSync,
+      lastModified,
+    }
+  }
+
+  async restoreSyncState(state: Partial<BackupSyncState>) {
+    if (state.cursors && this.adapter) {
+      await this.adapter.importCursors(state.cursors)
+    }
+    if (state.pendingSync && this.accountId) {
+      const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
+        itemId,
+        base64Msgs.map(decodeBase64ToBytes)
+      ] as [string, Uint8Array[]])
+      await restoreSyncBatch(this.accountId, decodedPendingSync)
+    }
+    if (state.lastModified) {
+      await this.snapshotManager.importLastModified(state.lastModified)
+    }
   }
 
   async shutdown() {

@@ -4,7 +4,7 @@ import {
   storeItems,
 } from '../features/items/mutations/itemMutations'
 import { exportData } from '../api/vault'
-import type { BackupPayloadV2, RestorePayload } from '../types/backup'
+import type { BackupPayloadV2, RestorePayload, BackupSyncState } from '../types/backup'
 import type { Item } from '../state/items'
 import { SyncBridge } from '../sync/SyncBridge'
 import { useDataStore } from '../state/dataStore'
@@ -47,15 +47,34 @@ export default function useBackupAndRestore({
       try {
         const currentMetadata = useDataStore.getState().metadata
         const documents = await SyncBridge.exportAllBinaries()
+        let syncState: BackupSyncState | undefined
+        try {
+          syncState = await SyncBridge.exportSyncState()
+        } catch (e) {
+          console.error('[useBackupAndRestore] Failed to export sync state', e)
+        }
+
         const backupPayload: BackupPayloadV2 = {
           version: 2,
           metadata: currentMetadata,
           documents,
+          cursors: syncState?.cursors,
+          pendingSync: syncState?.pendingSync,
+          lastModified: syncState?.lastModified,
         }
 
         const data = await exportData(backupPayload)
         const json = JSON.stringify(data)
-        setMessage({ message: 'Backup created' })
+
+        if (syncState?.pendingSync && syncState.pendingSync.length > 0) {
+          setMessage({
+            message: 'You have unsent offline changes. Please connect to the internet to sync before exporting a backup.',
+            severity: 'warning',
+          })
+        } else {
+          setMessage({ message: 'Backup created' })
+        }
+
         return json
       } catch (err) {
         setMessage({ message: 'Failed to create backup', severity: 'error' })
@@ -73,6 +92,16 @@ export default function useBackupAndRestore({
         }
 
         await SyncBridge.restoreFromBinaries(payload.documents)
+
+        if (payload.cursors || payload.pendingSync || payload.lastModified) {
+          await SyncBridge.restoreSyncState({
+            cursors: payload.cursors,
+            pendingSync: payload.pendingSync,
+            lastModified: payload.lastModified,
+          })
+        }
+
+        await SyncBridge.forceSync()
 
         setMessage({ message: 'Restore successful' })
         return true

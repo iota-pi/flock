@@ -366,4 +366,14 @@ export class SnapshotManager {
       this.lastModifiedStore = null
     }
   }
+
+  exportLastModified(): [string, number][] {
+    return Array.from(this.lastModifiedByItemId.entries())
+  }
+
+  async importLastModified(data: [string, number][]): Promise<void> {
+    if (!this.lastModifiedStore) return
+    this.lastModifiedByItemId = new Map(data)
+    await this.lastModifiedStore.setItem('lastModifiedByItemId', data)
+  }
 }
