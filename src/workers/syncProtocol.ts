@@ -43,4 +43,3 @@ export interface SyncApi {
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   shutdown: () => Promise<void>
 }
-

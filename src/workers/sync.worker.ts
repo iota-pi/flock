@@ -24,6 +24,7 @@ import {
   AutomergeIndexDocument,
   normalizeItemSnapshot,
 } from '../sync/automergeDocStore'
+import { DeletionQueueManager } from './deletionQueueManager'
 import { initWorkerVault } from '../api/vault'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
@@ -42,7 +43,7 @@ import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Ut
 import { registerQuotaReporter } from './quotaReporter'
 import type { BackupSyncState } from '../types/backup'
 
-class SyncWorker implements SyncApi {
+export class SyncWorker implements SyncApi {
   private accountId: string | null = null
   private adapter: VaultEncryptedNetworkAdapter | null = null
   private callbacks: SyncCallbacks | null = null
@@ -52,6 +53,7 @@ class SyncWorker implements SyncApi {
   private repo: Repo | null = null
   private releaseLeadershipLock: (() => void) | null = null
   private changeListenersByItemId = new Map<string, () => void>()
+  private deletionQueueManager: DeletionQueueManager
 
   private snapshotManager: SnapshotManager
   private recoveryManager: RecoveryManager
@@ -79,6 +81,11 @@ class SyncWorker implements SyncApi {
     this.reencryptionManager = new ReencryptionManager(() => ({
       accountId: this.accountId,
       repo: this.repo,
+    }))
+
+    this.deletionQueueManager = new DeletionQueueManager(() => ({
+      accountId: this.accountId,
+      getIndexHandle: () => this.getIndexHandle(),
     }))
   }
 
@@ -124,6 +131,8 @@ class SyncWorker implements SyncApi {
   async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
     this.clearListeners()
     this.snapshotManager.clear()
+
+    this.deletionQueueManager.stopTimer()
 
     this.accountId = accountId
     resetQuotaExceededStatus()
@@ -187,6 +196,8 @@ class SyncWorker implements SyncApi {
 
     await this.callbacks.onReady()
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
+
+    this.deletionQueueManager.startTimer()
   }
 
   private async getIndexHandle() {
@@ -221,13 +232,7 @@ class SyncWorker implements SyncApi {
     const newItemIds = indexDoc.itemIds || []
     const newItemIdsSet = new Set(newItemIds)
 
-    // Unsubscribe from items that were removed from the index
-    const deletedIds = (
-      Array.from(this.subscribedIds).filter(id => !newItemIdsSet.has(id))
-    )
-    for (const deletedId of deletedIds) {
-      removeAutomergeItem(this.accountId, deletedId).catch(console.error)
-    }
+    await this.deletionQueueManager.handleIndexChange(newItemIdsSet, this.subscribedIds)
 
     if (this.callbacks) {
       this.callbacks.onIndexUpdated(newItemIds).catch(console.error)
@@ -377,6 +382,7 @@ class SyncWorker implements SyncApi {
     try {
       await removeAutomergeItemIdsFromIndex(this.accountId!, itemIds)
       for (const id of itemIds) {
+        await this.deletionQueueManager.cancelDeletion(id).catch(console.error)
         await removeAutomergeItem(this.accountId!, id)
       }
     } catch (err: any) {
@@ -433,6 +439,7 @@ class SyncWorker implements SyncApi {
 
   async clearAutomergeDocStore() {
     this.snapshotManager.clear()
+    await this.deletionQueueManager.clearQueue().catch(console.error)
     await clearAutomergeDocStore(this.accountId!)
   }
 
@@ -521,6 +528,8 @@ class SyncWorker implements SyncApi {
       this.releaseLeadershipLock()
       this.releaseLeadershipLock = null
     }
+
+    this.deletionQueueManager.stopTimer()
 
     if (this.adapter) {
       await this.adapter.disconnect()

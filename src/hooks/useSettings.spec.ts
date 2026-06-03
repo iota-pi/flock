@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 
 import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
+import type { BackupSyncState } from 'src/types/backup'
 
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
-  exportSyncState: vi.fn(async () => ({ cursors: [], pendingSync: [], lastModified: [] })),
+  exportSyncState: vi.fn(async () => (
+    { cursors: [], pendingSync: [], lastModified: [] } as BackupSyncState
+  )),
   restoreSyncState: vi.fn(async () => undefined),
   forceSync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
