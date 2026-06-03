@@ -45,15 +45,19 @@ function SyncNowButton() {
 
   const syncStatusIcon = !isOnline ? (
     <CloudOffIcon color="warning" />
+  ) : syncStatus === 'degraded' ? (
+    <CloudOffIcon color="warning" />
   ) : (
     <CloudDoneIcon color="success" />
   )
 
   const syncTooltip = !isOnline
     ? 'Offline'
-    : isSyncing
-      ? 'Syncing'
-      : 'Sync Now'
+    : syncStatus === 'degraded'
+      ? 'Sync Degraded (Storage quota exceeded)'
+      : isSyncing
+        ? 'Syncing'
+        : 'Sync Now'
 
   return (
     <Tooltip title={syncTooltip}>

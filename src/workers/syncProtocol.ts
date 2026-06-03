@@ -14,6 +14,7 @@ export interface SyncCallbacks {
   onFinishRequest: () => Promise<void>,
   onAuthFailure: (message: string) => Promise<void>,
   onRecoveryItemsChanged: (entries: ManualRecoveryEntry[]) => Promise<void>,
+  onQuotaExceeded?: (message: string) => Promise<void>,
 }
 
 export interface SyncApi {

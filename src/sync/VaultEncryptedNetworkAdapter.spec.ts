@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { syncBatchStorage } from './VaultPersistence'
+import { syncBatchStorage, resetQuotaExceededStatus } from './VaultPersistence'
+import { registerQuotaReporter } from '../workers/quotaReporter'
 
 
 const mockPollSyncBatchWithToken = vi.fn()
@@ -250,5 +251,43 @@ describe('VaultEncryptedNetworkAdapter', () => {
       : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
 
     expect(Array.from(normalized)).toEqual([100])
+  })
+
+  it('detects and reports QuotaExceededError when persisting pending writes', async () => {
+    resetQuotaExceededStatus()
+    const mockReporter = vi.fn()
+    registerQuotaReporter(mockReporter)
+
+    const setItemSpy = vi.spyOn(syncBatchStorage, 'setItem').mockRejectedValue(
+      new DOMException('Quota exceeded', 'QuotaExceededError')
+    )
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'test-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-quota-fail' as DocumentId,
+      data: new Uint8Array([55]),
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(setItemSpy).toHaveBeenCalledTimes(1)
+    expect(mockReporter).toHaveBeenCalledTimes(1)
+    expect(mockReporter.mock.calls[0][0]).toContain('Storage quota exceeded')
+
+    // Subsequent sends should return early and NOT trigger setItem (avoiding loop/spam)
+    adapter.send({
+      type: 'sync',
+      senderId: 'test-peer' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-quota-fail' as DocumentId,
+      data: new Uint8Array([66]),
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+    expect(setItemSpy).toHaveBeenCalledTimes(1) // Should still be 1 (didn't call it again)
+
+    setItemSpy.mockRestore()
   })
 })

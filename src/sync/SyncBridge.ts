@@ -82,6 +82,11 @@ const syncCallbacks: SyncCallbacks = {
       listener(entries)
     }
   },
+  onQuotaExceeded: async message => {
+    const syncStore = useSyncStore.getState()
+    syncStore.setSyncStatus('degraded')
+    syncStore.setSyncWarning(message)
+  },
 }
 
 export const SyncBridge = {

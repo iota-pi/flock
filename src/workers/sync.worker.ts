@@ -37,6 +37,8 @@ import { SnapshotManager } from './snapshotManager'
 import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
+import { resetQuotaExceededStatus } from '../sync/VaultPersistence'
+import { registerQuotaReporter } from './quotaReporter'
 
 class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -122,8 +124,12 @@ class SyncWorker implements SyncApi {
     this.snapshotManager.clear()
 
     this.accountId = accountId
+    resetQuotaExceededStatus()
     await this.snapshotManager.loadLastModified(accountId)
     this.callbacks = callbacks
+    registerQuotaReporter(msg => {
+      this.callbacks?.onQuotaExceeded?.(msg).catch(console.error)
+    })
 
     await initWorkerVault(vaultKey)
 

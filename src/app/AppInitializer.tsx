@@ -6,6 +6,7 @@ import { useLoggedIn } from '../state/selectors'
 import { useSyncStore } from '../state/syncStore'
 import useSyncCoordinatorLifecycle from '../sync/useSyncCoordinatorLifecycle'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
+import { ensurePersistentStorage } from '../utils/storageQuota'
 
 export default function AppInitializer() {
   const loggedIn = useLoggedIn()
@@ -16,6 +17,7 @@ export default function AppInitializer() {
     let cancelled = false
 
     initializeSyncHealthWatchers()
+    void ensurePersistentStorage()
 
     void loadVault().catch(error => {
       if (cancelled) {

@@ -7,6 +7,8 @@ import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import localforage from 'localforage'
 import { debounce } from 'lodash-es'
 import { decryptBytes } from 'src/api/vault'
+import { isQuotaError } from 'src/utils/storageQuota'
+import { reportQuotaExceeded } from '../workers/quotaReporter'
 
 export class SyncPullQueueManager {
   private account: string | null = null
@@ -50,6 +52,9 @@ export class SyncPullQueueManager {
     const data = Array.from(this.cursorByItemId.entries())
     this.cursorStore.setItem('cursorByItemId', data).catch(error => {
       console.error('[SyncPullQueueManager] Failed to save cursors', error)
+      if (isQuotaError(error)) {
+        reportQuotaExceeded()
+      }
     })
   }
 
