@@ -7,9 +7,11 @@ interface DataState {
   items: Record<string, Item>
   itemIds: string[]
   metadata: AccountMetadata
+  processedItemIds: Set<string>
 }
 
 interface DataActions {
+  setReady: () => void
   updateItemsFromServer: (updates: Array<{ id: string, item: Item | null }>) => void
   updateIndexFromServer: (itemIds: string[]) => void
   updateMetadataFromServer: (metadata: AccountMetadata) => void
@@ -18,15 +20,41 @@ interface DataActions {
 
 export type DataStore = DataState & DataActions
 
-export const useDataStore = create<DataStore>(set => ({
+let fallbackTimeoutId: ReturnType<typeof setTimeout> | null = null
+const READY_TIMEOUT_MS = 5000
+
+export const useDataStore = create<DataStore>((set, get) => ({
   status: 'initializing',
   items: {},
   itemIds: [],
   metadata: {},
+  processedItemIds: new Set<string>(),
+
+  setReady: () => {
+    if (fallbackTimeoutId) {
+      clearTimeout(fallbackTimeoutId)
+      fallbackTimeoutId = null
+    }
+    set(state => {
+      if (state.status === 'ready') return state
+      return { status: 'ready', processedItemIds: new Set() }
+    })
+  },
 
   updateItemsFromServer: updates => set(state => {
     const nextItems = { ...state.items }
+    let nextProcessed = state.processedItemIds
+    let nextStatus = state.status
+
+    if (nextStatus === 'initializing') {
+      nextProcessed = new Set(state.processedItemIds)
+    }
+
     for (const update of updates) {
+      if (nextStatus === 'initializing') {
+        nextProcessed.add(update.id)
+      }
+
       if (update.item) {
         nextItems[update.id] = update.item
       } else {
@@ -34,26 +62,41 @@ export const useDataStore = create<DataStore>(set => ({
       }
     }
 
-    let nextStatus = state.status
-    if (nextStatus === 'initializing') {
-      if (Object.keys(nextItems).length >= state.itemIds.length) {
-        nextStatus = 'ready'
+    if (nextStatus === 'initializing' && nextProcessed.size >= state.itemIds.length) {
+      nextStatus = 'ready'
+      nextProcessed = new Set() // free memory
+      if (fallbackTimeoutId) {
+        clearTimeout(fallbackTimeoutId)
+        fallbackTimeoutId = null
       }
     }
 
-    return { items: nextItems, status: nextStatus }
-  }),
-
-  updateIndexFromServer: itemIds => set(state => {
-    const nextStatus = state.status === 'initializing' && itemIds.length === 0
-      ? 'ready'
-      : state.status
-
-    return {
-      itemIds,
-      status: nextStatus,
+    return { 
+      items: nextItems, 
+      status: nextStatus, 
+      processedItemIds: nextProcessed 
     }
   }),
+
+  updateIndexFromServer: itemIds => {
+    set(state => {
+      if (state.status === 'initializing' && itemIds.length === 0) {
+        if (fallbackTimeoutId) {
+          clearTimeout(fallbackTimeoutId)
+          fallbackTimeoutId = null
+        }
+        return { itemIds, status: 'ready', processedItemIds: new Set() }
+      }
+      return { itemIds }
+    })
+
+    const currentState = get()
+    if (currentState.status === 'initializing' && !fallbackTimeoutId && itemIds.length > 0) {
+      fallbackTimeoutId = setTimeout(() => {
+        get().setReady()
+      }, READY_TIMEOUT_MS)
+    }
+  },
 
   updateMetadataFromServer: metadata => set(state => ({
     metadata: {
