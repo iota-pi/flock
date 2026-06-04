@@ -47,11 +47,7 @@ export async function toAutomergeUrlFromItemId(itemId: string): Promise<Automerg
   return mapping.url
 }
 
-export function toVaultItemIdFromAutomergeId(documentId: string): string {
-  if (documentId.length === 0) {
-    return documentId
-  }
-
+function normalizeDocumentId(documentId: string): string {
   let normalizedDocumentId = documentId
 
   if (documentId.startsWith(AUTOMERGE_URL_PREFIX)) {
@@ -61,6 +57,16 @@ export function toVaultItemIdFromAutomergeId(documentId: string): string {
       normalizedDocumentId = documentId.slice(AUTOMERGE_URL_PREFIX.length)
     }
   }
+
+  return normalizedDocumentId
+}
+
+export function toVaultItemIdFromAutomergeId(documentId: string): string {
+  if (documentId.length === 0) {
+    return documentId
+  }
+
+  const normalizedDocumentId = normalizeDocumentId(documentId)
 
   return (
     itemIdByDocumentId.get(normalizedDocumentId)
