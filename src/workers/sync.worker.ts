@@ -317,8 +317,9 @@ export class SyncWorker implements SyncApi {
     }
 
     // Unsubscribe from removed items
+    const itemIdsSet = new Set(itemIds)
     for (const subscribedId of Array.from(this.subscribedIds)) {
-      if (!itemIds.includes(subscribedId)) {
+      if (!itemIdsSet.has(subscribedId)) {
         this.unsubscribe(subscribedId)
       }
     }
