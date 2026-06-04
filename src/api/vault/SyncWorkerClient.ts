@@ -32,21 +32,6 @@ function createWorkerSyncClient(authToken: string) {
   return client
 }
 
-export async function pushSyncBatchWithToken(input: {
-  account: string
-  authToken: string
-  messages: Array<{
-    itemId: string
-    encryptedMessage: SyncMessageEnvelope
-  }>
-}): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
-  const client = createWorkerSyncClient(input.authToken)
-  return client.sync.pushBatch.mutate({
-    account: input.account,
-    messages: input.messages,
-  })
-}
-
 export type PullSyncMessagesResponse = {
   success: boolean
   itemId: string
