@@ -1,5 +1,5 @@
 import { Repo, type StorageAdapterInterface, type Chunk } from '@automerge/automerge-repo/slim'
-import { BroadcastChannelNetworkAdapter } from '@automerge/automerge-repo-network-broadcastchannel'
+import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { isQuotaError } from 'src/utils/storageQuota'
@@ -70,7 +70,7 @@ export function initAutomergeRepo(
   const repo = new Repo({
     storage: new QuotaHandlingStorageAdapter(new IndexedDBStorageAdapter(dbName)),
     network: [
-      new BroadcastChannelNetworkAdapter({
+      new EncryptedBroadcastChannelNetworkAdapter({
         channelName: `flock-automerge-broadcast-${accountId}`,
       }),
       adapter,
