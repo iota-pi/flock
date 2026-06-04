@@ -66,6 +66,8 @@ export const itemsRouter = router({
             account: input.account,
             itemId: snapshot.itemId,
             cursor: snapshot.snapshotCursor,
+          }).catch(() => {
+            // Ignore errors during sync message pruning; sync messages are transient with a short TTL
           }))
         )
       }
