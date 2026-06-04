@@ -530,10 +530,24 @@ export class SyncWorker implements SyncApi {
       this.releaseLeadershipLock = null
     }
 
-    this.deletionQueueManager.stopTimer()
+    try {
+      await this.deletionQueueManager.shutdown()
+    } catch (err) {
+      console.error('[SyncWorker] Error shutting down DeletionQueueManager', err)
+    }
+
+    try {
+      await this.snapshotManager.shutdown()
+    } catch (err) {
+      console.error('[SyncWorker] Error shutting down SnapshotManager', err)
+    }
 
     if (this.adapter) {
-      await this.adapter.disconnect()
+      try {
+        await this.adapter.disconnect()
+      } catch (err) {
+        console.error('[SyncWorker] Error disconnecting adapter', err)
+      }
       this.adapter = null
     }
 

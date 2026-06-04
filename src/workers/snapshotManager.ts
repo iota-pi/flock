@@ -38,7 +38,7 @@ export class SnapshotManager {
     1000,
   )
 
-  private readonly saveLastModifiedDebounced = debounce(() => this.saveLastModified(), 1000)
+  private readonly saveLastModifiedDebounced = debounce(() => void this.persistLastModified(), 1000)
 
   constructor(
     private getContext: () => {
@@ -66,15 +66,17 @@ export class SnapshotManager {
     }
   }
 
-  private saveLastModified(): void {
+  async persistLastModified(): Promise<void> {
     if (!this.lastModifiedStore) return
     const data = Array.from(this.lastModifiedByItemId.entries())
-    this.lastModifiedStore.setItem('lastModifiedByItemId', data).catch(error => {
+    try {
+      await this.lastModifiedStore.setItem('lastModifiedByItemId', data)
+    } catch (error) {
       console.error('[SnapshotManager] Failed to save lastModified timestamps', error)
       if (isQuotaError(error)) {
         reportQuotaExceeded()
       }
-    })
+    }
   }
 
   markDocumentDirty(documentId: string) {
@@ -423,7 +425,28 @@ export class SnapshotManager {
     }
   }
 
+  async shutdown(): Promise<void> {
+    this.saveLastModifiedDebounced.cancel()
+    this.flushDirtyDocumentsToIndexDebounced.cancel()
+    if (this.retryTimeoutId !== null) {
+      clearTimeout(this.retryTimeoutId)
+      this.retryTimeoutId = null
+    }
+
+    if (this.dirtyDocuments.size > 0) {
+      try {
+        await this.flushDirtyDocumentsToIndex()
+      } catch (error) {
+        console.error('[SnapshotManager] Failed to flush dirty documents during shutdown', error)
+      }
+    }
+
+    await this.persistLastModified()
+  }
+
   clear() {
+    this.saveLastModifiedDebounced.cancel()
+    this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyDocuments.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false

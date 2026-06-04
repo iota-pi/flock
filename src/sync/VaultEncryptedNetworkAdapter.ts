@@ -492,9 +492,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
   async disconnect(): Promise<void> {
     this.connected = false
-    this.pullQueueManager.clear()
     this.stopPolling()
+    await this.pullQueueManager.shutdown()
     await this.persistPendingWrites()
+    this.pullQueueManager.clear()
     this.emit('close')
   }
 

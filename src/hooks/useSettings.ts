@@ -19,7 +19,6 @@ export default function useSettings(items: Item[]) {
 
   const {
     actions: backupActions,
-    values: backupValues,
   } = useBackupAndRestore({ setMessage })
   const {
     actions: themeActions,
@@ -62,7 +61,6 @@ export default function useSettings(items: Item[]) {
 
   return {
     actions: {
-      handleClearCache: backupActions.handleClearCache,
       handleConfirmImport: backupActions.handleConfirmImport,
       handleConfirmRestore: backupActions.handleConfirmRestore,
       handleExport: backupActions.handleExport,
@@ -76,7 +74,6 @@ export default function useSettings(items: Item[]) {
       darkMode: themeValues.darkMode,
       defaultFrequencies,
       goal,
-      itemCacheExists: backupValues.itemCacheExists,
       recoveryItemsExist,
       naturalGoal,
     },

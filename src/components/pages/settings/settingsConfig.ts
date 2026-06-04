@@ -1,5 +1,4 @@
 import {
-  DeleteIcon,
   DownloadIcon,
   FrequencyIcon,
   EditIcon,
@@ -14,7 +13,6 @@ import {
 
 export type SettingsActionId =
   | 'signOut'
-  | 'clearCache'
   | 'toggleDarkMode'
   | 'openGoalDialog'
   | 'openDefaultFrequencyDialog'
@@ -34,7 +32,7 @@ type SettingsItemConfig = {
   icon?: MuiIconType
   action: SettingsActionId
   valueRenderer?: SettingsValueRenderer
-  disabledWhen?: 'noItemCache' | 'noRecoveryItems'
+  disabledWhen?: 'noRecoveryItems'
 }
 
 type SettingsDividerConfig = {
@@ -55,15 +53,6 @@ export const settingsConfig: SettingsConfigEntry[] = [
   { type: 'divider', key: 'd1' },
   {
     type: 'item',
-    id: 'clear-cache',
-    title: 'Clear item cache',
-    icon: DeleteIcon,
-    action: 'clearCache',
-    disabledWhen: 'noItemCache',
-  },
-  { type: 'divider', key: 'd2' },
-  {
-    type: 'item',
     id: 'change-password',
     title: 'Change password',
     icon: PasswordIcon,
@@ -77,7 +66,7 @@ export const settingsConfig: SettingsConfigEntry[] = [
     action: 'toggleDarkMode',
     valueRenderer: 'darkModeToggle',
   },
-  { type: 'divider', key: 'd3' },
+  { type: 'divider', key: 'd2' },
   {
     type: 'item',
     id: 'prayer-goal',
@@ -93,7 +82,7 @@ export const settingsConfig: SettingsConfigEntry[] = [
     icon: FrequencyIcon,
     action: 'openDefaultFrequencyDialog',
   },
-  { type: 'divider', key: 'd4' },
+  { type: 'divider', key: 'd3' },
   {
     type: 'item',
     id: 'reminders',
@@ -101,7 +90,7 @@ export const settingsConfig: SettingsConfigEntry[] = [
     icon: NotificationIcon,
     action: 'openSubscriptionDialog',
   },
-  { type: 'divider', key: 'd5' },
+  { type: 'divider', key: 'd4' },
   {
     type: 'item',
     id: 'export',
@@ -131,5 +120,5 @@ export const settingsConfig: SettingsConfigEntry[] = [
     icon: PersonIcon,
     action: 'openImportDialog',
   },
-  { type: 'divider', key: 'd6' },
+  { type: 'divider', key: 'd5' },
 ]

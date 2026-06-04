@@ -13,7 +13,6 @@ type SettingsValues = {
   darkMode: boolean | null
   goal: number
   naturalGoal: number
-  itemCacheExists: boolean
   recoveryItemsExist: boolean
 }
 
@@ -82,8 +81,7 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
         }
 
         const disabled = (
-          (item.disabledWhen === 'noItemCache' && !values.itemCacheExists)
-          || (item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist)
+          item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist
         )
 
         return (

@@ -18,13 +18,9 @@ type UseBackupAndRestoreOptions = {
 
 type UseBackupAndRestoreResult = {
   actions: {
-    handleClearCache: () => Promise<void>
     handleConfirmImport: (items: Item[]) => Promise<boolean>
     handleConfirmRestore: (payload: RestorePayload) => Promise<boolean>
     handleExport: () => Promise<string>
-  }
-  values: {
-    itemCacheExists: boolean
   }
 }
 
@@ -32,15 +28,6 @@ export default function useBackupAndRestore({
   setMessage,
 }: UseBackupAndRestoreOptions): UseBackupAndRestoreResult {
   const [cacheClearCounter, setCacheClearCounter] = useState(1)
-
-  const handleClearCache = useCallback(
-    async () => {
-      await SyncBridge.clearAutomergeDocStore()
-      setCacheClearCounter(c => c + 1)
-      setMessage({ message: 'Item cache cleared' })
-    },
-    [setMessage],
-  )
 
   const handleExport = useCallback(
     async () => {
@@ -130,20 +117,12 @@ export default function useBackupAndRestore({
   )
 
   const itemsLength = Object.values(useDataStore.getState().items).length
-  const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? itemsLength > 0 : false),
-    [cacheClearCounter, itemsLength],
-  )
 
   return {
     actions: {
-      handleClearCache,
       handleConfirmImport,
       handleConfirmRestore,
       handleExport,
-    },
-    values: {
-      itemCacheExists,
     },
   }
 }

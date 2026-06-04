@@ -15,11 +15,12 @@ export class SyncPullQueueManager {
   private readonly pendingPullItemIds = new Set<string>()
   private cursorByItemId = new Map<string, number>()
   private cursorStore: LocalForage | null = null
-  private readonly saveCursorsDebounced = debounce(() => this.saveCursors(), 1000)
+  private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   public onMessageParsed: (itemId: string, documentId: DocumentId, message: Uint8Array) => void = () => {}
 
   async setAccount(account: string | null): Promise<void> {
+    this.saveCursorsDebounced.cancel()
     this.account = account
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
@@ -47,19 +48,26 @@ export class SyncPullQueueManager {
     }
   }
 
-  private saveCursors(): void {
+  async persistCursors(): Promise<void> {
     if (!this.cursorStore) return
     const data = Array.from(this.cursorByItemId.entries())
-    this.cursorStore.setItem('cursorByItemId', data).catch(error => {
+    try {
+      await this.cursorStore.setItem('cursorByItemId', data)
+    } catch (error) {
       console.error('[SyncPullQueueManager] Failed to save cursors', error)
       if (isQuotaError(error)) {
         reportQuotaExceeded()
       }
-    })
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    this.saveCursorsDebounced.cancel()
+    await this.persistCursors()
   }
 
   clear(): void {
-    this.saveCursorsDebounced.flush()
+    this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
   }

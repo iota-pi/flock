@@ -44,9 +44,6 @@ function SettingsPage() {
     signOut: () => {
       void actions.handleSignOut()
     },
-    clearCache: () => {
-      void actions.handleClearCache()
-    },
     toggleDarkMode: actions.handleToggleDarkMode,
     openGoalDialog: goalDialog.openDialog,
     openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
