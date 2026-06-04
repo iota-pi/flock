@@ -387,6 +387,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       }
 
       // Process each chunk in a sequence
+      let isFirstChunk = true
       for (const chunkEntry of chunks) {
         // 3. Encrypt the outgoing messages for this chunk
         const pushMessages = await Promise.all(
@@ -423,8 +424,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
           account: this.account,
           authToken,
           pushMessages,
-          pullCursors
+          pullCursors: isFirstChunk ? pullCursors : []
         })
+        isFirstChunk = false
 
         // 5. Process incoming messages
         if (response && response.pushResults) {
