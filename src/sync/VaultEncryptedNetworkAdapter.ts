@@ -275,7 +275,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
 
     const jitteredDelayMs = this.applyBackoffJitter(delayMs)
-    this.nextPollAt = Date.now() + jitteredDelayMs
+    this.nextPollAt = jitteredDelayMs > 0 ? Date.now() + jitteredDelayMs : 0
     this.pollIntervalId = self.setTimeout(() => {
       void this.executeWrappedPoll()
     }, jitteredDelayMs)
@@ -335,7 +335,11 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.onPollResult?.(outcome)
 
-    this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    if (outcome === 'success' && this.pullQueueManager.hasPendingPulls()) {
+      this.scheduleNextPoll(0)
+    } else {
+      this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
+    }
   }
 
   private async executePoll(): Promise<'success' | 'failure' | 'auth-failure'> {

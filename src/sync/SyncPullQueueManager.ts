@@ -213,9 +213,14 @@ export class SyncPullQueueManager {
     }
   }
 
+  hasPendingPulls(): boolean {
+    return this.pendingPullItemIds.size > 0
+  }
+
   exportCursors(): [string, number][] {
     return Array.from(this.cursorByItemId.entries())
   }
+
 
   async importCursors(cursors: [string, number][]): Promise<void> {
     if (!this.cursorStore) return

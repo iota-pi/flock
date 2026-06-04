@@ -290,4 +290,59 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
     setItemSpy.mockRestore()
   })
+
+  it('immediately triggers next poll if hasMore is true', async () => {
+    const accountId = 'account-pagination'
+    await adapter.setAccount(accountId)
+
+    let pollCount = 0
+    mockPollSyncBatchWithToken.mockImplementation(async () => {
+      pollCount++
+      if (pollCount === 1) {
+        return {
+          success: true,
+          pushResults: [],
+          pullResults: [
+            {
+              itemId: 'item-1',
+              messages: [],
+              hasMore: true,
+              nextCursor: 10,
+            }
+          ],
+        }
+      } else {
+        return {
+          success: true,
+          pushResults: [],
+          pullResults: [
+            {
+              itemId: 'item-1',
+              messages: [],
+              hasMore: false,
+              nextCursor: 20,
+            }
+          ],
+        }
+      }
+    })
+
+    adapter.setOnlineState(true)
+    adapter.queuePendingPullItems(['item-1'])
+
+    // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
+    await vi.advanceTimersByTimeAsync(50)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+
+    // The second poll returned hasMore: false, so the third poll is scheduled for 30 seconds later.
+    // Advancing by 1,000ms should not run any new polls.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+
+    // Advancing past the 30s backoff delay should trigger the third poll.
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
+  })
 })
+
+
