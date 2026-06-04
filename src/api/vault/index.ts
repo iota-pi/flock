@@ -336,11 +336,6 @@ export async function signOutVault() {
   await clearSyncBatch(accountId)
   await clearScheduledDeletions(accountId)
   clearStoredMetadata()
-  try {
-    await SyncBridge.clearAutomergeDocStore()
-  } catch (err) {
-    console.error('Failed to clear Automerge doc store during sign-out:', err)
-  }
   await clearActiveSessionToken()
   await clearManualRecoveryEntries()
 

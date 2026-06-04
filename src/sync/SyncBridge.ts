@@ -208,11 +208,6 @@ export const SyncBridge = {
     await syncApi.mutateMetadata(changes)
   },
 
-  clearAutomergeDocStore: async () => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.clearAutomergeDocStore()
-  },
-
   exportAllBinaries: async () => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     return await syncApi.exportAllBinaries()

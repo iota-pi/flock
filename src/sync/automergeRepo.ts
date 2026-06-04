@@ -52,6 +52,7 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
 
 
 const repos = new Map<string, Repo>()
+const storageAdapters = new Map<string, IndexedDBStorageAdapter>()
 
 export function getAutomergeDBName(accountId: string): string {
   return `flock-automerge-db-${accountId}`
@@ -66,9 +67,11 @@ export function initAutomergeRepo(
   }
 
   const dbName = getAutomergeDBName(accountId)
+  const indexedDbAdapter = new IndexedDBStorageAdapter(dbName)
+  storageAdapters.set(accountId, indexedDbAdapter)
 
   const repo = new Repo({
-    storage: new QuotaHandlingStorageAdapter(new IndexedDBStorageAdapter(dbName)),
+    storage: new QuotaHandlingStorageAdapter(indexedDbAdapter),
     network: [
       new EncryptedBroadcastChannelNetworkAdapter({
         channelName: `flock-automerge-broadcast-${accountId}`,
@@ -88,3 +91,33 @@ export function getAutomergeRepo(accountId: string): Repo {
   }
   return repo
 }
+
+export async function closeAutomergeRepo(accountId: string): Promise<void> {
+  const repo = repos.get(accountId)
+  if (repo) {
+    try {
+      await repo.shutdown()
+    } catch (err) {
+      console.error(`[automergeRepo] Error shutting down repo for ${accountId}:`, err)
+    }
+    repos.delete(accountId)
+  }
+
+  const adapter = storageAdapters.get(accountId)
+  if (adapter) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dbPromise = (adapter as any).dbPromise
+      if (dbPromise) {
+        const db = await dbPromise
+        if (db && typeof db.close === 'function') {
+          db.close()
+        }
+      }
+    } catch (err) {
+      console.error(`[automergeRepo] Error closing IndexedDB connection for ${accountId}:`, err)
+    }
+    storageAdapters.delete(accountId)
+  }
+}
+

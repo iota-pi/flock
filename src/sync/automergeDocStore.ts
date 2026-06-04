@@ -6,7 +6,7 @@ import { readItemSchema, errorItemSchema, ErrorItem } from '../shared/schemas/it
 import type { ItemId } from '../shared/itemTypes'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { getAutomergeDBName, getAutomergeRepo } from './automergeRepo'
+import { getAutomergeDBName, getAutomergeRepo, closeAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
@@ -509,34 +509,67 @@ export async function removeAutomergeItem(accountId: string, itemId: string): Pr
 }
 
 export async function clearAutomergeDocStore(accountId: string): Promise<void> {
-  const repo = getAutomergeRepo(accountId)
-  const documentIds = Array.from(new Set([
-    ...(await listAutomergeDocumentIds(accountId)),
-  ]))
+  let repo
+  try {
+    repo = getAutomergeRepo(accountId)
+  } catch {
+    // Ignore if not initialized
+  }
 
-  for (const documentId of documentIds) {
-    const documentUrl = await toAutomergeUrlFromItemId(documentId)
+  if (repo) {
+    const documentIds = Array.from(new Set([
+      ...(await listAutomergeDocumentIds(accountId)),
+    ]))
 
-    try {
-      repo.delete(documentUrl)
-    } catch {
-      // Ignore missing local handles.
-    }
+    for (const documentId of documentIds) {
+      const documentUrl = await toAutomergeUrlFromItemId(documentId)
 
-    try {
-      await repo.removeFromCache(interpretAsDocumentId(documentUrl))
-    } catch {
-      // Ignore cache-eviction failures for handles that were never loaded.
+      try {
+        repo.delete(documentUrl)
+      } catch {
+        // Ignore missing local handles.
+      }
+
+      try {
+        await repo.removeFromCache(interpretAsDocumentId(documentUrl))
+      } catch {
+        // Ignore cache-eviction failures for handles that were never loaded.
+      }
     }
   }
 
   initializedAccounts.clear()
 
+  try {
+    await closeAutomergeRepo(accountId)
+  } catch (err) {
+    console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
+  }
+
   if (typeof indexedDB !== 'undefined') {
     try {
-      indexedDB.deleteDatabase(getAutomergeDBName(accountId))
-    } catch {
-      // Ignore IndexedDB delete failures in constrained environments.
+      await new Promise<void>((resolve, reject) => {
+        const dbName = getAutomergeDBName(accountId)
+        const request = indexedDB.deleteDatabase(dbName)
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Database deletion timed out for ${dbName}`))
+        }, 5000)
+
+        request.onsuccess = () => {
+          clearTimeout(timeoutId)
+          resolve()
+        }
+        request.onerror = () => {
+          clearTimeout(timeoutId)
+          reject(request.error || new Error('Failed to delete IndexedDB database'))
+        }
+        request.onblocked = () => {
+          console.warn(`Database deletion blocked for ${dbName}`)
+          // Do not clear the timeout; let it reject via the timeout if it remains blocked
+        }
+      })
+    } catch (error) {
+      console.error('[automergeDocStore] failed to delete indexedDB database:', error)
     }
   }
 }

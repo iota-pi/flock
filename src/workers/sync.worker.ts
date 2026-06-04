@@ -438,12 +438,6 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  async clearAutomergeDocStore() {
-    this.snapshotManager.clear()
-    await this.deletionQueueManager.clearQueue().catch(console.error)
-    await clearAutomergeDocStore(this.accountId!)
-  }
-
   async exportAllBinaries() {
     return await exportAllBinaries(this.accountId!)
   }
@@ -550,6 +544,8 @@ export class SyncWorker implements SyncApi {
       }
       this.adapter = null
     }
+
+    await clearAutomergeDocStore(this.accountId!)
 
     this.clearListeners()
     this.repo = null

@@ -27,7 +27,6 @@ export interface SyncApi {
   hardDeleteItems: (itemIds: string[]) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
   mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
-  clearAutomergeDocStore: () => Promise<void>
   exportAllBinaries: () => Promise<Partial<Record<string, string>>>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   forceSync: () => Promise<void>,

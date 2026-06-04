@@ -442,6 +442,8 @@ export class SnapshotManager {
     }
 
     await this.persistLastModified()
+
+    this.clear()
   }
 
   clear() {
