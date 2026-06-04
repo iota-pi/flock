@@ -1,16 +1,39 @@
 import localforage from 'localforage'
-import {
-  clearManualRecoveryEntries,
-  readManualRecoveryCount,
-  readManualRecoveryEntries,
-  removeManualRecoveryEntryById,
-  removeManualRecoveryEntryByItemId,
-  resetMigrationForTesting,
-  upsertManualRecoveryEntry,
-} from './manualRecoveryStore'
+import { vi, beforeAll } from 'vitest'
 
+// Intercept created instances before importing manualRecoveryStore
+const createdInstances: any[] = []
+const originalCreateInstance = localforage.createInstance
+localforage.createInstance = function (options: any) {
+  const instance = originalCreateInstance.call(this, options)
+  createdInstances.push(instance)
+  return instance
+}
+
+const mockReportQuotaExceeded = vi.fn()
+vi.mock('../workers/quotaReporter', () => ({
+  reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
+}))
+
+let clearManualRecoveryEntries: any
+let readManualRecoveryCount: any
+let readManualRecoveryEntries: any
+let removeManualRecoveryEntryById: any
+let removeManualRecoveryEntryByItemId: any
+let resetMigrationForTesting: any
+let upsertManualRecoveryEntry: any
 
 describe('manualRecoveryStore', () => {
+  beforeAll(async () => {
+    const mod = await import('./manualRecoveryStore')
+    clearManualRecoveryEntries = mod.clearManualRecoveryEntries
+    readManualRecoveryCount = mod.readManualRecoveryCount
+    readManualRecoveryEntries = mod.readManualRecoveryEntries
+    removeManualRecoveryEntryById = mod.removeManualRecoveryEntryById
+    removeManualRecoveryEntryByItemId = mod.removeManualRecoveryEntryByItemId
+    resetMigrationForTesting = mod.resetMigrationForTesting
+    upsertManualRecoveryEntry = mod.upsertManualRecoveryEntry
+  })
   beforeEach(async () => {
     await clearManualRecoveryEntries()
     // Also clean up metadata store
@@ -96,5 +119,55 @@ describe('manualRecoveryStore', () => {
     expect(notMigratedVal).toBeNull()
     const stillLegacyVal = await legacyStorage.getItem('uuid-2')
     expect(stillLegacyVal).not.toBeNull()
+  })
+
+  it('sorts entries by createdAt descending, then by id lexicographically', async () => {
+    const now = Date.now()
+    const dateSpy = vi.spyOn(Date, 'now')
+
+    dateSpy.mockReturnValueOnce(now - 1000)
+    await upsertManualRecoveryEntry({ itemId: 'item-b', reason: 'error-b' })
+
+    dateSpy.mockReturnValueOnce(now)
+    await upsertManualRecoveryEntry({ itemId: 'item-c', reason: 'error-c' })
+
+    dateSpy.mockReturnValueOnce(now - 1000)
+    await upsertManualRecoveryEntry({ itemId: 'item-a', reason: 'error-a' })
+
+    const entries = await readManualRecoveryEntries()
+    expect(entries).toHaveLength(3)
+
+    expect(entries[0].itemId).toBe('item-c')
+    expect(entries[1].itemId).toBe('item-a')
+    expect(entries[2].itemId).toBe('item-b')
+
+    dateSpy.mockRestore()
+  })
+
+  it('handles quota errors in upsertManualRecoveryEntry', async () => {
+    const quotaError = new DOMException('quota exceeded', 'QuotaExceededError')
+    const storage = createdInstances.find(i => i.config?.().storeName === 'manual-recovery-items')
+    const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValueOnce(quotaError)
+
+    await expect(
+      upsertManualRecoveryEntry({ itemId: 'item-quota', reason: 'quota' })
+    ).rejects.toThrow(quotaError)
+
+    expect(mockReportQuotaExceeded).toHaveBeenCalled()
+    setItemSpy.mockRestore()
+  })
+
+  it('contains errors thrown during migration runMigration', async () => {
+    const metaStorage = createdInstances.find(i => i.config?.().storeName === 'manual-recovery-metadata')
+    const getItemSpy = vi.spyOn(metaStorage, 'getItem').mockRejectedValueOnce(new Error('Migration read failed'))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    resetMigrationForTesting()
+
+    await expect(readManualRecoveryEntries()).resolves.toBeDefined()
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[ManualRecoveryStore] Migration failed', expect.any(Error))
+
+    getItemSpy.mockRestore()
+    consoleErrorSpy.mockRestore()
   })
 })
