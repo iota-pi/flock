@@ -25,7 +25,7 @@ function seedManualRecoveryEntry(id: string, label: string) {
         }
       }
 
-      const request = win.indexedDB.open('FlockVaultDB')
+      const request = win.indexedDB.open('FlockVault_ManualRecoveryDB')
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
         const db = request.result
@@ -38,7 +38,7 @@ function seedManualRecoveryEntry(id: string, label: string) {
         const nextVersion = db.version + 1
         db.close()
 
-        const upgradeRequest = win.indexedDB.open('FlockVaultDB', nextVersion)
+        const upgradeRequest = win.indexedDB.open('FlockVault_ManualRecoveryDB', nextVersion)
         upgradeRequest.onerror = () => reject(upgradeRequest.error)
         upgradeRequest.onupgradeneeded = () => {
           const upgradedDb = upgradeRequest.result

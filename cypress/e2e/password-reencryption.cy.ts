@@ -6,12 +6,23 @@ describe('Password Change and Vault Re-encryption', () => {
     // Clean up local state
     cy.clearLocalStorage()
     cy.window().then((win) => {
-      return new Cypress.Promise<void>((resolve, reject) => {
-        const req = win.indexedDB.deleteDatabase('FlockVaultDB')
-        req.onsuccess = () => resolve()
-        req.onerror = () => reject(req.error)
-        req.onblocked = () => resolve()
-      })
+      const dbNames = [
+        'FlockVaultDB',
+        'FlockVault_SyncBatchDB',
+        'FlockVault_DeletionQueueDB',
+        'FlockVault_ManualRecoveryDB',
+      ]
+      return Cypress.Promise.all(
+        dbNames.map(
+          (name) =>
+            new Cypress.Promise<void>((resolve, reject) => {
+              const req = win.indexedDB.deleteDatabase(name)
+              req.onsuccess = () => resolve()
+              req.onerror = () => reject(req.error)
+              req.onblocked = () => resolve()
+            })
+        )
+      ) as unknown as Promise<void>
     })
 
     // Register a new user

@@ -3,7 +3,7 @@ import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
 
 export const syncBatchStorage = localforage.createInstance({
-  name: 'FlockVaultDB',
+  name: 'FlockVault_SyncBatchDB',
   storeName: 'sync-batch-messages',
 })
 

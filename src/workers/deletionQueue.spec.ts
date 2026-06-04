@@ -185,8 +185,8 @@ describe('SyncWorker Deletion Queue Integration', () => {
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 
-  it('clears scheduled deletions when clearAutomergeDocStore is called', async () => {
-    await worker.clearAutomergeDocStore()
+  it('clears scheduled deletions when shutdown is called', async () => {
+    await worker.shutdown()
     expect(deletionStore.clearScheduledDeletions).toHaveBeenCalledWith(accountId)
     expect(mockClearAutomergeDocStore).toHaveBeenCalledWith(accountId)
   })

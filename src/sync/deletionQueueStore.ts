@@ -11,7 +11,7 @@ export type ScheduledDeletion = {
 }
 
 const scheduledDeletionsStorage = localforage.createInstance({
-  name: 'FlockVaultDB',
+  name: 'FlockVault_DeletionQueueDB',
   storeName: STORE_NAME,
 })
 

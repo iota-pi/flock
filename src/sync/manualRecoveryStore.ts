@@ -12,7 +12,7 @@ export type ManualRecoveryEntry = {
 }
 
 const manualRecoveryStorage = localforage.createInstance({
-  name: 'FlockVaultDB',
+  name: 'FlockVault_ManualRecoveryDB',
   storeName: STORE_NAME,
 })
 
