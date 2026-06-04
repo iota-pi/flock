@@ -186,7 +186,7 @@ export class SyncWorker implements SyncApi {
     this.adapter.setOnlineState(this.isOnline)
 
     // Start background leader election
-    void this.acquireLeadership(accountId)
+    void this.acquireLeadership(accountId).catch(console.error)
 
     await this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
