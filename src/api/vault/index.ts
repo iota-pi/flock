@@ -330,16 +330,17 @@ export async function signOutVault() {
   session = ''
   setApiAuthToken('')
 
+  await SyncBridge.shutdown()
+
+  const accountId = getAccountId()
+  await clearSyncBatch(accountId)
+  await clearScheduledDeletions(accountId)
   clearStoredMetadata()
   try {
     await SyncBridge.clearAutomergeDocStore()
   } catch (err) {
     console.error('Failed to clear Automerge doc store during sign-out:', err)
   }
-  const accountId = getAccountId()
-  await clearSyncBatch(accountId)
-  await clearScheduledDeletions(accountId)
-  await SyncBridge.shutdown()
   await clearActiveSessionToken()
   await clearManualRecoveryEntries()
 
