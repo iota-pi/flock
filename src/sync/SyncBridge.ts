@@ -7,7 +7,7 @@ import { useSyncStore } from 'src/state/syncStore'
 import { getStoredVaultKey } from 'src/api/vault/util'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
-import { setOnRecoveryItemsChangedListener } from 'src/api/syncHealthCoordinator'
+import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api/syncHealthCoordinator'
 import type { BackupSyncState } from 'src/types/backup'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 
@@ -279,6 +279,7 @@ export const SyncBridge = {
     currentAccountId = null
     stopWorkerHeartbeat()
     resetCrashMetrics()
+    resetSyncHealthState()
 
     if (itemUpdateFlushHandle !== null) {
       cancelAnimationFrame(itemUpdateFlushHandle)

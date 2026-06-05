@@ -84,6 +84,11 @@ class SyncHealthState {
 
 const tracker = new SyncHealthState()
 
+export function resetSyncHealthState(): void {
+  tracker.reset()
+}
+
+
 async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
   await upsertManualRecoveryEntry({ itemId, reason })
   onRecoveryItemsChangedListener?.()
