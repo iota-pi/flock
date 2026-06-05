@@ -82,12 +82,21 @@ export class SyncPullQueueManager {
     let offset = 0
     const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
     while (offset < decrypted.byteLength) {
-      const length = view.getUint32(offset, false)
-      offset += 4
-      const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
-      offset += length
+      try {
+        const length = view.getUint32(offset, false)
+        offset += 4
+        const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
+        offset += length
 
-      this.onMessageParsed(itemId, documentId, msg)
+        try {
+          this.onMessageParsed(itemId, documentId, msg)
+        } catch (error) {
+          console.error('[SyncPullQueueManager] Error processing message in batch', error)
+        }
+      } catch (error) {
+        console.error('[SyncPullQueueManager] Error parsing message batch structure', error)
+        break
+      }
     }
   }
 
@@ -107,7 +116,11 @@ export class SyncPullQueueManager {
       if (isBatched) {
         this.parseBatchedMessages(itemId, documentId, decrypted)
       } else {
-        this.onMessageParsed(itemId, documentId, decrypted)
+        try {
+          this.onMessageParsed(itemId, documentId, decrypted)
+        } catch (error) {
+          console.error('[SyncPullQueueManager] Error processing message', error)
+        }
       }
 
       return { parsed: true, cursor: entry.cursor }
@@ -146,36 +159,40 @@ export class SyncPullQueueManager {
 
     try {
       for (const result of results || []) {
-        const itemId = result.itemId
-        const hasMore = result.hasMore === true
-        let highestCursor = this.cursorByItemId.get(itemId) || 0
+        try {
+          const itemId = result.itemId
+          const hasMore = result.hasMore === true
+          let highestCursor = this.cursorByItemId.get(itemId) || 0
 
-        const documentId = interpretAsDocumentId(await toAutomergeUrlFromItemId(itemId))
+          const documentId = interpretAsDocumentId(await toAutomergeUrlFromItemId(itemId))
 
-        for (const entry of result.messages || []) {
-          const handled = await this.handleMessageEntry(itemId, documentId as DocumentId, entry)
-          if (handled.parsed) {
-            successfullyPulledItemIds.add(itemId)
+          for (const entry of result.messages || []) {
+            const handled = await this.handleMessageEntry(itemId, documentId as DocumentId, entry)
+            if (handled.parsed) {
+              successfullyPulledItemIds.add(itemId)
+            }
+
+            if (Number.isFinite(handled.cursor)) {
+              highestCursor = Math.max(highestCursor, handled.cursor!)
+            }
           }
 
-          if (Number.isFinite(handled.cursor)) {
-            highestCursor = Math.max(highestCursor, handled.cursor!)
+          if (Number.isFinite(result.nextCursor)) {
+            highestCursor = Math.max(highestCursor, result.nextCursor)
           }
-        }
 
-        if (Number.isFinite(result.nextCursor)) {
-          highestCursor = Math.max(highestCursor, result.nextCursor)
-        }
+          if (highestCursor >= 0) {
+            this.cursorByItemId.set(itemId, highestCursor)
+            cursorsUpdated = true
+          }
 
-        if (highestCursor >= 0) {
-          this.cursorByItemId.set(itemId, highestCursor)
-          cursorsUpdated = true
-        }
-
-        if (hasMore) {
-          this.pendingPullItemIds.add(itemId)
-        } else {
-          this.pendingPullItemIds.delete(itemId)
+          if (hasMore) {
+            this.pendingPullItemIds.add(itemId)
+          } else {
+            this.pendingPullItemIds.delete(itemId)
+          }
+        } catch (innerError) {
+          console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)
         }
       }
 
@@ -184,7 +201,6 @@ export class SyncPullQueueManager {
       }
     } catch (error) {
       console.error('[SyncPullQueueManager] Pull sync batch failed', error)
-      throw error
     } finally {
       if (successfullyPulledItemIds.size > 0) {
         try {

@@ -64,6 +64,19 @@ vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
+vi.mock('./automergeRepoIds', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./automergeRepoIds')>()
+  return {
+    ...actual,
+    toAutomergeUrlFromItemId: async (itemId: string) => {
+      if (itemId === 'item-throw-error') {
+        throw new Error('Failed to resolve URL')
+      }
+      return actual.toAutomergeUrlFromItemId(itemId)
+    },
+  }
+})
+
 
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
@@ -319,6 +332,152 @@ describe('SyncPullQueueManager', () => {
         },
       ])
       expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('handles message processing failure in a batch without dropping remaining messages', async () => {
+      const onMessageParsedSpy = vi.fn().mockImplementation((itemId, docId, msg) => {
+        if (msg[0] === 10) {
+          throw new Error('Transient processing error for message 1')
+        }
+      })
+      manager.onMessageParsed = onMessageParsedSpy
+
+      const msg1 = new Uint8Array([10, 20, 30])
+      const msg2 = new Uint8Array([40, 50])
+      const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
+      const view = new DataView(combined.buffer)
+
+      let offset = 0
+      view.setUint32(offset, msg1.length, false)
+      offset += 4
+      combined.set(msg1, offset)
+      offset += msg1.length
+
+      view.setUint32(offset, msg2.length, false)
+      offset += 4
+      combined.set(msg2, offset)
+
+      mockDecryptBytes.mockResolvedValueOnce(combined)
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-batch-error',
+          hasMore: false,
+          nextCursor: 15,
+          messages: [
+            {
+              cursor: 12,
+              encryptedMessage: {
+                iv: 'iv-batch',
+                cipher: 'abc',
+                version: '1.0',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-batch-error'))
+      expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
+        1,
+        'item-batch-error',
+        expectedDocId,
+        msg1,
+      )
+      expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
+        2,
+        'item-batch-error',
+        expectedDocId,
+        msg2,
+      )
+
+      expect(manager.exportCursors()).toContainEqual(['item-batch-error', 15])
+    })
+
+    it('handles message processing error for non-batched message without failing the batch', async () => {
+      const onMessageParsedSpy = vi.fn().mockImplementation(() => {
+        throw new Error('Processing failed')
+      })
+      manager.onMessageParsed = onMessageParsedSpy
+
+      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-1',
+          hasMore: false,
+          nextCursor: 5,
+          messages: [
+            {
+              cursor: 2,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+      ]
+
+      await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
+      expect(manager.exportCursors()).toContainEqual(['item-1', 5])
+    })
+
+    it('continues processing subsequent items if one item throws an error', async () => {
+      const onMessageParsedSpy = vi.fn()
+      manager.onMessageParsed = onMessageParsedSpy
+
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2, 3]))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-throw-error',
+          hasMore: false,
+          nextCursor: 10,
+          messages: [
+            {
+              cursor: 5,
+              encryptedMessage: {
+                iv: 'iv-1',
+                cipher: 'abc',
+              },
+            },
+          ],
+        },
+        {
+          success: true,
+          itemId: 'item-success',
+          hasMore: false,
+          nextCursor: 20,
+          messages: [
+            {
+              cursor: 15,
+              encryptedMessage: {
+                iv: 'iv-2',
+                cipher: 'def',
+              },
+            },
+          ],
+        },
+      ]
+
+      await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
+
+      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-success'))
+      expect(onMessageParsedSpy).toHaveBeenCalledWith(
+        'item-success',
+        expectedDocId,
+        new Uint8Array([1, 2, 3]),
+      )
+
+      expect(manager.exportCursors()).toContainEqual(['item-success', 20])
+      expect(manager.exportCursors()).not.toContainEqual(['item-throw-error', 10])
     })
   })
 
