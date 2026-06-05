@@ -3,6 +3,10 @@ import * as Comlink from 'comlink'
 import { useSyncStore } from '../state/syncStore'
 import { VAULT_STORAGE_KEY } from '../api/vault/util'
 
+vi.mock('src/api/vault', () => ({
+  exportKeyringData: vi.fn().mockResolvedValue('test-key'),
+}))
+
 
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),

@@ -4,7 +4,7 @@ import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
-import { getStoredVaultKey } from 'src/api/vault/util'
+import { exportKeyringData } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
 import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api/syncHealthCoordinator'
@@ -111,7 +111,7 @@ export const SyncBridge = {
     try {
       void syncApi.setOnlineState(initialOnlineState)
 
-      const vaultKey = getStoredVaultKey()
+      const vaultKey = await exportKeyringData()
       if (!vaultKey) throw new Error('Vault key not found in storage')
 
       await syncApi.initRepo(

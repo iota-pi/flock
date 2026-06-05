@@ -7,9 +7,10 @@ import {
   encryptBytes,
   decryptBytes,
   storeVault,
-  loadVault,
+  loadAccount,
   signOutVault,
   rotateVaultKey,
+  exportKeyringData,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
 
@@ -38,7 +39,7 @@ describe('Vault Keyring Integration', () => {
     vi.clearAllMocks()
   })
 
-  it('initializes vault and saves keyring to localStorage', async () => {
+  it('initializes vault and saves only account to localStorage, exporting keyring separately', async () => {
     const hash = await initialiseVault({
       password: 'password123',
       salt: 'salt123',
@@ -54,13 +55,17 @@ describe('Vault Keyring Integration', () => {
 
     const parsed = JSON.parse(stored!)
     expect(parsed.account).toBe('test-account')
+    expect(parsed.key).toBeUndefined()
+    expect(parsed.authToken).toBeUndefined()
 
-    const keyData = JSON.parse(parsed.key)
+    // Test exportKeyringData
+    const exported = await exportKeyringData()
+    const keyData = JSON.parse(exported)
     expect(keyData.activeVersion).toBe('1')
     expect(keyData['1']).toBeDefined()
   })
 
-  it('loads vault from versioned keyring in localStorage', async () => {
+  it('loads only account from localStorage on loadVault, without loading keys', async () => {
     await initialiseVault({
       password: 'password123',
       salt: 'salt123',
@@ -68,20 +73,17 @@ describe('Vault Keyring Integration', () => {
     })
     await storeVault()
 
-    // Backup storage before clearing keyring
-    const backup = localStorage.getItem(VAULT_STORAGE_KEY)
-
     // Clear memory keyring
     await signOutVault()
 
-    // Restore storage
-    localStorage.setItem(VAULT_STORAGE_KEY, backup!)
+    // Restore account only
+    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account' }))
 
     // Load from storage
-    await loadVault()
+    await loadAccount()
 
-    expect(getVaultKey('1')).toBeDefined()
-    expect(getVaultKey()).toBeDefined()
+    // keyring should be empty and getVaultKey should throw
+    expect(() => getVaultKey('1')).toThrow()
   })
 
   it('loads worker vault using exported keyring', async () => {
@@ -90,15 +92,12 @@ describe('Vault Keyring Integration', () => {
       salt: 'salt123',
       iterations: 1000,
     })
-    await storeVault()
 
-    // Construct serialized keyring
-    const mockStorage = localStorage.getItem(VAULT_STORAGE_KEY)
-    const parsed = JSON.parse(mockStorage!)
+    const exported = await exportKeyringData()
 
     await signOutVault()
 
-    await initWorkerVault(parsed.key)
+    await initWorkerVault(exported)
 
     expect(getVaultKey('1')).toBeDefined()
     expect(getVaultKey()).toBeDefined()

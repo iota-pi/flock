@@ -88,17 +88,8 @@ export function getVaultSession() {
 }
 
 async function writeStoredMetadata() {
-  const keyringData: Record<string, string> = {
-    activeVersion: activeKeyVersion,
-  }
-  for (const [ver, k] of keyring.entries()) {
-    keyringData[ver] = await exportVaultKey(k)
-  }
-
   localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({
     account: getAccountId(),
-    key: JSON.stringify(keyringData),
-    authToken: keyHash,
   } satisfies VaultStoredMetadata))
 }
 
@@ -111,6 +102,7 @@ async function establishSessionFromKeyHash(nextKeyHash: string) {
   session = await getSession(nextKeyHash)
   setApiAuthToken(session)
   await setActiveSessionToken(session)
+  setApiSessionExpiredHandler(handleSessionExpired)
 }
 
 async function handleSessionExpired() {
@@ -222,94 +214,22 @@ export async function loginVault({
   }
 }
 
-export async function loadVault() {
-  if (loadVaultInFlight) {
-    return loadVaultInFlight
+export async function loadAccount() {
+  const { updateAuth } = useAuthStore.getState()
+  const stored = readStoredMetadata()
+  if (stored?.account) {
+    updateAuth({ account: stored.account })
   }
+}
 
-  loadVaultInFlight = (async () => {
-    const { updateAuth } = useAuthStore.getState()
-    const { setMessage } = useToastStore.getState()
-    const stored = readStoredMetadata()
-
-    try {
-      if (stored?.account) {
-        updateAuth({ account: stored.account })
-      }
-
-      if (stored?.key) {
-        keyring.clear()
-        try {
-          const keyringData = JSON.parse(stored.key)
-          if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-            activeKeyVersion = keyringData.activeVersion as string
-            for (const [ver, expKey] of Object.entries(keyringData)) {
-              if (ver !== 'activeVersion') {
-                keyring.set(ver, await importVaultKey(expKey as string))
-              }
-            }
-          } else {
-            throw new Error('Not a structured keyring')
-          }
-        } catch (_) {
-          // Legacy single key
-          const imported = await importVaultKey(stored.key)
-          keyring.set('1', imported)
-          activeKeyVersion = '1'
-        }
-
-        const nextKeyHash = stored.authToken || await hashVaultKey(getActiveKey())
-        try {
-          await establishSessionFromKeyHash(nextKeyHash)
-          setApiSessionExpiredHandler(handleSessionExpired)
-          updateAuth({ loggedIn: true })
-
-          try {
-            const encryptedKeyringStr = await getKeyring()
-            if (encryptedKeyringStr) {
-              const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
-              const decryptionKey = masterKey || getVaultKey('1')
-              const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
-              const keyringData = JSON.parse(plaintext)
-              if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
-                let changed = false
-                if (activeKeyVersion !== keyringData.activeVersion) {
-                  activeKeyVersion = keyringData.activeVersion as string
-                  changed = true
-                }
-                for (const [ver, expKey] of Object.entries(keyringData)) {
-                  if (ver !== 'activeVersion' && !keyring.has(ver)) {
-                    keyring.set(ver, await importVaultKey(expKey as string))
-                    changed = true
-                  }
-                }
-                if (changed) {
-                  await storeVault()
-                }
-              }
-            }
-          } catch (err) {
-            console.error('[vault] Failed to sync keyring from server during loadVault:', err)
-          }
-        } catch (error) {
-          if (error instanceof Error && error.name === 'TRPCClientError' && (error as TRPCError).code === 'UNAUTHORIZED') {
-            console.error('[vault] loadVault login failed', error)
-            await signOutVault()
-            setMessage({
-              severity: 'error',
-              message: 'Login failed. Please sign in again.',
-            })
-          }
-        }
-      }
-    } finally {
-      updateAuth({ initializing: false })
-    }
-  })().finally(() => {
-    loadVaultInFlight = null
-  })
-
-  return loadVaultInFlight
+export async function exportKeyringData(): Promise<string> {
+  const keyringData: Record<string, string> = {
+    activeVersion: activeKeyVersion,
+  }
+  for (const [ver, k] of keyring.entries()) {
+    keyringData[ver] = await exportVaultKey(k)
+  }
+  return JSON.stringify(keyringData)
 }
 
 export async function storeVault() {

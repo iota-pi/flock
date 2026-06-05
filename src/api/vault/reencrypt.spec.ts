@@ -1,15 +1,11 @@
 import { reencryptAllItems } from './reencrypt'
-import { rotateVaultKey } from './index'
-import { getStoredVaultKey } from './util'
+import { rotateVaultKey, exportKeyringData } from './index'
 import { SyncBridge } from '../../sync/SyncBridge'
 
 
 vi.mock('./index', () => ({
   rotateVaultKey: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('./util', () => ({
-  getStoredVaultKey: vi.fn().mockReturnValue('mock-keyring-data'),
+  exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
 }))
 
 vi.mock('../../sync/SyncBridge', () => ({
@@ -38,7 +34,7 @@ describe('reencryptAllItems coordinator', () => {
     await reencryptAllItems(onProgress)
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
-    expect(getStoredVaultKey).toHaveBeenCalledTimes(1)
+    expect(exportKeyringData).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).toHaveBeenCalledWith('mock-keyring-data')
     expect(SyncBridge.reencryptAllItems).toHaveBeenCalledWith(onProgress)
     expect(progressCalls).toEqual([
@@ -48,12 +44,13 @@ describe('reencryptAllItems coordinator', () => {
   })
 
   it('throws an error if keyring is missing after rotation', async () => {
-    vi.mocked(getStoredVaultKey).mockReturnValueOnce(null)
+    vi.mocked(exportKeyringData).mockResolvedValueOnce('')
 
-    await expect(reencryptAllItems()).rejects.toThrow('Keyring not found in storage after rotation')
+    await expect(reencryptAllItems()).rejects.toThrow('Keyring not found in memory after rotation')
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
     expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
   })
 })
+

@@ -1,5 +1,4 @@
-import { rotateVaultKey } from './index'
-import { getStoredVaultKey } from './util'
+import { rotateVaultKey, exportKeyringData } from './index'
 import { SyncBridge } from '../../sync/SyncBridge'
 
 export async function reencryptAllItems(
@@ -9,9 +8,9 @@ export async function reencryptAllItems(
   await rotateVaultKey()
 
   // 2. Fetch the updated keyring string
-  const newKeyring = getStoredVaultKey()
+  const newKeyring = await exportKeyringData()
   if (!newKeyring) {
-    throw new Error('Keyring not found in storage after rotation')
+    throw new Error('Keyring not found in memory after rotation')
   }
 
   // 3. Update the worker's key

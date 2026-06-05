@@ -338,8 +338,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
-    // Advancing past the 30s backoff delay should trigger the third poll.
-    await vi.advanceTimersByTimeAsync(35000)
+    // Advancing past the 30s backoff delay + jitter should trigger the third poll.
+    await vi.advanceTimersByTimeAsync(50000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
   })
 })
