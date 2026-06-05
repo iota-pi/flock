@@ -225,12 +225,6 @@ async function ensureIndexDocument(accountId: string): Promise<void> {
     lastModified: {},
   }
 
-  await ensureDocumentHandle(accountId, ACCOUNT_INDEX_DOCUMENT_ID, {
-    createIfMissing: true,
-    initialValue,
-    awaitReady: false,
-  })
-
   await withAutomergeDocumentChange(
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
@@ -422,12 +416,11 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
     return
   }
 
-  await ensureIndexDocument(normalizedAccount)
-
   if (initializedAccounts.has(normalizedAccount)) {
     return
   }
 
+  await ensureIndexDocument(normalizedAccount)
   initializedAccounts.add(normalizedAccount)
 }
 
