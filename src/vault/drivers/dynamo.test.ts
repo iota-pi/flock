@@ -107,7 +107,6 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
     })
     expect(success).toBe(true)
   })
@@ -120,7 +119,6 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
     })
 
     expect(
@@ -142,13 +140,13 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
     })
 
     const newSession = 'a_new_session_token'
+    const expiry = Date.now() + 60_000
     await driver.updateAccountData({
       account,
-      session: newSession,
+      sessions: [{ token: newSession, expiry }],
     })
     expect(
       await driver.checkSession({ account, session })
@@ -175,7 +173,6 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
     })
 
     const sessionA = 'session-A'
@@ -184,7 +181,6 @@ describe('DynamoDriver', function () {
 
     await driver.updateAccountData({
       account,
-      session: sessionB,
       sessions: [
         { token: sessionA, expiry },
         { token: sessionB, expiry },
@@ -197,7 +193,7 @@ describe('DynamoDriver', function () {
 
   it('repeated createAccount calls fail', async () => {
     const account = generateAccountId()
-    const params = { account, authToken, metadata, salt, iterations, session }
+    const params = { account, authToken, metadata, salt, iterations }
     const result1 = await driver.createAccount(params)
     expect(result1).toBe(true)
     const result2 = await driver.createAccount(params)
@@ -214,21 +210,27 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
+    })
+
+    const sessionA = 'session-A'
+    const expiry = Date.now() + 1000 // 1 second expiry
+    await driver.updateAccountData({
+      account,
+      sessions: [{ token: sessionA, expiry }]
     })
 
     // Session should be valid after creation
     expect(
-      await driver.checkSession({ account, session })
+      await driver.checkSession({ account, session: sessionA })
     ).toEqual({ success: true })
 
     // Extend the session
-    await driver.extendSession({ account })
+    await driver.extendSession({ account, session: sessionA })
 
-    // Session should still be valid after extension
-    expect(
-      await driver.checkSession({ account, session })
-    ).toEqual({ success: true })
+    // Check the updated expiry in getAccount
+    const acc = await driver.getAccount({ account, session: sessionA })
+    const updatedSession = acc.sessions?.find(s => s.token === sessionA)
+    expect(updatedSession?.expiry).toBeGreaterThan(Date.now() + 10000)
   })
 
   it('normalizes sessions when updating account data', async () => {
@@ -239,7 +241,6 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
     })
 
     const now = Date.now()
@@ -273,7 +274,12 @@ describe('DynamoDriver', function () {
       metadata,
       salt,
       iterations,
-      session,
+    })
+
+    const testSession = 'session-keyring-test'
+    await driver.updateAccountData({
+      account,
+      sessions: [{ token: testSession, expiry: Date.now() + 60_000 }]
     })
 
     const keyringValue = 'encrypted_keyring_payload_sample'
@@ -282,7 +288,7 @@ describe('DynamoDriver', function () {
       keyring: keyringValue,
     })
 
-    const result = await driver.getAccount({ account, session })
+    const result = await driver.getAccount({ account, session: testSession })
     expect(result.keyring).toBe(keyringValue)
   })
 
@@ -320,5 +326,42 @@ describe('DynamoDriver', function () {
     const resultAfterPrune = await driver.getSyncMessages({ account, itemId })
     expect(resultAfterPrune.messages.length).toBe(1)
     expect(resultAfterPrune.messages[0].cursor).toBe(1002)
+  })
+
+  it('session eviction on updateAccountData works', async () => {
+    const account = generateAccountId()
+    await driver.createAccount({
+      account,
+      authToken,
+      metadata,
+      salt,
+      iterations,
+    })
+
+    const sessionA = 'session-A'
+    const sessionB = 'session-B'
+    const expiry = Date.now() + 60_000
+
+    await driver.updateAccountData({
+      account,
+      sessions: [
+        { token: sessionA, expiry },
+        { token: sessionB, expiry },
+      ],
+    })
+
+    // Both sessions are valid
+    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
+    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: true })
+
+    // Simulate changePassword by updating sessions array to only contain sessionA
+    await driver.updateAccountData({
+      account,
+      sessions: [{ token: sessionA, expiry }],
+    })
+
+    // Now sessionA is valid, sessionB is revoked
+    expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
+    expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: false, reason: 'expired' })
   })
 })

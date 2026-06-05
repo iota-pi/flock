@@ -31,7 +31,6 @@ export const accountsRouter = router({
         metadata: {},
         salt: input.salt,
         iterations: input.iterations,
-        session: randomBytes(16).toString('base64'),
       })
 
       if (!success) {
@@ -45,22 +44,16 @@ export const accountsRouter = router({
     .input(LoginBodySchema)
     .mutation(async ({ ctx, input }) => {
       const loginAuthTokenHash = hashString(input.authToken)
-      // TODO: this calls getAccount twice - once in checkSession and once in getAccount. We should combine these into a single call to avoid redundant work
-      const valid = await ctx.vault.checkSession({
-        account: input.account,
-        session: loginAuthTokenHash,
-        isLogin: true,
-      })
-
-      if (!valid.success) {
+      let accountData
+      try {
+        accountData = await ctx.vault.getAccount({
+          account: input.account,
+          session: loginAuthTokenHash,
+          isLogin: true,
+        })
+      } catch (e) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
-
-      const accountData = await ctx.vault.getAccount({
-        account: input.account,
-        session: loginAuthTokenHash,
-        isLogin: true,
-      })
 
       const session = randomBytes(16).toString('base64')
       const now = Date.now()
@@ -80,7 +73,6 @@ export const accountsRouter = router({
 
       await ctx.vault.updateAccountData({
         account: input.account,
-        session,
         sessions: nextSessions,
       })
 

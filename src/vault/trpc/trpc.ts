@@ -52,7 +52,7 @@ export const protectedProcedure = t.procedure
       throw new TRPCError({ code: 'UNAUTHORIZED' })
     }
 
-    ctx.vault.extendSession({ account }).catch(() => {})
+    ctx.vault.extendSession({ account, session: ctx.authToken }).catch(() => {})
 
     return next({
       ctx: {

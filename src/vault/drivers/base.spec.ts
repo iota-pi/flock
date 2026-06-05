@@ -40,7 +40,7 @@ class TestDriver extends BaseDriver {
     throw new Error('not implemented')
   }
 
-  async extendSession(data: { account: string }) {
+  async extendSession(data: { account: string; session: string }) {
     return this.extendSessionMock(data)
   }
 
@@ -109,6 +109,6 @@ describe('BaseDriver auth', () => {
       account: 'acc-2',
       session: 'token-2',
     })
-    expect(driver.extendSessionMock).toHaveBeenCalledWith({ account: 'acc-2' })
+    expect(driver.extendSessionMock).toHaveBeenCalledWith({ account: 'acc-2', session: 'token-2' })
   })
 })

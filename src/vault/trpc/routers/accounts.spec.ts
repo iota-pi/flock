@@ -11,7 +11,12 @@ function createContext(overrides?: { authToken?: string, checkSessionSuccess?: b
     checkSession: vi.fn(async () => ({ success: checkSessionSuccess })),
     updateAccountData: vi.fn(async () => undefined),
     getAccountSalt: vi.fn(async () => 'salt-1'),
-    getAccount: vi.fn(async () => ({ metadata: { theme: 'light' } })),
+    getAccount: vi.fn(async () => {
+      if (!checkSessionSuccess) {
+        throw new Error('Unauthorized')
+      }
+      return { metadata: { theme: 'light' } }
+    }),
     extendSession: vi.fn(async () => undefined),
   }
 
@@ -65,14 +70,13 @@ describe('accountsRouter security contracts', () => {
     expect(result.success).toBe(true)
     expect(result.session).toBeTypeOf('string')
     expect(result.session.length).toBeGreaterThan(0)
-    expect(ctx.vault.checkSession).toHaveBeenCalledWith({
+    expect(ctx.vault.getAccount).toHaveBeenCalledWith({
       account: 'acct-1',
       session: hashString('secret-password'),
       isLogin: true,
     })
     expect(ctx.vault.updateAccountData).toHaveBeenCalledWith({
       account: 'acct-1',
-      session: result.session,
       sessions: [
         {
           token: result.session,

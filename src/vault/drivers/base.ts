@@ -81,7 +81,7 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Create a new account record. Includes `authToken` and may include a
   // pre-populated `session` for immediate login.
-  abstract createAccount(data: VaultAccountWithAuth & { authToken: string }): Promise<boolean>
+  abstract createAccount(data: VaultAccount): Promise<boolean>
 
   // Check session/authentication. `isLogin` instructs the implementation to
   // validate against `authToken` instead of session hash.
@@ -114,7 +114,7 @@ export default abstract class BaseDriver<T = unknown> {
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
-  abstract extendSession(data: BaseData): Promise<void>
+  abstract extendSession(data: AuthData): Promise<void>
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
@@ -159,6 +159,6 @@ export default abstract class BaseDriver<T = unknown> {
       throw new HttpError(403, 'Unauthorized')
     }
     // Extend session expiry on successful authentication (fire-and-forget)
-    this.extendSession({ account }).catch(() => {})
+    this.extendSession({ account, session: authToken }).catch(() => {})
   }
 }

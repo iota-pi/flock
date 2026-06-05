@@ -270,9 +270,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       authToken,
       metadata,
       salt,
-      session,
       iterations,
-    }: VaultAccountWithAuth & { authToken: string },
+    }: VaultAccount,
   ): Promise<boolean> {
     let success = true
     await this.client.send(new PutCommand({
@@ -289,9 +288,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         reminderTimezone: 'UTC',
         salt,
         iterations,
-        session,
-        // This session is just a placeholder, so set it as expired
-        sessionExpiry: 0,
+        sessions: [],
       },
       ConditionExpression: 'attribute_not_exists(account)',
     })).catch(error => {
@@ -320,7 +317,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       if (isLogin) {
         // For logins, check authToken instead
         if (almostConstantTimeEqual(session, response.Item.authToken as string)) {
-          return response.Item as VaultAccountWithAuth
+          return {
+            ...(response.Item as VaultAccountWithAuth),
+            session,
+          }
         }
         // Give same error as if account not found to avoid leaking account ids
         throw new Error(`Could not find account ${account}`)
@@ -332,15 +332,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         return {
           ...(response.Item as VaultAccountWithAuth),
           sessions: activeSessions,
+          session,
         }
-      }
-
-      const sessionExpiry = response.Item.sessionExpiry as number | undefined
-      if (sessionExpiry && sessionExpiry < now) {
-        throw new ExpiredSessionError('Invalid session token')
-      }
-      if (almostConstantTimeEqual(session, response.Item.session as string)) {
-        return response.Item as VaultAccountWithAuth
       }
       throw new ExpiredSessionError('Invalid session token')
     }
@@ -431,12 +424,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const expressionAttributeNames: Record<string, string> = {}
     const conditionExpressions: string[] = []
 
-    if (session) {
-      updateExpressions.push('#session=:session', 'sessionExpiry=:expiry')
-      expressionAttributeValues[':session'] = session
-      expressionAttributeValues[':expiry'] = Date.now() + SESSION_EXPIRY_MS
-      expressionAttributeNames['#session'] = 'session'
-    }
+
 
     if (sessions) {
       updateExpressions.push('sessions = :sessions')
@@ -519,33 +507,29 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     await this.client.send(new UpdateCommand(params))
   }
 
-  async extendSession({ account }: BaseData): Promise<void> {
-    await this.client.send(new UpdateCommand({
+  async extendSession({ account, session }: AuthData): Promise<void> {
+    const response = await this.client.send(new GetCommand({
       TableName: ACCOUNT_TABLE_NAME,
       Key: { account },
-      UpdateExpression: 'SET sessionExpiry = :expiry',
-      ExpressionAttributeValues: {
-        ':expiry': Date.now() + SESSION_EXPIRY_MS,
-      },
+      ConsistentRead: true,
     }))
-  }
 
-  async startNewSession({ account }: BaseData): Promise<string> {
-    const sessionId = randomBytes(16).toString('base64')
-    await this.client.send(new UpdateCommand(
-      {
-        TableName: ACCOUNT_TABLE_NAME,
-        Key: { account },
-        UpdateExpression: 'SET #session=:session',
-        ExpressionAttributeValues: {
-          ':session': sessionId,
-        },
-        ExpressionAttributeNames: {
-          '#session': 'session',
-        },
-      },
-    ))
-    return sessionId
+    if (response?.Item) {
+      const now = Date.now()
+      const activeSessions = normalizeSessionRecords(response.Item.sessions, now)
+      const sessionRecord = activeSessions.find(active => almostConstantTimeEqual(session, active.token))
+      if (sessionRecord) {
+        sessionRecord.expiry = now + SESSION_EXPIRY_MS
+        await this.client.send(new UpdateCommand({
+          TableName: ACCOUNT_TABLE_NAME,
+          Key: { account },
+          UpdateExpression: 'SET sessions = :sessions',
+          ExpressionAttributeValues: {
+            ':sessions': activeSessions,
+          },
+        }))
+      }
+    }
   }
 
   async checkSession(

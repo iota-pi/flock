@@ -188,6 +188,7 @@ export async function loginVault({
   await initialiseVault({ password, salt, iterations })
   await establishSessionFromKeyHash(keyHash)
 
+  let keyringNeedsUpload = false
   try {
     const encryptedKeyringStr = await getKeyring()
     if (encryptedKeyringStr) {
@@ -203,12 +204,18 @@ export async function loginVault({
           }
         }
       }
+    } else {
+      keyringNeedsUpload = true
     }
   } catch (err) {
     console.error('[vault] Failed to retrieve keyring from server during login:', err)
   }
 
-  await storeVault()
+  if (keyringNeedsUpload) {
+    await storeVault()
+  } else {
+    await writeStoredMetadata()
+  }
 }
 
 export async function loadVault() {
