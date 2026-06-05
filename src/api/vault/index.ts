@@ -1,6 +1,5 @@
 import type { WebPushSubscription } from '../../vault/types'
 import { useAuthStore } from '../../state/authStore'
-import { useToastStore } from '../../state/toastStore'
 import {
   clearActiveSessionToken,
   getActiveSessionToken,
@@ -35,7 +34,6 @@ import {
   generateVaultKey,
   type CryptoResult,
 } from './crypto'
-import type { TRPCError } from '@trpc/server'
 import { SyncBridge } from 'src/sync/SyncBridge'
 import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
 import { clearSyncBatch } from 'src/sync/VaultPersistence'
@@ -61,7 +59,6 @@ let activeKeyVersion = '1'
 let keyHash = ''
 let session = ''
 let isHandlingSessionExpiry = false
-let loadVaultInFlight: Promise<void> | null = null
 
 function getActiveKey(): CryptoKey {
   const k = keyring.get(activeKeyVersion)

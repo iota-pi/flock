@@ -97,7 +97,7 @@ export async function persistSyncMessages(
 export async function loadSyncBatch(account: string): Promise<[string, Uint8Array[]][]> {
   const batchEntries: [string, Uint8Array[]][] = []
   try {
-    await syncBatchStorage.iterate<unknown[], void>((value, key) => {
+    await syncBatchStorage.iterate<(Uint8Array | object)[], void>((value, key) => {
       if (key.startsWith(`${account}:`)) {
         const itemId = key.slice(account.length + 1)
         if (value && value.length > 0) {
@@ -106,7 +106,7 @@ export async function loadSyncBatch(account: string): Promise<[string, Uint8Arra
               return m
             }
             if (m && typeof m === 'object') {
-              const rawObj = m as any
+              const rawObj = m as { [index: number]: number, length: number }
               const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
               const arr = Array.from({ ...rawObj, length }) as number[]
               return new Uint8Array(arr)

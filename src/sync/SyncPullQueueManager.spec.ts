@@ -64,7 +64,7 @@ vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
-vi.mock('./automergeRepoIds', async (importOriginal) => {
+vi.mock('./automergeRepoIds', async importOriginal => {
   const actual = await importOriginal<typeof import('./automergeRepoIds')>()
   return {
     ...actual,

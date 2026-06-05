@@ -13,7 +13,7 @@ export function useOnlineStatus(): boolean {
 
   useEventListener('online', handleStatusChange)
   useEventListener('offline', handleStatusChange)
-  useEventListener('visibilitychange', handleStatusChange, documentRef as any)
+  useEventListener('visibilitychange', handleStatusChange, documentRef)
 
   return isOnline
 }
