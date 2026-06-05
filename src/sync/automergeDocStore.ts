@@ -1,6 +1,8 @@
 import * as Automerge from '@automerge/automerge/slim'
 import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
+import localforage from 'localforage'
 import { z } from 'zod'
+
 import { accountMetadataSchema } from '../shared/schemas/metadata'
 import { readItemSchema, errorItemSchema, ErrorItem } from '../shared/schemas/items'
 import type { ItemId } from '../shared/itemTypes'
@@ -546,31 +548,11 @@ export async function clearAutomergeDocStore(accountId: string): Promise<void> {
     console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
   }
 
-  if (typeof indexedDB !== 'undefined') {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const dbName = getAutomergeDBName(accountId)
-        const request = indexedDB.deleteDatabase(dbName)
-        const timeoutId = setTimeout(() => {
-          reject(new Error(`Database deletion timed out for ${dbName}`))
-        }, 5000)
-
-        request.onsuccess = () => {
-          clearTimeout(timeoutId)
-          resolve()
-        }
-        request.onerror = () => {
-          clearTimeout(timeoutId)
-          reject(request.error || new Error('Failed to delete IndexedDB database'))
-        }
-        request.onblocked = () => {
-          console.warn(`Database deletion blocked for ${dbName}`)
-          // Do not clear the timeout; let it reject via the timeout if it remains blocked
-        }
-      })
-    } catch (error) {
-      console.error('[automergeDocStore] failed to delete indexedDB database:', error)
-    }
+  try {
+    const dbName = getAutomergeDBName(accountId)
+    await localforage.dropInstance({ name: dbName })
+  } catch (error) {
+    console.error('[automergeDocStore] failed to delete indexedDB database:', error)
   }
 }
 
