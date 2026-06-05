@@ -111,7 +111,7 @@ describe('SyncPullQueueManager', () => {
   })
 
   describe('pending items management', () => {
-    it('manages pending items correctly', () => {
+    it('manages pending items correctly', async () => {
       expect(manager.hasPendingPulls()).toBe(false)
 
       manager.addPendingItem('item-1')
@@ -119,7 +119,7 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.hasPendingPulls()).toBe(true)
 
-      manager.shutdown()
+      await manager.shutdown()
       expect(manager.hasPendingPulls()).toBe(false)
     })
   })
@@ -165,6 +165,7 @@ describe('SyncPullQueueManager', () => {
     it('parses single unbatched message', async () => {
       const onMessageParsedSpy = vi.fn()
       manager.onMessageParsed = onMessageParsedSpy
+      mockDecryptBytes.mockResolvedValueOnce(new Uint8Array([1, 2, 3]))
 
       const pullResults: PullSyncMessagesResponse[] = [
         {

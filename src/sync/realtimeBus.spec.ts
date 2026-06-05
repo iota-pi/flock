@@ -86,7 +86,7 @@ describe('realtimeBus', () => {
   it('ignores empty item lists when publishing', async () => {
     const { publishRealtimeBusSyncPing } = await import('./realtimeBus')
     publishRealtimeBusSyncPing([])
-    expect(MockBroadcastChannel.instances[0].postMessage).not.toHaveBeenCalled()
+    expect(MockBroadcastChannel.instances).toHaveLength(0)
   })
 
   it('contains errors thrown by one listener so they do not block others', async () => {
