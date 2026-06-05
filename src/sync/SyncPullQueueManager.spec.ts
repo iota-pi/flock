@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import localforage from 'localforage'
+
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
-import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 
 // Create a robust MockLocalforage helper class
 class MockLocalforage {
@@ -58,9 +61,6 @@ vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
-import localforage from 'localforage'
-import { toAutomergeUrlFromItemId } from './automergeRepoIds'
-
 
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
@@ -70,7 +70,7 @@ describe('SyncPullQueueManager', () => {
     vi.clearAllMocks()
     activeStore = null
     manager = new SyncPullQueueManager()
-    
+
     // Default mock behavior
     mockDecryptBytes.mockImplementation(async (encrypted: any) => encrypted.cipher)
   })
@@ -98,7 +98,7 @@ describe('SyncPullQueueManager', () => {
       const preLoadedCursors: [string, number][] = [['item-1', 42]]
       const lf = new MockLocalforage()
       await lf.setItem('cursorByItemId', preLoadedCursors)
-      
+
       // Inject this store into createInstance
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
@@ -116,7 +116,7 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.hasPendingPulls()).toBe(true)
 
-      manager.clear()
+      manager.shutdown()
       expect(manager.hasPendingPulls()).toBe(false)
     })
   })
@@ -133,7 +133,7 @@ describe('SyncPullQueueManager', () => {
 
     it('only includes cursors for pending items', async () => {
       await manager.setAccount('account-1')
-      
+
       // Let's add multiple cursors to internal state
       manager.processPushResults([
         { itemId: 'item-1', cursor: 10 },
@@ -147,7 +147,7 @@ describe('SyncPullQueueManager', () => {
       // Add item-1 as pending
       manager.addPendingItem('item-1')
       cursors = manager.getAllCursors()
-      
+
       expect(cursors).toHaveLength(2)
       expect(cursors).toContainEqual({ itemId: ACCOUNT_INDEX_DOCUMENT_ID, cursor: 0 })
       expect(cursors).toContainEqual({ itemId: 'item-1', cursor: 10 })
@@ -163,8 +163,9 @@ describe('SyncPullQueueManager', () => {
       const onMessageParsedSpy = vi.fn()
       manager.onMessageParsed = onMessageParsedSpy
 
-      const pullResults = [
+      const pullResults: PullSyncMessagesResponse[] = [
         {
+          success: true,
           itemId: 'item-1',
           hasMore: false,
           nextCursor: 5,
@@ -173,7 +174,7 @@ describe('SyncPullQueueManager', () => {
               cursor: 2,
               encryptedMessage: {
                 iv: 'iv-1',
-                cipher: new Uint8Array([1, 2, 3]),
+                cipher: 'abc',
               },
             },
           ],
@@ -191,7 +192,7 @@ describe('SyncPullQueueManager', () => {
 
       expect(manager.exportCursors()).toContainEqual(['item-1', 5])
       expect(mockPublishRealtimeBusSyncPing).toHaveBeenCalledWith(['item-1'])
-      
+
       // Check debounce persistence
       await vi.advanceTimersByTimeAsync(1000)
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', [['item-1', 5]])
@@ -206,7 +207,7 @@ describe('SyncPullQueueManager', () => {
       const msg2 = new Uint8Array([40, 50])
       const combined = new Uint8Array(4 + msg1.length + 4 + msg2.length)
       const view = new DataView(combined.buffer)
-      
+
       let offset = 0
       view.setUint32(offset, msg1.length, false)
       offset += 4
@@ -219,8 +220,9 @@ describe('SyncPullQueueManager', () => {
 
       mockDecryptBytes.mockResolvedValueOnce(combined)
 
-      const pullResults = [
+      const pullResults: PullSyncMessagesResponse[] = [
         {
+          success: true,
           itemId: 'item-2',
           hasMore: true, // Should mark as pending
           nextCursor: 15,
@@ -229,7 +231,7 @@ describe('SyncPullQueueManager', () => {
               cursor: 12,
               encryptedMessage: {
                 iv: 'iv-batch',
-                cipher: new Uint8Array([99]), // placeholder, mock returns combined
+                cipher: 'abc',
                 version: '1.0',
               },
             },
@@ -261,8 +263,9 @@ describe('SyncPullQueueManager', () => {
     it('handles decryption failure by calling reportDecryptionFailure', async () => {
       mockDecryptBytes.mockRejectedValueOnce(new Error('Decryption failed'))
 
-      const pullResults = [
+      const pullResults: PullSyncMessagesResponse[] = [
         {
+          success: true,
           itemId: 'item-fail',
           hasMore: false,
           nextCursor: 20,
@@ -271,7 +274,7 @@ describe('SyncPullQueueManager', () => {
               cursor: 10,
               encryptedMessage: {
                 iv: 'iv-fail',
-                cipher: new Uint8Array([1]),
+                cipher: 'abc',
               },
             },
           ],
@@ -292,6 +295,7 @@ describe('SyncPullQueueManager', () => {
       // First batch hasMore: true
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-x',
           hasMore: true,
           nextCursor: 100,
@@ -303,6 +307,7 @@ describe('SyncPullQueueManager', () => {
       // Second batch hasMore: false
       await manager.processPullResults([
         {
+          success: true,
           itemId: 'item-x',
           hasMore: false,
           nextCursor: 105,
@@ -323,7 +328,7 @@ describe('SyncPullQueueManager', () => {
 
       // Push results with higher cursor
       manager.processPushResults([{ itemId: 'item-y', cursor: 50 }])
-      
+
       expect(manager.exportCursors()).toContainEqual(['item-y', 50])
       expect(manager.hasPendingPulls()).toBe(false) // should delete item-y from pending
 
@@ -343,7 +348,7 @@ describe('SyncPullQueueManager', () => {
       activeStore!.setItem.mockRejectedValueOnce(error)
 
       manager.processPushResults([{ itemId: 'item-quota', cursor: 5 }])
-      
+
       // Trigger immediate persist instead of debounced
       await expect(manager.persistCursors()).resolves.toBeUndefined()
       expect(mockReportQuotaExceeded).toHaveBeenCalled()
@@ -352,7 +357,7 @@ describe('SyncPullQueueManager', () => {
     it('persists cursors on shutdown and cancels debounced timer', async () => {
       manager.processPushResults([{ itemId: 'item-z', cursor: 500 }])
       await manager.shutdown()
-      
+
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
     })
   })
@@ -361,7 +366,7 @@ describe('SyncPullQueueManager', () => {
     it('stores imported cursors to cursorStore', async () => {
       await manager.setAccount('account-import')
       const imported: [string, number][] = [['item-abc', 77]]
-      
+
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', imported)

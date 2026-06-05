@@ -1,11 +1,12 @@
+import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
+import localforage from 'localforage'
+import { debounce } from 'lodash-es'
+
 import type { PullSyncMessagesResponse } from '../api/vault/SyncWorkerClient'
 import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
-import localforage from 'localforage'
-import { debounce } from 'lodash-es'
 import { decryptBytes } from 'src/api/vault'
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
@@ -64,12 +65,12 @@ export class SyncPullQueueManager {
   async shutdown(): Promise<void> {
     this.saveCursorsDebounced.cancel()
     await this.persistCursors()
-  }
-
-  clear(): void {
     this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
+    this.cursorStore?.clear().catch(error => {
+      console.error('[SyncPullQueueManager] Failed to clear cursor store', error)
+    })
   }
 
   addPendingItem(itemId: string): void {
