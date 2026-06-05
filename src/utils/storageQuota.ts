@@ -3,8 +3,8 @@
  */
 export function isQuotaError(err: unknown): boolean {
   if (!err) return false
-  const name = (err as any).name || ''
-  const message = (err as any).message || ''
+  const name = (err as Error).name || ''
+  const message = (err as Error).message || ''
   return (
     name === 'QuotaExceededError' ||
     name === 'NS_ERROR_DOM_QUOTA_REACHED' ||

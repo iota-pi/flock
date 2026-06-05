@@ -198,7 +198,7 @@ export function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null):
 
   const errorParsed = errorItemSchema.safeParse(normalizedItem)
   if (errorParsed.success) {
-    return errorParsed.data as unknown as Item
+    return errorParsed.data as Item
   }
 
   return {
@@ -213,7 +213,7 @@ export function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null):
     prayedFor: [],
     originalType: normalizedItem.type as ErrorItem['originalType'],
     rawSnapshot: snapshot,
-  } as unknown as Item
+  } as Item
 }
 
 

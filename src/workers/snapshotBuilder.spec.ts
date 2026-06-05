@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { buildSnapshot } from './snapshotBuilder'
 
 const mockEncryptBytes = vi.fn()

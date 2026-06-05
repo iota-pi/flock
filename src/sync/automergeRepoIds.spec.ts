@@ -1,5 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
 describe('automergeRepoIds', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -39,13 +37,13 @@ describe('automergeRepoIds', () => {
 
   it('falls back to normalized document ID if the ID is not in mapping cache', async () => {
     const { toVaultItemIdFromAutomergeId } = await import('./automergeRepoIds')
-    
+
     // Normal document ID fallback
     expect(toVaultItemIdFromAutomergeId('unknown-id')).toBe('unknown-id')
 
     // URL fallback (it should extract the doc ID)
     expect(toVaultItemIdFromAutomergeId('automerge:fallback-id')).toBe('fallback-id')
-    
+
     // Invalid URL structure fallback (e.g. failing parseAutomergeUrl)
     // If parseAutomergeUrl throws, normalizeDocumentId catches and slices AUTOMERGE_URL_PREFIX
     expect(toVaultItemIdFromAutomergeId('automerge:abc-xyz')).toBe('abc-xyz')

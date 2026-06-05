@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { reencryptAllItems } from './reencrypt'
 import { rotateVaultKey } from './index'
 import { getStoredVaultKey } from './util'
 import { SyncBridge } from '../../sync/SyncBridge'
+
 
 vi.mock('./index', () => ({
   rotateVaultKey: vi.fn().mockResolvedValue(undefined),
@@ -15,7 +15,7 @@ vi.mock('./util', () => ({
 vi.mock('../../sync/SyncBridge', () => ({
   SyncBridge: {
     updateVaultKey: vi.fn().mockResolvedValue(undefined),
-    reencryptAllItems: vi.fn().mockImplementation(async (onProgress) => {
+    reencryptAllItems: vi.fn().mockImplementation(async onProgress => {
       if (onProgress) {
         onProgress(5, 10)
         onProgress(10, 10)

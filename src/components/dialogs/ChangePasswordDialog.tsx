@@ -71,7 +71,7 @@ export default function ChangePasswordDialog({
       if (onPasswordChanged) {
         onPasswordChanged()
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('[ChangePasswordDialog] changePassword failed', err)
       const msg = err instanceof Error ? err.message : 'Failed to change password. Please verify your current password.'
       setErrorText(msg)

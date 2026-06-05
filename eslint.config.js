@@ -54,7 +54,10 @@ export default defineConfig([
       "no-restricted-imports": [
         "error",
         {
-          "patterns": [{ "regex": "^@mui/[^/]+$" }],
+          "patterns": [
+            { "regex": "^@mui/[^/]+$" },
+            { "regex": "^vitest$", allowTypeImports: true },
+          ],
         },
       ],
     },

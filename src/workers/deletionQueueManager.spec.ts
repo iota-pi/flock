@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DeletionQueueManager } from './deletionQueueManager'
 import * as deletionStore from '../sync/deletionQueueStore'
-import * as automergeDocStore from '../sync/automergeDocStore'
+
 
 // Mock deletion queue store functions
 vi.mock('../sync/deletionQueueStore', () => {
@@ -17,10 +16,10 @@ vi.mock('../sync/deletionQueueStore', () => {
     cancelDeletion: vi.fn(async (accountId, itemId) => {
       delete store[`${accountId}:${itemId}`]
     }),
-    listScheduledDeletions: vi.fn(async (accountId) => {
-      return Object.values(store).filter((item: any) => item.accountId === accountId)
+    listScheduledDeletions: vi.fn(async accountId => {
+      return Object.values(store).filter(item => item.accountId === accountId)
     }),
-    clearScheduledDeletions: vi.fn(async (accountId) => {
+    clearScheduledDeletions: vi.fn(async accountId => {
       for (const key of Object.keys(store)) {
         if (store[key].accountId === accountId) {
           delete store[key]
@@ -71,7 +70,7 @@ describe('DeletionQueueManager', () => {
   it('cancels scheduled deletion for reappearing items', async () => {
     // Schedule first
     await manager.handleIndexChange(new Set(['item-1']), new Set(['item-1', 'item-2']))
-    
+
     // Now they reappear
     await manager.handleIndexChange(new Set(['item-1', 'item-2']), new Set(['item-1']))
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')

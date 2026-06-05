@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 
 // Mock dependencies

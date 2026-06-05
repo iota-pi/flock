@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback } from 'react'
 import {
   setMetadata,
   storeItems,
@@ -27,8 +27,6 @@ type UseBackupAndRestoreResult = {
 export default function useBackupAndRestore({
   setMessage,
 }: UseBackupAndRestoreOptions): UseBackupAndRestoreResult {
-  const [cacheClearCounter, setCacheClearCounter] = useState(1)
-
   const handleExport = useCallback(
     async () => {
       try {
@@ -115,8 +113,6 @@ export default function useBackupAndRestore({
     },
     [setMessage],
   )
-
-  const itemsLength = Object.values(useDataStore.getState().items).length
 
   return {
     actions: {

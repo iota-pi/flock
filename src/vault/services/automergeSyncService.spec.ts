@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, type Mocked } from 'vitest'
+import type { Mocked } from 'vitest'
 import { createAutomergeSyncService } from './automergeSyncService'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
 
@@ -55,7 +55,7 @@ describe('AutomergeSyncService', () => {
     const callArgs = repository.pushSyncMessagesBatch.mock.calls[0][0]
     expect(callArgs.account).toBe('test-account')
     expect(callArgs.messages.length).toBe(3)
-    
+
     expect(callArgs.messages[0].entry.createdAt).toBe(mockedTime)
     expect(callArgs.messages[0].lastModified).toBe(mockedTime)
     expect(callArgs.messages[0].entry.cursor).toBe(cursor0)
@@ -121,7 +121,7 @@ describe('AutomergeSyncService', () => {
       cursorSet.add(result.results[0].cursor)
     }
 
-    // Since iterations (500) is much smaller than MAX_OFFSET (9,999,000), 
+    // Since iterations (500) is much smaller than MAX_OFFSET (9,999,000),
     // the probability of any collision in 500 pushes is extremely small (~0.01%).
     // We expect 500 unique cursors.
     expect(cursorSet.size).toBe(iterations)

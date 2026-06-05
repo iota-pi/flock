@@ -1,5 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
 const mockReportQuotaExceeded = vi.fn()
 vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
@@ -116,7 +114,7 @@ describe('VaultPersistence', () => {
     // Write a serialized/raw object representation to storage (sometimes localforage/IndexedDB stores objects instead of Uint8Array directly)
     // Here we store a mix of real Uint8Array, serialized object/array, and invalid data
     const rawObj = { 0: 10, 1: 20, 2: 30 }
-    
+
     await syncBatchStorage.setItem('acc-4:item-normal', [new Uint8Array([1, 2])])
     await syncBatchStorage.setItem('acc-4:item-obj', [rawObj])
     await syncBatchStorage.setItem('acc-4:item-invalid', [null, undefined])

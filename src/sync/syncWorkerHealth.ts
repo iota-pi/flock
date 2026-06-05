@@ -1,6 +1,6 @@
 import { useSyncStore } from '../state/syncStore'
 
-let heartbeatTimer: any = null
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let crashCount = 0
 let lastCrashTime = 0
 
@@ -18,16 +18,53 @@ export const resetCrashMetrics = () => {
 
 interface HealthCheckOptions {
   worker: Worker
-  accountId: string
   pingFn: () => Promise<void>
   isCurrentWorker: () => boolean
   onCrash: () => void
   onRestart: () => void
 }
 
+function handleWorkerCrash({
+  worker,
+  onCrash,
+  onRestart,
+}: Omit<HealthCheckOptions, 'pingFn' | 'isCurrentWorker'>) {
+  stopWorkerHeartbeat()
+
+  try {
+    worker.terminate()
+  } catch (err) {
+    console.error('[SyncBridge] Error terminating crashed worker:', err)
+  }
+
+  onCrash()
+
+  const now = Date.now()
+  const CRASH_RESET_WINDOW_MS = 60000
+  if (now - lastCrashTime > CRASH_RESET_WINDOW_MS) {
+    crashCount = 1
+  } else {
+    crashCount += 1
+  }
+  lastCrashTime = now
+
+  const MAX_CONSECUTIVE_CRASHES = 3
+  if (crashCount >= MAX_CONSECUTIVE_CRASHES) {
+    console.error(`[SyncBridge] Worker crashed consecutively ${crashCount} times. Halting auto-restart.`)
+    useSyncStore.getState().setFatalError(
+      'Sync worker crashed repeatedly. Please refresh the page to try again.'
+    )
+    useSyncStore.getState().setSyncStatus('offline')
+  } else {
+    console.warn(`[SyncBridge] Attempting automatic restart (crash count: ${crashCount}/${MAX_CONSECUTIVE_CRASHES})...`)
+    useSyncStore.getState().setSyncStatus('connecting')
+    useSyncStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
+    onRestart()
+  }
+}
+
 export const setupWorkerHealthCheck = ({
   worker,
-  accountId,
   pingFn,
   isCurrentWorker,
   onCrash,
@@ -37,15 +74,15 @@ export const setupWorkerHealthCheck = ({
 
   const handleCrash = () => {
     if (!isCurrentWorker()) return
-    handleWorkerCrash({ worker, accountId, onCrash, onRestart })
+    handleWorkerCrash({ worker, onCrash, onRestart })
   }
 
-  worker.onerror = (event) => {
+  worker.onerror = event => {
     console.error('[SyncBridge] Web worker error:', event)
     handleCrash()
   }
 
-  worker.onmessageerror = (event) => {
+  worker.onmessageerror = event => {
     console.error('[SyncBridge] Web worker message error:', event)
     handleCrash()
   }
@@ -71,44 +108,4 @@ export const setupWorkerHealthCheck = ({
       handleCrash()
     }
   }, HEARTBEAT_INTERVAL_MS)
-}
-
-const handleWorkerCrash = ({
-  worker,
-  accountId,
-  onCrash,
-  onRestart,
-}: Omit<HealthCheckOptions, 'pingFn' | 'isCurrentWorker'>) => {
-  stopWorkerHeartbeat()
-
-  try {
-    worker.terminate()
-  } catch (err) {
-    console.error('[SyncBridge] Error terminating crashed worker:', err)
-  }
-
-  onCrash()
-
-  const now = Date.now()
-  const CRASH_RESET_WINDOW_MS = 60000
-  if (now - lastCrashTime > CRASH_RESET_WINDOW_MS) {
-    crashCount = 1
-  } else {
-    crashCount++
-  }
-  lastCrashTime = now
-
-  const MAX_CONSECUTIVE_CRASHES = 3
-  if (crashCount >= MAX_CONSECUTIVE_CRASHES) {
-    console.error(`[SyncBridge] Worker crashed consecutively ${crashCount} times. Halting auto-restart.`)
-    useSyncStore.getState().setFatalError(
-      'Sync worker crashed repeatedly. Please refresh the page to try again.'
-    )
-    useSyncStore.getState().setSyncStatus('offline')
-  } else {
-    console.log(`[SyncBridge] Attempting automatic restart (crash count: ${crashCount}/${MAX_CONSECUTIVE_CRASHES})...`)
-    useSyncStore.getState().setSyncStatus('connecting')
-    useSyncStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
-    onRestart()
-  }
 }

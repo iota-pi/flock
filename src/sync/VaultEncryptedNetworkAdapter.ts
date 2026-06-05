@@ -21,6 +21,8 @@ import {
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
+type PollOutcome = 'success' | 'failure' | 'auth-failure'
+
 export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
   private connected = false
@@ -307,8 +309,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
-    let outcome: 'success' | 'failure' | 'auth-failure' = 'success'
-
+    let outcome: PollOutcome
     try {
       outcome = await this.executePoll()
     } finally {
@@ -342,21 +343,19 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  private async executePoll(): Promise<'success' | 'failure' | 'auth-failure'> {
+  private async executePoll(): Promise<PollOutcome> {
     if (!this.account || !this.isOnline) return 'success'
 
     const authToken = await getActiveSessionToken()
     if (!authToken) return 'success'
 
-    // 1. Load pending sync messages from IndexedDB for the current account
-    let batchEntries: [string, Uint8Array[]][] = []
+    let batchEntries: [string, Uint8Array[]][]
     try {
       batchEntries = await loadSyncBatch(this.account)
-    } catch (err) {
+    } catch (_) {
       return 'failure'
     }
 
-    // 2. Chunk entries using lodash's chunk helper (5 items per chunk)
     const chunks = chunk(batchEntries, 5)
 
     const pullCursors = this.pullQueueManager.getAllCursors()
@@ -501,7 +500,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.stopPolling()
     await this.pullQueueManager.shutdown()
     await this.persistPendingWrites()
-    this.pullQueueManager.clear()
     this.emit('close')
   }
 

@@ -9,6 +9,7 @@ import { fetchMany } from '../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'
 import { trpcClient } from '../api/trpcClient'
+import { VaultItem } from 'src/vault/drivers/base'
 
 export class LegacyBootstrapper {
   constructor(
@@ -34,11 +35,11 @@ export class LegacyBootstrapper {
       account: accountId,
     }).catch(e => {
       console.error('[LegacyBootstrapper] failed to fetch item snapshots', e)
-      return { items: [] as any[] }
+      return { items: [] as VaultItem[] }
     })
 
     const fetchedItems = response.items.filter(
-      (entry: any) =>
+      entry =>
         entry &&
         typeof entry === 'object' &&
         typeof entry.item === 'string' &&
@@ -49,7 +50,7 @@ export class LegacyBootstrapper {
 
     const snapshots: Item[] = []
 
-    const promises = fetchedItems.map(async (item: any) => {
+    const promises = fetchedItems.map(async item => {
       try {
         if (item.metadata?.deleted === true) {
           snapshots.push({ id: item.item, deleted: true } as unknown as Item)

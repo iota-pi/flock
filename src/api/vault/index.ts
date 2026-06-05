@@ -55,7 +55,7 @@ export class VaultNotInitializedError extends Error {
   }
 }
 
-let keyring: Map<string, CryptoKey> = new Map()
+const keyring: Map<string, CryptoKey> = new Map()
 let masterKey: CryptoKey | null = null
 let activeKeyVersion = '1'
 let keyHash = ''
@@ -161,7 +161,7 @@ export async function initWorkerVault(vaultKeyOrKeyring: string) {
     } else {
       throw new Error('Not a structured keyring')
     }
-  } catch (e) {
+  } catch (_) {
     // Legacy single key
     const imported = await importVaultKey(vaultKeyOrKeyring)
     keyring.set('1', imported)
@@ -240,7 +240,7 @@ export async function loadVault() {
           } else {
             throw new Error('Not a structured keyring')
           }
-        } catch (e) {
+        } catch (_) {
           // Legacy single key
           const imported = await importVaultKey(stored.key)
           keyring.set('1', imported)

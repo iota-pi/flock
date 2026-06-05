@@ -22,9 +22,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner = new BroadcastChannelNetworkAdapter(options)
 
     // Forward events
-    this.inner.on('peer-candidate', (payload) => this.emit('peer-candidate', payload))
-    this.inner.on('peer-disconnected', (payload) => this.emit('peer-disconnected', payload))
-    this.inner.on('message', (message) => void this.handleIncomingMessage(message))
+    this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
+    this.inner.on('peer-disconnected', payload => this.emit('peer-disconnected', payload))
+    this.inner.on('message', message => void this.handleIncomingMessage(message))
     this.inner.on('close', () => this.emit('close'))
   }
 

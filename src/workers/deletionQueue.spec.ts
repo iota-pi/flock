@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { SyncWorker } from './sync.worker'
 import * as deletionStore from '../sync/deletionQueueStore'
+
 
 // Mock Automerge WASM
 vi.mock('@automerge/automerge/slim', () => ({
@@ -27,10 +27,10 @@ vi.mock('../sync/deletionQueueStore', () => {
     cancelDeletion: vi.fn(async (accountId, itemId) => {
       delete store[`${accountId}:${itemId}`]
     }),
-    listScheduledDeletions: vi.fn(async (accountId) => {
-      return Object.values(store).filter((item: any) => item.accountId === accountId)
+    listScheduledDeletions: vi.fn(async accountId => {
+      return Object.values(store).filter(item => item.accountId === accountId)
     }),
-    clearScheduledDeletions: vi.fn(async (accountId) => {
+    clearScheduledDeletions: vi.fn(async accountId => {
       for (const key of Object.keys(store)) {
         if (store[key].accountId === accountId) {
           delete store[key]
@@ -114,7 +114,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     worker = new SyncWorker()
 
     // Mock getIndexHandle to return index doc containing item ids
-    let itemIds: string[] = ['item-1', 'item-2']
+    const itemIds: string[] = ['item-1', 'item-2']
     const mockIndexHandle = {
       off: vi.fn(),
       on: vi.fn(),

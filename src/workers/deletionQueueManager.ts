@@ -1,10 +1,13 @@
+import { AutomergeIndexDocument, removeAutomergeItem } from '../sync/automergeDocStore'
+import type { DocHandle } from '@automerge/automerge-repo/slim'
+
 import {
   scheduleDeletion,
   cancelDeletion,
   listScheduledDeletions,
   clearScheduledDeletions,
 } from '../sync/deletionQueueStore'
-import { removeAutomergeItem } from '../sync/automergeDocStore'
+
 
 export class DeletionQueueManager {
   private deletionGracePeriodMs = 24 * 60 * 60 * 1000 // 24 hours
@@ -14,11 +17,9 @@ export class DeletionQueueManager {
   constructor(
     private getContext: () => {
       accountId: string | null
-      getIndexHandle: () => Promise<any>
+      getIndexHandle: () => Promise<DocHandle<AutomergeIndexDocument> | undefined>
     }
   ) {}
-
-
 
   startTimer() {
     this.stopTimer()

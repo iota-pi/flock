@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
@@ -16,7 +15,7 @@ vi.mock('src/api/vault', () => ({
       kver: '1',
     }
   }),
-  decryptBytes: vi.fn().mockImplementation(async (payload: any) => {
+  decryptBytes: vi.fn().mockImplementation(async () => {
     return new Uint8Array([1, 2, 3])
   }),
 }))
@@ -297,7 +296,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
     let pollCount = 0
     mockPollSyncBatchWithToken.mockImplementation(async () => {
-      pollCount++
+      pollCount += 1
       if (pollCount === 1) {
         return {
           success: true,
@@ -344,5 +343,4 @@ describe('VaultEncryptedNetworkAdapter', () => {
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
   })
 })
-
 

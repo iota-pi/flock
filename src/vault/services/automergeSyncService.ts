@@ -9,12 +9,6 @@ type SyncMessagePayload = {
   version?: string
 }
 
-type PushSyncMessageInput = {
-  account: string
-  itemId: string
-  encryptedMessage: SyncMessagePayload
-}
-
 type PullSyncMessageInput = {
   account: string
   itemId: string

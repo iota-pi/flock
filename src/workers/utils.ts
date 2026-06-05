@@ -1,9 +1,9 @@
 import type { Item } from '../state/items'
 import { ITEM_TYPES } from '../shared/itemTypes'
 
-export function mutateDraftToMatchSnapshot(
-  draft: Record<string, any>,
-  snapshot: Record<string, any>,
+export function mutateDraftToMatchSnapshot<T>(
+  draft: Record<string, T>,
+  snapshot: Record<string, T>,
 ): void {
   for (const key of Object.keys(draft)) {
     if (!(key in snapshot) || snapshot[key] === undefined) {

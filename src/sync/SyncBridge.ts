@@ -145,7 +145,6 @@ export const SyncBridge = {
       useSyncStore.getState().clearSyncWarning()
       setupWorkerHealthCheck({
         worker,
-        accountId,
         pingFn: async () => {
           if (syncApi) await syncApi.ping()
         },

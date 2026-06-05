@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import {
   BatchWriteCommand,
+  BatchWriteCommandInput,
   DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
@@ -652,7 +653,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   }
 
   private async executeBatchWriteWithRetry(
-    requestItems: Record<string, any>,
+    requestItems: BatchWriteCommandInput['RequestItems'],
     maxRetries = 5,
   ): Promise<void> {
     let currentRequestItems = requestItems
@@ -669,7 +670,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         break
       }
 
-      attempt++
+      attempt += 1
       if (attempt > maxRetries) {
         throw new Error(`Failed to execute BatchWriteCommand after ${maxRetries} attempts due to DynamoDB unprocessed items.`)
       }
@@ -711,7 +712,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     await Promise.all(
       batches.map(async batch => {
-        const requestItems: Record<string, any> = {
+        const requestItems: BatchWriteCommandInput['RequestItems'] = {
           [SYNC_MESSAGES_TABLE_NAME]: batch.map(message => ({
             PutRequest: {
               Item: {
@@ -780,7 +781,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       const items = (response.Items as Array<{ cursor: number }>) || []
       if (items.length > 0) {
-        const requestItems: Record<string, any> = {
+        const requestItems: BatchWriteCommandInput['RequestItems'] = {
           [SYNC_MESSAGES_TABLE_NAME]: items.map(item => ({
             DeleteRequest: {
               Key: {

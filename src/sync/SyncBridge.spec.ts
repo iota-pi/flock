@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { SyncBridge } from './SyncBridge'
 import * as Comlink from 'comlink'
 import { useSyncStore } from '../state/syncStore'
 import { VAULT_STORAGE_KEY } from '../api/vault/util'
+
 
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
@@ -89,7 +89,7 @@ describe('SyncBridge', () => {
         } else {
           terminateSpy2 = this.terminate
         }
-        workerIndex++
+        workerIndex += 1
       }
     } as any
 
@@ -123,11 +123,9 @@ describe('SyncBridge', () => {
     expect(useSyncStore.getState().status).toBe('offline')
 
     // After shutdown, we should be able to initialize again (which spins up a new worker)
-    let newTerminateSpy: any
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
-        newTerminateSpy = this.terminate
       }
     } as any
 
@@ -141,6 +139,7 @@ describe('SyncBridge', () => {
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         capturedWorker = this
       }
     } as any
@@ -165,11 +164,9 @@ describe('SyncBridge', () => {
 
   it('detects a hung worker via heartbeat and restarts it', async () => {
     vi.useFakeTimers()
-    let capturedWorker: any = null
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
-        capturedWorker = this
       }
     } as any
 
@@ -200,6 +197,7 @@ describe('SyncBridge', () => {
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         capturedWorker = this
       }
     } as any

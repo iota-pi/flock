@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach } from 'vitest'
 import {
   scheduleDeletion,
   cancelDeletion,
@@ -39,7 +38,7 @@ describe('deletionQueueStore', () => {
   it('cancels scheduled deletions', async () => {
     const itemId = 'item-1'
     await scheduleDeletion(accountId, itemId, 60000)
-    
+
     let list = await listScheduledDeletions(accountId)
     expect(list).toHaveLength(1)
 

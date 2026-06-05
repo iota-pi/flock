@@ -43,7 +43,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
         message: 'All vault items re-encrypted successfully.',
       })
       handleClose()
-    } catch (err: any) {
+    } catch (err) {
       console.error('[ReencryptVaultDialog] reencryptAllItems failed', err)
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred during re-encryption.')

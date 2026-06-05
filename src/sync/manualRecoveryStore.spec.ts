@@ -1,5 +1,4 @@
 import localforage from 'localforage'
-import { vi, beforeAll } from 'vitest'
 
 // Intercept created instances before importing manualRecoveryStore
 const createdInstances: any[] = []

@@ -1,9 +1,9 @@
 import { debounce } from 'lodash-es'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
+
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from './quotaReporter'
-
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import {
   ACCOUNT_INDEX_DOCUMENT_ID,
@@ -16,6 +16,7 @@ import { isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { buildSnapshot } from './snapshotBuilder'
 
+
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
 }
@@ -27,7 +28,7 @@ export class SnapshotManager {
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
   private lastModifiedStore: LocalForage | null = null
-  private retryTimeoutId: any = null
+  private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
   private readonly maxPayloadBytes: number
@@ -198,9 +199,9 @@ export class SnapshotManager {
     }
 
     const delayMs = this.retryDelays[Math.min(this.retryAttempt, this.retryDelays.length - 1)]
-    this.retryAttempt++
+    this.retryAttempt += 1
 
-    console.log(`[SnapshotManager] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
+    console.warn(`[SnapshotManager] Scheduling snapshot push retry (attempt ${this.retryAttempt}) in ${delayMs}ms`)
 
     this.retryTimeoutId = setTimeout(() => {
       this.retryTimeoutId = null

@@ -74,8 +74,8 @@ export class SyncWorker implements SyncApi {
 
     this.legacyBootstrapper = new LegacyBootstrapper(
       () => ({ accountId: this.accountId }),
-      (items) => this.storeItems(items),
-      (changes) => this.mutateMetadata(changes),
+      items => this.storeItems(items),
+      changes => this.mutateMetadata(changes),
     )
 
     this.reencryptionManager = new ReencryptionManager(() => ({
@@ -161,8 +161,9 @@ export class SyncWorker implements SyncApi {
         this.updateStatus('idle')
       }
     }
-    this.adapter.onSnapshotNeeded = (cursor: number, _requestedAt: number) =>
+    this.adapter.onSnapshotNeeded = (cursor: number) => (
       this.snapshotManager.scheduleSnapshotPush(cursor)
+    )
 
     this.adapter.onAuthFailure = message => {
       this.updateStatus('offline')

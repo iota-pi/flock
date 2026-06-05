@@ -1,10 +1,12 @@
 import * as Automerge from '@automerge/automerge/slim'
 import type { Repo } from '@automerge/automerge-repo/slim'
+
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import { normalizeItemSnapshot } from '../sync/automergeDocStore'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import { encryptBytes } from '../api/vault'
 import { normalizeSnapshotType } from './utils'
+
 
 export async function buildSnapshot(
   repo: Repo,
@@ -39,11 +41,16 @@ export async function buildSnapshot(
     return null
   }
 
+  const originalType = (
+    itemSnapshot.type === 'error'
+      ? itemSnapshot.originalType
+      : itemSnapshot.type
+  )
   return {
     itemId,
     snapshot: encryptedDoc,
     snapshotCursor,
-    type: normalizeSnapshotType(itemSnapshot.type, (itemSnapshot as any).originalType),
+    type: normalizeSnapshotType(itemSnapshot.type, originalType),
     modified: Date.now(),
     deleted: !!itemSnapshot.deleted || undefined,
   }

@@ -15,7 +15,7 @@ export function resetQuotaExceededStatus(): void {
 
 const MAX_MESSAGES_PER_ITEM = 2000
 
-const writeQueues = new Map<string, Promise<any>>()
+const writeQueues = new Map<string, Promise<unknown>>()
 
 /**
  * Serializes database write operations on a per-key basis to prevent concurrent write corruption.
@@ -101,19 +101,7 @@ export async function loadSyncBatch(account: string): Promise<[string, Uint8Arra
       if (key.startsWith(`${account}:`)) {
         const itemId = key.slice(account.length + 1)
         if (value && value.length > 0) {
-          const normalizedMessages = value.map(m => {
-            if (m instanceof Uint8Array) {
-              return m
-            }
-            if (m && typeof m === 'object') {
-              const rawObj = m as any
-              const length = Object.keys(rawObj).length
-              const arr = Array.from({ ...rawObj, length }) as number[]
-              return new Uint8Array(arr)
-            }
-            return new Uint8Array()
-          })
-          batchEntries.push([itemId, normalizedMessages])
+          batchEntries.push([itemId, value])
         }
       }
     })
@@ -163,7 +151,7 @@ export async function removeSentSyncMessages(
 export async function clearSyncBatch(account: string): Promise<void> {
   const keysToRemove: string[] = []
   try {
-    await syncBatchStorage.iterate<any, void>((value, key) => {
+    await syncBatchStorage.iterate<unknown, void>((_, key) => {
       if (key.startsWith(`${account}:`)) {
         keysToRemove.push(key)
       }

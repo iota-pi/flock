@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   initialiseVault,
   initWorkerVault,
@@ -13,6 +12,7 @@ import {
   rotateVaultKey,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
+
 
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),

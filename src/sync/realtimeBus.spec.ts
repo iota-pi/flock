@@ -1,5 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
 // Create the mock BroadcastChannel class
 class MockBroadcastChannel {
   name: string
@@ -88,16 +86,13 @@ describe('realtimeBus', () => {
   it('ignores empty item lists when publishing', async () => {
     const { publishRealtimeBusSyncPing } = await import('./realtimeBus')
     publishRealtimeBusSyncPing([])
-    // Should not call postMessage
-    if (MockBroadcastChannel.instances.length > 0) {
-      expect(MockBroadcastChannel.instances[0].postMessage).not.toHaveBeenCalled()
-    }
+    expect(MockBroadcastChannel.instances[0].postMessage).not.toHaveBeenCalled()
   })
 
   it('contains errors thrown by one listener so they do not block others', async () => {
     const { subscribeRealtimeBusSyncPing } = await import('./realtimeBus')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    
+
     const badListener = vi.fn().mockImplementation(() => {
       throw new Error('Boom')
     })

@@ -1,10 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Repo } from '@automerge/automerge-repo/slim'
 import { listAutomergeItemIds } from '../sync/automergeDocStore'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
-import { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 
 export class ReencryptionManager {
   constructor(
