@@ -7,27 +7,11 @@ import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 export type CryptoResult = z.infer<typeof CryptoResultSchema>
 
 function fromBytes(array: ArrayBuffer): string {
-  const bytes = new Uint8Array(array)
-  const chunkSize = 0x8000
-  const chunks: string[] = []
-
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize)
-    chunks.push(String.fromCharCode(...chunk))
-  }
-
-  return btoa(chunks.join(''))
+  return new Uint8Array(array).toBase64()
 }
 
 function toBytes(str: string): ArrayBuffer {
-  const decoded = atob(str)
-  const bytes = new Uint8Array(decoded.length)
-
-  for (let index = 0; index < decoded.length; index += 1) {
-    bytes[index] = decoded.charCodeAt(index)
-  }
-
-  return bytes.buffer
+  return Uint8Array.fromBase64(str).buffer
 }
 
 export function generateSalt(): string {
