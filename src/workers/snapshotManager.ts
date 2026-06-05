@@ -1,5 +1,4 @@
 import { debounce } from 'lodash-es'
-import * as Automerge from '@automerge/automerge/slim'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 import { isQuotaError } from 'src/utils/storageQuota'
