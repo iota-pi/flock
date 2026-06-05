@@ -67,7 +67,7 @@ export const itemsRouter = router({
             itemId: snapshot.itemId,
             cursor: snapshot.snapshotCursor,
           }).catch(() => {
-            // Ignore errors during sync message pruning; sync messages are transient with a short TTL
+            console.error(`Failed to prune sync messages up to cursor ${snapshot.snapshotCursor} for item ${snapshot.itemId}`)
           }))
         )
       }
