@@ -9,7 +9,6 @@ const AUTOMERGE_URL_PREFIX = 'automerge:'
 
 const documentIdByItemId = new Map<string, string>()
 const itemIdByDocumentId = new Map<string, string>()
-const urlByItemId = new Map<string, AutomergeUrl>()
 
 async function hashItemIdToBinary(itemId: string): Promise<Uint8Array> {
   const enc = new TextEncoder()
@@ -18,33 +17,25 @@ async function hashItemIdToBinary(itemId: string): Promise<Uint8Array> {
   return new Uint8Array(hashBuffer, 0, 16)
 }
 
-async function ensureMapping(itemId: string): Promise<{ url: AutomergeUrl; documentId: string }> {
-  const existingUrl = urlByItemId.get(itemId)
+async function ensureMapping(itemId: string): Promise<string> {
   const existingDocumentId = documentIdByItemId.get(itemId)
-  if (existingUrl && existingDocumentId) {
-    return {
-      url: existingUrl,
-      documentId: existingDocumentId,
-    }
+  if (existingDocumentId) {
+    return existingDocumentId
   }
 
   const binary = await hashItemIdToBinary(itemId)
   const url = stringifyAutomergeUrl(binary as BinaryDocumentId)
   const { documentId } = parseAutomergeUrl(url)
 
-  urlByItemId.set(itemId, url)
   documentIdByItemId.set(itemId, documentId)
   itemIdByDocumentId.set(documentId, itemId)
 
-  return {
-    url,
-    documentId,
-  }
+  return documentId
 }
 
 export async function toAutomergeUrlFromItemId(itemId: string): Promise<AutomergeUrl> {
-  const mapping = await ensureMapping(itemId)
-  return mapping.url
+  const documentId = await ensureMapping(itemId)
+  return `automerge:${documentId}` as AutomergeUrl
 }
 
 function normalizeDocumentId(documentId: string): string {
