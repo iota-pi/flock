@@ -13,6 +13,7 @@ type VaultEnvelope = (
 export type CreateAccountBody = {
   salt: string
   authToken: string
+  saltVersion?: number
 }
 
 export type AccountCreationResponse = {

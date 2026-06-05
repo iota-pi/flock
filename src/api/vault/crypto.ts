@@ -40,9 +40,19 @@ type InitialiseKeyParams = {
   password: string,
   salt: string,
   iterations?: number,
+  saltVersion?: number,
 }
 
-export async function deriveVaultKey({ password, salt, iterations }: InitialiseKeyParams): Promise<CryptoKey> {
+// Backwards compatibility for legacy accounts.
+// saltVersion 1 uses standard toBytes, older versions incorrectly used UTF-8 encoding of the base64 string.
+function decodeSalt(salt: string, saltVersion?: number): ArrayBuffer {
+  if (saltVersion === 1) {
+    return toBytes(salt)
+  }
+  return new TextEncoder().encode(salt).buffer
+}
+
+export async function deriveVaultKey({ password, salt, iterations, saltVersion }: InitialiseKeyParams): Promise<CryptoKey> {
   const enc = new TextEncoder()
   const keyBase = await crypto.subtle.importKey(
     'raw',
@@ -55,7 +65,7 @@ export async function deriveVaultKey({ password, salt, iterations }: InitialiseK
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: enc.encode(salt),
+      salt: decodeSalt(salt, saltVersion),
       iterations: iterations || DEFAULT_CRYPTO_ITERATIONS,
       hash: 'SHA-256',
     },

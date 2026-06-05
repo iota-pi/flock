@@ -107,8 +107,9 @@ function CreateAccountPage() {
           password,
           salt,
           isNewAccount: true,
+          saltVersion: 1,
         })
-        const { account } = await createAccount({ salt, authToken })
+        const { account } = await createAccount({ salt, authToken, saltVersion: 1 })
         if (account.length > 0) {
           updateAuth({ account })
           setNewAccount(account)

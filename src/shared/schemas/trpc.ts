@@ -12,6 +12,7 @@ export const CreateAccountBodySchema = z.object({
   salt: z.string().min(1),
   authToken: z.string().min(1),
   iterations: z.number().int().min(1),
+  saltVersion: z.number().int().min(1).optional(),
 })
 
 export const LoginBodySchema = z.object({
@@ -40,6 +41,7 @@ export const ChangePasswordBodySchema = z.object({
   newSalt: z.string().min(1),
   newIterations: z.number().int().min(1),
   newKeyring: z.string().min(1),
+  saltVersion: z.number().int().min(1).optional(),
 })
 
 export const FetchItemsInputSchema = z.object({

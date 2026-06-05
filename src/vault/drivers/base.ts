@@ -41,7 +41,7 @@ export interface VaultSessionRecord {
   expiry: number,
 }
 
-interface VaultAccount extends BaseData {
+export interface VaultAccount extends BaseData {
   metadata: Record<string, unknown>,
   sessions?: VaultSessionRecord[],
   pushSubscriptions?: WebPushSubscription[],
@@ -57,6 +57,7 @@ interface VaultAccount extends BaseData {
   salt: string,
   iterations: number,
   keyring?: string,
+  saltVersion?: number,
 }
 
 export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
@@ -90,7 +91,7 @@ export default abstract class BaseDriver<T = unknown> {
   // Retrieve account data; `isLogin` optional as in `checkSession`.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
-  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number }>
+  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }>
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
@@ -111,6 +112,7 @@ export default abstract class BaseDriver<T = unknown> {
     authToken?: string,
     salt?: string,
     iterations?: number,
+    saltVersion?: number,
   }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)

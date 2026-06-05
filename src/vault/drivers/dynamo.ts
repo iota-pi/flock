@@ -19,7 +19,6 @@ import {
   UpdateCommand,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb'
-import { randomBytes } from 'crypto'
 import { chunk } from 'lodash-es'
 import {
   almostConstantTimeEqual,
@@ -29,6 +28,7 @@ import BaseDriver, {
   AuthData,
   BaseData,
   StoredSyncMessage,
+  VaultAccount,
   VaultAccountWithAuth,
   VaultItem,
   VaultKey,
@@ -271,6 +271,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       metadata,
       salt,
       iterations,
+      saltVersion,
     }: VaultAccount,
   ): Promise<boolean> {
     let success = true
@@ -288,6 +289,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
         reminderTimezone: 'UTC',
         salt,
         iterations,
+        saltVersion,
         sessions: [],
       },
       ConditionExpression: 'attribute_not_exists(account)',
@@ -340,7 +342,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     throw new Error(`Could not find account ${account}`)
   }
 
-  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number }> {
+  async getSecurityParams({ account }: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
     const response = await this.client.send(new GetCommand(
       {
         TableName: ACCOUNT_TABLE_NAME,
@@ -351,9 +353,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       const dbAccount = response.Item as VaultAccountWithAuth
       const salt = dbAccount.salt
       const iterations = dbAccount.iterations
+      const saltVersion = dbAccount.saltVersion
 
       const returnedSalt = typeof salt === 'string' ? salt : account
-      return { salt: returnedSalt, iterations }
+      return { salt: returnedSalt, iterations, saltVersion }
     }
     throw new Error(`Could not find account ${account}`)
   }
@@ -401,6 +404,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       authToken,
       salt,
       iterations,
+      saltVersion,
     }: Partial<AuthData> & {
       metadata?: Record<string, unknown>,
       pushSubscriptions?: WebPushSubscription[],
@@ -417,6 +421,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       authToken?: string,
       salt?: string,
       iterations?: number,
+      saltVersion?: number,
     },
   ): Promise<void> {
     const updateExpressions: string[] = []
@@ -483,6 +488,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof iterations === 'number') {
       updateExpressions.push('iterations = :iterations')
       expressionAttributeValues[':iterations'] = iterations
+    }
+    if (typeof saltVersion === 'number') {
+      updateExpressions.push('saltVersion = :saltVersion')
+      expressionAttributeValues[':saltVersion'] = saltVersion
     }
 
     if (updateExpressions.length === 0) {

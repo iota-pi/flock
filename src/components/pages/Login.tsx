@@ -93,14 +93,19 @@ function LoginPage() {
       setError('')
       updateAuth({ account: accountInput })
       const securityParams = await getSecurityParams().catch(
-        (err): { salt: string, iterations?: number } => {
+        (err): { salt: string, iterations?: number, saltVersion?: number } => {
           console.error('[Login] getSecurityParams failed', err)
-          return { salt: '', iterations: undefined }
+          return { salt: '', iterations: undefined, saltVersion: undefined }
         }
       )
       if (securityParams.salt.length) {
         try {
-          await loginVault({ password, salt: securityParams.salt, iterations: securityParams.iterations })
+          await loginVault({
+            password,
+            salt: securityParams.salt,
+            iterations: securityParams.iterations,
+            saltVersion: securityParams.saltVersion,
+          })
           updateAuth({ loggedIn: true })
 
           const nextRoute = resolveRedirectRoute(

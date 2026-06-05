@@ -43,4 +43,24 @@ describe('Vault Cryptography', () => {
     const decrypted = await decryptBytesWithKey(key, payload)
     expect(Array.from(decrypted)).toEqual([10, 20, 30, 40])
   })
+
+  it('correctly uses legacy salt decoding without saltVersion', async () => {
+    const keyLegacy = await deriveVaultKey({
+      password: 'password123',
+      salt: 'somesalt',
+      iterations: 1000,
+    })
+
+    const keyModern = await deriveVaultKey({
+      password: 'password123',
+      salt: 'somesalt',
+      iterations: 1000,
+      saltVersion: 1,
+    })
+
+    const rawLegacy = await crypto.subtle.exportKey('raw', keyLegacy)
+    const rawModern = await crypto.subtle.exportKey('raw', keyModern)
+
+    expect(new Uint8Array(rawLegacy)).not.toEqual(new Uint8Array(rawModern))
+  })
 })

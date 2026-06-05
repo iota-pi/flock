@@ -8,19 +8,20 @@ import type {
 import { DEFAULT_CRYPTO_ITERATIONS } from './util'
 
 export async function createAccount(
-  { salt, authToken }: CreateAccountBody,
+  { salt, authToken, saltVersion }: CreateAccountBody,
 ): Promise<AccountCreationResponse> {
   return trpcClient.accounts.createAccount.mutate({
     salt,
     authToken,
     iterations: DEFAULT_CRYPTO_ITERATIONS,
+    saltVersion,
   })
 }
 
-export async function getSecurityParams(): Promise<{ salt: string, iterations?: number }> {
+export async function getSecurityParams(): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
   const account = getAccountId()
   const response = await trpcClient.accounts.getSecurityParams.query({ account })
-  return { salt: response.salt, iterations: response.iterations }
+  return { salt: response.salt, iterations: response.iterations, saltVersion: response.saltVersion }
 }
 
 export async function getSession(authToken: string): Promise<string> {
@@ -65,12 +66,14 @@ export async function changePassword({
   newSalt,
   newIterations,
   newKeyring,
+  saltVersion,
 }: {
   currentAuthToken: string,
   newAuthToken: string,
   newSalt: string,
   newIterations: number,
   newKeyring: string,
+  saltVersion?: number,
 }): Promise<void> {
   const account = getAccountId()
   const response = await trpcClient.accounts.changePassword.mutate({
@@ -80,6 +83,7 @@ export async function changePassword({
     newSalt,
     newIterations,
     newKeyring,
+    saltVersion,
   })
   assertSuccess(response, 'changePassword')
 }

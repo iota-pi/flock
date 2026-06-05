@@ -132,13 +132,15 @@ export async function initialiseVault({
   password,
   iterations,
   salt,
+  saltVersion,
 }: {
   password: string,
   isNewAccount?: boolean,
   iterations?: number,
   salt: string,
+  saltVersion?: number,
 }) {
-  const derivedKey = await deriveVaultKey({ password, salt, iterations })
+  const derivedKey = await deriveVaultKey({ password, salt, iterations, saltVersion })
   masterKey = derivedKey
   keyring.clear()
   keyring.set('1', derivedKey)
@@ -180,12 +182,14 @@ export async function loginVault({
   password,
   salt,
   iterations,
+  saltVersion,
 }: {
   password: string,
   salt: string,
   iterations?: number,
+  saltVersion?: number,
 }) {
-  await initialiseVault({ password, salt, iterations })
+  await initialiseVault({ password, salt, iterations, saltVersion })
   await establishSessionFromKeyHash(keyHash)
 
   let keyringNeedsUpload = false
@@ -399,21 +403,28 @@ export async function recordPrayerCompletion(completedAt = Date.now()): Promise<
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  const { salt: currentSalt, iterations: currentIterations } = await getSecurityParams()
+  const {
+    salt: currentSalt,
+    iterations: currentIterations,
+    saltVersion: currentSaltVersion,
+  } = await getSecurityParams()
   const currentMasterKey = await deriveVaultKey({
     password: currentPassword,
     salt: currentSalt,
     iterations: currentIterations,
+    saltVersion: currentSaltVersion,
   })
   const currentAuthToken = await hashVaultKey(currentMasterKey)
 
   const newSalt = generateSalt()
   const newIterations = DEFAULT_CRYPTO_ITERATIONS
+  const newSaltVersion = 1
 
   const newMasterKey = await deriveVaultKey({
     password: newPassword,
     salt: newSalt,
     iterations: newIterations,
+    saltVersion: newSaltVersion,
   })
   const newAuthToken = await hashVaultKey(newMasterKey)
 
@@ -432,6 +443,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
     newSalt,
     newIterations,
     newKeyring: JSON.stringify(encryptedKeyring),
+    saltVersion: newSaltVersion,
   })
 
   masterKey = newMasterKey

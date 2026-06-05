@@ -31,6 +31,7 @@ export const accountsRouter = router({
         metadata: {},
         salt: input.salt,
         iterations: input.iterations,
+        saltVersion: input.saltVersion,
       })
 
       if (!success) {
@@ -85,11 +86,12 @@ export const accountsRouter = router({
   getSecurityParams: publicProcedure
     .input(AccountInputSchema)
     .query(async ({ ctx, input }) => {
-      const { salt, iterations } = await ctx.vault.getSecurityParams({ account: input.account })
+      const { salt, iterations, saltVersion } = await ctx.vault.getSecurityParams({ account: input.account })
       return {
         success: true,
         salt,
         iterations,
+        saltVersion,
       }
     }),
 
@@ -252,6 +254,7 @@ export const accountsRouter = router({
         salt: input.newSalt,
         iterations: input.newIterations,
         keyring: input.newKeyring,
+        saltVersion: input.saltVersion,
         sessions: [{ token: currentSessionToken, expiry: currentSessionExpiry }],
       })
 
