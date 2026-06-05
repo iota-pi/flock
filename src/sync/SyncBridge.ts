@@ -286,6 +286,7 @@ export const SyncBridge = {
       itemUpdateFlushHandle = null
     }
     pendingItemUpdates.clear()
+    useDataStore.getState().reset()
 
     if (syncApi) {
       try {

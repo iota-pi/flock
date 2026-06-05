@@ -1,6 +1,8 @@
 import { create } from 'zustand'
+
 import type { Item } from './items'
 import type { AccountMetadata } from './metadata'
+
 
 interface DataState {
   status: 'initializing' | 'ready'
@@ -8,6 +10,7 @@ interface DataState {
   itemIds: string[]
   metadata: AccountMetadata
   processedItemIds: Set<string>
+  hasReceivedIndex: boolean
 }
 
 interface DataActions {
@@ -16,6 +19,7 @@ interface DataActions {
   updateIndexFromServer: (itemIds: string[]) => void
   updateMetadataFromServer: (metadata: AccountMetadata) => void
   optimisticUpdateItem: (id: string, partial: Partial<Item>) => void
+  reset: () => void
 }
 
 export type DataStore = DataState & DataActions
@@ -29,6 +33,7 @@ export const useDataStore = create<DataStore>((set, get) => ({
   itemIds: [],
   metadata: {},
   processedItemIds: new Set<string>(),
+  hasReceivedIndex: false,
 
   setReady: () => {
     if (fallbackTimeoutId) {
@@ -62,32 +67,44 @@ export const useDataStore = create<DataStore>((set, get) => ({
       }
     }
 
-    if (nextStatus === 'initializing' && nextProcessed.size >= state.itemIds.length) {
-      nextStatus = 'ready'
-      nextProcessed = new Set() // free memory
-      if (fallbackTimeoutId) {
-        clearTimeout(fallbackTimeoutId)
-        fallbackTimeoutId = null
+    if (nextStatus === 'initializing' && state.hasReceivedIndex) {
+      const isReady = state.itemIds.every(id => nextProcessed.has(id))
+      if (isReady) {
+        nextStatus = 'ready'
+        nextProcessed = new Set() // free memory
+        if (fallbackTimeoutId) {
+          clearTimeout(fallbackTimeoutId)
+          fallbackTimeoutId = null
+        }
       }
     }
 
-    return { 
-      items: nextItems, 
-      status: nextStatus, 
-      processedItemIds: nextProcessed 
+    return {
+      items: nextItems,
+      status: nextStatus,
+      processedItemIds: nextProcessed,
     }
   }),
 
   updateIndexFromServer: itemIds => {
     set(state => {
-      if (state.status === 'initializing' && itemIds.length === 0) {
-        if (fallbackTimeoutId) {
-          clearTimeout(fallbackTimeoutId)
-          fallbackTimeoutId = null
-        }
-        return { itemIds, status: 'ready', processedItemIds: new Set() }
+      const nextState: Partial<DataState> = {
+        itemIds,
+        hasReceivedIndex: true,
       }
-      return { itemIds }
+
+      if (state.status === 'initializing') {
+        const isReady = itemIds.every(id => state.processedItemIds.has(id))
+        if (isReady) {
+          if (fallbackTimeoutId) {
+            clearTimeout(fallbackTimeoutId)
+            fallbackTimeoutId = null
+          }
+          nextState.status = 'ready'
+          nextState.processedItemIds = new Set()
+        }
+      }
+      return nextState
     })
 
     const currentState = get()
@@ -114,4 +131,19 @@ export const useDataStore = create<DataStore>((set, get) => ({
       },
     }
   }),
+
+  reset: () => {
+    if (fallbackTimeoutId) {
+      clearTimeout(fallbackTimeoutId)
+      fallbackTimeoutId = null
+    }
+    set({
+      status: 'initializing',
+      items: {},
+      itemIds: [],
+      metadata: {},
+      processedItemIds: new Set<string>(),
+      hasReceivedIndex: false,
+    })
+  },
 }))
