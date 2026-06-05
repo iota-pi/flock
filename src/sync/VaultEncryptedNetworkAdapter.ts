@@ -43,7 +43,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     })
 
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
-      clearManualRecoveryForItems([itemId]).catch(console.error)
+      if (this.account) {
+        clearManualRecoveryForItems(this.account, [itemId]).catch(console.error)
+      }
       this.emit('message', {
         type: 'sync',
         senderId: VAULT_PEER_ID,

@@ -300,10 +300,13 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      expect(mockReportDecryptionFailure).toHaveBeenCalledWith({
-        itemId: 'item-fail',
-        error: expect.any(Error),
-      })
+      expect(mockReportDecryptionFailure).toHaveBeenCalledWith(
+        'account-1',
+        {
+          itemId: 'item-fail',
+          error: expect.any(Error),
+        }
+      )
       // Cursors should still update to highest/nextCursor even if message decryption fails
       expect(manager.exportCursors()).toContainEqual(['item-fail', 20])
     })

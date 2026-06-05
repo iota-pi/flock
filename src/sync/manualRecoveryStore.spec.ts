@@ -14,6 +14,7 @@ vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
+let clearInstancesCacheForTesting: any
 let clearManualRecoveryEntries: any
 let readManualRecoveryCount: any
 let readManualRecoveryEntries: any
@@ -23,8 +24,11 @@ let resetMigrationForTesting: any
 let upsertManualRecoveryEntry: any
 
 describe('manualRecoveryStore', () => {
+  const accountId = 'test-account-id'
+
   beforeAll(async () => {
     const mod = await import('./manualRecoveryStore')
+    clearInstancesCacheForTesting = mod.clearInstancesCacheForTesting
     clearManualRecoveryEntries = mod.clearManualRecoveryEntries
     readManualRecoveryCount = mod.readManualRecoveryCount
     readManualRecoveryEntries = mod.readManualRecoveryEntries
@@ -34,36 +38,40 @@ describe('manualRecoveryStore', () => {
     upsertManualRecoveryEntry = mod.upsertManualRecoveryEntry
   })
   beforeEach(async () => {
-    await clearManualRecoveryEntries()
+    createdInstances.length = 0
+    if (clearInstancesCacheForTesting) {
+      clearInstancesCacheForTesting()
+    }
+    resetMigrationForTesting()
+    await clearManualRecoveryEntries(accountId)
     // Also clean up metadata store
     const metaStorage = localforage.createInstance({
-      name: 'FlockVault_ManualRecoveryDB',
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
       storeName: 'manual-recovery-metadata',
     })
     await metaStorage.clear()
-    resetMigrationForTesting()
   })
 
   it('upserts entries by item id and updates count', async () => {
-    await upsertManualRecoveryEntry({ itemId: 'item-1', reason: 'first failure' })
-    await upsertManualRecoveryEntry({ itemId: 'item-1', reason: 'second failure' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'first failure' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'second failure' })
 
-    const entries = await readManualRecoveryEntries()
+    const entries = await readManualRecoveryEntries(accountId)
     expect(entries).toHaveLength(1)
     expect(entries[0].itemId).toBe('item-1')
     expect(entries[0].reason).toBe('second failure')
-    expect(await readManualRecoveryCount()).toBe(1)
+    expect(await readManualRecoveryCount(accountId)).toBe(1)
   })
 
   it('removes entries by id and by item id', async () => {
-    const first = await upsertManualRecoveryEntry({ itemId: 'item-1', reason: 'failed' })
-    await upsertManualRecoveryEntry({ itemId: 'item-2', reason: 'failed' })
+    const first = await upsertManualRecoveryEntry(accountId, { itemId: 'item-1', reason: 'failed' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-2', reason: 'failed' })
 
-    await removeManualRecoveryEntryById(first.id)
-    expect(await readManualRecoveryCount()).toBe(1)
+    await removeManualRecoveryEntryById(accountId, first.id)
+    expect(await readManualRecoveryCount(accountId)).toBe(1)
 
-    await removeManualRecoveryEntryByItemId('item-2')
-    expect(await readManualRecoveryCount()).toBe(0)
+    await removeManualRecoveryEntryByItemId(accountId, 'item-2')
+    expect(await readManualRecoveryCount(accountId)).toBe(0)
   })
 
   it('migrates legacy entries to use itemId as key and id', async () => {
@@ -76,11 +84,11 @@ describe('manualRecoveryStore', () => {
     }
 
     const legacyStorage = localforage.createInstance({
-      name: 'FlockVault_ManualRecoveryDB',
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
       storeName: 'manual-recovery-items',
     })
     const metaStorage = localforage.createInstance({
-      name: 'FlockVault_ManualRecoveryDB',
+      name: 'FlockVault_ManualRecoveryDB_test-account-id',
       storeName: 'manual-recovery-metadata',
     })
 
@@ -91,7 +99,7 @@ describe('manualRecoveryStore', () => {
     resetMigrationForTesting()
 
     // Trigger migration by doing an operation
-    const entries = await readManualRecoveryEntries()
+    const entries = await readManualRecoveryEntries(accountId)
 
     // Assert migration happened
     expect(entries).toHaveLength(1)
@@ -113,7 +121,7 @@ describe('manualRecoveryStore', () => {
     })
 
     // Run operation again. Since flagged as migrated, it shouldn't run migration again
-    await readManualRecoveryEntries()
+    await readManualRecoveryEntries(accountId)
     const notMigratedVal = await legacyStorage.getItem('legacy-item-2')
     expect(notMigratedVal).toBeNull()
     const stillLegacyVal = await legacyStorage.getItem('uuid-2')
@@ -125,15 +133,15 @@ describe('manualRecoveryStore', () => {
     const dateSpy = vi.spyOn(Date, 'now')
 
     dateSpy.mockReturnValueOnce(now - 1000)
-    await upsertManualRecoveryEntry({ itemId: 'item-b', reason: 'error-b' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-b', reason: 'error-b' })
 
     dateSpy.mockReturnValueOnce(now)
-    await upsertManualRecoveryEntry({ itemId: 'item-c', reason: 'error-c' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-c', reason: 'error-c' })
 
     dateSpy.mockReturnValueOnce(now - 1000)
-    await upsertManualRecoveryEntry({ itemId: 'item-a', reason: 'error-a' })
+    await upsertManualRecoveryEntry(accountId, { itemId: 'item-a', reason: 'error-a' })
 
-    const entries = await readManualRecoveryEntries()
+    const entries = await readManualRecoveryEntries(accountId)
     expect(entries).toHaveLength(3)
 
     expect(entries[0].itemId).toBe('item-c')
@@ -145,11 +153,11 @@ describe('manualRecoveryStore', () => {
 
   it('handles quota errors in upsertManualRecoveryEntry', async () => {
     const quotaError = new DOMException('quota exceeded', 'QuotaExceededError')
-    const storage = createdInstances.find(i => i.config?.().storeName === 'manual-recovery-items')
+    const storage = createdInstances.find(i => i.config?.().name === 'FlockVault_ManualRecoveryDB_test-account-id' && i.config?.().storeName === 'manual-recovery-items')
     const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValueOnce(quotaError)
 
     await expect(
-      upsertManualRecoveryEntry({ itemId: 'item-quota', reason: 'quota' })
+      upsertManualRecoveryEntry(accountId, { itemId: 'item-quota', reason: 'quota' })
     ).rejects.toThrow(quotaError)
 
     expect(mockReportQuotaExceeded).toHaveBeenCalled()
@@ -157,13 +165,13 @@ describe('manualRecoveryStore', () => {
   })
 
   it('contains errors thrown during migration runMigration', async () => {
-    const metaStorage = createdInstances.find(i => i.config?.().storeName === 'manual-recovery-metadata')
+    const metaStorage = createdInstances.find(i => i.config?.().name === 'FlockVault_ManualRecoveryDB_test-account-id' && i.config?.().storeName === 'manual-recovery-metadata')
     const getItemSpy = vi.spyOn(metaStorage, 'getItem').mockRejectedValueOnce(new Error('Migration read failed'))
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     resetMigrationForTesting()
 
-    await expect(readManualRecoveryEntries()).resolves.toBeDefined()
+    await expect(readManualRecoveryEntries(accountId)).resolves.toBeDefined()
     expect(consoleErrorSpy).toHaveBeenCalledWith('[ManualRecoveryStore] Migration failed', expect.any(Error))
 
     getItemSpy.mockRestore()

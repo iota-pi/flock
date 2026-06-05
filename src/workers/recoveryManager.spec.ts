@@ -6,7 +6,7 @@ const mockRemoveManualRecoveryEntryById = vi.fn()
 const mockRemoveManualRecoveryEntryByItemId = vi.fn()
 
 vi.mock('../sync/manualRecoveryStore', () => ({
-  readManualRecoveryEntries: () => mockReadManualRecoveryEntries(),
+  readManualRecoveryEntries: (...args: any[]) => mockReadManualRecoveryEntries(...args),
   removeManualRecoveryEntryById: (...args: any[]) => mockRemoveManualRecoveryEntryById(...args),
   removeManualRecoveryEntryByItemId: (...args: any[]) => mockRemoveManualRecoveryEntryByItemId(...args),
 }))
@@ -46,7 +46,7 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.pushRecoveryItems()
 
-      expect(mockReadManualRecoveryEntries).toHaveBeenCalled()
+      expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123')
       expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
     })
 
@@ -75,7 +75,7 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.retryRecoveryItem('item-2')
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-2')
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
       expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
     })
   })
@@ -135,7 +135,7 @@ describe('RecoveryManager', () => {
         prayedFor: ['a', 'b'],
       })
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-3')
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-3')
       expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
     })
   })
@@ -167,7 +167,7 @@ describe('RecoveryManager', () => {
         deleted: true,
       })
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('item-4')
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
     })
 
     it('preserves existing item type when marking deleted', async () => {
@@ -195,7 +195,7 @@ describe('RecoveryManager', () => {
     it('removes manual recovery entry by entry ID and updates callbacks', async () => {
       await recoveryManager.dismissRecoveryItem('entry-123')
 
-      expect(mockRemoveManualRecoveryEntryById).toHaveBeenCalledWith('entry-123')
+      expect(mockRemoveManualRecoveryEntryById).toHaveBeenCalledWith('account-123', 'entry-123')
       expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalled()
     })
   })

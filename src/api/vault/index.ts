@@ -265,7 +265,7 @@ export async function signOutVault() {
   await clearScheduledDeletions(accountId)
   clearStoredMetadata()
   await clearActiveSessionToken()
-  await clearManualRecoveryEntries()
+  await clearManualRecoveryEntries(accountId)
 
   updateAuth({ account: '', loggedIn: false })
 }

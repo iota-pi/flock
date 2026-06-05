@@ -125,10 +125,12 @@ export class SyncPullQueueManager {
 
       return { parsed: true, cursor: entry.cursor }
     } catch (error) {
-      reportDecryptionFailure({
-        itemId,
-        error
-      })
+      if (this.account) {
+        reportDecryptionFailure(this.account, {
+          itemId,
+          error
+        })
+      }
       return { parsed: false, cursor: entry.cursor }
     }
   }

@@ -7,6 +7,8 @@ import {
   upsertManualRecoveryEntry,
 } from '../sync/manualRecoveryStore'
 import { normalizeSyncError } from '../shared/syncErrors'
+import { getAccountId } from '../api/util'
+
 
 let onRecoveryItemsChangedListener: (() => void) | null = null
 
@@ -89,11 +91,11 @@ export function resetSyncHealthState(): void {
 }
 
 
-async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<void> {
-  await upsertManualRecoveryEntry({ itemId, reason })
+async function triggerManualRecoveryUI(accountId: string, itemId: ItemId, reason: string): Promise<void> {
+  await upsertManualRecoveryEntry(accountId, { itemId, reason })
   onRecoveryItemsChangedListener?.()
 
-  const count = await readManualRecoveryCount()
+  const count = await readManualRecoveryCount(accountId)
 
   if (count > 0) {
     Sentry.captureMessage('Manual recovery required for corrupted items', {
@@ -105,7 +107,7 @@ async function triggerManualRecoveryUI(itemId: ItemId, reason: string): Promise<
   }
 }
 
-async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): Promise<void> {
+async function attemptAutoRecovery(accountId: string, itemId: ItemId, failedBranches?: string[]): Promise<void> {
   const now = Date.now()
   if (tracker.isInFlight(itemId) || tracker.getRecoveryCooldownUntil(itemId) > now) {
     return
@@ -118,31 +120,31 @@ async function attemptAutoRecovery(itemId: ItemId, failedBranches?: string[]): P
       ? `Corrupted branches: ${failedBranches.join(', ')}`
       : 'Automated recovery is unavailable for this revision'
 
-    await triggerManualRecoveryUI(itemId, branchHint)
+    await triggerManualRecoveryUI(accountId, itemId, branchHint)
     tracker.setRecoveryCooldown(itemId, Date.now() + RECOVERY_RETRY_COOLDOWN_MS)
   } finally {
     tracker.setInFlight(itemId, false)
   }
 }
 
-export async function clearManualRecoveryForItems(itemIds: ItemId[]): Promise<void> {
+export async function clearManualRecoveryForItems(accountId: string, itemIds: ItemId[]): Promise<void> {
   const uniqueItemIds = Array.from(new Set(itemIds.filter(itemId => !!itemId)))
   if (uniqueItemIds.length === 0) {
     return
   }
 
-  const previousCount = await readManualRecoveryCount()
+  const previousCount = await readManualRecoveryCount(accountId)
   if (previousCount === 0) {
     return
   }
 
   for (const itemId of uniqueItemIds) {
-    await removeManualRecoveryEntryByItemId(itemId)
+    await removeManualRecoveryEntryByItemId(accountId, itemId)
     tracker.clearRecoveryCooldown(itemId)
     tracker.setInFlight(itemId, false)
   }
 
-  const nextCount = await readManualRecoveryCount()
+  const nextCount = await readManualRecoveryCount(accountId)
   if (nextCount !== previousCount) {
     onRecoveryItemsChangedListener?.()
   }
@@ -155,14 +157,22 @@ export function initializeSyncHealthWatchers(): void {
 
   subscribeRealtimeBusSyncPing(itemIds => {
     if (itemIds && itemIds.length > 0) {
-      clearManualRecoveryForItems(itemIds).catch(console.error)
+      let activeAccountId = ''
+      try {
+        activeAccountId = getAccountId()
+      } catch {
+        // Safe fallback if account is not logged in / active
+      }
+      if (activeAccountId) {
+        clearManualRecoveryForItems(activeAccountId, itemIds).catch(console.error)
+      }
     }
   })
 
   syncHealthWatchersInitialized = true
 }
 
-export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
+export function reportDecryptionFailure(accountId: string, event: DecryptionFailedEvent): void {
   const normalizedError = normalizeSyncError(event.error)
 
   console.error('[Decryption] Failed to decrypt item', {
@@ -171,7 +181,7 @@ export function reportDecryptionFailure(event: DecryptionFailedEvent): void {
   })
 
   if (typeof event.itemId === 'string') {
-    attemptAutoRecovery(event.itemId).catch(error => {
+    attemptAutoRecovery(accountId, event.itemId).catch(error => {
       console.error(`Failed to run auto-recovery after decryption failure for item ${event.itemId}`, error)
     })
   }

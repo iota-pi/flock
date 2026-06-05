@@ -20,10 +20,10 @@ export class RecoveryManager {
   ) {}
 
   async pushRecoveryItems() {
-    const { callbacks } = this.getContext()
-    if (callbacks) {
+    const { callbacks, accountId } = this.getContext()
+    if (callbacks && accountId) {
       try {
-        const entries = await readManualRecoveryEntries()
+        const entries = await readManualRecoveryEntries(accountId)
         await callbacks.onRecoveryItemsChanged(entries)
       } catch (error) {
         console.error('[RecoveryManager] Failed to push recovery entries change', error)
@@ -32,7 +32,9 @@ export class RecoveryManager {
   }
 
   async retryRecoveryItem(itemId: string) {
-    await removeManualRecoveryEntryByItemId(itemId)
+    const { accountId } = this.getContext()
+    if (!accountId) return
+    await removeManualRecoveryEntryByItemId(accountId, itemId)
     await this.pushRecoveryItems()
   }
 
@@ -65,7 +67,7 @@ export class RecoveryManager {
       },
     )
 
-    await removeManualRecoveryEntryByItemId(itemId)
+    await removeManualRecoveryEntryByItemId(accountId, itemId)
     await this.pushRecoveryItems()
   }
 
@@ -91,16 +93,20 @@ export class RecoveryManager {
       },
     )
 
-    await removeManualRecoveryEntryByItemId(itemId)
+    await removeManualRecoveryEntryByItemId(accountId, itemId)
     await this.pushRecoveryItems()
   }
 
   async dismissRecoveryItem(entryId: string) {
-    await removeManualRecoveryEntryById(entryId)
+    const { accountId } = this.getContext()
+    if (!accountId) return
+    await removeManualRecoveryEntryById(accountId, entryId)
     await this.pushRecoveryItems()
   }
 
   async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
-    return await readManualRecoveryEntries()
+    const { accountId } = this.getContext()
+    if (!accountId) return []
+    return await readManualRecoveryEntries(accountId)
   }
 }
