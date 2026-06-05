@@ -1,4 +1,5 @@
-export const DEFAULT_CRYPTO_ITERATIONS = typeof window !== 'undefined' && window.Cypress ? 1 : 100000
+const isCypress = typeof window !== 'undefined' && window.Cypress
+export const DEFAULT_CRYPTO_ITERATIONS = isCypress ? 1 : 600000
 
 export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
 
