@@ -10,6 +10,7 @@ import type { ManualRecoveryEntry } from 'src/sync/manualRecoveryStore'
 import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api/syncHealthCoordinator'
 import type { BackupSyncState } from 'src/types/backup'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
+import { getOnlineState } from 'src/utils/onlineStatus'
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 let workerInstance: Worker | null = null
@@ -101,7 +102,7 @@ export const SyncBridge = {
 
     currentAccountId = accountId
     useSyncStore.getState().setSyncStatus('connecting')
-    const initialOnlineState = navigator.onLine
+    const initialOnlineState = getOnlineState()
 
     const worker = new Worker(new URL('../workers/sync.worker.ts', import.meta.url), { type: 'module' })
     workerInstance = worker
@@ -123,19 +124,25 @@ export const SyncBridge = {
       if (!onlineListenerAttached) {
         onlineListenerAttached = true
 
-        const setWorkerOnlineState = (isOnline: boolean) => {
+        const handleOnlineStateChange = () => {
           if (!syncApi) return
-          void syncApi.setOnlineState(isOnline)
+          void syncApi.setOnlineState(getOnlineState())
         }
 
         window.addEventListener(
           'online',
-          () => setWorkerOnlineState(true),
+          handleOnlineStateChange,
         )
         window.addEventListener(
           'offline',
-          () => setWorkerOnlineState(false),
+          handleOnlineStateChange,
         )
+        if (typeof document !== 'undefined') {
+          document.addEventListener(
+            'visibilitychange',
+            handleOnlineStateChange,
+          )
+        }
       }
 
       setOnRecoveryItemsChangedListener(() => {

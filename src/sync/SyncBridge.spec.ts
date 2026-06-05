@@ -225,4 +225,36 @@ describe('SyncBridge', () => {
 
     vi.useRealTimers()
   })
+
+  it('responds to online, offline, and visibilitychange events', async () => {
+    const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    const visibilityStateSpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+
+    await SyncBridge.initialize('test-account')
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
+
+    // Hidden -> should trigger setOnlineState(false)
+    visibilityStateSpy.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
+
+    // Visible again -> should trigger setOnlineState(true)
+    visibilityStateSpy.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
+
+    // Offline network event -> should trigger setOnlineState(false)
+    onLineSpy.mockReturnValue(false)
+    window.dispatchEvent(new Event('offline'))
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
+
+    // Online network event, but document hidden -> should trigger setOnlineState(false)
+    onLineSpy.mockReturnValue(true)
+    visibilityStateSpy.mockReturnValue('hidden')
+    window.dispatchEvent(new Event('online'))
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
+
+    onLineSpy.mockRestore()
+    visibilityStateSpy.mockRestore()
+  })
 })
