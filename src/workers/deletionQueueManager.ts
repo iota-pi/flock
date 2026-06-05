@@ -1,4 +1,4 @@
-import { AutomergeIndexDocument, removeAutomergeItem } from '../sync/automergeDocStore'
+import { AutomergeIndexDocument, removeAutomergeItem } from '../sync/docStore'
 import type { DocHandle } from '@automerge/automerge-repo/slim'
 
 import {

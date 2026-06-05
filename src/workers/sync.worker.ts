@@ -10,27 +10,19 @@ import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
   initializeAutomergeDocStore,
-  getAutomergeMetadata,
-  withAutomergeDocumentChange,
-  withAutomergeMetadataChange,
-  removeAutomergeItem,
-  getAutomergeItem,
   ACCOUNT_INDEX_DOCUMENT_ID,
-  removeAutomergeItemIdsFromIndex,
-  addAutomergeItemIdsToIndex,
   clearAutomergeDocStore,
   exportAllBinaries,
   restoreFromBinaries,
   AutomergeIndexDocument,
   normalizeItemSnapshot,
-} from '../sync/automergeDocStore'
+} from '../sync/docStore'
 import { DeletionQueueManager } from './deletionQueueManager'
 import { initWorkerVault } from '../api/vault'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
-import { ItemId } from '../shared/itemTypes'
 import type { SyncStatus } from 'src/state/syncStore'
 import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 
@@ -39,9 +31,12 @@ import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
 import { resetQuotaExceededStatus, loadSyncBatch, restoreSyncBatch } from '../sync/VaultPersistence'
-import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils'
+import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Utils'
 import { registerQuotaReporter } from './quotaReporter'
 import type { BackupSyncState } from '../types/backup'
+import { LeaderElection } from './utils/LeaderElection'
+import { ItemOperations } from './ItemOperations'
+
 
 export class SyncWorker implements SyncApi {
   private accountId: string | null = null
@@ -51,7 +46,7 @@ export class SyncWorker implements SyncApi {
   private syncStatus: SyncStatus = 'idle'
   private subscribedIds = new Set<string>()
   private repo: Repo | null = null
-  private releaseLeadershipLock: (() => void) | null = null
+  private leaderElection: LeaderElection | null = null
   private changeListenersByItemId = new Map<string, () => void>()
   private deletionQueueManager: DeletionQueueManager
 
@@ -59,6 +54,7 @@ export class SyncWorker implements SyncApi {
   private recoveryManager: RecoveryManager
   private legacyBootstrapper: LegacyBootstrapper
   private reencryptionManager: ReencryptionManager
+  private itemOperations: ItemOperations
 
   constructor() {
     this.snapshotManager = new SnapshotManager(() => ({
@@ -87,6 +83,13 @@ export class SyncWorker implements SyncApi {
       accountId: this.accountId,
       getIndexHandle: () => this.getIndexHandle(),
     }))
+
+    this.itemOperations = new ItemOperations({
+      getAccountId: () => this.accountId,
+      getCallbacks: () => this.callbacks,
+      markDocumentDirty: (id) => this.markDocumentDirty(id),
+      getDeletionQueueManager: () => this.deletionQueueManager,
+    })
   }
 
   private updateStatus(status: SyncStatus) {
@@ -187,7 +190,18 @@ export class SyncWorker implements SyncApi {
     this.adapter.setOnlineState(this.isOnline)
 
     // Start background leader election
-    void this.acquireLeadership(accountId).catch(console.error)
+    this.leaderElection = new LeaderElection(accountId, {
+      onLeaderGranted: () => {
+        this.adapter?.setLeader(true)
+        if (this.isOnline && this.syncStatus === 'offline') {
+          this.updateStatus('idle')
+        }
+      },
+      onLeaderRevoked: () => {
+        this.adapter?.setLeader(false)
+      }
+    })
+    void this.leaderElection.acquire().catch(console.error)
 
     await this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
@@ -246,39 +260,6 @@ export class SyncWorker implements SyncApi {
     this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
   }
 
-  private async acquireLeadership(accountId: string) {
-    if (this.releaseLeadershipLock) {
-      this.releaseLeadershipLock()
-      this.releaseLeadershipLock = null
-    }
-
-    this.adapter?.setLeader(false)
-
-    if (typeof navigator === 'undefined' || !navigator.locks) {
-      this.adapter?.setLeader(true)
-      return
-    }
-
-    const lockName = `flock-sync-leader-${accountId}`
-
-    void navigator.locks.request(lockName, async () => {
-      this.adapter?.setLeader(true)
-      if (this.isOnline && this.syncStatus === 'offline') {
-        this.updateStatus('idle')
-      }
-
-      return new Promise<void>(resolve => {
-        this.releaseLeadershipLock = () => {
-          this.adapter?.setLeader(false)
-          resolve()
-        }
-      })
-    }).catch(err => {
-      console.error('[SyncWorker] Failed to acquire lock, falling back to leader mode', err)
-      this.adapter?.setLeader(true)
-    })
-  }
-
   async setOnlineState(isOnline: boolean) {
     this.applyOnlineState(isOnline)
   }
@@ -326,7 +307,7 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  private unsubscribe(itemId: ItemId) {
+  private unsubscribe(itemId: string) {
     if (!this.repo) return
 
     this.subscribedIds.delete(itemId)
@@ -345,98 +326,23 @@ export class SyncWorker implements SyncApi {
   }
 
   async mutateItem(mutationId: string, id: string, changes: Partial<Item>) {
-    try {
-      const updated = await withAutomergeDocumentChange(this.accountId!, id, doc => {
-        for (const [key, value] of Object.entries(changes)) {
-          if (value === undefined) delete doc[key]
-          else doc[key] = value
-        }
-      })
-      if (updated) {
-        this.markDocumentDirty(id)
-      }
-    } catch (err: any) {
-      if (this.callbacks) {
-        this.callbacks.onMutationFailed(mutationId, err.message).catch(console.error)
-        const trueState = await getAutomergeItem(this.accountId!, id)
-        this.callbacks.onItemUpdated(id, trueState).catch(console.error)
-      }
-    }
+    await this.itemOperations.mutateItem(mutationId, id, changes)
   }
 
   async createItem(item: Item) {
-    try {
-      const updated = await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
-        for (const [key, value] of Object.entries(item)) {
-          doc[key] = value
-        }
-      }, { createIfMissing: true, initialValue: item })
-      await addAutomergeItemIdsToIndex(this.accountId!, [item.id])
-      if (updated) {
-        this.markDocumentDirty(item.id)
-      }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('create', err.message).catch(console.error)
-    }
+    await this.itemOperations.createItem(item)
   }
 
   async hardDeleteItems(itemIds: string[]) {
-    try {
-      await removeAutomergeItemIdsFromIndex(this.accountId!, itemIds)
-      for (const id of itemIds) {
-        await this.deletionQueueManager.cancelDeletion(id).catch(console.error)
-        await removeAutomergeItem(this.accountId!, id)
-      }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('hardDelete', err.message).catch(console.error)
-    }
+    await this.itemOperations.hardDeleteItems(itemIds)
   }
 
   async storeItems(items: Item[]) {
-    const succeededIds = new Set<string>()
-    const failedItems: { item: Item; error: any }[] = []
-
-    for (const item of items) {
-      try {
-        const updated = await withAutomergeDocumentChange(this.accountId!, item.id, doc => {
-          for (const [key, value] of Object.entries(item)) {
-            if (value === undefined) delete doc[key]
-            else doc[key] = value
-          }
-        }, { createIfMissing: true, initialValue: item })
-        if (updated) {
-          this.markDocumentDirty(item.id)
-        }
-        succeededIds.add(item.id)
-      } catch (err: any) {
-        failedItems.push({ item, error: err })
-      }
-    }
-
-    if (failedItems.length > 0) {
-      const combinedMessage = failedItems.map(f => `${f.item.id}: ${f.error.message}`).join(', ')
-      this.callbacks?.onMutationFailed('store', combinedMessage).catch(console.error)
-      for (const { item } of failedItems) {
-        const trueState = await getAutomergeItem(this.accountId!, item.id)
-        this.callbacks?.onItemUpdated(item.id, trueState).catch(console.error)
-      }
-    }
+    await this.itemOperations.storeItems(items)
   }
 
   async mutateMetadata(changes: Partial<AccountMetadata>) {
-    try {
-      const updated = await withAutomergeMetadataChange(this.accountId!, metadataDraft => {
-        for (const [key, value] of Object.entries(changes)) {
-          metadataDraft[key] = value
-        }
-      })
-      if (updated) {
-        this.markDocumentDirty(ACCOUNT_INDEX_DOCUMENT_ID)
-      }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('metadata', err.message).catch(console.error)
-      this.callbacks?.onMetadataUpdated(await getAutomergeMetadata(this.accountId!)).catch(console.error)
-    }
+    await this.itemOperations.mutateMetadata(changes)
   }
 
   async exportAllBinaries() {
@@ -520,9 +426,9 @@ export class SyncWorker implements SyncApi {
   }
 
   async shutdown() {
-    if (this.releaseLeadershipLock) {
-      this.releaseLeadershipLock()
-      this.releaseLeadershipLock = null
+    if (this.leaderElection) {
+      this.leaderElection.release()
+      this.leaderElection = null
     }
 
     try {

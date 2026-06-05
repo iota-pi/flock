@@ -1,5 +1,5 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { listAutomergeItemIds } from '../sync/automergeDocStore'
+import { listAutomergeItemIds } from '../sync/docStore'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'

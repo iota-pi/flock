@@ -14,7 +14,7 @@ vi.mock('../sync/manualRecoveryStore', () => ({
 const mockGetAutomergeItem = vi.fn()
 const mockWithAutomergeDocumentChange = vi.fn()
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   getAutomergeItem: (...args: any[]) => mockGetAutomergeItem(...args),
   withAutomergeDocumentChange: (...args: any[]) => mockWithAutomergeDocumentChange(...args),
 }))

@@ -13,7 +13,7 @@ vi.mock('@automerge/automerge/slim', () => ({
   save: (...args: any[]) => mockSave(...args),
 }))
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   normalizeItemSnapshot: (...args: any[]) => mockNormalizeItemSnapshot(...args),
 }))
 

@@ -4,7 +4,7 @@ import {
   listAutomergeItemIds,
   hydrateAutomergeDocumentBinary,
   getAutomergeMetadata,
-} from '../sync/automergeDocStore'
+} from '../sync/docStore'
 import { fetchMany } from '../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../api/vault'
 import { hasApiAuthToken } from '../api/runtime'

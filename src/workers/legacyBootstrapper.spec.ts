@@ -5,7 +5,7 @@ const mockListAutomergeItemIds = vi.fn()
 const mockHydrateAutomergeDocumentBinary = vi.fn()
 const mockGetAutomergeMetadata = vi.fn()
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   listAutomergeItemIds: (...args: any[]) => mockListAutomergeItemIds(...args),
   hydrateAutomergeDocumentBinary: (...args: any[]) => mockHydrateAutomergeDocumentBinary(...args),
   getAutomergeMetadata: (...args: any[]) => mockGetAutomergeMetadata(...args),

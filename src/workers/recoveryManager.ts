@@ -8,7 +8,7 @@ import {
 import {
   getAutomergeItem,
   withAutomergeDocumentChange,
-} from '../sync/automergeDocStore'
+} from '../sync/docStore'
 import { mutateDraftToMatchSnapshot } from './utils'
 
 export class RecoveryManager {

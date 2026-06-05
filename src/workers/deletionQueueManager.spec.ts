@@ -31,9 +31,9 @@ vi.mock('../sync/deletionQueueStore', () => {
   }
 })
 
-// Mock automergeDocStore functions
+// Mock docStore functions
 const mockRemoveAutomergeItem = vi.fn().mockResolvedValue(undefined)
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   removeAutomergeItem: (...args: any[]) => mockRemoveAutomergeItem(...args),
 }))
 

@@ -1,0 +1,7 @@
+export { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
+export * from './core'
+export * from './indexManager'
+export * from './items'
+export * from './backup'
+export type { AutomergeIndexDocument } from './indexManager'
+export type { RepoDoc, RepoDocHandle } from './core'

@@ -25,7 +25,7 @@ vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
 }))
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   listAutomergeItemIds: () => mockListAutomergeItemIds(),
   normalizeItemSnapshot: vi.fn().mockReturnValue({
     type: 'note',

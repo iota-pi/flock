@@ -48,7 +48,7 @@ const mockRemoveAutomergeItem = vi.fn().mockResolvedValue(undefined)
 const mockRemoveAutomergeItemIdsFromIndex = vi.fn().mockResolvedValue(undefined)
 const mockClearAutomergeDocStore = vi.fn().mockResolvedValue(undefined)
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   ACCOUNT_INDEX_DOCUMENT_ID: 'account-index',
   initializeAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   getAutomergeMetadata: vi.fn().mockResolvedValue({}),

@@ -22,7 +22,7 @@ vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
 }))
 
-vi.mock('../sync/automergeDocStore', () => ({
+vi.mock('../sync/docStore', () => ({
   ACCOUNT_INDEX_DOCUMENT_ID: 'account-index',
   normalizeItemSnapshot: vi.fn().mockReturnValue({
     type: 'note',

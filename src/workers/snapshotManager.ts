@@ -9,7 +9,7 @@ import {
   ACCOUNT_INDEX_DOCUMENT_ID,
   AutomergeIndexDocument,
   withAutomergeDocumentChange,
-} from '../sync/automergeDocStore'
+} from '../sync/docStore'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { isPlainObject } from './utils'

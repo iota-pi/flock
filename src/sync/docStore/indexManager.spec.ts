@@ -1,25 +1,29 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
+
+import {
+  clearAutomergeDocStore,
+  initializeAutomergeDocStore,
+} from './core'
 import {
   addAutomergeItemIdsToIndex,
   removeAutomergeItemIdsFromIndex,
-  initializeAutomergeDocStore,
   listAutomergeItemIds,
-  clearAutomergeDocStore,
   AutomergeIndexDocument,
-} from './automergeDocStore'
+} from './indexManager'
 
 // Instantiate a single Ephemeral/In-Memory Repo for standard doc store testing
 const testRepo = new Repo()
 
-vi.mock('./automergeRepo', () => {
+vi.mock('../automergeRepo', () => {
   return {
     getAutomergeRepo: () => testRepo,
     getAutomergeDBName: () => 'flock-automerge-test-db',
+    closeAutomergeRepo: vi.fn(),
   }
 })
 
-describe('automergeDocStore', () => {
+describe('indexManager', () => {
   const accountId = 'test-account-id'
 
   beforeEach(async () => {
@@ -66,25 +70,22 @@ describe('automergeDocStore', () => {
 
       // 2. Simulate Device A adding 'item-a' offline (OLD REASSIGNMENT METHOD)
       const docA = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
-        // doc.itemIds = Array.from(next)
         doc.itemIds = ['item-base', 'item-a']
       })
 
       // 3. Simulate Device B adding 'item-b' offline (OLD REASSIGNMENT METHOD)
       const docB = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
-        // doc.itemIds = Array.from(next)
         doc.itemIds = ['item-base', 'item-b']
       })
 
       // 4. Merge Devices A & B upon reconnection
       const merged = Automerge.merge(docA, docB)
 
-      // 5. Automerge resolves this as a property conflict: it picks one device's array completely
-      // and discards the other. There is no merging at the list level.
-      expect(merged.itemIds?.length).toBe(2) // Only base + one device's addition exists
+      // 5. Automerge resolves this as a property conflict: pick one and discard the other
+      expect(merged.itemIds?.length).toBe(2)
       const hasA = merged.itemIds?.includes('item-a')
       const hasB = merged.itemIds?.includes('item-b')
-      expect(hasA !== hasB).toBe(true) // Exactly one is kept, the other is lost!
+      expect(hasA !== hasB).toBe(true)
     })
 
     it('PROVES FIX WORKS: push-based in-place mutations correctly merge concurrent offline additions', () => {
