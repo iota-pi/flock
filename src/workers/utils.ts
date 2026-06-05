@@ -28,6 +28,5 @@ export function normalizeSnapshotType(type: Item['type'], originalType?: Item['t
     : 'person'
 }
 
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
+export { isPlainObject } from '../sync/utils'
+

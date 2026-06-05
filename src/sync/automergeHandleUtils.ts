@@ -1,4 +1,6 @@
 import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
+import { isPlainObject } from './utils/objectUtils'
+
 
 type RepoWithProgress = {
   findWithProgress: <TDoc extends object>(documentUrl: AutomergeUrl) => {
@@ -72,5 +74,6 @@ export function readReadyObjectSnapshot<TDoc extends object>(
   }
 
   const doc = readHandleDocSafely(handle)
-  return (!doc || typeof doc !== 'object' || Array.isArray(doc)) ? null : doc
+  return isPlainObject(doc) ? (doc as TDoc) : null
 }
+

@@ -39,7 +39,7 @@ import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
 import { resetQuotaExceededStatus, loadSyncBatch, restoreSyncBatch } from '../sync/VaultPersistence'
-import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Utils'
+import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils'
 import { registerQuotaReporter } from './quotaReporter'
 import type { BackupSyncState } from '../types/backup'
 

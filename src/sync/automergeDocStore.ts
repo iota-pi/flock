@@ -10,7 +10,7 @@ import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { getAutomergeDBName, getAutomergeRepo, closeAutomergeRepo } from './automergeRepo'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
-import { decodeBase64ToBytes, encodeBytesToBase64 } from './utils/base64Utils'
+import { decodeBase64ToBytes, encodeBytesToBase64, isPlainObject } from './utils'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { useSyncStore } from '../state/syncStore'
 import {
@@ -45,10 +45,6 @@ type ChangeDocumentOptions = {
 }
 
 const initializedAccounts = new Set<string>()
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
 
 function normalizeItemId(raw: unknown): string | null {
   const result = z.string().trim().min(1).safeParse(raw)
@@ -98,6 +94,17 @@ async function getRepoHandle(accountId: string, itemId: string): Promise<RepoDoc
   return findRepoDocHandle<RepoDoc>(getAutomergeRepo(accountId), documentUrl)
 }
 
+async function resolveHandleReadyState<TDoc extends object>(
+  handle: DocHandle<TDoc> | undefined,
+  awaitReady?: boolean,
+): Promise<void> {
+  if (awaitReady === false) {
+    tryResolveNonReadyHandle(handle)
+  } else {
+    await awaitHandleReadyIfNeeded(handle)
+  }
+}
+
 async function ensureDocumentHandle(
   accountId: string,
   documentId: string,
@@ -109,13 +116,7 @@ async function ensureDocumentHandle(
 
   let handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
 
-  if (options.awaitReady === false) {
-    tryResolveNonReadyHandle(handle)
-  }
-
-  if (options.awaitReady !== false) {
-    await awaitHandleReadyIfNeeded(handle)
-  }
+  await resolveHandleReadyState(handle, options.awaitReady)
 
   if ((handle?.isUnavailable() || !handle) && options.createIfMissing) {
     try {
@@ -140,13 +141,7 @@ async function ensureDocumentHandle(
       })
     }
 
-    if (options.awaitReady === false) {
-      tryResolveNonReadyHandle(handle)
-    }
-
-    if (options.awaitReady !== false) {
-      await awaitHandleReadyIfNeeded(handle)
-    }
+    await resolveHandleReadyState(handle, options.awaitReady)
   }
 
   return handle
