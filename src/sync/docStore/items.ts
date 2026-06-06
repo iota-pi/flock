@@ -7,8 +7,8 @@ import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { isPlainObject } from '../utils'
 import {
   normalizeItemId,
-  ensureDocumentHandle,
   readDocumentSnapshot,
+  changeDocument,
   RepoDoc,
 } from './core'
 import {
@@ -78,23 +78,15 @@ export async function withAutomergeDocumentChange(
     await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
   }
 
-  const handle = await ensureDocumentHandle(
+  return changeDocument(
     accountId,
     normalizedDocumentId,
+    change,
     {
       createIfMissing: options.createIfMissing,
       initialValue: options.initialValue,
-      awaitReady: false,
     }
   )
-
-  if (!handle || handle.isUnavailable() || !handle.isReady()) {
-    return false
-  }
-
-  handle.change(change)
-
-  return true
 }
 
 export async function withAutomergeMetadataChange(

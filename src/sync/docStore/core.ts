@@ -1,11 +1,9 @@
 import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import localforage from 'localforage'
 import { z } from 'zod'
 
-import { getAutomergeDBName, getAutomergeRepo, closeAutomergeRepo } from '../automergeRepo'
+import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import {
   awaitHandleReadyIfNeeded,
   findRepoDocHandle,
@@ -13,6 +11,7 @@ import {
   tryResolveNonReadyHandle,
 } from '../automergeHandleUtils'
 import { isPlainObject } from '../utils'
+
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -23,7 +22,10 @@ export type EnsureHandleOptions = {
   initialValue?: RepoDoc
 }
 
-export const initializedAccounts = new Set<string>()
+export type ChangeDocumentOptions = {
+  createIfMissing?: boolean
+  initialValue?: RepoDoc
+}
 
 export function normalizeItemId(raw: unknown): string | null {
   const result = z.string().trim().min(1).safeParse(raw)
@@ -103,74 +105,31 @@ export async function readDocumentSnapshot(accountId: string, documentId: string
   return snapshotFromHandle(handle)
 }
 
-export async function initializeAutomergeDocStore(account: string): Promise<void> {
-  const normalizedAccount = normalizeItemId(account)
-  if (!normalizedAccount) {
-    return
+export async function changeDocument(
+  accountId: string,
+  documentId: string,
+  change: (draft: RepoDoc) => void,
+  options: ChangeDocumentOptions = {},
+): Promise<boolean> {
+  const normalizedDocumentId = normalizeItemId(documentId)
+  if (!normalizedDocumentId) {
+    return false
   }
 
-  if (initializedAccounts.has(normalizedAccount)) {
-    return
-  }
-
-  // Ensure index document will be imported/called from indexManager to avoid circular dependencies
-  const { ensureIndexDocument } = await import('./indexManager')
-  await ensureIndexDocument(normalizedAccount)
-  initializedAccounts.add(normalizedAccount)
-}
-
-export async function listAutomergeDocumentIds(accountId: string): Promise<string[]> {
-  const { listAutomergeItemIds } = await import('./indexManager')
-  const documentIds = new Set<string>([
-    ACCOUNT_INDEX_DOCUMENT_ID,
-    ...(await listAutomergeItemIds(accountId)),
-  ])
-
-  return Array.from(documentIds)
-}
-
-export async function clearAutomergeDocStore(accountId: string): Promise<void> {
-  let repo
-  try {
-    repo = getAutomergeRepo(accountId)
-  } catch {
-    // Ignore if not initialized
-  }
-
-  if (repo) {
-    const documentIds = Array.from(new Set([
-      ...(await listAutomergeDocumentIds(accountId)),
-    ]))
-
-    for (const documentId of documentIds) {
-      const documentUrl = await toAutomergeUrlFromItemId(documentId)
-
-      try {
-        repo.delete(documentUrl)
-      } catch {
-        // Ignore missing local handles.
-      }
-
-      try {
-        await repo.removeFromCache(interpretAsDocumentId(documentUrl))
-      } catch {
-        // Ignore cache-eviction failures for handles that were never loaded.
-      }
+  const handle = await ensureDocumentHandle(
+    accountId,
+    normalizedDocumentId,
+    {
+      createIfMissing: options.createIfMissing,
+      initialValue: options.initialValue,
+      awaitReady: false,
     }
+  )
+
+  if (!handle || handle.isUnavailable() || !handle.isReady()) {
+    return false
   }
 
-  initializedAccounts.clear()
-
-  try {
-    await closeAutomergeRepo(accountId)
-  } catch (err) {
-    console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
-  }
-
-  try {
-    const dbName = getAutomergeDBName(accountId)
-    await localforage.dropInstance({ name: dbName })
-  } catch (error) {
-    console.error('[automergeDocStore] failed to delete indexedDB database:', error)
-  }
+  handle.change(change)
+  return true
 }

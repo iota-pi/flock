@@ -3,7 +3,7 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
-} from './core'
+} from './indexManager'
 import {
   getAutomergeItem,
   removeAutomergeItem,

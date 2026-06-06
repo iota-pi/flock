@@ -7,12 +7,19 @@ import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { useSyncStore } from '../../state/syncStore'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from '../utils'
 import {
+  tryResolveNonReadyHandle,
+  awaitHandleReadyIfNeeded,
+} from '../automergeHandleUtils'
+import {
   ensureDocumentHandle,
   normalizeItemId,
-  resolveHandleReadyState,
   RepoDocHandle,
   RepoDoc,
 } from './core'
+import {
+  addAutomergeItemIdsToIndex,
+  listAutomergeDocumentIds,
+} from './indexManager'
 
 export async function seedImportedDocument(accountId: string, documentId: string, binary: Uint8Array): Promise<void> {
   const repo = getAutomergeRepo(accountId)
@@ -29,13 +36,8 @@ export async function seedImportedDocument(accountId: string, documentId: string
     docId: resolvedDocumentId,
   }) as RepoDocHandle
 
-  const { tryResolveNonReadyHandle } = await import('../automergeHandleUtils')
   tryResolveNonReadyHandle(handle)
-
-  if (!handle?.isReady() && !handle?.isUnavailable()) {
-    const { awaitHandleReadyIfNeeded } = await import('../automergeHandleUtils')
-    await awaitHandleReadyIfNeeded(handle)
-  }
+  await awaitHandleReadyIfNeeded(handle)
 }
 
 export async function hydrateAutomergeDocumentBinary(
@@ -59,14 +61,12 @@ export async function hydrateAutomergeDocumentBinary(
   }
 
   if (documentId !== 'account-index') {
-    const { addAutomergeItemIdsToIndex } = await import('./indexManager')
     await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
     return
   }
 }
 
 export async function exportAllBinaries(accountId: string): Promise<Partial<Record<ItemId, string>>> {
-  const { listAutomergeDocumentIds } = await import('./core')
   const exported: Partial<Record<ItemId, string>> = {}
 
   for (const documentId of await listAutomergeDocumentIds(accountId)) {
@@ -102,7 +102,6 @@ export async function restoreFromBinaries(accountId: string, documents: Partial<
     restoredItemIds.push(normalizedDocumentId)
   }
 
-  const { addAutomergeItemIdsToIndex } = await import('./indexManager')
   await addAutomergeItemIdsToIndex(accountId, restoredItemIds)
 
   useSyncStore.getState().incrementGeneration()

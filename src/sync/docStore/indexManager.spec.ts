@@ -4,8 +4,6 @@ import * as Automerge from '@automerge/automerge/slim'
 import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
-} from './core'
-import {
   addAutomergeItemIdsToIndex,
   removeAutomergeItemIdsFromIndex,
   listAutomergeItemIds,

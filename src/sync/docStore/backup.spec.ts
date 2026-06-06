@@ -3,7 +3,7 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
-} from './core'
+} from './indexManager'
 import {
   exportAllBinaries,
   restoreFromBinaries,
@@ -15,6 +15,7 @@ import {
 import { listAutomergeItemIds } from './indexManager'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import type { Item } from '../../state/items'
+
 
 const testRepo = new Repo()
 

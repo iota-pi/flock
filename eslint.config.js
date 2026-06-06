@@ -57,6 +57,7 @@ export default defineConfig([
           "patterns": [
             { "regex": "^@mui/[^/]+$" },
             { "regex": "^vitest$", allowTypeImports: true },
+            { "regex": "docstore/core$", allowTypeImports: true, message: "Import from 'docstore/core' is restricted (functions are internal to docstore module)" },
           ],
         },
       ],

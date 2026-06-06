@@ -1,10 +1,14 @@
 import { z } from 'zod'
+import localforage from 'localforage'
+import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 
 import { accountMetadataSchema } from '../../shared/schemas/metadata'
 import type { AccountMetadata } from '../../state/metadata'
+import { getAutomergeDBName, getAutomergeRepo, closeAutomergeRepo } from '../automergeRepo'
+import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import { isPlainObject } from '../utils'
-import { normalizeItemId, readDocumentSnapshot } from './core'
+import { normalizeItemId, readDocumentSnapshot, changeDocument } from './core'
 
 export type AutomergeIndexDocument = {
   accountId?: string
@@ -12,6 +16,8 @@ export type AutomergeIndexDocument = {
   metadata?: AccountMetadata
   lastModified?: Record<string, number>
 }
+
+export const initializedAccounts = new Set<string>()
 
 export function normalizeItemIds(raw: unknown): string[] {
   const result = z.array(z.string().trim().min(1)).safeParse(raw)
@@ -61,7 +67,6 @@ export async function getIndexSnapshot(accountId: string): Promise<AutomergeInde
 }
 
 export async function ensureIndexDocument(accountId: string): Promise<void> {
-  const { withAutomergeDocumentChange } = await import('./items')
   const initialValue = {
     accountId: normalizeItemId(accountId) || '',
     itemIds: [],
@@ -69,11 +74,11 @@ export async function ensureIndexDocument(accountId: string): Promise<void> {
     lastModified: {},
   }
 
-  await withAutomergeDocumentChange(
+  await changeDocument(
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
-      if (typeof doc.accountId !== 'string' || doc.accountId.length === 0) {
+      if (doc && (typeof doc.accountId !== 'string' || doc.accountId.length === 0)) {
         doc.accountId = accountId
       }
     },
@@ -85,13 +90,12 @@ export async function ensureIndexDocument(accountId: string): Promise<void> {
 }
 
 export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: string[]): Promise<void> {
-  const { withAutomergeDocumentChange } = await import('./items')
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
   }
 
-  await withAutomergeDocumentChange(
+  await changeDocument(
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
@@ -120,7 +124,6 @@ export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: str
 }
 
 export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds: string[]): Promise<void> {
-  const { withAutomergeDocumentChange } = await import('./items')
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
@@ -128,7 +131,7 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
 
   const removeSet = new Set(normalized)
 
-  await withAutomergeDocumentChange(
+  await changeDocument(
     accountId,
     ACCOUNT_INDEX_DOCUMENT_ID,
     doc => {
@@ -161,7 +164,6 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
         metadata: {},
         lastModified: {},
       },
-      addToIndex: false,
     },
   )
 }
@@ -174,4 +176,73 @@ export async function listAutomergeItemIds(accountId: string): Promise<string[]>
 export async function getAutomergeMetadata(accountId: string): Promise<AccountMetadata> {
   const index = await getIndexSnapshot(accountId)
   return normalizeMetadata(index.metadata)
+}
+
+export async function initializeAutomergeDocStore(account: string): Promise<void> {
+  const normalizedAccount = normalizeItemId(account)
+  if (!normalizedAccount) {
+    return
+  }
+
+  if (initializedAccounts.has(normalizedAccount)) {
+    return
+  }
+
+  await ensureIndexDocument(normalizedAccount)
+  initializedAccounts.add(normalizedAccount)
+}
+
+export async function listAutomergeDocumentIds(accountId: string): Promise<string[]> {
+  const documentIds = new Set<string>([
+    ACCOUNT_INDEX_DOCUMENT_ID,
+    ...(await listAutomergeItemIds(accountId)),
+  ])
+
+  return Array.from(documentIds)
+}
+
+export async function clearAutomergeDocStore(accountId: string): Promise<void> {
+  let repo
+  try {
+    repo = getAutomergeRepo(accountId)
+  } catch {
+    // Ignore if not initialized
+  }
+
+  if (repo) {
+    const documentIds = Array.from(new Set([
+      ...(await listAutomergeDocumentIds(accountId)),
+    ]))
+
+    for (const documentId of documentIds) {
+      const documentUrl = await toAutomergeUrlFromItemId(documentId)
+
+      try {
+        repo.delete(documentUrl)
+      } catch {
+        // Ignore missing local handles.
+      }
+
+      try {
+        await repo.removeFromCache(interpretAsDocumentId(documentUrl))
+      } catch {
+        // Ignore cache-eviction failures for handles that were never loaded.
+      }
+    }
+  }
+
+  initializedAccounts.clear()
+
+  try {
+    await closeAutomergeRepo(accountId)
+  } catch (err) {
+    console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
+  }
+
+  try {
+    const dbName = getAutomergeDBName(accountId)
+    await localforage.dropInstance({ name: dbName })
+  } catch (error) {
+    console.error('[automergeDocStore] failed to delete indexedDB database:', error)
+  }
 }
