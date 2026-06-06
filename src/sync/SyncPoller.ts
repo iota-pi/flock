@@ -14,22 +14,12 @@ export interface SyncPollerCallbacks {
   onStartRequest?: () => void
   onFinishRequest?: () => void
   onSnapshotNeeded?: (cursor: number, requestedAt: number) => void
-  onAuthFailure?: (message: string) => void
-  onPollResult?: (outcome: PollOutcome) => void
 }
 
 export class SyncPoller {
   private account: string | null = null
   private isOnline = true
-  private isLeader = false
   private isPolling = false
-  private pollingPausedForAuth = false
-
-  private pollIntervalId: number | null = null
-  private syncBatchTimeout: number | null = null
-  private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
-  private pollBackoffIndex = 0
-  private nextPollAt = 0
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
@@ -39,188 +29,38 @@ export class SyncPoller {
 
   setAccount(account: string | null): void {
     this.account = account
-    this.pollingPausedForAuth = false
-    this.resetPollBackoff()
-
-    if (this.account && this.isLeader) {
-      this.startPolling(true)
-    } else {
-      this.stopPolling()
-    }
-  }
-
-  setLeader(isLeader: boolean): void {
-    if (this.isLeader === isLeader) {
-      return
-    }
-    this.isLeader = isLeader
-    if (this.isLeader && this.account) {
-      this.startPolling(true)
-    } else {
-      this.stopPolling()
-    }
   }
 
   setOnlineState(isOnline: boolean): void {
-    if (this.isOnline === isOnline) {
-      return
-    }
     this.isOnline = isOnline
-
-    if (!isOnline) {
-      this.stopPolling()
-      return
-    }
-
-    if (this.account && this.isLeader) {
-      this.resetPollBackoff()
-      this.startPolling(true)
-    }
   }
 
-  flush(): void {
-    if (this.syncBatchTimeout === null) {
-      this.syncBatchTimeout = self.setTimeout(
-        () => void this.flushSyncBatch(),
-        0,
-      )
-    }
+  isCurrentlyPolling(): boolean {
+    return this.isPolling
   }
 
-  private async flushSyncBatch(): Promise<void> {
-    await this.persistPendingWrites()
-
-    if (this.isPolling) {
-      this.syncBatchTimeout = self.setTimeout(() => void this.flushSyncBatch(), 500)
-    } else {
-      void this.executeWrappedPoll()
-      this.syncBatchTimeout = null
-    }
-  }
-
-  startPolling(immediate?: boolean): void {
-    this.stopPolling()
-
-    if (!this.isLeader) {
-      return
-    }
-
-    if (immediate) {
-      void this.executeWrappedPoll()
-    }
-
-    this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
-  }
-
-  stopPolling(): void {
-    if (this.pollIntervalId) {
-      self.clearTimeout(this.pollIntervalId)
-      this.pollIntervalId = null
-    }
-    if (this.syncBatchTimeout) {
-      self.clearTimeout(this.syncBatchTimeout)
-      this.syncBatchTimeout = null
-    }
-    this.nextPollAt = 0
-  }
-
-  private scheduleNextPoll(delayMs: number): void {
-    if (this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
-      return
-    }
-
-    if (this.pollIntervalId) {
-      self.clearTimeout(this.pollIntervalId)
-    }
-
-    const jitteredDelayMs = this.applyBackoffJitter(delayMs)
-    this.nextPollAt = jitteredDelayMs > 0 ? Date.now() + jitteredDelayMs : 0
-    this.pollIntervalId = self.setTimeout(() => {
-      void this.executeWrappedPoll()
-    }, jitteredDelayMs)
-  }
-
-  private applyBackoffJitter(delayMs: number): number {
-    const jitterWindow = Math.min(15000, Math.floor(delayMs * 0.25))
-    if (jitterWindow <= 0) {
-      return delayMs
-    }
-
-    const offset = Math.floor(Math.random() * (jitterWindow + 1))
-    return delayMs + offset
-  }
-
-  private resetPollBackoff(): void {
-    this.pollBackoffIndex = 0
-  }
-
-  private increasePollBackoff(): void {
-    this.pollBackoffIndex = Math.min(
-      this.pollBackoffIndex + 1,
-      this.pollBackoffStepsMs.length - 1,
-    )
-  }
-
-  private async executeWrappedPoll(): Promise<void> {
-    if (this.isPolling || this.pollingPausedForAuth || !this.isOnline) return
-    if (this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
+  async executePoll(): Promise<PollOutcome> {
+    if (this.isPolling || !this.isOnline || !this.account) return 'success'
     this.isPolling = true
-
-    let outcome: PollOutcome
-    try {
-      outcome = await this.executePoll()
-    } finally {
-      this.isPolling = false
-    }
-
-    if (this.pollingPausedForAuth) {
-      return
-    }
-
-    if (outcome === 'auth-failure') {
-      this.pollingPausedForAuth = true
-      this.stopPolling()
-      this.callbacks.onAuthFailure?.('Sync paused: your session has expired. Please sign in again.')
-      this.callbacks.onPollResult?.(outcome)
-      return
-    }
-
-    if (outcome === 'failure') {
-      this.increasePollBackoff()
-    } else {
-      this.resetPollBackoff()
-    }
-
-    this.callbacks.onPollResult?.(outcome)
-
-    if (outcome === 'success' && this.pullQueueManager.hasPendingPulls()) {
-      this.scheduleNextPoll(0)
-    } else {
-      this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
-    }
-  }
-
-  private async executePoll(): Promise<PollOutcome> {
-    if (!this.account || !this.isOnline) return 'success'
-
-    const authToken = await getActiveSessionToken()
-    if (!authToken) return 'success'
-
-    let batchEntries: [ItemId, Uint8Array[]][]
-    try {
-      batchEntries = await loadSyncBatch(this.account)
-    } catch (_) {
-      return 'failure'
-    }
-
-    const chunks = chunk(batchEntries, 5)
-    const pullCursors = this.pullQueueManager.getAllCursors()
-    if (chunks.length === 0 && pullCursors.length === 0) {
-      return 'success'
-    }
 
     this.callbacks.onStartRequest?.()
     try {
+      const authToken = await getActiveSessionToken()
+      if (!authToken) return 'success'
+
+      let batchEntries: [ItemId, Uint8Array[]][]
+      try {
+        batchEntries = await loadSyncBatch(this.account)
+      } catch (_) {
+        return 'failure'
+      }
+
+      const chunks = chunk(batchEntries, 5)
+      const pullCursors = this.pullQueueManager.getAllCursors()
+      if (chunks.length === 0 && pullCursors.length === 0) {
+        return 'success'
+      }
+
       if (chunks.length === 0) {
         const response = await pollSyncBatchWithToken({
           account: this.account,
@@ -308,6 +148,7 @@ export class SyncPoller {
       console.error('[SyncPoller] Polling failed', error)
       return 'failure'
     } finally {
+      this.isPolling = false
       this.callbacks.onFinishRequest?.()
     }
   }

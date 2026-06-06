@@ -33,7 +33,7 @@ import { resetQuotaExceededStatus, loadSyncBatch, restoreSyncBatch } from '../sy
 import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Utils'
 import { registerQuotaReporter } from './quotaReporter'
 import type { BackupSyncState } from '../types/backup'
-import { LeaderElection } from './utils/LeaderElection'
+import { SyncOrchestrator } from './SyncOrchestrator'
 import { ItemOperations } from './ItemOperations'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -46,7 +46,7 @@ export class SyncWorker implements SyncApi {
   private syncStatus: SyncStatus = 'idle'
   private subscribedIds = new Set<ItemId>()
   private repo: Repo | null = null
-  private leaderElection: LeaderElection | null = null
+  private orchestrator: SyncOrchestrator | null = null
   private changeListenersByItemId = new Map<ItemId, () => void>()
   private deletionQueueManager: DeletionQueueManager
 
@@ -103,7 +103,7 @@ export class SyncWorker implements SyncApi {
 
   private applyOnlineState(isOnline: boolean) {
     this.isOnline = isOnline
-    this.adapter?.setOnlineState(isOnline)
+    this.orchestrator?.setOnlineState(isOnline)
     this.snapshotManager.onOnlineStateChange(isOnline)
 
     if (!isOnline) {
@@ -168,40 +168,31 @@ export class SyncWorker implements SyncApi {
       this.snapshotManager.scheduleSnapshotPush(cursor)
     )
 
-    this.adapter.onAuthFailure = message => {
-      this.updateStatus('offline')
-      callbacks.onAuthFailure(message).catch(console.error)
-    }
-    this.adapter.onPollResult = outcome => {
-      if (!this.isOnline) {
-        return
-      }
-
-      if (outcome === 'failure') {
-        this.updateStatus('degraded')
-      } else if (outcome === 'success') {
-        if (this.syncStatus !== 'syncing') {
-          this.updateStatus('idle')
-        }
-      } else {
-        this.updateStatus('offline')
-      }
-    }
-    this.adapter.setOnlineState(this.isOnline)
-
-    // Start background leader election
-    this.leaderElection = new LeaderElection(accountId, {
-      onLeaderGranted: () => {
-        this.adapter?.setLeader(true)
-        if (this.isOnline && this.syncStatus === 'offline') {
-          this.updateStatus('idle')
-        }
+    this.orchestrator = new SyncOrchestrator(accountId, this.adapter, {
+      onStatusChange: status => {
+        this.updateStatus(status)
       },
-      onLeaderRevoked: () => {
-        this.adapter?.setLeader(false)
+      onAuthFailure: message => {
+        callbacks.onAuthFailure(message).catch(console.error)
+      },
+      onPollResult: outcome => {
+        if (!this.isOnline) {
+          return
+        }
+
+        if (outcome === 'failure') {
+          this.updateStatus('degraded')
+        } else if (outcome === 'success') {
+          if (this.syncStatus !== 'syncing') {
+            this.updateStatus('idle')
+          }
+        } else {
+          this.updateStatus('offline')
+        }
       }
     })
-    void this.leaderElection.acquire().catch(console.error)
+    this.orchestrator.setOnlineState(this.isOnline)
+    void this.orchestrator.start().catch(console.error)
 
     await this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
@@ -351,7 +342,7 @@ export class SyncWorker implements SyncApi {
 
   async forceSync() {
     try {
-      this.adapter?.flush()
+      this.orchestrator?.flush()
     } catch (err) {
       console.error('[SyncWorker] forceSync failed', err)
     }
@@ -422,9 +413,9 @@ export class SyncWorker implements SyncApi {
   }
 
   async shutdown() {
-    if (this.leaderElection) {
-      this.leaderElection.release()
-      this.leaderElection = null
+    if (this.orchestrator) {
+      await this.orchestrator.shutdown()
+      this.orchestrator = null
     }
 
     try {

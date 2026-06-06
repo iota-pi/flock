@@ -24,18 +24,18 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private ready = false
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
-  private isLeader = false
+  private sendEnabled = false
 
   private pullQueueManager = new SyncPullQueueManager()
   private syncPoller: SyncPoller
 
   private pendingWrites: Map<string, Uint8Array[]> = new Map()
+  private persistTimeoutId: any = null
 
   onStartRequest: (() => void) | null = null
   onFinishRequest: (() => void) | null = null
   onSnapshotNeeded: ((cursor: number, requestedAt: number) => void) | null = null
-  onAuthFailure: ((message: string) => void) | null = null
-  onPollResult: ((outcome: PollOutcome) => void) | null = null
+  onFlushNeeded: (() => void) | null = null
 
   constructor() {
     super()
@@ -62,19 +62,13 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         onStartRequest: () => this.onStartRequest?.(),
         onFinishRequest: () => this.onFinishRequest?.(),
         onSnapshotNeeded: (cursor, requestedAt) => this.onSnapshotNeeded?.(cursor, requestedAt),
-        onAuthFailure: msg => this.onAuthFailure?.(msg),
-        onPollResult: outcome => this.onPollResult?.(outcome),
       },
       () => this.persistPendingWrites()
     )
   }
 
-  setLeader(isLeader: boolean): void {
-    if (this.isLeader === isLeader) {
-      return
-    }
-    this.isLeader = isLeader
-    this.syncPoller.setLeader(isLeader)
+  setSendEnabled(sendEnabled: boolean): void {
+    this.sendEnabled = sendEnabled
   }
 
   async setAccount(account: string | null): Promise<void> {
@@ -83,6 +77,10 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
+    if (this.persistTimeoutId) {
+      self.clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
     await this.persistPendingWrites()
 
     this.account = nextAccount
@@ -120,10 +118,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     if (this.account) {
       this.emitPeerCandidate()
     }
-
-    if (this.account && this.isOnline && this.isLeader) {
-      this.syncPoller.startPolling(true)
-    }
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -133,18 +127,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.isOnline = isOnline
     this.syncPoller.setOnlineState(isOnline)
-
-    if (!this.connected) {
-      return
-    }
-
-    if (!isOnline) {
-      return
-    }
-
-    if (this.account && this.isLeader) {
-      this.syncPoller.startPolling(true)
-    }
   }
 
   send(message: Message): void {
@@ -152,7 +134,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    if (!this.isLeader) {
+    if (!this.sendEnabled) {
       return
     }
 
@@ -203,7 +185,18 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   }
 
   flush(): void {
-    this.syncPoller.flush()
+    if (this.persistTimeoutId === null) {
+      this.persistTimeoutId = self.setTimeout(
+        () => void this.flushPersistAndSignal(),
+        0
+      )
+    }
+  }
+
+  private async flushPersistAndSignal(): Promise<void> {
+    this.persistTimeoutId = null
+    await this.persistPendingWrites()
+    this.onFlushNeeded?.()
   }
 
   queuePendingPullItems(itemIds: ItemId[]): void {
@@ -222,9 +215,20 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     await this.pullQueueManager.importCursors(cursors)
   }
 
+  async executePoll(): Promise<PollOutcome> {
+    return await this.syncPoller.executePoll()
+  }
+
+  hasPendingPulls(): boolean {
+    return this.pullQueueManager.hasPendingPulls()
+  }
+
   async disconnect(): Promise<void> {
     this.connected = false
-    this.syncPoller.stopPolling()
+    if (this.persistTimeoutId) {
+      self.clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
     await this.pullQueueManager.shutdown()
     await this.persistPendingWrites()
     this.emit('close')

@@ -93,11 +93,14 @@ vi.mock('src/sync/VaultEncryptedNetworkAdapter', () => {
     VaultEncryptedNetworkAdapter: class MockAdapter {
       setOnlineState = vi.fn()
       setAccount = vi.fn()
-      setLeader = vi.fn()
+      setSendEnabled = vi.fn()
       disconnect = vi.fn()
       flush = vi.fn()
       exportCursors = vi.fn().mockReturnValue([])
       importCursors = vi.fn()
+      executePoll = vi.fn().mockResolvedValue('success')
+      hasPendingPulls = vi.fn().mockReturnValue(false)
+      onFlushNeeded?: () => void
     }
   }
 })

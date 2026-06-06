@@ -4,7 +4,7 @@ import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from './VaultPersistence'
 import { registerQuotaReporter } from '../workers/quotaReporter'
 import { ItemId } from 'src/shared/schemas/items'
-
+import { SyncOrchestrator } from '../workers/SyncOrchestrator'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
@@ -31,6 +31,7 @@ vi.mock('./workerAuthStore', () => ({
 
 describe('VaultEncryptedNetworkAdapter', () => {
   let adapter: VaultEncryptedNetworkAdapter
+  let orchestrator: SyncOrchestrator
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -39,21 +40,40 @@ describe('VaultEncryptedNetworkAdapter', () => {
     resetQuotaExceededStatus()
 
     // Clear stores for test accounts to avoid state pollution
-    const accounts = ['account-queues', 'account-bounds', 'account-chunking', 'account-concurrent', 'account-fails', 'test-account']
+    const accounts = [
+      'account-queues',
+      'account-bounds',
+      'account-chunking',
+      'account-concurrent',
+      'account-fails',
+      'test-account',
+      'account-pagination',
+    ]
     for (const acc of accounts) {
       await getSyncBatchStorage(acc).clear()
     }
 
     adapter = new VaultEncryptedNetworkAdapter()
+    orchestrator = new SyncOrchestrator(
+      'test-account',
+      adapter,
+      {
+        onStatusChange: vi.fn(),
+        onAuthFailure: vi.fn(),
+        onPollResult: vi.fn(),
+      }
+    )
+
     // Keep offline by default to avoid automatic background runs in static tests
-    adapter.setOnlineState(false)
+    orchestrator.setOnlineState(false)
     await adapter.setAccount('test-account')
-    adapter.setLeader(true)
+    orchestrator.setLeader(true)
     adapter.connect('test-peer' as PeerId)
   })
 
   afterEach(async () => {
     await adapter.disconnect()
+    await orchestrator.shutdown()
     vi.useRealTimers()
   })
 
@@ -141,10 +161,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter['syncPoller']['isOnline'] = true
-    const outcome = await adapter['syncPoller']['executePoll']()
+    adapter.setOnlineState(true)
+    const outcome = await adapter.executePoll()
     expect(outcome).toBe('success')
-    adapter['syncPoller']['isOnline'] = false
+    adapter.setOnlineState(false)
 
     // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
@@ -205,10 +225,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter['syncPoller']['isOnline'] = true
-    const outcome = await adapter['syncPoller']['executePoll']()
+    adapter.setOnlineState(true)
+    const outcome = await adapter.executePoll()
     expect(outcome).toBe('success')
-    adapter['syncPoller']['isOnline'] = false
+    adapter.setOnlineState(false)
 
     // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
     const storage = getSyncBatchStorage(accountId)
@@ -247,10 +267,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter['syncPoller']['isOnline'] = true
-    const outcome = await adapter['syncPoller']['executePoll']()
+    adapter.setOnlineState(true)
+    const outcome = await adapter.executePoll()
     expect(outcome).toBe('failure')
-    adapter['syncPoller']['isOnline'] = false
+    adapter.setOnlineState(false)
 
     // Message must still exist in IndexedDB due to failure
     const storage = getSyncBatchStorage(accountId)
@@ -309,6 +329,16 @@ describe('VaultEncryptedNetworkAdapter', () => {
     const accountId = 'account-pagination'
     await adapter.setAccount(accountId)
 
+    orchestrator = new SyncOrchestrator(
+      accountId,
+      adapter,
+      {
+        onStatusChange: vi.fn(),
+        onAuthFailure: vi.fn(),
+        onPollResult: vi.fn(),
+      }
+    )
+
     let pollCount = 0
     mockPollSyncBatchWithToken.mockImplementation(async () => {
       pollCount += 1
@@ -341,7 +371,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
       }
     })
 
-    adapter.setOnlineState(true)
+    orchestrator.setOnlineState(true)
+    orchestrator.setLeader(true)
     adapter.queuePendingPullItems(['item-1' as ItemId])
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
