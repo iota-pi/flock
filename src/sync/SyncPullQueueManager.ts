@@ -166,7 +166,7 @@ export class SyncPullQueueManager {
           const hasMore = result.hasMore === true
           let highestCursor = this.cursorByItemId.get(itemId) || 0
 
-          const documentId = interpretAsDocumentId(await toAutomergeUrlFromItemId(itemId))
+          const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
           for (const entry of result.messages || []) {
             const handled = await this.handleMessageEntry(itemId, documentId as DocumentId, entry)

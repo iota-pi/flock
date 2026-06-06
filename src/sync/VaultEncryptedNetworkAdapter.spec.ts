@@ -64,7 +64,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'automerge:item-1' as DocumentId,
+      documentId: 'item-1' as DocumentId,
       data: new Uint8Array([1, 2, 3]),
     }
 
@@ -95,7 +95,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
-        documentId: 'automerge:item-1' as any,
+        documentId: 'item-1' as DocumentId,
         data: new Uint8Array([i % 256]),
       })
     }
@@ -131,7 +131,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
-        documentId: `automerge:item-${i}` as DocumentId,
+        documentId: `item-${i}` as DocumentId,
         data: new Uint8Array([i]),
       })
     }
@@ -172,14 +172,14 @@ describe('VaultEncryptedNetworkAdapter', () => {
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
-        documentId: 'automerge:item-1' as DocumentId,
+        documentId: 'item-1' as DocumentId,
         data: new Uint8Array([20]),
       })
       adapter.send({
         type: 'sync',
         senderId: 'test-peer' as PeerId,
         targetId: 'vault' as PeerId,
-        documentId: 'automerge:item-1' as DocumentId,
+        documentId: 'item-1' as DocumentId,
         data: new Uint8Array([30]),
       })
       // Flush them to IndexedDB using the real persistence method
@@ -197,7 +197,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'automerge:item-1' as DocumentId,
+      documentId: 'item-1' as DocumentId,
       data: new Uint8Array([10]),
     })
 
@@ -239,7 +239,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'automerge:item-1' as DocumentId,
+      documentId: 'item-1' as DocumentId,
       data: new Uint8Array([100]),
     })
 
@@ -279,7 +279,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'automerge:item-quota-fail' as DocumentId,
+      documentId: 'item-quota-fail' as DocumentId,
       data: new Uint8Array([55]),
     })
 
@@ -294,7 +294,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
-      documentId: 'automerge:item-quota-fail' as DocumentId,
+      documentId: 'item-quota-fail' as DocumentId,
       data: new Uint8Array([66]),
     })
 

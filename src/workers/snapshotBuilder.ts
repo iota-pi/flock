@@ -13,7 +13,7 @@ export async function buildSnapshot(
   itemId: string,
   snapshotCursor: number,
 ): Promise<VaultSnapshotInput | null> {
-  const documentUrl = await toAutomergeUrlFromItemId(itemId)
+  const documentUrl = toAutomergeUrlFromItemId(itemId)
   const handle = await repo.find(documentUrl).catch(() => undefined)
   if (!handle) {
     return null

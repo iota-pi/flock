@@ -23,7 +23,7 @@ import {
 
 export async function seedImportedDocument(accountId: string, documentId: string, binary: Uint8Array): Promise<void> {
   const repo = getAutomergeRepo(accountId)
-  const documentUrl = await toAutomergeUrlFromItemId(documentId)
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
   try {

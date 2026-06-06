@@ -33,7 +33,7 @@ export function normalizeItemId(raw: unknown): string | null {
 }
 
 export async function getRepoHandle(accountId: string, itemId: string): Promise<RepoDocHandle> {
-  const documentUrl = await toAutomergeUrlFromItemId(itemId)
+  const documentUrl = toAutomergeUrlFromItemId(itemId)
   return findRepoDocHandle<RepoDoc>(getAutomergeRepo(accountId), documentUrl)
 }
 
@@ -54,14 +54,14 @@ export async function ensureDocumentHandle(
   options: EnsureHandleOptions = {},
 ): Promise<RepoDocHandle> {
   const repo = getAutomergeRepo(accountId)
-  const documentUrl = await toAutomergeUrlFromItemId(documentId)
+  const documentUrl = toAutomergeUrlFromItemId(documentId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
   let handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
 
   await resolveHandleReadyState(handle, options.awaitReady)
 
-  if ((handle?.isUnavailable() || !handle) && options.createIfMissing) {
+  if ((!handle || handle.isUnavailable()) && options.createIfMissing) {
     try {
       repo.delete(resolvedDocumentId)
     } catch (error) {

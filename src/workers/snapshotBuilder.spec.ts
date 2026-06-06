@@ -39,7 +39,7 @@ describe('buildSnapshot helper function', () => {
       find: vi.fn().mockResolvedValue(mockHandle),
     }
 
-    mockToAutomergeUrlFromItemId.mockResolvedValue('automerge:item-1')
+    mockToAutomergeUrlFromItemId.mockReturnValue('automerge:item-1')
     mockSave.mockReturnValue(new Uint8Array([1, 2, 3]))
     mockEncryptBytes.mockResolvedValue({
       iv: 'mock-iv',

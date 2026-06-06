@@ -34,7 +34,7 @@ vi.mock('../sync/docStore', () => ({
 }))
 
 vi.mock('../sync/automergeRepoIds', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockResolvedValue('automerge:item-1'),
+  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
 }))
 
 describe('ReencryptionManager', () => {

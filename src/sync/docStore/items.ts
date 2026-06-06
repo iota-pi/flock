@@ -140,7 +140,7 @@ export async function removeAutomergeItem(accountId: string, itemId: string): Pr
   await removeAutomergeItemIdsFromIndex(accountId, [normalizedItemId])
 
   const repo = getAutomergeRepo(accountId)
-  const documentUrl = await toAutomergeUrlFromItemId(normalizedItemId)
+  const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)
 
   try {
     repo.delete(documentUrl)

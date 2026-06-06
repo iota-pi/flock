@@ -69,14 +69,23 @@ vi.mock('../api/vault', () => ({
   initWorkerVault: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../sync/automergeRepo', () => ({
-  initAutomergeRepo: vi.fn().mockReturnValue({}),
-  getAutomergeDBName: vi.fn().mockReturnValue('mock-db'),
-  getAutomergeRepo: vi.fn().mockReturnValue({}),
-}))
+vi.mock('../sync/automergeRepo', () => {
+  const mockRepo = {
+    find: vi.fn().mockResolvedValue({
+      on: vi.fn(),
+      off: vi.fn(),
+      doc: vi.fn().mockReturnValue({}),
+    }),
+  }
+  return {
+    initAutomergeRepo: vi.fn().mockReturnValue(mockRepo),
+    getAutomergeDBName: vi.fn().mockReturnValue('mock-db'),
+    getAutomergeRepo: vi.fn().mockReturnValue(mockRepo),
+  }
+})
 
 vi.mock('../sync/automergeRepoIds', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockResolvedValue('automerge:item-1'),
+  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
 }))
 
 vi.mock('src/sync/VaultEncryptedNetworkAdapter', () => {

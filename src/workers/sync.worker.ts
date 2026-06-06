@@ -218,7 +218,7 @@ export class SyncWorker implements SyncApi {
   private async getIndexHandle() {
     if (!this.repo) return
 
-    const indexUrl = await toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
+    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
     const indexHandle = await this.repo.find<AutomergeIndexDocument>(indexUrl)
     if (!indexHandle) return
     await indexHandle.whenReady(['ready', 'unavailable'])
@@ -280,21 +280,19 @@ export class SyncWorker implements SyncApi {
       if (this.subscribedIds.has(id)) continue
       this.subscribedIds.add(id)
 
-      toAutomergeUrlFromItemId(id).then(url => {
-        if (!this.subscribedIds.has(id) || !this.repo) return
-        this.repo.find(url).then(handle => {
-          if (!this.subscribedIds.has(id)) return
+      const url = toAutomergeUrlFromItemId(id)
+      this.repo.find(url).then(handle => {
+        if (!this.subscribedIds.has(id)) return
 
-          const handleChange = () => {
-            const item = normalizeItemSnapshot(id, handle.doc())
-            this.callbacks?.onItemUpdated(id, item).catch(console.error)
-          }
-          handle.on('change', handleChange)
-          this.changeListenersByItemId.set(id, handleChange)
+        const handleChange = () => {
+          const item = normalizeItemSnapshot(id, handle.doc())
+          this.callbacks?.onItemUpdated(id, item).catch(console.error)
+        }
+        handle.on('change', handleChange)
+        this.changeListenersByItemId.set(id, handleChange)
 
-          // Trigger an immediate update for the item in case it changed while not subscribed
-          handleChange()
-        }).catch(console.error)
+        // Trigger an immediate update for the item in case it changed while not subscribed
+        handleChange()
       }).catch(console.error)
     }
 
@@ -316,11 +314,9 @@ export class SyncWorker implements SyncApi {
     this.changeListenersByItemId.delete(itemId)
 
     if (listener) {
-      toAutomergeUrlFromItemId(itemId).then(url => {
-        if (!this.repo) return
-        this.repo.find(url).then(handle => {
-          handle.off('change', listener)
-        }).catch(console.error)
+      const url = toAutomergeUrlFromItemId(itemId)
+      this.repo.find(url).then(handle => {
+        handle.off('change', listener)
       }).catch(console.error)
     }
   }

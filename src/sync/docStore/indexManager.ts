@@ -215,7 +215,7 @@ export async function clearAutomergeDocStore(accountId: string): Promise<void> {
     ]))
 
     for (const documentId of documentIds) {
-      const documentUrl = await toAutomergeUrlFromItemId(documentId)
+      const documentUrl = toAutomergeUrlFromItemId(documentId)
 
       try {
         repo.delete(documentUrl)

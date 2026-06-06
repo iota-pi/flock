@@ -68,7 +68,7 @@ vi.mock('./automergeRepoIds', async importOriginal => {
   const actual = await importOriginal<typeof import('./automergeRepoIds')>()
   return {
     ...actual,
-    toAutomergeUrlFromItemId: async (itemId: string) => {
+    toAutomergeUrlFromItemId: (itemId: string) => {
       if (itemId === 'item-throw-error') {
         throw new Error('Failed to resolve URL')
       }
@@ -200,7 +200,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-1'))
+      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1'))
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-1',
         expectedDocId,
@@ -258,7 +258,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-2'))
+      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-2'))
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -383,7 +383,7 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-batch-error'))
+      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-batch-error'))
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -472,7 +472,7 @@ describe('SyncPullQueueManager', () => {
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
 
-      const expectedDocId = interpretAsDocumentId(await toAutomergeUrlFromItemId('item-success'))
+      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-success'))
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-success',
         expectedDocId,
