@@ -1,6 +1,7 @@
 import type { DocumentId } from '@automerge/automerge-repo/slim'
 
 import { toAutomergeUrlFromItemId, toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 describe('automergeRepoIds', () => {
@@ -9,7 +10,7 @@ describe('automergeRepoIds', () => {
   })
 
   it('correctly maps itemId to documentId and back', async () => {
-    const itemId = 'test-item-123'
+    const itemId = 'test-item-123' as ItemId
     const url = toAutomergeUrlFromItemId(itemId)
     expect(url).toMatch(/^automerge:[a-zA-Z0-9]+$/)
 
@@ -19,7 +20,7 @@ describe('automergeRepoIds', () => {
   })
 
   it('generates consistent and stable mappings', async () => {
-    const itemId = 'my-stable-item-id'
+    const itemId = 'my-stable-item-id' as ItemId
     const url1 = toAutomergeUrlFromItemId(itemId)
     const url2 = toAutomergeUrlFromItemId(itemId)
 

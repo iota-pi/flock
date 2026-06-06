@@ -8,22 +8,23 @@ import { getAutomergeDBName, getAutomergeRepo, closeAutomergeRepo } from '../aut
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import { isPlainObject } from '../utils'
-import { normalizeItemId, readDocumentSnapshot, changeDocument } from './core'
+import { normalizeItemId, readItemSnapshot, changeDocument } from './core'
+import { ItemId, ItemIdSchema } from 'src/shared/schemas/items'
 
 export type AutomergeIndexDocument = {
   accountId?: string
-  itemIds?: string[]
+  itemIds?: ItemId[]
   metadata?: AccountMetadata
-  lastModified?: Record<string, number>
+  lastModified?: Record<ItemId, number>
 }
 
 export const initializedAccounts = new Set<string>()
 
-export function normalizeItemIds(raw: unknown): string[] {
-  const result = z.array(z.string().trim().min(1)).safeParse(raw)
+export function normalizeItemIds(raw: unknown): ItemId[] {
+  const result = z.array(ItemIdSchema).safeParse(raw)
   if (!result.success) return []
 
-  const deduped = new Set<string>()
+  const deduped = new Set<ItemId>()
 
   for (const normalized of result.data) {
     if (normalized === ACCOUNT_INDEX_DOCUMENT_ID || deduped.has(normalized)) {
@@ -41,15 +42,15 @@ export function normalizeMetadata(raw: unknown): AccountMetadata {
   return result.success ? result.data as AccountMetadata : {}
 }
 
-export function normalizeLastModified(raw: unknown): Record<string, number> {
+export function normalizeLastModified(raw: unknown): Record<ItemId, number> {
   if (!isPlainObject(raw)) {
     return {}
   }
 
-  const result: Record<string, number> = {}
+  const result: Record<ItemId, number> = {}
   for (const [key, value] of Object.entries(raw)) {
     if (typeof value === 'number' && Number.isFinite(value)) {
-      result[key] = value
+      result[key as ItemId] = value
     }
   }
 
@@ -57,7 +58,7 @@ export function normalizeLastModified(raw: unknown): Record<string, number> {
 }
 
 export async function getIndexSnapshot(accountId: string): Promise<AutomergeIndexDocument> {
-  const rawIndex = await readDocumentSnapshot(accountId, ACCOUNT_INDEX_DOCUMENT_ID)
+  const rawIndex = await readItemSnapshot(accountId, ACCOUNT_INDEX_DOCUMENT_ID)
   return {
     accountId: normalizeItemId(rawIndex?.accountId) || undefined,
     itemIds: normalizeItemIds(rawIndex?.itemIds),
@@ -89,7 +90,7 @@ export async function ensureIndexDocument(accountId: string): Promise<void> {
   )
 }
 
-export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: string[]): Promise<void> {
+export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: ItemId[]): Promise<void> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
@@ -123,7 +124,7 @@ export async function addAutomergeItemIdsToIndex(accountId: string, itemIds: str
   )
 }
 
-export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds: string[]): Promise<void> {
+export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds: ItemId[]): Promise<void> {
   const normalized = normalizeItemIds(itemIds)
   if (normalized.length === 0) {
     return
@@ -140,7 +141,7 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
         indexDoc.itemIds = []
       }
       let lastModified = isPlainObject(indexDoc.lastModified)
-        ? (indexDoc.lastModified as Record<string, number>)
+        ? indexDoc.lastModified
         : null
       if (!lastModified) {
         lastModified = {}
@@ -168,7 +169,7 @@ export async function removeAutomergeItemIdsFromIndex(accountId: string, itemIds
   )
 }
 
-export async function listAutomergeItemIds(accountId: string): Promise<string[]> {
+export async function listAutomergeItemIds(accountId: string): Promise<ItemId[]> {
   const index = await getIndexSnapshot(accountId)
   return index.itemIds || []
 }
@@ -192,8 +193,8 @@ export async function initializeAutomergeDocStore(account: string): Promise<void
   initializedAccounts.add(normalizedAccount)
 }
 
-export async function listAutomergeDocumentIds(accountId: string): Promise<string[]> {
-  const documentIds = new Set<string>([
+export async function listAllAutomergeItemIds(accountId: string): Promise<ItemId[]> {
+  const documentIds = new Set<ItemId>([
     ACCOUNT_INDEX_DOCUMENT_ID,
     ...(await listAutomergeItemIds(accountId)),
   ])
@@ -210,12 +211,12 @@ export async function clearAutomergeDocStore(accountId: string): Promise<void> {
   }
 
   if (repo) {
-    const documentIds = Array.from(new Set([
-      ...(await listAutomergeDocumentIds(accountId)),
+    const itemIds = Array.from(new Set([
+      ...(await listAllAutomergeItemIds(accountId)),
     ]))
 
-    for (const documentId of documentIds) {
-      const documentUrl = toAutomergeUrlFromItemId(documentId)
+    for (const itemId of itemIds) {
+      const documentUrl = toAutomergeUrlFromItemId(itemId)
 
       try {
         repo.delete(documentUrl)

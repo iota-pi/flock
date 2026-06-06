@@ -39,7 +39,7 @@ import {
   sortSearchables,
 } from './search/utils'
 import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
-import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/schemas/items'
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {
@@ -84,7 +84,7 @@ interface Props<T> {
 }
 
 const DARK_THEME = getTheme(true)
-const EMPTY_ITEM_IDS: string[] = []
+const EMPTY_ITEM_IDS: ItemId[] = []
 
 function Search<T extends AnySearchableData = AnySearchableData>({
   autoFocus,

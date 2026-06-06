@@ -89,6 +89,7 @@ export default defineConfig([
     files: ['**/*.spec.ts', '**/*.spec.tsx', '**/tests/**/*.ts', '**/tests/**/*.tsx'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/dot-notation': 'off',
     },
   },
 ])

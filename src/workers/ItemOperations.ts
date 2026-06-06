@@ -12,11 +12,12 @@ import {
   ACCOUNT_INDEX_DOCUMENT_ID,
 } from '../sync/docStore'
 import type { DeletionQueueManager } from './deletionQueueManager'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export interface ItemOperationsDeps {
   getAccountId: () => string | null
   getCallbacks: () => SyncCallbacks | null
-  markDocumentDirty: (documentId: string) => void
+  markDocumentDirty: (itemId: ItemId) => void
   getDeletionQueueManager: () => DeletionQueueManager
 }
 
@@ -33,7 +34,7 @@ export class ItemOperations {
     return this.deps.getCallbacks()
   }
 
-  async mutateItem(mutationId: string, id: string, changes: Partial<Item>): Promise<void> {
+  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
       const updated = await withAutomergeDocumentChange(this.accountId, id, doc => {
         for (const [key, value] of Object.entries(changes)) {
@@ -44,9 +45,9 @@ export class ItemOperations {
       if (updated) {
         this.deps.markDocumentDirty(id)
       }
-    } catch (err: any) {
+    } catch (err) {
       if (this.callbacks) {
-        this.callbacks.onMutationFailed(mutationId, err.message).catch(console.error)
+        this.callbacks.onMutationFailed(mutationId, (err as Error).message).catch(console.error)
         const trueState = await getAutomergeItem(this.accountId, id)
         this.callbacks.onItemUpdated(id, trueState).catch(console.error)
       }
@@ -64,26 +65,26 @@ export class ItemOperations {
       if (updated) {
         this.deps.markDocumentDirty(item.id)
       }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('create', err.message).catch(console.error)
+    } catch (err) {
+      this.callbacks?.onMutationFailed('create', (err as Error).message).catch(console.error)
     }
   }
 
-  async hardDeleteItems(itemIds: string[]): Promise<void> {
+  async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
     try {
       await removeAutomergeItemIdsFromIndex(this.accountId, itemIds)
       for (const id of itemIds) {
         await this.deps.getDeletionQueueManager().cancelDeletion(id).catch(console.error)
         await removeAutomergeItem(this.accountId, id)
       }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('hardDelete', err.message).catch(console.error)
+    } catch (err) {
+      this.callbacks?.onMutationFailed('hardDelete', (err as Error).message).catch(console.error)
     }
   }
 
   async storeItems(items: Item[]): Promise<void> {
     const succeededIds = new Set<string>()
-    const failedItems: { item: Item; error: any }[] = []
+    const failedItems: { item: Item; error: Error }[] = []
 
     for (const item of items) {
       try {
@@ -97,13 +98,13 @@ export class ItemOperations {
           this.deps.markDocumentDirty(item.id)
         }
         succeededIds.add(item.id)
-      } catch (err: any) {
-        failedItems.push({ item, error: err })
+      } catch (err) {
+        failedItems.push({ item, error: err as Error })
       }
     }
 
     if (failedItems.length > 0) {
-      const combinedMessage = failedItems.map(f => `${f.item.id}: ${f.error.message}`).join(', ')
+      const combinedMessage = failedItems.map(f => `${f.item.id}: ${ (f.error as Error).message }`).join(', ')
       this.callbacks?.onMutationFailed('store', combinedMessage).catch(console.error)
       for (const { item } of failedItems) {
         const trueState = await getAutomergeItem(this.accountId, item.id)
@@ -122,8 +123,8 @@ export class ItemOperations {
       if (updated) {
         this.deps.markDocumentDirty(ACCOUNT_INDEX_DOCUMENT_ID)
       }
-    } catch (err: any) {
-      this.callbacks?.onMutationFailed('metadata', err.message).catch(console.error)
+    } catch (err) {
+      this.callbacks?.onMutationFailed('metadata', (err as Error).message).catch(console.error)
       this.callbacks?.onMetadataUpdated(await getAutomergeMetadata(this.accountId)).catch(console.error)
     }
   }

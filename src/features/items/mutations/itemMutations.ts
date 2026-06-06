@@ -1,5 +1,6 @@
 import { getBlankItem, type Item } from 'src/state/items'
-import { ERROR_ITEM_TYPE, ITEM_TYPES, ItemId, type ItemType } from 'src/shared/itemTypes'
+import type { ItemType } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
 import { useNavigationStore } from 'src/state/navigationStore'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
@@ -49,7 +50,7 @@ function normalizeItemIds(itemIds: ItemId | ItemId[]): ItemId[] {
   const ids = Array.isArray(itemIds) ? itemIds : [itemIds]
   const normalized = ids
     .filter(id => typeof id === 'string')
-    .map(id => id.trim())
+    .map(id => id.trim() as ItemId)
     .filter(id => id.length > 0)
 
   if (normalized.length === 0) {
@@ -112,7 +113,7 @@ function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): It
 }
 
 export function mutateItem(
-  itemId: string,
+  itemId: ItemId,
   changes: Partial<Item>,
 ): Promise<void> {
   const currentItems = useDataStore.getState().items

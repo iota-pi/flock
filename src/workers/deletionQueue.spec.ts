@@ -1,5 +1,6 @@
 import { SyncWorker } from './sync.worker'
 import * as deletionStore from '../sync/deletionQueueStore'
+import type { ItemId } from 'src/shared/schemas/items'
 
 
 // Mock Automerge WASM
@@ -49,7 +50,6 @@ const mockRemoveAutomergeItemIdsFromIndex = vi.fn().mockResolvedValue(undefined)
 const mockClearAutomergeDocStore = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('../sync/docStore', () => ({
-  ACCOUNT_INDEX_DOCUMENT_ID: 'account-index',
   initializeAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   getAutomergeMetadata: vi.fn().mockResolvedValue({}),
   withAutomergeDocumentChange: vi.fn().mockResolvedValue(true),
@@ -123,7 +123,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     worker = new SyncWorker()
 
     // Mock getIndexHandle to return index doc containing item ids
-    const itemIds: string[] = ['item-1', 'item-2']
+    const itemIds = ['item-1', 'item-2'] as ItemId[]
     const mockIndexHandle = {
       off: vi.fn(),
       on: vi.fn(),
@@ -138,7 +138,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     await worker.initRepo(accountId, 'vault-key', mockCallbacks)
 
     // Set initial subscribedIds
-    ;(worker as any).subscribedIds = new Set(['item-1', 'item-2'])
+    ;(worker as any).subscribedIds = new Set(['item-1', 'item-2'] as ItemId[])
 
     // Change index to return only item-1 (item-2 deleted)
     mockIndexHandle.doc.mockImplementation(() => ({
@@ -201,7 +201,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
   })
 
   it('clears pending timer and cancels deletions on hardDeleteItems', async () => {
-    await worker.hardDeleteItems(['item-2'])
+    await worker.hardDeleteItems(['item-2' as ItemId])
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
     expect(mockRemoveAutomergeItem).toHaveBeenCalledWith(accountId, 'item-2')
   })

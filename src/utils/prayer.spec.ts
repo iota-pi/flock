@@ -5,11 +5,11 @@ import {
   getNaturalPrayerGoal,
 } from './prayer'
 import type { Item } from '../state/items'
-import type { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 
 function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
   return {
-    id,
+    id: id as ItemId,
     archived: false,
     created: Date.now(),
     description: '',
@@ -28,7 +28,7 @@ function makeGroup(
   memberPrayerTarget: GroupItem['memberPrayerTarget'] = 'all',
 ): GroupItem {
   return {
-    id,
+    id: id as ItemId,
     archived: false,
     created: Date.now(),
     description: '',
@@ -37,7 +37,7 @@ function makeGroup(
     prayerFrequency: 'none',
     notes: [],
     type: 'group',
-    members,
+    members: members.map(m => m as ItemId),
     memberPrayerFrequency,
     memberPrayerTarget,
   }
@@ -53,17 +53,17 @@ describe('prayer utilities', () => {
     let items: Item[] = [p1, p2, p3, g1]
     let map = buildPrayerFreqMap(items)
 
-    expect(map.get('p1')).toBeCloseTo(21)
-    expect(map.get('p2')).toBeCloseTo(1)
-    expect(map.get('p3')).toBeCloseTo(21)
+    expect(map.get('p1' as ItemId)).toBeCloseTo(21)
+    expect(map.get('p2' as ItemId)).toBeCloseTo(1)
+    expect(map.get('p3' as ItemId)).toBeCloseTo(21)
 
     const g2 = makeGroup('g2', ['p1', 'p2', 'p3'], 'weekly', 'all')
     items = [...items, g2]
     map = buildPrayerFreqMap(items)
 
-    expect(map.get('p1')).toBeCloseTo(7)
-    expect(map.get('p2')).toBeCloseTo(1)
-    expect(map.get('p3')).toBeCloseTo(7)
+    expect(map.get('p1' as ItemId)).toBeCloseTo(7)
+    expect(map.get('p2' as ItemId)).toBeCloseTo(1)
+    expect(map.get('p3' as ItemId)).toBeCloseTo(7)
   })
 
   it('includes persons covered by groups in active items and schedules them correctly', () => {

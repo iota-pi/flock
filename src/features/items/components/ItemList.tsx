@@ -18,6 +18,7 @@ import {
 } from './ItemListStrategies'
 import { useNavigationStore } from 'src/state/navigationStore'
 import type { GroupLookupData } from 'src/shared/itemTypes'
+import type { ItemId } from 'src/shared/schemas/items'
 
 
 const DEFAULT_ROW_HEIGHT = 58
@@ -37,7 +38,7 @@ interface BaseProps {
   getIcon?: (item: Item) => ReactNode,
   getTitle?: (item: Item) => string,
   groupsByMemberId?: ReadonlyMap<string, GroupLookupData>,
-  itemIds: string[],
+  itemIds: ItemId[],
   linkTags?: boolean,
   maxTags?: number,
   onCheck?: (item: Item) => void,

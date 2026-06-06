@@ -1,3 +1,4 @@
+import { ItemId } from 'src/shared/schemas/items'
 import {
   scheduleDeletion,
   cancelDeletion,
@@ -13,8 +14,8 @@ describe('deletionQueueStore', () => {
   })
 
   it('schedules and lists deletions', async () => {
-    const itemId1 = 'item-1'
-    const itemId2 = 'item-2'
+    const itemId1 = 'item-1' as ItemId
+    const itemId2 = 'item-2' as ItemId
     const gracePeriod = 60000 // 1 minute
 
     await scheduleDeletion(accountId, itemId1, gracePeriod)
@@ -36,7 +37,7 @@ describe('deletionQueueStore', () => {
   })
 
   it('cancels scheduled deletions', async () => {
-    const itemId = 'item-1'
+    const itemId = 'item-1' as ItemId
     await scheduleDeletion(accountId, itemId, 60000)
 
     let list = await listScheduledDeletions(accountId)
@@ -49,8 +50,8 @@ describe('deletionQueueStore', () => {
   })
 
   it('clears scheduled deletions for account', async () => {
-    await scheduleDeletion(accountId, 'item-1', 60000)
-    await scheduleDeletion('other-account', 'item-2', 60000)
+    await scheduleDeletion(accountId, 'item-1' as ItemId, 60000)
+    await scheduleDeletion('other-account', 'item-2' as ItemId, 60000)
 
     await clearScheduledDeletions(accountId)
 

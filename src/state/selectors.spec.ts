@@ -16,6 +16,7 @@ import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useDataStore } from './dataStore'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
@@ -24,7 +25,7 @@ vi.mock('../features/items/mutations/itemMutations', () => ({
 
 const itemsFixture: Item[] = [
   {
-    id: 'person-1',
+    id: 'person-1' as ItemId,
     type: 'person',
     name: 'Alice',
     archived: false,
@@ -35,10 +36,10 @@ const itemsFixture: Item[] = [
     prayerFrequency: 'none',
   },
   {
-    id: 'group-1',
+    id: 'group-1' as ItemId,
     type: 'group',
     name: 'Core Group',
-    members: ['person-1'],
+    members: ['person-1'] as ItemId[],
     memberPrayerFrequency: 'none',
     memberPrayerTarget: 'one',
     archived: false,
@@ -49,7 +50,7 @@ const itemsFixture: Item[] = [
     prayerFrequency: 'none',
   },
   {
-    id: 'topic-1',
+    id: 'topic-1' as ItemId,
     type: 'topic',
     name: 'Hope',
     archived: false,
@@ -132,7 +133,7 @@ describe('state selectors', () => {
 
 
   it('useItem returns the selected item by id', () => {
-    const { result } = renderHook(() => useItem('topic-1'))
+    const { result } = renderHook(() => useItem('topic-1' as ItemId))
     expect(result.current?.name).toBe('Hope')
   })
 
@@ -141,7 +142,7 @@ describe('state selectors', () => {
       ({ ids }) => useItemsByIds(ids),
       {
         initialProps: {
-          ids: ['group-1', 'person-1'],
+          ids: ['group-1', 'person-1'] as ItemId[],
         },
       },
     )
@@ -149,10 +150,10 @@ describe('state selectors', () => {
     expect(result.current.map(item => item.id)).toEqual(['group-1', 'person-1'])
 
     const firstResult = result.current
-    rerender({ ids: ['group-1', 'person-1'] })
+    rerender({ ids: ['group-1', 'person-1'] as ItemId[] })
     expect(result.current).toBe(firstResult)
 
-    rerender({ ids: ['topic-1'] })
+    rerender({ ids: ['topic-1'] as ItemId[] })
     expect(result.current.map(item => item.id)).toEqual(['topic-1'])
   })
 

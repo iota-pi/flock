@@ -1,4 +1,4 @@
-import type { ItemId } from './itemTypes'
+import { ItemId } from './schemas/items'
 
 export class VersionConflictError extends Error {
   conflictIds: ItemId[]

@@ -9,6 +9,7 @@ import { usePrayerSchedule } from 'src/hooks/usePrayerSchedule'
 import { useToday } from 'src/hooks/useToday'
 import { type FlowState, usePrayerFlowStore } from 'src/state/prayerFlowStore'
 import { type PrayerFlowActions, usePrayerFlowActions } from './usePrayerFlowActions'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 type PrayerFlowProgressSlice = {
@@ -22,7 +23,7 @@ type PrayerFlowProgressSlice = {
 type PrayerFlowScheduleSlice = {
   isPrayedForToday: (item: Item) => boolean
   visibleItems: Item[]
-  visibleItemsIds: string[]
+  visibleItemsIds: ItemId[]
 }
 
 type PrayerFlowViewSlice = {

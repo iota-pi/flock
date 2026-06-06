@@ -1,4 +1,6 @@
-type SyncPingListener = (itemIds: string[]) => void
+import { ItemId } from "src/shared/schemas/items"
+
+type SyncPingListener = (itemIds: ItemId[]) => void
 
 const CHANNEL_NAME = 'flock-sync-ping-bus'
 let broadcastChannel: BroadcastChannel | null = null
@@ -25,15 +27,15 @@ function getChannel(): BroadcastChannel {
 export function subscribeRealtimeBusSyncPing(listener: SyncPingListener): () => void {
   listeners.add(listener)
   getChannel() // ensure initialized
-  
+
   return () => {
     listeners.delete(listener)
   }
 }
 
-export function publishRealtimeBusSyncPing(itemIds: string[]): void {
+export function publishRealtimeBusSyncPing(itemIds: ItemId[]): void {
   if (!itemIds || itemIds.length === 0) return
-  
+
   const channel = getChannel()
   channel.postMessage({ type: 'sync_ping', itemIds })
 }

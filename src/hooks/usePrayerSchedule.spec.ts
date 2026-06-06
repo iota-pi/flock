@@ -24,7 +24,8 @@ import { usePrayerScheduleInputs } from '../state/selectors'
 import { getNaturalPrayerGoal, getPrayerSchedule, getLastPrayedFor } from '../utils/prayer'
 import { useToday } from './useToday'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
-import { Item } from 'src/state/items'
+import type { Item } from 'src/state/items'
+import type { ItemId } from 'src/shared/schemas/items'
 
 describe('usePrayerSchedule', () => {
   beforeEach(() => {
@@ -52,7 +53,7 @@ describe('usePrayerSchedule', () => {
   })
 
   it('calculates visibleSchedule based on goal', () => {
-    const ids = ['1', '2', '3', '4', '5']
+    const ids = ['1', '2', '3', '4', '5'] as ItemId[]
     const items = ids.map(id => ({ id, name: `Item ${id}` } as Item))
 
     vi.mocked(usePrayerScheduleInputs).mockReturnValue({

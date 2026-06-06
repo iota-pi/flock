@@ -6,6 +6,7 @@ import {
 import { ACCOUNT_INDEX_DOCUMENT_ID } from 'src/sync/automergeConstants'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const SNAPSHOT_REQUEST_INTERVAL = 30000
@@ -26,7 +27,7 @@ export const syncRouter = router({
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
 
-      let pushResults: Array<{ itemId: string; cursor: number }> = []
+      let pushResults: Array<{ itemId: ItemId; cursor: number }> = []
       if (input.pushMessages.length > 0) {
         const pushResult = await service.pushAutomergeSyncBatch({
           account: input.account,

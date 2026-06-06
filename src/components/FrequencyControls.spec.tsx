@@ -4,7 +4,7 @@ import FrequencyControls from './FrequencyControls'
 import { ThemeProvider } from '@mui/material/styles'
 import getTheme from '../theme'
 import { useItemsByIds } from '../state/selectors'
-import { GroupItem } from '../shared/schemas/items'
+import { GroupItem, ItemId } from '../shared/schemas/items'
 
 vi.mock('../state/selectors', () => ({
   useItemsByIds: vi.fn(),
@@ -22,7 +22,7 @@ const renderWithTheme = (ui: React.ReactNode) => {
 
 describe('FrequencyControls', () => {
   const mockOnChange = vi.fn()
-  const personId = 'p1'
+  const personId = 'p1' as ItemId
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -60,7 +60,7 @@ describe('FrequencyControls', () => {
 
   it('shows inherited frequency message when group frequency is higher', () => {
     const group: GroupItem = {
-      id: 'g1',
+      id: 'g1' as ItemId,
       name: 'My Group',
       type: 'group',
       description: '',
@@ -91,7 +91,7 @@ describe('FrequencyControls', () => {
 
   it('does not show inherited frequency message when not faster', () => {
     const group: GroupItem = {
-      id: 'g1',
+      id: 'g1' as ItemId,
       name: 'Slow Group',
       type: 'group',
       description: '',
@@ -120,7 +120,7 @@ describe('FrequencyControls', () => {
   })
 
   it('renders additional controls for groups', () => {
-    const groupId = 'g1'
+    const groupId = 'g1' as ItemId
     const groupProps = {
       memberPrayerFrequency: 'weekly',
       memberPrayerTarget: 'one',
@@ -142,7 +142,7 @@ describe('FrequencyControls', () => {
 
   it('updates member prayer target for groups', async () => {
     const user = userEvent.setup()
-    const groupId = 'g2'
+    const groupId = 'g2' as ItemId
     const groupProps = {
       memberPrayerFrequency: 'weekly',
       memberPrayerTarget: 'one',

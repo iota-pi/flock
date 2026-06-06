@@ -1,6 +1,5 @@
 import { interpretAsDocumentId, type DocHandle } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { z } from 'zod'
 
 import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
@@ -11,6 +10,7 @@ import {
   tryResolveNonReadyHandle,
 } from '../automergeHandleUtils'
 import { isPlainObject } from '../utils'
+import { ItemId, ItemIdSchema } from 'src/shared/schemas/items'
 
 
 export type RepoDoc = Record<string, unknown>
@@ -27,12 +27,12 @@ export type ChangeDocumentOptions = {
   initialValue?: RepoDoc
 }
 
-export function normalizeItemId(raw: unknown): string | null {
-  const result = z.string().trim().min(1).safeParse(raw)
+export function normalizeItemId(raw: unknown): ItemId | null {
+  const result = ItemIdSchema.safeParse(raw)
   return result.success ? result.data : null
 }
 
-export async function getRepoHandle(accountId: string, itemId: string): Promise<RepoDocHandle> {
+export async function getRepoHandle(accountId: string, itemId: ItemId): Promise<RepoDocHandle> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
   return findRepoDocHandle<RepoDoc>(getAutomergeRepo(accountId), documentUrl)
 }
@@ -50,11 +50,11 @@ export async function resolveHandleReadyState<TDoc extends object>(
 
 export async function ensureDocumentHandle(
   accountId: string,
-  documentId: string,
+  itemId: ItemId,
   options: EnsureHandleOptions = {},
 ): Promise<RepoDocHandle> {
   const repo = getAutomergeRepo(accountId)
-  const documentUrl = toAutomergeUrlFromItemId(documentId)
+  const documentUrl = toAutomergeUrlFromItemId(itemId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
   let handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
@@ -66,7 +66,7 @@ export async function ensureDocumentHandle(
       repo.delete(resolvedDocumentId)
     } catch (error) {
       console.error('[automerge] failed to clear unavailable handle before import', {
-        documentId,
+        itemId,
         error,
       })
     }
@@ -79,7 +79,7 @@ export async function ensureDocumentHandle(
       handle = repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
     } catch (error) {
       console.error('[automerge] failed to import document', {
-        documentId,
+        itemId,
         error,
       })
     }
@@ -95,30 +95,30 @@ export function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
   return (snapshot && isPlainObject(snapshot)) ? snapshot : null
 }
 
-export async function readDocumentSnapshot(accountId: string, documentId: string): Promise<RepoDoc | null> {
-  const normalizedDocumentId = normalizeItemId(documentId)
-  if (!normalizedDocumentId) {
+export async function readItemSnapshot(accountId: string, itemId: ItemId): Promise<RepoDoc | null> {
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId) {
     return null
   }
 
-  const handle = await getRepoHandle(accountId, normalizedDocumentId)
+  const handle = await getRepoHandle(accountId, normalizedItemId)
   return snapshotFromHandle(handle)
 }
 
 export async function changeDocument(
   accountId: string,
-  documentId: string,
+  itemId: ItemId,
   change: (draft: RepoDoc) => void,
   options: ChangeDocumentOptions = {},
 ): Promise<boolean> {
-  const normalizedDocumentId = normalizeItemId(documentId)
-  if (!normalizedDocumentId) {
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId) {
     return false
   }
 
   const handle = await ensureDocumentHandle(
     accountId,
-    normalizedDocumentId,
+    normalizedItemId,
     {
       createIfMissing: options.createIfMissing,
       initialValue: options.initialValue,

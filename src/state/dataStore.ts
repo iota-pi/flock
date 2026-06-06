@@ -2,12 +2,13 @@ import { create } from 'zustand'
 
 import type { Item } from './items'
 import type { AccountMetadata } from './metadata'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 interface DataState {
   status: 'initializing' | 'ready'
   items: Record<string, Item>
-  itemIds: string[]
+  itemIds: ItemId[]
   metadata: AccountMetadata
   processedItemIds: Set<string>
   hasReceivedIndex: boolean
@@ -16,7 +17,7 @@ interface DataState {
 interface DataActions {
   setReady: () => void
   updateItemsFromServer: (updates: Array<{ id: string, item: Item | null }>) => void
-  updateIndexFromServer: (itemIds: string[]) => void
+  updateIndexFromServer: (itemIds: ItemId[]) => void
   updateMetadataFromServer: (metadata: AccountMetadata) => void
   optimisticUpdateItem: (id: string, partial: Partial<Item>) => void
   reset: () => void

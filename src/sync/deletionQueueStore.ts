@@ -1,12 +1,15 @@
 import localforage from 'localforage'
+
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { ItemId } from 'src/shared/schemas/items'
+
 
 const STORE_NAME = 'scheduled-deletions'
 
 export type ScheduledDeletion = {
   accountId: string
-  itemId: string
+  itemId: ItemId
   scheduledTime: number
 }
 
@@ -17,7 +20,7 @@ const scheduledDeletionsStorage = localforage.createInstance({
 
 export async function scheduleDeletion(
   accountId: string,
-  itemId: string,
+  itemId: ItemId,
   gracePeriodMs: number
 ): Promise<void> {
   const key = `${accountId}:${itemId}`
@@ -37,7 +40,7 @@ export async function scheduleDeletion(
   }
 }
 
-export async function cancelDeletion(accountId: string, itemId: string): Promise<void> {
+export async function cancelDeletion(accountId: string, itemId: ItemId): Promise<void> {
   const key = `${accountId}:${itemId}`
   await scheduledDeletionsStorage.removeItem(key)
 }

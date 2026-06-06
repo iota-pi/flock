@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CryptoResultSchema } from './crypto'
 import { VaultSnapshotSchema } from './snapshots'
+import { ItemIdSchema } from './items'
 
 
 const WebPushSubscriptionKeysSchema = z.object({
@@ -80,7 +81,7 @@ const SyncEncryptedMessageSchema = (
 export const SyncPushBatchSchema = z.object({
   account: z.string().min(1),
   messages: z.array(z.object({
-    itemId: z.string().min(1),
+    itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
   })).min(1),
 })
@@ -88,11 +89,11 @@ export const SyncPushBatchSchema = z.object({
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
   pushMessages: z.array(z.object({
-    itemId: z.string().min(1),
+    itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,
   })).default([]),
   pullCursors: z.array(z.object({
-    itemId: z.string().min(1),
+    itemId: ItemIdSchema,
     cursor: z.number().int().min(0).optional(),
   })).default([]),
 })

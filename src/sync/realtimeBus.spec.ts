@@ -1,3 +1,5 @@
+import { ItemId } from 'src/shared/schemas/items'
+
 // Create the mock BroadcastChannel class
 class MockBroadcastChannel {
   name: string
@@ -73,7 +75,7 @@ describe('realtimeBus', () => {
   it('publishes messages through the BroadcastChannel', async () => {
     const { publishRealtimeBusSyncPing } = await import('./realtimeBus')
     // Calling publishRealtimeBusSyncPing should initialize the channel and postMessage
-    publishRealtimeBusSyncPing(['item-1', 'item-2'])
+    publishRealtimeBusSyncPing(['item-1', 'item-2'] as ItemId[])
 
     expect(MockBroadcastChannel.instances).toHaveLength(1)
     const channel = MockBroadcastChannel.instances[0]

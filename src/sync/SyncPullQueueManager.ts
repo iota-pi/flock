@@ -10,15 +10,17 @@ import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { decryptBytes } from 'src/api/vault'
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { ItemId } from 'src/shared/schemas/items'
+
 
 export class SyncPullQueueManager {
   private account: string | null = null
-  private readonly pendingPullItemIds = new Set<string>()
-  private cursorByItemId = new Map<string, number>()
+  private readonly pendingPullItemIds = new Set<ItemId>()
+  private cursorByItemId = new Map<ItemId, number>()
   private cursorStore: LocalForage | null = null
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
-  public onMessageParsed: (itemId: string, documentId: DocumentId, message: Uint8Array) => void = () => {}
+  public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
 
   async setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
@@ -40,7 +42,7 @@ export class SyncPullQueueManager {
   private async loadCursors(): Promise<void> {
     if (!this.cursorStore) return
     try {
-      const stored = await this.cursorStore.getItem<[string, number][]>('cursorByItemId')
+      const stored = await this.cursorStore.getItem<[ItemId, number][]>('cursorByItemId')
       if (stored && Array.isArray(stored)) {
         this.cursorByItemId = new Map(stored)
       }
@@ -73,12 +75,12 @@ export class SyncPullQueueManager {
     })
   }
 
-  addPendingItem(itemId: string): void {
+  addPendingItem(itemId: ItemId): void {
     if (!itemId) return
     this.pendingPullItemIds.add(itemId)
   }
 
-  private parseBatchedMessages(itemId: string, documentId: DocumentId, decrypted: Uint8Array): void {
+  private parseBatchedMessages(itemId: ItemId, documentId: DocumentId, decrypted: Uint8Array): void {
     let offset = 0
     const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
     while (offset < decrypted.byteLength) {
@@ -101,7 +103,7 @@ export class SyncPullQueueManager {
   }
 
   private async handleMessageEntry(
-    itemId: string,
+    itemId: ItemId,
     documentId: DocumentId,
     entry: PullSyncMessagesResponse['messages'][number],
   ): Promise<{ parsed: boolean; cursor?: number }> {
@@ -135,8 +137,8 @@ export class SyncPullQueueManager {
     }
   }
 
-  getAllCursors(): Array<{ itemId: string; cursor: number }> {
-    const cursors: Array<{ itemId: string; cursor: number }> = []
+  getAllCursors(): Array<{ itemId: ItemId; cursor: number }> {
+    const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
     // Always include the account index so we discover new items from other devices
     const indexCursor = this.cursorByItemId.get(ACCOUNT_INDEX_DOCUMENT_ID) ?? 0
@@ -156,7 +158,7 @@ export class SyncPullQueueManager {
   async processPullResults(results: PullSyncMessagesResponse[]): Promise<void> {
     if (!this.account) return
 
-    const successfullyPulledItemIds = new Set<string>()
+    const successfullyPulledItemIds = new Set<ItemId>()
     let cursorsUpdated = false
 
     try {
@@ -169,7 +171,7 @@ export class SyncPullQueueManager {
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
           for (const entry of result.messages || []) {
-            const handled = await this.handleMessageEntry(itemId, documentId as DocumentId, entry)
+            const handled = await this.handleMessageEntry(itemId, documentId, entry)
             if (handled.parsed) {
               successfullyPulledItemIds.add(itemId)
             }
@@ -214,7 +216,7 @@ export class SyncPullQueueManager {
     }
   }
 
-  processPushResults(results: Array<{ itemId: string; cursor: number }>): void {
+  processPushResults(results: Array<{ itemId: ItemId; cursor: number }>): void {
     if (!this.account) return
     let cursorsUpdated = false
     for (const res of results) {
@@ -236,12 +238,12 @@ export class SyncPullQueueManager {
     return this.pendingPullItemIds.size > 0
   }
 
-  exportCursors(): [string, number][] {
+  exportCursors(): [ItemId, number][] {
     return Array.from(this.cursorByItemId.entries())
   }
 
 
-  async importCursors(cursors: [string, number][]): Promise<void> {
+  async importCursors(cursors: [ItemId, number][]): Promise<void> {
     if (!this.cursorStore) return
     this.cursorByItemId = new Map(cursors)
     await this.cursorStore.setItem('cursorByItemId', cursors)

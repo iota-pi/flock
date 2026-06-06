@@ -5,6 +5,7 @@ import { pollSyncBatchWithToken } from '../api/vault/SyncWorkerClient'
 import { encryptBytes } from 'src/api/vault'
 import { loadSyncBatch, removeSentSyncMessages } from './VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure'
@@ -205,7 +206,7 @@ export class SyncPoller {
     const authToken = await getActiveSessionToken()
     if (!authToken) return 'success'
 
-    let batchEntries: [string, Uint8Array[]][]
+    let batchEntries: [ItemId, Uint8Array[]][]
     try {
       batchEntries = await loadSyncBatch(this.account)
     } catch (_) {

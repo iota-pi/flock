@@ -7,6 +7,7 @@ import {
   listScheduledDeletions,
   clearScheduledDeletions,
 } from '../sync/deletionQueueStore'
+import type { ItemId } from 'src/shared/schemas/items'
 
 
 export class DeletionQueueManager {
@@ -41,7 +42,7 @@ export class DeletionQueueManager {
     await this.clearQueue().catch(console.error)
   }
 
-  async handleIndexChange(newItemIdsSet: Set<string>, subscribedIds: Set<string>) {
+  async handleIndexChange(newItemIdsSet: Set<ItemId>, subscribedIds: Set<ItemId>) {
     const { accountId } = this.getContext()
     if (!accountId) return
 
@@ -93,7 +94,7 @@ export class DeletionQueueManager {
     }
   }
 
-  async cancelDeletion(itemId: string) {
+  async cancelDeletion(itemId: ItemId) {
     const { accountId } = this.getContext()
     if (!accountId) return
     await cancelDeletion(accountId, itemId)

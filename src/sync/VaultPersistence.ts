@@ -1,6 +1,7 @@
 import localforage from 'localforage'
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { ItemId } from 'src/shared/schemas/items'
 
 const storageInstances = new Map<string, LocalForage>()
 
@@ -110,8 +111,8 @@ export async function persistSyncMessages(
  * Loads pending sync batch entries from IndexedDB for the given account.
  * Normalizes message format in case of serialized object representation.
  */
-export async function loadSyncBatch(account: string): Promise<[string, Uint8Array[]][]> {
-  const batchEntries: [string, Uint8Array[]][] = []
+export async function loadSyncBatch(account: string): Promise<[ItemId, Uint8Array[]][]> {
+  const batchEntries: [ItemId, Uint8Array[]][] = []
   const storage = getSyncBatchStorage(account)
   try {
     await storage.iterate<(Uint8Array | object)[], void>((value, itemId) => {
@@ -128,7 +129,7 @@ export async function loadSyncBatch(account: string): Promise<[string, Uint8Arra
           }
           return new Uint8Array()
         })
-        batchEntries.push([itemId, normalized])
+        batchEntries.push([itemId as ItemId, normalized])
       }
     })
   } catch (err) {
@@ -143,7 +144,7 @@ export async function loadSyncBatch(account: string): Promise<[string, Uint8Arra
  */
 export async function removeSentSyncMessages(
   account: string,
-  chunkEntry: [string, Uint8Array[]][]
+  chunkEntry: [ItemId, Uint8Array[]][]
 ): Promise<void> {
   const storage = getSyncBatchStorage(account)
   const promises = chunkEntry.map(([itemId, sentMessages]) => {
@@ -190,7 +191,7 @@ export async function clearSyncBatch(account: string): Promise<void> {
  */
 export async function restoreSyncBatch(
   account: string,
-  pendingSync: [string, Uint8Array[]][]
+  pendingSync: [ItemId, Uint8Array[]][]
 ): Promise<void> {
   try {
     await clearSyncBatch(account)

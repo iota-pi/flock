@@ -3,14 +3,15 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
+  listAutomergeItemIds,
 } from './indexManager'
 import {
   getAutomergeItem,
   removeAutomergeItem,
   withAutomergeDocumentChange,
 } from './items'
-import { listAutomergeItemIds } from './indexManager'
 import type { Item } from '../../state/items'
+import { ItemId } from 'src/shared/schemas/items'
 
 const testRepo = new Repo()
 
@@ -32,7 +33,7 @@ describe('items operations', () => {
 
   it('should create and retrieve an item successfully', async () => {
     const item: Item = {
-      id: 'test-item-id',
+      id: 'test-item-id' as ItemId,
       type: 'person',
       name: 'Test Prayer',
       description: 'A test prayer item',
@@ -62,7 +63,7 @@ describe('items operations', () => {
 
   it('should remove an item and remove it from the index', async () => {
     const item: Item = {
-      id: 'test-item-remove',
+      id: 'test-item-remove' as ItemId,
       type: 'person',
       name: 'Test Prayer Remove',
       description: 'A test prayer item to remove',

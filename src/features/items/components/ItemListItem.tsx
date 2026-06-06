@@ -21,6 +21,7 @@ import { getItemName, isItem, type Item } from 'src/state/items'
 import { useItem } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
 import type { GroupLookupData } from 'src/shared/itemTypes'
+import type { ItemId } from 'src/shared/schemas/items'
 
 
 const FADED_OPACITY = 0.65
@@ -67,7 +68,7 @@ const ListItemIconRight = styled(ListItemIcon)(({ theme }) => ({
 interface ItemListItemProps {
   index: number
   style: CSSProperties
-  itemId: string
+  itemId: ItemId
   measureElement?: (node: HTMLElement | null) => void
   filterTags?: (tag: string) => boolean
   getActionIcon?: (item: Item) => ReactNode

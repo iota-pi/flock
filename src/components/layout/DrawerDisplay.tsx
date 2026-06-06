@@ -9,11 +9,12 @@ import { usePrevious } from 'src/utils'
 import { usePage } from '../pages'
 import ItemDrawer from 'src/features/items/components/ItemDrawer'
 import PlaceholderDrawer from '../drawers/Placeholder'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const noop = () => {}
 
-function getDrawerItemId(drawer?: DrawerData | null): string | null {
+function getDrawerItemId(drawer?: DrawerData | null): ItemId | null {
   return drawer?.item ?? null
 }
 
@@ -67,7 +68,7 @@ function useDrawerRouting(activeDrawer: DrawerData | null) {
       else if (currentHash !== prevHash) {
         if (currentHash) {
           if (currentHash !== activeItemId) {
-            setDrawer({ item: currentHash })
+            setDrawer({ item: currentHash as ItemId })
           }
         } else if (isHashRouted) {
           removeActive()

@@ -29,7 +29,7 @@ import {
 import { getLastPrayedFor } from 'src/utils/prayer'
 import { deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
-import { ITEM_TYPES } from 'src/shared/itemTypes'
+import { ITEM_TYPES, ItemId } from 'src/shared/schemas/items'
 
 
 const ItemFormContent = lazy(() => import('./ItemFormContent'))
@@ -37,7 +37,7 @@ const ItemFormContent = lazy(() => import('./ItemFormContent'))
 
 interface Props extends BaseDrawerProps {
   fromPrayerPage?: boolean,
-  itemId: string | null,
+  itemId: ItemId | null,
 }
 
 
@@ -49,7 +49,7 @@ function ItemDrawer({
   onClose,
   open,
 }: Props) {
-  const storeItem = useItem(itemId ?? '')
+  const storeItem = useItem(itemId ?? '' as ItemId)
 
   const resolvedItem = useMemo((): Item | null => {
     if (storeItem) {

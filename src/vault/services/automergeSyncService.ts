@@ -1,3 +1,4 @@
+import type { ItemId } from 'src/shared/schemas/items'
 import {
   type AutomergeSyncRepository,
   type StoredSyncMessage,
@@ -11,14 +12,14 @@ type SyncMessagePayload = {
 
 type PullSyncMessageInput = {
   account: string
-  itemId: string
+  itemId: ItemId
   cursor?: number
 }
 
 type PullSyncBatchInput = {
   account: string
   cursors: Array<{
-    itemId: string
+    itemId: ItemId
     cursor?: number
   }>
 }
@@ -26,7 +27,7 @@ type PullSyncBatchInput = {
 type PushSyncBatchInput = {
   account: string
   messages: Array<{
-    itemId: string
+    itemId: ItemId
     encryptedMessage: SyncMessagePayload
   }>
 }
@@ -46,7 +47,7 @@ export function createAutomergeSyncService({
   now = Date.now,
   repository,
 }: AutomergeSyncServiceDeps) {
-  async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: string; cursor: number }> }> {
+  async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: ItemId; cursor: number }> }> {
     const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
     const TIMESTAMP_MULTIPLIER = 10_000_000
     const MAX_OFFSET = 9_999_000
@@ -90,7 +91,7 @@ export function createAutomergeSyncService({
 
   async function pullAutomergeSyncMessages(input: PullSyncMessageInput): Promise<{
     success: true
-    itemId: string
+    itemId: ItemId
     nextCursor: number
     messages: StoredSyncMessage[]
     hasMore: boolean
@@ -120,13 +121,13 @@ export function createAutomergeSyncService({
     success: true
     results: Array<{
       success: true
-      itemId: string
+      itemId: ItemId
       nextCursor: number
       messages: StoredSyncMessage[]
       hasMore: boolean
     }>
   }> {
-    const dedupedCursorsByItemId = new Map<string, number>()
+    const dedupedCursorsByItemId = new Map<ItemId, number>()
     for (const cursorInput of input.cursors) {
       const existing = dedupedCursorsByItemId.get(cursorInput.itemId) || 0
       const next = typeof cursorInput.cursor === 'number' ? cursorInput.cursor : 0

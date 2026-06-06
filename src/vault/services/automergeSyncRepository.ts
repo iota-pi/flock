@@ -1,11 +1,12 @@
 import type BaseDriver from '../drivers/base'
+import type { ItemId } from 'src/shared/schemas/items'
 import type { StoredSyncMessage } from '../drivers/base'
 
 export type { StoredSyncMessage }
 
 type AppendSyncMessageInput = {
   account: string
-  itemId: string
+  itemId: ItemId
   entry: StoredSyncMessage
   lastModified: number
 }
@@ -20,11 +21,11 @@ export interface AutomergeSyncRepository {
   pushSyncMessagesBatch(input: PushSyncMessagesBatchInput): Promise<void>
   getSyncMessages(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     fromCursor?: number
     limit?: number
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
-  pruneSyncMessagesUpToCursor(input: { account: string; itemId: string; cursor: number }): Promise<number>
+  pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number>
 }
 
 export function createDynamoAutomergeSyncRepository(driver: BaseDriver): AutomergeSyncRepository {
@@ -46,14 +47,14 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
 
     async getSyncMessages(input: {
       account: string
-      itemId: string
+      itemId: ItemId
       fromCursor?: number
       limit?: number
     }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
       return driver.getSyncMessages(input)
     },
 
-    async pruneSyncMessagesUpToCursor(input: { account: string; itemId: string; cursor: number }): Promise<number> {
+    async pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number> {
       return driver.pruneSyncMessagesUpToCursor(input)
     },
   }

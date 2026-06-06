@@ -37,6 +37,7 @@ import BaseDriver, {
 import type { WebPushSubscription } from '../types'
 import { ExpiredSessionError } from '../api/errors'
 import { VersionConflictError } from '../../shared/syncErrors'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
@@ -393,7 +394,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       pushSubscriptions,
       reminderEnabled,
       reminderTime,
-      session,
       sessions,
       reminderTimezone,
       lastPrayerCompletedAt,
@@ -410,7 +410,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       pushSubscriptions?: WebPushSubscription[],
       reminderEnabled?: boolean,
       reminderTime?: string,
-      session?: string,
       sessions?: VaultSessionRecord[],
       reminderTimezone?: string,
       lastPrayerCompletedAt?: number,
@@ -428,8 +427,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const expressionAttributeValues: Record<string, unknown> = {}
     const expressionAttributeNames: Record<string, string> = {}
     const conditionExpressions: string[] = []
-
-
 
     if (sessions) {
       updateExpressions.push('sessions = :sessions')
@@ -678,7 +675,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   async appendSyncMessage(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     entry: StoredSyncMessage
   }): Promise<void> {
     await this.client.send(new PutCommand({
@@ -696,7 +693,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
   async pushSyncMessagesBatch(input: {
     account: string
     messages: Array<{
-      itemId: string
+      itemId: ItemId
       entry: StoredSyncMessage
       lastModified: number
     }>
@@ -726,7 +723,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
   async getSyncMessages(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     fromCursor?: number
     limit?: number
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
@@ -753,7 +750,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async pruneSyncMessagesUpToCursor(input: { account: string; itemId: string; cursor: number }): Promise<number> {
+  async pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number> {
     const syncId = `${input.account}#${input.itemId}`
     let deleted = 0
     let lastEvaluatedKey: Record<string, unknown> | undefined

@@ -26,6 +26,7 @@ vi.mock('../utils/customSort', () => ({
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
 import { useUiStore } from '../state/uiStore'
 import { Item } from '../state/items'
+import { ItemId } from 'src/shared/schemas/items'
 
 const lightTheme = getTheme(false)
 
@@ -42,10 +43,10 @@ describe('Search Component', () => {
   const mockOnCreate = vi.fn()
 
   const items: Item[] = [
-    { id: '1', name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
-    { id: '2', name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
-    { id: '3', name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
-    { id: '4', name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [] },
+    { id: '1' as ItemId, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '2' as ItemId, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '3' as ItemId, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
+    { id: '4' as ItemId, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [] },
   ]
 
   beforeEach(() => {
@@ -97,7 +98,7 @@ describe('Search Component', () => {
 
     const itemWithNote = {
       ...items[0],
-      id: '5',
+      id: '5' as ItemId,
       name: 'HasNote',
       notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
     }

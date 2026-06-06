@@ -21,7 +21,7 @@ import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useNavigationStore } from '../state/navigationStore'
-import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
 
 const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))

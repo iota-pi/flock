@@ -4,12 +4,12 @@ import { isPracticalFilterCriterion } from '../utils/customFilter'
 import { DEFAULT_CRITERIA, sortItems } from '../utils/customSort'
 import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
-import type { GroupLookupData, ItemId } from '../shared/itemTypes'
+import type { GroupLookupData } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAuthStore } from './authStore'
 import { useUiStore } from './uiStore'
 import { useDataStore } from './dataStore'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
 type PrayerScheduleInputs = {

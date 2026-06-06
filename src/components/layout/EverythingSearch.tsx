@@ -8,7 +8,7 @@ import { SearchIcon } from '../Icons'
 import Search from '../Search'
 import { useNavigationStore } from '../../state/navigationStore'
 import { createItem } from '../../features/items/mutations/itemMutations'
-import { ERROR_ITEM_TYPE } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
 
 interface Props {

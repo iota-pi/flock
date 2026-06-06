@@ -4,13 +4,12 @@ import {
 } from 'react'
 
 import type { Item } from 'src/state/items'
-import type { ItemId } from 'src/shared/itemTypes'
 import { useItemsByIds, useSortCriteria } from 'src/state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
 import { useNavigationStore } from 'src/state/navigationStore'
-import { GroupItem, PersonItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId, PersonItem } from 'src/shared/schemas/items'
 import { RemoveIcon } from 'src/components/Icons'
 
 

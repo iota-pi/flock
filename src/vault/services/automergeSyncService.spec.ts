@@ -1,6 +1,7 @@
 import type { Mocked } from 'vitest'
 import { createAutomergeSyncService } from './automergeSyncService'
 import type { AutomergeSyncRepository } from './automergeSyncRepository'
+import { ItemId } from 'src/shared/schemas/items'
 
 describe('AutomergeSyncService', () => {
   const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
@@ -24,9 +25,9 @@ describe('AutomergeSyncService', () => {
     })
 
     const messages = [
-      { itemId: 'item-1', encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
-      { itemId: 'item-1', encryptedMessage: { iv: 'iv2', cipher: 'c2' } },
-      { itemId: 'item-1', encryptedMessage: { iv: 'iv3', cipher: 'c3' } },
+      { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
+      { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv2', cipher: 'c2' } },
+      { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv3', cipher: 'c3' } },
     ]
 
     const result = await service.pushAutomergeSyncBatch({
@@ -71,8 +72,8 @@ describe('AutomergeSyncService', () => {
     const result = await service.pushAutomergeSyncBatch({
       account: 'test-account',
       messages: [
-        { itemId: 'item-1', encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
-        { itemId: 'item-1', encryptedMessage: { iv: 'iv2', cipher: 'c2' } },
+        { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } },
+        { itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv2', cipher: 'c2' } },
       ],
     })
 
@@ -92,7 +93,7 @@ describe('AutomergeSyncService', () => {
 
     const result = await service.pushAutomergeSyncBatch({
       account: 'test-account',
-      messages: [{ itemId: 'item-1', encryptedMessage: { iv: 'iv1', cipher: 'c1' } }],
+      messages: [{ itemId: 'item-1' as ItemId, encryptedMessage: { iv: 'iv1', cipher: 'c1' } }],
     })
 
     const cursor = result.results[0].cursor
@@ -116,7 +117,10 @@ describe('AutomergeSyncService', () => {
     for (let i = 0; i < iterations; i++) {
       const result = await service.pushAutomergeSyncBatch({
         account: 'test-account',
-        messages: [{ itemId: 'item-1', encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` } }],
+        messages: [{
+          itemId: 'item-1' as ItemId,
+          encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
+        }],
       })
       cursorSet.add(result.results[0].cursor)
     }
@@ -137,7 +141,7 @@ describe('AutomergeSyncService', () => {
 
     // Large batch of 200 items (maximum page limit)
     const messages = Array.from({ length: 200 }, (_, i) => ({
-      itemId: 'item-1',
+      itemId: 'item-1' as ItemId,
       encryptedMessage: { iv: `iv-${i}`, cipher: `c-${i}` },
     }))
 

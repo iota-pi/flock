@@ -9,7 +9,7 @@ import {
   Item,
 } from './items'
 import { importPeople } from '../utils/importUtils'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 
 describe('items helpers', () => {
   it('creates blank person with defaults', () => {
@@ -61,7 +61,7 @@ describe('items helpers', () => {
   })
 
   it('convertItem changes type and preserves id', () => {
-    const person = getBlankPerson('person-1', false)
+    const person = getBlankPerson('person-1' as ItemId, false)
     person.name = 'Alice'
     const group = convertItem(person, 'group') as GroupItem
     expect(group.type).toBe('group')

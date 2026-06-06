@@ -1,3 +1,4 @@
+import { ItemId } from 'src/shared/schemas/items'
 import { buildSnapshot } from './snapshotBuilder'
 
 const mockEncryptBytes = vi.fn()
@@ -52,7 +53,7 @@ describe('buildSnapshot helper function', () => {
   })
 
   it('builds a snapshot successfully under normal conditions', async () => {
-    const result = await buildSnapshot(mockRepo, 'item-1', 42)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
 
     expect(result).toEqual({
       itemId: 'item-1',
@@ -73,39 +74,39 @@ describe('buildSnapshot helper function', () => {
 
   it('returns null if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
-    let result = await buildSnapshot(mockRepo, 'item-1', 42)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
 
     mockRepo.find.mockResolvedValue(undefined)
-    result = await buildSnapshot(mockRepo, 'item-1', 42)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
   })
 
   it('returns null if document handle is not ready or is unavailable', async () => {
     mockHandle.isReady.mockReturnValue(false)
-    let result = await buildSnapshot(mockRepo, 'item-1', 42)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
 
     mockHandle.isReady.mockReturnValue(true)
     mockHandle.isUnavailable.mockReturnValue(true)
-    result = await buildSnapshot(mockRepo, 'item-1', 42)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
   })
 
   it('returns null if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
-    let result = await buildSnapshot(mockRepo, 'item-1', 42)
+    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
-    result = await buildSnapshot(mockRepo, 'item-1', 42)
+    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
   })
 
   it('returns null if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
-    const result = await buildSnapshot(mockRepo, 'item-1', 42)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
   })
 
@@ -115,7 +116,7 @@ describe('buildSnapshot helper function', () => {
       deleted: true,
     })
 
-    const result = await buildSnapshot(mockRepo, 'item-1', 42)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result?.deleted).toBe(true)
   })
 
@@ -123,6 +124,6 @@ describe('buildSnapshot helper function', () => {
     const error = new Error('Crypto error')
     mockEncryptBytes.mockRejectedValue(error)
 
-    await expect(buildSnapshot(mockRepo, 'item-1', 42)).rejects.toThrow('Crypto error')
+    await expect(buildSnapshot(mockRepo, 'item-1' as ItemId, 42)).rejects.toThrow('Crypto error')
   })
 })

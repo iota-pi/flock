@@ -18,9 +18,8 @@ import {
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 import { useItemsByIds } from 'src/state/selectors'
-import { ItemId } from 'src/shared/itemTypes'
 
 
 type OnChangeData<T extends Item> = Partial<
@@ -37,7 +36,7 @@ const TextColorTransition = styled(InlineText)(({ theme }) => ({
 }))
 
 type BaseProps = {
-  id: Item['id'],
+  id: ItemId,
   lastPrayer?: number,
   onChange: (data: OnChangeData<Item>) => void,
   prayerFrequency: Item['prayerFrequency'],

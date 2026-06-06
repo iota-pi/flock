@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useDataRecovery } from './useDataRecovery'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const mocks = vi.hoisted(() => ({
@@ -92,7 +93,7 @@ describe('useDataRecovery', () => {
     })
 
     await act(async () => {
-      await result.current.handleRetryCorruptedItem('item-corrupted-1')
+      await result.current.handleRetryCorruptedItem('item-corrupted-1' as ItemId)
     })
 
     expect(mocks.retryRecoveryItem).toHaveBeenCalledWith('item-corrupted-1')
@@ -112,7 +113,7 @@ describe('useDataRecovery', () => {
     const { result } = renderHook(() => useDataRecovery())
 
     await act(async () => {
-      await result.current.handleForceOverwriteCorruptedItem('item-1')
+      await result.current.handleForceOverwriteCorruptedItem('item-1' as ItemId)
     })
 
     expect(mocks.forceOverwriteRecoveryItem).toHaveBeenCalledWith('item-1')

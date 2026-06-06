@@ -1,3 +1,4 @@
+import { ItemId } from 'src/shared/schemas/items'
 import { RecoveryManager } from './recoveryManager'
 
 // Mock dependencies
@@ -73,7 +74,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'entry-2', itemId: 'item-2', reason: 'error2', createdAt: 67890 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.retryRecoveryItem('item-2')
+      await recoveryManager.retryRecoveryItem('item-2' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
       expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
@@ -84,7 +85,7 @@ describe('RecoveryManager', () => {
     it('throws if no local item is found', async () => {
       mockGetAutomergeItem.mockResolvedValue(null)
 
-      await expect(recoveryManager.forceOverwriteRecoveryItem('item-3')).rejects.toThrow(
+      await expect(recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
         'No local item found for item-3. Force delete is available instead.'
       )
     })
@@ -92,7 +93,7 @@ describe('RecoveryManager', () => {
     it('does nothing if accountId is not set', async () => {
       context.accountId = null
 
-      await recoveryManager.forceOverwriteRecoveryItem('item-3')
+      await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).not.toHaveBeenCalled()
     })
@@ -117,7 +118,7 @@ describe('RecoveryManager', () => {
       const mockEntries: any[] = []
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.forceOverwriteRecoveryItem('item-3')
+      await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).toHaveBeenCalledWith('account-123', 'item-3')
       expect(mockWithAutomergeDocumentChange).toHaveBeenCalledWith(
@@ -152,7 +153,7 @@ describe('RecoveryManager', () => {
         }
       )
 
-      await recoveryManager.forceDeleteRecoveryItem('item-4')
+      await recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
 
       expect(mockWithAutomergeDocumentChange).toHaveBeenCalledWith(
         'account-123',
@@ -181,7 +182,7 @@ describe('RecoveryManager', () => {
         }
       )
 
-      await recoveryManager.forceDeleteRecoveryItem('item-5')
+      await recoveryManager.forceDeleteRecoveryItem('item-5' as ItemId)
 
       expect(capturedDoc).toEqual({
         id: 'item-5',

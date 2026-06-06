@@ -1,12 +1,15 @@
 import localforage from 'localforage'
+
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { ItemId } from 'src/shared/schemas/items'
+
 
 const STORE_NAME = 'manual-recovery-items'
 
 export type ManualRecoveryEntry = {
   id: string
-  itemId: string
+  itemId: ItemId
   reason: string
   createdAt: number
 }
@@ -130,7 +133,7 @@ export async function readManualRecoveryCount(accountId: string): Promise<number
 export async function upsertManualRecoveryEntry(
   accountId: string,
   input: {
-    itemId: string
+    itemId: ItemId
     reason: string
   }
 ): Promise<ManualRecoveryEntry> {
@@ -161,7 +164,7 @@ export async function upsertManualRecoveryEntry(
   return entry
 }
 
-export async function removeManualRecoveryEntryByItemId(accountId: string, itemId: string): Promise<void> {
+export async function removeManualRecoveryEntryByItemId(accountId: string, itemId: ItemId): Promise<void> {
   if (!accountId) return
   await ensureMigrated(accountId)
   const storage = getManualRecoveryStorage(accountId)

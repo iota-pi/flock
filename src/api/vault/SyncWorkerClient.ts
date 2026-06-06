@@ -2,6 +2,7 @@ import { createTRPCProxyClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../../vault/trpc/root'
 import env from '../../env'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
+import type { ItemId } from 'src/shared/schemas/items'
 
 type SyncMessageEnvelope = {
   iv: string
@@ -34,7 +35,7 @@ function createWorkerSyncClient(authToken: string) {
 
 export type PullSyncMessagesResponse = {
   success: boolean
-  itemId: string
+  itemId: ItemId
   nextCursor: number
   messages: Array<{
     cursor: number
@@ -45,10 +46,10 @@ export type PullSyncMessagesResponse = {
 
 export type PollSyncBatchResponse = {
   success: boolean
-  pushResults: Array<{ itemId: string; cursor: number }>
+  pushResults: Array<{ itemId: ItemId; cursor: number }>
   pullResults: Array<{
     success: true
-    itemId: string
+    itemId: ItemId
     nextCursor: number
     messages: Array<{
       cursor: number
@@ -68,11 +69,11 @@ export async function pollSyncBatchWithToken(input: {
   account: string
   authToken: string
   pushMessages: Array<{
-    itemId: string
+    itemId: ItemId
     encryptedMessage: SyncMessageEnvelope
   }>
   pullCursors: Array<{
-    itemId: string
+    itemId: ItemId
     cursor?: number
   }>
 }): Promise<PollSyncBatchResponse> {

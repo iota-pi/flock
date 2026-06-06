@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react'
 import { subscribeRealtimeBusSyncPing } from '../sync/realtimeBus'
-import type { ItemId } from '../shared/itemTypes'
+import type { ItemId } from '../shared/schemas/items'
 import {
   readManualRecoveryCount,
   removeManualRecoveryEntryByItemId,
@@ -17,7 +17,7 @@ export function setOnRecoveryItemsChangedListener(listener: () => void): void {
 }
 
 type DecryptionFailedEvent = {
-  itemId?: string
+  itemId?: ItemId
   error: unknown
 }
 

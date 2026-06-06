@@ -6,8 +6,8 @@ import {
   useMemo,
 } from 'react'
 import { useTheme } from '@mui/material/styles'
-import type { ItemId } from '../shared/itemTypes'
 import { useNavigationStore } from '../state/navigationStore'
+import { ItemId } from 'src/shared/schemas/items'
 
 const CHIP_BASE_STYLE: CSSProperties = {
   alignItems: 'center',

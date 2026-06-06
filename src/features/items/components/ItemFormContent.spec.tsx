@@ -6,6 +6,7 @@ import getTheme from 'src/theme'
 import ItemFormContent from './ItemFormContent'
 import type { Item } from 'src/state/items'
 import { getBlankPerson } from 'src/state/items'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 vi.mock('src/components/FrequencyControls', () => ({
@@ -45,7 +46,7 @@ describe('ItemFormContent', () => {
     const user = userEvent.setup()
     const handleChange = vi.fn()
     const item = {
-      ...getBlankPerson('item-1', false),
+      ...getBlankPerson('item-1' as ItemId, false),
       name: 'Initial Name',
     } as Item
 
@@ -71,7 +72,7 @@ describe('ItemFormContent', () => {
   it('shows duplicate warning for same-name same-type items', () => {
     const handleChange = vi.fn()
     const item = {
-      ...getBlankPerson('item-1', false),
+      ...getBlankPerson('item-1' as ItemId, false),
       name: 'John Doe',
     } as Item
 

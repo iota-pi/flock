@@ -1,5 +1,5 @@
 import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
-import { readItemSchema, errorItemSchema, ErrorItem } from '../../shared/schemas/items'
+import { readItemSchema, errorItemSchema, ErrorItem, ItemId } from '../../shared/schemas/items'
 import type { Item } from '../../state/items'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import { getAutomergeRepo } from '../automergeRepo'
@@ -7,26 +7,25 @@ import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { isPlainObject } from '../utils'
 import {
   normalizeItemId,
-  readDocumentSnapshot,
+  readItemSnapshot,
   changeDocument,
   RepoDoc,
+  ChangeDocumentOptions,
 } from './core'
 import {
   addAutomergeItemIdsToIndex,
   removeAutomergeItemIdsFromIndex,
 } from './indexManager'
 
-export type ChangeDocumentOptions = {
-  createIfMissing?: boolean
-  initialValue?: RepoDoc
+export type ChangeItemOptions = ChangeDocumentOptions & {
   addToIndex?: boolean
 }
 
-function isItemDocumentId(documentId: string): boolean {
-  return documentId !== ACCOUNT_INDEX_DOCUMENT_ID
+function isNonIndexItem(id: ItemId): boolean {
+  return id !== ACCOUNT_INDEX_DOCUMENT_ID
 }
 
-export function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null): Item | null {
+export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null): Item | null {
   if (!snapshot || Object.keys(snapshot).length === 0) {
     return null
   }
@@ -63,16 +62,16 @@ export function normalizeItemSnapshot(itemId: string, snapshot: RepoDoc | null):
 
 export async function withAutomergeDocumentChange(
   accountId: string,
-  documentId: string,
+  itemId: ItemId,
   change: (draft: RepoDoc) => void,
-  options: ChangeDocumentOptions = {},
+  options: ChangeItemOptions = {},
 ): Promise<boolean> {
-  const normalizedDocumentId = normalizeItemId(documentId)
+  const normalizedDocumentId = normalizeItemId(itemId)
   if (!normalizedDocumentId) {
     return false
   }
 
-  const shouldAddToIndex = options.addToIndex !== false && isItemDocumentId(normalizedDocumentId)
+  const shouldAddToIndex = options.addToIndex !== false && isNonIndexItem(normalizedDocumentId)
 
   if (shouldAddToIndex) {
     await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
@@ -92,7 +91,7 @@ export async function withAutomergeDocumentChange(
 export async function withAutomergeMetadataChange(
   accountId: string,
   change: (metadataDraft: RepoDoc) => void,
-  options: ChangeDocumentOptions = {},
+  options: ChangeItemOptions = {},
 ): Promise<boolean> {
   return withAutomergeDocumentChange(
     accountId,
@@ -121,17 +120,17 @@ export async function withAutomergeMetadataChange(
   )
 }
 
-export async function getAutomergeItem(accountId: string, itemId: string): Promise<Item | null> {
+export async function getAutomergeItem(accountId: string, itemId: ItemId): Promise<Item | null> {
   const normalizedItemId = normalizeItemId(itemId)
   if (!normalizedItemId) {
     return null
   }
 
-  const snapshot = await readDocumentSnapshot(accountId, normalizedItemId)
+  const snapshot = await readItemSnapshot(accountId, normalizedItemId)
   return normalizeItemSnapshot(normalizedItemId, snapshot)
 }
 
-export async function removeAutomergeItem(accountId: string, itemId: string): Promise<void> {
+export async function removeAutomergeItem(accountId: string, itemId: ItemId): Promise<void> {
   const normalizedItemId = normalizeItemId(itemId)
   if (!normalizedItemId) {
     return

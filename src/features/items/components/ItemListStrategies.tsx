@@ -3,6 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Item } from 'src/state/items'
 import { ItemListItem } from './ItemListItem'
 import type { GroupLookupData } from 'src/shared/itemTypes'
+import type { ItemId } from 'src/shared/schemas/items'
+
 
 type ItemListRendererProps = {
   filterTags?: (tag: string) => boolean
@@ -22,20 +24,20 @@ type ItemListRendererProps = {
 
 type StandardItemListProps = ItemListRendererProps & {
   fullHeight: boolean
-  itemIds: string[]
+  itemIds: ItemId[]
 }
 
 type VirtualizedItemListProps = ItemListRendererProps & {
   defaultRowHeight: number
   fallbackRenderCount: number
-  itemIds: string[]
+  itemIds: ItemId[]
   useDynamicHeight: boolean
 }
 
 const EMPTY_STYLE: CSSProperties = {}
 
 function createItemListItem(
-  itemId: string,
+  itemId: ItemId,
   index: number,
   props: ItemListRendererProps,
   style: CSSProperties,

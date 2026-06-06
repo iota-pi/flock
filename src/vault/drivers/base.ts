@@ -1,8 +1,11 @@
 import { FastifyRequest } from 'fastify'
+
 import type { ItemType, WebPushSubscription } from '../types'
 import type { VaultSnapshot } from '../../shared/itemTypes'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
+import type { ItemId } from 'src/shared/schemas/items'
+
 
 export interface VaultKey {
   account: string,
@@ -127,14 +130,14 @@ export default abstract class BaseDriver<T = unknown> {
   // Sync message operations
   abstract appendSyncMessage(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     entry: StoredSyncMessage
   }): Promise<void>
 
   abstract pushSyncMessagesBatch(input: {
     account: string
     messages: Array<{
-      itemId: string
+      itemId: ItemId
       entry: StoredSyncMessage
       lastModified: number
     }>
@@ -142,14 +145,14 @@ export default abstract class BaseDriver<T = unknown> {
 
   abstract getSyncMessages(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     fromCursor?: number
     limit?: number
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
 
   abstract pruneSyncMessagesUpToCursor(input: {
     account: string
-    itemId: string
+    itemId: ItemId
     cursor: number
   }): Promise<number>
 

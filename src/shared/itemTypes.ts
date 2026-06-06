@@ -1,10 +1,7 @@
 import type { CryptoResult } from 'src/api/vault'
-
-export const ITEM_TYPES = ['person', 'group', 'topic'] as const
-export const ERROR_ITEM_TYPE = 'error'
+import { ITEM_TYPES, ItemId } from './schemas/items'
 
 export type ItemType = typeof ITEM_TYPES[number]
-export type ItemId = string
 
 /**
  * Snapshot format: encrypted Automerge document (binary)

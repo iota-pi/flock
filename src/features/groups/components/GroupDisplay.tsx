@@ -1,13 +1,12 @@
 import { useCallback, useMemo } from 'react'
 
 import type { Item } from 'src/state/items'
-import type { ItemId } from 'src/shared/itemTypes'
 import { useGroupLookupMap } from 'src/state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from 'src/components/Search'
 import { useNavigationStore } from 'src/state/navigationStore'
-import { GroupItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 import { RemoveIcon } from 'src/components/Icons'
 
 interface Props {

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { ERROR_ITEM_TYPE, ITEM_TYPES } from '../itemTypes'
-
+export const ITEM_TYPES = ['person', 'group', 'topic'] as const
+export const ERROR_ITEM_TYPE = 'error'
 
 const FREQUENCY_VALUES = [
   'daily',
@@ -13,6 +13,8 @@ const FREQUENCY_VALUES = [
   'annually',
   'none',
 ] as const
+
+export const ItemIdSchema = z.string().min(1).trim().brand<'ItemId'>()
 
 export const frequencySchema = z.union([
   z.number(),
@@ -31,7 +33,7 @@ const baseItemSchema = z.looseObject({
   created: z.number().int().positive(),
   deleted: z.boolean().optional(),
   description: z.string(),
-  id: z.string(),
+  id: ItemIdSchema,
   isNew: z.literal(true).optional(),
   name: z.string(),
   notes: z.array(noteSchema).catch([]),
@@ -49,7 +51,7 @@ export const personItemSchema = baseItemSchema.extend({
 export const groupItemSchema = baseItemSchema.extend({
   memberPrayerFrequency: frequencySchema,
   memberPrayerTarget: z.enum(['one', 'all']),
-  members: z.array(z.string()),
+  members: z.array(ItemIdSchema),
   type: z.literal('group'),
 })
 
@@ -75,6 +77,7 @@ export const readItemSchema = z.discriminatedUnion('type', [
   topicItemSchema,
 ])
 
+export type ItemId = z.infer<typeof ItemIdSchema>
 export type Note = z.infer<typeof noteSchema>
 export type BaseItem = z.infer<typeof baseItemSchema>
 export type PersonItem = z.infer<typeof personItemSchema>

@@ -1,3 +1,5 @@
+import { ItemId } from 'src/shared/schemas/items'
+
 const mockReportQuotaExceeded = vi.fn()
 vi.mock('../workers/quotaReporter', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
@@ -165,9 +167,9 @@ describe('VaultPersistence', () => {
     ])
 
     // Case 1: Partial removal (slice)
-    const chunkEntry1: [string, Uint8Array[]][] = [
+    const chunkEntry1 = [
       ['item-1', [new Uint8Array([1]), new Uint8Array([2])]],
-    ]
+    ] as [ItemId, Uint8Array[]][]
     await removeSentSyncMessages('acc-5', chunkEntry1)
 
     let stored = await storage.getItem<Uint8Array[]>('item-1')
@@ -175,9 +177,9 @@ describe('VaultPersistence', () => {
     expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([3])
 
     // Case 2: Complete removal
-    const chunkEntry2: [string, Uint8Array[]][] = [
+    const chunkEntry2 = [
       ['item-1', [new Uint8Array([3])]],
-    ]
+    ] as [ItemId, Uint8Array[]][]
     await removeSentSyncMessages('acc-5', chunkEntry2)
 
     stored = await storage.getItem<Uint8Array[]>('item-1')
@@ -206,10 +208,10 @@ describe('VaultPersistence', () => {
     const storage = getSyncBatchStorage('acc-8')
     await storage.setItem('item-old', [new Uint8Array([9])])
 
-    const pendingSync: [string, Uint8Array[]][] = [
+    const pendingSync = [
       ['item-1', [new Uint8Array([1])]],
       ['item-2', [new Uint8Array([2]), new Uint8Array([3])]],
-    ]
+    ] as [ItemId, Uint8Array[]][]
 
     await restoreSyncBatch('acc-8', pendingSync)
 

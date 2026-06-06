@@ -3,6 +3,7 @@ import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from './VaultPersistence'
 import { registerQuotaReporter } from '../workers/quotaReporter'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const mockPollSyncBatchWithToken = vi.fn()
@@ -140,10 +141,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    ;(adapter as any).isOnline = true
-    const outcome = await (adapter as any).executePoll()
+    adapter['syncPoller']['isOnline'] = true
+    const outcome = await adapter['syncPoller']['executePoll']()
     expect(outcome).toBe('success')
-    ;(adapter as any).isOnline = false
+    adapter['syncPoller']['isOnline'] = false
 
     // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
@@ -204,10 +205,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    ;(adapter as any).isOnline = true
-    const outcome = await (adapter as any).executePoll()
+    adapter['syncPoller']['isOnline'] = true
+    const outcome = await adapter['syncPoller']['executePoll']()
     expect(outcome).toBe('success')
-    ;(adapter as any).isOnline = false
+    adapter['syncPoller']['isOnline'] = false
 
     // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
     const storage = getSyncBatchStorage(accountId)
@@ -246,10 +247,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    ;(adapter as any).isOnline = true
-    const outcome = await (adapter as any).executePoll()
+    adapter['syncPoller']['isOnline'] = true
+    const outcome = await adapter['syncPoller']['executePoll']()
     expect(outcome).toBe('failure')
-    ;(adapter as any).isOnline = false
+    adapter['syncPoller']['isOnline'] = false
 
     // Message must still exist in IndexedDB due to failure
     const storage = getSyncBatchStorage(accountId)
@@ -341,7 +342,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
     })
 
     adapter.setOnlineState(true)
-    adapter.queuePendingPullItems(['item-1'])
+    adapter.queuePendingPullItems(['item-1' as ItemId])
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)

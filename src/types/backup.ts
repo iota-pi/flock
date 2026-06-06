@@ -1,10 +1,11 @@
+import { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from '../state/metadata'
-import type { ItemId } from '../shared/itemTypes'
+
 
 export type BackupSyncState = {
-  cursors: [string, number][]
-  pendingSync: [string, string[]][]
-  lastModified: [string, number][]
+  cursors: [ItemId, number][]
+  pendingSync: [ItemId, string[]][]
+  lastModified: [ItemId, number][]
 }
 
 export type BackupPayloadV2 = {

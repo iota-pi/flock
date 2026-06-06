@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Comlink from 'comlink'
+
 import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
@@ -11,6 +12,8 @@ import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api
 import type { BackupSyncState } from 'src/types/backup'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
+import { ItemId } from 'src/shared/schemas/items'
+
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
 let workerInstance: Worker | null = null
@@ -189,7 +192,7 @@ export const SyncBridge = {
     await syncApi.forceSync()
   },
 
-  mutateItem: async (mutationId: string, id: string, changes: Partial<Item>) => {
+  mutateItem: async (mutationId: string, id: ItemId, changes: Partial<Item>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.mutateItem(mutationId, id, changes)
   },
@@ -199,7 +202,7 @@ export const SyncBridge = {
     await syncApi.createItem(item)
   },
 
-  hardDeleteItems: async (itemIds: string[]) => {
+  hardDeleteItems: async (itemIds: ItemId[]) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.hardDeleteItems(itemIds)
   },
@@ -224,17 +227,17 @@ export const SyncBridge = {
     return await syncApi.restoreFromBinaries(documents)
   },
 
-  retryRecoveryItem: async (itemId: string) => {
+  retryRecoveryItem: async (itemId: ItemId) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.retryRecoveryItem(itemId)
   },
 
-  forceOverwriteRecoveryItem: async (itemId: string) => {
+  forceOverwriteRecoveryItem: async (itemId: ItemId) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.forceOverwriteRecoveryItem(itemId)
   },
 
-  forceDeleteRecoveryItem: async (itemId: string) => {
+  forceDeleteRecoveryItem: async (itemId: ItemId) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
     await syncApi.forceDeleteRecoveryItem(itemId)
   },

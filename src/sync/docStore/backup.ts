@@ -1,7 +1,6 @@
 import * as Automerge from '@automerge/automerge/slim'
 import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 
-import type { ItemId } from '../../shared/itemTypes'
 import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { useSyncStore } from '../../state/syncStore'
@@ -18,12 +17,15 @@ import {
 } from './core'
 import {
   addAutomergeItemIdsToIndex,
-  listAutomergeDocumentIds,
+  listAllAutomergeItemIds,
 } from './indexManager'
+import { ItemId } from 'src/shared/schemas/items'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from '../docStore'
 
-export async function seedImportedDocument(accountId: string, documentId: string, binary: Uint8Array): Promise<void> {
+
+export async function seedImportedDocument(accountId: string, itemId: ItemId, binary: Uint8Array): Promise<void> {
   const repo = getAutomergeRepo(accountId)
-  const documentUrl = toAutomergeUrlFromItemId(documentId)
+  const documentUrl = toAutomergeUrlFromItemId(itemId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
   try {
@@ -42,26 +44,26 @@ export async function seedImportedDocument(accountId: string, documentId: string
 
 export async function hydrateAutomergeDocumentBinary(
   accountId: string,
-  documentId: string,
+  itemId: string,
   binary: Uint8Array,
 ): Promise<void> {
-  const normalizedDocumentId = normalizeItemId(documentId)
-  if (!normalizedDocumentId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
+  const normalizedItemId = normalizeItemId(itemId)
+  if (!normalizedItemId || !(binary instanceof Uint8Array) || binary.byteLength === 0) {
     return
   }
 
   try {
-    await seedImportedDocument(accountId, normalizedDocumentId, binary)
+    await seedImportedDocument(accountId, normalizedItemId, binary)
   } catch (error) {
     console.error('[automerge] failed to hydrate document', {
-      documentId,
+      itemId,
       error,
     })
     return
   }
 
-  if (documentId !== 'account-index') {
-    await addAutomergeItemIdsToIndex(accountId, [normalizedDocumentId])
+  if (itemId !== ACCOUNT_INDEX_DOCUMENT_ID) {
+    await addAutomergeItemIdsToIndex(accountId, [normalizedItemId])
     return
   }
 }
@@ -69,8 +71,8 @@ export async function hydrateAutomergeDocumentBinary(
 export async function exportAllBinaries(accountId: string): Promise<Partial<Record<ItemId, string>>> {
   const exported: Partial<Record<ItemId, string>> = {}
 
-  for (const documentId of await listAutomergeDocumentIds(accountId)) {
-    const handle = await ensureDocumentHandle(accountId, documentId, {
+  for (const itemId of await listAllAutomergeItemIds(accountId)) {
+    const handle = await ensureDocumentHandle(accountId, itemId, {
       awaitReady: false,
     })
     if (!handle || !handle.isReady()) {
@@ -78,28 +80,28 @@ export async function exportAllBinaries(accountId: string): Promise<Partial<Reco
     }
 
     const binary = Automerge.save(handle.doc())
-    exported[documentId as ItemId] = encodeBytesToBase64(binary)
+    exported[itemId] = encodeBytesToBase64(binary)
   }
 
   return exported
 }
 
-export async function restoreFromBinaries(accountId: string, documents: Partial<Record<ItemId, string>>): Promise<string[]> {
-  const restoredItemIds: string[] = []
+export async function restoreFromBinaries(accountId: string, items: Partial<Record<ItemId, string>>): Promise<ItemId[]> {
+  const restoredItemIds: ItemId[] = []
 
-  for (const [documentId, encodedBinary] of Object.entries(documents)) {
+  for (const [itemId, encodedBinary] of Object.entries(items)) {
     if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) {
       continue
     }
 
-    await hydrateAutomergeDocumentBinary(accountId, documentId, decodeBase64ToBytes(encodedBinary))
+    await hydrateAutomergeDocumentBinary(accountId, itemId, decodeBase64ToBytes(encodedBinary))
 
-    const normalizedDocumentId = normalizeItemId(documentId)
-    if (!normalizedDocumentId || normalizedDocumentId === 'account-index') {
+    const normalizedItemId = normalizeItemId(itemId)
+    if (!normalizedItemId || normalizedItemId === ACCOUNT_INDEX_DOCUMENT_ID) {
       continue
     }
 
-    restoredItemIds.push(normalizedDocumentId)
+    restoredItemIds.push(normalizedItemId)
   }
 
   await addAutomergeItemIdsToIndex(accountId, restoredItemIds)

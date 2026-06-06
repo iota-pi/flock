@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export const APP_NAME = 'Flock'
 
@@ -7,7 +8,7 @@ export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | un
 }
 
 export function generateItemId() {
-  return crypto.randomUUID()
+  return crypto.randomUUID() as ItemId
 }
 
 export function formatDate(date: Date) {

@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import useSettings from './useSettings'
 import type { Item } from 'src/state/items'
 import type { BackupSyncState } from 'src/types/backup'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const mocks = vi.hoisted(() => ({
@@ -90,9 +91,9 @@ describe('useSettings backup portability', () => {
   it('exports metadata and items in a v2 payload along with sync state', async () => {
     mocks.exportData.mockImplementation(async (payload: unknown) => payload)
     mocks.exportSyncState.mockResolvedValue({
-      cursors: [['i1', 10]],
-      pendingSync: [['i1', ['msg1']]],
-      lastModified: [['i1', 12345]]
+      cursors: [['i1' as ItemId, 10]],
+      pendingSync: [['i1' as ItemId, ['msg1']]],
+      lastModified: [['i1' as ItemId, 12345]]
     })
 
     const { result } = renderHook(() => useSettings(mockItems))
@@ -123,10 +124,10 @@ describe('useSettings backup portability', () => {
       await result.current.actions.handleConfirmRestore({
         version: 2,
         metadata: {},
-        documents: { i1: 'base64-doc' },
-        cursors: [['i1', 10]],
-        pendingSync: [['i1', ['msg1']]],
-        lastModified: [['i1', 12345]]
+        documents: { ['i1' as ItemId]: 'base64-doc' },
+        cursors: [['i1' as ItemId, 10]],
+        pendingSync: [['i1' as ItemId, ['msg1']]],
+        lastModified: [['i1' as ItemId, 12345]]
       })
     })
 

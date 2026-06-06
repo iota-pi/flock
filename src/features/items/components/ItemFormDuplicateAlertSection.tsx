@@ -3,14 +3,15 @@ import Collapse from '@mui/material/Collapse'
 import Grid from '@mui/material/Grid'
 
 import { getItemName, type Item } from 'src/state/items'
-import { ERROR_ITEM_TYPE, type ItemType } from 'src/shared/itemTypes'
+import type { ItemType } from 'src/shared/itemTypes'
+import { ERROR_ITEM_TYPE, type ItemId } from 'src/shared/schemas/items'
 import DuplicateAlert from 'src/components/drawers/utils/DuplicateAlert'
 import { useVisibleItems } from 'src/state/selectors'
 
 
 type ItemFormDuplicateAlertSectionProps = {
   hasDescription: boolean
-  itemId: string
+  itemId: ItemId
   itemType: Item['type']
   nameValue: string
 }

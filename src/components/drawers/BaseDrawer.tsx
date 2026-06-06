@@ -17,8 +17,8 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
-import type { ItemId } from '../../shared/itemTypes'
 import { usePrevious } from '../../utils'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const noOp = () => {}

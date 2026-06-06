@@ -15,6 +15,7 @@ import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
 import { isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { buildSnapshot } from './snapshotBuilder'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 export interface SnapshotManagerOptions {
@@ -22,8 +23,8 @@ export interface SnapshotManagerOptions {
 }
 
 export class SnapshotManager {
-  private dirtyDocuments = new Set<string>()
-  private lastModifiedByItemId = new Map<string, number>()
+  private dirtyItems = new Set<ItemId>()
+  private lastModifiedByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
@@ -57,7 +58,7 @@ export class SnapshotManager {
       storeName: `last-modified-${accountId}`,
     })
     try {
-      const stored = await this.lastModifiedStore.getItem<[string, number][]>('lastModifiedByItemId')
+      const stored = await this.lastModifiedStore.getItem<[ItemId, number][]>('lastModifiedByItemId')
       if (stored && Array.isArray(stored)) {
         this.lastModifiedByItemId = new Map(stored)
       }
@@ -79,13 +80,13 @@ export class SnapshotManager {
     }
   }
 
-  markDocumentDirty(documentId: string) {
-    if (!documentId) return
-    this.dirtyDocuments.add(documentId)
+  markItemDirty(itemId: ItemId) {
+    if (!itemId) return
+    this.dirtyItems.add(itemId)
     this.flushDirtyDocumentsToIndexDebounced()
   }
 
-  processIndexChangelog(indexDoc: AutomergeIndexDocument, itemIds: string[]) {
+  processIndexChangelog(indexDoc: AutomergeIndexDocument, itemIds: ItemId[]) {
     const { adapter } = this.getContext()
     if (!adapter) return
 
@@ -106,9 +107,10 @@ export class SnapshotManager {
       return
     }
 
-    const pendingPullItems: string[] = []
+    const pendingPullItems: ItemId[] = []
 
-    for (const [itemId, rawTimestamp] of Object.entries(lastModified)) {
+    for (const [key, rawTimestamp] of Object.entries(lastModified)) {
+      const itemId = key as ItemId
       if (!nextItemIdSet.has(itemId)) continue
       if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
       if (typeof rawTimestamp !== 'number' || !Number.isFinite(rawTimestamp)) continue
@@ -134,7 +136,7 @@ export class SnapshotManager {
     const { accountId } = this.getContext()
     if (!accountId) return
 
-    const dirtyItemIds = Array.from(this.dirtyDocuments).filter(
+    const dirtyItemIds = Array.from(this.dirtyItems).filter(
       itemId => itemId && itemId !== ACCOUNT_INDEX_DOCUMENT_ID,
     )
 
@@ -213,7 +215,7 @@ export class SnapshotManager {
 
   onOnlineStateChange(isOnline: boolean) {
     if (isOnline) {
-      if (this.snapshotRequestCursor !== null && this.dirtyDocuments.size > 0) {
+      if (this.snapshotRequestCursor !== null && this.dirtyItems.size > 0) {
         this.retryAttempt = 0
         if (this.retryTimeoutId !== null) {
           clearTimeout(this.retryTimeoutId)
@@ -232,7 +234,7 @@ export class SnapshotManager {
   private async preparePushContext(): Promise<{
     accountId: string
     authToken: string
-    dirtyItemIds: string[]
+    dirtyItemIds: ItemId[]
     snapshotCursor: number
   } | null> {
     if (this.snapshotRequestCursor === null) {
@@ -249,11 +251,11 @@ export class SnapshotManager {
       return null
     }
 
-    if (this.dirtyDocuments.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
-      this.dirtyDocuments.delete(ACCOUNT_INDEX_DOCUMENT_ID)
+    if (this.dirtyItems.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
+      this.dirtyItems.delete(ACCOUNT_INDEX_DOCUMENT_ID)
     }
 
-    const dirtyItemIds = Array.from(this.dirtyDocuments)
+    const dirtyItemIds = Array.from(this.dirtyItems)
     if (dirtyItemIds.length === 0) {
       this.snapshotRequestCursor = null
       return null
@@ -284,7 +286,7 @@ export class SnapshotManager {
 
       if (response?.success) {
         for (const snapshot of batch) {
-          this.dirtyDocuments.delete(snapshot.itemId)
+          this.dirtyItems.delete(snapshot.itemId)
         }
         return { success: true, persisted: response.persisted }
       }
@@ -298,7 +300,7 @@ export class SnapshotManager {
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
-    dirtyItemIds: string[]
+    dirtyItemIds: ItemId[]
     snapshotCursor: number
   }): Promise<{ persisted: number; total: number; success: boolean }> {
     const { accountId, authToken, dirtyItemIds, snapshotCursor } = context
@@ -383,7 +385,7 @@ export class SnapshotManager {
         this.snapshotRequestCursor = null
       }
 
-      if (success && this.dirtyDocuments.size === 0) {
+      if (success && this.dirtyItems.size === 0) {
         this.retryAttempt = 0
       }
 
@@ -395,7 +397,7 @@ export class SnapshotManager {
     } finally {
       this.snapshotPushInFlight = false
 
-      const hasDirtyDocs = this.dirtyDocuments.size > 0
+      const hasDirtyDocs = this.dirtyItems.size > 0
       const hasCursor = this.snapshotRequestCursor !== null
 
       if (!success && hasDirtyDocs && hasCursor) {
@@ -411,7 +413,7 @@ export class SnapshotManager {
     }
   }
 
-  private async buildSnapshot(itemId: string, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
+  private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
     const { repo, accountId } = this.getContext()
     if (!repo || !accountId) {
       return null
@@ -433,7 +435,7 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
 
-    if (this.dirtyDocuments.size > 0) {
+    if (this.dirtyItems.size > 0) {
       try {
         await this.flushDirtyDocumentsToIndex()
       } catch (error) {
@@ -449,7 +451,7 @@ export class SnapshotManager {
   clear() {
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
-    this.dirtyDocuments.clear()
+    this.dirtyItems.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
@@ -467,11 +469,11 @@ export class SnapshotManager {
     }
   }
 
-  exportLastModified(): [string, number][] {
+  exportLastModified(): [ItemId, number][] {
     return Array.from(this.lastModifiedByItemId.entries())
   }
 
-  async importLastModified(data: [string, number][]): Promise<void> {
+  async importLastModified(data: [ItemId, number][]): Promise<void> {
     if (!this.lastModifiedStore) return
     this.lastModifiedByItemId = new Map(data)
     await this.lastModifiedStore.setItem('lastModifiedByItemId', data)

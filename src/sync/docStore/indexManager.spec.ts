@@ -9,6 +9,7 @@ import {
   listAutomergeItemIds,
   AutomergeIndexDocument,
 } from './indexManager'
+import { ItemId } from 'src/shared/schemas/items'
 
 // Instantiate a single Ephemeral/In-Memory Repo for standard doc store testing
 const testRepo = new Repo()
@@ -32,28 +33,28 @@ describe('indexManager', () => {
 
   describe('Basic Add and Remove Operations', () => {
     it('should add item IDs to the index correctly', async () => {
-      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2'])
+      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2'] as ItemId[])
       const itemIds = await listAutomergeItemIds(accountId)
       expect(itemIds).toEqual(['item-1', 'item-2'])
     })
 
     it('should deduplicate item IDs upon insertion', async () => {
-      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2'])
-      await addAutomergeItemIdsToIndex(accountId, ['item-2', 'item-3'])
+      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2'] as ItemId[])
+      await addAutomergeItemIdsToIndex(accountId, ['item-2', 'item-3'] as ItemId[])
       const itemIds = await listAutomergeItemIds(accountId)
       expect(itemIds).toEqual(['item-1', 'item-2', 'item-3'])
     })
 
     it('should remove item IDs from the index correctly', async () => {
-      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2', 'item-3'])
-      await removeAutomergeItemIdsFromIndex(accountId, ['item-2'])
+      await addAutomergeItemIdsToIndex(accountId, ['item-1', 'item-2', 'item-3'] as ItemId[])
+      await removeAutomergeItemIdsFromIndex(accountId, ['item-2'] as ItemId[])
       const itemIds = await listAutomergeItemIds(accountId)
       expect(itemIds).toEqual(['item-1', 'item-3'])
     })
 
     it('should handle removing non-existent item IDs gracefully', async () => {
-      await addAutomergeItemIdsToIndex(accountId, ['item-1'])
-      await removeAutomergeItemIdsFromIndex(accountId, ['non-existent'])
+      await addAutomergeItemIdsToIndex(accountId, ['item-1'] as ItemId[])
+      await removeAutomergeItemIdsFromIndex(accountId, ['non-existent'] as ItemId[])
       const itemIds = await listAutomergeItemIds(accountId)
       expect(itemIds).toEqual(['item-1'])
     })
@@ -63,17 +64,17 @@ describe('indexManager', () => {
     it('PROVES OLD BEHAVIOR FAILED: full array reassignments lead to data loss on concurrent merge', () => {
       // 1. Establish base index document
       const baseDoc = Automerge.from<AutomergeIndexDocument>({
-        itemIds: ['item-base'],
+        itemIds: ['item-base'] as ItemId[],
       })
 
       // 2. Simulate Device A adding 'item-a' offline (OLD REASSIGNMENT METHOD)
       const docA = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
-        doc.itemIds = ['item-base', 'item-a']
+        doc.itemIds = ['item-base', 'item-a'] as ItemId[]
       })
 
       // 3. Simulate Device B adding 'item-b' offline (OLD REASSIGNMENT METHOD)
       const docB = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
-        doc.itemIds = ['item-base', 'item-b']
+        doc.itemIds = ['item-base', 'item-b'] as ItemId[]
       })
 
       // 4. Merge Devices A & B upon reconnection
@@ -81,23 +82,23 @@ describe('indexManager', () => {
 
       // 5. Automerge resolves this as a property conflict: pick one and discard the other
       expect(merged.itemIds?.length).toBe(2)
-      const hasA = merged.itemIds?.includes('item-a')
-      const hasB = merged.itemIds?.includes('item-b')
+      const hasA = merged.itemIds?.includes('item-a' as ItemId)
+      const hasB = merged.itemIds?.includes('item-b' as ItemId)
       expect(hasA !== hasB).toBe(true)
     })
 
     it('PROVES FIX WORKS: push-based in-place mutations correctly merge concurrent offline additions', () => {
       // 1. Establish base index document
       const baseDoc = Automerge.from<AutomergeIndexDocument>({
-        itemIds: ['item-base'],
+        itemIds: ['item-base'] as ItemId[],
       })
 
       // 2. Simulate Device A adding 'item-a' offline using our new push logic
       const docA = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
         if (!doc.itemIds) doc.itemIds = []
         const current = new Set(doc.itemIds)
-        if (!current.has('item-a')) {
-          doc.itemIds.push('item-a')
+        if (!current.has('item-a' as ItemId)) {
+          doc.itemIds.push('item-a' as ItemId)
         }
       })
 
@@ -105,8 +106,8 @@ describe('indexManager', () => {
       const docB = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
         if (!doc.itemIds) doc.itemIds = []
         const current = new Set(doc.itemIds)
-        if (!current.has('item-b')) {
-          doc.itemIds.push('item-b')
+        if (!current.has('item-b' as ItemId)) {
+          doc.itemIds.push('item-b' as ItemId)
         }
       })
 
@@ -123,7 +124,7 @@ describe('indexManager', () => {
     it('PROVES FIX WORKS: splice-based in-place mutations correctly merge concurrent offline deletions', () => {
       // 1. Establish base index document
       const baseDoc = Automerge.from<AutomergeIndexDocument>({
-        itemIds: ['item-1', 'item-2', 'item-3'],
+        itemIds: ['item-1', 'item-2', 'item-3'] as ItemId[],
       })
 
       // 2. Simulate Device A removing 'item-2' offline
@@ -158,15 +159,15 @@ describe('indexManager', () => {
     it('PROVES FIX WORKS: concurrent addition and deletion merge correctly', () => {
       // 1. Establish base index document
       const baseDoc = Automerge.from<AutomergeIndexDocument>({
-        itemIds: ['item-1', 'item-2'],
+        itemIds: ['item-1', 'item-2'] as ItemId[],
       })
 
       // 2. Simulate Device A adding 'item-3'
       const docA = Automerge.change<AutomergeIndexDocument>(Automerge.clone(baseDoc), doc => {
         if (!doc.itemIds) doc.itemIds = []
         const current = new Set(doc.itemIds)
-        if (!current.has('item-3')) {
-          doc.itemIds.push('item-3')
+        if (!current.has('item-3' as ItemId)) {
+          doc.itemIds.push('item-3' as ItemId)
         }
       })
 

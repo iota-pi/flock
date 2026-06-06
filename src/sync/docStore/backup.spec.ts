@@ -3,6 +3,7 @@ import { Repo } from '@automerge/automerge-repo/slim'
 import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
+  listAutomergeItemIds,
 } from './indexManager'
 import {
   exportAllBinaries,
@@ -12,9 +13,9 @@ import {
   getAutomergeItem,
   withAutomergeDocumentChange,
 } from './items'
-import { listAutomergeItemIds } from './indexManager'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import type { Item } from '../../state/items'
+import type { ItemId } from 'src/shared/schemas/items'
 
 
 const testRepo = new Repo()
@@ -37,7 +38,7 @@ describe('backup operations', () => {
 
   it('should export all binaries and restore them successfully', async () => {
     const item: Item = {
-      id: 'test-item-backup',
+      id: 'test-item-backup' as ItemId,
       type: 'person',
       name: 'Backup Prayer',
       description: 'A test prayer item for backup',

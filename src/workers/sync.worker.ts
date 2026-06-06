@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /// <reference lib="webworker" />
 import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
@@ -36,6 +35,7 @@ import { registerQuotaReporter } from './quotaReporter'
 import type { BackupSyncState } from '../types/backup'
 import { LeaderElection } from './utils/LeaderElection'
 import { ItemOperations } from './ItemOperations'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 export class SyncWorker implements SyncApi {
@@ -44,10 +44,10 @@ export class SyncWorker implements SyncApi {
   private callbacks: SyncCallbacks | null = null
   private isOnline = true
   private syncStatus: SyncStatus = 'idle'
-  private subscribedIds = new Set<string>()
+  private subscribedIds = new Set<ItemId>()
   private repo: Repo | null = null
   private leaderElection: LeaderElection | null = null
-  private changeListenersByItemId = new Map<string, () => void>()
+  private changeListenersByItemId = new Map<ItemId, () => void>()
   private deletionQueueManager: DeletionQueueManager
 
   private snapshotManager: SnapshotManager
@@ -87,7 +87,7 @@ export class SyncWorker implements SyncApi {
     this.itemOperations = new ItemOperations({
       getAccountId: () => this.accountId,
       getCallbacks: () => this.callbacks,
-      markDocumentDirty: (id) => this.markDocumentDirty(id),
+      markDocumentDirty: id => this.markDocumentDirty(id),
       getDeletionQueueManager: () => this.deletionQueueManager,
     })
   }
@@ -264,15 +264,15 @@ export class SyncWorker implements SyncApi {
     this.applyOnlineState(isOnline)
   }
 
-  private markDocumentDirty(documentId: string) {
-    this.snapshotManager.markDocumentDirty(documentId)
+  private markDocumentDirty(itemId: ItemId) {
+    this.snapshotManager.markItemDirty(itemId)
   }
 
   async bootstrapLegacyItems() {
     await this.legacyBootstrapper.bootstrapLegacyItems()
   }
 
-  private subscribeToItems(itemIds: string[]) {
+  private subscribeToItems(itemIds: ItemId[]) {
     if (!this.repo) return
 
     // Subscribe to new items
@@ -305,7 +305,7 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  private unsubscribe(itemId: string) {
+  private unsubscribe(itemId: ItemId) {
     if (!this.repo) return
 
     this.subscribedIds.delete(itemId)
@@ -321,7 +321,7 @@ export class SyncWorker implements SyncApi {
     }
   }
 
-  async mutateItem(mutationId: string, id: string, changes: Partial<Item>) {
+  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>) {
     await this.itemOperations.mutateItem(mutationId, id, changes)
   }
 
@@ -329,7 +329,7 @@ export class SyncWorker implements SyncApi {
     await this.itemOperations.createItem(item)
   }
 
-  async hardDeleteItems(itemIds: string[]) {
+  async hardDeleteItems(itemIds: ItemId[]) {
     await this.itemOperations.hardDeleteItems(itemIds)
   }
 
@@ -361,15 +361,15 @@ export class SyncWorker implements SyncApi {
     return await this.snapshotManager.pushSnapshots()
   }
 
-  async retryRecoveryItem(itemId: string) {
+  async retryRecoveryItem(itemId: ItemId) {
     await this.recoveryManager.retryRecoveryItem(itemId)
   }
 
-  async forceOverwriteRecoveryItem(itemId: string) {
+  async forceOverwriteRecoveryItem(itemId: ItemId) {
     await this.recoveryManager.forceOverwriteRecoveryItem(itemId)
   }
 
-  async forceDeleteRecoveryItem(itemId: string) {
+  async forceDeleteRecoveryItem(itemId: ItemId) {
     await this.recoveryManager.forceDeleteRecoveryItem(itemId)
   }
 
@@ -395,7 +395,7 @@ export class SyncWorker implements SyncApi {
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
       itemId,
       messages.map(encodeBytesToBase64)
-    ] as [string, string[]])
+    ] as [ItemId, string[]])
     const lastModified = this.snapshotManager.exportLastModified()
 
     return {
@@ -413,7 +413,7 @@ export class SyncWorker implements SyncApi {
       const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
         itemId,
         base64Msgs.map(decodeBase64ToBytes)
-      ] as [string, Uint8Array[]])
+      ] as [ItemId, Uint8Array[]])
       await restoreSyncBatch(this.accountId, decodedPendingSync)
     }
     if (state.lastModified) {

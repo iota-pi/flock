@@ -1,5 +1,5 @@
+import { ITEM_TYPES } from 'src/shared/schemas/items'
 import type { Item } from '../state/items'
-import { ITEM_TYPES } from '../shared/itemTypes'
 
 export function mutateDraftToMatchSnapshot<T>(
   draft: Record<string, T>,

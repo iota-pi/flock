@@ -52,7 +52,7 @@ export const accountsRouter = router({
           session: loginAuthTokenHash,
           isLogin: true,
         })
-      } catch (e) {
+      } catch (_) {
         throw new TRPCError({ code: 'UNAUTHORIZED' })
       }
 

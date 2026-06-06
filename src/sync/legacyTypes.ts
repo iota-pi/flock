@@ -1,4 +1,5 @@
-import type { ItemEnvelopeMetadata, ItemId } from '../shared/itemTypes'
+import type { ItemEnvelopeMetadata } from '../shared/itemTypes'
+import { ItemId } from 'src/shared/schemas/items'
 
 export type LegacyItemEnvelope = {
   item: ItemId,

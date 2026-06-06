@@ -1,4 +1,4 @@
-import type { Message, PeerId } from '@automerge/automerge-repo/slim'
+import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 
@@ -75,7 +75,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       type: 'sync',
       senderId: 'peer1' as PeerId,
       targetId: 'peer2' as PeerId,
-      documentId: 'doc1' as any,
+      documentId: 'doc1' as DocumentId,
       data: new Uint8Array([1, 2, 3]),
     }
 
@@ -83,7 +83,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       type: 'sync',
       senderId: 'peer1' as PeerId,
       targetId: 'peer2' as PeerId,
-      documentId: 'doc2' as any,
+      documentId: 'doc2' as DocumentId,
       data: new Uint8Array([4, 5]),
     }
 
@@ -143,7 +143,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       type: 'sync',
       senderId: 'peer2' as PeerId,
       targetId: 'peer1' as PeerId,
-      documentId: 'doc1' as any,
+      documentId: 'doc1' as DocumentId,
       data: encryptedData,
     }
 
@@ -172,7 +172,7 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       type: 'request',
       senderId: 'peer2' as PeerId,
       targetId: 'peer1' as PeerId,
-      documentId: 'doc1' as any,
+      documentId: 'doc1' as DocumentId,
     }
 
     innerMessageCallback(incomingMessage)

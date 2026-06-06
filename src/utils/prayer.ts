@@ -1,19 +1,19 @@
 import { frequencyToDays, frequencyToMilliseconds } from './frequencies'
 import { compareItems, filterArchived, Item } from '../state/items'
-import type { GroupItem } from '../shared/schemas/items'
+import type { GroupItem, ItemId } from '../shared/schemas/items'
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
 
 type PrayerCandidate = {
-  id: string
-  groupId: string
+  id: ItemId
+  groupId: ItemId
   groupShiftQuantum: number
   next: number
   stableOrder: number
 }
 
 type PrayerBucket = {
-  groupId: string
+  groupId: ItemId
   groupShiftQuantum: number
   selectedCount: number
   cursor: number
@@ -21,7 +21,7 @@ type PrayerBucket = {
 }
 
 type PrayerBucketHeapEntry = {
-  groupId: string
+  groupId: ItemId
   effectiveNext: number
   stableOrder: number
 }
@@ -149,10 +149,10 @@ function getGroups(items: Item[]): GroupItem[] {
   return items.filter((i): i is GroupItem => i.type === 'group')
 }
 
-export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
+export function buildPrayerFreqMap(items: Item[]): Map<ItemId, number> {
   const groups = getGroups(items)
 
-  const map: Map<string, number> = new Map()
+  const map: Map<ItemId, number> = new Map()
 
   // Initialise map with each person's own set frequency
   for (const it of items) {
@@ -186,7 +186,7 @@ export function buildPrayerFreqMap(items: Item[]): Map<string, number> {
 
 export function getActiveItems(
   items: Item[],
-  frequencies?: Map<string, number>,
+  frequencies?: Map<ItemId, number>,
 ): Item[] {
   const freqMap = frequencies ?? buildPrayerFreqMap(items)
   return items.filter(i => freqMap.has(i.id)).sort(compareItems)
@@ -220,13 +220,13 @@ export function getLastPrayedFor(
   return 0
 }
 
-export function getPrayerSchedule(items: Item[]): string[] {
+export function getPrayerSchedule(items: Item[]): ItemId[] {
   const unarchived = filterArchived(items)
   const freqMap = buildPrayerFreqMap(unarchived)
   const activeItems = getActiveItems(unarchived, freqMap)
   const groups = getGroups(unarchived)
 
-  const bestGroupByMemberId = new Map<string, GroupItem>()
+  const bestGroupByMemberId = new Map<ItemId, GroupItem>()
   for (const group of groups) {
     for (const memberId of group.members) {
       const currentBest = bestGroupByMemberId.get(memberId)
@@ -265,9 +265,9 @@ export function getPrayerSchedule(items: Item[]): string[] {
     }
   })
 
-  const schedule: string[] = []
+  const schedule: ItemId[] = []
 
-  const bucketByGroupId = new Map<string, PrayerBucket>()
+  const bucketByGroupId = new Map<ItemId, PrayerBucket>()
   for (const candidate of candidates) {
     const existing = bucketByGroupId.get(candidate.groupId)
     if (existing) {

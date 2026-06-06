@@ -1,13 +1,13 @@
 import Grid from '@mui/material/Grid'
 
 import NotesSection from 'src/components/NotesSection'
-import type { Note } from 'src/shared/schemas/items'
+import type { ItemId, Note } from 'src/shared/schemas/items'
 
 
 type ItemFormNotesSectionProps = {
   notes: Note[]
   onChange: (notes: Note[]) => void
-  itemId: string
+  itemId: ItemId
   disabled: boolean
 }
 

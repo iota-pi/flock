@@ -3,6 +3,7 @@ import { deleteItems, setMetadata, storeItems } from '../features/items/mutation
 import { SyncBridge } from '../sync/SyncBridge'
 import { setApiAuthToken } from './runtime'
 import { useDataStore } from '../state/dataStore'
+import { ItemId } from 'src/shared/schemas/items'
 
 const metadataState: Record<string, unknown> = {}
 
@@ -52,7 +53,7 @@ describe('local-first mutations', () => {
   })
 
   it('stores single-item snapshots', async () => {
-    const item = getBlankPerson('p1')
+    const item = getBlankPerson('p1' as ItemId)
 
     const result = await storeItems(item)
 
@@ -66,8 +67,8 @@ describe('local-first mutations', () => {
   })
 
   it('stores batch updates for all ids', async () => {
-    const first = getBlankPerson('p1')
-    const second = getBlankPerson('p2')
+    const first = getBlankPerson('p1' as ItemId)
+    const second = getBlankPerson('p2' as ItemId)
 
     await storeItems([first, second])
 
@@ -79,13 +80,13 @@ describe('local-first mutations', () => {
 
   it('deletes with group updates and tombstones', async () => {
     const group = {
-      ...getBlankGroup('g1', false),
+      ...getBlankGroup('g1' as ItemId, false),
       members: ['p1'],
     }
-    const person = getBlankPerson('p1', false)
+    const person = getBlankPerson('p1' as ItemId, false)
     useDataStore.setState({ items: { g1: group, p1: person } as any })
 
-    await deleteItems('p1')
+    await deleteItems('p1' as ItemId)
     expect(SyncBridge.storeItems).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ id: 'g1', members: [] }),
       expect.objectContaining({ id: 'p1', deleted: true }),

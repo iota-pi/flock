@@ -1,5 +1,6 @@
 import { DeletionQueueManager } from './deletionQueueManager'
 import * as deletionStore from '../sync/deletionQueueStore'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 // Mock deletion queue store functions
@@ -62,24 +63,24 @@ describe('DeletionQueueManager', () => {
   })
 
   it('schedules deletion on index change for removed items', async () => {
-    await manager.handleIndexChange(new Set(['item-1']), new Set(['item-1', 'item-2']))
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
     expect(deletionStore.scheduleDeletion).toHaveBeenCalledWith(accountId, 'item-2', 24 * 60 * 60 * 1000)
     expect(deletionStore.cancelDeletion).not.toHaveBeenCalled()
   })
 
   it('cancels scheduled deletion for reappearing items', async () => {
     // Schedule first
-    await manager.handleIndexChange(new Set(['item-1']), new Set(['item-1', 'item-2']))
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 
     // Now they reappear
-    await manager.handleIndexChange(new Set(['item-1', 'item-2']), new Set(['item-1']))
+    await manager.handleIndexChange(new Set(['item-1', 'item-2'] as ItemId[]), new Set(['item-1'] as ItemId[]))
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 
   it('processes queue and deletes expired items', async () => {
     manager.startTimer()
 
-    await manager.handleIndexChange(new Set(['item-1']), new Set(['item-1', 'item-2']))
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 
     // Advance 23 hours (not expired yet)
     await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000)
@@ -92,7 +93,7 @@ describe('DeletionQueueManager', () => {
   })
 
   it('does not delete item if it has reappeared during check', async () => {
-    await manager.handleIndexChange(new Set(['item-1']), new Set(['item-1', 'item-2']))
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 
     // Reappeared in index document
     mockGetIndexHandle.mockResolvedValue({
@@ -115,7 +116,7 @@ describe('DeletionQueueManager', () => {
   })
 
   it('cancels specific deletion', async () => {
-    await manager.cancelDeletion('item-1')
+    await manager.cancelDeletion('item-1' as ItemId)
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-1')
   })
 })

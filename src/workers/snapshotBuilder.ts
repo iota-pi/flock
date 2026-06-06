@@ -6,11 +6,12 @@ import { normalizeItemSnapshot } from '../sync/docStore'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import { encryptBytes } from '../api/vault'
 import { normalizeSnapshotType } from './utils'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 export async function buildSnapshot(
   repo: Repo,
-  itemId: string,
+  itemId: ItemId,
   snapshotCursor: number,
 ): Promise<VaultSnapshotInput | null> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)

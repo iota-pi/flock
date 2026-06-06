@@ -13,6 +13,7 @@ import {
   persistSyncMessages,
 } from './VaultPersistence'
 import { SyncPoller, type PollOutcome } from './SyncPoller'
+import type { ItemId } from 'src/shared/schemas/items'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -61,8 +62,8 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
         onStartRequest: () => this.onStartRequest?.(),
         onFinishRequest: () => this.onFinishRequest?.(),
         onSnapshotNeeded: (cursor, requestedAt) => this.onSnapshotNeeded?.(cursor, requestedAt),
-        onAuthFailure: (msg) => this.onAuthFailure?.(msg),
-        onPollResult: (outcome) => this.onPollResult?.(outcome),
+        onAuthFailure: msg => this.onAuthFailure?.(msg),
+        onPollResult: outcome => this.onPollResult?.(outcome),
       },
       () => this.persistPendingWrites()
     )
@@ -205,7 +206,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.syncPoller.flush()
   }
 
-  queuePendingPullItems(itemIds: string[]): void {
+  queuePendingPullItems(itemIds: ItemId[]): void {
     if (!itemIds || itemIds.length === 0) return
     for (const itemId of itemIds) {
       this.pullQueueManager.addPendingItem(itemId)
@@ -213,19 +214,11 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.flush()
   }
 
-  // Exposed for testing
-  async executePoll(): Promise<PollOutcome> {
-    (this.syncPoller as any).isOnline = this.isOnline;
-    (this.syncPoller as any).isLeader = this.isLeader;
-    (this.syncPoller as any).account = this.account;
-    return (this.syncPoller as any).executePoll()
-  }
-
-  exportCursors(): [string, number][] {
+  exportCursors(): [ItemId, number][] {
     return this.pullQueueManager.exportCursors()
   }
 
-  async importCursors(cursors: [string, number][]): Promise<void> {
+  async importCursors(cursors: [ItemId, number][]): Promise<void> {
     await this.pullQueueManager.importCursors(cursors)
   }
 

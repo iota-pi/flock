@@ -2,6 +2,7 @@ import DynamoDriver, { getConnectionParams } from './dynamo'
 import { generateItemId } from '../../utils'
 import { generateAccountId } from '../util'
 import type { ItemType } from 'src/shared/itemTypes'
+import { ItemId } from 'src/shared/schemas/items'
 
 const driver = new DynamoDriver()
 describe('DynamoDriver', function () {
@@ -294,7 +295,7 @@ describe('DynamoDriver', function () {
 
   it('can append, push, get, and prune sync messages', async () => {
     const account = generateAccountId()
-    const itemId = 'test-item-123'
+    const itemId = 'test-item-123' as ItemId
     const entry1 = {
       cursor: 1001,
       encryptedMessage: { iv: 'iv1', cipher: 'cipher1' },

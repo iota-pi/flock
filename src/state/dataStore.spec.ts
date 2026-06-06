@@ -1,3 +1,4 @@
+import { ItemId } from 'src/shared/schemas/items'
 import { useDataStore } from './dataStore'
 
 describe('dataStore', () => {
@@ -36,7 +37,7 @@ describe('dataStore', () => {
     useDataStore.getState().updateItemsFromServer([
       { id: 'item1', item: { id: 'item1', type: 'person' } as any }
     ])
-    useDataStore.getState().updateIndexFromServer(['item1'])
+    useDataStore.getState().updateIndexFromServer(['item1'] as ItemId[])
     expect(useDataStore.getState().status).toBe('ready')
   })
 
@@ -46,7 +47,7 @@ describe('dataStore', () => {
   })
 
   it('should transition to ready via fallback timeout if items are missing', () => {
-    useDataStore.getState().updateIndexFromServer(['item1', 'item2'])
+    useDataStore.getState().updateIndexFromServer(['item1', 'item2'] as ItemId[])
     expect(useDataStore.getState().status).toBe('initializing')
 
     // Fast-forward time
@@ -55,7 +56,7 @@ describe('dataStore', () => {
   })
 
   it('should reset state correctly', () => {
-    useDataStore.getState().updateIndexFromServer(['item1'])
+    useDataStore.getState().updateIndexFromServer(['item1'] as ItemId[])
     useDataStore.getState().updateItemsFromServer([
       { id: 'item1', item: { id: 'item1', type: 'person' } as any }
     ])

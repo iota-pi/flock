@@ -10,6 +10,7 @@ import {
   withAutomergeDocumentChange,
 } from '../sync/docStore'
 import { mutateDraftToMatchSnapshot } from './utils'
+import { ItemId } from 'src/shared/schemas/items'
 
 export class RecoveryManager {
   constructor(
@@ -31,14 +32,14 @@ export class RecoveryManager {
     }
   }
 
-  async retryRecoveryItem(itemId: string) {
+  async retryRecoveryItem(itemId: ItemId) {
     const { accountId } = this.getContext()
     if (!accountId) return
     await removeManualRecoveryEntryByItemId(accountId, itemId)
     await this.pushRecoveryItems()
   }
 
-  async forceOverwriteRecoveryItem(itemId: string) {
+  async forceOverwriteRecoveryItem(itemId: ItemId) {
     const { accountId } = this.getContext()
     if (!accountId) return
 
@@ -71,7 +72,7 @@ export class RecoveryManager {
     await this.pushRecoveryItems()
   }
 
-  async forceDeleteRecoveryItem(itemId: string) {
+  async forceDeleteRecoveryItem(itemId: ItemId) {
     const { accountId } = this.getContext()
     if (!accountId) return
 

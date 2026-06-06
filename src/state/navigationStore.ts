@@ -1,6 +1,8 @@
 import { create } from 'zustand'
+
 import { generateItemId } from '../utils'
-import type { ItemId } from '../shared/itemTypes'
+import { ItemId } from 'src/shared/schemas/items'
+
 
 export interface DrawerData {
   id: string

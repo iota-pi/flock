@@ -5,6 +5,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
+import { ItemId } from 'src/shared/schemas/items'
 
 // Create a robust MockLocalforage helper class
 class MockLocalforage {
@@ -68,7 +69,7 @@ vi.mock('./automergeRepoIds', async importOriginal => {
   const actual = await importOriginal<typeof import('./automergeRepoIds')>()
   return {
     ...actual,
-    toAutomergeUrlFromItemId: (itemId: string) => {
+    toAutomergeUrlFromItemId: (itemId: ItemId) => {
       if (itemId === 'item-throw-error') {
         throw new Error('Failed to resolve URL')
       }
@@ -103,7 +104,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('clears maps and ignores store loading if account is null', async () => {
-      manager.addPendingItem('item-1')
+      manager.addPendingItem('item-1' as ItemId)
       await manager.setAccount(null)
       expect(manager.hasPendingPulls()).toBe(false)
       expect(activeStore).toBeNull()
@@ -127,8 +128,8 @@ describe('SyncPullQueueManager', () => {
     it('manages pending items correctly', async () => {
       expect(manager.hasPendingPulls()).toBe(false)
 
-      manager.addPendingItem('item-1')
-      manager.addPendingItem('') // should be ignored
+      manager.addPendingItem('item-1' as ItemId)
+      manager.addPendingItem('' as ItemId) // should be ignored
 
       expect(manager.hasPendingPulls()).toBe(true)
 
@@ -152,8 +153,8 @@ describe('SyncPullQueueManager', () => {
 
       // Let's add multiple cursors to internal state
       manager.processPushResults([
-        { itemId: 'item-1', cursor: 10 },
-        { itemId: 'item-2', cursor: 20 },
+        { itemId: 'item-1' as ItemId, cursor: 10 },
+        { itemId: 'item-2' as ItemId, cursor: 20 },
       ])
 
       // Since none are pending, only account index doc should be returned
@@ -161,7 +162,7 @@ describe('SyncPullQueueManager', () => {
       expect(cursors).toHaveLength(1)
 
       // Add item-1 as pending
-      manager.addPendingItem('item-1')
+      manager.addPendingItem('item-1' as ItemId)
       cursors = manager.getAllCursors()
 
       expect(cursors).toHaveLength(2)
@@ -183,7 +184,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-1',
+          itemId: 'item-1' as ItemId,
           hasMore: false,
           nextCursor: 5,
           messages: [
@@ -200,7 +201,9 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1'))
+      const expectedDocId = interpretAsDocumentId(
+        toAutomergeUrlFromItemId('item-1' as ItemId)
+      )
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-1',
         expectedDocId,
@@ -240,7 +243,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-2',
+          itemId: 'item-2' as ItemId,
           hasMore: true, // Should mark as pending
           nextCursor: 15,
           messages: [
@@ -258,7 +261,9 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-2'))
+      const expectedDocId = interpretAsDocumentId(
+        toAutomergeUrlFromItemId('item-2' as ItemId)
+      )
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -283,7 +288,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-fail',
+          itemId: 'item-fail' as ItemId,
           hasMore: false,
           nextCursor: 20,
           messages: [
@@ -316,7 +321,7 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults([
         {
           success: true,
-          itemId: 'item-x',
+          itemId: 'item-x' as ItemId,
           hasMore: true,
           nextCursor: 100,
           messages: [],
@@ -328,7 +333,7 @@ describe('SyncPullQueueManager', () => {
       await manager.processPullResults([
         {
           success: true,
-          itemId: 'item-x',
+          itemId: 'item-x' as ItemId,
           hasMore: false,
           nextCursor: 105,
           messages: [],
@@ -365,7 +370,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-batch-error',
+          itemId: 'item-batch-error' as ItemId,
           hasMore: false,
           nextCursor: 15,
           messages: [
@@ -383,7 +388,9 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-batch-error'))
+      const expectedDocId = interpretAsDocumentId(
+        toAutomergeUrlFromItemId('item-batch-error' as ItemId)
+      )
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(2)
       expect(onMessageParsedSpy).toHaveBeenNthCalledWith(
         1,
@@ -412,7 +419,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-1',
+          itemId: 'item-1' as ItemId,
           hasMore: false,
           nextCursor: 5,
           messages: [
@@ -440,7 +447,7 @@ describe('SyncPullQueueManager', () => {
       const pullResults: PullSyncMessagesResponse[] = [
         {
           success: true,
-          itemId: 'item-throw-error',
+          itemId: 'item-throw-error' as ItemId,
           hasMore: false,
           nextCursor: 10,
           messages: [
@@ -455,7 +462,7 @@ describe('SyncPullQueueManager', () => {
         },
         {
           success: true,
-          itemId: 'item-success',
+          itemId: 'item-success' as ItemId,
           hasMore: false,
           nextCursor: 20,
           messages: [
@@ -472,7 +479,7 @@ describe('SyncPullQueueManager', () => {
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
 
-      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-success'))
+      const expectedDocId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-success' as ItemId))
       expect(onMessageParsedSpy).toHaveBeenCalledWith(
         'item-success',
         expectedDocId,
@@ -490,16 +497,16 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('updates cursor only if higher and clears matching pending pull', async () => {
-      manager.addPendingItem('item-y')
+      manager.addPendingItem('item-y' as ItemId)
 
       // Push results with higher cursor
-      manager.processPushResults([{ itemId: 'item-y', cursor: 50 }])
+      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 50 }])
 
       expect(manager.exportCursors()).toContainEqual(['item-y', 50])
       expect(manager.hasPendingPulls()).toBe(false) // should delete item-y from pending
 
       // Push results with lower cursor (should be ignored)
-      manager.processPushResults([{ itemId: 'item-y', cursor: 40 }])
+      manager.processPushResults([{ itemId: 'item-y' as ItemId, cursor: 40 }])
       expect(manager.exportCursors()).toContainEqual(['item-y', 50])
     })
   })
@@ -513,7 +520,7 @@ describe('SyncPullQueueManager', () => {
       const error = new DOMException('Quota Exceeded', 'QuotaExceededError')
       activeStore!.setItem.mockRejectedValueOnce(error)
 
-      manager.processPushResults([{ itemId: 'item-quota', cursor: 5 }])
+      manager.processPushResults([{ itemId: 'item-quota' as ItemId, cursor: 5 }])
 
       // Trigger immediate persist instead of debounced
       await expect(manager.persistCursors()).resolves.toBeUndefined()
@@ -521,7 +528,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('persists cursors on shutdown and cancels debounced timer', async () => {
-      manager.processPushResults([{ itemId: 'item-z', cursor: 500 }])
+      manager.processPushResults([{ itemId: 'item-z' as ItemId, cursor: 500 }])
       await manager.shutdown()
 
       expect(activeStore?.setItem).toHaveBeenCalledWith('cursorByItemId', expect.any(Array))
@@ -531,7 +538,7 @@ describe('SyncPullQueueManager', () => {
   describe('importCursors', () => {
     it('stores imported cursors to cursorStore', async () => {
       await manager.setAccount('account-import')
-      const imported: [string, number][] = [['item-abc', 77]]
+      const imported: [ItemId, number][] = [['item-abc' as ItemId, 77]]
 
       await manager.importCursors(imported)
       expect(manager.exportCursors()).toEqual(imported)
