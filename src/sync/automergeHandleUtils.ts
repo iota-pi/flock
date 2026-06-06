@@ -1,23 +1,24 @@
-import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
+import type { AutomergeUrl, DocHandle, Repo } from '@automerge/automerge-repo/slim'
+import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import { isPlainObject } from './utils/objectUtils'
 
-
-type RepoWithProgress = {
-  findWithProgress: <TDoc extends object>(documentUrl: AutomergeUrl) => {
-    handle: DocHandle<TDoc> | undefined
-  }
-}
 
 type HandleWithDoneLoading<TDoc extends object> = DocHandle<TDoc> & {
   doneLoading?: () => void
 }
 
 export function findRepoDocHandle<TDoc extends object>(
-  repo: RepoWithProgress,
+  repo: Repo,
   documentUrl: AutomergeUrl,
 ): DocHandle<TDoc> | undefined {
   try {
-    return repo.findWithProgress<TDoc>(documentUrl).handle as DocHandle<TDoc> | undefined
+    const documentId = interpretAsDocumentId(documentUrl)
+    if (!repo.handles[documentId]) {
+      repo.find<TDoc>(documentUrl).catch(() => {
+        // Swallowed: we only want to trigger the background load and cache population
+      })
+    }
+    return repo.handles[documentId] as DocHandle<TDoc> | undefined
   } catch {
     return undefined
   }

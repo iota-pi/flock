@@ -4,7 +4,8 @@ import {
   awaitHandleReadyIfNeeded,
   readReadyObjectSnapshot,
 } from './automergeHandleUtils'
-import type { AutomergeUrl, DocHandle } from '@automerge/automerge-repo/slim'
+import type { DocHandle } from '@automerge/automerge-repo/slim'
+import { AutomergeUrl, generateAutomergeUrl, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 
 describe('automergeHandleUtils', () => {
   function createMockHandle(overrides: Record<string, any> = {}) {
@@ -19,26 +20,50 @@ describe('automergeHandleUtils', () => {
   }
 
   describe('findRepoDocHandle', () => {
-    it('returns the handle if findWithProgress succeeds', () => {
+    it('returns the handle if already in handles cache', () => {
       const mockHandle = createMockHandle()
+      const url = generateAutomergeUrl()
+      const documentId = interpretAsDocumentId(url)
       const mockRepo = {
-        findWithProgress: vi.fn().mockReturnValue({ handle: mockHandle }),
+        handles: {
+          [documentId]: mockHandle,
+        },
+        find: vi.fn(),
       }
 
-      const result = findRepoDocHandle(mockRepo, 'automerge:123' as AutomergeUrl)
+      const result = findRepoDocHandle(mockRepo as any, url)
       expect(result).toBe(mockHandle)
-      expect(mockRepo.findWithProgress).toHaveBeenCalledWith('automerge:123')
+      expect(mockRepo.find).not.toHaveBeenCalled()
     })
 
-    it('returns undefined if findWithProgress throws', () => {
+    it('triggers repo.find and returns the handle if not in handles cache', () => {
+      const mockHandle = createMockHandle()
+      const url = generateAutomergeUrl()
+      const documentId = interpretAsDocumentId(url)
       const mockRepo = {
-        findWithProgress: vi.fn().mockImplementation(() => {
+        handles: {} as Record<string, any>,
+        find: vi.fn().mockImplementation((targetUrl) => {
+          mockRepo.handles[documentId] = mockHandle
+          return Promise.resolve(mockHandle)
+        }),
+      }
+
+      const result = findRepoDocHandle(mockRepo as any, url)
+      expect(result).toBe(mockHandle)
+      expect(mockRepo.find).toHaveBeenCalledWith(url)
+    })
+
+    it('returns undefined if interpretAsDocumentId or find throws', () => {
+      const mockRepo = {
+        handles: {},
+        find: vi.fn().mockImplementation(() => {
           throw new Error('Repo error')
         }),
       }
 
-      const result = findRepoDocHandle(mockRepo, 'automerge:123' as AutomergeUrl)
-      expect(result).toBeUndefined()
+      // Invalid Automerge URL will cause interpretAsDocumentId to throw
+      const resultInvalid = findRepoDocHandle(mockRepo as any, 'invalid-url' as AutomergeUrl)
+      expect(resultInvalid).toBeUndefined()
     })
   })
 
