@@ -21,13 +21,19 @@ describe('VaultPersistence', () => {
     vi.resetModules()
     vi.clearAllMocks()
 
-    const { syncBatchStorage, resetQuotaExceededStatus } = await import('./VaultPersistence')
-    await syncBatchStorage.clear()
+    const { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } = await import('./VaultPersistence')
+    clearInstancesCacheForTesting()
     resetQuotaExceededStatus()
+
+    // Clear stores for test accounts to avoid state pollution
+    const accounts = ['acc-1', 'acc-2', 'acc-3', 'acc-4', 'acc-5', 'acc-6', 'acc-7', 'acc-8', 'acc-other']
+    for (const acc of accounts) {
+      await getSyncBatchStorage(acc).clear()
+    }
   })
 
   it('persists sync messages and updates storage', async () => {
-    const { persistSyncMessages, syncBatchStorage } = await import('./VaultPersistence')
+    const { persistSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const writes = new Map<string, Uint8Array[]>()
     writes.set('item-1', [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5])])
@@ -39,8 +45,9 @@ describe('VaultPersistence', () => {
     expect(writes.size).toBe(0)
 
     // Read stored items directly from syncBatchStorage
-    const stored1 = await syncBatchStorage.getItem<Uint8Array[]>('acc-1:item-1')
-    const stored2 = await syncBatchStorage.getItem<Uint8Array[]>('acc-1:item-2')
+    const storage = getSyncBatchStorage('acc-1')
+    const stored1 = await storage.getItem<Uint8Array[]>('item-1')
+    const stored2 = await storage.getItem<Uint8Array[]>('item-2')
 
     expect(stored1).toBeDefined()
     expect(stored1).toHaveLength(2)
@@ -53,7 +60,7 @@ describe('VaultPersistence', () => {
   })
 
   it('bounds messages per item to MAX_MESSAGES_PER_ITEM = 2000', async () => {
-    const { persistSyncMessages, syncBatchStorage } = await import('./VaultPersistence')
+    const { persistSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const list: Uint8Array[] = []
     for (let i = 0; i < 2010; i++) {
@@ -69,7 +76,8 @@ describe('VaultPersistence', () => {
 
     expect(consoleWarnSpy).toHaveBeenCalled()
 
-    const stored = await syncBatchStorage.getItem<Uint8Array[]>('acc-2:item-1')
+    const storage = getSyncBatchStorage('acc-2')
+    const stored = await storage.getItem<Uint8Array[]>('item-1')
     expect(stored).toHaveLength(2000)
     // The stored items should be the latest 2000 ones (index 10 to 2009)
     expect(stored![0][0]).toBe(10)
@@ -79,11 +87,12 @@ describe('VaultPersistence', () => {
   })
 
   it('handles quota errors in persistSyncMessages by reporting and retaining in map', async () => {
-    const { persistSyncMessages, syncBatchStorage } = await import('./VaultPersistence')
+    const { persistSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
+    const storage = getSyncBatchStorage('acc-3')
     // Spy on setItem and make it throw a Quota Exceeded error
     const quotaError = new DOMException('quota exceeded', 'QuotaExceededError')
-    const setItemSpy = vi.spyOn(syncBatchStorage, 'setItem').mockRejectedValue(quotaError)
+    const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValue(quotaError)
 
     const writes = new Map<string, Uint8Array[]>()
     const msg1 = new Uint8Array([1, 2])
@@ -109,16 +118,18 @@ describe('VaultPersistence', () => {
   })
 
   it('loads sync batch and normalizes arrays to Uint8Array', async () => {
-    const { loadSyncBatch, syncBatchStorage } = await import('./VaultPersistence')
+    const { loadSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
     // Write a serialized/raw object representation to storage (sometimes localforage/IndexedDB stores objects instead of Uint8Array directly)
     // Here we store a mix of real Uint8Array, serialized object/array, and invalid data
     const rawObj = { 0: 10, 1: 20, 2: 30 }
 
-    await syncBatchStorage.setItem('acc-4:item-normal', [new Uint8Array([1, 2])])
-    await syncBatchStorage.setItem('acc-4:item-obj', [rawObj])
-    await syncBatchStorage.setItem('acc-4:item-invalid', [null, undefined])
-    await syncBatchStorage.setItem('acc-other:item-ignored', [new Uint8Array([99])])
+    const storage = getSyncBatchStorage('acc-4')
+    const otherStorage = getSyncBatchStorage('acc-other')
+    await storage.setItem('item-normal', [new Uint8Array([1, 2])])
+    await storage.setItem('item-obj', [rawObj])
+    await storage.setItem('item-invalid', [null, undefined])
+    await otherStorage.setItem('item-ignored', [new Uint8Array([99])])
 
     const batch = await loadSyncBatch('acc-4')
     expect(batch).toHaveLength(3)
@@ -144,9 +155,10 @@ describe('VaultPersistence', () => {
   })
 
   it('removes sent messages or slices them properly', async () => {
-    const { removeSentSyncMessages, syncBatchStorage } = await import('./VaultPersistence')
+    const { removeSentSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
-    await syncBatchStorage.setItem('acc-5:item-1', [
+    const storage = getSyncBatchStorage('acc-5')
+    await storage.setItem('item-1', [
       new Uint8Array([1]),
       new Uint8Array([2]),
       new Uint8Array([3]),
@@ -158,7 +170,7 @@ describe('VaultPersistence', () => {
     ]
     await removeSentSyncMessages('acc-5', chunkEntry1)
 
-    let stored = await syncBatchStorage.getItem<Uint8Array[]>('acc-5:item-1')
+    let stored = await storage.getItem<Uint8Array[]>('item-1')
     expect(stored).toHaveLength(1)
     expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([3])
 
@@ -168,28 +180,31 @@ describe('VaultPersistence', () => {
     ]
     await removeSentSyncMessages('acc-5', chunkEntry2)
 
-    stored = await syncBatchStorage.getItem<Uint8Array[]>('acc-5:item-1')
+    stored = await storage.getItem<Uint8Array[]>('item-1')
     expect(stored).toBeNull()
   })
 
   it('clears sync batch for a specific account', async () => {
-    const { clearSyncBatch, syncBatchStorage } = await import('./VaultPersistence')
+    const { clearSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
-    await syncBatchStorage.setItem('acc-6:item-1', [new Uint8Array([1])])
-    await syncBatchStorage.setItem('acc-6:item-2', [new Uint8Array([2])])
-    await syncBatchStorage.setItem('acc-7:item-3', [new Uint8Array([3])]) // other account
+    const storage6 = getSyncBatchStorage('acc-6')
+    const storage7 = getSyncBatchStorage('acc-7')
+    await storage6.setItem('item-1', [new Uint8Array([1])])
+    await storage6.setItem('item-2', [new Uint8Array([2])])
+    await storage7.setItem('item-3', [new Uint8Array([3])]) // other account
 
     await clearSyncBatch('acc-6')
 
-    expect(await syncBatchStorage.getItem('acc-6:item-1')).toBeNull()
-    expect(await syncBatchStorage.getItem('acc-6:item-2')).toBeNull()
-    expect(await syncBatchStorage.getItem('acc-7:item-3')).not.toBeNull()
+    expect(await storage6.getItem('item-1')).toBeNull()
+    expect(await storage6.getItem('item-2')).toBeNull()
+    expect(await storage7.getItem('item-3')).not.toBeNull()
   })
 
   it('restores sync batch', async () => {
-    const { restoreSyncBatch, syncBatchStorage } = await import('./VaultPersistence')
+    const { restoreSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
-    await syncBatchStorage.setItem('acc-8:item-old', [new Uint8Array([9])])
+    const storage = getSyncBatchStorage('acc-8')
+    await storage.setItem('item-old', [new Uint8Array([9])])
 
     const pendingSync: [string, Uint8Array[]][] = [
       ['item-1', [new Uint8Array([1])]],
@@ -199,11 +214,11 @@ describe('VaultPersistence', () => {
     await restoreSyncBatch('acc-8', pendingSync)
 
     // Old entries should be cleared
-    expect(await syncBatchStorage.getItem('acc-8:item-old')).toBeNull()
+    expect(await storage.getItem('item-old')).toBeNull()
 
     // New entries should be stored
-    const stored1 = await syncBatchStorage.getItem<Uint8Array[]>('acc-8:item-1')
-    const stored2 = await syncBatchStorage.getItem<Uint8Array[]>('acc-8:item-2')
+    const stored1 = await storage.getItem<Uint8Array[]>('item-1')
+    const stored2 = await storage.getItem<Uint8Array[]>('item-2')
 
     expect(stored1).toHaveLength(1)
     expect(stored2).toHaveLength(2)

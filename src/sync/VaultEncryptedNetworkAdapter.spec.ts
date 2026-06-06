@@ -1,7 +1,7 @@
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { syncBatchStorage, resetQuotaExceededStatus } from './VaultPersistence'
+import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from './VaultPersistence'
 import { registerQuotaReporter } from '../workers/quotaReporter'
 
 
@@ -34,7 +34,15 @@ describe('VaultEncryptedNetworkAdapter', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    await syncBatchStorage.clear()
+    clearInstancesCacheForTesting()
+    resetQuotaExceededStatus()
+
+    // Clear stores for test accounts to avoid state pollution
+    const accounts = ['account-queues', 'account-bounds', 'account-chunking', 'account-concurrent', 'account-fails', 'test-account']
+    for (const acc of accounts) {
+      await getSyncBatchStorage(acc).clear()
+    }
+
     adapter = new VaultEncryptedNetworkAdapter()
     // Keep offline by default to avoid automatic background runs in static tests
     adapter.setOnlineState(false)
@@ -65,7 +73,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
     // Await flush/persistence by advancing fake timers
     await vi.advanceTimersByTimeAsync(50)
 
-    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    const storage = getSyncBatchStorage(accountId)
+    const stored: Uint8Array[] | null = await storage.getItem('item-1')
     expect(stored).toBeDefined()
     expect(stored).toHaveLength(1)
 
@@ -93,7 +102,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    const storage = getSyncBatchStorage(accountId)
+    const stored: Uint8Array[] | null = await storage.getItem('item-1')
     expect(stored).toBeDefined()
     expect(stored).toHaveLength(2000)
 
@@ -144,8 +154,9 @@ describe('VaultEncryptedNetworkAdapter', () => {
     expect(call2.pushMessages).toHaveLength(2)
 
     // Verify all items were transactionally cleaned from IndexedDB
+    const storage = getSyncBatchStorage(accountId)
     for (let i = 1; i <= 7; i++) {
-      const stored = await syncBatchStorage.getItem(`${accountId}:item-${i}`)
+      const stored = await storage.getItem(`item-${i}`)
       expect(stored).toBeNull()
     }
   })
@@ -199,7 +210,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
     ;(adapter as any).isOnline = false
 
     // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
-    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    const storage = getSyncBatchStorage(accountId)
+    const stored: Uint8Array[] | null = await storage.getItem('item-1')
     expect(stored).toBeDefined()
     expect(stored).toHaveLength(2)
 
@@ -240,7 +252,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
     ;(adapter as any).isOnline = false
 
     // Message must still exist in IndexedDB due to failure
-    const stored: Uint8Array[] | null = await syncBatchStorage.getItem(`${accountId}:item-1`)
+    const storage = getSyncBatchStorage(accountId)
+    const stored: Uint8Array[] | null = await storage.getItem('item-1')
     expect(stored).toBeDefined()
     expect(stored).toHaveLength(1)
 
@@ -257,7 +270,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 
-    const setItemSpy = vi.spyOn(syncBatchStorage, 'setItem').mockRejectedValue(
+    const storage = getSyncBatchStorage('test-account')
+    const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValue(
       new DOMException('Quota exceeded', 'QuotaExceededError')
     )
 
@@ -343,4 +357,3 @@ describe('VaultEncryptedNetworkAdapter', () => {
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
   })
 })
-

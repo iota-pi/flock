@@ -2,10 +2,23 @@ import localforage from 'localforage'
 import { isQuotaError } from 'src/utils/storageQuota'
 import { reportQuotaExceeded } from '../workers/quotaReporter'
 
-export const syncBatchStorage = localforage.createInstance({
-  name: 'FlockVault_SyncBatchDB',
-  storeName: 'sync-batch-messages',
-})
+const storageInstances = new Map<string, LocalForage>()
+
+export function getSyncBatchStorage(accountId: string): LocalForage {
+  let instance = storageInstances.get(accountId)
+  if (!instance) {
+    instance = localforage.createInstance({
+      name: `FlockVault_SyncBatchDB_${accountId}`,
+      storeName: 'sync-batch-messages',
+    })
+    storageInstances.set(accountId, instance)
+  }
+  return instance
+}
+
+export function clearInstancesCacheForTesting(): void {
+  storageInstances.clear()
+}
 
 let isQuotaExceeded = false
 
@@ -19,6 +32,7 @@ const writeQueues = new Map<string, Promise<unknown>>()
 
 /**
  * Serializes database write operations on a per-key basis to prevent concurrent write corruption.
+ * The queue key uses compound `${account}:${itemId}` to avoid cross-account serialization collisions.
  */
 function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = writeQueues.get(key) || Promise.resolve()
@@ -58,11 +72,13 @@ export async function persistSyncMessages(
   const entries = Array.from(writes.entries())
   writes.clear()
 
+  const storage = getSyncBatchStorage(account)
+
   const promises = entries.map(([itemId, newMessages]) => {
-    const key = `${account}:${itemId}`
-    return enqueue(key, async () => {
+    const queueKey = `${account}:${itemId}`
+    return enqueue(queueKey, async () => {
       try {
-        const existing: Uint8Array[] | null = await syncBatchStorage.getItem(key)
+        const existing: Uint8Array[] | null = await storage.getItem(itemId)
         const combined = existing ? [...existing, ...newMessages] : newMessages
 
         let bounded = combined
@@ -73,7 +89,7 @@ export async function persistSyncMessages(
           bounded = combined.slice(-MAX_MESSAGES_PER_ITEM)
         }
 
-        await syncBatchStorage.setItem(key, bounded)
+        await storage.setItem(itemId, bounded)
       } catch (err) {
         console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
         if (isQuotaError(err)) {
@@ -96,25 +112,23 @@ export async function persistSyncMessages(
  */
 export async function loadSyncBatch(account: string): Promise<[string, Uint8Array[]][]> {
   const batchEntries: [string, Uint8Array[]][] = []
+  const storage = getSyncBatchStorage(account)
   try {
-    await syncBatchStorage.iterate<(Uint8Array | object)[], void>((value, key) => {
-      if (key.startsWith(`${account}:`)) {
-        const itemId = key.slice(account.length + 1)
-        if (value && value.length > 0) {
-          const normalized = value.map(m => {
-            if (m instanceof Uint8Array) {
-              return m
-            }
-            if (m && typeof m === 'object') {
-              const rawObj = m as { [index: number]: number, length: number }
-              const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
-              const arr = Array.from({ ...rawObj, length }) as number[]
-              return new Uint8Array(arr)
-            }
-            return new Uint8Array()
-          })
-          batchEntries.push([itemId, normalized])
-        }
+    await storage.iterate<(Uint8Array | object)[], void>((value, itemId) => {
+      if (value && value.length > 0) {
+        const normalized = value.map(m => {
+          if (m instanceof Uint8Array) {
+            return m
+          }
+          if (m && typeof m === 'object') {
+            const rawObj = m as { [index: number]: number, length: number }
+            const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
+            const arr = Array.from({ ...rawObj, length }) as number[]
+            return new Uint8Array(arr)
+          }
+          return new Uint8Array()
+        })
+        batchEntries.push([itemId, normalized])
       }
     })
   } catch (err) {
@@ -131,18 +145,19 @@ export async function removeSentSyncMessages(
   account: string,
   chunkEntry: [string, Uint8Array[]][]
 ): Promise<void> {
+  const storage = getSyncBatchStorage(account)
   const promises = chunkEntry.map(([itemId, sentMessages]) => {
-    const key = `${account}:${itemId}`
+    const queueKey = `${account}:${itemId}`
     const numSent = sentMessages.length
-    return enqueue(key, async () => {
+    return enqueue(queueKey, async () => {
       try {
-        const current: Uint8Array[] | null = await syncBatchStorage.getItem(key)
+        const current: Uint8Array[] | null = await storage.getItem(itemId)
         if (current) {
           const remaining = current.slice(numSent)
           if (remaining.length > 0) {
-            await syncBatchStorage.setItem(key, remaining)
+            await storage.setItem(itemId, remaining)
           } else {
-            await syncBatchStorage.removeItem(key)
+            await storage.removeItem(itemId)
           }
         }
       } catch (err) {
@@ -161,14 +176,9 @@ export async function removeSentSyncMessages(
  * Clears any pending sync batch messages for a specific account.
  */
 export async function clearSyncBatch(account: string): Promise<void> {
-  const keysToRemove: string[] = []
   try {
-    await syncBatchStorage.iterate<unknown, void>((_, key) => {
-      if (key.startsWith(`${account}:`)) {
-        keysToRemove.push(key)
-      }
-    })
-    await Promise.all(keysToRemove.map(key => syncBatchStorage.removeItem(key)))
+    const storage = getSyncBatchStorage(account)
+    await storage.clear()
   } catch (err) {
     console.error(`[VaultPersistence] Failed to clear sync batch for ${account}`, err)
     throw err
@@ -184,10 +194,10 @@ export async function restoreSyncBatch(
 ): Promise<void> {
   try {
     await clearSyncBatch(account)
+    const storage = getSyncBatchStorage(account)
     await Promise.all(
       pendingSync.map(([itemId, messages]) => {
-        const key = `${account}:${itemId}`
-        return syncBatchStorage.setItem(key, messages)
+        return storage.setItem(itemId, messages)
       })
     )
   } catch (err) {
