@@ -2,8 +2,7 @@ import { debounce } from 'lodash-es'
 import type { Repo } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from './quotaReporter'
+import { runStorageOperation } from '../utils/storageManager'
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import {
   ACCOUNT_INDEX_DOCUMENT_ID,
@@ -71,12 +70,9 @@ export class SnapshotManager {
     if (!this.lastModifiedStore) return
     const data = Array.from(this.lastModifiedByItemId.entries())
     try {
-      await this.lastModifiedStore.setItem('lastModifiedByItemId', data)
+      await runStorageOperation(() => this.lastModifiedStore!.setItem('lastModifiedByItemId', data))
     } catch (error) {
       console.error('[SnapshotManager] Failed to save lastModified timestamps', error)
-      if (isQuotaError(error)) {
-        reportQuotaExceeded()
-      }
     }
   }
 

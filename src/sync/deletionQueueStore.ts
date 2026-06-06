@@ -1,7 +1,6 @@
 import localforage from 'localforage'
 
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { runStorageOperation } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 
 
@@ -30,14 +29,7 @@ export async function scheduleDeletion(
     scheduledTime: Date.now() + gracePeriodMs,
   }
 
-  try {
-    await scheduledDeletionsStorage.setItem(key, entry)
-  } catch (error) {
-    if (isQuotaError(error)) {
-      reportQuotaExceeded()
-    }
-    throw error
-  }
+  await runStorageOperation(() => scheduledDeletionsStorage.setItem(key, entry))
 }
 
 export async function cancelDeletion(accountId: string, itemId: ItemId): Promise<void> {

@@ -1,7 +1,12 @@
 import localforage from 'localforage'
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from '../workers/quotaReporter'
 import { ItemId } from 'src/shared/schemas/items'
+import {
+  runStorageOperation,
+  checkQuotaExceeded,
+  resetQuotaExceededStatus,
+} from '../utils/storageManager'
+
+export { resetQuotaExceededStatus }
 
 const storageInstances = new Map<string, LocalForage>()
 
@@ -19,12 +24,6 @@ export function getSyncBatchStorage(accountId: string): LocalForage {
 
 export function clearInstancesCacheForTesting(): void {
   storageInstances.clear()
-}
-
-let isQuotaExceeded = false
-
-export function resetQuotaExceededStatus(): void {
-  isQuotaExceeded = false
 }
 
 const MAX_MESSAGES_PER_ITEM = 2000
@@ -65,8 +64,7 @@ export async function persistSyncMessages(
     return
   }
 
-  if (isQuotaExceeded) {
-    reportQuotaExceeded()
+  if (checkQuotaExceeded()) {
     return
   }
 
@@ -90,13 +88,9 @@ export async function persistSyncMessages(
           bounded = combined.slice(-MAX_MESSAGES_PER_ITEM)
         }
 
-        await storage.setItem(itemId, bounded)
+        await runStorageOperation(() => storage.setItem(itemId, bounded))
       } catch (err) {
         console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
-        if (isQuotaError(err)) {
-          isQuotaExceeded = true
-          reportQuotaExceeded()
-        }
         // Put them back in the pending map so we can try again
         const existingPending = writes.get(itemId) || []
         writes.set(itemId, [...newMessages, ...existingPending])

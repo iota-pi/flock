@@ -2,7 +2,7 @@ import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim
 
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from './VaultPersistence'
-import { registerQuotaReporter } from '../workers/quotaReporter'
+import { registerQuotaReporter } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncOrchestrator } from '../workers/SyncOrchestrator'
 

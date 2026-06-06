@@ -61,7 +61,24 @@ vi.mock('./realtimeBus', () => ({
 }))
 
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../workers/quotaReporter', () => ({
+vi.mock('../utils/storageManager', () => ({
+  runStorageOperation: vi.fn(async (op: any) => {
+    try {
+      return await op()
+    } catch (error: any) {
+      const name = error?.name || ''
+      const message = error?.message || ''
+      if (
+        name === 'QuotaExceededError' ||
+        name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        message.includes('QuotaExceededError') ||
+        message.includes('quota exceeded')
+      ) {
+        mockReportQuotaExceeded()
+      }
+      throw error
+    }
+  }),
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 

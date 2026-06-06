@@ -2,8 +2,7 @@ import { Repo, type StorageAdapterInterface, type Chunk } from '@automerge/autom
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { runStorageOperation } from '../utils/storageManager'
 
 class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   constructor(private delegate: StorageAdapterInterface) {}
@@ -13,25 +12,11 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   }
 
   async save(key: string[], data: Uint8Array): Promise<void> {
-    try {
-      await this.delegate.save(key, data)
-    } catch (err) {
-      if (isQuotaError(err)) {
-        reportQuotaExceeded()
-      }
-      throw err
-    }
+    return runStorageOperation(() => this.delegate.save(key, data))
   }
 
   async remove(key: string[]): Promise<void> {
-    try {
-      await this.delegate.remove(key)
-    } catch (err) {
-      if (isQuotaError(err)) {
-        reportQuotaExceeded()
-      }
-      throw err
-    }
+    return runStorageOperation(() => this.delegate.remove(key))
   }
 
   async loadRange(keyPrefix: string[]): Promise<Chunk[]> {
@@ -39,14 +24,7 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {
-    try {
-      await this.delegate.removeRange(keyPrefix)
-    } catch (err) {
-      if (isQuotaError(err)) {
-        reportQuotaExceeded()
-      }
-      throw err
-    }
+    return runStorageOperation(() => this.delegate.removeRange(keyPrefix))
   }
 }
 

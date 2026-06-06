@@ -1,7 +1,6 @@
 import localforage from 'localforage'
 
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { runStorageOperation } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 
 
@@ -153,14 +152,7 @@ export async function upsertManualRecoveryEntry(
     entry.createdAt = Date.now()
   }
 
-  try {
-    await storage.setItem(entry.id, entry)
-  } catch (error) {
-    if (isQuotaError(error)) {
-      reportQuotaExceeded()
-    }
-    throw error
-  }
+  await runStorageOperation(() => storage.setItem(entry.id, entry))
   return entry
 }
 

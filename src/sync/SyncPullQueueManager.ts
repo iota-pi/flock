@@ -8,8 +8,7 @@ import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { decryptBytes } from 'src/api/vault'
-import { isQuotaError } from 'src/utils/storageQuota'
-import { reportQuotaExceeded } from '../workers/quotaReporter'
+import { runStorageOperation } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 
 
@@ -55,12 +54,9 @@ export class SyncPullQueueManager {
     if (!this.cursorStore) return
     const data = Array.from(this.cursorByItemId.entries())
     try {
-      await this.cursorStore.setItem('cursorByItemId', data)
+      await runStorageOperation(() => this.cursorStore!.setItem('cursorByItemId', data))
     } catch (error) {
       console.error('[SyncPullQueueManager] Failed to save cursors', error)
-      if (isQuotaError(error)) {
-        reportQuotaExceeded()
-      }
     }
   }
 

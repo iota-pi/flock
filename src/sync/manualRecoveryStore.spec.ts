@@ -10,7 +10,15 @@ localforage.createInstance = function (options: any) {
 }
 
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../workers/quotaReporter', () => ({
+vi.mock('../utils/storageManager', () => ({
+  runStorageOperation: vi.fn(async (op: any) => {
+    try {
+      return await op()
+    } catch (err) {
+      mockReportQuotaExceeded()
+      throw err
+    }
+  }),
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 

@@ -1,8 +1,29 @@
 import { ItemId } from 'src/shared/schemas/items'
 
 const mockReportQuotaExceeded = vi.fn()
-vi.mock('../workers/quotaReporter', () => ({
+let mockIsQuotaExceeded = false
+
+vi.mock('../utils/storageManager', () => ({
+  runStorageOperation: vi.fn(async (op: any) => {
+    try {
+      return await op()
+    } catch (err) {
+      mockIsQuotaExceeded = true
+      mockReportQuotaExceeded()
+      throw err
+    }
+  }),
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
+  checkQuotaExceeded: vi.fn(() => {
+    if (mockIsQuotaExceeded) {
+      mockReportQuotaExceeded()
+      return true
+    }
+    return false
+  }),
+  resetQuotaExceededStatus: vi.fn(() => {
+    mockIsQuotaExceeded = false
+  }),
 }))
 
 function normalizeUint8Array(m: any): Uint8Array {
