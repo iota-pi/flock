@@ -4,7 +4,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import {
-  readReadyObjectSnapshot,
+  readObjectSnapshot,
 } from '../automergeHandleUtils'
 import { isPlainObject } from '../utils'
 import { ItemId, ItemIdSchema } from 'src/shared/schemas/items'
@@ -75,7 +75,7 @@ export function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
   if (!handle) {
     return null
   }
-  const snapshot = readReadyObjectSnapshot(handle)
+  const snapshot = readObjectSnapshot(handle)
   return (snapshot && isPlainObject(snapshot)) ? snapshot : null
 }
 
