@@ -6,15 +6,10 @@ import { encryptBytes } from 'src/api/vault'
 import { loadSyncBatch, removeSentSyncMessages } from './VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
+import { SyncEventHub } from './SyncEventHub'
 
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure'
-
-export interface SyncPollerCallbacks {
-  onStartRequest?: () => void
-  onFinishRequest?: () => void
-  onSnapshotNeeded?: (cursor: number, requestedAt: number) => void
-}
 
 export class SyncPoller {
   private account: string | null = null
@@ -23,7 +18,7 @@ export class SyncPoller {
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
-    private callbacks: SyncPollerCallbacks,
+    private eventHub: SyncEventHub,
     private persistPendingWrites: () => Promise<void>
   ) {}
 
@@ -43,7 +38,7 @@ export class SyncPoller {
     if (this.isPolling || !this.isOnline || !this.account) return 'success'
     this.isPolling = true
 
-    this.callbacks.onStartRequest?.()
+    this.eventHub.emit({ type: 'startRequest' })
     try {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'success'
@@ -78,7 +73,11 @@ export class SyncPoller {
         }
 
         if (response?.snapshotRequest?.requested) {
-          this.callbacks.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
+          this.eventHub.emit({
+            type: 'snapshotNeeded',
+            cursor: response.snapshotRequest.cursor,
+            requestedAt: response.snapshotRequest.requestedAt,
+          })
         }
 
         return 'success'
@@ -132,7 +131,11 @@ export class SyncPoller {
         }
 
         if (response?.snapshotRequest?.requested) {
-          this.callbacks.onSnapshotNeeded?.(response.snapshotRequest.cursor, response.snapshotRequest.requestedAt)
+          this.eventHub.emit({
+            type: 'snapshotNeeded',
+            cursor: response.snapshotRequest.cursor,
+            requestedAt: response.snapshotRequest.requestedAt,
+          })
         }
 
         await removeSentSyncMessages(this.account, chunkEntry)
@@ -149,7 +152,7 @@ export class SyncPoller {
       return 'failure'
     } finally {
       this.isPolling = false
-      this.callbacks.onFinishRequest?.()
+      this.eventHub.emit({ type: 'finishRequest' })
     }
   }
 

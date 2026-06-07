@@ -66,7 +66,7 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
-      expect.any(Object)
+      expect.any(Function)
     )
     expect(mockSyncApi.bootstrapLegacyItems).toHaveBeenCalled()
   })

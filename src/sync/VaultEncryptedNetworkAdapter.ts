@@ -12,8 +12,9 @@ import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
 import {
   persistSyncMessages,
 } from './VaultPersistence'
-import { SyncPoller, type PollOutcome } from './SyncPoller'
+import { SyncEventHub } from './SyncEventHub'
 import type { ItemId } from 'src/shared/schemas/items'
+import { SyncPoller, type PollOutcome } from './SyncPoller'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -32,12 +33,9 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private pendingWrites: Map<string, Uint8Array[]> = new Map()
   private persistTimeoutId: any = null
 
-  onStartRequest: (() => void) | null = null
-  onFinishRequest: (() => void) | null = null
-  onSnapshotNeeded: ((cursor: number, requestedAt: number) => void) | null = null
   onFlushNeeded: (() => void) | null = null
 
-  constructor() {
+  constructor(private eventHub: SyncEventHub) {
     super()
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
@@ -58,11 +56,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
 
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
-      {
-        onStartRequest: () => this.onStartRequest?.(),
-        onFinishRequest: () => this.onFinishRequest?.(),
-        onSnapshotNeeded: (cursor, requestedAt) => this.onSnapshotNeeded?.(cursor, requestedAt),
-      },
+      this.eventHub,
       () => this.persistPendingWrites()
     )
   }

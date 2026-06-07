@@ -1,5 +1,6 @@
 import { ItemId } from 'src/shared/schemas/items'
 import { RecoveryManager } from './recoveryManager'
+import { SyncEventHub } from '../sync/SyncEventHub'
 
 // Mock dependencies
 const mockReadManualRecoveryEntries = vi.fn()
@@ -22,22 +23,22 @@ vi.mock('../sync/docStore', () => ({
 
 describe('RecoveryManager', () => {
   let recoveryManager: RecoveryManager
-  let mockCallbacks: { onRecoveryItemsChanged: any }
-  let context: { accountId: string | null; callbacks: any }
+  let eventHub: SyncEventHub
+  let onEventMock: any
+  let context: { accountId: string | null }
 
   beforeEach(() => {
     vi.clearAllMocks()
 
-    mockCallbacks = {
-      onRecoveryItemsChanged: vi.fn(),
-    }
+    eventHub = new SyncEventHub()
+    onEventMock = vi.fn()
+    eventHub.subscribe(onEventMock)
 
     context = {
       accountId: 'account-123',
-      callbacks: mockCallbacks,
     }
 
-    recoveryManager = new RecoveryManager(() => context)
+    recoveryManager = new RecoveryManager(() => context, eventHub)
   })
 
   describe('pushRecoveryItems', () => {
@@ -48,11 +49,11 @@ describe('RecoveryManager', () => {
       await recoveryManager.pushRecoveryItems()
 
       expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123')
-      expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
+      expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
     })
 
-    it('does nothing if callbacks are not set', async () => {
-      context.callbacks = null
+    it('does nothing if accountId is not set', async () => {
+      context.accountId = null
 
       await recoveryManager.pushRecoveryItems()
 
@@ -77,7 +78,7 @@ describe('RecoveryManager', () => {
       await recoveryManager.retryRecoveryItem('item-2' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
-      expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
+      expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
     })
   })
 
@@ -137,7 +138,7 @@ describe('RecoveryManager', () => {
       })
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-3')
-      expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalledWith(mockEntries)
+      expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
     })
   })
 
@@ -197,7 +198,7 @@ describe('RecoveryManager', () => {
       await recoveryManager.dismissRecoveryItem('entry-123')
 
       expect(mockRemoveManualRecoveryEntryById).toHaveBeenCalledWith('account-123', 'entry-123')
-      expect(mockCallbacks.onRecoveryItemsChanged).toHaveBeenCalled()
+      expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: [] })
     })
   })
 

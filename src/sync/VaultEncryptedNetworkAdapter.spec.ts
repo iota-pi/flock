@@ -5,6 +5,7 @@ import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededS
 import { registerQuotaReporter } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncOrchestrator } from '../workers/SyncOrchestrator'
+import { SyncEventHub } from './SyncEventHub'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
@@ -32,6 +33,7 @@ vi.mock('./workerAuthStore', () => ({
 describe('VaultEncryptedNetworkAdapter', () => {
   let adapter: VaultEncryptedNetworkAdapter
   let orchestrator: SyncOrchestrator
+  let eventHub: SyncEventHub
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -53,15 +55,12 @@ describe('VaultEncryptedNetworkAdapter', () => {
       await getSyncBatchStorage(acc).clear()
     }
 
-    adapter = new VaultEncryptedNetworkAdapter()
+    eventHub = new SyncEventHub()
+    adapter = new VaultEncryptedNetworkAdapter(eventHub)
     orchestrator = new SyncOrchestrator(
       'test-account',
       adapter,
-      {
-        onStatusChange: vi.fn(),
-        onAuthFailure: vi.fn(),
-        onPollResult: vi.fn(),
-      }
+      eventHub
     )
 
     // Keep offline by default to avoid automatic background runs in static tests
@@ -332,11 +331,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
     orchestrator = new SyncOrchestrator(
       accountId,
       adapter,
-      {
-        onStatusChange: vi.fn(),
-        onAuthFailure: vi.fn(),
-        onPollResult: vi.fn(),
-      }
+      eventHub
     )
 
     let pollCount = 0

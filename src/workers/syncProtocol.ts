@@ -1,3 +1,4 @@
+import type { SyncEventListener } from '../sync/SyncEventHub'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import { SyncStatus } from 'src/state/syncStore'
@@ -5,22 +6,8 @@ import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 import type { BackupSyncState } from '../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
 
-export interface SyncCallbacks {
-  onReady: () => Promise<void>,
-  onStatusChange: (status: SyncStatus) => Promise<void>,
-  onItemUpdated: (id: string, item: Item | null) => Promise<void>,
-  onIndexUpdated: (itemIds: ItemId[]) => Promise<void>,
-  onMetadataUpdated: (metadata: AccountMetadata) => Promise<void>,
-  onMutationFailed: (mutationId: string, error: string) => Promise<void>,
-  onStartRequest: () => Promise<void>,
-  onFinishRequest: () => Promise<void>,
-  onAuthFailure: (message: string) => Promise<void>,
-  onRecoveryItemsChanged: (entries: ManualRecoveryEntry[]) => Promise<void>,
-  onQuotaExceeded?: (message: string) => Promise<void>,
-}
-
 export interface SyncApi {
-  initRepo: (accountId: string, vaultKey: string, callbacks: SyncCallbacks) => Promise<void>
+  initRepo: (accountId: string, vaultKey: string, onEvent: SyncEventListener) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapLegacyItems: () => Promise<void>
   mutateItem: (mutationId: string, id: ItemId, changes: Partial<Item>) => Promise<void>

@@ -1,4 +1,4 @@
-import type { SyncCallbacks } from './syncProtocol'
+import { SyncEventHub } from '../sync/SyncEventHub'
 import {
   type ManualRecoveryEntry,
   readManualRecoveryEntries,
@@ -16,16 +16,16 @@ export class RecoveryManager {
   constructor(
     private getContext: () => {
       accountId: string | null
-      callbacks: SyncCallbacks | null
-    }
+    },
+    private eventHub: SyncEventHub
   ) {}
 
   async pushRecoveryItems() {
-    const { callbacks, accountId } = this.getContext()
-    if (callbacks && accountId) {
+    const { accountId } = this.getContext()
+    if (accountId) {
       try {
         const entries = await readManualRecoveryEntries(accountId)
-        await callbacks.onRecoveryItemsChanged(entries)
+        this.eventHub.emit({ type: 'recoveryItemsChanged', entries })
       } catch (error) {
         console.error('[RecoveryManager] Failed to push recovery entries change', error)
       }

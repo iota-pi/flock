@@ -107,7 +107,7 @@ vi.mock('src/sync/VaultEncryptedNetworkAdapter', () => {
 
 describe('SyncWorker Deletion Queue Integration', () => {
   let worker: SyncWorker
-  let mockCallbacks: any
+  let mockOnEvent: any
   const accountId = 'test-account'
 
   beforeEach(async () => {
@@ -115,13 +115,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     vi.clearAllMocks()
     ;(deletionStore as any)._clearStore()
 
-    mockCallbacks = {
-      onReady: vi.fn().mockResolvedValue(undefined),
-      onStatusChange: vi.fn().mockResolvedValue(undefined),
-      onItemUpdated: vi.fn().mockResolvedValue(undefined),
-      onIndexUpdated: vi.fn().mockResolvedValue(undefined),
-      onMetadataUpdated: vi.fn().mockResolvedValue(undefined),
-    }
+    mockOnEvent = vi.fn().mockResolvedValue(undefined)
 
     worker = new SyncWorker()
 
@@ -138,7 +132,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     vi.spyOn(worker as any, 'getIndexHandle').mockResolvedValue(mockIndexHandle)
 
     // Initialize worker
-    await worker.initRepo(accountId, 'vault-key', mockCallbacks)
+    await worker.initRepo(accountId, 'vault-key', mockOnEvent)
 
     // Set initial subscribedIds
     ;(worker as any).subscribedIds = new Set(['item-1', 'item-2'] as ItemId[])

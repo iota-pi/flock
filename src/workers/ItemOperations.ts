@@ -1,6 +1,6 @@
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import type { SyncCallbacks } from './syncProtocol'
+import { SyncEventHub } from '../sync/SyncEventHub'
 import {
   withAutomergeDocumentChange,
   withAutomergeMetadataChange,
@@ -16,7 +16,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 
 export interface ItemOperationsDeps {
   getAccountId: () => string | null
-  getCallbacks: () => SyncCallbacks | null
+  eventHub: SyncEventHub
   markDocumentDirty: (itemId: ItemId) => void
   getDeletionQueueManager: () => DeletionQueueManager
 }
@@ -30,9 +30,7 @@ export class ItemOperations {
     return id
   }
 
-  private get callbacks(): SyncCallbacks | null {
-    return this.deps.getCallbacks()
-  }
+
 
   async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
@@ -46,11 +44,9 @@ export class ItemOperations {
         this.deps.markDocumentDirty(id)
       }
     } catch (err) {
-      if (this.callbacks) {
-        this.callbacks.onMutationFailed(mutationId, (err as Error).message).catch(console.error)
-        const trueState = await getAutomergeItem(this.accountId, id)
-        this.callbacks.onItemUpdated(id, trueState).catch(console.error)
-      }
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId, error: (err as Error).message })
+      const trueState = await getAutomergeItem(this.accountId, id)
+      this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
     }
   }
 
@@ -66,7 +62,7 @@ export class ItemOperations {
         this.deps.markDocumentDirty(item.id)
       }
     } catch (err) {
-      this.callbacks?.onMutationFailed('create', (err as Error).message).catch(console.error)
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'create', error: (err as Error).message })
     }
   }
 
@@ -78,7 +74,7 @@ export class ItemOperations {
         await removeAutomergeItem(this.accountId, id)
       }
     } catch (err) {
-      this.callbacks?.onMutationFailed('hardDelete', (err as Error).message).catch(console.error)
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'hardDelete', error: (err as Error).message })
     }
   }
 
@@ -105,10 +101,10 @@ export class ItemOperations {
 
     if (failedItems.length > 0) {
       const combinedMessage = failedItems.map(f => `${f.item.id}: ${ (f.error as Error).message }`).join(', ')
-      this.callbacks?.onMutationFailed('store', combinedMessage).catch(console.error)
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'store', error: combinedMessage })
       for (const { item } of failedItems) {
         const trueState = await getAutomergeItem(this.accountId, item.id)
-        this.callbacks?.onItemUpdated(item.id, trueState).catch(console.error)
+        this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
       }
     }
   }
@@ -124,8 +120,9 @@ export class ItemOperations {
         this.deps.markDocumentDirty(ACCOUNT_INDEX_DOCUMENT_ID)
       }
     } catch (err) {
-      this.callbacks?.onMutationFailed('metadata', (err as Error).message).catch(console.error)
-      this.callbacks?.onMetadataUpdated(await getAutomergeMetadata(this.accountId)).catch(console.error)
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'metadata', error: (err as Error).message })
+      const metadata = await getAutomergeMetadata(this.accountId)
+      this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
     }
   }
 }

@@ -4,7 +4,8 @@ import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 import type { Repo } from '@automerge/automerge-repo/slim'
 
-import type { SyncApi, SyncCallbacks } from './syncProtocol'
+import type { SyncApi } from './syncProtocol'
+import { SyncEventHub, type SyncEventListener } from '../sync/SyncEventHub'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
@@ -29,9 +30,9 @@ import { SnapshotManager } from './snapshotManager'
 import { RecoveryManager } from './recoveryManager'
 import { LegacyBootstrapper } from './legacyBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
-import { resetQuotaExceededStatus, loadSyncBatch, restoreSyncBatch } from '../sync/VaultPersistence'
+import { loadSyncBatch, restoreSyncBatch } from '../sync/VaultPersistence'
 import { encodeBytesToBase64, decodeBase64ToBytes } from '../sync/utils/base64Utils'
-import { registerQuotaReporter } from '../utils/storageManager'
+import { registerQuotaReporter, resetQuotaExceededStatus } from '../utils/storageManager'
 import type { BackupSyncState } from '../types/backup'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ItemOperations } from './ItemOperations'
@@ -41,7 +42,7 @@ import { ItemId } from 'src/shared/schemas/items'
 export class SyncWorker implements SyncApi {
   private accountId: string | null = null
   private adapter: VaultEncryptedNetworkAdapter | null = null
-  private callbacks: SyncCallbacks | null = null
+  private eventHub = new SyncEventHub()
   private isOnline = true
   private syncStatus: SyncStatus = 'idle'
   private subscribedIds = new Set<ItemId>()
@@ -65,8 +66,7 @@ export class SyncWorker implements SyncApi {
 
     this.recoveryManager = new RecoveryManager(() => ({
       accountId: this.accountId,
-      callbacks: this.callbacks,
-    }))
+    }), this.eventHub)
 
     this.legacyBootstrapper = new LegacyBootstrapper(
       () => ({ accountId: this.accountId }),
@@ -86,7 +86,7 @@ export class SyncWorker implements SyncApi {
 
     this.itemOperations = new ItemOperations({
       getAccountId: () => this.accountId,
-      getCallbacks: () => this.callbacks,
+      eventHub: this.eventHub,
       markDocumentDirty: id => this.markDocumentDirty(id),
       getDeletionQueueManager: () => this.deletionQueueManager,
     })
@@ -98,7 +98,7 @@ export class SyncWorker implements SyncApi {
     }
 
     this.syncStatus = status
-    this.callbacks?.onStatusChange(status).catch(console.error)
+    this.eventHub.emit({ type: 'statusChange', status })
   }
 
   private applyOnlineState(isOnline: boolean) {
@@ -131,7 +131,7 @@ export class SyncWorker implements SyncApi {
     this.changeListenersByItemId.clear()
   }
 
-  async initRepo(accountId: string, vaultKey: string, callbacks: SyncCallbacks) {
+  async initRepo(accountId: string, vaultKey: string, onEvent: SyncEventListener) {
     this.clearListeners()
     this.snapshotManager.clear()
 
@@ -140,9 +140,9 @@ export class SyncWorker implements SyncApi {
     this.accountId = accountId
     resetQuotaExceededStatus()
     await this.snapshotManager.loadLastModified(accountId)
-    this.callbacks = callbacks
+    this.eventHub.setExternalListener(onEvent)
     registerQuotaReporter(msg => {
-      this.callbacks?.onQuotaExceeded?.(msg).catch(console.error)
+      this.eventHub.emit({ type: 'quotaExceeded', message: msg })
     })
 
     await initWorkerVault(vaultKey)
@@ -151,48 +151,35 @@ export class SyncWorker implements SyncApi {
     await Automerge.initializeWasm(wasmUrl)
 
     // Initialise Automerge repo
-    this.adapter = new VaultEncryptedNetworkAdapter()
-    this.adapter.onStartRequest = () => {
-      callbacks.onStartRequest().catch(console.error)
-      if (this.isOnline) {
-        this.updateStatus('syncing')
-      }
-    }
-    this.adapter.onFinishRequest = () => {
-      callbacks.onFinishRequest().catch(console.error)
-      if (this.isOnline && this.syncStatus === 'syncing') {
-        this.updateStatus('idle')
-      }
-    }
-    this.adapter.onSnapshotNeeded = (cursor: number) => (
-      this.snapshotManager.scheduleSnapshotPush(cursor)
-    )
+    this.adapter = new VaultEncryptedNetworkAdapter(this.eventHub)
 
-    this.orchestrator = new SyncOrchestrator(accountId, this.adapter, {
-      onStatusChange: status => {
-        this.updateStatus(status)
-      },
-      onAuthFailure: message => {
-        callbacks.onAuthFailure(message).catch(console.error)
-      },
-      onPollResult: outcome => {
-        if (!this.isOnline) {
-          return
-        }
-
-        if (outcome === 'failure') {
-          this.updateStatus('degraded')
-        } else if (outcome === 'success') {
-          if (this.syncStatus !== 'syncing') {
-            this.updateStatus('idle')
-          }
-        } else {
-          this.updateStatus('offline')
-        }
-      }
-    })
+    this.orchestrator = new SyncOrchestrator(accountId, this.adapter, this.eventHub)
     this.orchestrator.setOnlineState(this.isOnline)
     void this.orchestrator.start().catch(console.error)
+    // Listen to local events
+    this.eventHub.subscribe(event => {
+      switch (event.type) {
+        case 'statusChange':
+          this.syncStatus = event.status
+          break
+        case 'pollResult':
+          this.handlePollResult(event.outcome)
+          break
+        case 'snapshotNeeded':
+          this.snapshotManager.scheduleSnapshotPush(event.cursor)
+          break
+        case 'startRequest':
+          if (this.isOnline) {
+            this.updateStatus('syncing')
+          }
+          break
+        case 'finishRequest':
+          if (this.isOnline && this.syncStatus === 'syncing') {
+            this.updateStatus('idle')
+          }
+          break
+      }
+    })
 
     await this.adapter.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
@@ -200,10 +187,26 @@ export class SyncWorker implements SyncApi {
     await initializeAutomergeDocStore(accountId)
     await this.initIndexDocument()
 
-    await this.callbacks.onReady()
+    this.eventHub.emit({ type: 'ready' })
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
 
     this.deletionQueueManager.startTimer()
+  }
+
+  private handlePollResult(outcome: PollOutcome) {
+    if (!this.isOnline) {
+      return
+    }
+
+    if (outcome === 'failure') {
+      this.updateStatus('degraded')
+    } else if (outcome === 'success') {
+      if (this.syncStatus !== 'syncing') {
+        this.updateStatus('idle')
+      }
+    } else {
+      this.updateStatus('offline')
+    }
   }
 
   private async getIndexHandle() {
@@ -240,12 +243,9 @@ export class SyncWorker implements SyncApi {
 
     await this.deletionQueueManager.handleIndexChange(newItemIdsSet, this.subscribedIds)
 
-    if (this.callbacks) {
-      this.callbacks.onIndexUpdated(newItemIds).catch(console.error)
-
-      const newMetadata = indexDoc.metadata || {}
-      this.callbacks.onMetadataUpdated(newMetadata).catch(console.error)
-    }
+    this.eventHub.emit({ type: 'indexUpdated', itemIds: newItemIds })
+    const newMetadata = indexDoc.metadata || {}
+    this.eventHub.emit({ type: 'metadataUpdated', metadata: newMetadata })
 
     this.subscribeToItems(newItemIds)
     this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
@@ -277,7 +277,7 @@ export class SyncWorker implements SyncApi {
 
         const handleChange = () => {
           const item = normalizeItemSnapshot(id, handle.doc())
-          this.callbacks?.onItemUpdated(id, item).catch(console.error)
+          this.eventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)
         this.changeListenersByItemId.set(id, handleChange)

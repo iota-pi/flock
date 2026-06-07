@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Comlink from 'comlink'
 
-import type { SyncApi, SyncCallbacks } from 'src/workers/syncProtocol'
+import type { SyncApi } from 'src/workers/syncProtocol'
+import type { SyncEvent } from './SyncEventHub'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
@@ -42,57 +43,63 @@ const scheduleItemUpdateFlush = () => {
   itemUpdateFlushHandle = requestAnimationFrame(flushItemUpdates)
 }
 
-const syncCallbacks: SyncCallbacks = {
-  onReady: async () => {},
-  onStatusChange: async status => {
-    useSyncStore.getState().setSyncStatus(status)
-  },
-  onItemUpdated: async (id, item) => {
-    pendingItemUpdates.set(id, item)
+const handleSyncEvent = (event: SyncEvent) => {
+  switch (event.type) {
+    case 'ready':
+      break
+    case 'statusChange':
+      useSyncStore.getState().setSyncStatus(event.status)
+      break
+    case 'itemUpdated': {
+      const { id, item } = event
+      pendingItemUpdates.set(id, item)
 
-    if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
-      if (itemUpdateFlushHandle !== null) {
-        cancelAnimationFrame(itemUpdateFlushHandle)
-        itemUpdateFlushHandle = null
+      if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
+        if (itemUpdateFlushHandle !== null) {
+          cancelAnimationFrame(itemUpdateFlushHandle)
+          itemUpdateFlushHandle = null
+        }
+        flushItemUpdates()
+        return
       }
-      flushItemUpdates()
-      return
-    }
 
-    scheduleItemUpdateFlush()
-  },
-  onIndexUpdated: async itemIds => {
-    useDataStore.getState().updateIndexFromServer(itemIds)
-  },
-  onMetadataUpdated: async metadata => {
-    useDataStore.getState().updateMetadataFromServer(metadata)
-  },
-  onMutationFailed: async (mutationId, error) => {
-    // Implement toast notification/Sentry logging here if needed
-    console.error(`Mutation ${mutationId} failed: ${error}`)
-  },
-  onStartRequest: async () => {
-    useUiStore.getState().startRequest()
-  },
-  onFinishRequest: async () => {
-    useUiStore.getState().finishRequest()
-  },
-  onAuthFailure: async message => {
-    const syncStore = useSyncStore.getState()
-    syncStore.setSyncStatus('offline')
-    syncStore.setSyncWarning(message)
-  },
-  onRecoveryItemsChanged: async entries => {
-    recoveryEntries = entries
-    for (const listener of recoveryEntriesListeners) {
-      listener(entries)
+      scheduleItemUpdateFlush()
+      break
     }
-  },
-  onQuotaExceeded: async message => {
-    const syncStore = useSyncStore.getState()
-    syncStore.setSyncStatus('degraded')
-    syncStore.setSyncWarning(message)
-  },
+    case 'indexUpdated':
+      useDataStore.getState().updateIndexFromServer(event.itemIds)
+      break
+    case 'metadataUpdated':
+      useDataStore.getState().updateMetadataFromServer(event.metadata)
+      break
+    case 'mutationFailed':
+      console.error(`Mutation ${event.mutationId} failed: ${event.error}`)
+      break
+    case 'startRequest':
+      useUiStore.getState().startRequest()
+      break
+    case 'finishRequest':
+      useUiStore.getState().finishRequest()
+      break
+    case 'authFailure': {
+      const syncStore = useSyncStore.getState()
+      syncStore.setSyncStatus('offline')
+      syncStore.setSyncWarning(event.message)
+      break
+    }
+    case 'recoveryItemsChanged':
+      recoveryEntries = event.entries
+      for (const listener of recoveryEntriesListeners) {
+        listener(event.entries)
+      }
+      break
+    case 'quotaExceeded': {
+      const syncStore = useSyncStore.getState()
+      syncStore.setSyncStatus('degraded')
+      syncStore.setSyncWarning(event.message)
+      break
+    }
+  }
 }
 
 export const SyncBridge = {
@@ -120,7 +127,7 @@ export const SyncBridge = {
       await syncApi.initRepo(
         accountId,
         vaultKey,
-        Comlink.proxy(syncCallbacks),
+        Comlink.proxy(handleSyncEvent),
       )
       await syncApi.bootstrapLegacyItems()
 

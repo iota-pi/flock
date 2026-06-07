@@ -3,11 +3,7 @@ import { VaultEncryptedNetworkAdapter } from '../sync/VaultEncryptedNetworkAdapt
 import type { PollOutcome } from '../sync/SyncPoller'
 import type { SyncStatus } from 'src/state/syncStore'
 
-export interface SyncOrchestratorCallbacks {
-  onStatusChange: (status: SyncStatus) => void
-  onAuthFailure: (message: string) => void
-  onPollResult: (outcome: PollOutcome) => void
-}
+import { SyncEventHub } from '../sync/SyncEventHub'
 
 export class SyncOrchestrator {
   private leaderElection: LeaderElection | null = null
@@ -25,7 +21,7 @@ export class SyncOrchestrator {
   constructor(
     private accountId: string,
     private adapter: VaultEncryptedNetworkAdapter,
-    private callbacks: SyncOrchestratorCallbacks
+    private eventHub: SyncEventHub
   ) {
     this.adapter.onFlushNeeded = () => {
       this.flush()
@@ -56,7 +52,7 @@ export class SyncOrchestrator {
 
     if (isLeader) {
       if (this.isOnline) {
-        this.callbacks.onStatusChange('idle')
+        this.eventHub.emit({ type: 'statusChange', status: 'idle' })
       }
       this.startPolling(true)
     } else {
@@ -73,16 +69,16 @@ export class SyncOrchestrator {
 
     if (!isOnline) {
       this.stopPolling()
-      this.callbacks.onStatusChange('offline')
+      this.eventHub.emit({ type: 'statusChange', status: 'offline' })
       return
     }
 
     if (this.isLeader) {
       this.resetPollBackoff()
       this.startPolling(true)
-      this.callbacks.onStatusChange('idle')
+      this.eventHub.emit({ type: 'statusChange', status: 'idle' })
     } else {
-      this.callbacks.onStatusChange('offline')
+      this.eventHub.emit({ type: 'statusChange', status: 'offline' })
     }
   }
 
@@ -188,8 +184,8 @@ export class SyncOrchestrator {
     if (outcome === 'auth-failure') {
       this.pollingPausedForAuth = true
       this.stopPolling()
-      this.callbacks.onAuthFailure('Sync paused: your session has expired. Please sign in again.')
-      this.callbacks.onPollResult(outcome)
+      this.eventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
+      this.eventHub.emit({ type: 'pollResult', outcome })
       return
     }
 
@@ -199,7 +195,7 @@ export class SyncOrchestrator {
       this.resetPollBackoff()
     }
 
-    this.callbacks.onPollResult(outcome)
+    this.eventHub.emit({ type: 'pollResult', outcome })
 
     if (outcome === 'success' && this.adapter.hasPendingPulls()) {
       this.scheduleNextPoll(0)
