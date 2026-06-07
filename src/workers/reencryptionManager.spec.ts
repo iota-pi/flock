@@ -50,9 +50,7 @@ describe('ReencryptionManager', () => {
     vi.clearAllMocks()
 
     mockHandle = {
-      whenReady: vi.fn().mockResolvedValue(undefined),
       isReady: vi.fn().mockReturnValue(true),
-      isUnavailable: vi.fn().mockReturnValue(false),
       doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'note' }),
     }
 

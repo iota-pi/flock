@@ -4,10 +4,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import {
-  awaitHandleReadyIfNeeded,
-  findRepoDocHandle,
   readReadyObjectSnapshot,
-  tryResolveNonReadyHandle,
 } from '../automergeHandleUtils'
 import { isPlainObject } from '../utils'
 import { ItemId, ItemIdSchema } from 'src/shared/schemas/items'
@@ -17,7 +14,6 @@ export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
 export type EnsureHandleOptions = {
-  awaitReady?: boolean
   createIfMissing?: boolean
   initialValue?: RepoDoc
 }
@@ -34,18 +30,7 @@ export function normalizeItemId(raw: unknown): ItemId | null {
 
 export async function getRepoHandle(accountId: string, itemId: ItemId): Promise<RepoDocHandle> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
-  return findRepoDocHandle<RepoDoc>(getAutomergeRepo(accountId), documentUrl)
-}
-
-export async function resolveHandleReadyState<TDoc extends object>(
-  handle: DocHandle<TDoc> | undefined,
-  awaitReady?: boolean,
-): Promise<void> {
-  if (awaitReady === false) {
-    tryResolveNonReadyHandle(handle)
-  } else {
-    await awaitHandleReadyIfNeeded(handle)
-  }
+  return getAutomergeRepo(accountId).find<RepoDoc>(documentUrl).catch(() => undefined)
 }
 
 export async function ensureDocumentHandle(
@@ -57,11 +42,9 @@ export async function ensureDocumentHandle(
   const documentUrl = toAutomergeUrlFromItemId(itemId)
   const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
-  let handle = findRepoDocHandle<RepoDoc>(repo, documentUrl)
+  let handle = await repo.find<RepoDoc>(documentUrl).catch(() => undefined)
 
-  await resolveHandleReadyState(handle, options.awaitReady)
-
-  if ((!handle || handle.isUnavailable()) && options.createIfMissing) {
+  if (!handle && options.createIfMissing) {
     try {
       repo.delete(resolvedDocumentId)
     } catch (error) {
@@ -83,15 +66,16 @@ export async function ensureDocumentHandle(
         error,
       })
     }
-
-    await resolveHandleReadyState(handle, options.awaitReady)
   }
 
   return handle
 }
 
 export function snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {
-  const snapshot = readReadyObjectSnapshot(handle, { resolvePending: true })
+  if (!handle) {
+    return null
+  }
+  const snapshot = readReadyObjectSnapshot(handle)
   return (snapshot && isPlainObject(snapshot)) ? snapshot : null
 }
 
@@ -122,11 +106,10 @@ export async function changeDocument(
     {
       createIfMissing: options.createIfMissing,
       initialValue: options.initialValue,
-      awaitReady: false,
     }
   )
 
-  if (!handle || handle.isUnavailable() || !handle.isReady()) {
+  if (!handle || !handle.isReady()) {
     return false
   }
 

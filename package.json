@@ -21,8 +21,8 @@
     "e2e": "cypress run"
   },
   "dependencies": {
-    "@automerge/automerge": "^3.2.5",
-    "@automerge/automerge-repo": "^2.5.5",
+    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge-repo": "v2.6.0-alpha.2",
     "@automerge/automerge-repo-network-broadcastchannel": "^2.5.5",
     "@automerge/automerge-repo-storage-indexeddb": "^2.5.5",
     "@emotion/react": "^11.11.1",

@@ -30,9 +30,7 @@ describe('buildSnapshot helper function', () => {
     vi.clearAllMocks()
 
     mockHandle = {
-      whenReady: vi.fn().mockResolvedValue(undefined),
       isReady: vi.fn().mockReturnValue(true),
-      isUnavailable: vi.fn().mockReturnValue(false),
       doc: vi.fn().mockReturnValue({ id: 'item-1', type: 'topic' }),
     }
 
@@ -66,7 +64,6 @@ describe('buildSnapshot helper function', () => {
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
     expect(mockRepo.find).toHaveBeenCalledWith('automerge:item-1')
-    expect(mockHandle.whenReady).toHaveBeenCalledWith(['ready', 'unavailable'])
     expect(mockSave).toHaveBeenCalledWith({ id: 'item-1', type: 'topic' })
     expect(mockEncryptBytes).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]))
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
@@ -82,14 +79,9 @@ describe('buildSnapshot helper function', () => {
     expect(result).toBeNull()
   })
 
-  it('returns null if document handle is not ready or is unavailable', async () => {
+  it('returns null if document handle is not ready', async () => {
     mockHandle.isReady.mockReturnValue(false)
-    let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
-
-    mockHandle.isReady.mockReturnValue(true)
-    mockHandle.isUnavailable.mockReturnValue(true)
-    result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
+    const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
     expect(result).toBeNull()
   })
 

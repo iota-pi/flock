@@ -25,6 +25,7 @@ import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import type { SyncStatus } from 'src/state/syncStore'
 import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
+import type { PollOutcome } from '../sync/SyncPoller'
 
 import { SnapshotManager } from './snapshotManager'
 import { RecoveryManager } from './recoveryManager'
@@ -215,7 +216,6 @@ export class SyncWorker implements SyncApi {
     const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
     const indexHandle = await this.repo.find<AutomergeIndexDocument>(indexUrl)
     if (!indexHandle) return
-    await indexHandle.whenReady(['ready', 'unavailable'])
 
     return indexHandle
   }
@@ -276,7 +276,7 @@ export class SyncWorker implements SyncApi {
         if (!this.subscribedIds.has(id)) return
 
         const handleChange = () => {
-          const item = normalizeItemSnapshot(id, handle.doc())
+          const item = normalizeItemSnapshot(id, handle.doc() || null)
           this.eventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)

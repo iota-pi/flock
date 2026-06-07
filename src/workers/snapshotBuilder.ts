@@ -20,8 +20,7 @@ export async function buildSnapshot(
     return null
   }
 
-  await handle.whenReady(['ready', 'unavailable'])
-  if (!handle.isReady() || handle.isUnavailable()) {
+  if (!handle.isReady()) {
     return null
   }
 

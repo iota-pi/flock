@@ -5,14 +5,10 @@ import { getAutomergeRepo } from '../automergeRepo'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
 import { useSyncStore } from '../../state/syncStore'
 import { decodeBase64ToBytes, encodeBytesToBase64 } from '../utils'
-import {
-  tryResolveNonReadyHandle,
-  awaitHandleReadyIfNeeded,
-} from '../automergeHandleUtils'
+
 import {
   ensureDocumentHandle,
   normalizeItemId,
-  RepoDocHandle,
   RepoDoc,
 } from './core'
 import {
@@ -34,12 +30,9 @@ export async function seedImportedDocument(accountId: string, itemId: ItemId, bi
     // Ignore cache-eviction failures for handles that were never loaded.
   }
 
-  const handle = repo.import<RepoDoc>(binary, {
+  repo.import<RepoDoc>(binary, {
     docId: resolvedDocumentId,
-  }) as RepoDocHandle
-
-  tryResolveNonReadyHandle(handle)
-  await awaitHandleReadyIfNeeded(handle)
+  })
 }
 
 export async function hydrateAutomergeDocumentBinary(
@@ -72,14 +65,17 @@ export async function exportAllBinaries(accountId: string): Promise<Partial<Reco
   const exported: Partial<Record<ItemId, string>> = {}
 
   for (const itemId of await listAllAutomergeItemIds(accountId)) {
-    const handle = await ensureDocumentHandle(accountId, itemId, {
-      awaitReady: false,
-    })
+    const handle = await ensureDocumentHandle(accountId, itemId)
     if (!handle || !handle.isReady()) {
       continue
     }
 
-    const binary = Automerge.save(handle.doc())
+    const doc = handle.doc()
+    if (!doc) {
+      continue
+    }
+
+    const binary = Automerge.save(doc)
     exported[itemId] = encodeBytesToBase64(binary)
   }
 
