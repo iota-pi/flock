@@ -12,6 +12,7 @@ import { styled } from '@mui/material/styles'
 
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
+import { useAuthStore } from 'src/state/authStore'
 import { useUiStore } from 'src/state/uiStore'
 import {
   HomeIcon,
@@ -21,8 +22,6 @@ import {
   VisibilityOffIcon,
 } from '../Icons'
 import { getSecurityParams, loginVault } from 'src/api/vault'
-import { useAuth } from 'src/hooks/useAuth'
-import { useAuthStore } from 'src/state/authStore'
 
 
 const Root = styled('div')({
@@ -62,7 +61,7 @@ function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const { account: createdAccountId } = useAuth()
+  const createdAccountId = useAuthStore(state => state.account)
   const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
   const updateAuth = useAuthStore(state => state.updateAuth)
 

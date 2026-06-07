@@ -5,9 +5,9 @@ import {
   signOutVault,
 } from '../api/vault'
 import { useMetadata } from '../state/selectors'
-import type { Frequency } from '../utils/frequencies'
+import { useAuthStore } from '../state/authStore'
 import { useToastStore } from '../state/toastStore'
-import { useAuth } from './useAuth'
+import type { Frequency } from '../utils/frequencies'
 import useBackupAndRestore from './useBackupAndRestore'
 import useThemeSettings from './useThemeSettings'
 import useSubscriptionSettings from './useSubscriptionSettings'
@@ -15,7 +15,7 @@ import type { Item } from '../state/items'
 import { useDataRecovery } from './useDataRecovery'
 
 export default function useSettings(items: Item[]) {
-  const { account } = useAuth()
+  const account = useAuthStore(state => state.account)
   const setMessage = useToastStore(state => state.setMessage)
 
   const {
