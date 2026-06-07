@@ -62,23 +62,23 @@ function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  const { account: createdAccountId } = useAuth()
+  const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
+  const updateAuth = useAuthStore(state => state.updateAuth)
+
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState('')
+  const [accountInput, setAccountInput] = useState(() => justCreatedAccount ? createdAccountId : '')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const { account: createdAccountId } = useAuth()
-  const updateAuth = useAuthStore(state => state.updateAuth)
-  const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
 
   useEffect(
     () => {
       if (justCreatedAccount) {
-        setAccountInput(createdAccountId)
         setUi({ justCreatedAccount: false })
       }
     },
-    [createdAccountId, justCreatedAccount, setUi],
+    [justCreatedAccount, setUi],
   )
 
   const handleClickHome = useCallback(

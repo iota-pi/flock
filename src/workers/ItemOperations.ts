@@ -30,8 +30,6 @@ export class ItemOperations {
     return id
   }
 
-
-
   async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
       const updated = await withAutomergeDocumentChange(this.accountId, id, doc => {

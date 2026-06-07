@@ -1,9 +1,9 @@
 import { LeaderElection } from './utils/LeaderElection'
 import { VaultEncryptedNetworkAdapter } from '../sync/VaultEncryptedNetworkAdapter'
 import type { PollOutcome } from '../sync/SyncPoller'
-import type { SyncStatus } from 'src/state/syncStore'
 
 import { SyncEventHub } from '../sync/SyncEventHub'
+
 
 export class SyncOrchestrator {
   private leaderElection: LeaderElection | null = null
@@ -12,8 +12,8 @@ export class SyncOrchestrator {
   private isPolling = false
   private pollingPausedForAuth = false
 
-  private pollIntervalId: any = null
-  private syncBatchTimeout: any = null
+  private pollIntervalId: number | null = null
+  private syncBatchTimeout: number | null = null
   private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
   private pollBackoffIndex = 0
   private nextPollAt = 0
@@ -171,7 +171,7 @@ export class SyncOrchestrator {
     let outcome: PollOutcome
     try {
       outcome = await this.adapter.executePoll()
-    } catch (error) {
+    } catch (_) {
       outcome = 'failure'
     } finally {
       this.isPolling = false

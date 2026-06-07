@@ -1,7 +1,6 @@
 import type { SyncEventListener } from '../sync/SyncEventHub'
 import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
-import { SyncStatus } from 'src/state/syncStore'
 import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 import type { BackupSyncState } from '../types/backup'
 import { ItemId } from 'src/shared/schemas/items'

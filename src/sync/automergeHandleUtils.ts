@@ -24,5 +24,3 @@ export function readReadyObjectSnapshot<TDoc extends object>(
   const doc = readHandleDocSafely(handle)
   return isPlainObject(doc) ? (doc as TDoc) : null
 }
-
-

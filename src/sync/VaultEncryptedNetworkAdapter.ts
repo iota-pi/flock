@@ -31,7 +31,7 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
   private syncPoller: SyncPoller
 
   private pendingWrites: Map<string, Uint8Array[]> = new Map()
-  private persistTimeoutId: any = null
+  private persistTimeoutId: number | null = null
 
   onFlushNeeded: (() => void) | null = null
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useToday } from './useToday'
 import { usePrayerScheduleInputs } from '../state/selectors'
 import { isSameDay, useStableArray } from '../utils'
@@ -21,10 +21,12 @@ export function usePrayerSchedule() {
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const goal = prayerGoal ?? naturalGoal
   const [todaysGoal, setTodaysGoal] = useState(goal)
+  const [prevGoal, setPrevGoal] = useState(goal)
 
-  useEffect(() => {
+  if (goal !== prevGoal) {
+    setPrevGoal(goal)
     setTodaysGoal(goal)
-  }, [goal])
+  }
 
   const isPrayedForToday = useCallback(
     (item: Item): boolean => isSameDay(today, new Date(getLastPrayedFor(item))),
