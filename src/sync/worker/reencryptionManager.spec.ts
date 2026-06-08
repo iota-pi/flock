@@ -25,10 +25,13 @@ vi.mock('@automerge/automerge/slim', () => ({
   save: vi.fn().mockReturnValue(new Uint8Array([1, 2, 3])),
 }))
 
-vi.mock('./docStore', () => ({
-  AutomergeDocStore: vi.fn().mockImplementation(() => ({
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
     listAutomergeItemIds: () => mockListAutomergeItemIds(),
   })),
+}))
+
+vi.mock('./docStore', () => ({
   normalizeItemSnapshot: vi.fn().mockReturnValue({
     type: 'note',
     deleted: false,
@@ -46,7 +49,7 @@ describe('ReencryptionManager', () => {
   let context: {
     accountId: string | null
     repo: any
-    docStore: any
+    indexManager: any
   }
 
   beforeEach(() => {
@@ -61,14 +64,14 @@ describe('ReencryptionManager', () => {
       find: vi.fn().mockResolvedValue(mockHandle),
     }
 
-    const mockDocStore = {
+    const mockIndexManager = {
       listAutomergeItemIds: () => mockListAutomergeItemIds(),
     } as any
 
     context = {
       accountId: 'test-account',
       repo: mockRepo,
-      docStore: mockDocStore,
+      indexManager: mockIndexManager,
     }
 
     manager = new ReencryptionManager(context as any)

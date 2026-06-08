@@ -2,7 +2,6 @@ import { DeletionQueueManager } from './deletionQueueManager'
 import * as deletionStore from '../shared/deletionQueueStore'
 import { ItemId } from 'src/shared/schemas/items'
 
-
 // Mock deletion queue store functions
 vi.mock('../shared/deletionQueueStore', () => {
   let store: Record<string, any> = {}
@@ -35,11 +34,18 @@ vi.mock('../shared/deletionQueueStore', () => {
 // Mock docStore functions
 const mockRemoveAutomergeItem = vi.fn().mockResolvedValue(undefined)
 const mockListAutomergeItemIds = vi.fn().mockResolvedValue(['item-1'])
+const mockRemoveAutomergeItemIdsFromIndex = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('./docStore', () => ({
   AutomergeDocStore: vi.fn().mockImplementation(() => ({
     removeAutomergeItem: mockRemoveAutomergeItem,
+  }))
+}))
+
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
     listAutomergeItemIds: mockListAutomergeItemIds,
+    removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
   }))
 }))
 
@@ -55,13 +61,18 @@ describe('DeletionQueueManager', () => {
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
     const mockDocStore = {
-      listAutomergeItemIds: mockListAutomergeItemIds,
       removeAutomergeItem: mockRemoveAutomergeItem,
+    } as any
+
+    const mockIndexManager = {
+      listAutomergeItemIds: mockListAutomergeItemIds,
+      removeAutomergeItemIdsFromIndex: mockRemoveAutomergeItemIdsFromIndex,
     } as any
 
     manager = new DeletionQueueManager({
       accountId,
       docStore: mockDocStore,
+      indexManager: mockIndexManager,
     })
   })
 
@@ -97,6 +108,7 @@ describe('DeletionQueueManager', () => {
     // Advance past 24 hours (expired!)
     await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000)
     expect(mockRemoveAutomergeItem).toHaveBeenCalledWith('item-2')
+    expect(mockRemoveAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-2'])
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 

@@ -5,7 +5,7 @@ import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { normalizeItemSnapshot } from './docStore'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { encryptBytes } from '../../api/vault'
-import { normalizeSnapshotType } from './utils'
+import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
 
 

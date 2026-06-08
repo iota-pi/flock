@@ -8,6 +8,8 @@ import { ItemId } from 'src/shared/schemas/items'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { SyncEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
+import { CursorStore } from './stores/CursorStore'
+import { SyncPullQueueManager } from './SyncPullQueueManager'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
@@ -69,7 +71,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     eventHub = new SyncEventHub()
     adapter = new VaultNetworkAdapter()
-    broker = new SyncMessageBroker(adapter, eventHub, () => mockDocStore)
+    const cursorStore = new CursorStore('test-account')
+    const pullQueueManager = new SyncPullQueueManager(cursorStore)
+    broker = new SyncMessageBroker(adapter, eventHub, mockDocStore as any, pullQueueManager)
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,

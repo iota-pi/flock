@@ -5,21 +5,12 @@ import { ItemId } from '../../../shared/schemas/items'
 
 const testRepo = new Repo()
 
-vi.mock('../automergeRepo', () => {
-  return {
-    getAutomergeRepo: () => testRepo,
-    getAutomergeDBName: () => 'flock-automerge-test-db-items',
-    closeAutomergeRepo: vi.fn(),
-  }
-})
-
 describe('items operations', () => {
   const accountId = 'test-account-id-items'
   let docStore: AutomergeDocStore
 
   beforeEach(async () => {
     docStore = new AutomergeDocStore(accountId, testRepo)
-    await docStore.clear()
     await docStore.initialize()
   })
 
@@ -52,7 +43,7 @@ describe('items operations', () => {
     expect(retrieved).toEqual(item)
   })
 
-  it('should remove an item and remove it from the index', async () => {
+  it('should remove an item successfully', async () => {
     const item: Item = {
       id: 'test-item-remove' as ItemId,
       type: 'person',
@@ -75,13 +66,7 @@ describe('items operations', () => {
       { createIfMissing: true, initialValue: item as any }
     )
 
-    const itemIdsBefore = await docStore.listAutomergeItemIds()
-    expect(itemIdsBefore).toContain(item.id)
-
     await docStore.removeAutomergeItem(item.id)
-
-    const itemIdsAfter = await docStore.listAutomergeItemIds()
-    expect(itemIdsAfter).not.toContain(item.id)
 
     const retrieved = await docStore.getAutomergeItem(item.id)
     expect(retrieved).toBeNull()

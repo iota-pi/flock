@@ -1,5 +1,6 @@
 import { ItemId } from 'src/shared/schemas/items'
 import { SnapshotManager } from './snapshotManager'
+import { LastModifiedStore } from './stores/LastModifiedStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
 
@@ -47,6 +48,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     repo: any
     broker: any
   }
+  let lastModifiedStore: LastModifiedStore
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -67,7 +69,8 @@ describe('SnapshotManager Retry Mechanism', () => {
       broker: {} as any,
     }
 
-    manager = new SnapshotManager(context as any)
+    lastModifiedStore = new LastModifiedStore('test-account')
+    manager = new SnapshotManager(context as any, lastModifiedStore)
   })
 
   afterEach(() => {
@@ -268,7 +271,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('splits batches when total estimated payload bytes exceed maxPayloadBytes', async () => {
       // Create a manager with small maxPayloadBytes, e.g. 200 bytes
-      const testManager = new SnapshotManager(context as any, { maxPayloadBytes: 200 })
+      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 200 })
 
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,
@@ -290,7 +293,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
     it('sends a single snapshot in its own batch even if it exceeds maxPayloadBytes', async () => {
       // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
-      const testManager = new SnapshotManager(context as any, { maxPayloadBytes: 10 })
+      const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10 })
 
       mockPutSnapshotsWithToken.mockResolvedValue({
         success: true,

@@ -23,11 +23,18 @@ vi.mock('./docStore', () => ({
   }))
 }))
 
+const mockAddAutomergeItemIdsToIndex = vi.fn()
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+    addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+  }))
+}))
+
 describe('RecoveryManager', () => {
   let recoveryManager: RecoveryManager
   let eventHub: SyncEventHub
   let onEventMock: any
-  let depsObj: { accountId: string | null; docStore: any }
+  let depsObj: { accountId: string | null; docStore: any; indexManager: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -41,9 +48,14 @@ describe('RecoveryManager', () => {
       withAutomergeDocumentChange: mockWithAutomergeDocumentChange,
     } as any
 
+    const mockIndexManager = {
+      addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+    } as any
+
     depsObj = {
       accountId: 'account-123',
       docStore: mockDocStore,
+      indexManager: mockIndexManager,
     }
 
     recoveryManager = new RecoveryManager(depsObj as any, eventHub)
@@ -135,6 +147,7 @@ describe('RecoveryManager', () => {
         expect.any(Function),
         { createIfMissing: true, initialValue: { id: 'item-3' } }
       )
+      expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
 
       // Verify the document was mutated properly
       expect(capturedDoc).toEqual({
@@ -168,6 +181,7 @@ describe('RecoveryManager', () => {
         expect.any(Function),
         { createIfMissing: true, initialValue: { id: 'item-4' } }
       )
+      expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-4'])
 
       expect(capturedDoc).toEqual({
         id: 'item-4',

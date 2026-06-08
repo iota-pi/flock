@@ -1,5 +1,4 @@
 import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-repo/slim'
-import localforage from 'localforage'
 import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
@@ -7,18 +6,19 @@ import { reportDecryptionFailure } from '../../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { decryptBytes } from 'src/api/vault'
-import { runStorageOperation } from '../../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
-
+import { CursorStore } from './stores/CursorStore'
+import { parseBatchedMessages } from './utils/messageParser'
 
 export class SyncPullQueueManager {
   private account: string | null = null
   private readonly pendingPullItemIds = new Set<ItemId>()
   private cursorByItemId = new Map<ItemId, number>()
-  private cursorStore: LocalForage | null = null
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
+
+  constructor(private readonly cursorStore: CursorStore) {}
 
   async setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
@@ -27,20 +27,13 @@ export class SyncPullQueueManager {
     this.cursorByItemId.clear()
 
     if (account) {
-      this.cursorStore = localforage.createInstance({
-        name: 'flock-sync-cursors',
-        storeName: `cursors-${account}`,
-      })
       await this.loadCursors()
-    } else {
-      this.cursorStore = null
     }
   }
 
   private async loadCursors(): Promise<void> {
-    if (!this.cursorStore) return
     try {
-      const stored = await this.cursorStore.getItem<[ItemId, number][]>('cursorByItemId')
+      const stored = await this.cursorStore.loadCursors()
       if (stored && Array.isArray(stored)) {
         this.cursorByItemId = new Map(stored)
       }
@@ -49,11 +42,12 @@ export class SyncPullQueueManager {
     }
   }
 
+
   async persistCursors(): Promise<void> {
-    if (!this.cursorStore) return
+    if (!this.account) return
     const data = Array.from(this.cursorByItemId.entries())
     try {
-      await runStorageOperation(() => this.cursorStore!.setItem('cursorByItemId', data))
+      await this.cursorStore.saveCursors(data)
     } catch (error) {
       console.error('[SyncPullQueueManager] Failed to save cursors', error)
     }
@@ -65,36 +59,16 @@ export class SyncPullQueueManager {
     this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
-    this.cursorStore?.clear().catch(error => {
-      console.error('[SyncPullQueueManager] Failed to clear cursor store', error)
-    })
+    if (this.account) {
+      this.cursorStore.clear().catch(error => {
+        console.error('[SyncPullQueueManager] Failed to clear cursor store', error)
+      })
+    }
   }
 
   addPendingItem(itemId: ItemId): void {
     if (!itemId) return
     this.pendingPullItemIds.add(itemId)
-  }
-
-  private parseBatchedMessages(itemId: ItemId, documentId: DocumentId, decrypted: Uint8Array): void {
-    let offset = 0
-    const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
-    while (offset < decrypted.byteLength) {
-      try {
-        const length = view.getUint32(offset, false)
-        offset += 4
-        const msg = new Uint8Array(decrypted.buffer, decrypted.byteOffset + offset, length)
-        offset += length
-
-        try {
-          this.onMessageParsed(itemId, documentId, msg)
-        } catch (error) {
-          console.error('[SyncPullQueueManager] Error processing message in batch', error)
-        }
-      } catch (error) {
-        console.error('[SyncPullQueueManager] Error parsing message batch structure', error)
-        break
-      }
-    }
   }
 
   private async handleMessageEntry(
@@ -111,7 +85,7 @@ export class SyncPullQueueManager {
       const isBatched = entry.encryptedMessage.version === '1.0'
 
       if (isBatched) {
-        this.parseBatchedMessages(itemId, documentId, decrypted)
+        parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
       } else {
         try {
           this.onMessageParsed(itemId, documentId, decrypted)
@@ -233,8 +207,8 @@ export class SyncPullQueueManager {
 
 
   async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    if (!this.cursorStore) return
+    if (!this.account) return
     this.cursorByItemId = new Map(cursors)
-    await this.cursorStore.setItem('cursorByItemId', cursors)
+    await this.cursorStore.saveCursors(cursors)
   }
 }

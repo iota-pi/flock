@@ -5,14 +5,13 @@ import { clearManualRecoveryForItems } from '../../api/syncHealthCoordinator'
 import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter, type RawSyncMessage } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
-import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
 export class SyncMessageBroker {
   private account: string | null = null
   private isOnline = true
   private sendEnabled = false
 
-  private pullQueueManager = new SyncPullQueueManager()
   private syncPoller: SyncPoller
 
   private pendingWrites: Map<string, Uint8Array[]> = new Map()
@@ -23,7 +22,8 @@ export class SyncMessageBroker {
   constructor(
     private adapter: VaultNetworkAdapter,
     private eventHub: SyncEventHub,
-    private getDocStore: () => AutomergeDocStore,
+    private indexManager: AutomergeIndexManager,
+    private pullQueueManager: SyncPullQueueManager,
   ) {
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
       if (this.account) {
@@ -35,7 +35,7 @@ export class SyncMessageBroker {
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
       this.eventHub,
-      this.getDocStore,
+      this.indexManager,
     )
 
     this.adapter.onMessageSent = (rawMsg: RawSyncMessage) => {

@@ -5,6 +5,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 import { ItemId } from 'src/shared/schemas/items'
+import { CursorStore } from './stores/CursorStore'
 
 // Create a robust MockLocalforage helper class
 class MockLocalforage {
@@ -97,12 +98,14 @@ vi.mock('./automergeRepoIds', async importOriginal => {
 
 describe('SyncPullQueueManager', () => {
   let manager: SyncPullQueueManager
+  let cursorStore: CursorStore
 
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     activeStore = null
-    manager = new SyncPullQueueManager()
+    cursorStore = new CursorStore('account-1')
+    manager = new SyncPullQueueManager(cursorStore)
 
     // Default mock behavior
     mockDecryptBytes.mockImplementation(async (encrypted: any) => encrypted.cipher)
@@ -120,6 +123,7 @@ describe('SyncPullQueueManager', () => {
     })
 
     it('clears maps and ignores store loading if account is null', async () => {
+      activeStore = null
       manager.addPendingItem('item-1' as ItemId)
       await manager.setAccount(null)
       expect(manager.hasPendingPulls()).toBe(false)
@@ -135,6 +139,8 @@ describe('SyncPullQueueManager', () => {
       // Inject this store into createInstance
       vi.mocked(localforage.createInstance).mockReturnValueOnce(lf as any)
 
+      cursorStore = new CursorStore('account-2')
+      manager = new SyncPullQueueManager(cursorStore)
       await manager.setAccount('account-2')
       expect(manager.exportCursors()).toEqual(preLoadedCursors)
     })

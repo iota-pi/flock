@@ -41,7 +41,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 
 export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
-export const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
+const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
 
 const SYNC_MESSAGE_TTL = 7 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25

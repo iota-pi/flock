@@ -4,12 +4,19 @@ import { LegacyBootstrapper } from './legacyBootstrapper'
 const mockListAutomergeItemIds = vi.fn()
 const mockHydrateAutomergeDocumentBinary = vi.fn()
 const mockGetAutomergeMetadata = vi.fn()
+const mockAddAutomergeItemIdsToIndex = vi.fn()
 
 vi.mock('./docStore', () => ({
   AutomergeDocStore: vi.fn().mockImplementation(() => ({
-    listAutomergeItemIds: mockListAutomergeItemIds,
     hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
+  }))
+}))
+
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: vi.fn().mockImplementation(() => ({
+    listAutomergeItemIds: mockListAutomergeItemIds,
     getAutomergeMetadata: mockGetAutomergeMetadata,
+    addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
   }))
 }))
 
@@ -45,18 +52,22 @@ describe('LegacyBootstrapper', () => {
   let bootstrapper: LegacyBootstrapper
   let storeItemsSpy: any
   let mutateMetadataSpy: any
-  let depsObj: { accountId: string | null; docStore: any }
+  let depsObj: { accountId: string | null; docStore: any; indexManager: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
 
     const mockDocStore = {
-      listAutomergeItemIds: mockListAutomergeItemIds,
       hydrateAutomergeDocumentBinary: mockHydrateAutomergeDocumentBinary,
-      getAutomergeMetadata: mockGetAutomergeMetadata,
     } as any
 
-    depsObj = { accountId: 'acc-123', docStore: mockDocStore }
+    const mockIndexManager = {
+      listAutomergeItemIds: mockListAutomergeItemIds,
+      getAutomergeMetadata: mockGetAutomergeMetadata,
+      addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+    } as any
+
+    depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager }
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
 
@@ -132,6 +143,7 @@ describe('LegacyBootstrapper', () => {
         'item-snap',
         new Uint8Array([5, 6, 7])
       )
+      expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-snap'])
 
       // Deleted items & legacy decrypted object snapshots are passed to storeItems
       expect(storeItemsSpy).toHaveBeenCalledWith([

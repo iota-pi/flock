@@ -7,7 +7,7 @@ import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncEventHub } from './SyncEventHub'
 import { fetchMetadataWithToken } from '../../api/vault/SyncWorkerClient'
-import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure'
 
@@ -19,7 +19,7 @@ export class SyncPoller {
   constructor(
     private pullQueueManager: SyncPullQueueManager,
     private eventHub: SyncEventHub,
-    private getDocStore: () => AutomergeDocStore,
+    private indexManager: AutomergeIndexManager,
   ) {}
 
   setAccount(account: string | null): void {
@@ -47,8 +47,7 @@ export class SyncPoller {
       try {
         const serverMeta = await fetchMetadataWithToken({ account: this.account, authToken })
         if (serverMeta && serverMeta.items) {
-          const docStore = this.getDocStore()
-          const localIndex = await docStore.getIndexSnapshot()
+          const localIndex = await this.indexManager.getIndexSnapshot()
           const localLastModified = localIndex.lastModified || {}
           const localItemIdsSet = new Set(localIndex.itemIds || [])
 
@@ -73,8 +72,8 @@ export class SyncPoller {
 
           let indexChanged = false
           if (newOrModified.length > 0) {
-            await docStore.addAutomergeItemIdsToIndex(newOrModified)
-            await docStore.updateLocalLastModified(newLocalLastModified)
+            await this.indexManager.addAutomergeItemIdsToIndex(newOrModified)
+            await this.indexManager.updateLocalLastModified(newLocalLastModified)
             for (const id of newOrModified) {
               this.pullQueueManager.addPendingItem(id)
             }
@@ -82,12 +81,12 @@ export class SyncPoller {
           }
 
           if (toRemoveFromLocal.length > 0) {
-            await docStore.removeAutomergeItemIdsFromIndex(toRemoveFromLocal)
+            await this.indexManager.removeAutomergeItemIdsFromIndex(toRemoveFromLocal)
             indexChanged = true
           }
 
           if (indexChanged) {
-            const updatedIndex = await docStore.getIndexSnapshot()
+            const updatedIndex = await this.indexManager.getIndexSnapshot()
             this.eventHub.emit({ type: 'indexUpdated', itemIds: updatedIndex.itemIds || [] })
             this.eventHub.emit({ type: 'metadataUpdated', metadata: updatedIndex.metadata || {} })
           }

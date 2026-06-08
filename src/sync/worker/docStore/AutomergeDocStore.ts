@@ -1,17 +1,11 @@
 import { Repo, DocHandle, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import localforage from 'localforage'
-import { z } from 'zod'
 import { ItemId, ItemIdSchema, readItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
-import { getAutomergeDBName } from '../automergeRepo'
 import { readObjectSnapshot } from '../automergeHandleUtils'
 import { isPlainObject } from '../utils/objectUtils'
-import { decodeBase64ToBytes, encodeBytesToBase64 } from '../utils/base64Utils'
-import { useSyncStore } from '../../../state/syncStore'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -33,7 +27,7 @@ export type AutomergeIndexDocument = {
   lastModified?: Record<ItemId, number>
 }
 
-export function normalizeItemId(raw: unknown): ItemId | null {
+function normalizeItemId(raw: unknown): ItemId | null {
   const result = ItemIdSchema.safeParse(raw)
   return result.success ? result.data : null
 }
@@ -75,23 +69,13 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
 
 export class AutomergeDocStore {
   private isInitialized = false
-  private readonly indexStore: LocalForage
 
   constructor(
     private readonly accountId: string,
     private readonly repo: Repo,
-  ) {
-    this.indexStore = localforage.createInstance({
-      name: 'flock-item-metadata',
-      storeName: `index-${this.accountId}`,
-    })
-  }
+  ) {}
 
   async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      return
-    }
-    await this.ensureIndexDocument()
     this.isInitialized = true
   }
 
@@ -181,7 +165,6 @@ export class AutomergeDocStore {
     return true
   }
 
-  // Item Helpers
   async withAutomergeDocumentChange(
     itemId: ItemId,
     change: (draft: RepoDoc) => void,
@@ -191,8 +174,6 @@ export class AutomergeDocStore {
     if (!normalizedDocumentId) {
       return false
     }
-
-    await this.addAutomergeItemIdsToIndex([normalizedDocumentId])
 
     return this.changeDocument(
       normalizedDocumentId,
@@ -220,8 +201,6 @@ export class AutomergeDocStore {
       return
     }
 
-    await this.removeAutomergeItemIdsFromIndex([normalizedItemId])
-
     const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)
 
     try {
@@ -237,103 +216,8 @@ export class AutomergeDocStore {
     }
   }
 
-  // Index Manager Helpers
-  async getIndexSnapshot(): Promise<AutomergeIndexDocument> {
-    const doc = await this.indexStore.getItem<AutomergeIndexDocument>('indexDoc')
-    return {
-      accountId: doc?.accountId || this.accountId,
-      itemIds: doc?.itemIds || [],
-      metadata: doc?.metadata || {},
-      lastModified: doc?.lastModified || {},
-    }
-  }
-
-  async ensureIndexDocument(): Promise<void> {
-    const doc = await this.getIndexSnapshot()
-    if (!doc.accountId) {
-      doc.accountId = this.accountId
-      await this.indexStore.setItem('indexDoc', doc)
-    }
-  }
-
-  async addAutomergeItemIdsToIndex(itemIds: ItemId[]): Promise<void> {
-    const doc = await this.getIndexSnapshot()
-    const current = new Set(doc.itemIds)
-    let updated = false
-    for (const itemId of itemIds) {
-      if (!current.has(itemId)) {
-        doc.itemIds!.push(itemId)
-        current.add(itemId)
-        updated = true
-      }
-    }
-    if (updated) {
-      await this.indexStore.setItem('indexDoc', doc)
-    }
-  }
-
-  async removeAutomergeItemIdsFromIndex(itemIds: ItemId[]): Promise<void> {
-    const doc = await this.getIndexSnapshot()
-    const removeSet = new Set(itemIds)
-    const newItemIds = doc.itemIds?.filter(id => !removeSet.has(id)) || []
-    const lastModified = doc.lastModified || {}
-
-    for (const id of removeSet) {
-      delete lastModified[id]
-    }
-
-    doc.itemIds = newItemIds
-    doc.lastModified = lastModified
-    await this.indexStore.setItem('indexDoc', doc)
-  }
-
-  async listAutomergeItemIds(): Promise<ItemId[]> {
-    const index = await this.getIndexSnapshot()
-    return index.itemIds || []
-  }
-
-  async getAutomergeMetadata(): Promise<AccountMetadata> {
-    const index = await this.getIndexSnapshot()
-    return index.metadata || {}
-  }
-
-  async updateLocalMetadata(metadata: AccountMetadata): Promise<void> {
-    const doc = await this.getIndexSnapshot()
-    doc.metadata = metadata
-    await this.indexStore.setItem('indexDoc', doc)
-  }
-
-  async updateAutomergeMetadata(changes: Partial<AccountMetadata>): Promise<AccountMetadata> {
-    const doc = await this.getIndexSnapshot()
-    doc.metadata = { ...doc.metadata, ...changes }
-    await this.indexStore.setItem('indexDoc', doc)
-    return doc.metadata || {}
-  }
-
-  async restoreIndexSnapshot(snapshot: AutomergeIndexDocument): Promise<void> {
-    await this.indexStore.setItem('indexDoc', snapshot)
-  }
-
-  async updateLocalLastModified(lastModified: Record<ItemId, number>): Promise<void> {
-    const doc = await this.getIndexSnapshot()
-    doc.lastModified = { ...doc.lastModified, ...lastModified }
-    await this.indexStore.setItem('indexDoc', doc)
-  }
-
-  // Backup Helpers
-  async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<void> {
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    const resolvedDocumentId = interpretAsDocumentId(documentUrl)
-
-    try {
-      await this.repo.removeFromCache(resolvedDocumentId)
-    } catch {
-      // Ignore cache-eviction failures
-    }
-
-    this.repo.import<RepoDoc>(binary, {
-      docId: resolvedDocumentId,
-    })
+  normalizeItemId(raw: unknown): ItemId | null {
+    return normalizeItemId(raw)
   }
 
   async hydrateAutomergeDocumentBinary(
@@ -354,87 +238,24 @@ export class AutomergeDocStore {
       })
       return
     }
-
-    await this.addAutomergeItemIdsToIndex([normalizedItemId])
   }
 
-  async exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
-    const exported: Partial<Record<ItemId, string>> = {}
+  async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<void> {
+    const documentUrl = toAutomergeUrlFromItemId(itemId)
+    const resolvedDocumentId = interpretAsDocumentId(documentUrl)
 
-    // 1. Export Automerge items
-    for (const itemId of await this.listAutomergeItemIds()) {
-      const handle = await this.ensureDocumentHandle(itemId)
-      if (!handle || !handle.isReady()) {
-        continue
-      }
-
-      const doc = handle.doc()
-      if (!doc) {
-        continue
-      }
-
-      const binary = Automerge.save(doc)
-      exported[itemId] = encodeBytesToBase64(binary)
+    try {
+      await this.repo.removeFromCache(resolvedDocumentId)
+    } catch {
+      // Ignore cache-eviction failures
     }
 
-    // 2. Export native index metadata
-    const indexDoc = await this.getIndexSnapshot()
-    const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
-    const indexId = ACCOUNT_INDEX_DOCUMENT_ID as unknown as ItemId
-    exported[indexId] = encodeBytesToBase64(indexBinary)
-
-    return exported
+    this.repo.import<RepoDoc>(binary, {
+      docId: resolvedDocumentId,
+    })
   }
 
-  async restoreFromBinaries(items: Partial<Record<ItemId, string>>): Promise<ItemId[]> {
-    const restoredItemIds: ItemId[] = []
-
-    // 1. Intercept and restore the native index/metadata first if present
-    const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID as unknown as ItemId]
-    if (encodedIndex && typeof encodedIndex === 'string') {
-      try {
-        const indexBinary = decodeBase64ToBytes(encodedIndex)
-        const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
-        if (indexDoc && typeof indexDoc === 'object') {
-          await this.restoreIndexSnapshot(indexDoc)
-        }
-      } catch (err) {
-        console.error('[backup] Failed to restore native index metadata from backup', err)
-      }
-    }
-
-    // 2. Restore individual Automerge item documents
-    for (const [itemId, encodedBinary] of Object.entries(items)) {
-      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) {
-        continue
-      }
-
-      if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) {
-        continue
-      }
-
-      const normalizedItemId = normalizeItemId(itemId)
-      if (!normalizedItemId) {
-        continue
-      }
-      await this.hydrateAutomergeDocumentBinary(
-        normalizedItemId,
-        decodeBase64ToBytes(encodedBinary),
-      )
-
-      restoredItemIds.push(normalizedItemId)
-    }
-
-    await this.addAutomergeItemIdsToIndex(restoredItemIds)
-
-    useSyncStore.getState().incrementGeneration()
-
-    return restoredItemIds
-  }
-
-  async clear(): Promise<void> {
-    const itemIds = await this.listAutomergeItemIds()
-
+  async clear(itemIds: ItemId[]): Promise<void> {
     for (const itemId of itemIds) {
       const documentUrl = toAutomergeUrlFromItemId(itemId)
       try {
@@ -455,19 +276,6 @@ export class AutomergeDocStore {
       await this.repo.shutdown()
     } catch (err) {
       console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
-    }
-
-    try {
-      await this.indexStore.clear()
-    } catch (error) {
-      console.error('[automergeDocStore] failed to clear indexStore:', error)
-    }
-
-    try {
-      const dbName = getAutomergeDBName(this.accountId)
-      await localforage.dropInstance({ name: dbName })
-    } catch (error) {
-      console.error('[automergeDocStore] failed to delete indexedDB database:', error)
     }
   }
 }

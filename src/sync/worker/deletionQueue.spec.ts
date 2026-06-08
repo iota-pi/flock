@@ -2,7 +2,6 @@ import { SyncWorker } from './sync.worker'
 import * as deletionStore from '../shared/deletionQueueStore'
 import type { ItemId } from 'src/shared/schemas/items'
 
-
 // Mock Automerge WASM
 vi.mock('@automerge/automerge/slim', () => ({
   initializeWasm: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +15,7 @@ vi.mock('@automerge/automerge/automerge.wasm?url', () => ({
 
 // Mock deletion queue store functions
 vi.mock('../shared/deletionQueueStore', () => {
-  let store: Record<string, any> = {}
+  const store: Record<string, any> = {}
   return {
     scheduleDeletion: vi.fn(async (accountId, itemId, gracePeriodMs) => {
       store[`${accountId}:${itemId}`] = {
@@ -38,9 +37,6 @@ vi.mock('../shared/deletionQueueStore', () => {
         }
       }
     }),
-    // Helper to inspect store in tests
-    _getStore: () => store,
-    _clearStore: () => { store = {} }
   }
 })
 
@@ -53,20 +49,23 @@ const mockListAutomergeItemIds = vi.fn().mockResolvedValue([])
 vi.mock('./docStore', () => ({
   AutomergeDocStore: class MockDocStore {
     initialize = vi.fn().mockResolvedValue(undefined)
-    getAutomergeMetadata = vi.fn().mockResolvedValue({})
     withAutomergeDocumentChange = vi.fn().mockResolvedValue(true)
-    withAutomergeMetadataChange = vi.fn().mockResolvedValue(true)
     removeAutomergeItem = (...args: any[]) => mockRemoveAutomergeItem(...args)
     getAutomergeItem = vi.fn().mockResolvedValue(null)
-    removeAutomergeItemIdsFromIndex = (...args: any[]) => mockRemoveAutomergeItemIdsFromIndex(...args)
-    addAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
-    listAutomergeItemIds = (...args: any[]) => mockListAutomergeItemIds(...args)
     clear = (...args: any[]) => mockClearAutomergeDocStore(...args)
-    exportAllBinaries = vi.fn().mockResolvedValue({})
-    restoreFromBinaries = vi.fn().mockResolvedValue([])
     normalizeItemSnapshot = vi.fn()
   },
   normalizeItemSnapshot: vi.fn().mockImplementation((id, doc) => ({ ...doc, id }))
+}))
+
+vi.mock('./docStore/AutomergeIndexManager', () => ({
+  AutomergeIndexManager: class MockIndexManager {
+    listAutomergeItemIds = (...args: any[]) => mockListAutomergeItemIds(...args)
+    addAutomergeItemIdsToIndex = vi.fn().mockResolvedValue(undefined)
+    removeAutomergeItemIdsFromIndex = (...args: any[]) => mockRemoveAutomergeItemIdsFromIndex(...args)
+    getAutomergeMetadata = vi.fn().mockResolvedValue({})
+    ensureIndexDocument = vi.fn().mockResolvedValue(undefined)
+  }
 }))
 
 // Mock other dependencies
@@ -132,7 +131,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    ;(deletionStore as any)._clearStore()
+    deletionStore.clearScheduledDeletions(accountId)
 
     mockOnEvent = vi.fn().mockResolvedValue(undefined)
 
@@ -145,7 +144,8 @@ describe('SyncWorker Deletion Queue Integration', () => {
     await worker.initRepo(accountId, 'vault-key', mockOnEvent)
 
     // Set initial subscribedIds
-    ;(worker as any).subscribedIds = new Set(['item-1', 'item-2'] as ItemId[])
+    const workerAny = worker as any
+    workerAny.subscribedIds = new Set(['item-1', 'item-2'] as ItemId[])
 
     // Change listAutomergeItemIds mock to return only item-1 (item-2 deleted)
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
@@ -158,7 +158,8 @@ describe('SyncWorker Deletion Queue Integration', () => {
   it('schedules deletion for removed index items instead of deleting immediately', async () => {
     // Trigger handleIndexChange
     const newItemIdsSet = new Set(['item-1'] as ItemId[])
-    await (worker as any).deletionQueueManager.handleIndexChange(newItemIdsSet, (worker as any).subscribedIds)
+    const context = (worker as any).context
+    await context.deletionQueueManager.handleIndexChange(newItemIdsSet, (worker as any).subscribedIds)
 
     // Verify scheduleDeletion was called for item-2
     expect(deletionStore.scheduleDeletion).toHaveBeenCalledWith(accountId, 'item-2', 24 * 60 * 60 * 1000)
@@ -166,9 +167,10 @@ describe('SyncWorker Deletion Queue Integration', () => {
   })
 
   it('cancels scheduled deletion if item reappears in index', async () => {
+    const context = (worker as any).context
     // 1. Remove item-2 (schedules deletion)
     const newItemIdsSet1 = new Set(['item-1'] as ItemId[])
-    await (worker as any).deletionQueueManager.handleIndexChange(newItemIdsSet1, (worker as any).subscribedIds)
+    await context.deletionQueueManager.handleIndexChange(newItemIdsSet1, (worker as any).subscribedIds)
     expect(deletionStore.scheduleDeletion).toHaveBeenCalledWith(accountId, 'item-2', 24 * 60 * 60 * 1000)
 
     // 2. Mock list to return item-2 back
@@ -176,16 +178,17 @@ describe('SyncWorker Deletion Queue Integration', () => {
 
     // 3. Trigger again
     const newItemIdsSet2 = new Set(['item-1', 'item-2'] as ItemId[])
-    await (worker as any).deletionQueueManager.handleIndexChange(newItemIdsSet2, (worker as any).subscribedIds)
+    await context.deletionQueueManager.handleIndexChange(newItemIdsSet2, (worker as any).subscribedIds)
 
     // Verify cancelDeletion was called
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 
   it('deletes item from automerge storage when grace period expires', async () => {
+    const context = (worker as any).context
     // 1. Remove item-2 to schedule deletion (uses default 24h grace period)
     const newItemIdsSet = new Set(['item-1'] as ItemId[])
-    await (worker as any).deletionQueueManager.handleIndexChange(newItemIdsSet, (worker as any).subscribedIds)
+    await context.deletionQueueManager.handleIndexChange(newItemIdsSet, (worker as any).subscribedIds)
     expect(deletionStore.scheduleDeletion).toHaveBeenCalledWith(accountId, 'item-2', 24 * 60 * 60 * 1000)
 
     // 2. Run timers by 23 hours (should not delete yet)
@@ -203,7 +206,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
   it('clears scheduled deletions when shutdown is called', async () => {
     await worker.shutdown()
     expect(deletionStore.clearScheduledDeletions).toHaveBeenCalledWith(accountId)
-    expect(mockClearAutomergeDocStore).toHaveBeenCalledWith()
+    expect(mockClearAutomergeDocStore).toHaveBeenCalled()
   })
 
   it('clears pending timer and cancels deletions on hardDeleteItems', async () => {

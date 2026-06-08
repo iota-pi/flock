@@ -1,4 +1,5 @@
 import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import {
   scheduleDeletion,
   cancelDeletion,
@@ -16,6 +17,7 @@ export class DeletionQueueManager {
     private deps: {
       accountId: string
       docStore: AutomergeDocStore
+      indexManager: AutomergeIndexManager
     }
   ) {}
 
@@ -66,7 +68,7 @@ export class DeletionQueueManager {
       const expired = scheduled.filter(item => item.scheduledTime <= now)
 
       if (expired.length > 0) {
-        const itemIds = await this.deps.docStore.listAutomergeItemIds()
+        const itemIds = await this.deps.indexManager.listAutomergeItemIds()
 
         for (const item of expired) {
           if (itemIds.includes(item.itemId)) {
@@ -76,6 +78,7 @@ export class DeletionQueueManager {
           }
 
           await this.deps.docStore.removeAutomergeItem(item.itemId)
+          await this.deps.indexManager.removeAutomergeItemIdsFromIndex([item.itemId])
           await cancelDeletion(this.deps.accountId, item.itemId)
         }
       }

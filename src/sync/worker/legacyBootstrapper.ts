@@ -1,17 +1,20 @@
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { fetchMany } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
 import { trpcClient } from '../../api/trpcClient'
 import { VaultItem } from 'src/vault/drivers/base'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export class LegacyBootstrapper {
   constructor(
     private deps: {
       accountId: string
       docStore: AutomergeDocStore
+      indexManager: AutomergeIndexManager
     },
     private storeItems: (items: Item[]) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
@@ -19,7 +22,7 @@ export class LegacyBootstrapper {
 
   async bootstrapLegacyItems() {
     if (!this.deps.accountId) return
-    const knownItemIds = await this.deps.docStore.listAutomergeItemIds()
+    const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     if (knownItemIds.length > 0) return
 
     if (!hasApiAuthToken()) {
@@ -44,6 +47,7 @@ export class LegacyBootstrapper {
     if (fetchedItems.length === 0) return
 
     const snapshots: Item[] = []
+    const hydratedIds: ItemId[] = []
 
     const promises = fetchedItems.map(async item => {
       try {
@@ -56,6 +60,7 @@ export class LegacyBootstrapper {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
             await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
+            hydratedIds.push(item.item as ItemId)
             return
           }
         }
@@ -89,6 +94,10 @@ export class LegacyBootstrapper {
 
     await Promise.allSettled(promises)
 
+    if (hydratedIds.length > 0) {
+      await this.deps.indexManager.addAutomergeItemIdsToIndex(hydratedIds)
+    }
+
     if (snapshots.length > 0) {
       await this.storeItems(snapshots)
     }
@@ -109,7 +118,7 @@ export class LegacyBootstrapper {
   private async hydrateMetadata() {
     if (!hasApiAuthToken()) return
 
-    const localMetadata = await this.deps.docStore.getAutomergeMetadata()
+    const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
     if (Object.keys(localMetadata || {}).length > 0) return
 
     const response = await trpcClient.accounts.getMetadata.query({ account: this.deps.accountId }).catch(() => null)

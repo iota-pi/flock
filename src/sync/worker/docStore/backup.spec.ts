@@ -1,27 +1,31 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import { AutomergeDocStore } from './AutomergeDocStore'
+import { AutomergeIndexManager } from './AutomergeIndexManager'
+import { BackupManager } from './BackupManager'
+import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/schemas/items'
 
 const testRepo = new Repo()
 
-vi.mock('../automergeRepo', () => {
-  return {
-    getAutomergeRepo: () => testRepo,
-    getAutomergeDBName: () => 'flock-automerge-test-db-backup',
-    closeAutomergeRepo: vi.fn(),
-  }
-})
-
 describe('backup operations', () => {
   const accountId = 'test-account-id-backup'
   let docStore: AutomergeDocStore
+  let indexManager: AutomergeIndexManager
+  let backupManager: BackupManager
+  let indexStore: IndexStore
 
   beforeEach(async () => {
+    indexStore = new IndexStore(accountId)
     docStore = new AutomergeDocStore(accountId, testRepo)
-    await docStore.clear()
+    indexManager = new AutomergeIndexManager(accountId, indexStore)
+    backupManager = new BackupManager(testRepo, docStore, indexManager)
+    
+    await docStore.clear([])
+    await indexStore.clear()
     await docStore.initialize()
+    await indexManager.ensureIndexDocument()
   })
 
   it('should export all binaries and restore them successfully', async () => {
@@ -47,38 +51,41 @@ describe('backup operations', () => {
       },
       { createIfMissing: true, initialValue: item as any }
     )
+    await indexManager.addAutomergeItemIdsToIndex([item.id])
 
     // Update metadata before backup
-    await docStore.updateAutomergeMetadata({ prayerGoal: 42 })
+    await indexManager.updateAutomergeMetadata({ prayerGoal: 42 })
 
     // Export binaries
-    const exported = await docStore.exportAllBinaries()
+    const exported = await backupManager.exportAllBinaries()
     expect(Object.keys(exported)).toContain(item.id)
     expect(Object.keys(exported)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
 
     // Clean current state
-    await docStore.clear()
+    await docStore.clear([item.id])
+    await indexStore.clear()
     await docStore.initialize()
+    await indexManager.ensureIndexDocument()
 
     const retrievedBefore = await docStore.getAutomergeItem(item.id)
     expect(retrievedBefore).toBeNull()
 
-    const metadataBefore = await docStore.getAutomergeMetadata()
+    const metadataBefore = await indexManager.getAutomergeMetadata()
     expect(metadataBefore.prayerGoal).toBeUndefined()
 
     // Restore from binaries
-    const restored = await docStore.restoreFromBinaries(exported)
+    const restored = await backupManager.restoreFromBinaries(exported)
     expect(restored).toContain(item.id)
 
     // Verify item restored
     const retrievedAfter = await docStore.getAutomergeItem(item.id)
     expect(retrievedAfter).toEqual(item)
 
-    const itemIds = await docStore.listAutomergeItemIds()
+    const itemIds = await indexManager.listAutomergeItemIds()
     expect(itemIds).toContain(item.id)
 
     // Verify metadata restored
-    const metadataAfter = await docStore.getAutomergeMetadata()
+    const metadataAfter = await indexManager.getAutomergeMetadata()
     expect(metadataAfter.prayerGoal).toBe(42)
   })
 })

@@ -14,7 +14,7 @@ export function registerQuotaReporter(reporter: QuotaExceededListener): () => vo
   }
 }
 
-export function reportQuotaExceeded(): void {
+function reportQuotaExceeded(): void {
   isQuotaExceeded = true
   const now = Date.now()
   if (now - lastReportedTime < REPORT_THROTTLE_MS) {
@@ -30,10 +30,6 @@ export function reportQuotaExceeded(): void {
       console.error('[StorageManager] Error in quota listener:', err)
     }
   }
-}
-
-export function getQuotaExceededStatus(): boolean {
-  return isQuotaExceeded
 }
 
 export function resetQuotaExceededStatus(): void {

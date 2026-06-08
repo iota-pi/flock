@@ -2,12 +2,14 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { SyncEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { DeletionQueueManager } from './deletionQueueManager'
 import type { ItemId } from 'src/shared/schemas/items'
 
 export interface ItemOperationsDeps {
   accountId: string
   docStore: AutomergeDocStore
+  indexManager: AutomergeIndexManager
   eventHub: SyncEventHub
   markDocumentDirty: (itemId: ItemId) => void
   deletionQueueManager: DeletionQueueManager
@@ -42,6 +44,7 @@ export class ItemOperations {
         }
       }, { createIfMissing: true, initialValue: item })
       if (updated) {
+        await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
       }
     } catch (err) {
@@ -54,6 +57,7 @@ export class ItemOperations {
       for (const id of itemIds) {
         await this.deps.deletionQueueManager.cancelDeletion(id).catch(console.error)
         await this.deps.docStore.removeAutomergeItem(id)
+        await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'hardDelete', error: (err as Error).message })
@@ -62,6 +66,7 @@ export class ItemOperations {
 
   async storeItems(items: Item[]): Promise<void> {
     const failedItems: { item: Item; error: Error }[] = []
+    const succeededIds: ItemId[] = []
 
     for (const item of items) {
       try {
@@ -72,11 +77,16 @@ export class ItemOperations {
           }
         }, { createIfMissing: true, initialValue: item })
         if (updated) {
+          succeededIds.push(item.id)
           this.deps.markDocumentDirty(item.id)
         }
       } catch (err) {
         failedItems.push({ item, error: err as Error })
       }
+    }
+
+    if (succeededIds.length > 0) {
+      await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededIds)
     }
 
     if (failedItems.length > 0) {
@@ -91,11 +101,11 @@ export class ItemOperations {
 
   async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
     try {
-      const metadata = await this.deps.docStore.updateAutomergeMetadata(changes)
+      const metadata = await this.deps.indexManager.updateAutomergeMetadata(changes)
       this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'metadata', error: (err as Error).message })
-      const metadata = await this.deps.docStore.getAutomergeMetadata()
+      const metadata = await this.deps.indexManager.getAutomergeMetadata()
       this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
     }
   }

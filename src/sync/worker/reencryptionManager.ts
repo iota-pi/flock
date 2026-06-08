@@ -1,5 +1,5 @@
 import type { Repo } from '@automerge/automerge-repo/slim'
-import { AutomergeDocStore } from './docStore'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
@@ -9,12 +9,12 @@ export class ReencryptionManager {
     private deps: {
       accountId: string
       repo: Repo
-      docStore: AutomergeDocStore
+      indexManager: AutomergeIndexManager
     }
   ) {}
 
   async reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<void> {
-    if (!this.deps.accountId || !this.deps.repo || !this.deps.docStore) {
+    if (!this.deps.accountId || !this.deps.repo || !this.deps.indexManager) {
       throw new Error('SyncWorker not initialized')
     }
     const authToken = await getActiveSessionToken()
@@ -22,7 +22,7 @@ export class ReencryptionManager {
       throw new Error('No active session token available')
     }
 
-    const itemIds = await this.deps.docStore.listAutomergeItemIds()
+    const itemIds = await this.deps.indexManager.listAutomergeItemIds()
     const total = itemIds.length
     if (total === 0) {
       if (onProgress) {

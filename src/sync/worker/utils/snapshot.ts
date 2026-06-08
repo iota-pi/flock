@@ -1,5 +1,5 @@
 import { ITEM_TYPES } from 'src/shared/schemas/items'
-import type { Item } from '../../state/items'
+import type { Item } from 'src/state/items'
 
 export function mutateDraftToMatchSnapshot<T>(
   draft: Record<string, T>,
@@ -27,6 +27,3 @@ export function normalizeSnapshotType(type: Item['type'], originalType?: Item['t
     ? resolvedType
     : 'person'
 }
-
-export { isPlainObject } from './utils/objectUtils'
-

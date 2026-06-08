@@ -6,14 +6,16 @@ import {
   removeManualRecoveryEntryByItemId,
 } from '../shared/manualRecoveryStore'
 import { AutomergeDocStore } from './docStore'
-import { mutateDraftToMatchSnapshot } from './utils'
-import { ItemId } from 'src/shared/schemas/items'
+import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { mutateDraftToMatchSnapshot } from './utils/snapshot'
+import type { ItemId } from 'src/shared/schemas/items'
 
 export class RecoveryManager {
   constructor(
     private deps: {
       accountId: string
       docStore: AutomergeDocStore
+      indexManager: AutomergeIndexManager
     },
     private eventHub: SyncEventHub
   ) {}
@@ -60,6 +62,8 @@ export class RecoveryManager {
       },
     )
 
+    await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
+
     await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()
   }
@@ -82,6 +86,8 @@ export class RecoveryManager {
         },
       },
     )
+
+    await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
 
     await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()

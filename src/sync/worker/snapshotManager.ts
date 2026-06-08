@@ -1,14 +1,13 @@
 import { debounce } from 'lodash-es'
 import type { Repo } from '@automerge/automerge-repo/slim'
-import localforage from 'localforage'
 
-import { runStorageOperation } from '../../utils/storageManager'
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
 import { buildSnapshot } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
+import { LastModifiedStore } from './stores/LastModifiedStore'
 
 export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
@@ -20,7 +19,6 @@ export class SnapshotManager {
   private snapshotPushInFlight = false
   private snapshotPushPending = false
   private snapshotRequestCursor: number | null = null
-  private lastModifiedStore: LocalForage | null = null
   private retryTimeoutId: ReturnType<typeof setTimeout> | null = null
   private retryAttempt = 0
   private readonly retryDelays = [2000, 5000, 10000, 30000, 60000]
@@ -39,18 +37,15 @@ export class SnapshotManager {
       repo: Repo
       broker: SyncMessageBroker
     },
+    private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
     this.maxPayloadBytes = options?.maxPayloadBytes ?? 200 * 1024
   }
 
-  async loadLastModified(accountId: string): Promise<void> {
-    this.lastModifiedStore = localforage.createInstance({
-      name: 'flock-sync-last-modified',
-      storeName: `last-modified-${accountId}`,
-    })
+  async loadLastModified(): Promise<void> {
     try {
-      const stored = await this.lastModifiedStore.getItem<[ItemId, number][]>('lastModifiedByItemId')
+      const stored = await this.lastModifiedStore.loadLastModified()
       if (stored && Array.isArray(stored)) {
         this.lastModifiedByItemId = new Map(stored)
       }
@@ -60,10 +55,9 @@ export class SnapshotManager {
   }
 
   async persistLastModified(): Promise<void> {
-    if (!this.lastModifiedStore) return
     const data = Array.from(this.lastModifiedByItemId.entries())
     try {
-      await runStorageOperation(() => this.lastModifiedStore!.setItem('lastModifiedByItemId', data))
+      await this.lastModifiedStore.saveLastModified(data)
     } catch (error) {
       console.error('[SnapshotManager] Failed to save lastModified timestamps', error)
     }
@@ -351,12 +345,9 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
     this.retryAttempt = 0
-    if (this.lastModifiedStore) {
-      this.lastModifiedStore.removeItem('lastModifiedByItemId').catch(error => {
-        console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)
-      })
-      this.lastModifiedStore = null
-    }
+    this.lastModifiedStore.clear().catch(error => {
+      console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)
+    })
   }
 
   exportLastModified(): [ItemId, number][] {
@@ -364,8 +355,7 @@ export class SnapshotManager {
   }
 
   async importLastModified(data: [ItemId, number][]): Promise<void> {
-    if (!this.lastModifiedStore) return
     this.lastModifiedByItemId = new Map(data)
-    await this.lastModifiedStore.setItem('lastModifiedByItemId', data)
+    await this.lastModifiedStore.saveLastModified(data)
   }
 }
