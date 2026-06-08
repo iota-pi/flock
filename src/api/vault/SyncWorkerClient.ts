@@ -96,3 +96,13 @@ export async function putSnapshotsWithToken(input: {
     snapshots: input.snapshots,
   })
 }
+
+export async function fetchMetadataWithToken(input: {
+  account: string
+  authToken: string
+}): Promise<{ success: boolean; items: Array<{ itemId: ItemId; modified: number; deleted: boolean; type: string }>; serverTime: number }> {
+  const client = createWorkerSyncClient(input.authToken)
+  return client.items.fetchMetadata.query({
+    account: input.account,
+  })
+}

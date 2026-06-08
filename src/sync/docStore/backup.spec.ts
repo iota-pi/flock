@@ -4,6 +4,8 @@ import {
   clearAutomergeDocStore,
   initializeAutomergeDocStore,
   listAutomergeItemIds,
+  getAutomergeMetadata,
+  updateAutomergeMetadata,
 } from './indexManager'
 import {
   exportAllBinaries,
@@ -61,6 +63,9 @@ describe('backup operations', () => {
       { createIfMissing: true, initialValue: item as any }
     )
 
+    // Update metadata before backup
+    await updateAutomergeMetadata(accountId, { prayerGoal: 42 })
+
     // Export binaries
     const exported = await exportAllBinaries(accountId)
     expect(Object.keys(exported)).toContain(item.id)
@@ -73,6 +78,9 @@ describe('backup operations', () => {
     const retrievedBefore = await getAutomergeItem(accountId, item.id)
     expect(retrievedBefore).toBeNull()
 
+    const metadataBefore = await getAutomergeMetadata(accountId)
+    expect(metadataBefore.prayerGoal).toBeUndefined()
+
     // Restore from binaries
     const restored = await restoreFromBinaries(accountId, exported)
     expect(restored).toContain(item.id)
@@ -83,5 +91,9 @@ describe('backup operations', () => {
 
     const itemIds = await listAutomergeItemIds(accountId)
     expect(itemIds).toContain(item.id)
+
+    // Verify metadata restored
+    const metadataAfter = await getAutomergeMetadata(accountId)
+    expect(metadataAfter.prayerGoal).toBe(42)
   })
 })

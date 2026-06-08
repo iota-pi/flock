@@ -5,6 +5,7 @@ import {
 } from 'src/shared/schemas/trpc'
 import {
   fetchItems,
+  fetchItemsMetadata,
 } from '../../services/itemService'
 import {
   createDynamoAutomergeSyncRepository,
@@ -22,6 +23,18 @@ export const itemsRouter = router({
         success: true,
         items: result.items,
         nextCursor: null,
+        serverTime: result.serverTime,
+      }
+    }),
+
+  fetchMetadata: protectedProcedure
+    .input(FetchItemsInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await fetchItemsMetadata(ctx, input)
+
+      return {
+        success: true,
+        items: result.items,
         serverTime: result.serverTime,
       }
     }),

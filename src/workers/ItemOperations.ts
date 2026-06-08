@@ -3,13 +3,10 @@ import type { AccountMetadata } from '../state/metadata'
 import { SyncEventHub } from '../sync/SyncEventHub'
 import {
   withAutomergeDocumentChange,
-  withAutomergeMetadataChange,
-  addAutomergeItemIdsToIndex,
-  removeAutomergeItemIdsFromIndex,
+  updateAutomergeMetadata,
   removeAutomergeItem,
   getAutomergeItem,
   getAutomergeMetadata,
-  ACCOUNT_INDEX_DOCUMENT_ID,
 } from '../sync/docStore'
 import type { DeletionQueueManager } from './deletionQueueManager'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -55,7 +52,6 @@ export class ItemOperations {
           doc[key] = value
         }
       }, { createIfMissing: true, initialValue: item })
-      await addAutomergeItemIdsToIndex(this.accountId, [item.id])
       if (updated) {
         this.deps.markDocumentDirty(item.id)
       }
@@ -66,7 +62,6 @@ export class ItemOperations {
 
   async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
     try {
-      await removeAutomergeItemIdsFromIndex(this.accountId, itemIds)
       for (const id of itemIds) {
         await this.deps.getDeletionQueueManager().cancelDeletion(id).catch(console.error)
         await removeAutomergeItem(this.accountId, id)
@@ -109,14 +104,8 @@ export class ItemOperations {
 
   async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
     try {
-      const updated = await withAutomergeMetadataChange(this.accountId, metadataDraft => {
-        for (const [key, value] of Object.entries(changes)) {
-          metadataDraft[key] = value
-        }
-      })
-      if (updated) {
-        this.deps.markDocumentDirty(ACCOUNT_INDEX_DOCUMENT_ID)
-      }
+      const metadata = await updateAutomergeMetadata(this.accountId, changes)
+      this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'metadata', error: (err as Error).message })
       const metadata = await getAutomergeMetadata(this.accountId)

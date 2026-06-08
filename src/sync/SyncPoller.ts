@@ -1,12 +1,13 @@
 import { chunk } from 'lodash-es'
 
 import { getActiveSessionToken } from './workerAuthStore'
-import { pollSyncBatchWithToken } from '../api/vault/SyncWorkerClient'
 import { encryptBytes } from 'src/api/vault'
 import { loadSyncBatch, removeSentSyncMessages } from './VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncEventHub } from './SyncEventHub'
+import { fetchMetadataWithToken } from '../api/vault/SyncWorkerClient'
+import { addAutomergeItemIdsToIndex, getIndexSnapshot, removeAutomergeItemIdsFromIndex, updateLocalLastModified } from './docStore'
 
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure'
@@ -19,7 +20,6 @@ export class SyncPoller {
   constructor(
     private pullQueueManager: SyncPullQueueManager,
     private eventHub: SyncEventHub,
-    private persistPendingWrites: () => Promise<void>
   ) {}
 
   setAccount(account: string | null): void {
@@ -43,6 +43,58 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'success'
 
+      // 1. Fetch server metadata to discover new, modified, or deleted items
+      try {
+        const serverMeta = await fetchMetadataWithToken({ account: this.account, authToken })
+        if (serverMeta && serverMeta.items) {
+          const localIndex = await getIndexSnapshot(this.account)
+          const localLastModified = localIndex.lastModified || {}
+          const localItemIdsSet = new Set(localIndex.itemIds || [])
+
+          const newOrModified: ItemId[] = []
+          const toRemoveFromLocal: ItemId[] = []
+          const newLocalLastModified: Record<ItemId, number> = {}
+
+          for (const serverItem of serverMeta.items) {
+            const itemId = serverItem.itemId
+            if (serverItem.deleted) {
+              if (localItemIdsSet.has(itemId)) {
+                toRemoveFromLocal.push(itemId)
+              }
+            } else {
+              const localTime = localLastModified[itemId] || 0
+              if (!localItemIdsSet.has(itemId) || serverItem.modified > localTime) {
+                newOrModified.push(itemId)
+                newLocalLastModified[itemId] = serverItem.modified
+              }
+            }
+          }
+
+          let indexChanged = false
+          if (newOrModified.length > 0) {
+            await addAutomergeItemIdsToIndex(this.account, newOrModified)
+            await updateLocalLastModified(this.account, newLocalLastModified)
+            for (const id of newOrModified) {
+              this.pullQueueManager.addPendingItem(id)
+            }
+            indexChanged = true
+          }
+
+          if (toRemoveFromLocal.length > 0) {
+            await removeAutomergeItemIdsFromIndex(this.account, toRemoveFromLocal)
+            indexChanged = true
+          }
+
+          if (indexChanged) {
+            const updatedIndex = await getIndexSnapshot(this.account)
+            this.eventHub.emit({ type: 'indexUpdated', itemIds: updatedIndex.itemIds || [] })
+            this.eventHub.emit({ type: 'metadataUpdated', metadata: updatedIndex.metadata || {} })
+          }
+        }
+      } catch (err) {
+        console.error('[SyncPoller] Failed to check server metadata for discovery:', err)
+      }
+
       let batchEntries: [ItemId, Uint8Array[]][]
       try {
         batchEntries = await loadSyncBatch(this.account)
@@ -57,6 +109,7 @@ export class SyncPoller {
       }
 
       if (chunks.length === 0) {
+        const { pollSyncBatchWithToken } = await import('../api/vault/SyncWorkerClient')
         const response = await pollSyncBatchWithToken({
           account: this.account,
           authToken,
@@ -114,6 +167,7 @@ export class SyncPoller {
           })
         )
 
+        const { pollSyncBatchWithToken } = await import('../api/vault/SyncWorkerClient')
         const response = await pollSyncBatchWithToken({
           account: this.account,
           authToken,

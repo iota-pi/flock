@@ -2,7 +2,6 @@ import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 import { ItemId } from 'src/shared/schemas/items'
@@ -156,15 +155,6 @@ describe('SyncPullQueueManager', () => {
   })
 
   describe('getAllCursors', () => {
-    it('always includes ACCOUNT_INDEX_DOCUMENT_ID', () => {
-      const cursors = manager.getAllCursors()
-      expect(cursors).toHaveLength(1)
-      expect(cursors[0]).toEqual({
-        itemId: ACCOUNT_INDEX_DOCUMENT_ID,
-        cursor: 0,
-      })
-    })
-
     it('only includes cursors for pending items', async () => {
       await manager.setAccount('account-1')
 
@@ -174,16 +164,15 @@ describe('SyncPullQueueManager', () => {
         { itemId: 'item-2' as ItemId, cursor: 20 },
       ])
 
-      // Since none are pending, only account index doc should be returned
+      // Since none are pending, cursors should be empty
       let cursors = manager.getAllCursors()
-      expect(cursors).toHaveLength(1)
+      expect(cursors).toHaveLength(0)
 
       // Add item-1 as pending
       manager.addPendingItem('item-1' as ItemId)
       cursors = manager.getAllCursors()
 
-      expect(cursors).toHaveLength(2)
-      expect(cursors).toContainEqual({ itemId: ACCOUNT_INDEX_DOCUMENT_ID, cursor: 0 })
+      expect(cursors).toHaveLength(1)
       expect(cursors).toContainEqual({ itemId: 'item-1', cursor: 10 })
     })
   })

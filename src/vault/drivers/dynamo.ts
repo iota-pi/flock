@@ -55,7 +55,6 @@ const DATA_ATTRIBUTE_NAMES = {
 }
 
 const MAX_ITEM_SIZE = 50_000
-const MAX_INDEX_ITEM_SIZE = 400_000
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
 const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -87,9 +86,8 @@ function validateItem(item: VaultItem) {
   }
 
   const itemLength = JSON.stringify(item).length
-  const maxSize = item.item === '__account_index__' ? MAX_INDEX_ITEM_SIZE : MAX_ITEM_SIZE
-  if (itemLength > maxSize) {
-    throw new Error(`Item length (${itemLength}) exceeds maximum (${maxSize})`)
+  if (itemLength > MAX_ITEM_SIZE) {
+    throw new Error(`Item length (${itemLength}) exceeds maximum (${MAX_ITEM_SIZE})`)
   }
 }
 
@@ -625,6 +623,41 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
       if (response?.Items) {
         items.push(...response?.Items as VaultItem[])
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey
+      if (!lastEvaluatedKey) {
+        break
+      }
+    }
+
+    return items
+  }
+
+  async fetchMetadataAll(
+    { account }: { account: string },
+  ): Promise<Array<{ item: string; metadata: import('./base').VaultMetaData }>> {
+    const items: Array<{ item: string; metadata: import('./base').VaultMetaData }> = []
+    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+
+    while (true) {
+      const queryInput: QueryCommandInput = {
+        TableName: ITEM_TABLE_NAME,
+        KeyConditionExpression: 'account = :accountid',
+        ExpressionAttributeNames: {
+          '#itemKey': 'item',
+          '#metadata': 'metadata',
+        },
+        ExpressionAttributeValues: {
+          ':accountid': account,
+        },
+        ProjectionExpression: '#itemKey, #metadata',
+        ExclusiveStartKey: lastEvaluatedKey,
+      }
+
+      const response = await this.client.send(new QueryCommand(queryInput))
+
+      if (response?.Items) {
+        items.push(...response.Items as Array<{ item: string; metadata: import('./base').VaultMetaData }>)
       }
       lastEvaluatedKey = response?.LastEvaluatedKey
       if (!lastEvaluatedKey) {

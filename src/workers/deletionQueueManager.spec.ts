@@ -34,13 +34,19 @@ vi.mock('../sync/deletionQueueStore', () => {
 
 // Mock docStore functions
 const mockRemoveAutomergeItem = vi.fn().mockResolvedValue(undefined)
+const mockListAutomergeItemIds = vi.fn().mockResolvedValue(['item-1'])
+
 vi.mock('../sync/docStore', () => ({
   removeAutomergeItem: (...args: any[]) => mockRemoveAutomergeItem(...args),
+  listAutomergeItemIds: (...args: any[]) => mockListAutomergeItemIds(...args),
+}))
+
+vi.mock('../sync/docStore/indexManager', () => ({
+  listAutomergeItemIds: (...args: any[]) => mockListAutomergeItemIds(...args),
 }))
 
 describe('DeletionQueueManager', () => {
   let manager: DeletionQueueManager
-  let mockGetIndexHandle: any
   const accountId = 'test-account'
 
   beforeEach(() => {
@@ -48,17 +54,15 @@ describe('DeletionQueueManager', () => {
     vi.clearAllMocks()
     ;(deletionStore as any)._clearStore()
 
-    mockGetIndexHandle = vi.fn().mockResolvedValue({
-      doc: vi.fn().mockReturnValue({ itemIds: ['item-1'] })
-    })
+    mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
     manager = new DeletionQueueManager(() => ({
       accountId,
-      getIndexHandle: mockGetIndexHandle,
     }))
   })
 
   afterEach(() => {
+    manager.stopTimer()
     vi.useRealTimers()
   })
 
@@ -95,10 +99,8 @@ describe('DeletionQueueManager', () => {
   it('does not delete item if it has reappeared during check', async () => {
     await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 
-    // Reappeared in index document
-    mockGetIndexHandle.mockResolvedValue({
-      doc: vi.fn().mockReturnValue({ itemIds: ['item-1', 'item-2'] })
-    })
+    // Reappeared in index
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])
 
     // Advance time past the 24-hour grace period
     await vi.advanceTimersByTimeAsync(25 * 60 * 60 * 1000)

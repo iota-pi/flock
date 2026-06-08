@@ -1,5 +1,4 @@
-import { AutomergeIndexDocument, removeAutomergeItem } from '../sync/docStore'
-import type { DocHandle } from '@automerge/automerge-repo/slim'
+import { removeAutomergeItem } from '../sync/docStore'
 
 import {
   scheduleDeletion,
@@ -18,7 +17,6 @@ export class DeletionQueueManager {
   constructor(
     private getContext: () => {
       accountId: string | null
-      getIndexHandle: () => Promise<DocHandle<AutomergeIndexDocument> | undefined>
     }
   ) {}
 
@@ -66,7 +64,7 @@ export class DeletionQueueManager {
   }
 
   async processQueue() {
-    const { accountId, getIndexHandle } = this.getContext()
+    const { accountId } = this.getContext()
     if (!accountId) return
 
     try {
@@ -74,20 +72,20 @@ export class DeletionQueueManager {
       const now = Date.now()
       const expired = scheduled.filter(item => item.scheduledTime <= now)
 
-      for (const item of expired) {
-        // Double check: is it in the current index document?
-        const indexHandle = await getIndexHandle()
-        if (indexHandle) {
-          const indexDoc = indexHandle.doc()
-          if (indexDoc && indexDoc.itemIds && indexDoc.itemIds.includes(item.itemId)) {
+      if (expired.length > 0) {
+        const { listAutomergeItemIds } = await import('../sync/docStore/indexManager')
+        const itemIds = await listAutomergeItemIds(accountId)
+
+        for (const item of expired) {
+          if (itemIds.includes(item.itemId)) {
             // Re-appeared, cancel deletion
             await cancelDeletion(accountId, item.itemId)
             continue
           }
-        }
 
-        await removeAutomergeItem(accountId, item.itemId)
-        await cancelDeletion(accountId, item.itemId)
+          await removeAutomergeItem(accountId, item.itemId)
+          await cancelDeletion(accountId, item.itemId)
+        }
       }
     } catch (err) {
       console.error('[DeletionQueueManager] Error processing deletion queue', err)

@@ -3,7 +3,6 @@ import {
   SyncPushBatchSchema,
   SyncPollBatchSchema,
 } from 'src/shared/schemas/trpc'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from 'src/sync/automergeConstants'
 import { createAutomergeSyncService } from '../../services/automergeSyncService'
 import { createDynamoAutomergeSyncRepository } from '../../services/automergeSyncRepository'
 import { ItemId } from 'src/shared/schemas/items'
@@ -38,12 +37,6 @@ export const syncRouter = router({
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       if (input.pullCursors.length > 0) {
-        const indexIndex = input.pullCursors.findIndex(c => c.itemId === ACCOUNT_INDEX_DOCUMENT_ID)
-        if (indexIndex > 0) {
-          const [indexCursor] = input.pullCursors.splice(indexIndex, 1)
-          input.pullCursors.unshift(indexCursor)
-        }
-
         const pullResult = await service.pullAutomergeSyncBatch({
           account: input.account,
           cursors: input.pullCursors,

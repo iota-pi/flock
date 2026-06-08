@@ -57,7 +57,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
       this.eventHub,
-      () => this.persistPendingWrites()
     )
   }
 

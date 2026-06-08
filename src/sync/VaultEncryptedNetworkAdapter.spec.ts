@@ -24,10 +24,18 @@ vi.mock('src/api/vault', () => ({
 
 vi.mock('../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+  fetchMetadataWithToken: vi.fn().mockResolvedValue({ success: true, items: [] }),
 }))
 
 vi.mock('./workerAuthStore', () => ({
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-auth-token'),
+}))
+
+vi.mock('./docStore/indexManager', () => ({
+  getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [], lastModified: {} }),
+  addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
+  removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
+  updateLocalLastModified: vi.fn().mockResolvedValue(undefined),
 }))
 
 describe('VaultEncryptedNetworkAdapter', () => {
@@ -335,15 +343,16 @@ describe('VaultEncryptedNetworkAdapter', () => {
     )
 
     let pollCount = 0
-    mockPollSyncBatchWithToken.mockImplementation(async () => {
+    mockPollSyncBatchWithToken.mockImplementation(async input => {
       pollCount += 1
+      const itemId = input?.pullCursors?.[0]?.itemId || 'item-1'
       if (pollCount === 1) {
         return {
           success: true,
           pushResults: [],
           pullResults: [
             {
-              itemId: 'item-1',
+              itemId,
               messages: [],
               hasMore: true,
               nextCursor: 10,
@@ -356,7 +365,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
           pushResults: [],
           pullResults: [
             {
-              itemId: 'item-1',
+              itemId,
               messages: [],
               hasMore: false,
               nextCursor: 20,
@@ -380,7 +389,9 @@ describe('VaultEncryptedNetworkAdapter', () => {
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
     // Advancing past the 30s backoff delay + jitter should trigger the third poll.
+    adapter.queuePendingPullItems(['item-2' as ItemId])
     await vi.advanceTimersByTimeAsync(50000)
+    await vi.advanceTimersByTimeAsync(100)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
   })
 })

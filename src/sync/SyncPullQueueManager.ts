@@ -6,7 +6,6 @@ import type { PullSyncMessagesResponse } from '../api/vault/SyncWorkerClient'
 import { reportDecryptionFailure } from '../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId } from './automergeRepoIds'
 import { publishRealtimeBusSyncPing } from './realtimeBus'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from './automergeConstants'
 import { decryptBytes } from 'src/api/vault'
 import { runStorageOperation } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
@@ -136,14 +135,8 @@ export class SyncPullQueueManager {
   getAllCursors(): Array<{ itemId: ItemId; cursor: number }> {
     const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
-    // Always include the account index so we discover new items from other devices
-    const indexCursor = this.cursorByItemId.get(ACCOUNT_INDEX_DOCUMENT_ID) ?? 0
-    this.cursorByItemId.set(ACCOUNT_INDEX_DOCUMENT_ID, indexCursor)
-    cursors.push({ itemId: ACCOUNT_INDEX_DOCUMENT_ID, cursor: indexCursor })
-
     // Only include cursors for pending item IDs
     for (const itemId of this.pendingPullItemIds) {
-      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
       const cursor = this.cursorByItemId.get(itemId) ?? 0
       cursors.push({ itemId, cursor })
     }

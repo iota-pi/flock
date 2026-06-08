@@ -12,7 +12,7 @@ export interface VaultKey {
   item: string,
 }
 
-interface VaultMetaData {
+export interface VaultMetaData {
   type: ItemType,
   iv: string,
   modified: number,
@@ -125,6 +125,7 @@ export default abstract class BaseDriver<T = unknown> {
   abstract set(item: VaultItem): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
+  abstract fetchMetadataAll(opts: Pick<VaultKey, 'account'>): Promise<Array<{ item: string; metadata: VaultMetaData }>>
   abstract delete(key: VaultKey): Promise<void>
 
   // Sync message operations

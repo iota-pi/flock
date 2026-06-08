@@ -1,4 +1,3 @@
-export { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
 export * from './core'
 export * from './indexManager'
 export * from './items'

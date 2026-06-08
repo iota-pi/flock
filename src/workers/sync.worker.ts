@@ -10,13 +10,14 @@ import type { Item } from '../state/items'
 import type { AccountMetadata } from '../state/metadata'
 import {
   initializeAutomergeDocStore,
-  ACCOUNT_INDEX_DOCUMENT_ID,
   clearAutomergeDocStore,
   exportAllBinaries,
   restoreFromBinaries,
-  AutomergeIndexDocument,
   normalizeItemSnapshot,
+  listAutomergeItemIds,
+  addAutomergeItemIdsToIndex,
 } from '../sync/docStore'
+import { subscribeRealtimeBusSyncPing } from '../sync/realtimeBus'
 import { DeletionQueueManager } from './deletionQueueManager'
 import { initWorkerVault } from '../api/vault'
 import { initAutomergeRepo } from '../sync/automergeRepo'
@@ -51,6 +52,7 @@ export class SyncWorker implements SyncApi {
   private orchestrator: SyncOrchestrator | null = null
   private changeListenersByItemId = new Map<ItemId, () => void>()
   private deletionQueueManager: DeletionQueueManager
+  private unsubscribeRealtimeBus: (() => void) | null = null
 
   private snapshotManager: SnapshotManager
   private recoveryManager: RecoveryManager
@@ -82,7 +84,6 @@ export class SyncWorker implements SyncApi {
 
     this.deletionQueueManager = new DeletionQueueManager(() => ({
       accountId: this.accountId,
-      getIndexHandle: () => this.getIndexHandle(),
     }))
 
     this.itemOperations = new ItemOperations({
@@ -179,6 +180,12 @@ export class SyncWorker implements SyncApi {
             this.updateStatus('idle')
           }
           break
+        case 'indexUpdated': {
+          const newItemIdsSet = new Set(event.itemIds)
+          this.deletionQueueManager.handleIndexChange(newItemIdsSet, this.subscribedIds).catch(console.error)
+          this.subscribeToItems(event.itemIds)
+          break
+        }
       }
     })
 
@@ -186,7 +193,26 @@ export class SyncWorker implements SyncApi {
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
     await initializeAutomergeDocStore(accountId)
-    await this.initIndexDocument()
+
+    // Load local items index and subscribe
+    const localItemIds = await listAutomergeItemIds(accountId)
+    this.subscribeToItems(localItemIds)
+    this.eventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+
+    // Listen to tab pings for immediate subscription
+    this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+      if (!this.accountId || !this.repo) return
+      const newIds = itemIds.filter(id => !this.subscribedIds.has(id))
+      if (newIds.length > 0) {
+        if (this.adapter) {
+          this.adapter.queuePendingPullItems(newIds)
+        }
+        addAutomergeItemIdsToIndex(this.accountId, newIds).then(async () => {
+          const updatedIds = await listAutomergeItemIds(this.accountId!)
+          this.eventHub.emit({ type: 'indexUpdated', itemIds: updatedIds })
+        }).catch(console.error)
+      }
+    })
 
     this.eventHub.emit({ type: 'ready' })
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
@@ -208,47 +234,6 @@ export class SyncWorker implements SyncApi {
     } else {
       this.updateStatus('offline')
     }
-  }
-
-  private async getIndexHandle() {
-    if (!this.repo) return
-
-    const indexUrl = toAutomergeUrlFromItemId(ACCOUNT_INDEX_DOCUMENT_ID)
-    const indexHandle = await this.repo.find<AutomergeIndexDocument>(indexUrl)
-    if (!indexHandle) return
-
-    return indexHandle
-  }
-
-  private async initIndexDocument() {
-    const indexHandle = await this.getIndexHandle()
-    if (!indexHandle) return
-
-    // Ensure we have exactly one change listener on the index document
-    indexHandle.off('change')
-    indexHandle.on('change', this.handleIndexChange.bind(this))
-    this.handleIndexChange()
-  }
-
-  private async handleIndexChange() {
-    if (!this.accountId) return
-
-    const indexHandle = await this.getIndexHandle()
-    if (!indexHandle) return
-
-    const indexDoc = indexHandle.doc()
-    if (!indexDoc) return
-    const newItemIds = indexDoc.itemIds || []
-    const newItemIdsSet = new Set(newItemIds)
-
-    await this.deletionQueueManager.handleIndexChange(newItemIdsSet, this.subscribedIds)
-
-    this.eventHub.emit({ type: 'indexUpdated', itemIds: newItemIds })
-    const newMetadata = indexDoc.metadata || {}
-    this.eventHub.emit({ type: 'metadataUpdated', metadata: newMetadata })
-
-    this.subscribeToItems(newItemIds)
-    this.snapshotManager.processIndexChangelog(indexDoc, newItemIds)
   }
 
   async setOnlineState(isOnline: boolean) {
@@ -413,6 +398,11 @@ export class SyncWorker implements SyncApi {
   }
 
   async shutdown() {
+    if (this.unsubscribeRealtimeBus) {
+      this.unsubscribeRealtimeBus()
+      this.unsubscribeRealtimeBus = null
+    }
+
     if (this.orchestrator) {
       await this.orchestrator.shutdown()
       this.orchestrator = null

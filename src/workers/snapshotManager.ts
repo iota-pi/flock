@@ -4,14 +4,8 @@ import localforage from 'localforage'
 
 import { runStorageOperation } from '../utils/storageManager'
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
-import {
-  ACCOUNT_INDEX_DOCUMENT_ID,
-  AutomergeIndexDocument,
-  withAutomergeDocumentChange,
-} from '../sync/docStore'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
-import { isPlainObject } from './utils'
 import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
 import { buildSnapshot } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
@@ -82,94 +76,13 @@ export class SnapshotManager {
     this.flushDirtyDocumentsToIndexDebounced()
   }
 
-  processIndexChangelog(indexDoc: AutomergeIndexDocument, itemIds: ItemId[]) {
-    const { adapter } = this.getContext()
-    if (!adapter) return
-
-    let changed = false
-    const nextItemIdSet = new Set(itemIds)
-    for (const itemId of this.lastModifiedByItemId.keys()) {
-      if (!nextItemIdSet.has(itemId)) {
-        this.lastModifiedByItemId.delete(itemId)
-        changed = true
-      }
-    }
-
-    const lastModified = indexDoc.lastModified
-    if (!isPlainObject(lastModified)) {
-      if (changed) {
-        this.saveLastModifiedDebounced()
-      }
-      return
-    }
-
-    const pendingPullItems: ItemId[] = []
-
-    for (const [key, rawTimestamp] of Object.entries(lastModified)) {
-      const itemId = key as ItemId
-      if (!nextItemIdSet.has(itemId)) continue
-      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
-      if (typeof rawTimestamp !== 'number' || !Number.isFinite(rawTimestamp)) continue
-
-      const currentTimestamp = this.lastModifiedByItemId.get(itemId) || 0
-      if (rawTimestamp > currentTimestamp) {
-        this.lastModifiedByItemId.set(itemId, rawTimestamp)
-        pendingPullItems.push(itemId)
-        changed = true
-      }
-    }
-
-    if (changed) {
-      this.saveLastModifiedDebounced()
-    }
-
-    if (pendingPullItems.length > 0) {
-      adapter.queuePendingPullItems(pendingPullItems)
-    }
-  }
-
   async flushDirtyDocumentsToIndex(): Promise<void> {
-    const { accountId } = this.getContext()
-    if (!accountId) return
-
-    const dirtyItemIds = Array.from(this.dirtyItems).filter(
-      itemId => itemId && itemId !== ACCOUNT_INDEX_DOCUMENT_ID,
-    )
-
+    const dirtyItemIds = Array.from(this.dirtyItems)
     if (dirtyItemIds.length === 0) {
       return
     }
 
     const timestamp = Date.now()
-
-    await withAutomergeDocumentChange(
-      accountId,
-      ACCOUNT_INDEX_DOCUMENT_ID,
-      doc => {
-        let lastModified = isPlainObject((doc as AutomergeIndexDocument).lastModified)
-          ? ((doc as AutomergeIndexDocument).lastModified as Record<string, number>)
-          : null
-        if (!lastModified) {
-          lastModified = {}
-          doc.lastModified = lastModified
-        }
-
-        for (const itemId of dirtyItemIds) {
-          lastModified[itemId] = timestamp
-        }
-      },
-      {
-        createIfMissing: true,
-        initialValue: {
-          accountId: '',
-          itemIds: [],
-          metadata: {},
-          lastModified: {},
-        },
-      },
-    ).catch(error => {
-      console.error('[SnapshotManager] failed to update index lastModified', error)
-    })
 
     for (const itemId of dirtyItemIds) {
       this.lastModifiedByItemId.set(itemId, timestamp)
@@ -245,10 +158,6 @@ export class SnapshotManager {
     const authToken = await getActiveSessionToken()
     if (!authToken) {
       return null
-    }
-
-    if (this.dirtyItems.has(ACCOUNT_INDEX_DOCUMENT_ID)) {
-      this.dirtyItems.delete(ACCOUNT_INDEX_DOCUMENT_ID)
     }
 
     const dirtyItemIds = Array.from(this.dirtyItems)
