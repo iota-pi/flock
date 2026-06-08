@@ -23,7 +23,8 @@ import { initWorkerVault } from '../api/vault'
 import { initAutomergeRepo } from '../sync/automergeRepo'
 import { toAutomergeUrlFromItemId } from '../sync/automergeRepoIds'
 
-import { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import { SyncMessageBroker } from 'src/sync/SyncMessageBroker'
 import type { SyncStatus } from 'src/state/syncStore'
 import type { ManualRecoveryEntry } from '../sync/manualRecoveryStore'
 import type { PollOutcome } from '../sync/SyncPoller'
@@ -43,7 +44,8 @@ import { ItemId } from 'src/shared/schemas/items'
 
 export class SyncWorker implements SyncApi {
   private accountId: string | null = null
-  private adapter: VaultEncryptedNetworkAdapter | null = null
+  private adapter: VaultNetworkAdapter | null = null
+  private broker: SyncMessageBroker | null = null
   private eventHub = new SyncEventHub()
   private isOnline = true
   private syncStatus: SyncStatus = 'idle'
@@ -64,7 +66,7 @@ export class SyncWorker implements SyncApi {
     this.snapshotManager = new SnapshotManager(() => ({
       accountId: this.accountId,
       repo: this.repo,
-      adapter: this.adapter,
+      broker: this.broker,
     }))
 
     this.recoveryManager = new RecoveryManager(() => ({
@@ -153,9 +155,10 @@ export class SyncWorker implements SyncApi {
     await Automerge.initializeWasm(wasmUrl)
 
     // Initialise Automerge repo
-    this.adapter = new VaultEncryptedNetworkAdapter(this.eventHub)
+    this.adapter = new VaultNetworkAdapter()
+    this.broker = new SyncMessageBroker(this.adapter, this.eventHub)
 
-    this.orchestrator = new SyncOrchestrator(accountId, this.adapter, this.eventHub)
+    this.orchestrator = new SyncOrchestrator(accountId, this.broker, this.eventHub)
     this.orchestrator.setOnlineState(this.isOnline)
     void this.orchestrator.start().catch(console.error)
     // Listen to local events
@@ -189,7 +192,8 @@ export class SyncWorker implements SyncApi {
       }
     })
 
-    await this.adapter.setAccount(accountId)
+    this.adapter.setAccount(accountId)
+    await this.broker.setAccount(accountId)
     const repo = initAutomergeRepo(accountId, this.adapter)
     this.repo = repo
     await initializeAutomergeDocStore(accountId)
@@ -204,8 +208,8 @@ export class SyncWorker implements SyncApi {
       if (!this.accountId || !this.repo) return
       const newIds = itemIds.filter(id => !this.subscribedIds.has(id))
       if (newIds.length > 0) {
-        if (this.adapter) {
-          this.adapter.queuePendingPullItems(newIds)
+        if (this.broker) {
+          this.broker.queuePendingPullItems(newIds)
         }
         addAutomergeItemIdsToIndex(this.accountId, newIds).then(async () => {
           const updatedIds = await listAutomergeItemIds(this.accountId!)
@@ -366,7 +370,7 @@ export class SyncWorker implements SyncApi {
   }
 
   async exportSyncState(): Promise<BackupSyncState> {
-    const cursors = this.adapter ? this.adapter.exportCursors() : []
+    const cursors = this.broker ? this.broker.exportCursors() : []
     const pendingSyncRaw = this.accountId ? await loadSyncBatch(this.accountId) : []
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
       itemId,
@@ -382,8 +386,8 @@ export class SyncWorker implements SyncApi {
   }
 
   async restoreSyncState(state: Partial<BackupSyncState>) {
-    if (state.cursors && this.adapter) {
-      await this.adapter.importCursors(state.cursors)
+    if (state.cursors && this.broker) {
+      await this.broker.importCursors(state.cursors)
     }
     if (state.pendingSync && this.accountId) {
       const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
@@ -418,6 +422,15 @@ export class SyncWorker implements SyncApi {
       await this.snapshotManager.shutdown()
     } catch (err) {
       console.error('[SyncWorker] Error shutting down SnapshotManager', err)
+    }
+
+    if (this.broker) {
+      try {
+        await this.broker.shutdown()
+      } catch (err) {
+        console.error('[SyncWorker] Error shutting down broker', err)
+      }
+      this.broker = null
     }
 
     if (this.adapter) {

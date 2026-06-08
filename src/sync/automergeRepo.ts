@@ -1,7 +1,7 @@
 import { Repo, type StorageAdapterInterface, type Chunk } from '@automerge/automerge-repo/slim'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
 import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
-import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { runStorageOperation } from '../utils/storageManager'
 
 class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
@@ -38,7 +38,7 @@ export function getAutomergeDBName(accountId: string): string {
 
 export function initAutomergeRepo(
   accountId: string,
-  adapter: VaultEncryptedNetworkAdapter,
+  adapter: VaultNetworkAdapter,
 ) {
   if (repos.has(accountId)) {
     throw new Error(`Automerge repo for account ${accountId} has already been initialized`)

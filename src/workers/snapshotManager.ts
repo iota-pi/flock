@@ -6,7 +6,7 @@ import { runStorageOperation } from '../utils/storageManager'
 import type { VaultSnapshotInput } from '../shared/schemas/snapshots'
 import { getActiveSessionToken } from '../sync/workerAuthStore'
 import { putSnapshotsWithToken } from '../api/vault/SyncWorkerClient'
-import type { VaultEncryptedNetworkAdapter } from 'src/sync/VaultEncryptedNetworkAdapter'
+import type { SyncMessageBroker } from 'src/sync/SyncMessageBroker'
 import { buildSnapshot } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -38,7 +38,7 @@ export class SnapshotManager {
     private getContext: () => {
       accountId: string | null
       repo: Repo | null
-      adapter: VaultEncryptedNetworkAdapter | null
+      broker: SyncMessageBroker | null
     },
     options?: SnapshotManagerOptions,
   ) {

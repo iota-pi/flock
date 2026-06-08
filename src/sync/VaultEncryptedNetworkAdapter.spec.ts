@@ -1,6 +1,7 @@
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
 
-import { VaultEncryptedNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
+import { SyncMessageBroker } from './SyncMessageBroker'
 import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from './VaultPersistence'
 import { registerQuotaReporter } from '../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
@@ -38,8 +39,9 @@ vi.mock('./docStore/indexManager', () => ({
   updateLocalLastModified: vi.fn().mockResolvedValue(undefined),
 }))
 
-describe('VaultEncryptedNetworkAdapter', () => {
-  let adapter: VaultEncryptedNetworkAdapter
+describe('VaultNetworkAdapter and SyncMessageBroker', () => {
+  let adapter: VaultNetworkAdapter
+  let broker: SyncMessageBroker
   let orchestrator: SyncOrchestrator
   let eventHub: SyncEventHub
 
@@ -64,29 +66,33 @@ describe('VaultEncryptedNetworkAdapter', () => {
     }
 
     eventHub = new SyncEventHub()
-    adapter = new VaultEncryptedNetworkAdapter(eventHub)
+    adapter = new VaultNetworkAdapter()
+    broker = new SyncMessageBroker(adapter, eventHub)
     orchestrator = new SyncOrchestrator(
       'test-account',
-      adapter,
+      broker,
       eventHub
     )
 
     // Keep offline by default to avoid automatic background runs in static tests
     orchestrator.setOnlineState(false)
-    await adapter.setAccount('test-account')
+    adapter.setAccount('test-account')
+    await broker.setAccount('test-account')
     orchestrator.setLeader(true)
     adapter.connect('test-peer' as PeerId)
   })
 
   afterEach(async () => {
-    await adapter.disconnect()
+    adapter.disconnect()
+    await broker.shutdown()
     await orchestrator.shutdown()
     vi.useRealTimers()
   })
 
   it('queues sync messages to IndexedDB (syncBatchStorage) on send()', async () => {
     const accountId = 'account-queues'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     const message1: Message = {
       type: 'sync',
@@ -116,7 +122,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
   it('enforces bounds of 2000 messages maximum per item', async () => {
     const accountId = 'account-bounds'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     for (let i = 0; i < 2010; i++) {
       adapter.send({
@@ -145,7 +152,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
     const accountId = 'account-chunking'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockResolvedValue({
       success: true,
@@ -168,10 +176,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter.setOnlineState(true)
-    const outcome = await adapter.executePoll()
+    broker.setOnlineState(true)
+    const outcome = await broker.executePoll()
     expect(outcome).toBe('success')
-    adapter.setOnlineState(false)
+    broker.setOnlineState(false)
 
     // It should have chunked 7 items into exactly 2 calls (first with 5 items, second with 2 items)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
@@ -191,7 +199,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
     const accountId = 'account-concurrent'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockImplementation(async () => {
       // Simulate concurrent local edits added while the poll request is in flight
@@ -211,7 +220,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
         data: new Uint8Array([30]),
       })
       // Flush them to IndexedDB using the real persistence method
-      await (adapter as any).persistPendingWrites()
+      await (broker as any).persistPendingWrites()
 
       return {
         success: true,
@@ -232,10 +241,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter.setOnlineState(true)
-    const outcome = await adapter.executePoll()
+    broker.setOnlineState(true)
+    const outcome = await broker.executePoll()
     expect(outcome).toBe('success')
-    adapter.setOnlineState(false)
+    broker.setOnlineState(false)
 
     // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
     const storage = getSyncBatchStorage(accountId)
@@ -259,7 +268,8 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
   it('retains messages in IndexedDB if the poll call fails', async () => {
     const accountId = 'account-fails'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     mockPollSyncBatchWithToken.mockRejectedValue(new Error('Network error'))
 
@@ -274,10 +284,10 @@ describe('VaultEncryptedNetworkAdapter', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     // Set online and run poll manually and synchronously!
-    adapter.setOnlineState(true)
-    const outcome = await adapter.executePoll()
+    broker.setOnlineState(true)
+    const outcome = await broker.executePoll()
     expect(outcome).toBe('failure')
-    adapter.setOnlineState(false)
+    broker.setOnlineState(false)
 
     // Message must still exist in IndexedDB due to failure
     const storage = getSyncBatchStorage(accountId)
@@ -334,11 +344,12 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
   it('immediately triggers next poll if hasMore is true', async () => {
     const accountId = 'account-pagination'
-    await adapter.setAccount(accountId)
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
 
     orchestrator = new SyncOrchestrator(
       accountId,
-      adapter,
+      broker,
       eventHub
     )
 
@@ -377,7 +388,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
 
     orchestrator.setOnlineState(true)
     orchestrator.setLeader(true)
-    adapter.queuePendingPullItems(['item-1' as ItemId])
+    broker.queuePendingPullItems(['item-1' as ItemId])
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)
@@ -389,7 +400,7 @@ describe('VaultEncryptedNetworkAdapter', () => {
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
     // Advancing past the 30s backoff delay + jitter should trigger the third poll.
-    adapter.queuePendingPullItems(['item-2' as ItemId])
+    broker.queuePendingPullItems(['item-2' as ItemId])
     await vi.advanceTimersByTimeAsync(50000)
     await vi.advanceTimersByTimeAsync(100)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)

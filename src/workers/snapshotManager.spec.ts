@@ -45,7 +45,7 @@ describe('SnapshotManager Retry Mechanism', () => {
   let context: {
     accountId: string | null
     repo: any
-    adapter: any
+    broker: any
   }
 
   beforeEach(() => {
@@ -64,7 +64,7 @@ describe('SnapshotManager Retry Mechanism', () => {
     context = {
       accountId: 'test-account',
       repo: mockRepo,
-      adapter: {} as any,
+      broker: {} as any,
     }
 
     manager = new SnapshotManager(() => context)

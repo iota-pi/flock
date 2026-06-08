@@ -100,16 +100,27 @@ vi.mock('../sync/automergeRepoIds', () => ({
 
 vi.mock('src/sync/VaultEncryptedNetworkAdapter', () => {
   return {
-    VaultEncryptedNetworkAdapter: class MockAdapter {
-      setOnlineState = vi.fn()
+    VaultNetworkAdapter: class MockAdapter {
       setAccount = vi.fn()
       setSendEnabled = vi.fn()
       disconnect = vi.fn()
+    }
+  }
+})
+
+vi.mock('src/sync/SyncMessageBroker', () => {
+  return {
+    SyncMessageBroker: class MockBroker {
+      setOnlineState = vi.fn()
+      setAccount = vi.fn()
+      setSendEnabled = vi.fn()
+      shutdown = vi.fn()
       flush = vi.fn()
       exportCursors = vi.fn().mockReturnValue([])
       importCursors = vi.fn()
       executePoll = vi.fn().mockResolvedValue('success')
       hasPendingPulls = vi.fn().mockReturnValue(false)
+      queuePendingPullItems = vi.fn()
       onFlushNeeded?: () => void
     }
   }

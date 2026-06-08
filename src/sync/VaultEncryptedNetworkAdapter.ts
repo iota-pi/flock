@@ -1,84 +1,49 @@
 import {
   NetworkAdapter,
+  interpretAsDocumentId,
   type Message,
   type PeerId,
   type PeerMetadata,
   type StorageId,
 } from '@automerge/automerge-repo/slim'
 
-import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
-import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { clearManualRecoveryForItems } from '../api/syncHealthCoordinator'
-import {
-  persistSyncMessages,
-} from './VaultPersistence'
-import { SyncEventHub } from './SyncEventHub'
+import { toVaultItemIdFromAutomergeId, toAutomergeUrlFromItemId } from './automergeRepoIds'
 import type { ItemId } from 'src/shared/schemas/items'
-import { SyncPoller, type PollOutcome } from './SyncPoller'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
-export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
+export type RawSyncMessage =
+  | { type: 'request'; itemId: ItemId }
+  | { type: 'sync'; itemId: ItemId; data: Uint8Array }
+
+export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
   private connected = false
-  private isOnline = true
   private ready = false
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
   private sendEnabled = false
 
-  private pullQueueManager = new SyncPullQueueManager()
-  private syncPoller: SyncPoller
+  public onMessageSent: ((message: RawSyncMessage) => void) | null = null
 
-  private pendingWrites: Map<string, Uint8Array[]> = new Map()
-  private persistTimeoutId: number | null = null
-
-  onFlushNeeded: (() => void) | null = null
-
-  constructor(private eventHub: SyncEventHub) {
+  constructor() {
     super()
     this.readyPromise = new Promise<void>(resolve => {
       this.readyPromiseResolver = resolve
     })
-
-    this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
-      if (this.account) {
-        clearManualRecoveryForItems(this.account, [itemId]).catch(console.error)
-      }
-      this.emit('message', {
-        type: 'sync',
-        senderId: VAULT_PEER_ID,
-        targetId: this.peerId!,
-        documentId: documentId,
-        data: message,
-      })
-    }
-
-    this.syncPoller = new SyncPoller(
-      this.pullQueueManager,
-      this.eventHub,
-    )
   }
 
   setSendEnabled(sendEnabled: boolean): void {
     this.sendEnabled = sendEnabled
   }
 
-  async setAccount(account: string | null): Promise<void> {
+  setAccount(account: string | null): void {
     const nextAccount = account && account.length > 0 ? account : null
     if (this.account === nextAccount) {
       return
     }
 
-    if (this.persistTimeoutId) {
-      self.clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    await this.persistPendingWrites()
-
     this.account = nextAccount
-    await this.pullQueueManager.setAccount(this.account)
-    this.syncPoller.setAccount(this.account)
 
     if (!this.connected) {
       return
@@ -113,15 +78,6 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  setOnlineState(isOnline: boolean): void {
-    if (this.isOnline === isOnline) {
-      return
-    }
-
-    this.isOnline = isOnline
-    this.syncPoller.setOnlineState(isOnline)
-  }
-
   send(message: Message): void {
     if (!this.connected || !this.account || message.targetId !== VAULT_PEER_ID) {
       return
@@ -131,99 +87,41 @@ export class VaultEncryptedNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    if (message.type === 'request') {
-      this.handleRequestMessage(message)
-    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      this.handleSyncMessage(message)
-    }
-  }
-
-  private handleRequestMessage(message: Message): void {
     const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
     if (!documentId) {
       return
     }
 
     const itemId = toVaultItemIdFromAutomergeId(documentId)
-    this.pullQueueManager.addPendingItem(itemId)
 
-    this.flush()
-  }
-
-  private handleSyncMessage(message: Message): void {
-    const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
-    if (!documentId || !(message.data instanceof Uint8Array)) {
-      return
-    }
-
-    const itemId = toVaultItemIdFromAutomergeId(documentId)
-
-    let messages = this.pendingWrites.get(itemId)
-    if (!messages) {
-      messages = []
-      this.pendingWrites.set(itemId, messages)
-    }
-    messages.push(message.data as Uint8Array)
-
-    this.flush()
-  }
-
-  private async persistPendingWrites(): Promise<void> {
-    if (this.pendingWrites.size === 0 || !this.account) {
-      return
-    }
-    const writes = new Map(this.pendingWrites)
-    this.pendingWrites.clear()
-    await persistSyncMessages(this.account, writes)
-  }
-
-  flush(): void {
-    if (this.persistTimeoutId === null) {
-      this.persistTimeoutId = self.setTimeout(
-        () => void this.flushPersistAndSignal(),
-        0
-      )
+    if (message.type === 'request') {
+      this.onMessageSent?.({
+        type: 'request',
+        itemId,
+      })
+    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      this.onMessageSent?.({
+        type: 'sync',
+        itemId,
+        data: message.data,
+      })
     }
   }
 
-  private async flushPersistAndSignal(): Promise<void> {
-    this.persistTimeoutId = null
-    await this.persistPendingWrites()
-    this.onFlushNeeded?.()
+  receiveMessage(itemId: ItemId, message: Uint8Array): void {
+    const url = toAutomergeUrlFromItemId(itemId)
+    const documentId = interpretAsDocumentId(url)
+    this.emit('message', {
+      type: 'sync',
+      senderId: VAULT_PEER_ID,
+      targetId: this.peerId!,
+      documentId,
+      data: message,
+    })
   }
 
-  queuePendingPullItems(itemIds: ItemId[]): void {
-    if (!itemIds || itemIds.length === 0) return
-    for (const itemId of itemIds) {
-      this.pullQueueManager.addPendingItem(itemId)
-    }
-    this.flush()
-  }
-
-  exportCursors(): [ItemId, number][] {
-    return this.pullQueueManager.exportCursors()
-  }
-
-  async importCursors(cursors: [ItemId, number][]): Promise<void> {
-    await this.pullQueueManager.importCursors(cursors)
-  }
-
-  async executePoll(): Promise<PollOutcome> {
-    return await this.syncPoller.executePoll()
-  }
-
-  hasPendingPulls(): boolean {
-    return this.pullQueueManager.hasPendingPulls()
-  }
-
-  async disconnect(): Promise<void> {
+  disconnect(): void {
     this.connected = false
-    if (this.persistTimeoutId) {
-      self.clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    await this.pullQueueManager.shutdown()
-    await this.persistPendingWrites()
     this.emit('close')
   }
 

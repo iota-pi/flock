@@ -1,7 +1,6 @@
 import { LeaderElection } from './utils/LeaderElection'
-import { VaultEncryptedNetworkAdapter } from '../sync/VaultEncryptedNetworkAdapter'
+import { SyncMessageBroker } from '../sync/SyncMessageBroker'
 import type { PollOutcome } from '../sync/SyncPoller'
-
 import { SyncEventHub } from '../sync/SyncEventHub'
 
 
@@ -20,15 +19,15 @@ export class SyncOrchestrator {
 
   constructor(
     private accountId: string,
-    private adapter: VaultEncryptedNetworkAdapter,
+    private broker: SyncMessageBroker,
     private eventHub: SyncEventHub
   ) {
-    this.adapter.onFlushNeeded = () => {
+    this.broker.onFlushNeeded = () => {
       this.flush()
     }
-    // Sync initial states with the adapter
-    this.adapter.setOnlineState(this.isOnline)
-    this.adapter.setSendEnabled(this.isLeader)
+    // Sync initial states with the broker
+    this.broker.setOnlineState(this.isOnline)
+    this.broker.setSendEnabled(this.isLeader)
   }
 
   async start(): Promise<void> {
@@ -48,7 +47,7 @@ export class SyncOrchestrator {
       return
     }
     this.isLeader = isLeader
-    this.adapter.setSendEnabled(isLeader)
+    this.broker.setSendEnabled(isLeader)
 
     if (isLeader) {
       if (this.isOnline) {
@@ -65,7 +64,7 @@ export class SyncOrchestrator {
       return
     }
     this.isOnline = isOnline
-    this.adapter.setOnlineState(isOnline)
+    this.broker.setOnlineState(isOnline)
 
     if (!isOnline) {
       this.stopPolling()
@@ -170,7 +169,7 @@ export class SyncOrchestrator {
 
     let outcome: PollOutcome
     try {
-      outcome = await this.adapter.executePoll()
+      outcome = await this.broker.executePoll()
     } catch (_) {
       outcome = 'failure'
     } finally {
@@ -197,7 +196,7 @@ export class SyncOrchestrator {
 
     this.eventHub.emit({ type: 'pollResult', outcome })
 
-    if (outcome === 'success' && this.adapter.hasPendingPulls()) {
+    if (outcome === 'success' && this.broker.hasPendingPulls()) {
       this.scheduleNextPoll(0)
     } else {
       this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
