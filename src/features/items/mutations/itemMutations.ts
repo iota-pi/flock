@@ -5,7 +5,7 @@ import type { AccountMetadata } from 'src/state/metadata'
 import { useNavigationStore } from 'src/state/navigationStore'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
 import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
-import { SyncBridge } from 'src/sync/SyncBridge'
+import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { useDataStore } from 'src/state/dataStore'
 
 

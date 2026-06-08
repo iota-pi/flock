@@ -67,7 +67,7 @@ vi.mock('../state/syncStore', () => ({
 }))
 
 
-vi.mock('../sync/SyncBridge', () => ({
+vi.mock('../sync/client/SyncBridge', () => ({
   SyncBridge: {
     clearAutomergeDocStore: mocks.clearAutomergeDocStore,
     exportAllBinaries: mocks.exportAllBinaries,

@@ -6,7 +6,7 @@ import {
 import { exportData } from '../api/vault'
 import type { BackupPayloadV2, RestorePayload, BackupSyncState } from '../types/backup'
 import type { Item } from '../state/items'
-import { SyncBridge } from '../sync/SyncBridge'
+import { SyncBridge } from '../sync/client/SyncBridge'
 import { useDataStore } from '../state/dataStore'
 import type { BaseToastMessage } from '../state/toastStore'
 

@@ -4,7 +4,7 @@ declare global {
   interface Window {
     vault?: Promise<typeof import('../../src/api/vault/index')>
     mutations?: Promise<typeof import('../../src/features/items/mutations/itemMutations')>
-    syncBridge?: Promise<typeof import('../../src/sync/SyncBridge').SyncBridge>
+    syncBridge?: Promise<typeof import('../../src/sync/client/SyncBridge').SyncBridge>
     hasApiAuthToken?: typeof import('../../src/api/runtime').hasApiAuthToken
   }
 }

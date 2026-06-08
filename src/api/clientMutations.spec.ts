@@ -1,6 +1,6 @@
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
-import { SyncBridge } from '../sync/SyncBridge'
+import { SyncBridge } from '../sync/client/SyncBridge'
 import { setApiAuthToken } from './runtime'
 import { useDataStore } from '../state/dataStore'
 import { ItemId } from 'src/shared/schemas/items'
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
 }))
 
-vi.mock('../sync/SyncBridge', () => ({
+vi.mock('../sync/client/SyncBridge', () => ({
   SyncBridge: {
     storeItems: vi.fn(async () => true),
     createItem: vi.fn(async () => true),

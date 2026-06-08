@@ -3,7 +3,7 @@ import { loadAccount } from '../api/vault'
 import { useAuthStore } from '../state/authStore'
 import { useLoggedIn } from '../state/selectors'
 import { useSyncStore } from '../state/syncStore'
-import useSyncCoordinatorLifecycle from '../sync/useSyncCoordinatorLifecycle'
+import useSyncCoordinatorLifecycle from '../sync/client/useSyncCoordinatorLifecycle'
 import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import { ensurePersistentStorage } from '../utils/storageQuota'
 

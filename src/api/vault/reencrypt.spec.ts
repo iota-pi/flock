@@ -1,6 +1,6 @@
 import { reencryptAllItems } from './reencrypt'
 import { rotateVaultKey, exportKeyringData } from './index'
-import { SyncBridge } from '../../sync/SyncBridge'
+import { SyncBridge } from '../../sync/client/SyncBridge'
 
 
 vi.mock('./index', () => ({
@@ -8,7 +8,7 @@ vi.mock('./index', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('mock-keyring-data'),
 }))
 
-vi.mock('../../sync/SyncBridge', () => ({
+vi.mock('../../sync/client/SyncBridge', () => ({
   SyncBridge: {
     updateVaultKey: vi.fn().mockResolvedValue(undefined),
     reencryptAllItems: vi.fn().mockImplementation(async onProgress => {

@@ -1,11 +1,11 @@
 import * as Sentry from '@sentry/react'
-import { subscribeRealtimeBusSyncPing } from '../sync/realtimeBus'
+import { subscribeRealtimeBusSyncPing } from '../sync/client/realtimeBus'
 import type { ItemId } from '../shared/schemas/items'
 import {
   readManualRecoveryCount,
   removeManualRecoveryEntryByItemId,
   upsertManualRecoveryEntry,
-} from '../sync/manualRecoveryStore'
+} from '../sync/shared/manualRecoveryStore'
 import { normalizeSyncError } from '../shared/syncErrors'
 import { getAccountId } from '../api/util'
 

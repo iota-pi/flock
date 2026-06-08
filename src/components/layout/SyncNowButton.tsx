@@ -8,7 +8,7 @@ import { CloudDoneIcon, CloudOffIcon } from '../Icons'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
 import { useOnlineStatus } from 'src/hooks/useOnlineStatus'
-import { SyncBridge } from 'src/sync/SyncBridge'
+import { SyncBridge } from 'src/sync/client/SyncBridge'
 
 
 function SyncNowButton() {

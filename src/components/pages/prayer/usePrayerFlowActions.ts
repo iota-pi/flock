@@ -5,7 +5,7 @@ import { recordPrayerCompletion } from 'src/api/vault'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { type FlowState } from 'src/state/prayerFlowStore'
-import { SyncBridge } from 'src/sync/SyncBridge'
+import { SyncBridge } from 'src/sync/client/SyncBridge'
 
 export type PrayerFlowActions = {
   handleBack: () => void

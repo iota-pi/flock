@@ -22,7 +22,7 @@ vi.mock('./client', () => ({
   recordPrayerCompletion: vi.fn(),
 }))
 
-vi.mock('../../sync/workerAuthStore', () => ({
+vi.mock('../../sync/shared/workerAuthStore', () => ({
   setActiveSessionToken: vi.fn(),
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-session'),
   clearActiveSessionToken: vi.fn(),

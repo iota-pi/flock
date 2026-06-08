@@ -2,7 +2,7 @@ import type {
   StandardItemEnvelope,
   TombstoneItemEnvelope,
 } from '../../shared/itemTypes'
-import type { LegacyItemEnvelope } from '../../sync/legacyTypes'
+import type { LegacyItemEnvelope } from '../../sync/shared/legacyTypes'
 
 type VaultEnvelope = (
   LegacyItemEnvelope

@@ -2,7 +2,7 @@
 import type * as vault from '../api/vault'
 import type * as mutations from '../features/items/mutations/itemMutations'
 import type { hasApiAuthToken } from '../api/runtime'
-import { SyncBridge } from 'src/sync/SyncBridge'
+import { SyncBridge } from 'src/sync/client/SyncBridge'
 
 // Expose store for Cypress in a typed way
 declare global {

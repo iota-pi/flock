@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   shutdown: vi.fn(),
 }))
 
-vi.mock('../sync/SyncBridge', () => ({
+vi.mock('../sync/client/SyncBridge', () => ({
   SyncBridge: {
     dismissRecoveryItem: mocks.dismissRecoveryItem,
     retryRecoveryItem: mocks.retryRecoveryItem,

@@ -1,5 +1,5 @@
 import { rotateVaultKey, exportKeyringData } from './index'
-import { SyncBridge } from '../../sync/SyncBridge'
+import { SyncBridge } from '../../sync/client/SyncBridge'
 
 export async function reencryptAllItems(
   onProgress?: (done: number, total: number) => void

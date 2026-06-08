@@ -4,8 +4,8 @@ import {
   clearActiveSessionToken,
   getActiveSessionToken,
   setActiveSessionToken,
-} from '../../sync/workerAuthStore'
-import { clearManualRecoveryEntries } from '../../sync/manualRecoveryStore'
+} from '../../sync/shared/workerAuthStore'
+import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
 import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
 import {
@@ -34,10 +34,10 @@ import {
   generateVaultKey,
   type CryptoResult,
 } from './crypto'
-import { SyncBridge } from 'src/sync/SyncBridge'
+import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
-import { clearSyncBatch } from 'src/sync/VaultPersistence'
-import { clearScheduledDeletions } from 'src/sync/deletionQueueStore'
+import { clearSyncBatch } from 'src/sync/shared/VaultPersistence'
+import { clearScheduledDeletions } from 'src/sync/shared/deletionQueueStore'
 
 export { createAccount, getSecurityParams, getReminderSettings }
 export type { CryptoResult }
