@@ -3,9 +3,11 @@ import { SyncPoller, type PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { clearManualRecoveryForItems } from '../../api/syncHealthCoordinator'
 import { persistSyncMessages } from '../shared/VaultPersistence'
-import { VaultNetworkAdapter, type RawSyncMessage } from './VaultEncryptedNetworkAdapter'
+import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { type Message } from '@automerge/automerge-repo/slim'
 
 export class SyncMessageBroker {
   private account: string | null = null
@@ -30,7 +32,7 @@ export class SyncMessageBroker {
       if (this.account) {
         clearManualRecoveryForItems(this.account, [itemId]).catch(console.error)
       }
-      this.adapter.receiveMessage(itemId, message)
+      this.adapter.receiveMessage(documentId, message)
     }
 
     this.syncPoller = new SyncPoller(
@@ -40,8 +42,8 @@ export class SyncMessageBroker {
       this.indexManager,
     )
 
-    this.adapter.onMessageSent = (rawMsg: RawSyncMessage) => {
-      this.handleOutgoingMessage(rawMsg)
+    this.adapter.onMessageToSend = (msg: Message) => {
+      this.handleOutgoingMessage(msg)
     }
   }
 
@@ -76,19 +78,26 @@ export class SyncMessageBroker {
     this.syncPoller.setOnlineState(isOnline)
   }
 
-  private handleOutgoingMessage(message: RawSyncMessage): void {
+  private handleOutgoingMessage(message: Message): void {
     if (!this.sendEnabled) {
       return
     }
 
+    const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
+    if (!documentId) {
+      return
+    }
+
+    const itemId = toVaultItemIdFromAutomergeId(documentId)
+
     if (message.type === 'request') {
-      this.pullQueueManager.addPendingItem(message.itemId)
+      this.pullQueueManager.addPendingItem(itemId)
       this.flush()
-    } else if (message.type === 'sync') {
-      let messages = this.pendingWrites.get(message.itemId)
+    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      let messages = this.pendingWrites.get(itemId)
       if (!messages) {
         messages = []
-        this.pendingWrites.set(message.itemId, messages)
+        this.pendingWrites.set(itemId, messages)
       }
       messages.push(message.data)
       this.flush()

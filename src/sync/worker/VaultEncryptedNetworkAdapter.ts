@@ -1,20 +1,13 @@
 import {
   NetworkAdapter,
-  interpretAsDocumentId,
   type Message,
   type PeerId,
   type PeerMetadata,
   type StorageId,
+  type DocumentId,
 } from '@automerge/automerge-repo/slim'
 
-import { toVaultItemIdFromAutomergeId, toAutomergeUrlFromItemId } from './automergeRepoIds'
-import type { ItemId } from 'src/shared/schemas/items'
-
 const VAULT_PEER_ID = 'vault' as PeerId
-
-export type RawSyncMessage =
-  | { type: 'request'; itemId: ItemId }
-  | { type: 'sync'; itemId: ItemId; data: Uint8Array }
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -24,7 +17,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private readonly readyPromise: Promise<void>
   private sendEnabled = false
 
-  public onMessageSent: ((message: RawSyncMessage) => void) | null = null
+  public onMessageToSend: ((message: Message) => void) | null = null
 
   constructor() {
     super()
@@ -87,30 +80,10 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    const documentId = typeof message.documentId === 'string' ? message.documentId : undefined
-    if (!documentId) {
-      return
-    }
-
-    const itemId = toVaultItemIdFromAutomergeId(documentId)
-
-    if (message.type === 'request') {
-      this.onMessageSent?.({
-        type: 'request',
-        itemId,
-      })
-    } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      this.onMessageSent?.({
-        type: 'sync',
-        itemId,
-        data: message.data,
-      })
-    }
+    this.onMessageToSend?.(message)
   }
 
-  receiveMessage(itemId: ItemId, message: Uint8Array): void {
-    const url = toAutomergeUrlFromItemId(itemId)
-    const documentId = interpretAsDocumentId(url)
+  receiveMessage(documentId: DocumentId, message: Uint8Array): void {
     this.emit('message', {
       type: 'sync',
       senderId: VAULT_PEER_ID,
@@ -135,3 +108,4 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     })
   }
 }
+
