@@ -5,7 +5,7 @@ import { encryptBytes } from '../../api/vault'
 import { loadSyncBatch, removeSentSyncMessages } from '../shared/VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { fetchMetadataWithToken } from '../../api/vault/SyncWorkerClient'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
@@ -18,7 +18,8 @@ export class SyncPoller {
 
   constructor(
     private pullQueueManager: SyncPullQueueManager,
-    private eventHub: SyncEventHub,
+    private clientEventHub: ClientEventHub,
+    private internalEventHub: WorkerInternalEventHub,
     private indexManager: AutomergeIndexManager,
   ) {}
 
@@ -38,7 +39,7 @@ export class SyncPoller {
     if (this.isPolling || !this.isOnline || !this.account) return 'success'
     this.isPolling = true
 
-    this.eventHub.emit({ type: 'startRequest' })
+    this.clientEventHub.emit({ type: 'startRequest' })
     try {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'success'
@@ -87,8 +88,8 @@ export class SyncPoller {
 
           if (indexChanged) {
             const updatedIndex = await this.indexManager.getIndexSnapshot()
-            this.eventHub.emit({ type: 'indexUpdated', itemIds: updatedIndex.itemIds || [] })
-            this.eventHub.emit({ type: 'metadataUpdated', metadata: updatedIndex.metadata || {} })
+            this.clientEventHub.emit({ type: 'indexUpdated', itemIds: updatedIndex.itemIds || [] })
+            this.clientEventHub.emit({ type: 'metadataUpdated', metadata: updatedIndex.metadata || {} })
           }
         }
       } catch (err) {
@@ -126,7 +127,7 @@ export class SyncPoller {
         }
 
         if (response?.snapshotRequest?.requested) {
-          this.eventHub.emit({
+          this.internalEventHub.emit({
             type: 'snapshotNeeded',
             cursor: response.snapshotRequest.cursor,
             requestedAt: response.snapshotRequest.requestedAt,
@@ -185,7 +186,7 @@ export class SyncPoller {
         }
 
         if (response?.snapshotRequest?.requested) {
-          this.eventHub.emit({
+          this.internalEventHub.emit({
             type: 'snapshotNeeded',
             cursor: response.snapshotRequest.cursor,
             requestedAt: response.snapshotRequest.requestedAt,
@@ -206,7 +207,7 @@ export class SyncPoller {
       return 'failure'
     } finally {
       this.isPolling = false
-      this.eventHub.emit({ type: 'finishRequest' })
+      this.clientEventHub.emit({ type: 'finishRequest' })
     }
   }
 

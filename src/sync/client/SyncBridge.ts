@@ -2,7 +2,7 @@
 import * as Comlink from 'comlink'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
-import type { SyncEvent } from '../worker/SyncEventHub'
+import type { ClientEvent } from '../worker/SyncEventHub'
 import { useDataStore } from 'src/state/dataStore'
 import { useUiStore } from 'src/state/uiStore'
 import { useSyncStore } from 'src/state/syncStore'
@@ -43,7 +43,7 @@ const scheduleItemUpdateFlush = () => {
   itemUpdateFlushHandle = requestAnimationFrame(flushItemUpdates)
 }
 
-const handleSyncEvent = (event: SyncEvent) => {
+const handleSyncEvent = (event: ClientEvent) => {
   switch (event.type) {
     case 'ready':
       break

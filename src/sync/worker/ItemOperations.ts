@@ -1,6 +1,6 @@
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import type { DeletionQueueManager } from './deletionQueueManager'
@@ -10,7 +10,7 @@ export interface ItemOperationsDeps {
   accountId: string
   docStore: AutomergeDocStore
   indexManager: AutomergeIndexManager
-  eventHub: SyncEventHub
+  eventHub: ClientEventHub
   markDocumentDirty: (itemId: ItemId) => void
   deletionQueueManager: DeletionQueueManager
 }

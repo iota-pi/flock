@@ -1,6 +1,6 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncPoller, type PollOutcome } from './SyncPoller'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { clearManualRecoveryForItems } from '../../api/syncHealthCoordinator'
 import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter, type RawSyncMessage } from './VaultEncryptedNetworkAdapter'
@@ -21,7 +21,8 @@ export class SyncMessageBroker {
 
   constructor(
     private adapter: VaultNetworkAdapter,
-    private eventHub: SyncEventHub,
+    private clientEventHub: ClientEventHub,
+    private internalEventHub: WorkerInternalEventHub,
     private indexManager: AutomergeIndexManager,
     private pullQueueManager: SyncPullQueueManager,
   ) {
@@ -34,7 +35,8 @@ export class SyncMessageBroker {
 
     this.syncPoller = new SyncPoller(
       this.pullQueueManager,
-      this.eventHub,
+      this.clientEventHub,
+      this.internalEventHub,
       this.indexManager,
     )
 

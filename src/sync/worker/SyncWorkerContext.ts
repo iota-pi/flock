@@ -17,7 +17,7 @@ import { ReencryptionManager } from './reencryptionManager'
 import { ItemOperations } from './ItemOperations'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import type { Item } from 'src/state/items'
 import type { AccountMetadata } from 'src/state/metadata'
@@ -45,7 +45,8 @@ export class SyncWorkerContext {
     public readonly repo: Repo,
     public readonly adapter: VaultNetworkAdapter,
     public readonly broker: SyncMessageBroker,
-    public readonly eventHub: SyncEventHub,
+    public readonly clientEventHub: ClientEventHub,
+    public readonly internalEventHub: WorkerInternalEventHub,
     indexStore: IndexStore,
     indexManager: AutomergeIndexManager,
     legacyStoreItems: (items: Item[]) => Promise<void>,
@@ -67,7 +68,7 @@ export class SyncWorkerContext {
       broker,
     }, this.lastModifiedStore)
 
-    this.orchestrator = new SyncOrchestrator(accountId, broker, eventHub)
+    this.orchestrator = new SyncOrchestrator(accountId, broker, clientEventHub, internalEventHub)
 
     this.deletionQueueManager = new DeletionQueueManager({
       accountId,
@@ -79,7 +80,7 @@ export class SyncWorkerContext {
       accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
-    }, eventHub)
+    }, clientEventHub)
 
     this.legacyBootstrapper = new LegacyBootstrapper(
       {
@@ -101,7 +102,7 @@ export class SyncWorkerContext {
       accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
-      eventHub,
+      eventHub: clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
       deletionQueueManager: this.deletionQueueManager,
     })

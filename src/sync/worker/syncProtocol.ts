@@ -1,4 +1,4 @@
-import type { SyncEventListener } from './SyncEventHub'
+import type { ClientEventListener } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
@@ -6,7 +6,7 @@ import type { BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
 
 export interface SyncApi {
-  initRepo: (accountId: string, vaultKey: string, onEvent: SyncEventListener) => Promise<void>
+  initRepo: (accountId: string, vaultKey: string, onEvent: ClientEventListener) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapLegacyItems: () => Promise<void>
   mutateItem: (mutationId: string, id: ItemId, changes: Partial<Item>) => Promise<void>

@@ -6,7 +6,7 @@ import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededS
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { SyncOrchestrator } from './SyncOrchestrator'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
@@ -39,7 +39,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
   let adapter: VaultNetworkAdapter
   let broker: SyncMessageBroker
   let orchestrator: SyncOrchestrator
-  let eventHub: SyncEventHub
+  let clientEventHub: ClientEventHub
+  let internalEventHub: WorkerInternalEventHub
   let mockDocStore: AutomergeDocStore
 
   beforeEach(async () => {
@@ -69,15 +70,17 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       await getSyncBatchStorage(acc).clear()
     }
 
-    eventHub = new SyncEventHub()
+    clientEventHub = new ClientEventHub()
+    internalEventHub = new WorkerInternalEventHub()
     adapter = new VaultNetworkAdapter()
     const cursorStore = new CursorStore('test-account')
     const pullQueueManager = new SyncPullQueueManager(cursorStore)
-    broker = new SyncMessageBroker(adapter, eventHub, mockDocStore as any, pullQueueManager)
+    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager)
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,
-      eventHub
+      clientEventHub,
+      internalEventHub
     )
 
     // Keep offline by default to avoid automatic background runs in static tests
@@ -356,7 +359,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     orchestrator = new SyncOrchestrator(
       accountId,
       broker,
-      eventHub
+      clientEventHub,
+      internalEventHub
     )
 
     let pollCount = 0

@@ -4,7 +4,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 import type { SyncApi } from './syncProtocol'
-import { SyncEventHub, type SyncEventListener, type SyncEvent } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub, type ClientEventListener, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
@@ -31,7 +31,8 @@ export class SyncWorker implements SyncApi {
   private context: SyncWorkerContext | null = null
   private adapter: VaultNetworkAdapter | null = null
   private broker: SyncMessageBroker | null = null
-  private eventHub = new SyncEventHub()
+  private clientEventHub = new ClientEventHub()
+  private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
   private syncStatus: SyncStatus = 'idle'
   private unsubscribeRealtimeBus: (() => void) | null = null
@@ -47,10 +48,10 @@ export class SyncWorker implements SyncApi {
   private updateStatus(status: SyncStatus) {
     if (this.syncStatus === status) return
     this.syncStatus = status
-    this.eventHub.emit({ type: 'statusChange', status })
+    this.clientEventHub.emit({ type: 'statusChange', status })
   }
 
-  async initRepo(accountId: string, vaultKey: string, onEvent: SyncEventListener) {
+  async initRepo(accountId: string, vaultKey: string, onEvent: ClientEventListener) {
     this.clearListeners()
 
     if (this.context) {
@@ -64,9 +65,11 @@ export class SyncWorker implements SyncApi {
     }
 
     resetQuotaExceededStatus()
-    this.eventHub.setExternalListener(onEvent)
+    this.clientEventHub = new ClientEventHub()
+    this.internalEventHub = new WorkerInternalEventHub()
+    this.clientEventHub.setExternalListener(onEvent)
     registerQuotaReporter((msg: string) => {
-      this.eventHub.emit({ type: 'quotaExceeded', message: msg })
+      this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
     })
 
     await initWorkerVault(vaultKey)
@@ -83,7 +86,8 @@ export class SyncWorker implements SyncApi {
 
     this.broker = new SyncMessageBroker(
       this.adapter,
-      this.eventHub,
+      this.clientEventHub,
+      this.internalEventHub,
       indexManager,
       pullQueueManager
     )
@@ -93,7 +97,8 @@ export class SyncWorker implements SyncApi {
       repo,
       this.adapter,
       this.broker,
-      this.eventHub,
+      this.clientEventHub,
+      this.internalEventHub,
       indexStore,
       indexManager,
       items => this.storeItems(items),
@@ -104,18 +109,12 @@ export class SyncWorker implements SyncApi {
     this.context.orchestrator.setOnlineState(this.isOnline)
     this.context.snapshotManager.onOnlineStateChange(this.isOnline)
 
-    // Listen to local events
-    this.eventHub.subscribe((event: SyncEvent) => {
+    // Listen to client events
+    this.clientEventHub.subscribe((event: ClientEvent) => {
       if (!this.context) return
       switch (event.type) {
         case 'statusChange':
           this.syncStatus = event.status
-          break
-        case 'pollResult':
-          this.handlePollResult(event.outcome)
-          break
-        case 'snapshotNeeded':
-          this.context.snapshotManager.scheduleSnapshotPush(event.cursor)
           break
         case 'startRequest':
           if (this.isOnline) this.updateStatus('syncing')
@@ -131,19 +130,32 @@ export class SyncWorker implements SyncApi {
       }
     })
 
+    // Listen to worker internal events
+    this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
+      if (!this.context) return
+      switch (event.type) {
+        case 'pollResult':
+          this.handlePollResult(event.outcome)
+          break
+        case 'snapshotNeeded':
+          this.context.snapshotManager.scheduleSnapshotPush(event.cursor)
+          break
+      }
+    })
+
     this.adapter.setAccount(accountId)
     await this.broker.setAccount(accountId)
 
     const localItemIds = await this.context.indexManager.listAutomergeItemIds()
     this.subscribeToItems(localItemIds)
-    this.eventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
+    this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
       if (!this.context) return
       this.subscribeToItems(itemIds)
     })
 
-    this.eventHub.emit({ type: 'ready' })
+    this.clientEventHub.emit({ type: 'ready' })
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
     this.context.deletionQueueManager.startTimer()
   }
@@ -198,7 +210,7 @@ export class SyncWorker implements SyncApi {
         const handleChange = () => {
           const doc = handle.doc() || null
           const item = normalizeItemSnapshot(id, doc)
-          this.eventHub.emit({ type: 'itemUpdated', id, item })
+          this.clientEventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)
         this.changeListenersByItemId.set(id, handleChange)

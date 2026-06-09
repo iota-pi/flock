@@ -1,4 +1,4 @@
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 import {
   type ManualRecoveryEntry,
   readManualRecoveryEntries,
@@ -17,7 +17,7 @@ export class RecoveryManager {
       docStore: AutomergeDocStore
       indexManager: AutomergeIndexManager
     },
-    private eventHub: SyncEventHub
+    private eventHub: ClientEventHub
   ) {}
 
   async pushRecoveryItems() {

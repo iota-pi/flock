@@ -1,7 +1,7 @@
 import { LeaderElection } from './utils/LeaderElection'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import type { PollOutcome } from './SyncPoller'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 
 
 export class SyncOrchestrator {
@@ -20,7 +20,8 @@ export class SyncOrchestrator {
   constructor(
     private accountId: string,
     private broker: SyncMessageBroker,
-    private eventHub: SyncEventHub
+    private clientEventHub: ClientEventHub,
+    private internalEventHub: WorkerInternalEventHub
   ) {
     this.broker.onFlushNeeded = () => {
       this.flush()
@@ -51,7 +52,7 @@ export class SyncOrchestrator {
 
     if (isLeader) {
       if (this.isOnline) {
-        this.eventHub.emit({ type: 'statusChange', status: 'idle' })
+        this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
       }
       this.startPolling(true)
     } else {
@@ -68,16 +69,16 @@ export class SyncOrchestrator {
 
     if (!isOnline) {
       this.stopPolling()
-      this.eventHub.emit({ type: 'statusChange', status: 'offline' })
+      this.clientEventHub.emit({ type: 'statusChange', status: 'offline' })
       return
     }
 
     if (this.isLeader) {
       this.resetPollBackoff()
       this.startPolling(true)
-      this.eventHub.emit({ type: 'statusChange', status: 'idle' })
+      this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
     } else {
-      this.eventHub.emit({ type: 'statusChange', status: 'offline' })
+      this.clientEventHub.emit({ type: 'statusChange', status: 'offline' })
     }
   }
 
@@ -183,8 +184,8 @@ export class SyncOrchestrator {
     if (outcome === 'auth-failure') {
       this.pollingPausedForAuth = true
       this.stopPolling()
-      this.eventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
-      this.eventHub.emit({ type: 'pollResult', outcome })
+      this.clientEventHub.emit({ type: 'authFailure', message: 'Sync paused: your session has expired. Please sign in again.' })
+      this.internalEventHub.emit({ type: 'pollResult', outcome })
       return
     }
 
@@ -194,7 +195,7 @@ export class SyncOrchestrator {
       this.resetPollBackoff()
     }
 
-    this.eventHub.emit({ type: 'pollResult', outcome })
+    this.internalEventHub.emit({ type: 'pollResult', outcome })
 
     if (outcome === 'success' && this.broker.hasPendingPulls()) {
       this.scheduleNextPoll(0)

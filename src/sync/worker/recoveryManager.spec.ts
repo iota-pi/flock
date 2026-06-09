@@ -1,6 +1,6 @@
 import { ItemId } from 'src/shared/schemas/items'
 import { RecoveryManager } from './recoveryManager'
-import { SyncEventHub } from './SyncEventHub'
+import { ClientEventHub } from './SyncEventHub'
 
 // Mock dependencies
 const mockReadManualRecoveryEntries = vi.fn()
@@ -32,14 +32,14 @@ vi.mock('./docStore/AutomergeIndexManager', () => ({
 
 describe('RecoveryManager', () => {
   let recoveryManager: RecoveryManager
-  let eventHub: SyncEventHub
+  let eventHub: ClientEventHub
   let onEventMock: any
   let depsObj: { accountId: string | null; docStore: any; indexManager: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
 
-    eventHub = new SyncEventHub()
+    eventHub = new ClientEventHub()
     onEventMock = vi.fn()
     eventHub.subscribe(onEventMock)
 
