@@ -1,20 +1,18 @@
-import { Repo } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '../../../shared/schemas/items'
 import { encodeBytesToBase64, decodeBase64ToBytes } from '../utils/base64Utils'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
+import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../automergeConstants'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 
 export class BackupManager {
   constructor(
-    private readonly repo: Repo,
     private readonly docStore: AutomergeDocStore,
     private readonly indexManager: AutomergeIndexManager
   ) {}
 
-  async exportAllBinaries(): Promise<Partial<Record<ItemId, string>>> {
-    const exported: Partial<Record<ItemId, string>> = {}
+  async exportAllBinaries(): Promise<Partial<Record<BackupDocId, string>>> {
+    const exported: Partial<Record<BackupDocId, string>> = {}
 
     for (const itemId of await this.indexManager.listAutomergeItemIds()) {
       const handle = await this.docStore.ensureDocumentHandle(itemId)
@@ -29,16 +27,15 @@ export class BackupManager {
 
     const indexDoc = await this.indexManager.getIndexSnapshot()
     const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
-    const indexId = ACCOUNT_INDEX_DOCUMENT_ID as unknown as ItemId
-    exported[indexId] = encodeBytesToBase64(indexBinary)
+    exported[ACCOUNT_INDEX_DOCUMENT_ID] = encodeBytesToBase64(indexBinary)
 
     return exported
   }
 
-  async restoreFromBinaries(items: Partial<Record<ItemId, string>>): Promise<ItemId[]> {
+  async restoreFromBinaries(items: Partial<Record<BackupDocId, string>>): Promise<ItemId[]> {
     const restoredItemIds: ItemId[] = []
 
-    const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID as unknown as ItemId]
+    const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID]
     if (encodedIndex && typeof encodedIndex === 'string') {
       try {
         const indexBinary = decodeBase64ToBytes(encodedIndex)

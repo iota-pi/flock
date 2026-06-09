@@ -58,7 +58,7 @@ export class SyncWorkerContext {
     this.lastModifiedStore = new LastModifiedStore(accountId)
 
     this.docStore = new AutomergeDocStore(accountId, repo)
-    this.backupManager = new BackupManager(repo, this.docStore, indexManager)
+    this.backupManager = new BackupManager(this.docStore, indexManager)
 
     this.pullQueueManager = new SyncPullQueueManager(this.cursorStore)
 
