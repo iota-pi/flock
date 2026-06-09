@@ -3,7 +3,7 @@ import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
 import { reportDecryptionFailure } from '../../api/syncHealthCoordinator'
-import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { decryptBytes } from 'src/api/vault'
 import { ItemId } from 'src/shared/schemas/items'

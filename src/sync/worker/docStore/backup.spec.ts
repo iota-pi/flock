@@ -3,7 +3,7 @@ import { AutomergeDocStore } from './AutomergeDocStore'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { BackupManager } from './BackupManager'
 import { IndexStore } from '../stores/IndexStore'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../automergeConstants'
+import { ACCOUNT_INDEX_DOCUMENT_ID } from '../utils/automerge'
 import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/schemas/items'
 
@@ -20,7 +20,7 @@ describe('backup operations', () => {
     indexStore = new IndexStore(accountId)
     docStore = new AutomergeDocStore(accountId, testRepo)
     indexManager = new AutomergeIndexManager(accountId, indexStore)
-    backupManager = new BackupManager(testRepo, docStore, indexManager)
+    backupManager = new BackupManager(docStore, indexManager)
     
     await docStore.clear([])
     await indexStore.clear()

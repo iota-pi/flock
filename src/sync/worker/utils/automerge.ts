@@ -4,9 +4,29 @@ import {
   stringifyAutomergeUrl,
   type AutomergeUrl,
   type BinaryDocumentId,
+  type DocHandle,
 } from '@automerge/automerge-repo/slim'
+import type { $brand } from 'zod'
 import { ItemId } from 'src/shared/schemas/items'
+import { isPlainObject } from './objectUtils'
 
+export type IndexDocId = string & $brand<'IndexDocId'>
+export const ACCOUNT_INDEX_DOCUMENT_ID = '__account_index__' as IndexDocId
+export type BackupDocId = ItemId | IndexDocId
+
+export function readObjectSnapshot<TDoc extends object>(
+  handle: DocHandle<TDoc>,
+): TDoc | null {
+  try {
+    if (!handle.isReady()) {
+      return null
+    }
+    const doc = handle.doc()
+    return isPlainObject(doc) ? (doc as TDoc) : null
+  } catch {
+    return null
+  }
+}
 
 export function toAutomergeUrlFromItemId(itemId: ItemId): AutomergeUrl {
   const binary = new TextEncoder().encode(itemId)

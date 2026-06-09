@@ -3,8 +3,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema, readItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
-import { toAutomergeUrlFromItemId } from '../automergeRepoIds'
-import { readObjectSnapshot } from '../automergeHandleUtils'
+import { readObjectSnapshot, toAutomergeUrlFromItemId } from '../utils/automerge'
 import { isPlainObject } from '../utils/objectUtils'
 
 export type RepoDoc = Record<string, unknown>

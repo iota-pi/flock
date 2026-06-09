@@ -22,13 +22,13 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { normalizeItemSnapshot } from './docStore'
-import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { loadSyncBatch, restoreSyncBatch } from '../shared/VaultPersistence'
 import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
 import type { PollOutcome } from './SyncPoller'
 
 export class SyncWorker implements SyncApi {
-  private context: SyncWorkerContext | null = null
+  private _context: SyncWorkerContext | null = null
   private adapter: VaultNetworkAdapter | null = null
   private broker: SyncMessageBroker | null = null
   private clientEventHub = new ClientEventHub()
@@ -40,9 +40,9 @@ export class SyncWorker implements SyncApi {
   private subscribedIds = new Set<ItemId>()
   private changeListenersByItemId = new Map<ItemId, () => void>()
 
-  private get contextOrThrow(): SyncWorkerContext {
-    if (!this.context) throw new Error("SyncWorker not initialized. Call initRepo first.")
-    return this.context
+  private get context(): SyncWorkerContext {
+    if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
+    return this._context
   }
 
   private updateStatus(status: SyncStatus) {
@@ -54,9 +54,9 @@ export class SyncWorker implements SyncApi {
   async initRepo(accountId: string, vaultKey: string, onEvent: ClientEventListener) {
     this.clearListeners()
 
-    if (this.context) {
-      await this.context.shutdown()
-      this.context = null
+    if (this._context) {
+      await this._context.shutdown()
+      this._context = null
     }
 
     if (this.unsubscribeRealtimeBus) {
@@ -92,7 +92,7 @@ export class SyncWorker implements SyncApi {
       pullQueueManager
     )
 
-    this.context = new SyncWorkerContext(
+    this._context = new SyncWorkerContext(
       accountId,
       repo,
       this.adapter,
@@ -104,14 +104,13 @@ export class SyncWorker implements SyncApi {
       items => this.storeItems(items),
       changes => this.mutateMetadata(changes)
     )
-    await this.context.initialize()
+    await this._context.initialize()
 
-    this.context.orchestrator.setOnlineState(this.isOnline)
-    this.context.snapshotManager.onOnlineStateChange(this.isOnline)
+    this._context.orchestrator.setOnlineState(this.isOnline)
+    this._context.snapshotManager.onOnlineStateChange(this.isOnline)
 
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
-      if (!this.context) return
       switch (event.type) {
         case 'statusChange':
           this.syncStatus = event.status
@@ -132,7 +131,6 @@ export class SyncWorker implements SyncApi {
 
     // Listen to worker internal events
     this.internalEventHub.subscribe((event: WorkerInternalEvent) => {
-      if (!this.context) return
       switch (event.type) {
         case 'pollResult':
           this.handlePollResult(event.outcome)
@@ -146,23 +144,21 @@ export class SyncWorker implements SyncApi {
     this.adapter.setAccount(accountId)
     await this.broker.setAccount(accountId)
 
-    const localItemIds = await this.context.indexManager.listAutomergeItemIds()
+    const localItemIds = await this._context.indexManager.listAutomergeItemIds()
     this.subscribeToItems(localItemIds)
     this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
-      if (!this.context) return
       this.subscribeToItems(itemIds)
     })
 
     this.clientEventHub.emit({ type: 'ready' })
     this.updateStatus(this.isOnline ? 'idle' : 'offline')
-    this.context.deletionQueueManager.startTimer()
+    this._context.deletionQueueManager.startTimer()
   }
 
   async setOnlineState(isOnline: boolean) {
     this.isOnline = isOnline
-    if (!this.context) return
 
     this.context.orchestrator.setOnlineState(isOnline)
     this.context.snapshotManager.onOnlineStateChange(isOnline)
@@ -197,7 +193,6 @@ export class SyncWorker implements SyncApi {
   }
 
   subscribeToItems(itemIds: ItemId[]) {
-    if (!this.context) return
     const repo = this.context.repo
     for (const id of itemIds) {
       if (this.subscribedIds.has(id)) continue
@@ -227,7 +222,6 @@ export class SyncWorker implements SyncApi {
   }
 
   scheduleDeletions(itemIds: ItemId[]) {
-    if (!this.context) return
     const newItemIdsSet = new Set(itemIds)
     void this.context.deletionQueueManager.handleIndexChange(
       newItemIdsSet,
@@ -240,7 +234,7 @@ export class SyncWorker implements SyncApi {
     const listener = this.changeListenersByItemId.get(itemId)
     this.changeListenersByItemId.delete(itemId)
 
-    if (listener && this.context) {
+    if (listener) {
       const url = toAutomergeUrlFromItemId(itemId)
       this.context.repo.find(url).then(handle => {
         handle.off('change', listener)
@@ -259,30 +253,31 @@ export class SyncWorker implements SyncApi {
   }
 
   // Sync API Pass-through Delegation
-  async bootstrapLegacyItems() { await this.contextOrThrow.legacyBootstrapper.bootstrapLegacyItems() }
-  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>) { await this.contextOrThrow.itemOperations.mutateItem(mutationId, id, changes) }
-  async createItem(item: Item) { await this.contextOrThrow.itemOperations.createItem(item) }
-  async hardDeleteItems(itemIds: ItemId[]) { await this.contextOrThrow.itemOperations.hardDeleteItems(itemIds) }
-  async storeItems(items: Item[]) { await this.contextOrThrow.itemOperations.storeItems(items) }
-  async mutateMetadata(changes: Partial<AccountMetadata>) { await this.contextOrThrow.itemOperations.mutateMetadata(changes) }
-  async exportAllBinaries() { return this.contextOrThrow.backupManager.exportAllBinaries() }
+  async bootstrapLegacyItems() { await this.context.legacyBootstrapper.bootstrapLegacyItems() }
+  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(mutationId, id, changes) }
+  async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
+  async hardDeleteItems(itemIds: ItemId[]) { await this.context.itemOperations.hardDeleteItems(itemIds) }
+  async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
+  async mutateMetadata(changes: Partial<AccountMetadata>) { await this.context.itemOperations.mutateMetadata(changes) }
+  async exportAllBinaries() { return this.context.backupManager.exportAllBinaries() }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const restored = await this.contextOrThrow.backupManager.restoreFromBinaries(documents)
+    const restored = await this.context.backupManager.restoreFromBinaries(documents)
     useSyncStore.getState().incrementGeneration()
     return restored
   }
-  async forceSync() { this.contextOrThrow.orchestrator.flush() }
-  async pushSnapshots() { return this.contextOrThrow.snapshotManager.pushSnapshots() }
-  async retryRecoveryItem(itemId: ItemId) { await this.contextOrThrow.recoveryManager.retryRecoveryItem(itemId) }
-  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.contextOrThrow.recoveryManager.forceOverwriteRecoveryItem(itemId) }
-  async forceDeleteRecoveryItem(itemId: ItemId) { await this.contextOrThrow.recoveryManager.forceDeleteRecoveryItem(itemId) }
-  async dismissRecoveryItem(entryId: string) { await this.contextOrThrow.recoveryManager.dismissRecoveryItem(entryId) }
-  async listRecoveryItems() { return this.contextOrThrow.recoveryManager.listRecoveryItems() }
+
+  async forceSync() { this.context.orchestrator.flush() }
+  async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
+  async retryRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.retryRecoveryItem(itemId) }
+  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceOverwriteRecoveryItem(itemId) }
+  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceDeleteRecoveryItem(itemId) }
+  async dismissRecoveryItem(entryId: string) { await this.context.recoveryManager.dismissRecoveryItem(entryId) }
+  async listRecoveryItems() { return this.context.recoveryManager.listRecoveryItems() }
   async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
-  async reencryptAllItems(onProgress: (done: number, total: number) => void) { await this.contextOrThrow.reencryptionManager.reencryptAllItems(onProgress) }
-  
+  async reencryptAllItems(onProgress: (done: number, total: number) => void) { await this.context.reencryptionManager.reencryptAllItems(onProgress) }
+
   async exportSyncState(): Promise<BackupSyncState> {
-    const context = this.contextOrThrow
+    const context = this.context
     const cursors = context.broker.exportCursors()
     const pendingSyncRaw = await loadSyncBatch(context.accountId)
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
@@ -295,7 +290,7 @@ export class SyncWorker implements SyncApi {
   }
 
   async restoreSyncState(state: Partial<BackupSyncState>) {
-    const context = this.contextOrThrow
+    const context = this.context
     if (state.cursors) await context.broker.importCursors(state.cursors)
     if (state.pendingSync) {
       const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
@@ -315,14 +310,12 @@ export class SyncWorker implements SyncApi {
       this.unsubscribeRealtimeBus = null
     }
 
-    if (this.context) {
-      try {
-        await this.context.shutdown()
-      } catch (err) {
-        console.error('[SyncWorker] Error shutting down context', err)
-      }
-      this.context = null
+    try {
+      await this.context.shutdown()
+    } catch (err) {
+      console.error('[SyncWorker] Error shutting down context', err)
     }
+    this._context = null
 
     if (this.broker) {
       try {
@@ -335,7 +328,7 @@ export class SyncWorker implements SyncApi {
 
     if (this.adapter) {
       try {
-        await this.adapter.disconnect()
+        this.adapter.disconnect()
       } catch (err) {
         console.error('[SyncWorker] Error disconnecting adapter', err)
       }

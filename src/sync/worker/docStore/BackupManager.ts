@@ -1,7 +1,7 @@
 import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '../../../shared/schemas/items'
 import { encodeBytesToBase64, decodeBase64ToBytes } from '../utils/base64Utils'
-import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../automergeConstants'
+import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
 import type { AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 

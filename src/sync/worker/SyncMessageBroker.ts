@@ -6,7 +6,7 @@ import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { toVaultItemIdFromAutomergeId } from './automergeRepoIds'
+import { toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type Message } from '@automerge/automerge-repo/slim'
 
 export class SyncMessageBroker {

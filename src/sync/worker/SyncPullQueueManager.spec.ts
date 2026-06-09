@@ -2,7 +2,7 @@ import { interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import localforage from 'localforage'
 
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { PullSyncMessagesResponse } from 'src/api/vault/SyncWorkerClient'
 import { ItemId } from 'src/shared/schemas/items'
 import { CursorStore } from './stores/CursorStore'
@@ -82,8 +82,8 @@ vi.mock('../../utils/storageManager', () => ({
   reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
 }))
 
-vi.mock('./automergeRepoIds', async importOriginal => {
-  const actual = await importOriginal<typeof import('./automergeRepoIds')>()
+vi.mock('./utils/automerge', async importOriginal => {
+  const actual = await importOriginal<typeof import('./utils/automerge')>()
   return {
     ...actual,
     toAutomergeUrlFromItemId: (itemId: ItemId) => {

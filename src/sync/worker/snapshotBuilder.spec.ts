@@ -18,7 +18,7 @@ vi.mock('./docStore', () => ({
   normalizeItemSnapshot: (...args: any[]) => mockNormalizeItemSnapshot(...args),
 }))
 
-vi.mock('./automergeRepoIds', () => ({
+vi.mock('./utils/automerge', () => ({
   toAutomergeUrlFromItemId: (...args: any[]) => mockToAutomergeUrlFromItemId(...args),
 }))
 

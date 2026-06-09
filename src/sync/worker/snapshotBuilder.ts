@@ -3,7 +3,7 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 
 import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { normalizeItemSnapshot } from './docStore'
-import { toAutomergeUrlFromItemId } from './automergeRepoIds'
+import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { encryptBytes } from '../../api/vault'
 import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'

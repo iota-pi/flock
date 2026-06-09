@@ -91,7 +91,7 @@ vi.mock('./automergeRepo', () => {
   }
 })
 
-vi.mock('./automergeRepoIds', () => ({
+vi.mock('./utils/automerge', () => ({
   toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
 }))
 
