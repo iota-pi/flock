@@ -1,17 +1,15 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import { AutomergeDocStore } from './AutomergeDocStore'
-import type { Item } from '../../../state/items'
-import { ItemId } from '../../../shared/schemas/items'
+import type { Item } from 'src/state/items'
+import { ItemId } from 'src/shared/schemas/items'
 
 const testRepo = new Repo()
 
 describe('items operations', () => {
-  const accountId = 'test-account-id-items'
   let docStore: AutomergeDocStore
 
   beforeEach(async () => {
-    docStore = new AutomergeDocStore(accountId, testRepo)
-    await docStore.initialize()
+    docStore = new AutomergeDocStore(testRepo)
   })
 
   it('should create and retrieve an item successfully', async () => {

@@ -67,16 +67,9 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
 }
 
 export class AutomergeDocStore {
-  private isInitialized = false
-
   constructor(
-    private readonly accountId: string,
     private readonly repo: Repo,
   ) {}
-
-  async initialize(): Promise<void> {
-    this.isInitialized = true
-  }
 
   // Core Document Helpers
   async getRepoHandle(itemId: ItemId): Promise<RepoDocHandle> {
@@ -269,7 +262,6 @@ export class AutomergeDocStore {
       }
     }
 
-    this.isInitialized = false
 
     try {
       await this.repo.shutdown()

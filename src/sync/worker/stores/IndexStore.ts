@@ -1,5 +1,6 @@
 import localforage from 'localforage'
 import type { AutomergeIndexDocument } from '../docStore/AutomergeDocStore'
+import { runStorageOperation } from 'src/utils/storageManager'
 
 export class IndexStore {
   private readonly store: LocalForage
@@ -16,7 +17,7 @@ export class IndexStore {
   }
 
   async saveIndex(indexDoc: AutomergeIndexDocument): Promise<void> {
-    await this.store.setItem('indexDoc', indexDoc)
+    await runStorageOperation(() => this.store.setItem('indexDoc', indexDoc))
   }
 
   async clear(): Promise<void> {

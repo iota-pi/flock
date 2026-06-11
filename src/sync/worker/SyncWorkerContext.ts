@@ -57,7 +57,7 @@ export class SyncWorkerContext {
     this.cursorStore = new CursorStore(accountId)
     this.lastModifiedStore = new LastModifiedStore(accountId)
 
-    this.docStore = new AutomergeDocStore(accountId, repo)
+    this.docStore = new AutomergeDocStore(repo)
     this.backupManager = new BackupManager(this.docStore, indexManager)
 
     this.pullQueueManager = new SyncPullQueueManager(this.cursorStore)
@@ -109,7 +109,6 @@ export class SyncWorkerContext {
   }
 
   async initialize(): Promise<void> {
-    await this.docStore.initialize()
     await this.indexManager.ensureIndexDocument()
     await this.snapshotManager.loadLastModified()
   }

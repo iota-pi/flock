@@ -18,13 +18,12 @@ describe('backup operations', () => {
 
   beforeEach(async () => {
     indexStore = new IndexStore(accountId)
-    docStore = new AutomergeDocStore(accountId, testRepo)
+    docStore = new AutomergeDocStore(testRepo)
     indexManager = new AutomergeIndexManager(accountId, indexStore)
     backupManager = new BackupManager(docStore, indexManager)
-    
+
     await docStore.clear([])
     await indexStore.clear()
-    await docStore.initialize()
     await indexManager.ensureIndexDocument()
   })
 
@@ -64,7 +63,6 @@ describe('backup operations', () => {
     // Clean current state
     await docStore.clear([item.id])
     await indexStore.clear()
-    await docStore.initialize()
     await indexManager.ensureIndexDocument()
 
     const retrievedBefore = await docStore.getAutomergeItem(item.id)
