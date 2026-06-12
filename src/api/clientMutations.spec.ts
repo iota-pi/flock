@@ -2,7 +2,7 @@ import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../sync/client/SyncBridge'
 import { setApiAuthToken } from './runtime'
-import { useDataStore } from '../state/dataStore'
+import { useAppStore } from '../state/store'
 import { ItemId } from 'src/shared/schemas/items'
 
 const metadataState: Record<string, unknown> = {}
@@ -27,13 +27,26 @@ vi.mock('./util', () => ({
 }))
 
 
-vi.mock('../state/navigationStore', () => ({
-  useNavigationStore: {
-    getState: () => ({
-      pruneItemDrawers: mocks.pruneItemDrawers,
-      closeIfOpen: vi.fn(),
-    }),
-  },
+const mockStoreState = vi.hoisted(() => ({
+  pruneItemDrawers: mocks.pruneItemDrawers,
+  closeIfOpen: vi.fn(),
+  optimisticUpdateItem: vi.fn(),
+  updateItemsFromServer: vi.fn(),
+  updateMetadataFromServer: vi.fn(),
+  items: {} as any,
+  metadata: {} as any,
+}))
+
+vi.mock('../state/store', () => ({
+  useAppStore: Object.assign(
+    (selector: any) => selector(mockStoreState),
+    {
+      getState: () => mockStoreState,
+      setState: vi.fn((update: any) => {
+        Object.assign(mockStoreState, update)
+      }),
+    }
+  )
 }))
 
 describe('local-first mutations', () => {
@@ -49,7 +62,7 @@ describe('local-first mutations', () => {
     })
 
     setApiAuthToken('')
-    useDataStore.setState({ items: {}, metadata: metadataState })
+    useAppStore.setState({ items: {}, metadata: metadataState })
   })
 
   it('stores single-item snapshots', async () => {
@@ -84,7 +97,7 @@ describe('local-first mutations', () => {
       members: ['p1'],
     }
     const person = getBlankPerson('p1' as ItemId, false)
-    useDataStore.setState({ items: { g1: group, p1: person } as any })
+    useAppStore.setState({ items: { g1: group, p1: person } as any })
 
     await deleteItems('p1' as ItemId)
     expect(SyncBridge.storeItems).toHaveBeenCalledWith(expect.arrayContaining([

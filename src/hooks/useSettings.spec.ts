@@ -42,28 +42,21 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ account: 'acct-1', loggedIn: true, initializing: false }),
 }))
 
-vi.mock('../state/uiStore', () => ({
-  useUiStore: (selector: (state: {
-    setUi: typeof mocks.setUi
-    darkMode: boolean | null
-  }) => unknown) => selector({
-    setUi: mocks.setUi,
-    darkMode: null,
-  }),
-}))
+const mockStore = {
+  account: 'acct-1',
+  darkMode: null,
+  setMessage: mocks.setMessage,
+  setUi: mocks.setUi,
+}
 
-vi.mock('../state/toastStore', () => ({
-  useToastStore: (selector: (state: {
-    setMessage: typeof mocks.setMessage
-  }) => unknown) => selector({
-    setMessage: mocks.setMessage,
-  }),
-}))
-
-vi.mock('../state/syncStore', () => ({
-  useSyncStore: {
-    getState: () => ({}),
-  },
+vi.mock('../state/store', () => ({
+  useAppStore: Object.assign(
+    (selector: any) => selector(mockStore),
+    {
+      getState: () => mockStore,
+      setState: vi.fn(),
+    }
+  )
 }))
 
 

@@ -10,20 +10,18 @@ import {
   ReminderSettingsResponseSchema,
 } from '../../shared/schemas/trpc'
 
-export const VaultEnvelopeSchema = z.union([
+const VaultEnvelopeSchema = z.union([
   LegacyItemEnvelopeSchema,
   StandardItemEnvelopeSchema,
   TombstoneItemEnvelopeSchema,
 ])
 
-export type VaultEnvelope = z.infer<typeof VaultEnvelopeSchema>
-
-export const CreateAccountBodySchemaClient = CreateAccountBodySchema.omit({ iterations: true })
-export type CreateAccountBody = z.infer<typeof CreateAccountBodySchemaClient>
+export type CreateAccountBody = Omit<z.infer<typeof CreateAccountBodySchema>, 'iterations'>
 
 export type AccountCreationResponse = z.infer<typeof AccountCreationResponseSchema>
 
-export const VaultItemSchema = VaultEnvelopeSchema.and(
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const VaultItemSchema = VaultEnvelopeSchema.and(
   z.object({
     account: z.string().optional(),
     ttl: z.number().optional(),

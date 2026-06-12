@@ -5,7 +5,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 import GeneralMessage from '../GeneralMessage'
 import AsyncBoundary from '../ui/AsyncBoundary'
 import { useLoggedIn } from 'src/state/selectors'
-import { useDataStore } from 'src/state/dataStore'
+import { useAppStore } from 'src/state/store'
 
 
 const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
@@ -13,7 +13,7 @@ const SelectedActions = lazy(() => import('../SelectedActions'))
 
 function MainLayout({ children }: { children: ReactNode }) {
   const loggedIn = useLoggedIn()
-  const dataStatus = useDataStore(state => state.status)
+  const dataStatus = useAppStore(state => state.dataStatus)
 
   let content = children
   if (loggedIn && dataStatus === 'initializing') {

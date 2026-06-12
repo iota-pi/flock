@@ -13,5 +13,3 @@ export const BackupPayloadV2Schema = z.object({
   metadata: accountMetadataSchema.optional(),
   documents: z.record(ItemIdSchema, z.string().optional()),
 }).merge(BackupSyncStateSchema.partial())
-
-export const RestorePayloadSchema = BackupPayloadV2Schema

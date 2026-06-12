@@ -16,7 +16,7 @@ import {
   StandardItemList,
   VirtualizedItemList,
 } from './ItemListStrategies'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import type { GroupLookupData } from 'src/shared/itemTypes'
 import type { ItemId } from 'src/shared/schemas/items'
 
@@ -58,7 +58,7 @@ interface MultipleItemsProps extends BaseProps {
   paddingBottom?: number,
 }
 
-const selectActiveDrawerItemIds = (state: ReturnType<typeof useNavigationStore.getState>) => {
+const selectActiveDrawerItemIds = (state: ReturnType<typeof useAppStore.getState>) => {
   if (state.drawer?.item) {
     return [state.drawer.item]
   }
@@ -99,7 +99,7 @@ function ItemList(props: MultipleItemsProps) {
   } = props
 
   const groupsByMemberId = useGroupLookupMap()
-  const activeDrawerItemIds = useNavigationStore(useShallow(selectActiveDrawerItemIds))
+  const activeDrawerItemIds = useAppStore(useShallow(selectActiveDrawerItemIds))
   const highlightedItemIds = useMemo(
     () => new Set(activeDrawerItemIds),
     [activeDrawerItemIds],

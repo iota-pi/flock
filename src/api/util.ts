@@ -1,7 +1,7 @@
-import { useAuthStore } from '../state/authStore'
+import { useAppStore } from '../state/store'
 
 export function getAccountId() {
-  const account = useAuthStore.getState().account
+  const account = useAppStore.getState().account
   if (!account) {
     throw new Error('Account ID not set; cannot use API without account ID.')
   }

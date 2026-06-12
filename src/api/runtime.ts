@@ -1,4 +1,4 @@
-import { useUiStore } from '../state/uiStore'
+import { useAppStore } from '../state/store'
 
 let authToken = ''
 let onSessionExpired: (() => void) | null = null
@@ -20,13 +20,13 @@ function isCypressRuntime(): boolean {
 }
 
 async function trackedRequest<T>(factory: () => Promise<T>): Promise<T> {
-  useUiStore.getState().startRequest()
+  useAppStore.getState().startRequest()
   try {
     const result = await factory()
-    useUiStore.getState().finishRequest()
+    useAppStore.getState().finishRequest()
     return result
   } catch (error) {
-    useUiStore.getState().finishRequest(
+    useAppStore.getState().finishRequest(
       'A request to the server failed. Please retry later.',
     )
     throw error

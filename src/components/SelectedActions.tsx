@@ -20,7 +20,7 @@ import { useItemsByIds } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
 import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
-import { useNavigationStore } from '../state/navigationStore'
+import { useAppStore } from '../state/store'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
 
@@ -52,8 +52,8 @@ const ACTION_HEIGHT = 36.02
 const EMPTY_SELECTED_ITEMS: Item[] = []
 
 function SelectedActions() {
-  const setSelected = useNavigationStore(state => state.setSelected)
-  const selected = useNavigationStore(state => state.selected)
+  const setSelected = useAppStore(state => state.setSelected)
+  const selected = useAppStore(state => state.selected)
 
   const selectedItems = useItemsByIds(selected)
   const prevSelectedItems = usePrevious(selectedItems)

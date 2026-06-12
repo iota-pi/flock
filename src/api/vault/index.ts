@@ -1,5 +1,5 @@
 import type { WebPushSubscription } from '../../vault/types'
-import { useAuthStore } from '../../state/authStore'
+import { useAppStore } from '../../state/store'
 import {
   clearActiveSessionToken,
   getActiveSessionToken,
@@ -212,7 +212,7 @@ export async function loginVault({
 }
 
 export async function loadAccount() {
-  const { updateAuth } = useAuthStore.getState()
+  const { updateAuth } = useAppStore.getState()
   const stored = readStoredMetadata()
   if (stored?.account) {
     updateAuth({ account: stored.account })
@@ -250,7 +250,7 @@ export async function storeVault() {
 }
 
 export async function signOutVault() {
-  const { updateAuth } = useAuthStore.getState()
+  const { updateAuth } = useAppStore.getState()
   keyring.clear()
   masterKey = null
   activeKeyVersion = '1'

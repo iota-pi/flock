@@ -1,4 +1,4 @@
-import { useSyncStore } from '../../state/syncStore'
+import { useAppStore } from '../../state/store'
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let crashCount = 0
@@ -51,14 +51,14 @@ function handleWorkerCrash({
   const MAX_CONSECUTIVE_CRASHES = 3
   if (crashCount >= MAX_CONSECUTIVE_CRASHES) {
     console.error(`[SyncBridge] Worker crashed consecutively ${crashCount} times. Halting auto-restart.`)
-    useSyncStore.getState().setFatalError(
+    useAppStore.getState().setFatalError(
       'Sync worker crashed repeatedly. Please refresh the page to try again.'
     )
-    useSyncStore.getState().setSyncStatus('offline')
+    useAppStore.getState().setSyncStatus('offline')
   } else {
     console.warn(`[SyncBridge] Attempting automatic restart (crash count: ${crashCount}/${MAX_CONSECUTIVE_CRASHES})...`)
-    useSyncStore.getState().setSyncStatus('connecting')
-    useSyncStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
+    useAppStore.getState().setSyncStatus('connecting')
+    useAppStore.getState().setSyncWarning('Sync connection lost. Reconnecting...')
     onRestart()
   }
 }

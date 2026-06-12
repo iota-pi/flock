@@ -4,7 +4,7 @@ import { useEventCallback } from 'src/hooks/useEventCallback'
 import { recordPrayerCompletion } from 'src/api/vault'
 import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
-import { type FlowState } from 'src/state/prayerFlowStore'
+import { type FlowState } from 'src/state/slices/prayerFlowSlice'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 
 export type PrayerFlowActions = {

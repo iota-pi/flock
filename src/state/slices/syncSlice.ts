@@ -1,16 +1,17 @@
-import { create } from 'zustand'
+import type { StateCreator } from 'zustand'
+import type { AppStore } from '../store'
 
 export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded'
 
 interface SyncState {
-  status: SyncStatus
+  syncStatus: SyncStatus
   fatalError: string | null
   syncWarning: string | null
   generation: number
 }
 
-interface SyncStore extends SyncState {
-  setSyncStatus: (status: SyncState['status']) => void
+export interface SyncSlice extends SyncState {
+  setSyncStatus: (status: SyncState['syncStatus']) => void
   setFatalError: (message: string) => void
   clearFatalError: () => void
   setSyncWarning: (message: string) => void
@@ -19,16 +20,21 @@ interface SyncStore extends SyncState {
 }
 
 const initialSyncState: SyncState = {
-  status: 'idle',
+  syncStatus: 'idle',
   fatalError: null,
   syncWarning: null,
   generation: 0,
 }
 
-export const useSyncStore = create<SyncStore>(set => ({
+export const createSyncSlice: StateCreator<
+  AppStore,
+  [],
+  [],
+  SyncSlice
+> = set => ({
   ...initialSyncState,
   setSyncStatus: status => {
-    set(() => ({ status }))
+    set(() => ({ syncStatus: status }))
   },
   setFatalError: message => {
     set(() => ({ fatalError: message }))
@@ -45,4 +51,4 @@ export const useSyncStore = create<SyncStore>(set => ({
   incrementGeneration: () => {
     set(state => ({ generation: state.generation + 1 }))
   },
-}))
+})

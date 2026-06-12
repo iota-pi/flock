@@ -2,12 +2,12 @@ import { useCallback, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Snackbar from '@mui/material/Snackbar'
 
-import { useToastStore } from '../state/toastStore'
+import { useAppStore } from '../state/store'
 
 
 function GeneralMessage() {
-  const clearMessage = useToastStore(state => state.clearMessage)
-  const data = useToastStore(state => state.message)
+  const clearMessage = useAppStore(state => state.clearMessage)
+  const data = useAppStore(state => state.message)
   const { message, severity } = data || {}
 
   const [open, setOpen] = useState(false)

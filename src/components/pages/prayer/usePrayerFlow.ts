@@ -7,7 +7,8 @@ import { useLocation } from 'react-router'
 import { Item } from 'src/state/items'
 import { usePrayerSchedule } from 'src/hooks/usePrayerSchedule'
 import { useToday } from 'src/hooks/useToday'
-import { type FlowState, usePrayerFlowStore } from 'src/state/prayerFlowStore'
+import { type FlowState } from 'src/state/slices/prayerFlowSlice'
+import { useAppStore } from 'src/state/store'
 import { type PrayerFlowActions, usePrayerFlowActions } from './usePrayerFlowActions'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -59,12 +60,12 @@ export default function usePrayerFlow(): PrayerFlowController {
   const todayTime = today.getTime()
   const prevTodayTimeRef = useRef(todayTime)
 
-  const flow = usePrayerFlowStore(state => state.current)
-  const lastOverlay = usePrayerFlowStore(state => state.lastOverlay)
-  const showOverview = usePrayerFlowStore(state => state.showOverview)
-  const startAt = usePrayerFlowStore(state => state.startAt)
-  const setActiveIndex = usePrayerFlowStore(state => state.setActiveIndex)
-  const finish = usePrayerFlowStore(state => state.finish)
+  const flow = useAppStore(state => state.current)
+  const lastOverlay = useAppStore(state => state.lastOverlay)
+  const showOverview = useAppStore(state => state.showOverview)
+  const startAt = useAppStore(state => state.startAt)
+  const setActiveIndex = useAppStore(state => state.setActiveIndex)
+  const finish = useAppStore(state => state.finish)
 
   const overlayFlow = flow.type !== 'overview' ? flow : lastOverlay
 

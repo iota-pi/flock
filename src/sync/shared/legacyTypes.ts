@@ -7,6 +7,3 @@ export const LegacyItemEnvelopeSchema = z.object({
   snapshot: z.undefined().optional(),
   metadata: ItemEnvelopeMetadataSchema,
 })
-
-export type LegacyItemEnvelope = z.infer<typeof LegacyItemEnvelopeSchema>
-

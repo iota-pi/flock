@@ -16,7 +16,7 @@ import {
 import { isSameDay } from 'src/utils'
 import { getLastPrayedFor } from 'src/utils/prayer'
 import SwipeableCarousel from '../../ui/SwipeableCarousel'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 
 
 interface Props {
@@ -34,7 +34,7 @@ function PrayerActiveView({
   onNext,
   onItemChange,
 }: Props) {
-  const setDrawer = useNavigationStore(state => state.setDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
   const activeItem = items[activeIndex]
 
   const activeItemArchived = activeItem.archived

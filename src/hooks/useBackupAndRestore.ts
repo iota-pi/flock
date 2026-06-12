@@ -4,11 +4,11 @@ import {
   storeItems,
 } from '../features/items/mutations/itemMutations'
 import { exportData } from '../api/vault'
-import type { BackupPayloadV2, RestorePayload, BackupSyncState } from '../types/backup'
+import type { BackupPayloadV2, BackupSyncState } from '../types/backup'
 import type { Item } from '../state/items'
 import { SyncBridge } from '../sync/client/SyncBridge'
-import { useDataStore } from '../state/dataStore'
-import type { BaseToastMessage } from '../state/toastStore'
+import { useAppStore } from '../state/store'
+import type { BaseToastMessage } from '../state/slices/toastSlice'
 
 type SetMessage = (payload: BaseToastMessage) => void
 
@@ -19,7 +19,7 @@ type UseBackupAndRestoreOptions = {
 type UseBackupAndRestoreResult = {
   actions: {
     handleConfirmImport: (items: Item[]) => Promise<boolean>
-    handleConfirmRestore: (payload: RestorePayload) => Promise<boolean>
+    handleConfirmRestore: (payload: BackupPayloadV2) => Promise<boolean>
     handleExport: () => Promise<string>
   }
 }
@@ -30,7 +30,7 @@ export default function useBackupAndRestore({
   const handleExport = useCallback(
     async () => {
       try {
-        const currentMetadata = useDataStore.getState().metadata
+        const currentMetadata = useAppStore.getState().metadata
         const documents = await SyncBridge.exportAllBinaries()
         let syncState: BackupSyncState | undefined
         try {
@@ -70,7 +70,7 @@ export default function useBackupAndRestore({
   )
 
   const handleConfirmRestore = useCallback(
-    async (payload: RestorePayload) => {
+    async (payload: BackupPayloadV2) => {
       try {
         if (payload.metadata) {
           await setMetadata(payload.metadata)

@@ -5,7 +5,7 @@ import { useGroupLookupMap } from 'src/state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { mutateItem } from '../../items/mutations/itemMutations'
 import Search from 'src/components/Search'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 import { RemoveIcon } from 'src/components/Icons'
 
@@ -20,7 +20,7 @@ function GroupDisplay({
   itemId,
 }: Props) {
   const groupLookupMap = useGroupLookupMap()
-  const setDrawer = useNavigationStore(state => state.setDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
 
   const currentGroups = useMemo(
     () => groupLookupMap.get(itemId)?.groupIds || [],

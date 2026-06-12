@@ -3,9 +3,7 @@ import * as Comlink from 'comlink'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
 import type { ClientEvent } from '../worker/SyncEventHub'
-import { useDataStore } from 'src/state/dataStore'
-import { useUiStore } from 'src/state/uiStore'
-import { useSyncStore } from 'src/state/syncStore'
+import { useAppStore } from 'src/state/store'
 import { exportKeyringData } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
@@ -35,7 +33,7 @@ const flushItemUpdates = () => {
   pendingItemUpdates.clear()
   itemUpdateFlushHandle = null
 
-  useDataStore.getState().updateItemsFromServer(updates)
+  useAppStore.getState().updateItemsFromServer(updates)
 }
 
 const scheduleItemUpdateFlush = () => {
@@ -48,7 +46,7 @@ const handleSyncEvent = (event: ClientEvent) => {
     case 'ready':
       break
     case 'statusChange':
-      useSyncStore.getState().setSyncStatus(event.status)
+      useAppStore.getState().setSyncStatus(event.status)
       break
     case 'itemUpdated': {
       const { id, item } = event
@@ -67,22 +65,22 @@ const handleSyncEvent = (event: ClientEvent) => {
       break
     }
     case 'indexUpdated':
-      useDataStore.getState().updateIndexFromServer(event.itemIds)
+      useAppStore.getState().updateIndexFromServer(event.itemIds)
       break
     case 'metadataUpdated':
-      useDataStore.getState().updateMetadataFromServer(event.metadata)
+      useAppStore.getState().updateMetadataFromServer(event.metadata)
       break
     case 'mutationFailed':
       console.error(`Mutation ${event.mutationId} failed: ${event.error}`)
       break
     case 'startRequest':
-      useUiStore.getState().startRequest()
+      useAppStore.getState().startRequest()
       break
     case 'finishRequest':
-      useUiStore.getState().finishRequest()
+      useAppStore.getState().finishRequest()
       break
     case 'authFailure': {
-      const syncStore = useSyncStore.getState()
+      const syncStore = useAppStore.getState()
       syncStore.setSyncStatus('offline')
       syncStore.setSyncWarning(event.message)
       break
@@ -94,7 +92,7 @@ const handleSyncEvent = (event: ClientEvent) => {
       }
       break
     case 'quotaExceeded': {
-      const syncStore = useSyncStore.getState()
+      const syncStore = useAppStore.getState()
       syncStore.setSyncStatus('degraded')
       syncStore.setSyncWarning(event.message)
       break
@@ -111,7 +109,7 @@ export const SyncBridge = {
     }
 
     currentAccountId = accountId
-    useSyncStore.getState().setSyncStatus('connecting')
+    useAppStore.getState().setSyncStatus('connecting')
     const initialOnlineState = getOnlineState()
 
     const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
@@ -159,7 +157,7 @@ export const SyncBridge = {
         void SyncBridge.listRecoveryItems()
       })
 
-      useSyncStore.getState().clearSyncWarning()
+      useAppStore.getState().clearSyncWarning()
       setupWorkerHealthCheck({
         worker,
         pingFn: async () => {
@@ -184,7 +182,7 @@ export const SyncBridge = {
       })
     } catch (error) {
       console.error('Failed to initialize SyncBridge:', error)
-      useSyncStore.getState().setSyncStatus('offline')
+      useAppStore.getState().setSyncStatus('offline')
       worker.terminate()
       if (workerInstance === worker) {
         workerInstance = null
@@ -231,7 +229,9 @@ export const SyncBridge = {
 
   restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
-    return await syncApi.restoreFromBinaries(documents)
+    const result = await syncApi.restoreFromBinaries(documents)
+    useAppStore.getState().incrementGeneration()
+    return result
   },
 
   retryRecoveryItem: async (itemId: ItemId) => {
@@ -303,7 +303,7 @@ export const SyncBridge = {
       itemUpdateFlushHandle = null
     }
     pendingItemUpdates.clear()
-    useDataStore.getState().reset()
+    useAppStore.getState().reset()
 
     if (syncApi) {
       try {
@@ -323,7 +323,7 @@ export const SyncBridge = {
       workerInstance = null
     }
     syncApi = null
-    useSyncStore.getState().setSyncStatus('offline')
+    useAppStore.getState().setSyncStatus('offline')
 
     recoveryEntries = []
     for (const listener of recoveryEntriesListeners) {

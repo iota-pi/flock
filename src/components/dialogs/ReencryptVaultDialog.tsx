@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 
 import { reencryptAllItems } from 'src/api/vault/reencrypt'
-import { useToastStore } from 'src/state/toastStore'
+import { useAppStore } from 'src/state/store'
 
 interface Props {
   open: boolean
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export default function ReencryptVaultDialog({ open, onClose }: Props) {
-  const setMessage = useToastStore(state => state.setMessage)
+  const setMessage = useAppStore(state => state.setMessage)
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [errorMsg, setErrorMsg] = useState('')

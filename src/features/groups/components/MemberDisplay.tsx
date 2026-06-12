@@ -8,7 +8,7 @@ import { useItemsByIds, useSortCriteria } from 'src/state/selectors'
 import ItemList from '../../items/components/ItemList'
 import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import type { GroupItem, ItemId, PersonItem } from 'src/shared/schemas/items'
 import { RemoveIcon } from 'src/components/Icons'
 
@@ -26,7 +26,7 @@ function MemberDisplay({
   memberIds,
   onChange,
 }: Props) {
-  const setDrawer = useNavigationStore(state => state.setDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
   const [sortCriteria] = useSortCriteria()
 
   const unsortedMembers = useItemsByIds<PersonItem>(memberIds)

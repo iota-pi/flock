@@ -15,10 +15,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { UploadIcon } from '../Icons'
 import InlineText from '../ui/InlineText'
 import { importData, type CryptoResult } from '../../api/vault'
-import {
-  type BackupPayloadV2,
-  type RestorePayload,
-} from '../../types/backup'
+import type { BackupPayloadV2 } from '../../types/backup'
 
 
 function isBackupPayloadV2(payload: unknown): payload is BackupPayloadV2 {
@@ -54,7 +51,7 @@ function sanitizeDocuments(input: BackupPayloadV2['documents']): BackupPayloadV2
   return Object.fromEntries(entries)
 }
 
-function normalizeBackupPayload(payload: BackupPayloadV2): RestorePayload {
+function normalizeBackupPayload(payload: BackupPayloadV2): BackupPayloadV2 {
   return {
     version: 2,
     metadata: payload.metadata,
@@ -65,14 +62,14 @@ function normalizeBackupPayload(payload: BackupPayloadV2): RestorePayload {
   }
 }
 
-const EMPTY_RESTORE_PAYLOAD: RestorePayload = {
+const EMPTY_RESTORE_PAYLOAD: BackupPayloadV2 = {
   version: 2,
   documents: {},
 }
 
 interface Props {
   onClose: () => void,
-  onConfirm: (payload: RestorePayload) => Promise<void> | void,
+  onConfirm: (payload: BackupPayloadV2) => Promise<void> | void,
   open: boolean,
 }
 
@@ -85,7 +82,7 @@ function RestoreBackupDialog({
   const [loading, setLoading] = useState(false)
   const [hasSettingsMetadata, setHasSettingsMetadata] = useState(false)
   const [restoreSettings, setRestoreSettings] = useState(false)
-  const [restoredPayload, setRestoredPayload] = useState<RestorePayload>(EMPTY_RESTORE_PAYLOAD)
+  const [restoredPayload, setRestoredPayload] = useState<BackupPayloadV2>(EMPTY_RESTORE_PAYLOAD)
 
   const binaryDocumentCount = useMemo(
     () => Object.keys(restoredPayload.documents || {}).length,

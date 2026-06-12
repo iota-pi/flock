@@ -6,7 +6,7 @@ import { useHotkeys } from 'react-hotkeys-hook'
 import { Item } from '../../state/items'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
-import { useNavigationStore } from '../../state/navigationStore'
+import { useAppStore } from '../../state/store'
 import { createItem } from '../../features/items/mutations/itemMutations'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
@@ -22,7 +22,7 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const setDrawer = useNavigationStore(state => state.setDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
   const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {

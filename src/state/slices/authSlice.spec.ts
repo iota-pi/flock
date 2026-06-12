@@ -1,4 +1,4 @@
-import { useAuthStore } from './authStore'
+import { useAppStore } from '../store'
 
 
 vi.mock('../api/db', () => ({
@@ -7,10 +7,10 @@ vi.mock('../api/db', () => ({
   },
 }))
 
-describe('authStore', () => {
+describe('authSlice', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAuthStore.setState({
+    useAppStore.setState({
       account: '',
       loggedIn: false,
       initializing: true,
@@ -18,18 +18,18 @@ describe('authStore', () => {
   })
 
   it('resets auth state cleanly on logout-style payload', () => {
-    useAuthStore.getState().updateAuth({
+    useAppStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,
     })
 
-    useAuthStore.getState().updateAuth({
+    useAppStore.getState().updateAuth({
       account: '',
       loggedIn: false,
     })
 
-    expect(useAuthStore.getState()).toMatchObject({
+    expect(useAppStore.getState()).toMatchObject({
       account: '',
       loggedIn: false,
       initializing: false,
@@ -38,12 +38,12 @@ describe('authStore', () => {
 
   it('handles token-refresh-like concurrent updates without clobbering state', async () => {
     await Promise.all([
-      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ account: 'acct-1' })),
-      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ loggedIn: true })),
-      Promise.resolve().then(() => useAuthStore.getState().updateAuth({ initializing: false })),
+      Promise.resolve().then(() => useAppStore.getState().updateAuth({ account: 'acct-1' })),
+      Promise.resolve().then(() => useAppStore.getState().updateAuth({ loggedIn: true })),
+      Promise.resolve().then(() => useAppStore.getState().updateAuth({ initializing: false })),
     ])
 
-    expect(useAuthStore.getState()).toMatchObject({
+    expect(useAppStore.getState()).toMatchObject({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,

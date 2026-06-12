@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ManualRecoveryEntry } from '../sync/shared/manualRecoveryStore'
-import { useToastStore } from '../state/toastStore'
+import { useAppStore } from '../state/store'
 import { SyncBridge } from '../sync/client/SyncBridge'
 import { ItemId } from 'src/shared/schemas/items'
 
 
 export function useDataRecovery() {
-  const setMessage = useToastStore(state => state.setMessage)
+  const setMessage = useAppStore(state => state.setMessage)
   const [isRetrying, setIsRetrying] = useState<string | null>(null)
   const [recoveryItems, setRecoveryItems] = useState<ManualRecoveryEntry[]>([])
 

@@ -7,7 +7,7 @@ import { styled } from '@mui/material/styles'
 
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
-import { useUiStore } from 'src/state/uiStore'
+import { useAppStore } from 'src/state/store'
 import { usePage } from '.'
 
 
@@ -94,7 +94,7 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useUiStore(state => state.activeRequests)
+  const activeRequests = useAppStore(state => state.activeRequests)
   const loading = activeRequests > 0
 
   const page = usePage()

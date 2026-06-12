@@ -1,12 +1,10 @@
 import { getBlankItem, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
-import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId } from 'src/shared/schemas/items'
+import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId, GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import { accountMetadataSchema } from 'src/shared/schemas/metadata'
-import { GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
-import { useDataStore } from 'src/state/dataStore'
 
 
 const stripItemWriteSchema = personItemSchema.strip()
@@ -116,7 +114,7 @@ export function mutateItem(
   itemId: ItemId,
   changes: Partial<Item>,
 ): Promise<void> {
-  const currentItems = useDataStore.getState().items
+  const currentItems = useAppStore.getState().items
   const item = currentItems[itemId] as Item | undefined
   if (!item) {
     throw new Error(`Item not found: ${itemId}`)
@@ -127,7 +125,7 @@ export function mutateItem(
 
   const updatedItem = { ...item, ...changes } as Item
 
-  useDataStore.getState().optimisticUpdateItem(itemId, updatedItem)
+  useAppStore.getState().optimisticUpdateItem(itemId, updatedItem)
 
   const mutationId = crypto.randomUUID()
   return SyncBridge.mutateItem(mutationId, itemId, changes)
@@ -140,7 +138,7 @@ export async function storeItems(
 
   for (const item of current) {
     const newItem: Item = { ...item, isNew: undefined }
-    useDataStore.getState().optimisticUpdateItem(item.id, newItem)
+    useAppStore.getState().optimisticUpdateItem(item.id, newItem)
   }
 
   await SyncBridge.storeItems(current)
@@ -160,7 +158,7 @@ export async function createItem(
     type: itemType,
   } as Item
 
-  useDataStore.getState().optimisticUpdateItem(nextItem.id, nextItem)
+  useAppStore.getState().optimisticUpdateItem(nextItem.id, nextItem)
   await SyncBridge.createItem(nextItem)
 
   return nextItem
@@ -171,14 +169,14 @@ export async function deleteItems(
 ): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
 
-  const currentItems = useDataStore.getState().items
+  const currentItems = useAppStore.getState().items
   const updates = buildDeletionUpdates(currentItems, ids)
 
   if (updates.length > 0) {
     await storeItems(updates)
   }
 
-  useNavigationStore.getState().closeIfOpen(ids)
+  useAppStore.getState().closeIfOpen(ids)
 
   return ids
 }
@@ -186,24 +184,24 @@ export async function deleteItems(
 export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
   const ids = normalizeItemIds(itemIds)
 
-  useDataStore.getState().updateItemsFromServer(ids.map(id => ({ id, item: null })))
+  useAppStore.getState().updateItemsFromServer(ids.map(id => ({ id, item: null })))
 
   await SyncBridge.hardDeleteItems(ids)
-  useNavigationStore.getState().closeIfOpen(ids)
+  useAppStore.getState().closeIfOpen(ids)
   return ids
 }
 
 export async function setMetadata(
   metadata: AccountMetadata | ((previous: AccountMetadata) => AccountMetadata),
 ): Promise<AccountMetadata> {
-  const currentMetadata = useDataStore.getState().metadata
+  const currentMetadata = useAppStore.getState().metadata
   const nextMetadata = sanitizeMetadata(
     typeof metadata === 'function'
       ? metadata({ ...currentMetadata })
       : metadata,
   )
 
-  useDataStore.getState().updateMetadataFromServer(nextMetadata)
+  useAppStore.getState().updateMetadataFromServer(nextMetadata)
   await SyncBridge.mutateMetadata(nextMetadata)
 
   return nextMetadata

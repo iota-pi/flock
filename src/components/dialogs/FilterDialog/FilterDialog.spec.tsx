@@ -20,8 +20,8 @@ const initialFilters: FilterCriterion[] = [
   },
 ]
 
-vi.mock('src/state/uiStore', () => ({
-  useUiStore: (selector: (state: { setUi: typeof setUi, filters: FilterCriterion[] }) => unknown) => selector({
+vi.mock('src/state/store', () => ({
+  useAppStore: (selector: (state: { setUi: typeof setUi, filters: FilterCriterion[] }) => unknown) => selector({
     setUi,
     filters: initialFilters,
   }),

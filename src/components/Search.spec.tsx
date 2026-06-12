@@ -16,15 +16,15 @@ vi.mock('../state/selectors', async importOriginal => {
     useSearchItems: vi.fn(),
   }
 })
-vi.mock('../state/uiStore', () => ({
-  useUiStore: vi.fn(),
+vi.mock('../state/store', () => ({
+  useAppStore: vi.fn(),
 }))
 vi.mock('../utils/customSort', () => ({
   sortItems: vi.fn(items => items),
 }))
 
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
-import { useUiStore } from '../state/uiStore'
+import { useAppStore } from '../state/store'
 import { Item } from '../state/items'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -59,7 +59,7 @@ describe('Search Component', () => {
     ))
     vi.mocked(useItemsByIds).mockReturnValue([])
     vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
-    vi.mocked(useUiStore).mockImplementation(selector => selector({ darkMode: false } as any))
+    vi.mocked(useAppStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 
   it('renders input field', () => {

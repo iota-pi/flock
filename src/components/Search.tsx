@@ -26,7 +26,7 @@ import {
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
 import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
-import { useUiStore } from '../state/uiStore'
+import { useAppStore } from '../state/store'
 import getTheme from '../theme'
 import {
   ALL_SEARCHABLE_TYPES,
@@ -43,7 +43,7 @@ import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/schemas/items'
 
 
 function ThemedPaper({ children, ...props }: PaperProps) {
-  const darkMode = useUiStore(state => state.darkMode)
+  const darkMode = useAppStore(state => state.darkMode)
   const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (

@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router'
 import { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 
-import { DrawerData, useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
+import type { DrawerData } from 'src/state/slices/navigationSlice'
 import { useLoggedIn } from 'src/state/selectors'
 import { usePrevious } from 'src/utils'
 import { usePage } from '../pages'
@@ -24,8 +25,8 @@ function isHashRoutedDrawer(drawer: DrawerData | null): boolean {
 }
 
 function useDrawerRouting(activeDrawer: DrawerData | null) {
-  const setDrawer = useNavigationStore(state => state.setDrawer)
-  const removeActive = useNavigationStore(state => state.removeDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
+  const removeActive = useAppStore(state => state.removeDrawer)
   const routerLocation = useLocation()
   const navigate = useNavigate()
 
@@ -80,8 +81,8 @@ function useDrawerRouting(activeDrawer: DrawerData | null) {
 }
 
 function DrawerDisplay() {
-  const removeActive = useNavigationStore(state => state.removeDrawer)
-  const drawer = useNavigationStore(state => state.drawer)
+  const removeActive = useAppStore(state => state.removeDrawer)
+  const drawer = useAppStore(state => state.drawer)
   const loggedIn = useLoggedIn()
   const page = usePage()
 

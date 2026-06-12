@@ -6,7 +6,7 @@ import {
   useMemo,
 } from 'react'
 import { useTheme } from '@mui/material/styles'
-import { useNavigationStore } from '../state/navigationStore'
+import { useAppStore } from '../state/store'
 import { ItemId } from 'src/shared/schemas/items'
 
 const CHIP_BASE_STYLE: CSSProperties = {
@@ -123,7 +123,7 @@ function TagDisplay({
   vertical = false,
 }: Props) {
   const theme = useTheme()
-  const setDrawer = useNavigationStore(state => state.setDrawer)
+  const setDrawer = useAppStore(state => state.setDrawer)
   const limitedTags = useMemo(
     () => (max && tags.length > max ? tags.slice(0, max - 1) : tags),
     [max, tags],

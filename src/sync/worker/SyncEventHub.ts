@@ -1,4 +1,4 @@
-import type { SyncStatus } from 'src/state/syncStore'
+import type { SyncStatus } from 'src/state/slices/syncSlice'
 import type { Item } from 'src/state/items'
 import type { ItemId } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'

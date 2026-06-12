@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react'
 import type { Frequency } from 'src/utils/frequencies'
 import type { Item } from 'src/state/items'
-import type { RestorePayload } from 'src/types/backup'
+import type { BackupPayloadV2 } from 'src/types/backup'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))
@@ -34,7 +34,7 @@ type SettingsDialogsProps = {
   }
   handlers: {
     onImportConfirm: (items: Item[]) => Promise<void>
-    onRestoreConfirm: (payload: RestorePayload) => Promise<void>
+    onRestoreConfirm: (payload: BackupPayloadV2) => Promise<void>
     onSaveDefaultFrequencies: (defaults: Partial<Record<'person' | 'group', Frequency>>) => Promise<void>
     onSubscriptionSave: (hours: number[] | null) => Promise<void>
   }

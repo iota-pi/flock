@@ -8,7 +8,7 @@ import BasePage from './BasePage'
 import type { Item } from 'src/state/items'
 import useSettings from 'src/hooks/useSettings'
 import { useDialogState } from 'src/hooks/useDialogState'
-import type { RestorePayload } from 'src/types/backup'
+import type { BackupPayloadV2 } from 'src/types/backup'
 import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
@@ -57,7 +57,7 @@ function SettingsPage() {
     openImportDialog: importDialog.openDialog,
   }
 
-  const handleRestoreConfirm = useCallback(async (payload: RestorePayload) => {
+  const handleRestoreConfirm = useCallback(async (payload: BackupPayloadV2) => {
     const saved = await actions.handleConfirmRestore(payload)
     if (saved) {
       restoreDialog.closeDialog()

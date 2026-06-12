@@ -5,15 +5,14 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 
 import { CloudDoneIcon, CloudOffIcon } from '../Icons'
-import { useUiStore } from 'src/state/uiStore'
-import { useSyncStore } from 'src/state/syncStore'
+import { useAppStore } from 'src/state/store'
 import { useOnlineStatus } from 'src/hooks/useOnlineStatus'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 
 
 function SyncNowButton() {
-  const syncStatus = useSyncStore(state => state.status)
-  const activeRequests = useUiStore(state => state.activeRequests)
+  const syncStatus = useAppStore(state => state.syncStatus)
+  const activeRequests = useAppStore(state => state.activeRequests)
   const storeIsSyncing = syncStatus === 'syncing' || activeRequests > 0
   const isOnline = useOnlineStatus()
 

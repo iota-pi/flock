@@ -8,7 +8,7 @@ import { styled } from '@mui/material/styles'
 import { pages, usePage } from '../pages'
 import { ProtectedPageId } from '../pages/types'
 import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import { MainMenuItem } from './MainMenuItem'
 import type { MinimisedProp } from './types'
 
@@ -64,7 +64,7 @@ function MainMenu({
   onMinimise,
   open,
 }: Props) {
-  const setSelected = useNavigationStore(state => state.setSelected)
+  const setSelected = useAppStore(state => state.setSelected)
   const navigate = useNavigate()
   const page = usePage()
   const previousPageIdRef = useRef<ProtectedPageId | undefined>(page?.id)
@@ -93,7 +93,7 @@ function MainMenu({
         return
       }
 
-      if (useNavigationStore.getState().selected.length > 0) {
+      if (useAppStore.getState().selected.length > 0) {
         setSelected([])
       }
     },

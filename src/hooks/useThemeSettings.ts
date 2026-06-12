@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { getNextDarkMode } from '../themeUtils'
-import { useUiStore } from '../state/uiStore'
+import { useAppStore } from '../state/store'
 
 type UseThemeSettingsResult = {
   actions: {
@@ -12,8 +12,8 @@ type UseThemeSettingsResult = {
 }
 
 export default function useThemeSettings(): UseThemeSettingsResult {
-  const darkMode = useUiStore(state => state.darkMode)
-  const setUi = useUiStore(state => state.setUi)
+  const darkMode = useAppStore(state => state.darkMode)
+  const setUi = useAppStore(state => state.setUi)
 
   const handleToggleDarkMode = useCallback(() => {
     setUi({

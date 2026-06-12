@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useSyncStore } from '../../state/syncStore'
+import { useAppStore } from '../../state/store'
 import { SyncBridge } from './SyncBridge'
 
 export default function useSyncCoordinatorLifecycle(
@@ -8,7 +8,7 @@ export default function useSyncCoordinatorLifecycle(
 ): void {
   useEffect(
     () => {
-      const { clearFatalError } = useSyncStore.getState()
+      const { clearFatalError } = useAppStore.getState()
       if (!enabled || !account) {
         if (!account) {
           clearFatalError()

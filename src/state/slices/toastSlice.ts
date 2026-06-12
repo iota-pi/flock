@@ -1,6 +1,6 @@
-import { create } from 'zustand'
+import type { StateCreator } from 'zustand'
 import type { AlertColor } from '@mui/material/Alert'
-
+import type { AppStore } from '../store'
 
 export interface BaseToastMessage {
   severity?: AlertColor
@@ -9,13 +9,18 @@ export interface BaseToastMessage {
 
 type ToastMessage = Required<BaseToastMessage>
 
-interface ToastStore {
+export interface ToastSlice {
   message: ToastMessage | null
   setMessage: (payload: BaseToastMessage) => void
   clearMessage: () => void
 }
 
-export const useToastStore = create<ToastStore>(set => ({
+export const createToastSlice: StateCreator<
+  AppStore,
+  [],
+  [],
+  ToastSlice
+> = set => ({
   message: null,
   setMessage: payload => {
     set(() => ({
@@ -28,4 +33,4 @@ export const useToastStore = create<ToastStore>(set => ({
   clearMessage: () => {
     set(() => ({ message: null }))
   },
-}))
+})

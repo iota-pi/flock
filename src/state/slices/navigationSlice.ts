@@ -1,8 +1,7 @@
-import { create } from 'zustand'
-
-import { generateItemId } from '../utils'
+import type { StateCreator } from 'zustand'
+import { generateItemId } from '../../utils'
 import { ItemId } from 'src/shared/schemas/items'
-
+import type { AppStore } from '../store'
 
 export interface DrawerData {
   id: string
@@ -20,7 +19,7 @@ interface NavigationState {
   selected: ItemId[]
 }
 
-interface NavigationStore extends NavigationState {
+export interface NavigationSlice extends NavigationState {
   setSelected: (selected: ItemId[]) => void
   toggleSelected: (itemId: ItemId) => void
   setDrawer: (payload: DrawerPayload) => void
@@ -33,7 +32,12 @@ const initialNavigationState: NavigationState = {
   selected: [],
 }
 
-export const useNavigationStore = create<NavigationStore>(set => ({
+export const createNavigationSlice: StateCreator<
+  AppStore,
+  [],
+  [],
+  NavigationSlice
+> = set => ({
   ...initialNavigationState,
   setSelected: selected => {
     set(() => ({ selected }))
@@ -68,4 +72,4 @@ export const useNavigationStore = create<NavigationStore>(set => ({
       }
     })
   },
-}))
+})

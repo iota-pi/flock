@@ -1,6 +1,6 @@
 import { SyncBridge } from './SyncBridge'
 import * as Comlink from 'comlink'
-import { useSyncStore } from '../../state/syncStore'
+import { useAppStore } from '../../state/store'
 import { VAULT_STORAGE_KEY } from '../../api/vault/util'
 
 vi.mock('src/api/vault', () => ({
@@ -46,7 +46,7 @@ describe('SyncBridge', () => {
     globalThis.Worker = MockWorker as any
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account', key: 'test-key' }))
     vi.clearAllMocks()
-    useSyncStore.setState({ status: 'idle', fatalError: null, syncWarning: null })
+    useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
   afterEach(async () => {
@@ -58,7 +58,7 @@ describe('SyncBridge', () => {
 
   it('initializes and configures the sync worker', async () => {
     const initPromise = SyncBridge.initialize('test-account')
-    expect(useSyncStore.getState().status).toBe('connecting')
+    expect(useAppStore.getState().syncStatus).toBe('connecting')
     await initPromise
 
     expect(Comlink.wrap).toHaveBeenCalled()
@@ -124,7 +124,7 @@ describe('SyncBridge', () => {
     await SyncBridge.shutdown()
     expect(mockSyncApi.shutdown).toHaveBeenCalledTimes(1)
     expect(terminateSpy).toHaveBeenCalledTimes(1)
-    expect(useSyncStore.getState().status).toBe('offline')
+    expect(useAppStore.getState().syncStatus).toBe('offline')
 
     // After shutdown, we should be able to initialize again (which spins up a new worker)
     globalThis.Worker = class extends MockWorker {
@@ -156,8 +156,8 @@ describe('SyncBridge', () => {
     capturedWorker.onerror(new ErrorEvent('error', { message: 'WASM crash' }))
 
     // Expect status to be connecting, and reconnect warning set
-    expect(useSyncStore.getState().status).toBe('connecting')
-    expect(useSyncStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+    expect(useAppStore.getState().syncStatus).toBe('connecting')
+    expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
 
     // Fast-forward 1000ms for the restart timer
     await vi.advanceTimersByTimeAsync(1000)
@@ -183,8 +183,8 @@ describe('SyncBridge', () => {
     // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (5s)
     await vi.advanceTimersByTimeAsync(20000)
 
-    expect(useSyncStore.getState().status).toBe('connecting')
-    expect(useSyncStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
+    expect(useAppStore.getState().syncStatus).toBe('connecting')
+    expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
 
     // Fast-forward another 1000ms for the restart timer
     await vi.advanceTimersByTimeAsync(1000)
@@ -223,8 +223,8 @@ describe('SyncBridge', () => {
     capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 3' }))
 
     // No more restarts. Fatal error should be set.
-    expect(useSyncStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
-    expect(useSyncStore.getState().status).toBe('offline')
+    expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
+    expect(useAppStore.getState().syncStatus).toBe('offline')
     expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
 
     vi.useRealTimers()

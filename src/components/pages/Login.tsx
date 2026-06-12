@@ -12,8 +12,7 @@ import { styled } from '@mui/material/styles'
 
 import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
-import { useAuthStore } from 'src/state/authStore'
-import { useUiStore } from 'src/state/uiStore'
+import { useAppStore } from 'src/state/store'
 import {
   HomeIcon,
   PasswordIcon,
@@ -57,13 +56,13 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 
 function LoginPage() {
-  const setUi = useUiStore(state => state.setUi)
+  const setUi = useAppStore(state => state.setUi)
   const navigate = useNavigate()
   const location = useLocation()
 
-  const createdAccountId = useAuthStore(state => state.account)
-  const justCreatedAccount = useUiStore(state => state.justCreatedAccount)
-  const updateAuth = useAuthStore(state => state.updateAuth)
+  const createdAccountId = useAppStore(state => state.account)
+  const justCreatedAccount = useAppStore(state => state.justCreatedAccount)
+  const updateAuth = useAppStore(state => state.updateAuth)
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')

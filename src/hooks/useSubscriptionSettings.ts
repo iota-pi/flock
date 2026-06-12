@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import type { BaseToastMessage } from '../state/toastStore'
+import type { BaseToastMessage } from '../state/slices/toastSlice'
 
 type SetMessage = (payload: BaseToastMessage) => void
 

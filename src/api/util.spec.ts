@@ -1,9 +1,12 @@
 const authState = vi.hoisted(() => ({ account: 'acct1', loggedIn: false, initializing: false }))
 
-vi.mock('../state/authStore', () => ({
-  useAuthStore: {
-    getState: () => authState,
-  },
+vi.mock('../state/store', () => ({
+  useAppStore: Object.assign(
+    () => authState,
+    {
+      getState: () => authState,
+    }
+  )
 }))
 
 import { getAccountId } from './util'

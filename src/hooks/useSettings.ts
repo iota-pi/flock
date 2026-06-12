@@ -5,8 +5,7 @@ import {
   signOutVault,
 } from '../api/vault'
 import { useMetadata } from '../state/selectors'
-import { useAuthStore } from '../state/authStore'
-import { useToastStore } from '../state/toastStore'
+import { useAppStore } from '../state/store'
 import type { Frequency } from '../utils/frequencies'
 import useBackupAndRestore from './useBackupAndRestore'
 import useThemeSettings from './useThemeSettings'
@@ -15,8 +14,8 @@ import type { Item } from '../state/items'
 import { useDataRecovery } from './useDataRecovery'
 
 export default function useSettings(items: Item[]) {
-  const account = useAuthStore(state => state.account)
-  const setMessage = useToastStore(state => state.setMessage)
+  const account = useAppStore(state => state.account)
+  const setMessage = useAppStore(state => state.setMessage)
 
   const {
     actions: backupActions,

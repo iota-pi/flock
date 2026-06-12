@@ -1,6 +1,6 @@
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
 import { useLoggedIn } from 'src/state/selectors'
-import { useAuthStore } from 'src/state/authStore'
+import { useAppStore } from 'src/state/store'
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { Page, ProtectedPageId } from './types'
@@ -14,7 +14,7 @@ export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [ProtectedPage
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthStore(state => state.initializing)
+  const initializing = useAppStore(state => state.initializing)
   const location = useLocation()
 
   if (initializing) {
@@ -35,7 +35,7 @@ function RedirectIfLoggedIn(
   },
 ) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthStore(state => state.initializing)
+  const initializing = useAppStore(state => state.initializing)
   const location = useLocation()
 
   if (initializing) {

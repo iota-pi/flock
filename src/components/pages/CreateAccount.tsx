@@ -19,13 +19,12 @@ import {
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { useUiStore } from 'src/state/uiStore'
 import { createAccount, initialiseVault } from 'src/api/vault'
 import { generateSalt } from 'src/api/vault/crypto'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
-import { useAuthStore } from 'src/state/authStore'
+import { useAppStore } from 'src/state/store'
 
 
 const Root = styled('div')({
@@ -63,7 +62,7 @@ const CreateAccountFormSchema = z.object({
 type CreateAccountFormInput = z.input<typeof CreateAccountFormSchema>
 
 function CreateAccountPage() {
-  const setUi = useUiStore(state => state.setUi)
+  const setUi = useAppStore(state => state.setUi)
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
@@ -71,7 +70,7 @@ function CreateAccountPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
   const [newAccount, setNewAccount] = useState('')
-  const updateAuth = useAuthStore(state => state.updateAuth)
+  const updateAuth = useAppStore(state => state.updateAuth)
 
   const {
     register,

@@ -12,8 +12,7 @@ import {
   useItemsOfType,
 } from 'src/state/selectors'
 import BasePage from './BasePage'
-import { useUiStore } from 'src/state/uiStore'
-import { useNavigationStore } from 'src/state/navigationStore'
+import { useAppStore } from 'src/state/store'
 import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
 import { filterItems } from 'src/utils/customFilter'
 import { sortItems } from 'src/utils/customSort'
@@ -27,12 +26,12 @@ interface Props {
 function ItemPage({
   itemType,
 }: Props) {
-  const setDrawer = useNavigationStore(state => state.setDrawer)
-  const setSelected = useNavigationStore(state => state.setSelected)
-  const toggleSelected = useNavigationStore(state => state.toggleSelected)
+  const setDrawer = useAppStore(state => state.setDrawer)
+  const setSelected = useAppStore(state => state.setSelected)
+  const toggleSelected = useAppStore(state => state.toggleSelected)
   const rawItems = useItemsOfType(itemType)
-  const selected = useNavigationStore(state => state.selected)
-  const filters = useUiStore(state => state.filters)
+  const selected = useAppStore(state => state.selected)
+  const filters = useAppStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()

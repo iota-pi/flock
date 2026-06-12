@@ -12,7 +12,7 @@ import { initWorkerVault } from '../../api/vault'
 import { AutomergeRepoManager } from './automergeRepo'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { useSyncStore, type SyncStatus } from '../../state/syncStore'
+import type { SyncStatus } from '../../state/slices/syncSlice'
 import { registerQuotaReporter, resetQuotaExceededStatus } from '../../utils/storageManager'
 import { type BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
@@ -262,7 +262,6 @@ export class SyncWorker implements SyncApi {
   async exportAllBinaries() { return this.context.backupManager.exportAllBinaries() }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
     const restored = await this.context.backupManager.restoreFromBinaries(documents)
-    useSyncStore.getState().incrementGeneration()
     return restored
   }
 

@@ -1,43 +1,44 @@
-import { useUiStore, type UIState } from './uiStore'
+import { useAppStore } from '../store'
+import type { UIState } from './uiSlice'
 
 
 const initialState: UIState = {
   activeRequests: 0,
   darkMode: null,
-  filters: useUiStore.getState().filters,
+  filters: useAppStore.getState().filters,
   justCreatedAccount: false,
 }
 
-describe('uiStore base state actions', () => {
+describe('uiSlice', () => {
   beforeEach(() => {
     window.localStorage.clear()
-    useUiStore.setState(initialState)
+    useAppStore.setState(initialState)
   })
 
   it('setUi applies payload values for retained ui fields', () => {
-    useUiStore.getState().setUi({
+    useAppStore.getState().setUi({
       activeRequests: 2,
       darkMode: true,
       justCreatedAccount: true,
     })
 
-    const state = useUiStore.getState()
+    const state = useAppStore.getState()
     expect(state.darkMode).toBe(true)
     expect(state.justCreatedAccount).toBe(true)
     expect(state.activeRequests).toBe(2)
   })
 
   it('request lifecycle updates active request counter', () => {
-    const store = useUiStore.getState()
+    const store = useAppStore.getState()
     store.startRequest()
     store.startRequest()
 
-    let state = useUiStore.getState()
+    let state = useAppStore.getState()
     expect(state.activeRequests).toBe(2)
 
     store.finishRequest()
     store.finishRequest()
-    state = useUiStore.getState()
+    state = useAppStore.getState()
     expect(state.activeRequests).toBe(0)
   })
 })

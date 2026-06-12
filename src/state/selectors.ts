@@ -6,9 +6,7 @@ import type { AccountMetadata as Metadata, MetadataKey } from './metadata'
 import type { Item } from './items'
 import type { GroupLookupData } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
-import { useAuthStore } from './authStore'
-import { useUiStore } from './uiStore'
-import { useDataStore } from './dataStore'
+import { useAppStore } from './store'
 import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
@@ -46,11 +44,11 @@ function isVisibleItem(item: Item | null | undefined): item is Item {
   return !!item && !item.deleted
 }
 
-export const useLoggedIn = () => useAuthStore(state => state.loggedIn)
+export const useLoggedIn = () => useAppStore(state => state.loggedIn)
 
 export function useVisibleItems(): Item[] {
-  const itemsMap = useDataStore(state => state.items)
-  const itemIds = useDataStore(state => state.itemIds)
+  const itemsMap = useAppStore(state => state.items)
+  const itemIds = useAppStore(state => state.itemIds)
 
   return useMemo(
     () => itemIds.map(id => itemsMap[id]).filter(isVisibleItem),
@@ -86,7 +84,7 @@ function useMetadataValue<K extends MetadataKey>(
   key: K,
   defaultValue?: Metadata[K],
 ): Metadata[K] {
-  const value = useDataStore(state => state.metadata[key])
+  const value = useAppStore(state => state.metadata[key])
 
   // Wait for auth before returning real data to prevent flash-of-empty states
   const resolvedValue = value !== undefined
@@ -114,7 +112,7 @@ export function useItemIds(itemType?: Item['type']): string[] {
 }
 
 export const useItem = (id: ItemId) => {
-  const item = useDataStore(state => state.items[id as string])
+  const item = useAppStore(state => state.items[id as string])
 
   if (!item || item.deleted) {
     return undefined
@@ -124,7 +122,7 @@ export const useItem = (id: ItemId) => {
 }
 
 export function useItemsByIds<T extends Item>(ids: ItemId[]): T[] {
-  const itemsMap = useDataStore(state => state.items)
+  const itemsMap = useAppStore(state => state.items)
 
   const nextItems = useMemo(
     () => {
@@ -252,7 +250,7 @@ export function useMetadata<K extends MetadataKey>(
 
 export const useSortCriteria = () => useMetadata('sortCriteria', DEFAULT_CRITERIA)
 
-export const usePracticalFilterCount = () => useUiStore(state => (
+export const usePracticalFilterCount = () => useAppStore(state => (
   state.filters.filter(isPracticalFilterCriterion).length
 ))
 

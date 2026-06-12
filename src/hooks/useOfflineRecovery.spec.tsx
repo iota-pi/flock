@@ -26,8 +26,8 @@ vi.mock('../sync/client/SyncBridge', () => ({
   },
 }))
 
-vi.mock('../state/toastStore', () => ({
-  useToastStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
+vi.mock('../state/store', () => ({
+  useAppStore: (selector: (state: { setMessage: typeof mocks.setMessage }) => unknown) => (
     selector({
       setMessage: mocks.setMessage,
     })

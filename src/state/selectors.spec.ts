@@ -12,9 +12,7 @@ import {
   useSortCriteria,
   useVisibleItems,
 } from './selectors'
-import { useAuthStore } from './authStore'
-import { useUiStore } from './uiStore'
-import { useDataStore } from './dataStore'
+import { useAppStore } from './store'
 import { DEFAULT_FILTER_CRITERIA } from '../utils/customFilter'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -72,8 +70,8 @@ describe('state selectors', () => {
       itemsMap[item.id] = item
     })
 
-    useDataStore.setState({
-      status: 'ready',
+    useAppStore.setState({
+      dataStatus: 'ready',
       items: itemsMap,
       itemIds: itemsState.map(i => i.id),
       metadata: metadataState,
@@ -86,13 +84,13 @@ describe('state selectors', () => {
 
     updateStore()
 
-    useAuthStore.getState().updateAuth({
+    useAppStore.getState().updateAuth({
       account: 'acct-1',
       loggedIn: true,
       initializing: false,
     })
 
-    useUiStore.setState({
+    useAppStore.setState({
       filters: DEFAULT_FILTER_CRITERIA,
     })
   })
@@ -291,7 +289,7 @@ describe('state selectors', () => {
   })
 
   it('usePracticalFilterCount counts user filters beyond the default archived filter', () => {
-    useUiStore.setState({
+    useAppStore.setState({
       filters: [
         ...DEFAULT_FILTER_CRITERIA,
         {

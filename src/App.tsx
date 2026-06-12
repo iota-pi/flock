@@ -13,7 +13,7 @@ import AppBar from './components/layout/AppBar'
 import MainMenu from './components/layout/MainMenu'
 import { routes } from './components/pages'
 import { useLoggedIn } from './state/selectors'
-import { useSyncStore } from './state/syncStore'
+import { useAppStore } from './state/store'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
 import AppProviders from './app/AppProviders'
@@ -31,8 +31,8 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
-  const syncWarning = useSyncStore(state => state.syncWarning)
-  const clearSyncWarning = useSyncStore(state => state.clearSyncWarning)
+  const syncWarning = useAppStore(state => state.syncWarning)
+  const clearSyncWarning = useAppStore(state => state.clearSyncWarning)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))
   const xs = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
 
@@ -141,7 +141,7 @@ function FatalError({ fatalError }: { fatalError: string }) {
 }
 
 export default function App() {
-  const fatalError = useSyncStore(state => state.fatalError)
+  const fatalError = useAppStore(state => state.fatalError)
 
   if (fatalError) {
     return <FatalError fatalError={fatalError} />

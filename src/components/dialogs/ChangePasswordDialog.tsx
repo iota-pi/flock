@@ -9,7 +9,7 @@ import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
 
 import { changePassword } from 'src/api/vault'
-import { useToastStore } from 'src/state/toastStore'
+import { useAppStore } from 'src/state/store'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import { SaveIcon, VisibilityIcon, VisibilityOffIcon } from '../Icons'
@@ -26,7 +26,7 @@ export default function ChangePasswordDialog({
   open,
   onPasswordChanged,
 }: Props) {
-  const setMessage = useToastStore(state => state.setMessage)
+  const setMessage = useAppStore(state => state.setMessage)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
