@@ -16,6 +16,17 @@ export const CreateAccountBodySchema = z.object({
   saltVersion: z.number().int().min(1).optional(),
 })
 
+export const AccountCreationResponseSchema = z.object({
+  account: z.string(),
+})
+
+export const ReminderSettingsResponseSchema = z.object({
+  success: z.boolean(),
+  reminderEnabled: z.boolean(),
+  reminderTime: z.string(),
+  reminderTimezone: z.string(),
+})
+
 export const LoginBodySchema = z.object({
   account: z.string().min(1),
   authToken: z.string().min(1),

@@ -1,17 +1,11 @@
-import { ItemId } from 'src/shared/schemas/items'
-import type { AccountMetadata } from '../state/metadata'
+import { z } from 'zod'
+import {
+  BackupSyncStateSchema,
+  BackupPayloadV2Schema,
+  RestorePayloadSchema,
+} from 'src/shared/schemas/backup'
 
+export type BackupSyncState = z.infer<typeof BackupSyncStateSchema>
+export type BackupPayloadV2 = z.infer<typeof BackupPayloadV2Schema>
+export type RestorePayload = z.infer<typeof RestorePayloadSchema>
 
-export type BackupSyncState = {
-  cursors: [ItemId, number][]
-  pendingSync: [ItemId, string[]][]
-  lastModified: [ItemId, number][]
-}
-
-export type BackupPayloadV2 = {
-  version: 2
-  metadata?: AccountMetadata
-  documents: Partial<Record<ItemId, string>>
-} & Partial<BackupSyncState>
-
-export type RestorePayload = BackupPayloadV2

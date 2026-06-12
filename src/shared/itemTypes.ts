@@ -1,5 +1,12 @@
+import { z } from 'zod'
 import type { CryptoResult } from 'src/api/vault'
-import { ITEM_TYPES, ItemId } from './schemas/items'
+import {
+  ITEM_TYPES,
+  ItemEnvelopeMetadataSchema,
+  StandardItemEnvelopeSchema,
+  TombstoneItemEnvelopeSchema,
+  GroupLookupDataSchema,
+} from './schemas/items'
 
 export type ItemType = typeof ITEM_TYPES[number]
 
@@ -8,31 +15,8 @@ export type ItemType = typeof ITEM_TYPES[number]
  */
 export type VaultSnapshot = CryptoResult
 
-export type ItemEnvelopeMetadata = {
-  type: ItemType,
-  iv: string,
-  modified: number,
-  deleted?: boolean,
-  compactedAt?: number,
-}
+export type ItemEnvelopeMetadata = z.infer<typeof ItemEnvelopeMetadataSchema>
+export type StandardItemEnvelope = z.infer<typeof StandardItemEnvelopeSchema>
+export type TombstoneItemEnvelope = z.infer<typeof TombstoneItemEnvelopeSchema>
+export type GroupLookupData = z.infer<typeof GroupLookupDataSchema>
 
-export type StandardItemEnvelope = {
-  item: ItemId,
-  cipher?: undefined,
-  snapshot: VaultSnapshot,
-  metadata: ItemEnvelopeMetadata,
-}
-
-export type TombstoneItemEnvelope = {
-  item: ItemId,
-  cipher?: undefined,
-  snapshot?: undefined,
-  metadata: ItemEnvelopeMetadata & {
-    deleted: true,
-  },
-}
-
-export interface GroupLookupData {
-  groupNames: string[]
-  groupIds: ItemId[]
-}

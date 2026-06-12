@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CryptoResultSchema } from './crypto'
 
 export const ITEM_TYPES = ['person', 'group', 'topic'] as const
 export const ERROR_ITEM_TYPE = 'error'
@@ -85,3 +86,33 @@ export type GroupItem = z.infer<typeof groupItemSchema>
 export type TopicItem = z.infer<typeof topicItemSchema>
 export type StandardItem = z.infer<typeof readItemSchema>
 export type ErrorItem = z.infer<typeof errorItemSchema>
+
+export const ItemEnvelopeMetadataSchema = z.object({
+  type: z.enum(ITEM_TYPES),
+  iv: z.string(),
+  modified: z.number(),
+  deleted: z.boolean().optional(),
+  compactedAt: z.number().optional(),
+})
+
+export const StandardItemEnvelopeSchema = z.object({
+  item: ItemIdSchema,
+  cipher: z.undefined().optional(),
+  snapshot: CryptoResultSchema,
+  metadata: ItemEnvelopeMetadataSchema,
+})
+
+export const TombstoneItemEnvelopeSchema = z.object({
+  item: ItemIdSchema,
+  cipher: z.undefined().optional(),
+  snapshot: z.undefined().optional(),
+  metadata: ItemEnvelopeMetadataSchema.extend({
+    deleted: z.literal(true),
+  }),
+})
+
+export const GroupLookupDataSchema = z.object({
+  groupNames: z.array(z.string()),
+  groupIds: z.array(ItemIdSchema),
+})
+

@@ -1,35 +1,27 @@
 import { FastifyRequest } from 'fastify'
+import { z } from 'zod'
 
-import type { ItemType, WebPushSubscription } from '../types'
-import type { VaultSnapshot } from '../../shared/itemTypes'
+import type { WebPushSubscription } from '../types'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
 import type { ItemId } from 'src/shared/schemas/items'
+import {
+  VaultKeySchema,
+  VaultMetaDataSchema,
+  VaultSessionRecordSchema,
+  VaultAccountSchema,
+  VaultAccountWithAuthSchema,
+  VaultItemSchema,
+  StoredSyncMessageSchema,
+} from '../../shared/schemas/vault'
 
-
-export interface VaultKey {
-  account: string,
-  item: string,
-}
-
-export interface VaultMetaData {
-  type: ItemType,
-  iv: string,
-  modified: number,
-  deleted?: boolean,
-  compactedAt?: number,
-}
-
-/**
- * VaultData: Supports both legacy cipher format and snapshot format
- * - Legacy: has cipher and iv
- * - Snapshot: has snapshot payload
- */
-interface VaultData {
-  metadata: VaultMetaData,
-  cipher?: string, // Optional for snapshot format
-  snapshot?: VaultSnapshot,
-}
+export type VaultKey = z.infer<typeof VaultKeySchema>
+export type VaultMetaData = z.infer<typeof VaultMetaDataSchema>
+export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
+export type VaultAccount = z.infer<typeof VaultAccountSchema>
+export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
+export type VaultItem = z.infer<typeof VaultItemSchema>
+export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
 
 export interface BaseData {
   account: string,
@@ -39,45 +31,6 @@ export interface AuthData extends BaseData {
   session: string,
 }
 
-export interface VaultSessionRecord {
-  token: string,
-  expiry: number,
-}
-
-export interface VaultAccount extends BaseData {
-  metadata: Record<string, unknown>,
-  sessions?: VaultSessionRecord[],
-  pushSubscriptions?: WebPushSubscription[],
-  reminderEnabled?: boolean,
-  reminderTime?: string,
-  reminderTimezone?: string,
-  lastPrayerCompletedAt?: number,
-  lastSnapshotCursor?: number,
-  lastSnapshotAt?: number,
-  lastSnapshotRequestedAt?: number,
-  // Salt, iterations, and authToken are not in AuthData since they are only used client-side for logins
-  authToken: string,
-  salt: string,
-  iterations: number,
-  keyring?: string,
-  saltVersion?: number,
-}
-
-export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
-
-export interface VaultItem extends VaultKey, VaultData {
-  ttl?: number,
-}
-
-export type StoredSyncMessage = {
-  cursor: number
-  encryptedMessage: {
-    iv: string
-    cipher: string
-    version?: string
-  }
-  createdAt: number
-}
 
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
