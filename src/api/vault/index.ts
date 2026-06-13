@@ -215,7 +215,9 @@ export async function loadAccount() {
   const { updateAuth } = useAppStore.getState()
   const stored = readStoredMetadata()
   if (stored?.account) {
-    updateAuth({ account: stored.account })
+    updateAuth({ account: stored.account, initializing: false })
+  } else {
+    updateAuth({ initializing: false })
   }
 }
 
