@@ -117,8 +117,6 @@ export const SyncBridge = {
     syncApi = Comlink.wrap<SyncApi>(worker)
 
     try {
-      void syncApi.setOnlineState(initialOnlineState)
-
       const vaultKey = await exportKeyringData()
       if (!vaultKey) throw new Error('Vault key not found in storage')
 
@@ -127,6 +125,7 @@ export const SyncBridge = {
         vaultKey,
         Comlink.proxy(handleSyncEvent),
       )
+      await syncApi.setOnlineState(initialOnlineState)
       await syncApi.bootstrapLegacyItems()
 
       if (!onlineListenerAttached) {
