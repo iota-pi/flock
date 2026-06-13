@@ -5,7 +5,7 @@ import type {
   AccountCreationResponse,
   CreateAccountBody,
 } from './clientTypes'
-import { DEFAULT_CRYPTO_ITERATIONS } from './util'
+import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 
 export async function createAccount(
   { salt, authToken, saltVersion }: CreateAccountBody,
@@ -21,7 +21,11 @@ export async function createAccount(
 export async function getSecurityParams(): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
   const account = getAccountId()
   const response = await trpcClient.accounts.getSecurityParams.query({ account })
-  return { salt: response.salt, iterations: response.iterations, saltVersion: response.saltVersion }
+  return {
+    salt: response.salt,
+    iterations: response.iterations || LEGACY_CRYPTO_ITERATIONS,
+    saltVersion: response.saltVersion,
+  }
 }
 
 export async function getSession(authToken: string): Promise<string> {

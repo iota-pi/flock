@@ -7,7 +7,7 @@ import {
   updateKeyring,
   changePassword,
 } from './AccountClient'
-import { DEFAULT_CRYPTO_ITERATIONS } from './util'
+import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 import { trpcClient } from '../trpcClient'
 import { getAccountId } from '../util'
 
@@ -56,6 +56,19 @@ describe('AccountClient', () => {
     await expect(getSecurityParams()).resolves.toEqual({
       salt: 'salt-2',
       iterations: 222,
+    })
+    expect(getAccountId).toHaveBeenCalled()
+  })
+
+  it('falls back to LEGACY_CRYPTO_ITERATIONS when iterations is missing in server response', async () => {
+    vi.mocked(trpcClient.accounts.getSecurityParams.query).mockResolvedValue({
+      salt: 'salt-3',
+      success: true,
+    })
+
+    await expect(getSecurityParams()).resolves.toEqual({
+      salt: 'salt-3',
+      iterations: LEGACY_CRYPTO_ITERATIONS,
     })
     expect(getAccountId).toHaveBeenCalled()
   })
