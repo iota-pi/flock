@@ -1,5 +1,4 @@
 import { trpcClient } from '../trpcClient'
-import { getAccountId } from '../util'
 import { assertSuccess } from './clientUtils'
 import type {
   AccountCreationResponse,
@@ -18,8 +17,7 @@ export async function createAccount(
   })
 }
 
-export async function getSecurityParams(): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
-  const account = getAccountId()
+export async function getSecurityParams(account: string): Promise<{ salt: string, iterations?: number, saltVersion?: number }> {
   const response = await trpcClient.accounts.getSecurityParams.query({ account })
   return {
     salt: response.salt,
@@ -28,9 +26,9 @@ export async function getSecurityParams(): Promise<{ salt: string, iterations?: 
   }
 }
 
-export async function getSession(authToken: string): Promise<string> {
+export async function getSession(account: string, authToken: string): Promise<string> {
   const response = await trpcClient.accounts.login.mutate({
-    account: getAccountId(),
+    account,
     authToken,
   })
   assertSuccess(response, 'getSession')
@@ -40,23 +38,21 @@ export async function getSession(authToken: string): Promise<string> {
   return response.session
 }
 
-export async function recordPrayerCompletion(completedAt: number): Promise<void> {
+export async function recordPrayerCompletion(account: string, completedAt: number): Promise<void> {
   const response = await trpcClient.accounts.recordPrayerCompletion.mutate({
-    account: getAccountId(),
+    account,
     completedAt,
   })
   assertSuccess(response, 'recordPrayerCompletion')
 }
 
-export async function getKeyring(): Promise<string | undefined> {
-  const account = getAccountId()
+export async function getKeyring(account: string): Promise<string | undefined> {
   const response = await trpcClient.accounts.getKeyring.query({ account })
   assertSuccess(response, 'getKeyring')
   return response.keyring
 }
 
-export async function updateKeyring(keyring: string): Promise<void> {
-  const account = getAccountId()
+export async function updateKeyring(account: string, keyring: string): Promise<void> {
   const response = await trpcClient.accounts.updateKeyring.mutate({
     account,
     keyring,
@@ -65,6 +61,7 @@ export async function updateKeyring(keyring: string): Promise<void> {
 }
 
 export async function changePassword({
+  account,
   currentAuthToken,
   newAuthToken,
   newSalt,
@@ -72,6 +69,7 @@ export async function changePassword({
   newKeyring,
   saltVersion,
 }: {
+  account: string,
   currentAuthToken: string,
   newAuthToken: string,
   newSalt: string,
@@ -79,7 +77,6 @@ export async function changePassword({
   newKeyring: string,
   saltVersion?: number,
 }): Promise<void> {
-  const account = getAccountId()
   const response = await trpcClient.accounts.changePassword.mutate({
     account,
     currentAuthToken,

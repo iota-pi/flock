@@ -7,7 +7,7 @@ import {
   upsertManualRecoveryEntry,
 } from '../sync/shared/manualRecoveryStore'
 import { normalizeSyncError } from '../shared/syncErrors'
-import { getAccountId } from '../api/util'
+import { useAppStore } from 'src/state/store'
 
 
 let onRecoveryItemsChangedListener: (() => void) | null = null
@@ -157,14 +157,9 @@ export function initializeSyncHealthWatchers(): void {
 
   subscribeRealtimeBusSyncPing(itemIds => {
     if (itemIds && itemIds.length > 0) {
-      let activeAccountId = ''
-      try {
-        activeAccountId = getAccountId()
-      } catch {
-        // Safe fallback if account is not logged in / active
-      }
-      if (activeAccountId) {
-        clearManualRecoveryForItems(activeAccountId, itemIds).catch(console.error)
+      const accountId = useAppStore.getState().account
+      if (accountId) {
+        clearManualRecoveryForItems(accountId, itemIds).catch(console.error)
       }
     }
   })

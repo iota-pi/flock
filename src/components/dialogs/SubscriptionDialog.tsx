@@ -12,6 +12,7 @@ import { styled } from '@mui/material/styles'
 
 import { checkSubscription } from '../../utils/pushNotifications'
 import { RemoveIcon } from '../Icons'
+import { useAppStore } from 'src/state/store'
 
 
 interface Props {
@@ -113,26 +114,31 @@ function SubscriptionDialog({
   onSave,
   open,
 }: Props) {
+  const account = useAppStore(state => state.account)
   const [hours, setHours] = useState<SubscriptionHour[]>([])
 
   useEffect(
     () => {
       let cancelled = false
-      checkSubscription().then(existing => {
-        if (!cancelled && existing) {
-          setHours(
-            existing.hours.map(hour => ({
-              hour,
-              id: Math.random(),
-            })),
-          )
-        } else {
-          setHours([])
-        }
-      }).catch(console.error)
+      if (account) {
+        checkSubscription(account).then(existing => {
+          if (!cancelled && existing) {
+            setHours(
+              existing.hours.map(hour => ({
+                hour,
+                id: Math.random(),
+              })),
+            )
+          } else {
+            setHours([])
+          }
+        }).catch(console.error)
+      } else {
+        setHours([])
+      }
       return () => { cancelled = true }
     },
-    [],
+    [account],
   )
 
   const handleSave = useCallback(

@@ -6,6 +6,7 @@ import { isSameDay } from 'src/utils'
 import { mutateItem } from 'src/features/items/mutations/itemMutations'
 import { type FlowState } from 'src/state/slices/prayerFlowSlice'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
+import { useAppStore } from 'src/state/store'
 
 export type PrayerFlowActions = {
   handleBack: () => void
@@ -65,6 +66,8 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
     canKeepPraying,
     firstUnprayedIndex,
   } = params
+
+  const account = useAppStore(state => state.account)
 
   const startAtIndex = (fromIndex: number) => {
     if (!visibleSchedule[fromIndex]) {
@@ -164,7 +167,7 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
 
     const nextIndex = flow.index + 1
     if (nextIndex >= visibleSchedule.length) {
-      recordPrayerCompletion(Date.now()).catch(() => {})
+      recordPrayerCompletion(account, Date.now()).catch(() => {})
       finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
       void SyncBridge.forceSync().catch(err => {
         console.error('Failed to trigger forceSync after finishing prayer schedule:', err)

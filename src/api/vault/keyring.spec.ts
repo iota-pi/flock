@@ -48,7 +48,7 @@ describe('Vault Keyring Integration', () => {
     expect(hash).toBeDefined()
     expect(getVaultKey('1')).toBeDefined()
 
-    await storeVault()
+    await storeVault('test-account')
 
     const stored = localStorage.getItem(VAULT_STORAGE_KEY)
     expect(stored).toBeDefined()
@@ -71,7 +71,7 @@ describe('Vault Keyring Integration', () => {
       salt: 'salt123',
       iterations: 1000,
     })
-    await storeVault()
+    await storeVault('test-account')
 
     // Clear memory keyring
     await signOutVault()
@@ -157,7 +157,7 @@ describe('Vault Keyring Integration', () => {
     const enc1 = await encrypt('data 1')
     expect(enc1.kver).toBe('1')
 
-    await rotateVaultKey()
+    await rotateVaultKey('test-account')
 
     const enc2 = await encrypt('data 2')
     expect(enc2.kver).toBe('2')

@@ -1,18 +1,16 @@
 import type { WebPushSubscription } from '../../vault/types'
-import { useAppStore } from '../../state/store'
 import {
   clearActiveSessionToken,
   getActiveSessionToken,
   setActiveSessionToken,
 } from '../../sync/shared/workerAuthStore'
 import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
-import { getAccountId } from '../util'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
 import {
   addPushSubscription as addPushSubscriptionClient,
   createAccount,
   deletePushSubscription as deletePushSubscriptionClient,
-  getReminderSettings,
+  getReminderSettings as getReminderSettingsClient,
   getSecurityParams,
   getSession,
   recordPrayerCompletion as recordPrayerCompletionClient,
@@ -39,7 +37,7 @@ import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRY
 import { clearSyncBatch } from 'src/sync/shared/VaultPersistence'
 import { clearScheduledDeletions } from 'src/sync/shared/deletionQueueStore'
 
-export { createAccount, getSecurityParams, getReminderSettings }
+export { createAccount, getSecurityParams }
 export type { CryptoResult }
 
 export interface VaultImportExportData {
@@ -84,19 +82,20 @@ export function getVaultSession() {
   return session
 }
 
-async function writeStoredMetadata() {
-  localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({
-    account: getAccountId(),
-  } satisfies VaultStoredMetadata))
+async function writeStoredMetadata(account: string) {
+  localStorage.setItem(
+    VAULT_STORAGE_KEY,
+    JSON.stringify({ account } satisfies VaultStoredMetadata),
+  )
 }
 
 function clearStoredMetadata() {
   localStorage.removeItem(VAULT_STORAGE_KEY)
 }
 
-async function establishSessionFromKeyHash(nextKeyHash: string) {
+async function establishSessionFromKeyHash(account: string, nextKeyHash: string) {
   keyHash = nextKeyHash
-  session = await getSession(nextKeyHash)
+  session = await getSession(account, nextKeyHash)
   setApiAuthToken(session)
   await setActiveSessionToken(session)
   setApiSessionExpiredHandler(handleSessionExpired)
@@ -168,22 +167,24 @@ export async function initWorkerVault(vaultKeyOrKeyring: string) {
 }
 
 export async function loginVault({
+  account,
   password,
   salt,
   iterations,
   saltVersion,
 }: {
+  account: string,
   password: string,
   salt: string,
   iterations?: number,
   saltVersion?: number,
 }) {
   await initialiseVault({ password, salt, iterations, saltVersion })
-  await establishSessionFromKeyHash(keyHash)
+  await establishSessionFromKeyHash(account, keyHash)
 
   let keyringNeedsUpload = false
   try {
-    const encryptedKeyringStr = await getKeyring()
+    const encryptedKeyringStr = await getKeyring(account)
     if (encryptedKeyringStr) {
       const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
       const decryptionKey = masterKey || getVaultKey('1')
@@ -205,13 +206,14 @@ export async function loginVault({
   }
 
   if (keyringNeedsUpload) {
-    await storeVault()
+    await storeVault(account)
   } else {
-    await writeStoredMetadata()
+    await writeStoredMetadata(account)
   }
 }
 
 export async function loadAccount() {
+  const { useAppStore } = await import('src/state/store')
   const { updateAuth } = useAppStore.getState()
   const stored = readStoredMetadata()
   if (stored?.account) {
@@ -231,8 +233,8 @@ export async function exportKeyringData(): Promise<string> {
   return JSON.stringify(keyringData)
 }
 
-export async function storeVault() {
-  await writeStoredMetadata()
+export async function storeVault(account: string) {
+  await writeStoredMetadata(account)
   if (session) {
     try {
       const keyringData: Record<string, string> = {
@@ -244,7 +246,7 @@ export async function storeVault() {
       const plaintext = JSON.stringify(keyringData)
       const encryptionKey = masterKey || getVaultKey('1')
       const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
-      await updateKeyring(JSON.stringify(encrypted))
+      await updateKeyring(account, JSON.stringify(encrypted))
     } catch (err) {
       console.error('[vault] Failed to sync keyring to server:', err)
     }
@@ -252,6 +254,7 @@ export async function storeVault() {
 }
 
 export async function signOutVault() {
+  const { useAppStore } = await import('src/state/store')
   const { updateAuth } = useAppStore.getState()
   keyring.clear()
   masterKey = null
@@ -262,12 +265,14 @@ export async function signOutVault() {
 
   await SyncBridge.shutdown()
 
-  const accountId = getAccountId()
-  await clearSyncBatch(accountId)
-  await clearScheduledDeletions(accountId)
-  clearStoredMetadata()
+  const accountId = useAppStore.getState().account
+  if (accountId) {
+    await clearSyncBatch(accountId)
+    await clearScheduledDeletions(accountId)
+    await clearManualRecoveryEntries(accountId)
+  }
   await clearActiveSessionToken()
-  await clearManualRecoveryEntries(accountId)
+  clearStoredMetadata()
 
   updateAuth({ account: '', loggedIn: false })
 }
@@ -303,30 +308,35 @@ export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
   return decryptBytesWithKey(getVaultKey(kver), data)
 }
 
-export async function addPushSubscription(subscription: WebPushSubscription): Promise<void> {
-  await addPushSubscriptionClient(subscription)
+export async function addPushSubscription(account: string, subscription: WebPushSubscription): Promise<void> {
+  await addPushSubscriptionClient(account, subscription)
 }
 
-export async function deletePushSubscription(endpoint: string): Promise<void> {
-  await deletePushSubscriptionClient(endpoint)
+export async function deletePushSubscription(account: string, endpoint: string): Promise<void> {
+  await deletePushSubscriptionClient(account, endpoint)
 }
 
 export async function updateReminderSettings(
+  account: string,
   settings: { reminderEnabled: boolean, reminderTime: string, reminderTimezone: string },
 ): Promise<void> {
-  await updateReminderSettingsClient(settings)
+  await updateReminderSettingsClient(account, settings)
 }
 
-export async function recordPrayerCompletion(completedAt = Date.now()): Promise<void> {
-  await recordPrayerCompletionClient(completedAt)
+export async function getReminderSettings(account: string) {
+  return getReminderSettingsClient(account)
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+export async function recordPrayerCompletion(account: string, completedAt = Date.now()): Promise<void> {
+  await recordPrayerCompletionClient(account, completedAt)
+}
+
+export async function changePassword(account: string, currentPassword: string, newPassword: string): Promise<void> {
   const {
     salt: currentSalt,
     iterations: currentIterations,
     saltVersion: currentSaltVersion,
-  } = await getSecurityParams()
+  } = await getSecurityParams(account)
   const currentMasterKey = await deriveVaultKey({
     password: currentPassword,
     salt: currentSalt,
@@ -357,6 +367,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const encryptedKeyring = await encryptWithKey(newMasterKey, plaintext, 'master')
 
   await changePasswordClient({
+    account,
     currentAuthToken,
     newAuthToken,
     newSalt,
@@ -367,14 +378,14 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
   masterKey = newMasterKey
   keyHash = newAuthToken
-  await writeStoredMetadata()
+  await writeStoredMetadata(account)
 }
 
-export async function rotateVaultKey(): Promise<void> {
+export async function rotateVaultKey(account: string): Promise<void> {
   const newKey = await generateVaultKey()
   const currentActiveVer = parseInt(activeKeyVersion, 10)
   const nextActiveVer = (currentActiveVer + 1).toString()
   keyring.set(nextActiveVer, newKey)
   activeKeyVersion = nextActiveVer
-  await storeVault()
+  await storeVault(account)
 }

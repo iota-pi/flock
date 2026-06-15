@@ -17,6 +17,7 @@ interface Props {
 }
 
 export default function ReencryptVaultDialog({ open, onClose }: Props) {
+  const account = useAppStore(state => state.account)
   const setMessage = useAppStore(state => state.setMessage)
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
@@ -34,7 +35,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
     setStatus('running')
     setErrorMsg('')
     try {
-      await reencryptAllItems((done, total) => {
+      await reencryptAllItems(account, (done, total) => {
         setProgress({ done, total })
       })
       setStatus('completed')
@@ -48,7 +49,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred during re-encryption.')
     }
-  }, [handleClose, setMessage])
+  }, [account, handleClose, setMessage])
 
   const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
 

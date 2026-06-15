@@ -2,9 +2,9 @@ import {
   addPushSubscription,
   deletePushSubscription,
   updateReminderSettings,
+  getReminderSettings,
 } from '../api/vault'
 import env from '../env'
-import { getReminderSettings } from '../api/vault/client'
 
 function fromBase64Url(base64Url: string) {
   const padding = '='.repeat((4 - (base64Url.length % 4)) % 4)
@@ -39,7 +39,7 @@ async function getPushSubscription() {
   })
 }
 
-export async function subscribe(hours: number[]) {
+export async function subscribe(account: string, hours: number[]) {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     throw new Error('Push notifications are not supported in this browser')
   }
@@ -55,7 +55,7 @@ export async function subscribe(hours: number[]) {
     throw new Error('Failed to create push subscription')
   }
 
-  await addPushSubscription({
+  await addPushSubscription(account, {
     endpoint: subscriptionJson.endpoint,
     keys: {
       auth: subscriptionJson.keys.auth,
@@ -64,35 +64,35 @@ export async function subscribe(hours: number[]) {
   })
 
   const firstHour = hours[0] ?? 8
-  await updateReminderSettings({
+  await updateReminderSettings(account, {
     reminderEnabled: true,
     reminderTime: `${String(firstHour).padStart(2, '0')}:00`,
     reminderTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 }
 
-export async function unsubscribe() {
+export async function unsubscribe(account: string) {
   const registration = await navigator.serviceWorker.getRegistration()
   const existing = await registration?.pushManager.getSubscription()
   if (existing) {
-    await deletePushSubscription(existing.endpoint)
+    await deletePushSubscription(account, existing.endpoint)
     await existing.unsubscribe()
   }
 
-  await updateReminderSettings({
+  await updateReminderSettings(account, {
     reminderEnabled: false,
     reminderTime: '08:00',
     reminderTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
 }
 
-export async function checkSubscription() {
+export async function checkSubscription(account: string) {
   const authorized = Notification.permission === 'granted'
   if (!authorized) {
     return null
   }
 
-  const settings = await getReminderSettings()
+  const settings = await getReminderSettings(account)
   if (!settings.reminderEnabled) {
     return null
   }

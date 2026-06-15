@@ -26,6 +26,7 @@ export default function ChangePasswordDialog({
   open,
   onPasswordChanged,
 }: Props) {
+  const account = useAppStore(state => state.account)
   const setMessage = useAppStore(state => state.setMessage)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -62,7 +63,7 @@ export default function ChangePasswordDialog({
     setLoading(true)
     setErrorText('')
     try {
-      await changePassword(currentPassword, newPassword)
+      await changePassword(account, currentPassword, newPassword)
       setMessage({
         severity: 'success',
         message: 'Password changed successfully',
@@ -78,7 +79,7 @@ export default function ChangePasswordDialog({
     } finally {
       setLoading(false)
     }
-  }, [currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage, onPasswordChanged])
+  }, [account, currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage, onPasswordChanged])
 
   const isValid =
     currentPassword.length > 0 &&

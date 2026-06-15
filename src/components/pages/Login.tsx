@@ -90,7 +90,7 @@ function LoginPage() {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      const securityParams = await getSecurityParams().catch(
+      const securityParams = await getSecurityParams(accountInput).catch(
         (err): { salt: string, iterations?: number, saltVersion?: number } => {
           console.error('[Login] getSecurityParams failed', err)
           return { salt: '', iterations: undefined, saltVersion: undefined }
@@ -99,6 +99,7 @@ function LoginPage() {
       if (securityParams.salt.length) {
         try {
           await loginVault({
+            account: accountInput,
             password,
             salt: securityParams.salt,
             iterations: securityParams.iterations,

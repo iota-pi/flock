@@ -31,7 +31,7 @@ describe('reencryptAllItems coordinator', () => {
       progressCalls.push([done, total])
     }
 
-    await reencryptAllItems(onProgress)
+    await reencryptAllItems('test-account', onProgress)
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(exportKeyringData).toHaveBeenCalledTimes(1)
@@ -46,7 +46,7 @@ describe('reencryptAllItems coordinator', () => {
   it('throws an error if keyring is missing after rotation', async () => {
     vi.mocked(exportKeyringData).mockResolvedValueOnce('')
 
-    await expect(reencryptAllItems()).rejects.toThrow('Keyring not found in memory after rotation')
+    await expect(reencryptAllItems('test-account')).rejects.toThrow('Keyring not found in memory after rotation')
 
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()

@@ -9,7 +9,6 @@ import {
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
 import { trpcClient } from '../trpcClient'
-import { getAccountId } from '../util'
 
 vi.mock('../trpcClient', () => ({
   trpcClient: {
@@ -23,10 +22,6 @@ vi.mock('../trpcClient', () => ({
       changePassword: { mutate: vi.fn() },
     },
   },
-}))
-
-vi.mock('../util', () => ({
-  getAccountId: vi.fn(() => 'acc-1'),
 }))
 
 describe('AccountClient', () => {
@@ -53,11 +48,10 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await expect(getSecurityParams()).resolves.toEqual({
+    await expect(getSecurityParams('acc-1')).resolves.toEqual({
       salt: 'salt-2',
       iterations: 222,
     })
-    expect(getAccountId).toHaveBeenCalled()
   })
 
   it('falls back to LEGACY_CRYPTO_ITERATIONS when iterations is missing in server response', async () => {
@@ -66,11 +60,10 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await expect(getSecurityParams()).resolves.toEqual({
+    await expect(getSecurityParams('acc-1')).resolves.toEqual({
       salt: 'salt-3',
       iterations: LEGACY_CRYPTO_ITERATIONS,
     })
-    expect(getAccountId).toHaveBeenCalled()
   })
 
   it('returns a session token on login', async () => {
@@ -79,7 +72,7 @@ describe('AccountClient', () => {
       session: 'sess-1',
     })
 
-    await expect(getSession('auth-1')).resolves.toBe('sess-1')
+    await expect(getSession('acc-1', 'auth-1')).resolves.toBe('sess-1')
   })
 
   it('throws when login response is missing a session', async () => {
@@ -87,7 +80,7 @@ describe('AccountClient', () => {
       success: true,
     } as { success: boolean; session: string })
 
-    await expect(getSession('auth-2')).rejects.toThrow('missing session')
+    await expect(getSession('acc-1', 'auth-2')).rejects.toThrow('missing session')
   })
 
   it('records prayer completion for the active account', async () => {
@@ -95,7 +88,7 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await recordPrayerCompletion(123)
+    await recordPrayerCompletion('acc-1', 123)
 
     expect(trpcClient.accounts.recordPrayerCompletion.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
@@ -109,7 +102,7 @@ describe('AccountClient', () => {
       keyring: 'encrypted-keyring-data',
     })
 
-    const keyring = await getKeyring()
+    const keyring = await getKeyring('acc-1')
     expect(keyring).toBe('encrypted-keyring-data')
     expect(trpcClient.accounts.getKeyring.query).toHaveBeenCalledWith({
       account: 'acc-1',
@@ -121,7 +114,7 @@ describe('AccountClient', () => {
       success: true,
     })
 
-    await updateKeyring('new-keyring-data')
+    await updateKeyring('acc-1', 'new-keyring-data')
     expect(trpcClient.accounts.updateKeyring.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
       keyring: 'new-keyring-data',
@@ -134,6 +127,7 @@ describe('AccountClient', () => {
     })
 
     await changePassword({
+      account: 'acc-1',
       currentAuthToken: 'cur-token',
       newAuthToken: 'new-token',
       newSalt: 'new-salt',
