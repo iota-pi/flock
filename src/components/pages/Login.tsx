@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -66,24 +66,14 @@ function LoginPage() {
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState(() => justCreatedAccount ? createdAccountId : '')
+  const [accountInput, setAccountInput] = useState(() => createdAccountId || '')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-
-  useEffect(
-    () => {
-      if (justCreatedAccount) {
-        setUi({ justCreatedAccount: false })
-      }
-    },
-    [justCreatedAccount, setUi],
-  )
 
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
     [navigate],
   )
-
 
   const handleClickLogin = useCallback(
     async () => {
@@ -106,6 +96,7 @@ function LoginPage() {
             saltVersion: securityParams.saltVersion,
           })
           updateAuth({ loggedIn: true })
+          setUi({ justCreatedAccount: false })
 
           const nextRoute = resolveRedirectRoute(
             location.state as RedirectRouteState | null,

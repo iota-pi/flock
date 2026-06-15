@@ -15,6 +15,7 @@ export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [ProtectedPage
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loggedIn = useLoggedIn()
   const initializing = useAppStore(state => state.initializing)
+  const account = useAppStore(state => state.account)
   const location = useLocation()
 
   if (initializing) {
@@ -22,7 +23,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!loggedIn) {
-    return <Navigate to="/welcome" state={{ from: location }} replace />
+    const target = account ? '/login' : '/welcome'
+    return <Navigate to={target} state={{ from: location }} replace />
   }
 
   return <>{children}</>
