@@ -188,6 +188,13 @@ function CreateAccountPage() {
           </Typography>
 
           <form>
+            {/* Hidden username field for accessibility / password managers */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              style={{ display: 'none' }}
+            />
             <StyledTextField
               autoComplete="new-password"
               error={!!errors.password}
