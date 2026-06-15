@@ -39,13 +39,13 @@ vi.mock('../../api/runtime', () => ({
 
 const mockGetMetadataQuery = vi.fn()
 vi.mock('../../api/trpcClient', () => ({
-  trpcClient: {
+  getTrpcClient: () => ({
     accounts: {
       getMetadata: {
         query: (...args: any[]) => mockGetMetadataQuery(...args),
       },
     },
-  },
+  }),
 }))
 
 describe('LegacyBootstrapper', () => {

@@ -26,6 +26,8 @@ import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { loadSyncBatch, restoreSyncBatch } from '../shared/VaultPersistence'
 import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
 import type { PollOutcome } from './SyncPoller'
+import { initTrpcClient } from 'src/api/trpcClient'
+import { getTrackedFetch } from 'src/api/trackedFetch'
 
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
@@ -71,6 +73,12 @@ export class SyncWorker implements SyncApi {
     registerQuotaReporter((msg: string) => {
       this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
     })
+
+    const trackedFetch = getTrackedFetch(
+      () => this.clientEventHub.emit({ type: 'startRequest' }),
+      () => this.clientEventHub.emit({ type: 'finishRequest' })
+    )
+    initTrpcClient(trackedFetch)
 
     await initWorkerVault(vaultKey)
     await Automerge.initializeWasm(wasmUrl)

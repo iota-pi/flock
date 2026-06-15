@@ -5,9 +5,9 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { fetchMany } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
-import { trpcClient } from '../../api/trpcClient'
 import { VaultItem } from 'src/vault/drivers/base'
 import type { ItemId } from 'src/shared/schemas/items'
+import { getTrpcClient } from 'src/api/trpcClient'
 
 export class LegacyBootstrapper {
   constructor(
@@ -121,7 +121,7 @@ export class LegacyBootstrapper {
     const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
     if (Object.keys(localMetadata || {}).length > 0) return
 
-    const response = await trpcClient.accounts.getMetadata.query({ account: this.deps.accountId }).catch(() => null)
+    const response = await getTrpcClient().accounts.getMetadata.query({ account: this.deps.accountId }).catch(() => null)
     if (
       response?.success &&
       !!response.metadata &&

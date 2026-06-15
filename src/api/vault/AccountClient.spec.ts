@@ -8,20 +8,22 @@ import {
   changePassword,
 } from './AccountClient'
 import { DEFAULT_CRYPTO_ITERATIONS, LEGACY_CRYPTO_ITERATIONS } from './util'
-import { trpcClient } from '../trpcClient'
+import { getTrpcClient } from '../trpcClient'
+
+const mockTrpcClient = {
+  accounts: {
+    createAccount: { mutate: vi.fn() },
+    getSecurityParams: { query: vi.fn() },
+    login: { mutate: vi.fn() },
+    recordPrayerCompletion: { mutate: vi.fn() },
+    getKeyring: { query: vi.fn() },
+    updateKeyring: { mutate: vi.fn() },
+    changePassword: { mutate: vi.fn() },
+  },
+}
 
 vi.mock('../trpcClient', () => ({
-  trpcClient: {
-    accounts: {
-      createAccount: { mutate: vi.fn() },
-      getSecurityParams: { query: vi.fn() },
-      login: { mutate: vi.fn() },
-      recordPrayerCompletion: { mutate: vi.fn() },
-      getKeyring: { query: vi.fn() },
-      updateKeyring: { mutate: vi.fn() },
-      changePassword: { mutate: vi.fn() },
-    },
-  },
+  getTrpcClient: vi.fn(() => mockTrpcClient),
 }))
 
 describe('AccountClient', () => {
@@ -30,11 +32,11 @@ describe('AccountClient', () => {
   })
 
   it('creates accounts with expected iterations', async () => {
-    vi.mocked(trpcClient.accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
+    vi.mocked(getTrpcClient().accounts.createAccount.mutate).mockResolvedValue({ account: 'acc-1' })
 
     await createAccount({ salt: 'salt', authToken: 'token' })
 
-    expect(trpcClient.accounts.createAccount.mutate).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.createAccount.mutate).toHaveBeenCalledWith({
       salt: 'salt',
       authToken: 'token',
       iterations: DEFAULT_CRYPTO_ITERATIONS,
@@ -42,7 +44,7 @@ describe('AccountClient', () => {
   })
 
   it('gets security params for the active account', async () => {
-    vi.mocked(trpcClient.accounts.getSecurityParams.query).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-2',
       iterations: 222,
       success: true,
@@ -55,7 +57,7 @@ describe('AccountClient', () => {
   })
 
   it('falls back to LEGACY_CRYPTO_ITERATIONS when iterations is missing in server response', async () => {
-    vi.mocked(trpcClient.accounts.getSecurityParams.query).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.getSecurityParams.query).mockResolvedValue({
       salt: 'salt-3',
       success: true,
     })
@@ -67,7 +69,7 @@ describe('AccountClient', () => {
   })
 
   it('returns a session token on login', async () => {
-    vi.mocked(trpcClient.accounts.login.mutate).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.login.mutate).mockResolvedValue({
       success: true,
       session: 'sess-1',
     })
@@ -76,7 +78,7 @@ describe('AccountClient', () => {
   })
 
   it('throws when login response is missing a session', async () => {
-    vi.mocked(trpcClient.accounts.login.mutate).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.login.mutate).mockResolvedValue({
       success: true,
     } as { success: boolean; session: string })
 
@@ -84,45 +86,45 @@ describe('AccountClient', () => {
   })
 
   it('records prayer completion for the active account', async () => {
-    vi.mocked(trpcClient.accounts.recordPrayerCompletion.mutate).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.recordPrayerCompletion.mutate).mockResolvedValue({
       success: true,
     })
 
     await recordPrayerCompletion('acc-1', 123)
 
-    expect(trpcClient.accounts.recordPrayerCompletion.mutate).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.recordPrayerCompletion.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
       completedAt: 123,
     })
   })
 
   it('fetches keyring for the active account', async () => {
-    vi.mocked(trpcClient.accounts.getKeyring.query).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.getKeyring.query).mockResolvedValue({
       success: true,
       keyring: 'encrypted-keyring-data',
     })
 
     const keyring = await getKeyring('acc-1')
     expect(keyring).toBe('encrypted-keyring-data')
-    expect(trpcClient.accounts.getKeyring.query).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.getKeyring.query).toHaveBeenCalledWith({
       account: 'acc-1',
     })
   })
 
   it('updates keyring for the active account', async () => {
-    vi.mocked(trpcClient.accounts.updateKeyring.mutate).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.updateKeyring.mutate).mockResolvedValue({
       success: true,
     })
 
     await updateKeyring('acc-1', 'new-keyring-data')
-    expect(trpcClient.accounts.updateKeyring.mutate).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.updateKeyring.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
       keyring: 'new-keyring-data',
     })
   })
 
   it('calls changePassword with expected params', async () => {
-    vi.mocked(trpcClient.accounts.changePassword.mutate).mockResolvedValue({
+    vi.mocked(getTrpcClient().accounts.changePassword.mutate).mockResolvedValue({
       success: true,
     })
 
@@ -135,7 +137,7 @@ describe('AccountClient', () => {
       newKeyring: 'new-keyring',
     })
 
-    expect(trpcClient.accounts.changePassword.mutate).toHaveBeenCalledWith({
+    expect(getTrpcClient().accounts.changePassword.mutate).toHaveBeenCalledWith({
       account: 'acc-1',
       currentAuthToken: 'cur-token',
       newAuthToken: 'new-token',
