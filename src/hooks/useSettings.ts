@@ -34,10 +34,10 @@ export default function useSettings(items: Item[]) {
   // Actions
   const handleSignOut = useCallback(
     async () => {
-      await signOutVault(account)
+      await signOutVault()
       setMessage({ message: 'Signed out' })
     },
-    [account, setMessage],
+    [setMessage],
   )
 
   const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
