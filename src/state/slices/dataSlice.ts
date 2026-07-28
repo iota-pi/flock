@@ -131,12 +131,18 @@ export const createDataSlice: StateCreator<
 
   optimisticUpdateItem: (id, partial) =>
     set(state => {
-      if (!state.items[id]) return {}
+      const existing = state.items[id]
+      const nextItems = {
+        ...state.items,
+        [id]: { ...existing, ...partial } as Item,
+      }
+      const nextItemIds = state.itemIds.includes(id as ItemId)
+        ? state.itemIds
+        : [...state.itemIds, id as ItemId]
+
       return {
-        items: {
-          ...state.items,
-          [id]: { ...state.items[id], ...partial } as Item,
-        },
+        items: nextItems,
+        itemIds: nextItemIds,
       }
     }),
 
