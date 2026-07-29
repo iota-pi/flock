@@ -111,6 +111,7 @@ export class SyncWorkerContext {
   async initialize(): Promise<void> {
     await this.indexManager.ensureIndexDocument()
     await this.snapshotManager.loadLastModified()
+    await this.orchestrator.start()
   }
 
   async shutdown(): Promise<void> {
