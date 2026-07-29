@@ -11,7 +11,6 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import { styled, Theme } from '@mui/material/styles'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
 import { usePracticalFilterCount } from 'src/state/selectors'
-import SyncNowButton from './SyncNowButton'
 import { useDialogState } from 'src/hooks/useDialogState'
 
 
@@ -147,7 +146,6 @@ function TopBar({
           <SortIcon />
         </IconButton>
       )}
-      <SyncNowButton />
       {menuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
