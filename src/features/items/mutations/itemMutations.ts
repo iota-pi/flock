@@ -159,7 +159,9 @@ export async function createItem(
   } as Item
 
   useAppStore.getState().optimisticUpdateItem(nextItem.id, nextItem)
-  await SyncBridge.createItem(nextItem)
+  void SyncBridge.createItem(nextItem).catch(error => {
+    console.error(error)
+  })
 
   return nextItem
 }
