@@ -41,14 +41,14 @@ describe('backup operations', () => {
     }
 
     // Create item
-    await docStore.withAutomergeDocumentChange(
+    await docStore.changeDocument(
       item.id,
       doc => {
         for (const [key, value] of Object.entries(item)) {
           doc[key] = value
         }
       },
-      { createIfMissing: true, initialValue: item as any }
+      { createIfMissing: true }
     )
     await indexManager.addAutomergeItemIdsToIndex([item.id])
 

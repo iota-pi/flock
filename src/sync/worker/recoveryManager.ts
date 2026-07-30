@@ -48,7 +48,7 @@ export class RecoveryManager {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
 
-    await this.deps.docStore.withAutomergeDocumentChange(
+    await this.deps.docStore.changeDocument(
       itemId,
       doc => {
         mutateDraftToMatchSnapshot(doc, localSnapshot)
@@ -56,10 +56,7 @@ export class RecoveryManager {
           doc.id = itemId
         }
       },
-      {
-        createIfMissing: true,
-        initialValue: { id: itemId },
-      },
+      { createIfMissing: true },
     )
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
@@ -72,19 +69,14 @@ export class RecoveryManager {
     if (!this.deps.accountId) return
     const existing = await this.deps.docStore.getAutomergeItem(itemId)
 
-    await this.deps.docStore.withAutomergeDocumentChange(
+    await this.deps.docStore.changeDocument(
       itemId,
       doc => {
         doc.id = itemId
         doc.type = existing?.type || 'person'
         doc.deleted = true
       },
-      {
-        createIfMissing: true,
-        initialValue: {
-          id: itemId,
-        },
-      },
+      { createIfMissing: true },
     )
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])

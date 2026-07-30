@@ -14,12 +14,12 @@ vi.mock('../shared/manualRecoveryStore', () => ({
 }))
 
 const mockGetAutomergeItem = vi.fn()
-const mockWithAutomergeDocumentChange = vi.fn()
+const mockChangeDocument = vi.fn()
 
 vi.mock('./docStore', () => ({
   AutomergeDocStore: vi.fn().mockImplementation(() => ({
     getAutomergeItem: mockGetAutomergeItem,
-    withAutomergeDocumentChange: mockWithAutomergeDocumentChange,
+    changeDocument: mockChangeDocument,
   }))
 }))
 
@@ -45,7 +45,7 @@ describe('RecoveryManager', () => {
 
     const mockDocStore = {
       getAutomergeItem: mockGetAutomergeItem,
-      withAutomergeDocumentChange: mockWithAutomergeDocumentChange,
+      changeDocument: mockChangeDocument,
     } as any
 
     const mockIndexManager = {
@@ -129,9 +129,9 @@ describe('RecoveryManager', () => {
       mockGetAutomergeItem.mockResolvedValue(localItem)
 
       let capturedDoc: any = null
-      mockWithAutomergeDocumentChange.mockImplementation(
-        async (itemId, changeCallback, options) => {
-          capturedDoc = { ...options.initialValue }
+      mockChangeDocument.mockImplementation(
+        async (itemId, changeCallback) => {
+          capturedDoc = {}
           changeCallback(capturedDoc)
         }
       )
@@ -142,10 +142,10 @@ describe('RecoveryManager', () => {
       await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).toHaveBeenCalledWith('item-3')
-      expect(mockWithAutomergeDocumentChange).toHaveBeenCalledWith(
+      expect(mockChangeDocument).toHaveBeenCalledWith(
         'item-3',
         expect.any(Function),
-        { createIfMissing: true, initialValue: { id: 'item-3' } }
+        { createIfMissing: true }
       )
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-3'])
 
@@ -167,19 +167,19 @@ describe('RecoveryManager', () => {
       mockGetAutomergeItem.mockResolvedValue(null) // no existing type
 
       let capturedDoc: any = null
-      mockWithAutomergeDocumentChange.mockImplementation(
-        async (itemId, changeCallback, options) => {
-          capturedDoc = { ...options.initialValue }
+      mockChangeDocument.mockImplementation(
+        async (itemId, changeCallback) => {
+          capturedDoc = {}
           changeCallback(capturedDoc)
         }
       )
 
       await recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
 
-      expect(mockWithAutomergeDocumentChange).toHaveBeenCalledWith(
+      expect(mockChangeDocument).toHaveBeenCalledWith(
         'item-4',
         expect.any(Function),
-        { createIfMissing: true, initialValue: { id: 'item-4' } }
+        { createIfMissing: true }
       )
       expect(mockAddAutomergeItemIdsToIndex).toHaveBeenCalledWith(['item-4'])
 
@@ -196,9 +196,9 @@ describe('RecoveryManager', () => {
       mockGetAutomergeItem.mockResolvedValue({ id: 'item-5', type: 'prayer' })
 
       let capturedDoc: any = null
-      mockWithAutomergeDocumentChange.mockImplementation(
-        async (itemId, changeCallback, options) => {
-          capturedDoc = { ...options.initialValue }
+      mockChangeDocument.mockImplementation(
+        async (itemId, changeCallback) => {
+          capturedDoc = {}
           changeCallback(capturedDoc)
         }
       )

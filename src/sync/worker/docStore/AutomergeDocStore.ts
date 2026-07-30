@@ -11,13 +11,9 @@ export type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
 export type EnsureHandleOptions = {
   createIfMissing?: boolean
-  initialValue?: RepoDoc
 }
 
-export type ChangeDocumentOptions = {
-  createIfMissing?: boolean
-  initialValue?: RepoDoc
-}
+export type ChangeDocumentOptions = EnsureHandleOptions
 
 export type AutomergeIndexDocument = {
   accountId?: string
@@ -96,9 +92,7 @@ export class AutomergeDocStore {
         })
       }
 
-      const initialValue = options.initialValue!
-
-      const newDoc = Automerge.from(initialValue)
+      const newDoc = Automerge.init()
       const binary = Automerge.save(newDoc)
       try {
         handle = this.repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
@@ -143,38 +137,14 @@ export class AutomergeDocStore {
 
     const handle = await this.ensureDocumentHandle(
       normalizedItemId,
-      {
-        createIfMissing: options.createIfMissing,
-        initialValue: options.initialValue,
-      }
+      options,
     )
-
     if (!handle || !handle.isReady()) {
       return false
     }
 
     handle.change(change)
     return true
-  }
-
-  async withAutomergeDocumentChange(
-    itemId: ItemId,
-    change: (draft: RepoDoc) => void,
-    options: ChangeDocumentOptions = {},
-  ): Promise<boolean> {
-    const normalizedDocumentId = normalizeItemId(itemId)
-    if (!normalizedDocumentId) {
-      return false
-    }
-
-    return this.changeDocument(
-      normalizedDocumentId,
-      change,
-      {
-        createIfMissing: options.createIfMissing,
-        initialValue: options.initialValue,
-      }
-    )
   }
 
   async getAutomergeItem(itemId: ItemId): Promise<Item | null> {

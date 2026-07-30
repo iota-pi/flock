@@ -25,14 +25,14 @@ describe('items operations', () => {
       prayedFor: [],
     }
 
-    const created = await docStore.withAutomergeDocumentChange(
+    const created = await docStore.changeDocument(
       item.id,
       (doc: any) => {
         for (const [key, value] of Object.entries(item)) {
           doc[key] = value
         }
       },
-      { createIfMissing: true, initialValue: item as any }
+      { createIfMissing: true }
     )
 
     expect(created).toBe(true)
@@ -54,14 +54,14 @@ describe('items operations', () => {
       prayedFor: [],
     }
 
-    await docStore.withAutomergeDocumentChange(
+    await docStore.changeDocument(
       item.id,
       (doc: any) => {
         for (const [key, value] of Object.entries(item)) {
           doc[key] = value
         }
       },
-      { createIfMissing: true, initialValue: item as any }
+      { createIfMissing: true }
     )
 
     await docStore.removeAutomergeItem(item.id)

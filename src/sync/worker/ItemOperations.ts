@@ -20,7 +20,7 @@ export class ItemOperations {
 
   async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
-      const updated = await this.deps.docStore.withAutomergeDocumentChange(id, doc => {
+      const updated = await this.deps.docStore.changeDocument(id, doc => {
         for (const [key, value] of Object.entries(changes)) {
           if (value === undefined) delete doc[key]
           else doc[key] = value
@@ -38,11 +38,15 @@ export class ItemOperations {
 
   async createItem(item: Item): Promise<void> {
     try {
-      const updated = await this.deps.docStore.withAutomergeDocumentChange(item.id, doc => {
-        for (const [key, value] of Object.entries(item)) {
-          doc[key] = value
-        }
-      }, { createIfMissing: true, initialValue: item })
+      const updated = await this.deps.docStore.changeDocument(
+        item.id,
+        doc => {
+          for (const [key, value] of Object.entries(item)) {
+            doc[key] = value
+          }
+        },
+        { createIfMissing: true },
+      )
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
@@ -70,12 +74,16 @@ export class ItemOperations {
 
     for (const item of items) {
       try {
-        const updated = await this.deps.docStore.withAutomergeDocumentChange(item.id, doc => {
-          for (const [key, value] of Object.entries(item)) {
-            if (value === undefined) delete doc[key]
-            else doc[key] = value
-          }
-        }, { createIfMissing: true, initialValue: item })
+        const updated = await this.deps.docStore.changeDocument(
+          item.id,
+          doc => {
+            for (const [key, value] of Object.entries(item)) {
+              if (value === undefined) delete doc[key]
+              else doc[key] = value
+            }
+          },
+          { createIfMissing: true }
+        )
         if (updated) {
           succeededIds.push(item.id)
           this.deps.markDocumentDirty(item.id)
