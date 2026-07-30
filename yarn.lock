@@ -51,7 +51,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@automerge/automerge-repo@npm:v2.6.0-alpha.2":
+"@automerge/automerge-repo@npm:2.6.0-alpha.2":
   version: 2.6.0-alpha.2
   resolution: "@automerge/automerge-repo@npm:2.6.0-alpha.2"
   dependencies:
@@ -5661,7 +5661,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cbor-x@npm:^1.3.0, cbor-x@npm:^1.6.4":
+"cbor-x@npm:^1.3.0":
   version: 1.6.4
   resolution: "cbor-x@npm:1.6.4"
   dependencies:
@@ -5670,6 +5670,18 @@ __metadata:
     cbor-extract:
       optional: true
   checksum: 10c0/fa8fc366063fbaa56b4e3930633873becf38ba087824f7dbc77700b0c352c2ffe1b8cf72954659bda29ea2765c63eed494aaf0b5219534d77fdf7ceaec40d286
+  languageName: node
+  linkType: hard
+
+"cbor-x@npm:^1.6.4":
+  version: 1.6.5
+  resolution: "cbor-x@npm:1.6.5"
+  dependencies:
+    cbor-extract: "npm:^2.2.2"
+  dependenciesMeta:
+    cbor-extract:
+      optional: true
+  checksum: 10c0/0c5acf1cdf8a607156711921e5c463f8b4a3b21bf1b13e6c67a18110338ad300b53dd6feee01b3f49c70c0f4f892711f4c7e384b1aa852955981d7a857ebc4da
   languageName: node
   linkType: hard
 
@@ -7367,7 +7379,7 @@ __metadata:
   resolution: "flock@workspace:."
   dependencies:
     "@automerge/automerge": "npm:^3.2.6"
-    "@automerge/automerge-repo": "npm:v2.6.0-alpha.2"
+    "@automerge/automerge-repo": "npm:2.6.0-alpha.2"
     "@automerge/automerge-repo-network-broadcastchannel": "npm:^2.5.5"
     "@automerge/automerge-repo-storage-indexeddb": "npm:^2.5.5"
     "@aws-sdk/client-dynamodb": "npm:^3.958.0"
@@ -12169,11 +12181,11 @@ __metadata:
   linkType: hard
 
 "uuid@npm:^14.0.0":
-  version: 14.0.0
-  resolution: "uuid@npm:14.0.0"
+  version: 14.0.1
+  resolution: "uuid@npm:14.0.1"
   bin:
     uuid: dist-node/bin/uuid
-  checksum: 10c0/a57ae7794c45005c1a9208989196c5baf79a7679c30f43c1bee9033a2c4d113a2cea216fa6fcc9663b08b0d55635df1a7c6eb7e7f3d21c3e50688c698fa39a50
+  checksum: 10c0/2d961289097cb68c37d93d1da0b5c3aafc1eb9948a455cca8d0ae53a099b2fe583b8933254a84097f700e6bac2e23033364904df0467c22551d5d9611febcaf6
   languageName: node
   linkType: hard
 
@@ -12854,7 +12866,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"xstate@npm:^5.31.1, xstate@npm:^5.9.1":
+"xstate@npm:^5.31.1":
+  version: 5.32.5
+  resolution: "xstate@npm:5.32.5"
+  checksum: 10c0/25c35831f82c23e6396c7c520b7f67d1ce5304e70e9158952e273f23b9e497880b7614997bdb2749f1322e0562c6570ef5dc57969d6e67f8b0acf957d53c657d
+  languageName: node
+  linkType: hard
+
+"xstate@npm:^5.9.1":
   version: 5.32.0
   resolution: "xstate@npm:5.32.0"
   checksum: 10c0/bab5f8e2e7911c02113160b571cef69b83977c93aca4b0676a3ba6cb6c6e2a2284d6de6927804b43ad010a65f2aa6a53c8c1cc10aa91c92b8f3ad80c44c95efc

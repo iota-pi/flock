@@ -2,7 +2,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import type { ItemId } from '../../../shared/schemas/items'
 import { encodeBytesToBase64, decodeBase64ToBytes } from '../utils/base64Utils'
 import { ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
-import type { AutomergeDocStore } from './AutomergeDocStore'
+import { normalizeItemId, type AutomergeDocStore } from './AutomergeDocStore'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 
 export class BackupManager {
@@ -15,7 +15,7 @@ export class BackupManager {
     const exported: Partial<Record<BackupDocId, string>> = {}
 
     for (const itemId of await this.indexManager.listAutomergeItemIds()) {
-      const handle = await this.docStore.ensureDocumentHandle(itemId)
+      const handle = await this.docStore.findHandle(itemId)
       if (!handle || !handle.isReady()) continue
 
       const doc = handle.doc()
@@ -52,7 +52,7 @@ export class BackupManager {
       if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
       if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) continue
 
-      const normalizedItemId = this.docStore.normalizeItemId(itemId)
+      const normalizedItemId = normalizeItemId(itemId)
       if (!normalizedItemId) continue
 
       await this.docStore.hydrateAutomergeDocumentBinary(

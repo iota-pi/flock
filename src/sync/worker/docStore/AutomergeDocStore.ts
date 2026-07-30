@@ -9,11 +9,10 @@ import { isPlainObject } from '../utils/objectUtils'
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
 
-export type EnsureHandleOptions = {
+export type ChangeDocumentOptions = {
   createIfMissing?: boolean
+  knownToExist?: boolean
 }
-
-export type ChangeDocumentOptions = EnsureHandleOptions
 
 export type AutomergeIndexDocument = {
   accountId?: string
@@ -22,7 +21,7 @@ export type AutomergeIndexDocument = {
   lastModified?: Record<ItemId, number>
 }
 
-function normalizeItemId(raw: unknown): ItemId | null {
+export function normalizeItemId(raw: unknown): ItemId | null {
   const result = ItemIdSchema.safeParse(raw)
   return result.success ? result.data : null
 }
@@ -67,24 +66,63 @@ export class AutomergeDocStore {
     private readonly repo: Repo,
   ) {}
 
-  // Core Document Helpers
-  async getRepoHandle(itemId: ItemId): Promise<RepoDocHandle> {
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    return this.repo.find<RepoDoc>(documentUrl).catch(() => undefined)
+  private resolveDocumentId(itemId: ItemId) {
+    const url = toAutomergeUrlFromItemId(itemId)
+    return { url, documentId: interpretAsDocumentId(url) }
   }
 
-  async ensureDocumentHandle(
+  // Core Document Helpers
+  async findHandle(
     itemId: ItemId,
-    options: EnsureHandleOptions = {},
+    options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    const resolvedDocumentId = interpretAsDocumentId(documentUrl)
+    const { url, documentId } = this.resolveDocumentId(itemId)
 
-    let handle = await this.repo.find<RepoDoc>(documentUrl).catch(() => undefined)
+    // 1. Check in-memory handles cache first
+    let handle: RepoDocHandle = this.repo.handles[documentId]
 
-    if (!handle && options.createIfMissing) {
+    // 2. Determine if it's known to exist (or check locally as fallback)
+    let shouldFind = false
+    if (options.knownToExist !== undefined) {
+      shouldFind = options.knownToExist
+    } else {
+      // Fall back to checking storage subsystem existence
+      if (this.repo.storageSubsystem) {
+        try {
+          const data = await this.repo.storageSubsystem.loadDocData(documentId)
+          shouldFind = !!(data && data.length > 0)
+        } catch (_) {
+          shouldFind = false
+        }
+      }
+    }
+
+    // 3. Query the repository if the document is known to exist
+    if (!handle && shouldFind) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000) // 2s safety timeout
       try {
-        this.repo.delete(resolvedDocumentId)
+        handle = await this.repo.find<RepoDoc>(url, { signal: controller.signal })
+      } catch (error) {
+        console.warn(`[AutomergeDocStore] Failed to find document for ${itemId}:`, error)
+      } finally {
+        clearTimeout(timeoutId)
+      }
+    }
+
+    return handle
+  }
+
+  async findOrCreateHandle(
+    itemId: ItemId,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
+  ): Promise<RepoDocHandle> {
+    let handle = await this.findHandle(itemId, options)
+
+    if (!handle) {
+      const { documentId } = this.resolveDocumentId(itemId)
+      try {
+        this.repo.delete(documentId)
       } catch (error) {
         console.error('[automerge] failed to clear unavailable handle before import', {
           itemId,
@@ -95,12 +133,12 @@ export class AutomergeDocStore {
       const newDoc = Automerge.init()
       const binary = Automerge.save(newDoc)
       try {
-        handle = this.repo.import<RepoDoc>(binary, { docId: resolvedDocumentId })
+        handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
       } catch (error) {
-        console.error('[automerge] failed to import document', {
-          itemId,
-          error,
-        })
+        throw new Error(
+          `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
+          { cause: error },
+        )
       }
     }
 
@@ -116,12 +154,7 @@ export class AutomergeDocStore {
   }
 
   async readItemSnapshot(itemId: ItemId): Promise<RepoDoc | null> {
-    const normalizedItemId = normalizeItemId(itemId)
-    if (!normalizedItemId) {
-      return null
-    }
-
-    const handle = await this.getRepoHandle(normalizedItemId)
+    const handle = await this.findHandle(itemId)
     return this.snapshotFromHandle(handle)
   }
 
@@ -135,10 +168,10 @@ export class AutomergeDocStore {
       return false
     }
 
-    const handle = await this.ensureDocumentHandle(
-      normalizedItemId,
-      options,
-    )
+    const handle = options.createIfMissing
+      ? await this.findOrCreateHandle(normalizedItemId, options)
+      : await this.findHandle(normalizedItemId, options)
+
     if (!handle || !handle.isReady()) {
       return false
     }
@@ -162,24 +195,19 @@ export class AutomergeDocStore {
     if (!normalizedItemId) {
       return
     }
-
-    const documentUrl = toAutomergeUrlFromItemId(normalizedItemId)
+    const { documentId } = this.resolveDocumentId(normalizedItemId)
 
     try {
-      this.repo.delete(documentUrl)
+      this.repo.delete(documentId)
     } catch {
       // Ignore missing local handles.
     }
 
     try {
-      await this.repo.removeFromCache(interpretAsDocumentId(documentUrl))
+      await this.repo.removeFromCache(documentId)
     } catch {
       // Ignore cache-eviction failures for handles that were never loaded.
     }
-  }
-
-  normalizeItemId(raw: unknown): ItemId | null {
-    return normalizeItemId(raw)
   }
 
   async hydrateAutomergeDocumentBinary(
@@ -203,40 +231,29 @@ export class AutomergeDocStore {
   }
 
   async seedImportedDocument(itemId: ItemId, binary: Uint8Array): Promise<void> {
-    const documentUrl = toAutomergeUrlFromItemId(itemId)
-    const resolvedDocumentId = interpretAsDocumentId(documentUrl)
+    const { documentId } = this.resolveDocumentId(itemId)
 
     try {
-      await this.repo.removeFromCache(resolvedDocumentId)
+      await this.repo.removeFromCache(documentId)
     } catch {
       // Ignore cache-eviction failures
     }
 
     this.repo.import<RepoDoc>(binary, {
-      docId: resolvedDocumentId,
+      docId: documentId,
     })
   }
 
   async clear(itemIds: ItemId[]): Promise<void> {
-    for (const itemId of itemIds) {
-      const documentUrl = toAutomergeUrlFromItemId(itemId)
-      try {
-        this.repo.delete(documentUrl)
-      } catch {
-        // Ignore missing local handles.
-      }
-      try {
-        await this.repo.removeFromCache(interpretAsDocumentId(documentUrl))
-      } catch {
-        // Ignore cache-eviction failures for handles that were never loaded.
-      }
-    }
+    const promises = itemIds.map(itemId => this.removeAutomergeItem(itemId))
+    await Promise.allSettled(promises)
+  }
 
-
+  async shutdown(): Promise<void> {
     try {
       await this.repo.shutdown()
     } catch (err) {
-      console.error('[automergeDocStore] Failed to close repo before database deletion:', err)
+      console.error('[automergeDocStore] Failed to close repo:', err)
     }
   }
 }

@@ -20,12 +20,16 @@ export class ItemOperations {
 
   async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
-      const updated = await this.deps.docStore.changeDocument(id, doc => {
-        for (const [key, value] of Object.entries(changes)) {
-          if (value === undefined) delete doc[key]
-          else doc[key] = value
-        }
-      })
+      const updated = await this.deps.docStore.changeDocument(
+        id,
+        doc => {
+          for (const [key, value] of Object.entries(changes)) {
+            if (value === undefined) delete doc[key]
+            else doc[key] = value
+          }
+        },
+        { knownToExist: true },
+      )
       if (updated) {
         this.deps.markDocumentDirty(id)
       }
@@ -45,7 +49,7 @@ export class ItemOperations {
             doc[key] = value
           }
         },
-        { createIfMissing: true },
+        { createIfMissing: true, knownToExist: false },
       )
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
@@ -71,6 +75,7 @@ export class ItemOperations {
   async storeItems(items: Item[]): Promise<void> {
     const failedItems: { item: Item; error: Error }[] = []
     const succeededIds: ItemId[] = []
+    const existingIds = new Set(await this.deps.indexManager.listAutomergeItemIds())
 
     for (const item of items) {
       try {
@@ -82,7 +87,7 @@ export class ItemOperations {
               else doc[key] = value
             }
           },
-          { createIfMissing: true }
+          { createIfMissing: true, knownToExist: existingIds.has(item.id) }
         )
         if (updated) {
           succeededIds.push(item.id)

@@ -137,6 +137,12 @@ export class SyncWorkerContext {
     }
 
     try {
+      await this.docStore.shutdown()
+    } catch (err) {
+      console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
+    }
+
+    try {
       await this.indexStore.clear()
     } catch (err) {
       console.error('[SyncWorkerContext] Error clearing IndexStore', err)
