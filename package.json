@@ -18,7 +18,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "coverage": "vitest run --coverage",
-    "e2e": "cypress run"
+    "e2e": "cypress run --browser chrome"
   },
   "dependencies": {
     "@automerge/automerge": "^3.2.6",
