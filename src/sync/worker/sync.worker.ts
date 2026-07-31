@@ -2,6 +2,7 @@
 import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
+import localforage from 'localforage'
 
 import type { SyncApi } from './syncProtocol'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEventListener, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
@@ -9,7 +10,7 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
 import { initWorkerVault } from '../../api/vault'
-import { AutomergeRepoManager } from './automergeRepo'
+import { AutomergeRepoManager, getAutomergeDBName } from './automergeRepo'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import type { SyncStatus } from '../../state/slices/syncSlice'
@@ -317,8 +318,13 @@ export class SyncWorker implements SyncApi {
       this.unsubscribeRealtimeBus = null
     }
 
+    const accountId = this._context?.accountId
+    const dbName = accountId ? getAutomergeDBName(accountId) : null
+
     try {
-      await this.context.shutdown()
+      if (this._context) {
+        await this._context.shutdown()
+      }
     } catch (err) {
       console.error('[SyncWorker] Error shutting down context', err)
     }
@@ -349,6 +355,14 @@ export class SyncWorker implements SyncApi {
         console.error('[SyncWorker] Error closing RepoManager', err)
       }
       this.repoManager = null
+    }
+
+    if (dbName) {
+      try {
+        await localforage.dropInstance({ name: dbName })
+      } catch (err) {
+        console.error('[SyncWorker] Error dropping IndexedDB database', err)
+      }
     }
   }
 

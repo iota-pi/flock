@@ -6,8 +6,6 @@ import { BackupManager } from './docStore/BackupManager'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
-import localforage from 'localforage'
-import { getAutomergeDBName } from './automergeRepo'
 import { SnapshotManager } from './snapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { DeletionQueueManager } from './deletionQueueManager'
@@ -148,11 +146,6 @@ export class SyncWorkerContext {
       console.error('[SyncWorkerContext] Error clearing IndexStore', err)
     }
 
-    try {
-      const dbName = getAutomergeDBName(this.accountId)
-      await localforage.dropInstance({ name: dbName })
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error dropping IndexedDB database', err)
-    }
+
   }
 }
