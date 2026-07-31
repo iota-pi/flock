@@ -87,7 +87,7 @@ flock/
 
 Requirements:
 
-1. Node.js v24+
+1. Node.js v26+
 2. Yarn 4 (via Corepack)
 3. Docker with Compose
 

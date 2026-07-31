@@ -43,7 +43,7 @@
 1. **Security First**:
     - **NEVER** add server-side decryption.
     - **NEVER** log secrets or plaintext data.
-    - **Client-Side Only**: Plaintext data remains on the client. Preserve sign-out cleanup behavior (`signOutVault`) when changing auth flows.
+    - **Client-Side Only**: Plaintext data remains on the client.
 
 2. **Encryption Implementation**:
     - Use helpers in `src/api/vault/crypto.ts` and related vault client modules for encryption/decryption primitives.
