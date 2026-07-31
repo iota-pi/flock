@@ -72,7 +72,7 @@ export const errorItemSchema = baseItemSchema.omit({ type: true }).extend({
 })
 
 
-export const readItemSchema = z.discriminatedUnion('type', [
+export const standardItemSchema = z.discriminatedUnion('type', [
   personItemSchema,
   groupItemSchema,
   topicItemSchema,
@@ -84,7 +84,7 @@ export type BaseItem = z.infer<typeof baseItemSchema>
 export type PersonItem = z.infer<typeof personItemSchema>
 export type GroupItem = z.infer<typeof groupItemSchema>
 export type TopicItem = z.infer<typeof topicItemSchema>
-export type StandardItem = z.infer<typeof readItemSchema>
+export type StandardItem = z.infer<typeof standardItemSchema>
 export type ErrorItem = z.infer<typeof errorItemSchema>
 
 export const ItemEnvelopeMetadataSchema = z.object({

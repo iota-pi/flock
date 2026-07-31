@@ -30,6 +30,7 @@ import { getLastPrayedFor } from 'src/utils/prayer'
 import { deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES, ItemId } from 'src/shared/schemas/items'
+import { useAppStore } from 'src/state/store'
 
 
 const ItemFormContent = lazy(() => import('./ItemFormContent'))
@@ -50,6 +51,7 @@ function ItemDrawer({
   open,
 }: Props) {
   const storeItem = useItem(itemId ?? '' as ItemId)
+  const setMessage = useAppStore(state => state.setMessage)
 
   const resolvedItem = useMemo((): Item | null => {
     if (storeItem) {
@@ -129,7 +131,14 @@ function ItemDrawer({
         key={itemType}
         onClick={() => {
           if (resolvedItem) {
-            handleChange(i => convertItem(i, itemType))
+            try {
+              handleChange(i => convertItem(i, itemType))
+            } catch (error) {
+              setMessage({
+                message: 'Failed to convert item type: ' + (error as Error).message,
+                severity: 'error',
+              })
+            }
           }
         }}
       >

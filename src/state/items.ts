@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { mergeWith } from 'lodash-es'
+
 import { generateItemId } from '../utils'
 import type { ItemType } from '../shared/itemTypes'
 import {
-  readItemSchema,
+  standardItemSchema,
   type StandardItem,
   type BaseItem,
   type ErrorItem,
@@ -14,6 +15,7 @@ import {
   ItemId,
   ERROR_ITEM_TYPE,
 } from '../shared/schemas/items'
+
 
 export type Item = StandardItem | ErrorItem
 
@@ -155,13 +157,35 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
   }
 }
 
-export function convertItem<T extends Item, S extends StandardItem>(item: T, type: S['type']): S {
-  const result = {
-    ...getBlankItem(type, false),
-    ...item,
-    type,
-  } as S
-  return result
+export function convertItem<T extends Item, S extends StandardItem>(item: T, newType: S['type']): S {
+  const { members, memberPrayerFrequency, memberPrayerTarget, ...baseProps } = item as GroupItem
+  const newBase = getBlankItem(newType, false)
+
+  let newItem: S
+  if (newType === 'group') {
+    newItem = {
+      ...newBase,
+      ...baseProps,
+      members: Array.isArray(members) ? members : [],
+      memberPrayerFrequency: memberPrayerFrequency ?? 'none',
+      memberPrayerTarget: memberPrayerTarget ?? 'one',
+      type: newType,
+    } satisfies GroupItem as S
+  } else {
+    newItem = {
+      ...newBase,
+      ...baseProps,
+      type: newType,
+    } as S
+  }
+
+  const parsing = standardItemSchema.safeParse(newItem)
+  if (!parsing.success) {
+    const readable = z.prettifyError(parsing.error).replace(/\n+/g, '; ')
+    throw new Error(`Failed to convert item to type "${newType}": ${readable}`)
+  }
+
+  return newItem
 }
 
 export function isValid<T extends Item>(item: T) {

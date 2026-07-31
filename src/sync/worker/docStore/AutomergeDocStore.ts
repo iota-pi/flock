@@ -1,6 +1,6 @@
 import { Repo, DocHandle, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
-import { ItemId, ItemIdSchema, readItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
+import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { readObjectSnapshot, toAutomergeUrlFromItemId } from '../utils/automerge'
@@ -36,7 +36,7 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
     ? item
     : { ...item, id: itemId }
 
-  const parsed = readItemSchema.safeParse(normalizedItem)
+  const parsed = standardItemSchema.safeParse(normalizedItem)
   if (parsed.success) {
     return parsed.data as Item
   }
