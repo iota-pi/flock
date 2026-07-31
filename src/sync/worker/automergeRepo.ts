@@ -1,8 +1,8 @@
 import { Repo, type StorageAdapterInterface, type Chunk } from '@automerge/automerge-repo/slim'
 import { EncryptedBroadcastChannelNetworkAdapter } from './EncryptedBroadcastChannelNetworkAdapter'
-import { IndexedDBStorageAdapter } from '@automerge/automerge-repo-storage-indexeddb'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { runStorageOperation } from '../../utils/storageManager'
+import { FlockIndexedDBStorageAdapter } from './FlockIndexedDBStorageAdapter'
 
 class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   constructor(private delegate: StorageAdapterInterface) {}
@@ -34,7 +34,7 @@ export function getAutomergeDBName(accountId: string): string {
 
 export class AutomergeRepoManager {
   private repo: Repo | null = null
-  private indexedDbAdapter: IndexedDBStorageAdapter | null = null
+  private indexedDbAdapter: FlockIndexedDBStorageAdapter | null = null
 
   constructor(private readonly accountId: string) {}
 
@@ -44,7 +44,7 @@ export class AutomergeRepoManager {
     }
 
     const dbName = getAutomergeDBName(this.accountId)
-    this.indexedDbAdapter = new IndexedDBStorageAdapter(dbName)
+    this.indexedDbAdapter = new FlockIndexedDBStorageAdapter(dbName)
 
     this.repo = new Repo({
       storage: new QuotaHandlingStorageAdapter(this.indexedDbAdapter),
@@ -78,14 +78,7 @@ export class AutomergeRepoManager {
 
     if (this.indexedDbAdapter) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const dbPromise = (this.indexedDbAdapter as any).dbPromise
-        if (dbPromise) {
-          const db = await dbPromise
-          if (db && typeof db.close === 'function') {
-            db.close()
-          }
-        }
+        this.indexedDbAdapter.close()
       } catch (err) {
         console.error(`[AutomergeRepoManager] Error closing IndexedDB connection for ${this.accountId}:`, err)
       }

@@ -22,7 +22,6 @@ describe('backup operations', () => {
     indexManager = new AutomergeIndexManager(accountId, indexStore)
     backupManager = new BackupManager(docStore, indexManager)
 
-    await docStore.clear([])
     await indexStore.clear()
     await indexManager.ensureIndexDocument()
   })
@@ -61,7 +60,7 @@ describe('backup operations', () => {
     expect(Object.keys(exported)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
 
     // Clean current state
-    await docStore.clear([item.id])
+    await docStore.removeAutomergeItem(item.id)
     await indexStore.clear()
     await indexManager.ensureIndexDocument()
 

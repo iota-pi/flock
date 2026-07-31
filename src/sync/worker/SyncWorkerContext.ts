@@ -112,7 +112,7 @@ export class SyncWorkerContext {
     await this.orchestrator.start()
   }
 
-  async shutdown(): Promise<void> {
+  async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.orchestrator.shutdown()
 
     try {
@@ -128,24 +128,21 @@ export class SyncWorkerContext {
     }
 
     try {
-      const itemIds = await this.indexManager.listAutomergeItemIds()
-      await this.docStore.clear(itemIds)
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error clearing DocStore', err)
-    }
-
-    try {
       await this.docStore.shutdown()
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
     }
 
-    try {
-      await this.indexStore.clear()
-    } catch (err) {
-      console.error('[SyncWorkerContext] Error clearing IndexStore', err)
+    if (options?.clearLocalData) {
+      try {
+        await Promise.all([
+          this.indexStore.drop(),
+          this.cursorStore.drop(),
+          this.lastModifiedStore.drop(),
+        ])
+      } catch (err) {
+        console.error('[SyncWorkerContext] Error dropping metadata stores on logout', err)
+      }
     }
-
-
   }
 }

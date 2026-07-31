@@ -62,6 +62,15 @@ export class SyncWorker implements SyncApi {
       this._context = null
     }
 
+    if (this.repoManager) {
+      try {
+        await this.repoManager.close()
+      } catch (err) {
+        console.error('[SyncWorker] Error closing RepoManager in initRepo', err)
+      }
+      this.repoManager = null
+    }
+
     if (this.unsubscribeRealtimeBus) {
       this.unsubscribeRealtimeBus()
       this.unsubscribeRealtimeBus = null
@@ -323,7 +332,7 @@ export class SyncWorker implements SyncApi {
 
     try {
       if (this._context) {
-        await this._context.shutdown()
+        await this._context.shutdown({ clearLocalData: true })
       }
     } catch (err) {
       console.error('[SyncWorker] Error shutting down context', err)
@@ -355,6 +364,11 @@ export class SyncWorker implements SyncApi {
         console.error('[SyncWorker] Error closing RepoManager', err)
       }
       this.repoManager = null
+    }
+
+    // Give the browser event loop a moment to finish closing the IndexedDB connection
+    if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
 
     if (dbName) {

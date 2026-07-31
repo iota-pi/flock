@@ -4,11 +4,13 @@ import { runStorageOperation } from '../../../utils/storageManager'
 
 export class CursorStore {
   private readonly store: LocalForage
+  private readonly storeName: string
 
   constructor(accountId: string) {
+    this.storeName = `cursors-${accountId}`
     this.store = localforage.createInstance({
       name: 'flock-sync-cursors',
-      storeName: `cursors-${accountId}`,
+      storeName: this.storeName,
     })
   }
 
@@ -22,5 +24,12 @@ export class CursorStore {
 
   async clear(): Promise<void> {
     await this.store.clear()
+  }
+
+  async drop(): Promise<void> {
+    await localforage.dropInstance({
+      name: 'flock-sync-cursors',
+      storeName: this.storeName,
+    })
   }
 }

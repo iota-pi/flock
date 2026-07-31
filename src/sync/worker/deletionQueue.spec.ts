@@ -54,6 +54,7 @@ vi.mock('./docStore', () => ({
     getAutomergeItem = vi.fn().mockResolvedValue(null)
     clear = (...args: any[]) => mockClearAutomergeDocStore(...args)
     normalizeItemSnapshot = vi.fn()
+    shutdown = vi.fn().mockResolvedValue(undefined)
   },
   normalizeItemSnapshot: vi.fn().mockImplementation((id, doc) => ({ ...doc, id }))
 }))
@@ -206,7 +207,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
   it('clears scheduled deletions when shutdown is called', async () => {
     await worker.shutdown()
     expect(deletionStore.clearScheduledDeletions).toHaveBeenCalledWith(accountId)
-    expect(mockClearAutomergeDocStore).toHaveBeenCalled()
+    expect(mockClearAutomergeDocStore).not.toHaveBeenCalled()
   })
 
   it('clears pending timer and cancels deletions on hardDeleteItems', async () => {

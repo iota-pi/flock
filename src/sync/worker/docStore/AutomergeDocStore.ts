@@ -244,11 +244,6 @@ export class AutomergeDocStore {
     })
   }
 
-  async clear(itemIds: ItemId[]): Promise<void> {
-    const promises = itemIds.map(itemId => this.removeAutomergeItem(itemId))
-    await Promise.allSettled(promises)
-  }
-
   async shutdown(): Promise<void> {
     try {
       await this.repo.shutdown()
