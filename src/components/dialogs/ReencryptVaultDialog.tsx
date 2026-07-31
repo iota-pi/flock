@@ -64,7 +64,7 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
           <Typography variant="body2" color="textSecondary">
-            To fully secure your vault after a password change, it is highly recommended to re-encrypt all of your items with a new vault key. This rotates the data key and prunes old sync history from the server.
+            To fully secure your vault after a password change, it is highly recommended to re-encrypt all of your items with a new vault key.
           </Typography>
 
           {status === 'running' && (
