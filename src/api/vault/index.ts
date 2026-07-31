@@ -272,7 +272,8 @@ export async function signOutVault() {
     await clearManualRecoveryEntries(accountId)
   }
   await clearActiveSessionToken()
-  updateAuth({ loggedIn: false })
+  clearStoredMetadata()
+  updateAuth({ account: '', loggedIn: false })
 }
 
 export async function encrypt(plaintext: string): Promise<CryptoResult> {
