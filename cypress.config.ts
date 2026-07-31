@@ -14,7 +14,7 @@ export default defineConfig({
     specPattern: 'cypress/e2e/**/*.cy.{js,jsx,ts,tsx}',
     experimentalRunAllSpecs: true,
     setupNodeEvents(on, config) {
-      const downloads = path.join(__dirname, 'cypress', 'downloads')
+      const downloads = path.resolve('cypress', 'downloads')
       if (fs.existsSync(downloads)) {
         fs.rmSync(downloads, { recursive: true, force: true })
       }

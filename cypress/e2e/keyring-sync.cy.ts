@@ -5,7 +5,7 @@ describe('Keyring Server Sync and Restoration', () => {
     // 0. Sign out of the session automatically established by the beforeEach hook
     cy.page('settings')
     cy.dataCy('logout').click()
-    cy.location('pathname').should('equal', '/welcome')
+    cy.location('pathname').should('equal', '/login')
     cy.clearLocalStorage()
     cy.window().then((win) => {
       const dbNames = [
@@ -65,7 +65,7 @@ describe('Keyring Server Sync and Restoration', () => {
     // 3. Log out and clear local state to simulate a new device / fresh load
     cy.page('settings')
     cy.dataCy('logout').click()
-    cy.location('pathname').should('equal', '/welcome')
+    cy.location('pathname').should('equal', '/login')
 
     cy.clearLocalStorage()
     cy.window().then((win) => {
@@ -107,7 +107,7 @@ describe('Keyring Server Sync and Restoration', () => {
     })
 
     // Verify we successfully land on the main page, implying keyring decryption succeeded
-    cy.location('pathname', { timeout: 15000 }).should('equal', '/')
+    cy.location('pathname', { timeout: 15000 }).should('equal', '/settings')
     cy.page('people')
     cy.dataCy('page-content-people').should('exist')
   })

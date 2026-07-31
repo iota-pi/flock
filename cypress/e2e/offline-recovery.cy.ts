@@ -1,5 +1,18 @@
 function seedManualRecoveryEntry(id: string, label: string) {
   cy.window().then(win => {
+    const metaStr = win.localStorage.getItem('FlockVaultMeta')
+    let accountId = ''
+    if (metaStr) {
+      try {
+        accountId = JSON.parse(metaStr).account || ''
+      } catch {}
+    }
+    if (!accountId) {
+      accountId = win.localStorage.getItem('FlockVaultAccount') || 'session-account'
+    }
+
+    const dbName = `FlockVault_ManualRecoveryDB_${accountId}`
+
     return new Cypress.Promise<void>((resolve, reject) => {
       const storeName = 'manual-recovery-items'
 
@@ -25,7 +38,7 @@ function seedManualRecoveryEntry(id: string, label: string) {
         }
       }
 
-      const request = win.indexedDB.open('FlockVault_ManualRecoveryDB')
+      const request = win.indexedDB.open(dbName)
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
         const db = request.result
@@ -38,7 +51,7 @@ function seedManualRecoveryEntry(id: string, label: string) {
         const nextVersion = db.version + 1
         db.close()
 
-        const upgradeRequest = win.indexedDB.open('FlockVault_ManualRecoveryDB', nextVersion)
+        const upgradeRequest = win.indexedDB.open(dbName, nextVersion)
         upgradeRequest.onerror = () => reject(upgradeRequest.error)
         upgradeRequest.onupgradeneeded = () => {
           const upgradedDb = upgradeRequest.result

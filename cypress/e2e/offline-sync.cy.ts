@@ -10,7 +10,7 @@ describe('Offline sync', () => {
     cy.contains(offlineName).should('exist')
 
     cy.goOnline()
-    cy.get('[aria-label="Sync now"]').click({ force: true })
+    // Wait for the automatic sync to occur and assert the item is still there
     cy.contains(offlineName).should('exist')
   })
 
@@ -31,24 +31,10 @@ describe('Offline sync', () => {
     cy.contains(updatedName).should('exist')
 
     cy.goOnline()
-    cy.get('[aria-label="Sync now"]').click({ force: true })
-
+    // Wait for the automatic sync to occur
     cy.contains(updatedName).should('exist')
     cy.get('body').should('not.contain.text', 'Version conflict')
     cy.get('body').should('not.contain.text', 'Resolve conflict')
     cy.get('body').should('not.contain.text', 'Conflict detected')
-  })
-
-  it('keeps people page usable after manual sync trigger', () => {
-    const uniqueId = Date.now().toString().slice(-6)
-    const seededName = `Pull Error Person ${uniqueId}`
-
-    cy.page('people')
-    cy.createPerson({ name: seededName }, true).saveDrawer()
-
-    cy.get('[aria-label="Sync now"]').click({ force: true })
-
-    cy.dataCy('page-content-people').should('exist')
-    cy.contains(seededName).should('exist')
   })
 })

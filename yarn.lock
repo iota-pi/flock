@@ -6019,9 +6019,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cypress@npm:^15.15.0":
-  version: 15.16.0
-  resolution: "cypress@npm:15.16.0"
+"cypress@npm:^15.19.0":
+  version: 15.19.0
+  resolution: "cypress@npm:15.19.0"
   dependencies:
     "@cypress/request": "npm:^4.0.0"
     "@cypress/xvfb": "npm:^1.2.4"
@@ -6064,7 +6064,7 @@ __metadata:
     yauzl: "npm:^3.3.1"
   bin:
     cypress: bin/cypress
-  checksum: 10c0/9cee32e8cfc5e5f245ecea1ee9cfd1a9217b052bd88c42a1980986ee58eb3433c1f3be8a04e97e45161fae562fd4cc6e95746727e0263575c093bf2996232e93
+  checksum: 10c0/b411ea7617b91f922709c1b5db8ab5e38090c75d54aaa3721048e9a214e4ae1cf4669df4eab7aa225ceb3cb5d9e6a4e6eb4156e8fb7a7fe77248efc8b9353e9d
   languageName: node
   linkType: hard
 
@@ -7421,7 +7421,7 @@ __metadata:
     comlink: "npm:^4.4.2"
     concurrently: "npm:^9.2.1"
     csv-parse: "npm:^6.1.0"
-    cypress: "npm:^15.15.0"
+    cypress: "npm:^15.19.0"
     cypress-axe: "npm:^1.7.0"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
