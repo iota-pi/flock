@@ -5,7 +5,6 @@ import {
   supplyMissingAttributes,
   convertItem,
   isValid,
-  checkProperties,
   Item,
 } from './items'
 import { importPeople } from '../utils/importUtils'
@@ -74,18 +73,6 @@ describe('items helpers', () => {
     expect(isValid(p)).toBe(false)
     p.name = 'Bob'
     expect(isValid(p)).toBe(true)
-  })
-
-  it('checkProperties detects missing keys', () => {
-    const bad = [{ id: '1', type: 'person' } as any]
-    const res = checkProperties(bad)
-    expect(res.error).toBe(true)
-    expect(res.errors[0].message).toContain('failed schema validation')
-    // good case
-    const good = [supplyMissingAttributes({ id: '2', type: 'person' } as any)]
-    const res2 = checkProperties(good)
-    expect(res2.error).toBe(false)
-    expect(res2.errors).toHaveLength(0)
   })
 
   it('importPeople builds group and adds people', () => {

@@ -93,35 +93,6 @@ export function getBlankItem(itemType: ItemType, isNew?: boolean): StandardItem 
   throw new Error('Unknown item type')
 }
 
-export function checkProperties(items: Item[]): { error: boolean, errors: Array<{ id: string, message: string }> } {
-  const errors: Array<{ id: string, message: string }> = []
-
-  for (const [index, item] of items.entries()) {
-    const result = readItemSchema.safeParse(item)
-    if (result.success) {
-      continue
-    }
-
-    const issue = result.error.issues[0]
-    const keyPath = issue.path.join('.')
-    const id = typeof item?.id === 'string' && item.id.length > 0
-      ? item.id
-      : `at index ${index}`
-    const suffix = keyPath.length > 0 ? ` at "${keyPath}"` : ''
-    const readable = z.prettifyError(result.error).replace(/\n+/g, '; ')
-
-    errors.push({
-      id,
-      message: `Item ${id} failed schema validation${suffix}: ${readable}`,
-    })
-  }
-
-  return {
-    error: errors.length > 0,
-    errors,
-  }
-}
-
 export function getItemTypeLabel(itemType: Item['type'], plural?: boolean): string {
   if (itemType === 'person') {
     return plural ? 'People' : 'Person'
