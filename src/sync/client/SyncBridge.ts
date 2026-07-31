@@ -291,7 +291,7 @@ export const SyncBridge = {
     await syncApi.restoreSyncState(state)
   },
 
-  shutdown: async () => {
+  shutdown: async (options?: { clearLocalData?: boolean }) => {
     currentAccountId = null
     stopWorkerHeartbeat()
     resetCrashMetrics()
@@ -307,7 +307,7 @@ export const SyncBridge = {
     if (syncApi) {
       try {
         await Promise.race([
-          syncApi.shutdown(),
+          syncApi.shutdown(options),
           new Promise<void>((_, reject) =>
             setTimeout(() => reject(new Error('Sync worker shutdown timed out')), 1000)
           ),

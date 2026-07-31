@@ -66,6 +66,12 @@ export class AutomergeRepoManager {
     return this.repo
   }
 
+  async clearLocalData(): Promise<void> {
+    if (this.indexedDbAdapter) {
+      await this.indexedDbAdapter.clear()
+    }
+  }
+
   async close(): Promise<void> {
     if (this.repo) {
       try {

@@ -25,11 +25,4 @@ export class LastModifiedStore {
   async clear(): Promise<void> {
     await this.store.clear()
   }
-
-  async drop(): Promise<void> {
-    await localforage.dropInstance({
-      name: 'flock-sync-last-modified',
-      storeName: this.storeName,
-    })
-  }
 }

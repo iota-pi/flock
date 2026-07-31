@@ -122,11 +122,6 @@ export class SyncWorker implements SyncApi {
       items => this.storeItems(items),
       changes => this.mutateMetadata(changes)
     )
-    await this._context.initialize()
-
-    this._context.orchestrator.setOnlineState(this.isOnline)
-    this._context.snapshotManager.onOnlineStateChange(this.isOnline)
-
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
@@ -158,6 +153,11 @@ export class SyncWorker implements SyncApi {
           break
       }
     })
+
+    await this._context.initialize()
+
+    this._context.orchestrator.setOnlineState(this.isOnline)
+    this._context.snapshotManager.onOnlineStateChange(this.isOnline)
 
     this.adapter.setAccount(accountId)
     await this.broker.setAccount(accountId)
@@ -319,7 +319,7 @@ export class SyncWorker implements SyncApi {
     if (state.lastModified) await context.snapshotManager.importLastModified(state.lastModified)
   }
 
-  async shutdown() {
+  async shutdown(options?: { clearLocalData?: boolean }) {
     this.clearListeners()
 
     if (this.unsubscribeRealtimeBus) {
@@ -327,12 +327,17 @@ export class SyncWorker implements SyncApi {
       this.unsubscribeRealtimeBus = null
     }
 
-    const accountId = this._context?.accountId
-    const dbName = accountId ? getAutomergeDBName(accountId) : null
+    if (options?.clearLocalData && this.repoManager) {
+      try {
+        await this.repoManager.clearLocalData()
+      } catch (err) {
+        console.error('[SyncWorker] Error clearing Automerge DB', err)
+      }
+    }
 
     try {
       if (this._context) {
-        await this._context.shutdown({ clearLocalData: true })
+        await this._context.shutdown(options)
       }
     } catch (err) {
       console.error('[SyncWorker] Error shutting down context', err)
@@ -369,14 +374,6 @@ export class SyncWorker implements SyncApi {
     // Give the browser event loop a moment to finish closing the IndexedDB connection
     if (typeof process === 'undefined' || process.env.NODE_ENV !== 'test') {
       await new Promise(resolve => setTimeout(resolve, 100))
-    }
-
-    if (dbName) {
-      try {
-        await localforage.dropInstance({ name: dbName })
-      } catch (err) {
-        console.error('[SyncWorker] Error dropping IndexedDB database', err)
-      }
     }
   }
 

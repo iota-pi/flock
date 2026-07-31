@@ -25,11 +25,4 @@ export class IndexStore {
   async clear(): Promise<void> {
     await this.store.clear()
   }
-
-  async drop(): Promise<void> {
-    await localforage.dropInstance({
-      name: 'flock-item-metadata',
-      storeName: this.storeName,
-    })
-  }
 }

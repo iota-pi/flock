@@ -263,7 +263,7 @@ export async function signOutVault() {
   session = ''
   setApiAuthToken('')
 
-  await SyncBridge.shutdown()
+  await SyncBridge.shutdown({ clearLocalData: true })
 
   const accountId = useAppStore.getState().account
   if (accountId) {

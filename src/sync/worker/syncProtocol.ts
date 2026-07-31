@@ -27,6 +27,6 @@ export interface SyncApi {
   reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
-  shutdown: () => Promise<void>
+  shutdown: (options?: { clearLocalData?: boolean }) => Promise<void>
   ping: () => Promise<void>
 }

@@ -136,12 +136,12 @@ export class SyncWorkerContext {
     if (options?.clearLocalData) {
       try {
         await Promise.all([
-          this.indexStore.drop(),
-          this.cursorStore.drop(),
-          this.lastModifiedStore.drop(),
+          this.indexStore.clear(),
+          this.cursorStore.clear(),
+          this.lastModifiedStore.clear(),
         ])
       } catch (err) {
-        console.error('[SyncWorkerContext] Error dropping metadata stores on logout', err)
+        console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)
       }
     }
   }

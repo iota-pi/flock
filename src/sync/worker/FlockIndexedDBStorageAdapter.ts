@@ -46,6 +46,19 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
     this.dbPromise = null
   }
 
+  async clear(): Promise<void> {
+    const db = await this.getDB()
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, 'readwrite')
+      const store = transaction.objectStore(this.storeName)
+      const request = store.clear()
+
+      transaction.onerror = () => reject(transaction.error)
+      request.onsuccess = () => resolve()
+    })
+  }
+
+
   async load(key: string[]): Promise<Uint8Array | undefined> {
     const db = await this.getDB()
     return new Promise((resolve, reject) => {
