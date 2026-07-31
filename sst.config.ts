@@ -89,7 +89,7 @@ export default $config({
     // -----------------------------------------------------------------
     const vaultApi = new sst.aws.Function('VaultApi', {
       handler: 'src/vault/index.handler',
-      runtime: 'nodejs22.x',
+      runtime: 'nodejs24.x',
       memory: '512 MB',
       timeout: '5 seconds',
       url: {
@@ -113,7 +113,7 @@ export default $config({
     // -----------------------------------------------------------------
     const migrationsLambda = new sst.aws.Function('VaultMigrations', {
       handler: 'src/vault/index.migrationHandler',
-      runtime: 'nodejs22.x',
+      runtime: 'nodejs24.x',
       memory: '512 MB',
       timeout: '60 seconds',
       environment: {
@@ -143,7 +143,7 @@ export default $config({
 
     pushNotificationsQueue.subscribe({
       handler: 'src/vault/notifier/worker.handler',
-      runtime: 'nodejs22.x',
+      runtime: 'nodejs24.x',
       memory: '512 MB',
       timeout: '60 seconds',
       environment: {
@@ -165,7 +165,7 @@ export default $config({
       schedule: 'rate(15 minutes)',
       function: {
         handler: 'src/vault/notifier/enqueuer.handler',
-        runtime: 'nodejs22.x',
+        runtime: 'nodejs24.x',
         memory: '512 MB',
         timeout: '60 seconds',
         environment: {
