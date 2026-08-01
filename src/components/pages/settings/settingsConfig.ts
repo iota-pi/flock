@@ -2,6 +2,7 @@ import {
   DownloadIcon,
   FrequencyIcon,
   EditIcon,
+  LockIcon,
   MuiIconType,
   NotificationIcon,
   PersonIcon,
@@ -12,7 +13,8 @@ import {
 } from '../../Icons'
 
 export type SettingsActionId =
-  | 'signOut'
+  | 'lock'
+  | 'removeAccount'
   | 'toggleDarkMode'
   | 'openGoalDialog'
   | 'openDefaultFrequencyDialog'
@@ -45,10 +47,17 @@ type SettingsConfigEntry = SettingsItemConfig | SettingsDividerConfig
 export const settingsConfig: SettingsConfigEntry[] = [
   {
     type: 'item',
+    id: 'lock',
+    title: 'Lock',
+    icon: LockIcon,
+    action: 'lock',
+  },
+  {
+    type: 'item',
     id: 'logout',
-    title: 'Sign out',
+    title: 'Sign out & remove local data',
     icon: SignOutIcon,
-    action: 'signOut',
+    action: 'removeAccount',
   },
   { type: 'divider', key: 'd1' },
   {

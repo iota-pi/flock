@@ -8,7 +8,8 @@ import { ItemId } from 'src/shared/schemas/items'
 
 const mocks = vi.hoisted(() => ({
   exportData: vi.fn(),
-  signOutVault: vi.fn(),
+  lockVault: vi.fn(),
+  removeVaultFromDevice: vi.fn(),
   storeItems: vi.fn(),
   setMetadata: vi.fn(),
 
@@ -26,7 +27,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../api/vault', () => ({
   exportData: mocks.exportData,
-  signOutVault: mocks.signOutVault,
+  lockVault: mocks.lockVault,
+  removeVaultFromDevice: mocks.removeVaultFromDevice,
 }))
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
@@ -133,5 +135,27 @@ describe('useSettings backup portability', () => {
     })
     expect(mocks.forceSync).toHaveBeenCalledTimes(1)
     expect(mocks.storeItems).not.toHaveBeenCalled()
+  })
+
+  it('handles lock action', async () => {
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleLock()
+    })
+
+    expect(mocks.lockVault).toHaveBeenCalledTimes(1)
+    expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'App locked' })
+  })
+
+  it('handles remove account from device action', async () => {
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleRemoveAccountFromDevice()
+    })
+
+    expect(mocks.removeVaultFromDevice).toHaveBeenCalledTimes(1)
+    expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'Signed out and removed local data' })
   })
 })

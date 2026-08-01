@@ -108,7 +108,7 @@ async function handleSessionExpired() {
 
   isHandlingSessionExpiry = true
   try {
-    await signOutVault()
+    await removeVaultFromDevice()
   } finally {
     setTimeout(() => {
       isHandlingSessionExpiry = false
@@ -253,23 +253,36 @@ export async function storeVault(account: string) {
   }
 }
 
-export async function signOutVault() {
-  const { useAppStore } = await import('src/state/store')
-  const { updateAuth } = useAppStore.getState()
+function clearKeyData() {
   keyring.clear()
   masterKey = null
   activeKeyVersion = '1'
   keyHash = ''
   session = ''
   setApiAuthToken('')
+}
+
+export async function lockVault() {
+  const { useAppStore } = await import('src/state/store')
+  const { updateAuth } = useAppStore.getState()
+  clearKeyData()
+
+  await SyncBridge.shutdown({ clearLocalData: false })
+
+  updateAuth({ loggedIn: false })
+}
+
+export async function removeVaultFromDevice() {
+  const { useAppStore } = await import('src/state/store')
+  const { account, updateAuth } = useAppStore.getState()
+  clearKeyData()
 
   await SyncBridge.shutdown({ clearLocalData: true })
 
-  const accountId = useAppStore.getState().account
-  if (accountId) {
-    await clearSyncBatch(accountId)
-    await clearScheduledDeletions(accountId)
-    await clearManualRecoveryEntries(accountId)
+  if (account) {
+    await clearSyncBatch(account)
+    await clearScheduledDeletions(account)
+    await clearManualRecoveryEntries(account)
   }
   await clearActiveSessionToken()
   clearStoredMetadata()

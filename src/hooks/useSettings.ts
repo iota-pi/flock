@@ -2,7 +2,8 @@ import { useCallback, useMemo } from 'react'
 
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
-  signOutVault,
+  lockVault,
+  removeVaultFromDevice,
 } from '../api/vault'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'
@@ -32,10 +33,18 @@ export default function useSettings(items: Item[]) {
   const recoveryItemsExist = recoveryItems.length > 0
 
   // Actions
-  const handleSignOut = useCallback(
+  const handleLock = useCallback(
     async () => {
-      await signOutVault()
-      setMessage({ message: 'Signed out' })
+      await lockVault()
+      setMessage({ message: 'App locked' })
+    },
+    [setMessage],
+  )
+
+  const handleRemoveAccountFromDevice = useCallback(
+    async () => {
+      await removeVaultFromDevice()
+      setMessage({ message: 'Signed out and removed local data' })
     },
     [setMessage],
   )
@@ -64,7 +73,9 @@ export default function useSettings(items: Item[]) {
       handleConfirmImport: backupActions.handleConfirmImport,
       handleConfirmRestore: backupActions.handleConfirmRestore,
       handleExport: backupActions.handleExport,
-      handleSignOut,
+      handleLock,
+      handleRemoveAccountFromDevice,
+      handleSignOut: handleRemoveAccountFromDevice,
       handleSubscribe: subscriptionActions.handleSubscribe,
       handleToggleDarkMode: themeActions.handleToggleDarkMode,
       saveDefaultFrequencies,

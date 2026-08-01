@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import download from 'js-file-download'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
@@ -13,6 +13,7 @@ import SettingsItemsList from './settings/SettingsItemsList'
 import SettingsDialogs from './settings/SettingsDialogs'
 import type { SettingsActionId } from './settings/settingsConfig'
 import { useVisibleItems } from 'src/state/selectors'
+import ConfirmationDialog from '../dialogs/ConfirmationDialog'
 
 
 function SettingsPage() {
@@ -27,6 +28,7 @@ function SettingsPage() {
   const defaultFrequencyDialog = useDialogState('defaultFrequency')
   const changePasswordDialog = useDialogState('changePassword')
   const reencryptDialog = useDialogState('reencrypt')
+  const [confirmRemoveAccountOpen, setConfirmRemoveAccountOpen] = useState(false)
 
   const onExport = useCallback(
     async () => {
@@ -40,9 +42,17 @@ function SettingsPage() {
     [actions],
   )
 
+  const handleConfirmRemoveAccount = useCallback(() => {
+    setConfirmRemoveAccountOpen(false)
+    void actions.handleRemoveAccountFromDevice()
+  }, [actions])
+
   const actionHandlers: Record<SettingsActionId, () => void> = {
-    signOut: () => {
-      void actions.handleSignOut()
+    lock: () => {
+      void actions.handleLock()
+    },
+    removeAccount: () => {
+      setConfirmRemoveAccountOpen(true)
     },
     toggleDarkMode: actions.handleToggleDarkMode,
     openGoalDialog: goalDialog.openDialog,
@@ -116,6 +126,19 @@ function SettingsPage() {
         }}
         naturalGoal={values.naturalGoal}
       />
+      <ConfirmationDialog
+        cancel="Cancel"
+        confirm="Sign out & remove data"
+        confirmColour="error"
+        onCancel={() => setConfirmRemoveAccountOpen(false)}
+        onConfirm={handleConfirmRemoveAccount}
+        open={confirmRemoveAccountOpen}
+        title="Sign out and remove local data?"
+      >
+        Are you sure you want to sign out and remove all local data from this device? You will need an active internet connection to download your data again the next time you sign in.
+        <br />
+        It is recommended to perform this action on shared devices or in high-security environments. Otherwise, you can simply lock the app to prevent unauthorized access.
+      </ConfirmationDialog>
     </BasePage>
   )
 }

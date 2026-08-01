@@ -15,6 +15,7 @@ import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
+import LockIcon from '@mui/icons-material/LockOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
 import MoreOptionsIcon from '@mui/icons-material/MoreVert'
 import NextIcon from '@mui/icons-material/ChevronRight'
@@ -64,6 +65,7 @@ export {
   FrequencyIcon,
   GroupIcon,
   HomeIcon,
+  LockIcon,
   MenuIcon,
   MoreOptionsIcon,
   NextIcon,

@@ -8,7 +8,8 @@ import {
   decryptBytes,
   storeVault,
   loadAccount,
-  signOutVault,
+  lockVault,
+  removeVaultFromDevice,
   rotateVaultKey,
   exportKeyringData,
 } from './index'
@@ -35,7 +36,7 @@ vi.mock('../util', () => ({
 describe('Vault Keyring Integration', () => {
   beforeEach(async () => {
     localStorage.clear()
-    await signOutVault()
+    await removeVaultFromDevice()
     vi.clearAllMocks()
   })
 
@@ -74,7 +75,7 @@ describe('Vault Keyring Integration', () => {
     await storeVault('test-account')
 
     // Clear memory keyring
-    await signOutVault()
+    await removeVaultFromDevice()
 
     // Restore account only
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account' }))
@@ -95,7 +96,7 @@ describe('Vault Keyring Integration', () => {
 
     const exported = await exportKeyringData()
 
-    await signOutVault()
+    await removeVaultFromDevice()
 
     await initWorkerVault(exported)
 
@@ -165,5 +166,24 @@ describe('Vault Keyring Integration', () => {
     // Both should decrypt correctly
     expect(await decrypt(enc1)).toBe('data 1')
     expect(await decrypt(enc2)).toBe('data 2')
+  })
+
+  it('locks vault without clearing stored metadata', async () => {
+    await initialiseVault({
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+    await storeVault('test-account')
+
+    await lockVault()
+
+    // keyring should be cleared
+    expect(() => getVaultKey('1')).toThrow()
+
+    // stored metadata should still exist
+    const stored = localStorage.getItem(VAULT_STORAGE_KEY)
+    expect(stored).toBeDefined()
+    expect(JSON.parse(stored!).account).toBe('test-account')
   })
 })
