@@ -26,7 +26,7 @@ export class VaultBootstrapper {
     if (knownItemIds.length > 0) return
 
     if (!hasApiAuthToken()) {
-      throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap initial items')
+      throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap items')
     }
 
     const response = await fetchMany({

@@ -74,7 +74,7 @@ vi.mock('../../api/vault', () => ({
   initWorkerVault: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('./automergeRepo', () => {
+vi.mock('./AutomergeRepoManager', () => {
   const mockRepo = {
     find: vi.fn().mockResolvedValue({
       on: vi.fn(),

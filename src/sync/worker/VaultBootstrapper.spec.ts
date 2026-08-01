@@ -104,7 +104,7 @@ describe('VaultBootstrapper', () => {
       mockHasApiAuthToken.mockReturnValue(false)
 
       await expect(bootstrapper.bootstrapItems()).rejects.toThrow(
-        '[VaultBootstrapper] No API auth token found, cannot bootstrap legacy items'
+        '[VaultBootstrapper] No API auth token found, cannot bootstrap items'
       )
     })
 
