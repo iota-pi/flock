@@ -1,4 +1,4 @@
-import { LegacyBootstrapper } from './legacyBootstrapper'
+import { VaultBootstrapper } from './VaultBootstrapper'
 
 // Mock dependencies
 const mockListAutomergeItemIds = vi.fn()
@@ -48,8 +48,8 @@ vi.mock('../../api/trpcClient', () => ({
   }),
 }))
 
-describe('LegacyBootstrapper', () => {
-  let bootstrapper: LegacyBootstrapper
+describe('VaultBootstrapper', () => {
+  let bootstrapper: VaultBootstrapper
   let storeItemsSpy: any
   let mutateMetadataSpy: any
   let depsObj: { accountId: string | null; docStore: any; indexManager: any }
@@ -71,7 +71,7 @@ describe('LegacyBootstrapper', () => {
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
 
-    bootstrapper = new LegacyBootstrapper(
+    bootstrapper = new VaultBootstrapper(
       depsObj as any,
       storeItemsSpy,
       mutateMetadataSpy
@@ -83,11 +83,11 @@ describe('LegacyBootstrapper', () => {
     mockGetAutomergeMetadata.mockResolvedValue({})
   })
 
-  describe('bootstrapLegacyItems', () => {
+  describe('bootstrapItems', () => {
     it('returns early if accountId is null', async () => {
       depsObj.accountId = null
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(mockListAutomergeItemIds).not.toHaveBeenCalled()
     })
@@ -95,7 +95,7 @@ describe('LegacyBootstrapper', () => {
     it('returns early if knownItemIds.length > 0 (already bootstrapped)', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(mockFetchMany).not.toHaveBeenCalled()
     })
@@ -103,8 +103,8 @@ describe('LegacyBootstrapper', () => {
     it('throws error if hasApiAuthToken() is false', async () => {
       mockHasApiAuthToken.mockReturnValue(false)
 
-      await expect(bootstrapper.bootstrapLegacyItems()).rejects.toThrow(
-        '[LegacyBootstrapper] No API auth token found, cannot bootstrap legacy items'
+      await expect(bootstrapper.bootstrapItems()).rejects.toThrow(
+        '[VaultBootstrapper] No API auth token found, cannot bootstrap legacy items'
       )
     })
 
@@ -133,7 +133,7 @@ describe('LegacyBootstrapper', () => {
       mockDecryptObject.mockResolvedValue({ type: 'person', name: 'John' })
       mockGetMetadataQuery.mockResolvedValue({ success: false }) // Skip metadata for now
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(mockFetchMany).toHaveBeenCalledWith({ account: 'acc-123' })
 
@@ -168,7 +168,7 @@ describe('LegacyBootstrapper', () => {
       mockFetchMany.mockResolvedValue({ items: fetchedItems })
       mockDecryptBytes.mockRejectedValue(new Error('Decryption failed'))
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(consoleSpy).toHaveBeenCalled()
       expect(storeItemsSpy).toHaveBeenCalledWith([
@@ -186,7 +186,7 @@ describe('LegacyBootstrapper', () => {
       })
       mockGetAutomergeMetadata.mockResolvedValue({ some: 'metadata' })
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(mockGetMetadataQuery).not.toHaveBeenCalled()
     })
@@ -201,7 +201,7 @@ describe('LegacyBootstrapper', () => {
         metadata: { accountName: 'Test Account' },
       })
 
-      await bootstrapper.bootstrapLegacyItems()
+      await bootstrapper.bootstrapItems()
 
       expect(mockGetMetadataQuery).toHaveBeenCalledWith({ account: 'acc-123' })
       expect(mutateMetadataSpy).toHaveBeenCalledWith({ accountName: 'Test Account' })
@@ -215,7 +215,7 @@ describe('LegacyBootstrapper', () => {
       mockGetAutomergeMetadata.mockResolvedValue({})
       mockGetMetadataQuery.mockRejectedValue(new Error('TRPC failed'))
 
-      await expect(bootstrapper.bootstrapLegacyItems()).resolves.toBeUndefined()
+      await expect(bootstrapper.bootstrapItems()).resolves.toBeUndefined()
       expect(mutateMetadataSpy).not.toHaveBeenCalled()
       consoleSpy.mockRestore()
     })

@@ -99,7 +99,12 @@ export class SyncWorker implements SyncApi {
 
     const cursorStore = new CursorStore(accountId)
     const indexStore = new IndexStore(accountId)
-    const indexManager = new AutomergeIndexManager(accountId, indexStore)
+    const indexManager = new AutomergeIndexManager(
+      accountId,
+      indexStore,
+      (itemIds) => this.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
+      (metadata) => this.clientEventHub.emit({ type: 'metadataUpdated', metadata })
+    )
     const pullQueueManager = new SyncPullQueueManager(cursorStore)
 
     this.broker = new SyncMessageBroker(
@@ -271,7 +276,7 @@ export class SyncWorker implements SyncApi {
   }
 
   // Sync API Pass-through Delegation
-  async bootstrapLegacyItems() { await this.context.legacyBootstrapper.bootstrapLegacyItems() }
+  async bootstrapItems() { await this.context.vaultBootstrapper.bootstrapItems() }
   async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(mutationId, id, changes) }
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async hardDeleteItems(itemIds: ItemId[]) { await this.context.itemOperations.hardDeleteItems(itemIds) }

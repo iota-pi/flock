@@ -6,7 +6,9 @@ import type { AutomergeIndexDocument } from './AutomergeDocStore'
 export class AutomergeIndexManager {
   constructor(
     private readonly accountId: string,
-    public readonly indexStore: IndexStore
+    public readonly indexStore: IndexStore,
+    private readonly onIndexUpdated?: (itemIds: ItemId[]) => void,
+    private readonly onMetadataUpdated?: (metadata: AccountMetadata) => void,
   ) {}
 
   async getIndexSnapshot(): Promise<AutomergeIndexDocument> {
@@ -40,6 +42,7 @@ export class AutomergeIndexManager {
     }
     if (updated) {
       await this.indexStore.saveIndex(doc)
+      this.onIndexUpdated?.(doc.itemIds || [])
     }
   }
 
@@ -56,6 +59,7 @@ export class AutomergeIndexManager {
     doc.itemIds = newItemIds
     doc.lastModified = lastModified
     await this.indexStore.saveIndex(doc)
+    this.onIndexUpdated?.(newItemIds)
   }
 
   async listAutomergeItemIds(): Promise<ItemId[]> {
@@ -72,12 +76,14 @@ export class AutomergeIndexManager {
     const doc = await this.getIndexSnapshot()
     doc.metadata = metadata
     await this.indexStore.saveIndex(doc)
+    this.onMetadataUpdated?.(metadata)
   }
 
   async updateAutomergeMetadata(changes: Partial<AccountMetadata>): Promise<AccountMetadata> {
     const doc = await this.getIndexSnapshot()
     doc.metadata = { ...doc.metadata, ...changes }
     await this.indexStore.saveIndex(doc)
+    this.onMetadataUpdated?.(doc.metadata)
     return doc.metadata || {}
   }
 

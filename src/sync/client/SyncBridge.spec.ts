@@ -11,7 +11,7 @@ vi.mock('src/api/vault', () => ({
 const mockSyncApi = {
   setOnlineState: vi.fn().mockResolvedValue(undefined),
   initRepo: vi.fn().mockResolvedValue(undefined),
-  bootstrapLegacyItems: vi.fn().mockResolvedValue(undefined),
+  bootstrapItems: vi.fn().mockResolvedValue(undefined),
   clearAutomergeDocStore: vi.fn().mockResolvedValue(undefined),
   listRecoveryItems: vi.fn().mockResolvedValue([]),
   exportSyncState: vi.fn().mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] }),
@@ -68,7 +68,7 @@ describe('SyncBridge', () => {
       'test-key',
       expect.any(Function)
     )
-    expect(mockSyncApi.bootstrapLegacyItems).toHaveBeenCalled()
+    expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
 
   it('returns early and does not create a new worker if already initialized with the same account', async () => {

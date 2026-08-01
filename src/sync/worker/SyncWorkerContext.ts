@@ -10,7 +10,7 @@ import { SnapshotManager } from './snapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { DeletionQueueManager } from './deletionQueueManager'
 import { RecoveryManager } from './recoveryManager'
-import { LegacyBootstrapper } from './legacyBootstrapper'
+import { VaultBootstrapper } from './VaultBootstrapper'
 import { ReencryptionManager } from './reencryptionManager'
 import { ItemOperations } from './ItemOperations'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -34,7 +34,7 @@ export class SyncWorkerContext {
   public readonly orchestrator: SyncOrchestrator
   public readonly deletionQueueManager: DeletionQueueManager
   public readonly recoveryManager: RecoveryManager
-  public readonly legacyBootstrapper: LegacyBootstrapper
+  public readonly vaultBootstrapper: VaultBootstrapper
   public readonly reencryptionManager: ReencryptionManager
   public readonly itemOperations: ItemOperations
 
@@ -80,7 +80,7 @@ export class SyncWorkerContext {
       indexManager: this.indexManager,
     }, clientEventHub)
 
-    this.legacyBootstrapper = new LegacyBootstrapper(
+    this.vaultBootstrapper = new VaultBootstrapper(
       {
         accountId,
         docStore: this.docStore,

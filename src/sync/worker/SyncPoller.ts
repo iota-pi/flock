@@ -71,27 +71,19 @@ export class SyncPoller {
             }
           }
 
-          let indexChanged = false
           if (newOrModified.length > 0) {
             await this.indexManager.addAutomergeItemIdsToIndex(newOrModified)
             await this.indexManager.updateLocalLastModified(newLocalLastModified)
             for (const id of newOrModified) {
               this.pullQueueManager.addPendingItem(id)
             }
-            indexChanged = true
           }
 
           if (toRemoveFromLocal.length > 0) {
             await this.indexManager.removeAutomergeItemIdsFromIndex(toRemoveFromLocal)
-            indexChanged = true
-          }
-
-          if (indexChanged) {
-            const updatedIndex = await this.indexManager.getIndexSnapshot()
-            this.clientEventHub.emit({ type: 'indexUpdated', itemIds: updatedIndex.itemIds || [] })
-            this.clientEventHub.emit({ type: 'metadataUpdated', metadata: updatedIndex.metadata || {} })
           }
         }
+
       } catch (err) {
         console.error('[SyncPoller] Failed to check server metadata for discovery:', err)
       }

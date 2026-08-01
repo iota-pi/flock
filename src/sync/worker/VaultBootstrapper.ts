@@ -9,7 +9,7 @@ import { VaultItem } from 'src/vault/drivers/base'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
 
-export class LegacyBootstrapper {
+export class VaultBootstrapper {
   constructor(
     private deps: {
       accountId: string
@@ -20,19 +20,19 @@ export class LegacyBootstrapper {
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   ) {}
 
-  async bootstrapLegacyItems() {
+  async bootstrapItems() {
     if (!this.deps.accountId) return
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     if (knownItemIds.length > 0) return
 
     if (!hasApiAuthToken()) {
-      throw new Error('[LegacyBootstrapper] No API auth token found, cannot bootstrap legacy items')
+      throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap initial items')
     }
 
     const response = await fetchMany({
       account: this.deps.accountId,
     }).catch(e => {
-      console.error('[LegacyBootstrapper] failed to fetch item snapshots', e)
+      console.error('[VaultBootstrapper] failed to fetch item snapshots', e)
       return { items: [] as VaultItem[] }
     })
 
@@ -85,7 +85,7 @@ export class LegacyBootstrapper {
           }
         }
       } catch (error) {
-        console.error('[LegacyBootstrapper] failed to hydrate fetched item envelope', {
+        console.error('[VaultBootstrapper] failed to hydrate fetched item envelope', {
           itemId: item.item,
           error,
         })
@@ -131,7 +131,7 @@ export class LegacyBootstrapper {
       try {
         await this.mutateMetadata(response.metadata as AccountMetadata)
       } catch (error) {
-        console.error('[LegacyBootstrapper] metadata hydration skipped', error)
+        console.error('[VaultBootstrapper] metadata hydration skipped', error)
       }
     }
   }

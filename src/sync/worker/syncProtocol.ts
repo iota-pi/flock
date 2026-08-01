@@ -8,7 +8,7 @@ import { ItemId } from 'src/shared/schemas/items'
 export interface SyncApi {
   initRepo: (accountId: string, vaultKey: string, onEvent: ClientEventListener) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
-  bootstrapLegacyItems: () => Promise<void>
+  bootstrapItems: () => Promise<void>
   mutateItem: (mutationId: string, id: ItemId, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
   hardDeleteItems: (itemIds: ItemId[]) => Promise<void>

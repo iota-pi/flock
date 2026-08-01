@@ -126,7 +126,7 @@ export const SyncBridge = {
         Comlink.proxy(handleSyncEvent),
       )
       await syncApi.setOnlineState(initialOnlineState)
-      await syncApi.bootstrapLegacyItems()
+      await syncApi.bootstrapItems()
 
       if (!onlineListenerAttached) {
         onlineListenerAttached = true

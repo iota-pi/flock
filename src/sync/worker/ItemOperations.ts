@@ -114,8 +114,7 @@ export class ItemOperations {
 
   async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
     try {
-      const metadata = await this.deps.indexManager.updateAutomergeMetadata(changes)
-      this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
+      await this.deps.indexManager.updateAutomergeMetadata(changes)
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'metadata', error: (err as Error).message })
       const metadata = await this.deps.indexManager.getAutomergeMetadata()
