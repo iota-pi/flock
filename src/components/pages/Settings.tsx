@@ -135,9 +135,16 @@ function SettingsPage() {
         open={confirmRemoveAccountOpen}
         title="Sign out and remove local data?"
       >
-        Are you sure you want to sign out and remove all local data from this device? You will need an active internet connection to download your data again the next time you sign in.
-        <br />
-        It is recommended to perform this action on shared devices or in high-security environments. Otherwise, you can simply lock the app to prevent unauthorized access.
+        <Typography component="p" gutterBottom>
+          Are you sure you want to sign out and remove all local data from this device?
+          You will need an active internet connection
+          to download your data again the next time you sign in.
+        </Typography>
+        <Typography>
+          It is <strong>highly recommended</strong> to perform this action on shared devices
+          or in high-security environments.
+          Otherwise, you could simply lock the app.
+        </Typography>
       </ConfirmationDialog>
     </BasePage>
   )
