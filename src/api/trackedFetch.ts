@@ -1,4 +1,4 @@
-import { getApiAuthToken, getSessionExpiredHandler } from './runtime';
+import { getApiAuthToken, getSessionExpiredHandler } from './runtime'
 
 class ApiHttpError extends Error {
   readonly status: number

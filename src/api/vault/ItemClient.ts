@@ -1,7 +1,7 @@
 import { FetchItemsInputSchema } from '../../shared/schemas/trpc'
 import { assertSuccess } from './clientUtils'
 import type { VaultItem } from './clientTypes'
-import { getTrpcClient } from '../trpcClient';
+import { getTrpcClient } from '../trpcClient'
 
 export async function fetchMany({ account }: { account: string }): Promise<{ items: VaultItem[]; serverTime: number }> {
   const input = FetchItemsInputSchema.parse({ account })

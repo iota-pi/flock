@@ -119,23 +119,23 @@ function SubscriptionDialog({
 
   useEffect(
     () => {
-      let cancelled = false
-      if (account) {
-        checkSubscription(account).then(existing => {
-          if (!cancelled && existing) {
-            setHours(
-              existing.hours.map(hour => ({
-                hour,
-                id: Math.random(),
-              })),
-            )
-          } else {
-            setHours([])
-          }
-        }).catch(console.error)
-      } else {
-        setHours([])
+      if (!account) {
+        return
       }
+
+      let cancelled = false
+      checkSubscription(account).then(existing => {
+        if (!cancelled && existing) {
+          setHours(
+            existing.hours.map(hour => ({
+              hour,
+              id: Math.random(),
+            })),
+          )
+        } else {
+          setHours([])
+        }
+      }).catch(console.error)
       return () => { cancelled = true }
     },
     [account],

@@ -148,7 +148,7 @@ function ItemDrawer({
         <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
       </MenuItem>
     )),
-    [resolvedItem, handleChange],
+    [resolvedItem, handleChange, setMessage],
   )
 
   const markPrayedMenuItem = useMemo(

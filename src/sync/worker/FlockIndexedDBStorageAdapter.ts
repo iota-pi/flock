@@ -16,7 +16,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       const request = indexedDB.open(this.databaseName, 1)
 
       request.onerror = () => reject(request.error)
-      request.onsuccess = (event) => {
+      request.onsuccess = event => {
         const db = (event.target as IDBOpenDBRequest).result as IDBDatabase
         this.db = db
         db.addEventListener('versionchange', () => {
@@ -25,7 +25,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         })
         resolve(db)
       }
-      request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = event => {
         const db = (event.target as IDBOpenDBRequest).result as IDBDatabase
         db.createObjectStore(this.storeName)
       }

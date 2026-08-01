@@ -101,8 +101,8 @@ export class SyncWorker implements SyncApi {
     const indexManager = new AutomergeIndexManager(
       accountId,
       indexStore,
-      (itemIds) => this.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
-      (metadata) => this.clientEventHub.emit({ type: 'metadataUpdated', metadata })
+      itemIds => this.clientEventHub.emit({ type: 'indexUpdated', itemIds }),
+      metadata => this.clientEventHub.emit({ type: 'metadataUpdated', metadata })
     )
     const pullQueueManager = new SyncPullQueueManager(cursorStore)
 

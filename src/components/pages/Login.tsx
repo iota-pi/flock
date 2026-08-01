@@ -118,7 +118,7 @@ function LoginPage() {
         setLoading(false)
       }
     },
-    [accountInput, location.state, location.pathname, navigate, password, updateAuth],
+    [accountInput, location.state, location.pathname, navigate, password, setUi, updateAuth],
   )
   const handleClickCreate = useCallback(
     () => {
