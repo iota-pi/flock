@@ -5,7 +5,8 @@ describe('Keyring Server Sync and Restoration', () => {
     // 0. Sign out of the session automatically established by the beforeEach hook
     cy.page('settings')
     cy.dataCy('logout').click()
-    cy.location('pathname').should('equal', '/login')
+    cy.dataCy('confirm-confirm').click()
+    cy.location('pathname').should('equal', '/welcome')
     cy.clearLocalStorage()
     cy.window().then((win) => {
       const dbNames = [
@@ -39,15 +40,15 @@ describe('Keyring Server Sync and Restoration', () => {
     cy.wait('@getKeyring')
     cy.wait('@updateKeyring').then((interception) => {
       expect(interception.response?.statusCode).to.eq(200)
-      
+
       const body = interception.request.body
       cy.log('UpdateKeyring request body:', JSON.stringify(body))
-      
+
       // Extract the input payload
       const input = body?.[0]?.json || body?.[0] || body?.json || body || {}
       expect(input).to.have.property('keyring')
       expect(input.keyring).to.be.a('string')
-      
+
       // The keyring is a serialized ciphertext object JSON-wrapped
       const encryptedKeyring = JSON.parse(input.keyring)
       expect(encryptedKeyring).to.have.property('iv')
@@ -65,7 +66,8 @@ describe('Keyring Server Sync and Restoration', () => {
     // 3. Log out and clear local state to simulate a new device / fresh load
     cy.page('settings')
     cy.dataCy('logout').click()
-    cy.location('pathname').should('equal', '/login')
+    cy.dataCy('confirm-confirm').click()
+    cy.location('pathname').should('equal', '/welcome')
 
     cy.clearLocalStorage()
     cy.window().then((win) => {
@@ -101,13 +103,13 @@ describe('Keyring Server Sync and Restoration', () => {
       expect(interception.response?.statusCode).to.eq(200)
       const body = interception.response?.body
       cy.log('GetKeyring response body:', JSON.stringify(body))
-      
+
       const resultObj = body?.[0]?.result?.data?.json || body?.[0]?.result?.data || body?.result?.data?.json || body?.result?.data || {}
       expect(resultObj.keyring).to.be.a('string')
     })
 
     // Verify we successfully land on the main page, implying keyring decryption succeeded
-    cy.location('pathname', { timeout: 15000 }).should('equal', '/settings')
+    cy.location('pathname', { timeout: 15000 }).should('equal', '/')
     cy.page('people')
     cy.dataCy('page-content-people').should('exist')
   })
