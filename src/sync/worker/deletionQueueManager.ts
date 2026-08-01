@@ -69,6 +69,7 @@ export class DeletionQueueManager {
 
       if (expired.length > 0) {
         const itemIds = await this.deps.indexManager.listAutomergeItemIds()
+        const toRemove: ItemId[] = []
 
         for (const item of expired) {
           if (itemIds.includes(item.itemId)) {
@@ -78,8 +79,12 @@ export class DeletionQueueManager {
           }
 
           await this.deps.docStore.removeAutomergeItem(item.itemId)
-          await this.deps.indexManager.removeAutomergeItemIdsFromIndex([item.itemId])
+          toRemove.push(item.itemId)
           await cancelDeletion(this.deps.accountId, item.itemId)
+        }
+
+        if (toRemove.length > 0) {
+          await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
         }
       }
     } catch (err) {

@@ -65,7 +65,9 @@ export class ItemOperations {
       for (const id of itemIds) {
         await this.deps.deletionQueueManager.cancelDeletion(id).catch(console.error)
         await this.deps.docStore.removeAutomergeItem(id)
-        await this.deps.indexManager.removeAutomergeItemIdsFromIndex([id])
+      }
+      if (itemIds.length > 0) {
+        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(itemIds)
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'hardDelete', error: (err as Error).message })
