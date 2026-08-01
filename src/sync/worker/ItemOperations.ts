@@ -3,7 +3,7 @@ import type { AccountMetadata } from '../../state/metadata'
 import { ClientEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import type { DeletionQueueManager } from './deletionQueueManager'
+import type { DeletionQueueManager } from './DeletionQueueManager'
 import type { ItemId } from 'src/shared/schemas/items'
 
 export interface ItemOperationsDeps {

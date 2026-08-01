@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { RecoveryManager } from './recoveryManager'
+import { RecoveryManager } from './RecoveryManager'
 import { ClientEventHub } from './SyncEventHub'
 
 // Mock dependencies

@@ -1,4 +1,4 @@
-import { DeletionQueueManager } from './deletionQueueManager'
+import { DeletionQueueManager } from './DeletionQueueManager'
 import * as deletionStore from '../shared/deletionQueueStore'
 import { ItemId } from 'src/shared/schemas/items'
 

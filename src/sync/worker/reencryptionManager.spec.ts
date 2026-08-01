@@ -1,4 +1,4 @@
-import { ReencryptionManager } from './reencryptionManager'
+import { ReencryptionManager } from './ReencryptionManager'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()

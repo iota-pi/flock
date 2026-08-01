@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { SnapshotManager } from './snapshotManager'
+import { SnapshotManager } from './SnapshotManager'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
