@@ -158,25 +158,31 @@ export function supplyMissingAttributes<T extends Item>(item: T): T {
 }
 
 export function convertItem<T extends Item, S extends StandardItem>(item: T, newType: S['type']): S {
-  const { members, memberPrayerFrequency, memberPrayerTarget, ...baseProps } = item as GroupItem
+  if (item.type === newType) {
+    return item as StandardItem as S
+  }
+
   const newBase = getBlankItem(newType, false)
 
   let newItem: S
   if (newType === 'group') {
     newItem = {
       ...newBase,
-      ...baseProps,
-      members: Array.isArray(members) ? members : [],
-      memberPrayerFrequency: memberPrayerFrequency ?? 'none',
-      memberPrayerTarget: memberPrayerTarget ?? 'one',
+      ...item,
+      members: [],
+      memberPrayerFrequency: 'none',
+      memberPrayerTarget: 'one',
       type: newType,
-    } satisfies GroupItem as S
+    } as GroupItem as S
   } else {
     newItem = {
       ...newBase,
-      ...baseProps,
+      ...item,
+      members: undefined,
+      memberPrayerFrequency: undefined,
+      memberPrayerTarget: undefined,
       type: newType,
-    } as S
+    } as PersonItem | TopicItem as S
   }
 
   const parsing = standardItemSchema.safeParse(newItem)

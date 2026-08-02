@@ -68,6 +68,26 @@ describe('items helpers', () => {
     expect(Array.isArray(group.members)).toBe(true)
   })
 
+  it('convertItem explicitly sets group properties to undefined when converting group to topic/person', () => {
+    const group = getBlankGroup('group-1' as ItemId, false)
+    group.name = 'Bible Study'
+    group.members = ['person-1' as ItemId]
+    group.memberPrayerFrequency = 'weekly'
+    group.memberPrayerTarget = 'all'
+
+    const topic = convertItem(group, 'topic')
+    expect(topic.type).toBe('topic')
+    expect(topic.name).toBe('Bible Study')
+    expect(topic.members).toBeUndefined()
+    expect((topic as any).memberPrayerFrequency).toBeUndefined()
+    expect((topic as any).memberPrayerTarget).toBeUndefined()
+
+    const person = convertItem(group, 'person')
+    expect(person.type).toBe('person')
+    expect(person.members).toBeUndefined()
+    expect((person as any).memberPrayerFrequency).toBeUndefined()
+  })
+
   it('isValid checks name presence', () => {
     const p = getBlankPerson()
     expect(isValid(p)).toBe(false)

@@ -1,5 +1,5 @@
 import { Repo } from '@automerge/automerge-repo/slim'
-import { AutomergeDocStore } from './AutomergeDocStore'
+import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
 import type { Item } from 'src/state/items'
 import { ItemId } from 'src/shared/schemas/items'
 
@@ -68,5 +68,30 @@ describe('items operations', () => {
 
     const retrieved = await docStore.getAutomergeItem(item.id)
     expect(retrieved).toBeNull()
+  })
+
+  it('should self-heal a snapshot with topic type containing leftover group fields', () => {
+    const rawSnapshot = {
+      id: 'converted-topic-1',
+      type: 'topic',
+      name: 'Global Topic',
+      description: 'Formerly a group',
+      created: 10000,
+      archived: false,
+      prayerFrequency: 'none',
+      notes: [],
+      prayedFor: [],
+      members: ['member-1'],
+      memberPrayerFrequency: 'daily',
+      memberPrayerTarget: 'all',
+    }
+
+    const normalized = normalizeItemSnapshot('converted-topic-1' as ItemId, rawSnapshot)
+    expect(normalized).not.toBeNull()
+    expect(normalized?.type).toBe('topic')
+    expect(normalized?.name).toBe('Global Topic')
+    expect((normalized as any).members).toBeUndefined()
+    expect((normalized as any).memberPrayerFrequency).toBeUndefined()
+    expect((normalized as any).memberPrayerTarget).toBeUndefined()
   })
 })

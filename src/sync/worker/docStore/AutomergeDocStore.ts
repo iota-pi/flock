@@ -32,9 +32,17 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
   }
 
   const item = snapshot as Partial<Item>
-  const normalizedItem = (typeof item.id === 'string' && item.id.length > 0)
-    ? item
-    : { ...item, id: itemId }
+  const normalizedItem = {
+    ...(typeof item.id === 'string' && item.id.length > 0
+      ? item
+      : { ...item, id: itemId }),
+  }
+
+  if (normalizedItem.type !== 'group') {
+    delete (normalizedItem as Record<string, unknown>).members
+    delete (normalizedItem as Record<string, unknown>).memberPrayerFrequency
+    delete (normalizedItem as Record<string, unknown>).memberPrayerTarget
+  }
 
   const parsed = standardItemSchema.safeParse(normalizedItem)
   if (parsed.success) {
