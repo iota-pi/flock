@@ -11,7 +11,7 @@ export type ClientEvent =
   | { type: 'itemUpdated'; id: string; item: Item | null }
   | { type: 'indexUpdated'; itemIds: ItemId[] }
   | { type: 'metadataUpdated'; metadata: AccountMetadata }
-  | { type: 'mutationFailed'; mutationId: string; error: string }
+  | { type: 'mutationFailed'; mutationType: string; error: string }
   | { type: 'startRequest' }
   | { type: 'finishRequest' }
   | { type: 'authFailure'; message: string }

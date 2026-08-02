@@ -71,7 +71,7 @@ const handleSyncEvent = (event: ClientEvent) => {
       useAppStore.getState().updateMetadataFromServer(event.metadata)
       break
     case 'mutationFailed':
-      console.error(`Mutation ${event.mutationId} failed: ${event.error}`)
+      console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
       break
     case 'startRequest':
       useAppStore.getState().startRequest()
@@ -196,9 +196,9 @@ export const SyncBridge = {
     await syncApi.forceSync()
   },
 
-  mutateItem: async (mutationId: string, id: ItemId, changes: Partial<Item>) => {
+  mutateItem: async (id: ItemId, changes: Partial<Item>) => {
     if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.mutateItem(mutationId, id, changes)
+    await syncApi.mutateItem(id, changes)
   },
 
   createItem: async (item: any) => {

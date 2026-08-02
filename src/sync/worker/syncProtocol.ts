@@ -9,7 +9,7 @@ export interface SyncApi {
   initRepo: (accountId: string, vaultKey: string, onEvent: ClientEventListener) => Promise<void>
   setOnlineState: (isOnline: boolean) => Promise<void>
   bootstrapItems: () => Promise<void>
-  mutateItem: (mutationId: string, id: ItemId, changes: Partial<Item>) => Promise<void>
+  mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
   hardDeleteItems: (itemIds: ItemId[]) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>

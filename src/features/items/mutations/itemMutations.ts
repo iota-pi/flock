@@ -127,8 +127,7 @@ export function mutateItem(
 
   useAppStore.getState().optimisticUpdateItem(itemId, updatedItem)
 
-  const mutationId = crypto.randomUUID()
-  return SyncBridge.mutateItem(mutationId, itemId, changes)
+  return SyncBridge.mutateItem(itemId, changes)
 }
 
 export async function storeItems(

@@ -276,7 +276,7 @@ export class SyncWorker implements SyncApi {
 
   // Sync API Pass-through Delegation
   async bootstrapItems() { await this.context.vaultBootstrapper.bootstrapItems() }
-  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(mutationId, id, changes) }
+  async mutateItem(id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(id, changes) }
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async hardDeleteItems(itemIds: ItemId[]) { await this.context.itemOperations.hardDeleteItems(itemIds) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }

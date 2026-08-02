@@ -18,7 +18,7 @@ export interface ItemOperationsDeps {
 export class ItemOperations {
   constructor(private deps: ItemOperationsDeps) {}
 
-  async mutateItem(mutationId: string, id: ItemId, changes: Partial<Item>): Promise<void> {
+  async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
     try {
       const updated = await this.deps.docStore.changeDocument(
         id,
@@ -34,7 +34,7 @@ export class ItemOperations {
         this.deps.markDocumentDirty(id)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId, error: (err as Error).message })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: (err as Error).message })
       const trueState = await this.deps.docStore.getAutomergeItem(id)
       this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
     }
@@ -56,7 +56,7 @@ export class ItemOperations {
         this.deps.markDocumentDirty(item.id)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'create', error: (err as Error).message })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: (err as Error).message })
     }
   }
 
@@ -70,7 +70,7 @@ export class ItemOperations {
         await this.deps.indexManager.removeAutomergeItemIdsFromIndex(itemIds)
       }
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'hardDelete', error: (err as Error).message })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'hardDelete', error: (err as Error).message })
     }
   }
 
@@ -106,7 +106,7 @@ export class ItemOperations {
 
     if (failedItems.length > 0) {
       const combinedMessage = failedItems.map(f => `${f.item.id}: ${(f.error as Error).message}`).join(', ')
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'store', error: combinedMessage })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'store', error: combinedMessage })
       for (const { item } of failedItems) {
         const trueState = await this.deps.docStore.getAutomergeItem(item.id)
         this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
@@ -118,7 +118,7 @@ export class ItemOperations {
     try {
       await this.deps.indexManager.updateAutomergeMetadata(changes)
     } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationId: 'metadata', error: (err as Error).message })
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'metadata', error: (err as Error).message })
       const metadata = await this.deps.indexManager.getAutomergeMetadata()
       this.deps.eventHub.emit({ type: 'metadataUpdated', metadata })
     }
