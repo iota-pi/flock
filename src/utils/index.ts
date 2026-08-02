@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import { useEffect, useRef } from 'react'
 import type { ItemId } from 'src/shared/schemas/items'
 
@@ -8,7 +9,7 @@ export function isDefined<T>(x: T | null | undefined): x is Exclude<T, null | un
 }
 
 export function generateItemId() {
-  return crypto.randomUUID() as ItemId
+  return nanoid() as ItemId
 }
 
 export function formatDate(date: Date) {

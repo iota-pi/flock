@@ -23,8 +23,11 @@ describe('utils/index', () => {
   })
 
   describe('generateItemId', () => {
-    it('returns a string', () => {
-      expect(typeof generateItemId()).toBe('string')
+    it('returns a 21-character URL-safe nanoid string', () => {
+      const id = generateItemId()
+      expect(typeof id).toBe('string')
+      expect(id).toHaveLength(21)
+      expect(id).toMatch(/^[A-Za-z0-9_-]{21}$/)
     })
 
     it('returns unique IDs', () => {
