@@ -1,14 +1,10 @@
-import { createStore } from 'zustand'
-import { createNavigationSlice, NavigationSlice } from './navigationSlice'
+import { useAppStore } from 'src/state/store'
 import { ItemId } from 'src/shared/schemas/items'
 
 describe('navigationSlice (drawer & selection behavior)', () => {
-  let store: ReturnType<typeof createStore<NavigationSlice>>
-
   beforeEach(() => {
-    store = createStore<NavigationSlice>()((...a) => ({
-      ...createNavigationSlice(...a),
-    }))
+    useAppStore.getState().removeDrawer()
+    useAppStore.getState().setSelected([])
   })
 
   it('sets and updates drawer state', () => {
@@ -16,30 +12,30 @@ describe('navigationSlice (drawer & selection behavior)', () => {
     const groupId = 'group-456' as ItemId
 
     // 1. Open drawer for person
-    store.getState().setDrawer({ item: personId })
-    expect(store.getState().drawer).not.toBeNull()
-    expect(store.getState().drawer?.item).toBe(personId)
+    useAppStore.getState().setDrawer({ item: personId })
+    expect(useAppStore.getState().drawer).not.toBeNull()
+    expect(useAppStore.getState().drawer?.item).toBe(personId)
 
     // 2. Switch drawer to group
-    store.getState().setDrawer({ item: groupId })
-    expect(store.getState().drawer?.item).toBe(groupId)
+    useAppStore.getState().setDrawer({ item: groupId })
+    expect(useAppStore.getState().drawer?.item).toBe(groupId)
 
     // 3. Close drawer
-    store.getState().removeDrawer()
-    expect(store.getState().drawer).toBeNull()
+    useAppStore.getState().removeDrawer()
+    expect(useAppStore.getState().drawer).toBeNull()
   })
 
   it('manages item selections', () => {
     const itemA = 'item-a' as ItemId
     const itemB = 'item-b' as ItemId
 
-    store.getState().toggleSelected(itemA)
-    expect(store.getState().selected).toEqual([itemA])
+    useAppStore.getState().toggleSelected(itemA)
+    expect(useAppStore.getState().selected).toEqual([itemA])
 
-    store.getState().toggleSelected(itemB)
-    expect(store.getState().selected).toEqual([itemA, itemB])
+    useAppStore.getState().toggleSelected(itemB)
+    expect(useAppStore.getState().selected).toEqual([itemA, itemB])
 
-    store.getState().toggleSelected(itemA)
-    expect(store.getState().selected).toEqual([itemB])
+    useAppStore.getState().toggleSelected(itemA)
+    expect(useAppStore.getState().selected).toEqual([itemB])
   })
 })

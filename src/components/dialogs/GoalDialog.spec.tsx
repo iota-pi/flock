@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { axe } from 'vitest-axe'
 import GoalDialog from './GoalDialog'
+import { checkA11y } from '../../testUtils/axe'
 
 describe('GoalDialog component & accessibility', () => {
   it('renders prayer goal input and handles value changes', () => {
@@ -16,7 +16,6 @@ describe('GoalDialog component & accessibility', () => {
 
   it('has no accessibility violations', async () => {
     const { container } = render(<GoalDialog open={true} onClose={() => {}} naturalGoal={5} />)
-    const results = await axe(container)
-    expect(results).toHaveNoViolations()
+    await checkA11y(container)
   })
 })

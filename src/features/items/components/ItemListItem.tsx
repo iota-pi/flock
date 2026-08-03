@@ -222,14 +222,12 @@ export function ItemListItem(props: ItemListItemProps) {
     <CheckboxHolder>
       <Checkbox
         data-cy="list-item-checkbox"
-        edge={checkboxSide && (checkboxSide === 'left' ? 'start' : 'end')}
+        edge={checkboxSide === 'left' ? 'start' : checkboxSide === 'right' ? 'end' : undefined}
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        inputProps={{ 'aria-label': `Select ${name || 'item'}` }}
         slotProps={{
           input: { 'aria-label': `Select ${name || 'item'}` },
-          htmlInput: { 'aria-label': `Select ${name || 'item'}` },
         }}
       />
     </CheckboxHolder>

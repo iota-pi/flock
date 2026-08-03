@@ -110,10 +110,8 @@ function TopBar({
             checked={allSelected}
             onClick={onSelectAll}
             data-cy='select-all'
-            inputProps={{ 'aria-label': 'Select all items' }}
             slotProps={{
               input: { 'aria-label': 'Select all items' },
-              htmlInput: { 'aria-label': 'Select all items' },
             }}
           />
         </div>

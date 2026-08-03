@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
-import { axe } from 'vitest-axe'
 import ReencryptVaultDialog from './ReencryptVaultDialog'
+import { checkA11y } from '../../testUtils/axe'
 
 describe('ReencryptVaultDialog accessibility', () => {
   it('has no accessibility violations when open', async () => {
@@ -8,7 +8,6 @@ describe('ReencryptVaultDialog accessibility', () => {
       <ReencryptVaultDialog open={true} onClose={() => {}} />,
     )
 
-    const results = await axe(container)
-    expect(results).toHaveNoViolations()
+    await checkA11y(container)
   })
 })
