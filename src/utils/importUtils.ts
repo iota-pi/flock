@@ -1,4 +1,4 @@
-import { generateItemId } from '../utils'
+import { generateNoteId } from '../utils'
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
 
 export function importPeople(data: Record<string, string>[]): Item[] {
@@ -21,7 +21,7 @@ export function importPeople(data: Record<string, string>[]): Item[] {
       name,
       description: row.description || blankPerson.description,
       notes: row.notes ? [{
-        id: generateItemId(),
+        id: generateNoteId(),
         text: row.notes,
         archived: false,
         time: blankPerson.created,

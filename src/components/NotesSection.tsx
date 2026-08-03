@@ -22,7 +22,7 @@ import {
 } from './Icons'
 import DelayedRender from './ui/DelayedRender'
 import type { Note } from '../shared/schemas/items'
-import { formatDate, generateItemId } from '../utils'
+import { formatDate, generateNoteId } from '../utils'
 import DebouncedTextField from './ui/DebouncedTextField'
 
 
@@ -158,7 +158,7 @@ function NotesSection({
 
   const handleAddNote = useCallback(() => {
     const newNote: Note = {
-      id: generateItemId(),
+      id: generateNoteId(),
       text: '',
       archived: false,
       time: Date.now(),

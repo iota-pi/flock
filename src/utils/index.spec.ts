@@ -2,6 +2,7 @@ import { renderHook } from '@testing-library/react'
 import {
   isDefined,
   generateItemId,
+  generateNoteId,
   formatDate,
   isSameDay,
   useStableArray,
@@ -33,6 +34,21 @@ describe('utils/index', () => {
     it('returns unique IDs', () => {
       const id1 = generateItemId()
       const id2 = generateItemId()
+      expect(id1).not.toBe(id2)
+    })
+  })
+
+  describe('generateNoteId', () => {
+    it('returns a 10-character URL-safe nanoid string', () => {
+      const id = generateNoteId()
+      expect(typeof id).toBe('string')
+      expect(id).toHaveLength(10)
+      expect(id).toMatch(/^[A-Za-z0-9_-]{10}$/)
+    })
+
+    it('returns unique note IDs', () => {
+      const id1 = generateNoteId()
+      const id2 = generateNoteId()
       expect(id1).not.toBe(id2)
     })
   })

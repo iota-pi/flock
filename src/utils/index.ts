@@ -12,6 +12,10 @@ export function generateItemId() {
   return nanoid() as ItemId
 }
 
+export function generateNoteId() {
+  return nanoid(10) as ItemId
+}
+
 export function formatDate(date: Date) {
   return date.toLocaleDateString()
 }
