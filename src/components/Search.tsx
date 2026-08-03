@@ -344,6 +344,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           return (
             <TextField
               {...params}
+              aria-label={label || placeholder || 'Search'}
               autoFocus={autoFocus}
               inputRef={inputRef}
               slotProps={slotProps}

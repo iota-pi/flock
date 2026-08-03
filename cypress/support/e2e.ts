@@ -45,10 +45,10 @@ Cypress.Commands.overwrite(
       ...(options || {}),
     }
 
-    const assertViolations = (violations: Array<{ id: string; impact?: string | null; nodes: unknown[] }>) => {
+    const assertViolations = (violations: Array<{ id: string; impact?: string | null; nodes: Array<{ html: string; target: string[] }> }>) => {
       const details = violations
-        .map(violation => `${violation.id}(${violation.impact}):${violation.nodes.length}`)
-        .join(', ')
+        .map(violation => `${violation.id}(${violation.impact}): ${violation.nodes.map(n => `${n.target.join(' ')} [${n.html}]`).join(', ')}`)
+        .join('; ')
 
       expect(violations, details).to.have.length(0)
     }

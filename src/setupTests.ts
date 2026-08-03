@@ -1,4 +1,8 @@
 import crypto from 'node:crypto'
+import { expect } from 'vitest'
+import * as matchers from 'vitest-axe/matchers'
+
+expect.extend(matchers)
 
 
 vi.mock('./env', () => ({

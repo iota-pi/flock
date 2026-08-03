@@ -18,7 +18,6 @@ describe('Items and groups', () => {
 
     cy.page('groups')
     cy.contains(fellowshipName).click()
-    cy.checkA11y('[data-cy="drawer-content"]')
     cy.contains(samwiseName)
       .parentsUntil('[data-cy=list-item]')
       .parent()

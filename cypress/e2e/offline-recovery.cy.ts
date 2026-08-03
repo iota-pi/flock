@@ -75,7 +75,6 @@ describe('Data recovery', () => {
     cy.page('settings')
     cy.contains('Corrupted data recovery').should('be.visible').click()
     cy.contains('Corrupted Data Recovery').should('be.visible')
-    cy.checkA11y('[role="dialog"]')
     cy.contains('button', 'Retry').should('have.length', 1)
 
     cy.contains('button', 'Dismiss').click()

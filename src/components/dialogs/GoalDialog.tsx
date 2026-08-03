@@ -84,6 +84,7 @@ function GoalDialog({
 
         <div>
           <TextField
+            aria-label="Prayer Goal"
             error={error}
             fullWidth
             helperText={hintMessage}

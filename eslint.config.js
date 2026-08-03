@@ -6,6 +6,7 @@ import stylistic from '@stylistic/eslint-plugin'
 import reactHooks from 'eslint-plugin-react-hooks'
 import vitest from '@vitest/eslint-plugin'
 import react from 'eslint-plugin-react'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 
 export default defineConfig([
   globalIgnores([
@@ -32,6 +33,7 @@ export default defineConfig([
       'react-hooks': reactHooks,
       react,
       vitest,
+      'jsx-a11y': jsxA11y,
     },
     settings: {
       react: {
@@ -43,6 +45,7 @@ export default defineConfig([
       ...react.configs.flat['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       ...vitest.configs.recommended.rules,
+      ...jsxA11y.flatConfigs.recommended.rules,
       'arrow-parens': ['error', 'as-needed'],
       'lines-between-class-members': ['error', 'always', { exceptAfterSingleLine: true }],
       'no-console': ['error', { allow: ['warn', 'error', 'info'] }],

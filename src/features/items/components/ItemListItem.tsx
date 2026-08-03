@@ -226,7 +226,11 @@ export function ItemListItem(props: ItemListItemProps) {
         checked={checked}
         tabIndex={-1}
         onClick={handleCheck}
-        slotProps={{ input: { 'aria-labelledby': `${item?.id}-text` } }}
+        inputProps={{ 'aria-label': `Select ${name || 'item'}` }}
+        slotProps={{
+          input: { 'aria-label': `Select ${name || 'item'}` },
+          htmlInput: { 'aria-label': `Select ${name || 'item'}` },
+        }}
       />
     </CheckboxHolder>
   )

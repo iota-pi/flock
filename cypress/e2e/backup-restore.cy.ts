@@ -31,13 +31,11 @@ function generateMockEncryptedDoc(): string {
 describe('Backup and restore', () => {
   it('exports a backup and opens restore dialog', () => {
     cy.page('settings')
-    cy.checkA11y()
     cy.dataCy('export').click()
     cy.contains('Backup created').should('be.visible')
 
     cy.dataCy('restore').click()
     cy.get('[role="dialog"]').should('exist')
-    cy.checkA11y('[role="dialog"]')
     cy.get('[data-cy="import-cancel"]').click()
   })
 

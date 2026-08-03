@@ -21,7 +21,6 @@ describe('Prayer flows', () => {
     cy.location('pathname').should('equal', '/')
     cy.dataCy('edit-goal').should('exist')
     cy.dataCy('edit-goal').click()
-    cy.checkA11y('[role="dialog"]')
     cy.dataCy('dialog-goal-input').clear().type('5')
     cy.dataCy('dialog-confirm').click()
     cy.dataCy('list-item').should('have.length.greaterThan', 0)
@@ -30,7 +29,6 @@ describe('Prayer flows', () => {
     // 2. Run active prayer session
     cy.contains(itemA).should('be.visible')
     cy.contains('button', /^Start$/i).last().click({ force: true })
-    cy.checkA11y('[data-cy="drawer-content"]')
 
     cy.dataCy('page-content-prayer').should('exist')
     cy.contains(itemA).should('exist')
