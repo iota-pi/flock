@@ -208,29 +208,42 @@ Cypress.Commands.add('getDeadLetterQueue', () => {
 })
 
 Cypress.Commands.add('ensureAccount', (password: string): Cypress.Chainable<string> => {
-  const existing = Cypress.expose('TEST_ACCOUNT_ID') as string | undefined
-  if (typeof existing === 'string' && existing.length > 0) {
-    cy.visit('/login')
-    cy.get('#username', { timeout: 15000 }).clear().type(existing)
-    cy.get('#current-password').clear().type(password)
-    cy.dataCy('login').click()
-    cy.location('pathname', { timeout: 15000 }).should('equal', '/')
-    return cy.wrap(existing, { log: false })
-  }
-
-  cy.visit('/welcome')
-  cy.createAccount(password)
-
-  cy.location('pathname').should('equal', '/')
-
-  return cy
-    .window()
-    .its('localStorage')
-    .then(localStorageRef => {
+  return cy.window().then(win => {
+    if (win.hasApiAuthToken && win.hasApiAuthToken()) {
+      const existingId = Cypress.expose('TEST_ACCOUNT_ID') as string | undefined
+      if (existingId) {
+        return cy.wrap(existingId, { log: false })
+      }
+      const localStorageRef = win.localStorage
       const stableAccountId = readStoredAccountId(localStorageRef) || 'session-account'
       Cypress.expose('TEST_ACCOUNT_ID', stableAccountId)
-      return stableAccountId
-    })
+      return cy.wrap(stableAccountId, { log: false })
+    }
+
+    const existing = Cypress.expose('TEST_ACCOUNT_ID') as string | undefined
+    if (typeof existing === 'string' && existing.length > 0) {
+      cy.visit('/login')
+      cy.get('#username', { timeout: 15000 }).clear().type(existing)
+      cy.get('#current-password').clear().type(password)
+      cy.dataCy('login').click()
+      cy.location('pathname', { timeout: 15000 }).should('equal', '/')
+      return cy.wrap(existing, { log: false })
+    }
+
+    cy.visit('/welcome')
+    cy.createAccount(password)
+
+    cy.location('pathname').should('equal', '/')
+
+    return cy
+      .window()
+      .its('localStorage')
+      .then(localStorageRef => {
+        const stableAccountId = readStoredAccountId(localStorageRef) || 'session-account'
+        Cypress.expose('TEST_ACCOUNT_ID', stableAccountId)
+        return stableAccountId
+      })
+  })
 })
 
 Cypress.Commands.add('createAccount', (password: string): Cypress.Chainable => {
