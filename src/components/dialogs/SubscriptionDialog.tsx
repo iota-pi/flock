@@ -3,27 +3,21 @@ import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
-import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
-import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import MenuItem from '@mui/material/MenuItem'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
+import Typography from '@mui/material/Typography'
 import { styled } from '@mui/material/styles'
 
 import { checkSubscription } from '../../utils/pushNotifications'
-import { RemoveIcon } from '../Icons'
 import { useAppStore } from 'src/state/store'
-
 
 interface Props {
   onClose: () => void,
   onSave: (hours: number[] | null) => Promise<void>,
   open: boolean,
-}
-
-interface SubscriptionHour {
-  hour: number,
-  id: number,
 }
 
 const hourOptions = [
@@ -57,65 +51,14 @@ const DialogContentNarrowPadding = styled(DialogContent)(({ theme }) => ({
   padding: theme.spacing(2),
 }))
 
-export interface SubscriptionTimeProps {
-  id: number,
-  hour: number,
-  onChange: (id: number, value: number) => void,
-  onRemove: (id: number) => void,
-}
-
-function SubscriptionTime({
-  id,
-  hour,
-  onChange,
-  onRemove,
-}: SubscriptionTimeProps) {
-  const handleChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => onChange(id, +event.target.value),
-    [id, onChange],
-  )
-  const handleRemove = useCallback(
-    () => onRemove(id),
-    [id, onRemove],
-  )
-
-  return (
-    <Box
-      key={id}
-      sx={{
-        alignItems: "center",
-        display: "flex"
-      }}>
-      <TextField
-        fullWidth
-        label="Notification time"
-        select
-        onChange={handleChange}
-        value={hour}
-      >
-        {hourOptions.map(hourOption => (
-          <MenuItem
-            key={hourOption.text}
-            value={hourOption.value}
-          >
-            {hourOption.text}
-          </MenuItem>
-        ))}
-      </TextField>
-      <IconButton aria-label="Remove notification time" onClick={handleRemove}>
-        <RemoveIcon />
-      </IconButton>
-    </Box>
-  )
-}
-
 function SubscriptionDialog({
   onClose,
   onSave,
   open,
 }: Props) {
   const account = useAppStore(state => state.account)
-  const [hours, setHours] = useState<SubscriptionHour[]>([])
+  const [enabled, setEnabled] = useState(false)
+  const [hour, setHour] = useState(8)
 
   useEffect(
     () => {
@@ -125,63 +68,44 @@ function SubscriptionDialog({
 
       let cancelled = false
       checkSubscription(account).then(existing => {
-        if (!cancelled && existing) {
-          setHours(
-            existing.hours.map(hour => ({
-              hour,
-              id: Math.random(),
-            })),
-          )
+        if (cancelled) {
+          return
+        }
+        if (existing && existing.hours.length > 0) {
+          setEnabled(true)
+          setHour(existing.hours[0])
         } else {
-          setHours([])
+          setEnabled(false)
+          setHour(8)
         }
       }).catch(console.error)
       return () => { cancelled = true }
     },
-    [account],
+    [account, open],
   )
 
   const handleSave = useCallback(
     () => {
-      if (hours.length > 0) {
-        const hoursPlain = hours.map(hour => hour.hour)
-        onSave(hoursPlain)
+      if (enabled) {
+        onSave([hour])
       } else {
         onSave(null)
       }
     },
-    [hours, onSave],
+    [enabled, hour, onSave],
   )
-  const handleChange = useCallback(
-    (id: number, hour: number) => setHours(
-      oldHours => {
-        const index = oldHours.findIndex(h => h.id === id)
-        return [
-          ...oldHours.slice(0, index),
-          { ...oldHours[index], hour },
-          ...oldHours.slice(index + 1),
-        ]
-      },
-    ),
+
+  const handleToggleEnabled = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setEnabled(event.target.checked)
+    },
     [],
   )
-  const handleAdd = useCallback(
-    () => setHours(
-      oldHours => [
-        ...oldHours,
-        { hour: new Date().getHours(), id: Math.random() },
-      ],
-    ),
-    [],
-  )
-  const handleRemove = useCallback(
-    (id: number) => setHours(oldHours => {
-      const index = oldHours.findIndex(hour => hour.id === id)
-      return [
-        ...oldHours.slice(0, index),
-        ...oldHours.slice(index + 1),
-      ]
-    }),
+
+  const handleHourChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setHour(Number(event.target.value))
+    },
     [],
   )
 
@@ -196,56 +120,63 @@ function SubscriptionDialog({
         Manage Notifications
       </DialogTitle>
       <DialogContentNarrowPadding>
-        You can opt-in to receive daily prayer reminders.
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          You can opt-in to receive daily prayer reminders.
+        </Typography>
 
-        <Stack
-          spacing={1}
-          sx={{
-            paddingY: 2
-          }}
-        >
-          {hours.map(({ hour, id }) => (
-            <SubscriptionTime
-              hour={hour}
-              id={id}
-              key={id}
-              onChange={handleChange}
-              onRemove={handleRemove}
-            />
-          ))}
+        <Stack spacing={2} sx={{ py: 1 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={enabled}
+                onChange={handleToggleEnabled}
+                color="primary"
+                data-cy="subscription-toggle"
+              />
+            }
+            label="Enable daily prayer reminder"
+          />
+
+          {enabled && (
+            <TextField
+              fullWidth
+              label="Notification time"
+              select
+              onChange={handleHourChange}
+              value={hour}
+              data-cy="subscription-time-select"
+            >
+              {hourOptions.map(hourOption => (
+                <MenuItem
+                  key={hourOption.text}
+                  value={hourOption.value}
+                >
+                  {hourOption.text}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
         </Stack>
 
-        <Stack spacing={1}>
+        <Stack spacing={1} direction="row" sx={{ mt: 3 }}>
           <Button
-            data-cy="subscription-add-time"
-            disabled={hours.length > 0}
+            data-cy="subscription-cancel"
             fullWidth
-            onClick={handleAdd}
+            onClick={onClose}
             variant="outlined"
           >
-            Add Notification
+            Cancel
           </Button>
 
-          <Stack spacing={1} direction="row">
-            <Button
-              data-cy="subscription-cancel"
-              fullWidth
-              onClick={onClose}
-              variant="outlined"
-            >
-              Cancel
-            </Button>
-
-            <Button
-              color="primary"
-              data-cy="subscription-confirm"
-              fullWidth
-              onClick={handleSave}
-              variant="contained"
-            >
-              Save
-            </Button>
-          </Stack>
+          <Button
+            color="primary"
+            data-cy="subscription-confirm"
+            fullWidth
+            onClick={handleSave}
+            variant="contained"
+          >
+            Save
+          </Button>
         </Stack>
       </DialogContentNarrowPadding>
     </Dialog>
