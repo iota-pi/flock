@@ -1,24 +1,26 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
-import {
-  Alert,
-  Box,
-  Button,
-  Container,
-  IconButton,
-  InputAdornment,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
-import Visibility from '@mui/icons-material/Visibility'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import { ROUTES } from './routes'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setAccount } from '../../state/account'
-import { HomeIcon, PasswordIcon, PersonIcon } from '../Icons'
-import { fetchSalt, loginVault } from '../../api/VaultLazy'
-import { setUi } from '../../state/ui'
+import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
+import { useAppStore } from 'src/state/store'
+import {
+  HomeIcon,
+  PasswordIcon,
+  PersonIcon,
+  VisibilityIcon,
+  VisibilityOffIcon,
+} from '../Icons'
+import { getSecurityParams, loginVault } from 'src/api/vault'
 
 
 const Root = styled('div')({
@@ -54,58 +56,69 @@ const HomeIconContainer = styled('div')(({ theme }) => ({
 
 
 function LoginPage() {
-  const dispatch = useAppDispatch()
+  const setUi = useAppStore(state => state.setUi)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  const createdAccountId = useAppStore(state => state.account)
+  const justCreatedAccount = useAppStore(state => state.justCreatedAccount)
+  const updateAuth = useAppStore(state => state.updateAuth)
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState('')
+  const [accountInput, setAccountInput] = useState(() => createdAccountId || '')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const createdAccountId = useAppSelector(state => state.account.account)
-  const justCreatedAccount = useAppSelector(state => state.ui.justCreatedAccount)
-
-  useEffect(
-    () => {
-      if (justCreatedAccount) {
-        setAccountInput(createdAccountId)
-        dispatch(setUi({ justCreatedAccount: false }))
-      }
-    },
-    [createdAccountId, dispatch, justCreatedAccount],
-  )
 
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
     [navigate],
   )
 
-
   const handleClickLogin = useCallback(
     async () => {
       setLoading(true)
       setError('')
-      dispatch(setAccount({ account: accountInput }))
-      const salt = await fetchSalt().catch(() => '')
-      if (salt.length) {
+      updateAuth({ account: accountInput })
+      const securityParams = await getSecurityParams(accountInput).catch(
+        (err): { salt: string, iterations?: number, saltVersion?: number } => {
+          console.error('[Login] getSecurityParams failed', err)
+          return { salt: '', iterations: undefined, saltVersion: undefined }
+        }
+      )
+      if (securityParams.salt.length) {
         try {
-          await loginVault({ password, salt })
-          dispatch(setAccount({ loggedIn: true }))
-          navigate(ROUTES.prayer.path)
+          await loginVault({
+            account: accountInput,
+            password,
+            salt: securityParams.salt,
+            iterations: securityParams.iterations,
+            saltVersion: securityParams.saltVersion,
+          })
+          updateAuth({ loggedIn: true })
+          setUi({ justCreatedAccount: false })
+
+          const nextRoute = resolveRedirectRoute(
+            location.state as RedirectRouteState | null,
+            ROUTES.prayer.path,
+            location.pathname,
+          )
+
+          navigate(nextRoute)
         } catch (error) {
           console.error('Error during vault initialization:', error)
-          dispatch(setAccount({ account: '' }))
+          updateAuth({ account: '' })
           setError('Login failed.')
         } finally {
           setLoading(false)
         }
       } else {
-        dispatch(setAccount({ account: '' }))
+        updateAuth({ account: '' })
         setError('Could not find matching account ID and password.')
         setLoading(false)
       }
     },
-    [accountInput, dispatch, navigate, password],
+    [accountInput, location.state, location.pathname, navigate, password, setUi, updateAuth],
   )
   const handleClickCreate = useCallback(
     () => {
@@ -160,7 +173,9 @@ function LoginPage() {
           </Typography>
 
           {justCreatedAccount && (
-            <Box mb={4}>
+            <Box sx={{
+              mb: 4
+            }}>
               <Alert severity="success">
                 Account successfully created!
                 Please record your account ID and password and login again to continue.
@@ -169,10 +184,14 @@ function LoginPage() {
           )}
 
           <FormContent>
-            <Box display="flex" flexGrow={1} mb={2}>
+            <Box
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mb: 2
+              }}>
               <TextField
                 autoComplete="username"
-                autoFocus
                 fullWidth
                 id="username"
                 slotProps={{
@@ -192,7 +211,12 @@ function LoginPage() {
               />
             </Box>
 
-            <Box display="flex" flexGrow={1} mb={2}>
+            <Box
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mb: 2
+              }}>
               <TextField
                 autoComplete="current-password"
                 fullWidth
@@ -211,7 +235,7 @@ function LoginPage() {
                           onMouseDown={handleMouseDownVisibility}
                           size="large"
                         >
-                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                          {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                         </IconButton>
                       </InputAdornment>
                     ),
@@ -239,7 +263,9 @@ function LoginPage() {
             </Button>
 
             {error && (
-              <Typography color="error" mt={2}>
+              <Typography color="error" sx={{
+                mt: 2
+              }}>
                 {error}
               </Typography>
             )}

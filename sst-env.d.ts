@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /* deno-fmt-ignore-file */
+/* biome-ignore-all lint: auto-generated */
 
 declare module "sst" {
   export interface Resource {
@@ -17,9 +18,29 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Dynamo"
     }
-    "FlockSubscriptions": {
+    "FlockSyncMessages": {
       "name": string
       "type": "sst.aws.Dynamo"
+    }
+    "PushNotificationsDLQ": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
+    "PushNotificationsQueue": {
+      "type": "sst.aws.Queue"
+      "url": string
+    }
+    "VAPID_PRIVATE_KEY": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "VAPID_PUBLIC_KEY": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "VAPID_SUBJECT": {
+      "type": "sst.sst.Secret"
+      "value": string
     }
     "VaultApi": {
       "name": string
@@ -32,7 +53,6 @@ declare module "sst" {
     }
   }
 }
-/// <reference path="sst-env.d.ts" />
 
 import "sst"
 export {}

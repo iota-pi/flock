@@ -1,22 +1,32 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Search from './Search'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { ThemeProvider } from '@mui/material'
+import { ThemeProvider } from '@mui/material/styles'
+
 import getTheme from '../theme'
 
+
 // Mocks
-vi.mock('../state/selectors', () => ({
-  useItems: vi.fn(),
-  useMetadata: vi.fn(),
-  useSortCriteria: vi.fn(),
-}))
-vi.mock('../store', () => ({
-  useAppSelector: vi.fn(),
+vi.mock('../state/selectors', async importOriginal => {
+  const actual = await importOriginal<typeof import('../state/selectors')>()
+  return {
+    ...actual,
+    useItemsByIds: vi.fn(),
+    useMetadata: vi.fn(),
+    useSearchItems: vi.fn(),
+  }
+})
+vi.mock('../state/store', () => ({
+  useAppStore: vi.fn(),
 }))
 vi.mock('../utils/customSort', () => ({
   sortItems: vi.fn(items => items),
 }))
+
+import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
+import { useAppStore } from '../state/store'
+import { Item } from '../state/items'
+import { ItemId } from 'src/shared/schemas/items'
 
 const lightTheme = getTheme(false)
 
@@ -28,27 +38,28 @@ const renderWithTheme = (ui: React.ReactNode) => {
   )
 }
 
-import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
-import { useAppSelector } from '../store'
-import { Item } from '../state/items'
-
 describe('Search Component', () => {
   const mockOnSelect = vi.fn()
   const mockOnCreate = vi.fn()
 
   const items: Item[] = [
-    { id: '1', version: 0, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [], summary: '' },
-    { id: '2', version: 0, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [], summary: '' },
-    { id: '3', version: 0, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], summary: '', members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
-    { id: '4', version: 0, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [], summary: '' },
+    { id: '1' as ItemId, name: 'Alice', type: 'person', description: 'Friend', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '2' as ItemId, name: 'Bob', type: 'person', description: 'Coworker', created: 0, archived: false, prayedFor: [], prayerFrequency: 'monthly', notes: [] },
+    { id: '3' as ItemId, name: 'Group A', type: 'group', description: '', created: 0, archived: false, prayedFor: [], prayerFrequency: 'none', notes: [], members: [], memberPrayerFrequency: 'monthly', memberPrayerTarget: 'one' },
+    { id: '4' as ItemId, name: 'Old', type: 'person', description: 'Archived', created: 0, archived: true, prayedFor: [], prayerFrequency: 'none', notes: [] },
   ]
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useItems).mockReturnValue(items)
+    vi.mocked(useSearchItems).mockImplementation(options => (
+      items.filter(item => (
+        options.types[item.type]
+        && (options.includeArchived || !item.archived)
+      ))
+    ))
+    vi.mocked(useItemsByIds).mockReturnValue([])
     vi.mocked(useMetadata).mockReturnValue([{}, vi.fn()])
-    vi.mocked(useSortCriteria).mockReturnValue([[], vi.fn()])
-    vi.mocked(useAppSelector).mockReturnValue(false)
+    vi.mocked(useAppStore).mockImplementation(selector => selector({ darkMode: false } as any))
   })
 
   it('renders input field', () => {
@@ -87,11 +98,11 @@ describe('Search Component', () => {
 
     const itemWithNote = {
       ...items[0],
-      id: '5',
+      id: '5' as ItemId,
       name: 'HasNote',
       notes: [{ id: 'n1', text: 'SecretDetail', archived: false, time: 0 }]
     }
-    vi.mocked(useItems).mockReturnValue([...items, itemWithNote])
+    vi.mocked(useSearchItems).mockReturnValue([...items, itemWithNote])
 
     renderWithTheme(<Search searchSummary />) // searchSummary enables note search
 
@@ -155,5 +166,22 @@ describe('Search Component', () => {
     expect(mockOnCreate).toHaveBeenCalled()
     const createdItem = mockOnCreate.mock.calls[0][0]
     expect(createdItem.name).toBe('NewUser')
+  })
+
+  it('renders selected chips with max chip overflow', () => {
+    const selected = [items[0], items[1], items[2]]
+    vi.mocked(useItemsByIds).mockReturnValue(selected)
+    renderWithTheme(
+      <Search
+        selectedItemIds={selected.map(item => item.id)}
+        showSelectedChips
+        maxChips={2}
+      />
+    )
+
+    expect(screen.getByText('Alice')).toBeTruthy()
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.getByText('+1')).toBeTruthy()
+    expect(screen.queryByText('Group A')).toBeNull()
   })
 })

@@ -1,32 +1,32 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-} from '@mui/material'
+import { useCallback, useMemo, useState } from 'react'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
 import { DropzoneArea } from 'mui-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
-import { useCallback, useMemo, useState } from 'react'
-import { importPeople, Item } from '../../state/items'
-import { useItems } from '../../state/selectors'
+
+import { Item } from '../../state/items'
 import { UploadIcon } from '../Icons'
+import { importPeople } from 'src/utils/importUtils'
 
 
-export interface Props {
+interface Props {
+  existingPeople: Item[],
   onClose: () => void,
   onConfirm: (items: Item[]) => void,
   open: boolean,
 }
 
 function ImportPeopleDialog({
+  existingPeople,
   onClose,
   onConfirm,
   open,
 }: Props) {
-  const existingPeople = useItems('person')
   const [importedItems, setImportedItems] = useState<Item[]>([])
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -90,7 +90,7 @@ function ImportPeopleDialog({
           },
         })
         setErrorMessage('')
-        const items = importPeople(data)
+        const items = await importPeople(data)
         setImportedItems(items)
       } else {
         setImportedItems([])
@@ -116,12 +116,11 @@ function ImportPeopleDialog({
       <DialogTitle>
         Import People from CSV
       </DialogTitle>
-
       <DialogContent>
         <DropzoneArea
           acceptedFiles={['.csv']}
           dropzoneText="Upload a CSV file here"
-          fileObjects={null} // Shouldn't be needed, seems to be a TS glitch
+          fileObjects={null}
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}
@@ -129,7 +128,9 @@ function ImportPeopleDialog({
           onChange={handleChange}
         />
 
-        <Box my={2}>
+        <Box sx={{
+          my: 2
+        }}>
           <Alert
             severity={(
               (errorMessage && 'error')
@@ -148,7 +149,9 @@ function ImportPeopleDialog({
         </Box>
 
         {(!errorMessage && importedItems.length > 1) && (
-          <Box mt={2}>
+          <Box sx={{
+            mt: 2
+          }}>
             <Alert severity={overwriteCount > 0 ? 'warning' : 'info'}>
               {`${overwriteCount} ${overwriteCount !== 1 ? 'people' : 'person'} will be overwritten`}
               <br />
@@ -157,7 +160,6 @@ function ImportPeopleDialog({
           </Box>
         )}
       </DialogContent>
-
       <DialogActions>
         <Button
           data-cy="import-cancel"

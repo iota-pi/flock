@@ -1,19 +1,19 @@
 import { ChangeEvent, useState } from 'react'
-import {
-  Box,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  FormGroup,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import FormGroup from '@mui/material/FormGroup'
+import { styled } from '@mui/material/styles'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+
 import { SuccessIcon } from '../Icons'
+
 
 const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),
@@ -35,14 +35,19 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
   return (
     <Dialog open={open}>
       <DialogTitle>
-        <Box display="flex" alignItems="center">
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center"
+          }}>
           Account Created
-          <Box ml={1}>
+          <Box sx={{
+            ml: 1
+          }}>
             <SuccessIcon color="success" />
           </Box>
         </Box>
       </DialogTitle>
-
       <DialogContent>
         <Typography>
           Your account has been created successfully.
@@ -83,7 +88,6 @@ export default function AccountCreatedDialog({ accountId, open, onContinue }: Pr
           />
         </FormGroup>
       </DialogContent>
-
       <DialogActions>
         <Button
           color="primary"

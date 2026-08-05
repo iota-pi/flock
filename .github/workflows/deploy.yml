@@ -22,7 +22,7 @@ jobs:
       - run: corepack enable
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
       - run: yarn install --immutable
 
       - uses: aws-actions/configure-aws-credentials@v5
@@ -45,6 +45,8 @@ jobs:
       - uses: actions/checkout@v6
       - run: corepack enable
       - uses: cypress-io/github-action@v6
+        with:
+          browser: chrome
         env:
           CYPRESS_BASE_URL: https://dev.flock.cross-code.org
 
@@ -66,7 +68,7 @@ jobs:
       - run: corepack enable
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
       - run: yarn install --immutable
 
       - uses: aws-actions/configure-aws-credentials@v5
@@ -78,3 +80,4 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}

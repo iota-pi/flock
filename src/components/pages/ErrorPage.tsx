@@ -1,11 +1,10 @@
 import { isRouteErrorResponse, useRouteError } from 'react-router'
-import {
-  Box,
-  Button,
-  Container,
-  Typography,
-  styled,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -41,13 +40,19 @@ export default function ErrorPage() {
         <Typography variant="h2" gutterBottom>
           Oops!
         </Typography>
-        <Typography variant="h5" mt={2}>
+        <Typography variant="h5" sx={{
+          mt: 2
+        }}>
           Sorry, something went wrong.
         </Typography>
-        <Typography color="error" mt={2}>
+        <Typography color="error" sx={{
+          mt: 2
+        }}>
           {errorMessage}
         </Typography>
-        <Box mt={4}>
+        <Box sx={{
+          mt: 4
+        }}>
           <Button
             variant="contained"
             color="primary"

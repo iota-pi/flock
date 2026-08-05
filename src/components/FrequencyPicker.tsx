@@ -4,18 +4,17 @@ import {
   useState,
   useMemo,
 } from 'react'
-import {
-  Box,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  SelectChangeEvent,
-  TextField,
-  Grid,
-  styled,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import MenuItem from '@mui/material/MenuItem'
+import Select, { SelectChangeEvent } from '@mui/material/Select'
+import TextField from '@mui/material/TextField'
+import Grid from '@mui/material/Grid'
+import { styled } from '@mui/material/styles'
+
 import { FREQUENCIES, FREQUENCIES_TO_LABELS, Frequency } from '../utils/frequencies'
+
 
 const IconHolder = styled('div')(({ theme }) => ({
   paddingTop: theme.spacing(2),
@@ -23,7 +22,7 @@ const IconHolder = styled('div')(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }))
 
-export interface Props {
+interface Props {
   className?: string,
   frequency: Frequency,
   fullWidth?: boolean,
@@ -113,18 +112,25 @@ function FrequencyPicker({
 
   return (
     <Box
-      display="flex"
-      alignItems="flex-start"
-      flexGrow={fullWidth ? 1 : undefined}
-      width={fullWidth ? '100%' : undefined}
-    >
+      sx={{
+        display: "flex",
+        alignItems: "flex-start",
+        flexGrow: fullWidth ? 1 : undefined,
+        width: fullWidth ? '100%' : undefined
+      }}>
       {icon && (
         <IconHolder color={focused ? 'primary' : undefined}>
           {icon}
         </IconHolder>
       )}
-
-      <Grid container spacing={2} columns={12} flexGrow={1} alignItems="flex-end">
+      <Grid
+        container
+        spacing={2}
+        columns={12}
+        sx={{
+          flexGrow: 1,
+          alignItems: "flex-end"
+        }}>
         <Grid size={{ xs: 12, sm: isCustom ? 6 : 12 }}>
           <FormControl className={className} fullWidth={fullWidth} variant="standard">
             {label && (

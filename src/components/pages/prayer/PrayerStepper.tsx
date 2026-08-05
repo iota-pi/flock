@@ -1,5 +1,9 @@
 import { ReactNode, useCallback } from 'react'
-import { Box } from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+
+import { HomeIcon } from '../../Icons'
+
 
 interface Props {
   steps: number,
@@ -7,6 +11,8 @@ interface Props {
   backButton?: ReactNode,
   nextButton?: ReactNode,
   onStepClick?: (index: number) => void,
+  onHomeClick?: () => void,
+  isHomeActive?: boolean,
 }
 
 function PrayerStepper({
@@ -15,7 +21,11 @@ function PrayerStepper({
   backButton,
   nextButton,
   onStepClick,
+  onHomeClick,
+  isHomeActive = false,
 }: Props) {
+  const ACTION_SLOT_WIDTH = 144
+
   const getBackgroundColor = useCallback(
     (index: number) => {
       if (activeStep === undefined) {
@@ -35,6 +45,25 @@ function PrayerStepper({
     [activeStep],
   )
 
+  const getStepState = useCallback(
+    (index: number): 'complete' | 'active' | 'pending' => {
+      if (activeStep === undefined) {
+        return 'pending'
+      }
+
+      if (index < activeStep) {
+        return 'complete'
+      }
+
+      if (index === activeStep) {
+        return 'active'
+      }
+
+      return 'pending'
+    },
+    [activeStep],
+  )
+
   if (steps <= 0) {
     return null
   }
@@ -47,13 +76,32 @@ function PrayerStepper({
         borderTop: 1,
         borderColor: 'divider',
         display: 'flex',
-        gap: 2,
+        gap: 1,
         minHeight: 56,
         px: 2,
         py: 1,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'flex-start', minWidth: 80 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-start', minWidth: 40 }}>
+        <IconButton
+          aria-label="Go to prayer overview"
+          onClick={onHomeClick}
+          size="small"
+          disabled={!isHomeActive}
+          color="primary"
+        >
+          <HomeIcon fontSize="small" />
+        </IconButton>
+      </Box>
+
+      <Box
+        sx={{
+          display: 'flex',
+          flexShrink: 0,
+          justifyContent: 'flex-start',
+          width: ACTION_SLOT_WIDTH,
+        }}
+      >
         {backButton}
       </Box>
 
@@ -61,6 +109,8 @@ function PrayerStepper({
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}
+            data-cy={`prayer-step-${index}`}
+            data-state={getStepState(index)}
             onClick={onStepClick ? () => onStepClick(index) : undefined}
             sx={{
               backgroundColor: getBackgroundColor(index),
@@ -74,7 +124,14 @@ function PrayerStepper({
         ))}
       </Box>
 
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', minWidth: 80 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexShrink: 0,
+          justifyContent: 'flex-end',
+          width: ACTION_SLOT_WIDTH,
+        }}
+      >
         {nextButton}
       </Box>
     </Box>

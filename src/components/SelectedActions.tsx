@@ -1,14 +1,12 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
-import {
-  Divider,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  styled,
-  Typography,
-} from '@mui/material'
-import { useAppDispatch, useAppSelector } from '../store'
+import { Fragment, lazy, memo, Suspense, useCallback, useMemo, useState } from 'react'
+import List from '@mui/material/List'
+import Typography from '@mui/material/Typography'
+import Divider from '@mui/material/Divider'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import { styled } from '@mui/material/styles'
+
 import {
   ArchiveIcon,
   DeleteIcon,
@@ -18,14 +16,18 @@ import {
   RemoveIcon,
   UnarchiveIcon,
 } from './Icons'
-import { useItemsById } from '../state/selectors'
+import { useItemsByIds } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
-import ConfirmationDialog from './dialogs/ConfirmationDialog'
-import { setUi } from '../state/ui'
-import GroupDialog from './dialogs/GroupDialog'
-import FrequencyDialog from './dialogs/FrequencyDialog'
-import { useDeleteItemsMutation, useStoreItemsMutation } from '../api/queries'
+import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
+import { useAppStore } from '../state/store'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
+
+
+const ConfirmationDialog = lazy(() => import('./dialogs/ConfirmationDialog'))
+const GroupDialog = lazy(() => import('./dialogs/GroupDialog'))
+const FrequencyDialog = lazy(() => import('./dialogs/FrequencyDialog'))
+
 
 const Root = styled('div')(({ theme }) => ({
   zIndex: theme.zIndex.drawer,
@@ -36,7 +38,7 @@ const ActionIconComponent = styled(ListItemIcon)(({ theme }) => ({
   minWidth: theme.spacing(5),
 }))
 
-export interface BulkAction {
+interface BulkAction {
   classes?: string[],
   dividerBefore?: boolean,
   icon: MuiIconType,
@@ -47,16 +49,22 @@ export interface BulkAction {
 
 const PADDING_HEIGHT = 2
 const ACTION_HEIGHT = 36.02
+const EMPTY_SELECTED_ITEMS: Item[] = []
 
 function SelectedActions() {
-  const dispatch = useAppDispatch()
-  const getItemsById = useItemsById()
-  const selected = useAppSelector(state => state.ui.selected)
-  const { mutateAsync: deleteItems } = useDeleteItemsMutation()
-  const { mutateAsync: storeItems } = useStoreItemsMutation()
+  const setSelected = useAppStore(state => state.setSelected)
+  const selected = useAppStore(state => state.selected)
 
-  const selectedItems = useMemo(() => getItemsById(selected), [getItemsById, selected])
-  const prevSelectedItems = usePrevious(selectedItems) || []
+  const selectedItems = useItemsByIds(selected)
+  const prevSelectedItems = usePrevious(selectedItems)
+  const selectedStandardItems = useMemo(
+    () => selectedItems.filter(item => item.type !== ERROR_ITEM_TYPE),
+    [selectedItems],
+  )
+  const selectedErrorItems = useMemo(
+    () => selectedItems.filter(item => item.type === ERROR_ITEM_TYPE),
+    [selectedItems],
+  )
 
   const [showConfirm, setShowConfirm] = useState(false)
   const [showGroup, setShowGroup] = useState(false)
@@ -68,36 +76,60 @@ function SelectedActions() {
   const handleHideFrequency = useCallback(() => setShowFrequency(false), [])
   const handleSetArchived = useCallback(
     (archived: boolean) => {
-      const newItems: Item[] = selectedItems.map(item => ({ ...item, archived }))
-      storeItems(newItems)
+      if (selectedStandardItems.length === 0) {
+        return
+      }
+
+      const newItems: Item[] = selectedStandardItems.map(item => ({ ...item, archived }))
+      void storeItems(newItems)
     },
-    [selectedItems, storeItems],
+    [selectedStandardItems],
   )
   const handleArchive = useCallback(() => handleSetArchived(true), [handleSetArchived])
   const handleUnarchive = useCallback(() => handleSetArchived(false), [handleSetArchived])
   const handleInitialDelete = useCallback(() => setShowConfirm(true), [])
   const handleConfirmDelete = useCallback(
     () => {
-      const ids = selectedItems.map(item => item.id)
-      deleteItems(ids)
-        .catch(error => console.error(error))
+      const standardIds = selectedStandardItems.map(item => item.id)
+      const errorIds = selectedErrorItems.map(item => item.id)
+
+      const tasks: Promise<unknown>[] = []
+      if (standardIds.length > 0) {
+        tasks.push(deleteItems(standardIds))
+      }
+      if (errorIds.length > 0) {
+        tasks.push(hardDeleteItems(errorIds))
+      }
+
+      void Promise.all(tasks).catch(error => console.error(error))
       setShowConfirm(false)
     },
-    [deleteItems, selectedItems],
+    [selectedErrorItems, selectedStandardItems],
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
-    () => dispatch(setUi({ selected: [] })),
-    [dispatch],
+    () => setSelected([]),
+    [setSelected],
   )
 
   const open = selectedItems.length > 0
-  const workingItems = open ? selectedItems : prevSelectedItems
+  const workingItems = useMemo(
+    () => (open ? selectedItems : (prevSelectedItems || EMPTY_SELECTED_ITEMS)),
+    [open, prevSelectedItems, selectedItems],
+  )
+  const workingStandardItems = useMemo(
+    () => workingItems.filter(item => item.type !== ERROR_ITEM_TYPE),
+    [workingItems],
+  )
+  const hasWorkingErrorItems = useMemo(
+    () => workingItems.some(item => item.type === ERROR_ITEM_TYPE),
+    [workingItems],
+  )
 
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
-      if (workingItems.find(item => item.type === 'person')) {
+      if (workingStandardItems.find(item => item.type === 'person')) {
         result.push({
           id: 'group',
           icon: GroupIcon,
@@ -105,33 +137,36 @@ function SelectedActions() {
           onClick: handleShowGroup,
         })
       }
-      result.push({
-        id: 'frequency',
-        icon: FrequencyIcon,
-        label: 'Set Prayer Frequency',
-        onClick: handleShowFrequency,
-      })
-      if (workingItems.find(item => !item.archived)) {
+      if (workingStandardItems.length > 0) {
         result.push({
-          id: 'archive',
-          icon: ArchiveIcon,
-          label: 'Archive',
-          onClick: handleArchive,
+          id: 'frequency',
+          icon: FrequencyIcon,
+          label: 'Set Prayer Frequency',
+          onClick: handleShowFrequency,
         })
-      }
-      if (workingItems.find(item => item.archived)) {
-        result.push({
-          id: 'unarchive',
-          icon: UnarchiveIcon,
-          label: 'Unarchive',
-          onClick: handleUnarchive,
-        })
+
+        if (workingStandardItems.find(item => !item.archived)) {
+          result.push({
+            id: 'archive',
+            icon: ArchiveIcon,
+            label: 'Archive',
+            onClick: handleArchive,
+          })
+        }
+        if (workingStandardItems.find(item => item.archived)) {
+          result.push({
+            id: 'unarchive',
+            icon: UnarchiveIcon,
+            label: 'Unarchive',
+            onClick: handleUnarchive,
+          })
+        }
       }
       result.push(
         {
           id: 'delete',
           icon: DeleteIcon,
-          label: 'Delete',
+          label: hasWorkingErrorItems && workingStandardItems.length === 0 ? 'Hard Delete' : 'Delete',
           onClick: handleInitialDelete,
         },
         {
@@ -151,7 +186,9 @@ function SelectedActions() {
       handleShowFrequency,
       handleShowGroup,
       handleUnarchive,
+      hasWorkingErrorItems,
       workingItems,
+      workingStandardItems,
     ],
   )
 
@@ -186,34 +223,36 @@ function SelectedActions() {
         ))}
       </List>
 
-      <ConfirmationDialog
-        confirmColour="error"
-        open={showConfirm}
-        onCancel={handleConfirmCancel}
-        onConfirm={handleConfirmDelete}
-      >
-        <Typography>
-          Are you sure you want to delete {selected.length} items?
-        </Typography>
+      <Suspense fallback={null}>
+        <ConfirmationDialog
+          confirmColour="error"
+          open={showConfirm}
+          onCancel={handleConfirmCancel}
+          onConfirm={handleConfirmDelete}
+        >
+          <Typography>
+            Are you sure you want to delete {selected.length} items?
+          </Typography>
 
-        <Typography>
-          This action cannot be undone.
-        </Typography>
-      </ConfirmationDialog>
+          <Typography>
+            This action cannot be undone.
+          </Typography>
+        </ConfirmationDialog>
 
-      <GroupDialog
-        items={selectedItems}
-        onClose={handleHideGroup}
-        open={showGroup}
-      />
+        <GroupDialog
+          items={selectedStandardItems}
+          onClose={handleHideGroup}
+          open={showGroup}
+        />
 
-      <FrequencyDialog
-        items={selectedItems}
-        onClose={handleHideFrequency}
-        open={showFrequency}
-      />
+        <FrequencyDialog
+          items={selectedStandardItems}
+          onClose={handleHideFrequency}
+          open={showFrequency}
+        />
+      </Suspense>
     </Root>
   )
 }
 
-export default SelectedActions
+export default memo(SelectedActions)

@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
 import {
   isSearchableStandardItem,
   sortSearchables,
   getName,
 } from './utils'
 import { AnySearchable, SEARCHABLE_BASE_SORT_ORDER } from './types'
+
 
 // Mock dependencies
 vi.mock('../../state/items', () => ({

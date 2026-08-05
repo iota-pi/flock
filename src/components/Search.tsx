@@ -4,36 +4,30 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
 } from 'react'
-import {
-  Autocomplete,
-  autocompleteClasses,
-  Chip,
-  InputAdornment,
-  Paper,
-  PaperProps,
-  Popper,
-  styled,
-  TextField,
-  ThemeProvider,
-} from '@mui/material'
+import TextField from '@mui/material/TextField'
+import { ThemeProvider } from '@mui/material/styles'
+import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
+import Chip from '@mui/material/Chip'
+import InputAdornment from '@mui/material/InputAdornment'
+import Paper, { PaperProps } from '@mui/material/Paper'
 import {
   AutocompleteChangeReason,
   FilterOptionsState,
 } from '@mui/material/useAutocomplete'
 import { KeyOption, matchSorter } from 'match-sorter'
-import { useListRef } from 'react-window'
+import { upperFirst } from 'lodash-es'
+
 import {
   getBlankItem,
   getItemName,
   Item,
 } from '../state/items'
 import { getIcon, MuiIconType } from './Icons'
-import { useItems, useMetadata, useSortCriteria } from '../state/selectors'
-import { useAppSelector } from '../store'
+import { useItemsByIds, useMetadata, useSearchItems } from '../state/selectors'
+import { useAppStore } from '../state/store'
 import getTheme from '../theme'
-import { sortItems } from '../utils/customSort'
-import { capitalise } from '../utils'
 import {
   ALL_SEARCHABLE_TYPES,
   AnySearchable,
@@ -44,20 +38,12 @@ import {
   getName,
   sortSearchables,
 } from './search/utils'
-import ListBoxComponent from './search/ListBox'
+import ListBoxComponent, { SearchListVirtualizerApi } from './search/ListBox'
+import { ERROR_ITEM_TYPE, ItemId } from 'src/shared/schemas/items'
 
-const StyledPopper = styled(Popper)({
-  [`& .${autocompleteClasses.listbox}`]: {
-    boxSizing: 'border-box',
-    '& ul': {
-      padding: 0,
-      margin: 0,
-    },
-  },
-})
 
 function ThemedPaper({ children, ...props }: PaperProps) {
-  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const darkMode = useAppStore(state => state.darkMode)
   const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (
@@ -69,8 +55,7 @@ function ThemedPaper({ children, ...props }: PaperProps) {
   )
 }
 
-export interface Props<T> {
-  autoFocus?: boolean,
+interface Props<T> {
   dataCy?: string,
   forceDarkTheme?: boolean,
   includeArchived?: boolean,
@@ -84,7 +69,7 @@ export interface Props<T> {
   onCreate?: (item: Item) => void,
   onRemove?: (item: T) => void,
   onSelect?: (item: T) => void,
-  selectedItems?: T[],
+  selectedItemIds?: ItemId[],
   searchDescription?: boolean,
   searchSummary?: boolean,
   showDescriptions?: boolean,
@@ -93,15 +78,14 @@ export interface Props<T> {
   showSelectedChips?: boolean,
   showSelectedOptions?: boolean,
   showOptionCheckboxes?: boolean,
-  /** Keep the popper open after selecting an option */
   keepPopperOpenOnSelect?: boolean,
   types?: Readonly<Partial<Record<AnySearchableType, boolean>>>,
 }
 
 const DARK_THEME = getTheme(true)
+const EMPTY_ITEM_IDS: ItemId[] = []
 
 function Search<T extends AnySearchableData = AnySearchableData>({
-  autoFocus,
   dataCy,
   forceDarkTheme = false,
   includeArchived = false,
@@ -115,7 +99,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   onCreate,
   onRemove,
   onSelect,
-  selectedItems = [],
+  selectedItemIds = EMPTY_ITEM_IDS,
   searchDescription = false,
   searchSummary = false,
   showDescriptions = true,
@@ -126,16 +110,21 @@ function Search<T extends AnySearchableData = AnySearchableData>({
   showOptionCheckboxes = false,
   types = ALL_SEARCHABLE_TYPES,
 }: Props<T>) {
-  const items = useItems()
-  const [sortCriteria] = useSortCriteria()
+  const selectedItems = useItemsByIds(selectedItemIds)
+  const [isOpen, setIsOpen] = useState(false)
+  const handleOpen = useCallback(() => setIsOpen(true), [])
+  const handleClose = useCallback(() => setIsOpen(false), [])
+
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
+  const items = useSearchItems({
+    isOpen,
+    includeArchived,
+    selectedItemIds,
+    showSelectedOptions,
+    types,
+  })
 
-  const selectedIds = useMemo(
-    () => new Set(selectedItems.map(s => (typeof s === 'string' ? s : s.id))),
-    [selectedItems],
-  )
-
-  const selectedSearchables: AnySearchable[] = useMemo(
+  const selectedSearchables = useMemo(
     () => selectedItems.map(
       (item): AnySearchable => ({
         data: item,
@@ -147,23 +136,11 @@ function Search<T extends AnySearchableData = AnySearchableData>({
     [selectedItems],
   )
 
-  const filteredItems = useMemo(
-    () => sortItems(
-      items.filter(item => (
-        types[item.type]
-        && (includeArchived || !item.archived)
-        && (showSelectedOptions || !selectedIds.has(item.id))
-      )),
-      sortCriteria,
-    ),
-    [includeArchived, items, selectedIds, showSelectedOptions, sortCriteria, types],
-  )
-
   const options = useMemo<AnySearchable[]>(
     () => {
       const results: AnySearchable[] = []
       results.push(
-        ...filteredItems.map((item): AnySearchable => ({
+        ...items.map((item): AnySearchable => ({
           type: item.type,
           id: item.id,
           data: item,
@@ -172,7 +149,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       )
       return results
     },
-    [filteredItems],
+    [items],
   )
 
   const matchSorterKeys = useMemo(
@@ -212,7 +189,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'person',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             dividerBefore: true,
             id: 'add-person',
@@ -222,7 +199,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'group',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             id: 'add-group',
             type: 'group',
@@ -231,7 +208,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             create: true,
             default: {
               type: 'topic',
-              name: capitalise(state.inputValue.trim()),
+              name: upperFirst(state.inputValue.trim()),
             },
             id: 'add-topic',
             type: 'topic',
@@ -253,7 +230,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
       if (reason === 'selectOption') {
         const option = value[value.length - 1]
         if (option.create) {
-          if (onCreate) {
+          if (onCreate && option.type !== ERROR_ITEM_TYPE) {
             onCreate({
               ...getBlankItem(option.type),
               ...option.default,
@@ -262,7 +239,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
           }
         } else {
           const data = option.data as T
-          if (selectedIds.has(data.id)) {
+          if (selectedItemIds.includes(data.id)) {
             onRemove?.(data)
           } else if (onSelect) {
             onSelect(data)
@@ -281,14 +258,14 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         onClear()
       }
     },
-    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedIds, selectedSearchables],
+    [defaultFrequencies, onClear, onCreate, onRemove, onSelect, selectedItemIds, selectedSearchables],
   )
 
   const theme = useMemo(
     () => (forceDarkTheme ? DARK_THEME : {}),
     [forceDarkTheme],
   )
-  const internalListRef = useListRef(null)
+  const internalListRef = useRef<SearchListVirtualizerApi | null>(null)
   const optionIndexMapRef = useRef<Map<string, number>>(new Map())
 
   const handleItemsBuilt = useCallback(
@@ -305,7 +282,7 @@ function Search<T extends AnySearchableData = AnySearchableData>({
 
       const index = optionIndexMapRef.current.get(option.id)
       if (index !== undefined) {
-        internalListRef.current.scrollToRow({ align: 'auto', index })
+        internalListRef.current.scrollToIndex(index)
       }
     },
     [internalListRef],
@@ -324,52 +301,50 @@ function Search<T extends AnySearchableData = AnySearchableData>({
         isOptionEqualToValue={(a, b) => a.id === b.id}
         slots={{
           paper: ThemedPaper,
-          popper: StyledPopper,
         }}
         slotProps={{
           listbox: {
             component: ListBoxComponent,
             internalListRef,
             onItemsBuilt: handleItemsBuilt,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any,
+          popper: {
+            sx: {
+              [`& .${autocompleteClasses.listbox}`]: {
+                boxSizing: 'border-box',
+                '& ul': {
+                  padding: 0,
+                  margin: 0,
+                },
+              },
+            },
+          },
         }}
         multiple
         noOptionsText={noItemsText}
+        onOpen={handleOpen}
+        onClose={handleClose}
         onChange={handleChange}
         onHighlightChange={handleHighlightChange}
         options={options}
-        renderInput={({ InputProps, InputLabelProps, inputProps, ...params }) => {
-          // TODO: Once MUI updates AutocompleteRenderInputParams to include slotProps,
-          // migrate to destructuring slotProps from params and using those instead of
-          // the deprecated InputProps and InputLabelProps.
-          // See: https://github.com/mui/material-ui/issues/45414 for status
+        renderInput={({ slotProps, ...params }) => {
+          if (InputIcon && slotProps?.input) {
+            slotProps.input.startAdornment = (
+              <InputAdornment position="start">
+                <InputIcon />
+              </InputAdornment>
+            )
+          }
+          if (dataCy && slotProps?.htmlInput) {
+            slotProps.htmlInput['data-cy'] = dataCy
+          }
           return (
             <TextField
               {...params}
-              autoFocus={autoFocus}
+              aria-label={label || placeholder || 'Search'}
               inputRef={inputRef}
-              slotProps={{
-                input: {
-                  ...InputProps,
-                  startAdornment: (
-                    <>
-                      {InputIcon && (
-                        <InputAdornment position="start">
-                          <InputIcon />
-                        </InputAdornment>
-                      )}
-
-                      {InputProps.startAdornment}
-                    </>
-                  ),
-                },
-                inputLabel: InputLabelProps,
-                htmlInput: {
-                  ...inputProps,
-                  'data-cy': dataCy,
-                }
-              }}
+              slotProps={slotProps}
               label={label}
               placeholder={placeholder}
               variant="outlined"
@@ -383,28 +358,38 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             { showDescriptions, showGroupMemberCounts, showIcons, showCheckboxes: showOptionCheckboxes, selected },
           ]) as React.ReactNode
         }
-        renderTags={(selectedOptions, getTagProps) => (
-          showSelectedChips && (
-            maxChips
-              ? selectedOptions.slice(0, maxChips)
-              : selectedOptions
-          ).map((option, index) => (
-            <Chip
-              {...getTagProps({ index })}
-              label={getName(option)}
-              icon={getIcon(option.type)}
-            />
-          )).concat(
-            maxChips && selectedOptions.length > maxChips
-              ? [
-                <Chip
-                  key="more"
-                  label={`+${selectedOptions.length - maxChips}`}
-                />
-              ]
-              : []
-          )
-        )}
+        renderValue={(selectedOptions, getItemProps) => {
+          if (!showSelectedChips) {
+            return null
+          }
+
+          const visibleOptions = maxChips
+            ? selectedOptions.slice(0, maxChips)
+            : selectedOptions
+
+          const chips = visibleOptions.map((option, index) => {
+            const { key, ...props } = getItemProps({ index })
+            return (
+              <Chip
+                {...props}
+                key={key}
+                label={getName(option)}
+                icon={getIcon(option.type)}
+              />
+            )
+          })
+
+          if (maxChips && selectedOptions.length > maxChips) {
+            chips.push(
+              <Chip
+                key="more"
+                label={`+${selectedOptions.length - maxChips}`}
+              />
+            )
+          }
+
+          return chips
+        }}
         value={selectedSearchables}
       />
     </ThemeProvider>

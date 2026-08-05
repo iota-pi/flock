@@ -33,105 +33,114 @@ related to or resulting from the use of Flock.
 
 # Development
 
-This repository is for the development of Flock, if you would like to use Flock,
-please go to [flock.cross-code.org](https://flock.cross-code.org/).
+This repository is for the development of Flock. If you want to use Flock,
+go to [flock.cross-code.org](https://flock.cross-code.org/).
 
-## Project Structure
+## Architecture At A Glance
 
-This is a unified TypeScript project containing both the front-end React application and the back-end Vault API:
+Flock is a unified TypeScript codebase containing:
+
+- A React frontend (`src/`)
+- A Fastify + tRPC Vault API (`src/vault/`)
+- A local-first Automerge sync layer (`src/sync/`, `src/workers/`)
+
+### Key directories
 
 ```
 flock/
 ├── src/
-│   ├── api/           # Front-end API clients (Vault.ts, VaultAPI.ts, axios.ts)
-│   ├── components/    # React UI components
-│   ├── hooks/         # Custom React hooks
-│   ├── state/         # UI state slices (account, ui) and item models/helpers
-│   ├── utils/         # Utility functions
-│   └── vault/         # Back-end Vault API
-│       ├── api/       # Fastify server and routes
-│       ├── drivers/   # Database drivers (DynamoDB)
-│       ├── migrations/
-│       └── notifier/  # Notification services
-├── cypress/           # End-to-end tests
-├── public/            # Static assets
-├── sst.config.ts      # SST infrastructure configuration
-└── docker-compose.yml # Local development services
+│   ├── api/                 # Frontend API clients, auth/session/runtime helpers
+│   │   ├── vault/           # Encrypted Vault HTTP clients + sync transport
+│   │   └── realtime/        # Realtime transport and lock helpers
+│   ├── components/          # React components (dialogs, drawers, pages, layout)
+│   ├── features/            # Feature slices (items, groups, etc)
+│   ├── hooks/               # Shared React hooks
+│   ├── state/               # App state stores and domain models
+│   ├── sync/                # Automerge doc store, dispatcher, coordinator, migrations
+│   ├── workers/             # Web workers + managers (Automerge and item processing)
+│   └── vault/               # Backend API (Fastify/tRPC, services, DynamoDB drivers)
+├── cypress/                 # End-to-end tests
+├── public/                  # Static assets
+├── sst.config.ts            # SST infrastructure definition
+└── docker-compose.yml       # Local DynamoDB + API dependencies
 ```
 
 ## Tech Stack
 
-- **Front-end**: React, TypeScript, TanStack Query (server data), Redux Toolkit (UI state), MUI (Material UI), Vite
-- **Back-end**: Fastify, TypeScript, DynamoDB
-- **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages
-- **Testing**: Vitest (unit tests), Cypress (e2e tests)
+- **Frontend**: React 19, TypeScript, Material UI, Vite
+- **State**: Zustand stores + local-first Automerge document snapshots
+- **Sync**: Automerge CRDTs, worker-backed sync state, batch push/pull over encrypted HTTP
+- **Realtime**: WebSocket transport with web-lock leader election and cross-tab bus
+- **Backend**: Fastify, tRPC, Zod, TypeScript, DynamoDB
+- **Infrastructure**: SST (Ion), AWS Lambda, Cloudflare Pages, AWS Backup
+- **Testing**: Vitest + happy-dom, Cypress
 
-## Set up
+## Local-First Data Flow
+
+1. Item and metadata reads come from local Automerge snapshots.
+2. Local edits update Automerge docs immediately on the client.
+3. The sync dispatcher pushes only documents marked with local changes.
+4. Remote changes are pulled in batches and merged into the same local docs.
+5. Realtime sync pings trigger targeted pull/catch-up across tabs.
+
+## Setup
 
 Requirements:
-1. Node.js (v22+)
+
+1. Node.js v26+
 2. Yarn 4 (via Corepack)
-3. Docker & Docker Compose
+3. Docker with Compose
 
 ```shell
-# Install dependencies
 yarn install
-
-# Start local DynamoDB and API
 docker compose up -d
-
-# Initialize the local database
 yarn initdb
 ```
 
-## Run development server
+## Run Locally
 
 ```shell
-# Start Docker services and Vite dev server
+# Start Docker services, Vault API, and Vite app
 yarn start
 ```
 
-This command:
-1. Starts the local DynamoDB and API containers via Docker Compose
-2. Runs the Vite development server with SST dev mode
-
-Alternatively, run individual services:
+Run services individually when needed:
 
 ```shell
-# Run Vault API locally (with hot reload)
-yarn dev:vault
-
-# Run just the front-end (requires API to be running)
+# Frontend only
 yarn dev
+
+# Vault API only (watch mode)
+yarn dev:vault
 ```
 
-## Testing
+## Testing And Quality
 
 ```shell
-# Run unit tests
-yarn test
+# Lint
+yarn lint
 
-# Run unit tests with coverage
+# Unit tests (single run)
+yarn test run
+
+# Coverage
 yarn coverage
 
-# Run Cypress e2e tests (ensure dev server is running)
+# Cypress e2e run
+yarn e2e
+
+# Cypress interactive mode
 npx cypress open
 ```
 
-## Deployment
-
-Infrastructure is managed via [SST](https://sst.dev/) (v3):
+## Build And Deploy
 
 ```shell
-# Deploy to a development stage
-yarn deploy --stage dev
+# Type-check + frontend build
+yarn build
 
-# Deploy to production
-yarn deploy --stage production
+# Deploy with SST
+yarn deploy --stage <stage>
 ```
 
-The SST configuration (`sst.config.ts`) provisions:
-- DynamoDB tables (FlockAccounts, FlockItems, FlockSubscriptions)
-- Lambda function with Function URL for the Vault API
-- Cloudflare Pages for static site hosting
-- AWS Backup for data protection
+`sst.config.ts` provisions DynamoDB, Lambda (Vault API), Cloudflare Pages, and backup resources.

@@ -1,47 +1,43 @@
 import {
-  Box,
-  Container,
-  CSSObject,
-  IconButton,
-  styled,
-  SwipeableDrawer,
-  Theme,
-  Toolbar,
-  useMediaQuery,
-} from '@mui/material'
-import {
   createRef,
   KeyboardEvent as ReactKeyboardEvent,
   PropsWithChildren,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import SwipeableDrawer from '@mui/material/SwipeableDrawer'
+import Toolbar from '@mui/material/Toolbar'
+import { CSSObject, styled, Theme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import { MuiIconType, RemoveIcon } from '../Icons'
 import DrawerActions, { Props as DrawerActionsProps } from './utils/DrawerActions'
-import { ItemId } from '../../state/items'
 import { usePrevious } from '../../utils'
+import { ItemId } from 'src/shared/schemas/items'
 
 
 const noOp = () => {}
 
 const StyledDrawer = styled(
   SwipeableDrawer,
-  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'stacked' && p !== 'permanent' },
-)<{ fullScreen: boolean, permanent: boolean, stacked: boolean }>(
-  ({ fullScreen, permanent, stacked, theme }): CSSObject => {
+  { shouldForwardProp: p => p !== 'fullScreen' && p !== 'permanent' },
+)<{ fullScreen: boolean, permanent: boolean }>(
+  ({ fullScreen, permanent, theme }): CSSObject => {
     const drawerWidth: CSSObject = (
       fullScreen ? {
         width: '100vw',
       } : {
-        width: stacked ? '35vw' : '45vw',
+        width: '45vw',
         [theme.breakpoints.down('lg')]: {
-          width: stacked ? '55vw' : '70vw',
+          width: '70vw',
         },
         [theme.breakpoints.down('md')]: {
-          width: stacked ? '70vw' : '85vw',
+          width: '85vw',
         },
         [theme.breakpoints.only('xs')]: {
           width: '100vw',
@@ -108,17 +104,14 @@ const TopRightActionsHolder = styled('div')(({ theme }) => ({
 
 interface BaseProps {
   onBack?: () => void,
-  onClose: (disableSave?: boolean) => void,
-  onExited?: () => void,
+  onClose: () => void,
   onUnmount?: () => void,
   open: boolean,
-  stacked?: boolean,
   alwaysTemporary?: boolean,
 }
 interface SpecificProps {
   ActionProps?: DrawerActionsProps,
   alwaysShowBack?: boolean,
-  disableAutoCloseOnSave?: boolean,
   fullScreen?: boolean,
   headerActions?: React.ReactNode,
   hideBackButton?: boolean,
@@ -135,7 +128,6 @@ function BaseDrawer({
   alwaysShowBack = false,
   alwaysTemporary = false,
   children,
-  disableAutoCloseOnSave = false,
   fullScreen = false,
   headerActions,
   hideBackButton = false,
@@ -143,16 +135,14 @@ function BaseDrawer({
   itemKey,
   onBack,
   onClose,
-  onExited,
   onUnmount,
   open,
-  stacked = false,
   typeIcon: Icon,
 }: PropsWithChildren<Props>) {
   const xsScreen = useMediaQuery<Theme>(theme => theme.breakpoints.down('sm'))
   const largeScreen = useMediaQuery<Theme>(theme => theme.breakpoints.up('lg'))
 
-  const permanentDrawer = largeScreen && !stacked && !alwaysTemporary
+  const permanentDrawer = largeScreen && !alwaysTemporary
   const showBackButton = onBack && (
     alwaysShowBack || (
       !hideBackButton && (xsScreen || permanentDrawer)
@@ -175,20 +165,7 @@ function BaseDrawer({
     },
     [onBack, onClose],
   )
-  const handleSave = useMemo(
-    () => {
-      if (ActionProps?.onSave) {
-        return () => {
-          ActionProps.onSave()
-          if (!ActionProps.promptSave || (!permanentDrawer && !disableAutoCloseOnSave)) {
-            onClose(true)
-          }
-        }
-      }
-      return undefined
-    },
-    [ActionProps, disableAutoCloseOnSave, onClose, permanentDrawer],
-  )
+  const handleSave = ActionProps?.onSave
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -203,14 +180,6 @@ function BaseDrawer({
     [handleSave, onClose],
   )
 
-  const modifiedActionProps = useMemo(
-    () => ActionProps && ({
-      ...ActionProps,
-      onSave: handleSave,
-    } as DrawerActionsProps),
-    [ActionProps, handleSave],
-  )
-
   const prevKey = usePrevious(itemKey)
   const containerRef = createRef<HTMLDivElement>()
   useEffect(
@@ -221,7 +190,6 @@ function BaseDrawer({
     },
     [containerRef, itemKey, prevKey],
   )
-
 
   useHotkeys(
     ['ctrl+s', 'meta+s'],
@@ -244,64 +212,57 @@ function BaseDrawer({
   }, [])
 
   return (
-    <>
-      <StyledDrawer
-        anchor="right"
-        disableSwipeToOpen
-        fullScreen={fullScreen}
-        onClose={handleDrawerClose}
-        onOpen={noOp}
-        onKeyDown={handleKeyDown}
-        open={open}
-        permanent={permanentDrawer}
-        SlideProps={{ onExited }}
-        stacked={stacked}
-        variant={permanentDrawer ? 'permanent' : 'temporary'}
-      >
-        {permanentDrawer && (
-          <Toolbar />
-        )}
+    <StyledDrawer
+      anchor="right"
+      disableSwipeToOpen
+      fullScreen={fullScreen}
+      onClose={handleDrawerClose}
+      onOpen={noOp}
+      onKeyDown={handleKeyDown}
+      open={open}
+      permanent={permanentDrawer}
+      variant={permanentDrawer ? 'permanent' : 'temporary'}
+    >
+      {permanentDrawer && (
+        <Toolbar />
+      )}
 
-        <Layout>
-          <StyledContainer
-            data-cy="drawer-content"
-            ref={containerRef}
-          >
-            <>
-              <Box>
-                {showTypeIcon && Icon && (
-                  <IconHolder>
-                    <Icon />
-                  </IconHolder>
-                )}
-              </Box>
-
-              {(showBackButton || headerActions) && (
-                <TopRightActionsHolder>
-                  {headerActions}
-                  {showBackButton && (
-                    <IconButton data-cy="back-button" onClick={handleBack} size="large">
-                      <RemoveIcon />
-                    </IconButton>
-                  )}
-                </TopRightActionsHolder>
+      <Layout>
+        <StyledContainer
+          data-cy="drawer-content"
+          ref={containerRef}
+        >
+          <>
+            <Box>
+              {showTypeIcon && Icon && (
+                <IconHolder>
+                  <Icon />
+                </IconHolder>
               )}
+            </Box>
 
-              {children}
-            </>
-          </StyledContainer>
+            {(showBackButton || headerActions) && (
+              <TopRightActionsHolder>
+                {headerActions}
+                {showBackButton && (
+                  <IconButton aria-label="Go back" data-cy="back-button" onClick={handleBack} size="large">
+                    <RemoveIcon />
+                  </IconButton>
+                )}
+              </TopRightActionsHolder>
+            )}
 
-          {modifiedActionProps && (
-            <div>
-              <DrawerActions
-                permanentDrawer={permanentDrawer}
-                {...modifiedActionProps}
-              />
-            </div>
-          )}
-        </Layout>
-      </StyledDrawer>
-    </>
+            {children}
+          </>
+        </StyledContainer>
+
+        {ActionProps && (
+          <DrawerActions
+            {...ActionProps}
+          />
+        )}
+      </Layout>
+    </StyledDrawer>
   )
 }
 

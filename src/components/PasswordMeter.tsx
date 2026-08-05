@@ -1,11 +1,9 @@
-import {
-  alpha,
-  LinearProgress,
-  styled,
-  Theme,
-  Typography,
-} from '@mui/material'
-import InlineText from './InlineText'
+import { alpha, styled, Theme } from '@mui/material/styles'
+import Typography from '@mui/material/Typography'
+import LinearProgress from '@mui/material/LinearProgress'
+
+import InlineText from './ui/InlineText'
+
 
 function passwordScoreToWord(score: number) {
   const words = ['', 'very bad', 'not good', 'passable', 'okay']
@@ -46,7 +44,7 @@ const StyledLinearProgress = styled(LinearProgress)<{ strength: number }>(({ str
   }
 })
 
-export interface PasswordMeterProps {
+interface PasswordMeterProps {
   score: number
 }
 
@@ -56,7 +54,7 @@ export default function PasswordMeter({ score }: PasswordMeterProps) {
       <Typography>
         Password Strength:
         {' '}
-        <InlineText fontWeight={500}>
+        <InlineText>
           {passwordScoreToWord(score)}
         </InlineText>
       </Typography>

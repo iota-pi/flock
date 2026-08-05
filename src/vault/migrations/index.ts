@@ -88,7 +88,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
   async addModifiedTime () {
     const maxItems = 10000
     const items: VaultItem[] = []
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     while (items.length < maxItems) {
       const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }))
       if (response?.Items) {
@@ -119,7 +119,7 @@ const migrations: { [name: string]: () => Promise<void> } = {
   async updateItemTypeMetadata () {
     const maxItems = 10000
     const items: VaultItem[] = []
-    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined = undefined
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
     while (items.length < maxItems) {
       const response = await client.send(new ScanCommand({ TableName: ITEM_TABLE_NAME }))
       if (response?.Items) {

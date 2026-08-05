@@ -1,16 +1,11 @@
+import { timingSafeEqual } from 'crypto'
+
 export function almostConstantTimeEqual(attempt: string, real: string) {
   if (attempt.length !== real.length) {
     return false
   }
 
-  let equal = true
-  for (let i = 0; i < attempt.length; i++) {
-    if (attempt.charAt(i) !== real.charAt(i)) {
-      equal = false
-    }
-  }
-
-  return equal
+  return timingSafeEqual(Buffer.from(attempt), Buffer.from(real))
 }
 
 export function generateAccountId() {

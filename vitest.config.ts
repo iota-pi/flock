@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
+    silent: 'passed-only',
+    execArgv: ['--no-webstorage'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],
@@ -16,6 +18,9 @@ export default defineConfig({
         'src/icons/**',
         'src/utils/testUtils.ts',
       ],
+    },
+    alias: {
+      'src': '/src',
     },
     projects: [
       {

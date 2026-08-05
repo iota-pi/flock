@@ -1,13 +1,12 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
-import {
-  Button,
-  Container,
-  Grid,
-  Link,
-  styled,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Container from '@mui/material/Container'
+import Grid from '@mui/material/Grid'
+import Link from '@mui/material/Link'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
 import { ROUTES } from './routes'
 import AboutDrawer from '../drawers/AboutDrawer'
 
@@ -74,8 +73,8 @@ function WelcomePage() {
             </LargeText>
 
             <LargeText>
-              Flock aims to provide you with a secure, digital &quot;notebook&quot; to help you to
-              remember and care for your Flock, especially in prayer.
+              Flock aims to provide you with a secure, digital notebook to help you to care for
+              your Flock, especially in prayer.
             </LargeText>
 
             <LargeText>
@@ -89,7 +88,13 @@ function WelcomePage() {
             </LargeText>
           </div>
 
-          <Grid container spacing={2} justifyContent="center" width="100%">
+          <Grid
+            container
+            spacing={2}
+            sx={{
+              justifyContent: "center",
+              width: "100%"
+            }}>
             <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 color="primary"

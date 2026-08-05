@@ -4,12 +4,14 @@ import {
 } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { Item } from '../../state/items'
-import { replaceActive } from '../../state/ui'
-import { useAppDispatch } from '../../store'
 import { SearchIcon } from '../Icons'
 import Search from '../Search'
+import { useAppStore } from '../../state/store'
+import { createItem } from '../../features/items/mutations/itemMutations'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
-export interface Props {
+
+interface Props {
   label: string,
   noItemsText?: string,
   onSelect?: (item?: Item | string) => void,
@@ -20,7 +22,7 @@ function EverythingSearch({
   noItemsText,
   onSelect,
 }: Props) {
-  const dispatch = useAppDispatch()
+  const setDrawer = useAppStore(state => state.setDrawer)
   const searchInput = useRef<HTMLInputElement>(null)
   const focusSearch = useCallback(
     () => {
@@ -33,21 +35,35 @@ function EverythingSearch({
   useHotkeys('/', focusSearch, { keyup: true, keydown: false })
 
   const handleCreate = useCallback(
-    (newItem: Item) => {
-      dispatch(replaceActive({ newItem }))
+    (itemToCreate: Item) => {
+      if (itemToCreate.type === ERROR_ITEM_TYPE) {
+        return
+      }
+
+      const {
+        id: _id,
+        type,
+        ...overrides
+      } = itemToCreate
+
+      void createItem(type, overrides).then(createdItem => {
+        setDrawer({ item: createdItem.id })
+      }).catch(error => {
+        console.error(error)
+      })
     },
-    [dispatch],
+    [setDrawer],
   )
   const handleSelect = useCallback(
     (item: Item) => {
       if (item) {
-        dispatch(replaceActive({ item: item.id }))
+        setDrawer({ item: item.id })
       }
       if (onSelect) {
         onSelect(item)
       }
     },
-    [dispatch, onSelect],
+    [onSelect, setDrawer],
   )
 
   return (

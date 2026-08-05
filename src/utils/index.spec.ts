@@ -2,11 +2,10 @@ import { renderHook } from '@testing-library/react'
 import {
   isDefined,
   generateItemId,
+  generateNoteId,
   formatDate,
-  formatTime,
   isSameDay,
-  useStringMemo,
-  capitalise,
+  useStableArray,
 } from './index'
 
 describe('utils/index', () => {
@@ -25,13 +24,31 @@ describe('utils/index', () => {
   })
 
   describe('generateItemId', () => {
-    it('returns a string', () => {
-      expect(typeof generateItemId()).toBe('string')
+    it('returns a 21-character URL-safe nanoid string', () => {
+      const id = generateItemId()
+      expect(typeof id).toBe('string')
+      expect(id).toHaveLength(21)
+      expect(id).toMatch(/^[A-Za-z0-9_-]{21}$/)
     })
 
     it('returns unique IDs', () => {
       const id1 = generateItemId()
       const id2 = generateItemId()
+      expect(id1).not.toBe(id2)
+    })
+  })
+
+  describe('generateNoteId', () => {
+    it('returns a 10-character URL-safe nanoid string', () => {
+      const id = generateNoteId()
+      expect(typeof id).toBe('string')
+      expect(id).toHaveLength(10)
+      expect(id).toMatch(/^[A-Za-z0-9_-]{10}$/)
+    })
+
+    it('returns unique note IDs', () => {
+      const id1 = generateNoteId()
+      const id2 = generateNoteId()
       expect(id1).not.toBe(id2)
     })
   })
@@ -42,16 +59,6 @@ describe('utils/index', () => {
       // Just check it returns a string and contains parts of the date
       const result = formatDate(d)
       expect(typeof result).toBe('string')
-    })
-  })
-
-  describe('formatTime', () => {
-    it('formats time correctly', () => {
-      const d = new Date('2024-01-01T13:05:00') // 1:05pm
-      expect(formatTime(d)).toBe('1:05pm')
-
-      const d2 = new Date('2024-01-01T00:30:00') // 12:30am
-      expect(formatTime(d2)).toBe('12:30am')
     })
   })
 
@@ -69,27 +76,12 @@ describe('utils/index', () => {
     })
   })
 
-  describe('capitalise', () => {
-    it('capitalises first letter', () => {
-      expect(capitalise('hello')).toBe('Hello')
-      expect(capitalise('world')).toBe('World')
-    })
-
-    it('handles empty string', () => {
-      expect(capitalise('')).toBe('')
-    })
-
-    it('keeps already capitalised string', () => {
-      expect(capitalise('Hello')).toBe('Hello')
-    })
-  })
-
-  describe('useStringMemo', () => {
-    it('returns same reference for array with same strings', () => {
+  describe('useStableArray', () => {
+    it('returns same reference for array with same shallow contents', () => {
       const list1 = ['a', 'b']
       const list2 = ['a', 'b']
 
-      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+      const { result, rerender } = renderHook(({ list }) => useStableArray(list), {
         initialProps: { list: list1 }
       })
 
@@ -104,7 +96,7 @@ describe('utils/index', () => {
       const list1 = ['a']
       const list2 = ['a', 'b']
 
-      const { result, rerender } = renderHook(({ list }) => useStringMemo(list), {
+      const { result, rerender } = renderHook(({ list }) => useStableArray(list), {
         initialProps: { list: list1 }
       })
 

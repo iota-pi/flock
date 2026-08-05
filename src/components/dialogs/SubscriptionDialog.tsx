@@ -1,20 +1,21 @@
-import {
-  Box,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  MenuItem,
-  Stack,
-  styled,
-  TextField,
-} from '@mui/material'
 import { ChangeEvent, useCallback, useEffect, useState } from 'react'
-import { checkSubscription } from '../../utils/firebase'
-import { RemoveIcon } from '../Icons'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
+import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import MenuItem from '@mui/material/MenuItem'
+import { styled } from '@mui/material/styles'
 
-export interface Props {
+import { checkSubscription } from '../../utils/pushNotifications'
+import { RemoveIcon } from '../Icons'
+import { useAppStore } from 'src/state/store'
+
+
+interface Props {
   onClose: () => void,
   onSave: (hours: number[] | null) => Promise<void>,
   open: boolean,
@@ -80,10 +81,11 @@ function SubscriptionTime({
 
   return (
     <Box
-      alignItems="center"
-      display="flex"
       key={id}
-    >
+      sx={{
+        alignItems: "center",
+        display: "flex"
+      }}>
       <TextField
         fullWidth
         label="Notification time"
@@ -100,8 +102,7 @@ function SubscriptionTime({
           </MenuItem>
         ))}
       </TextField>
-
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove notification time" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Box>
@@ -113,12 +114,17 @@ function SubscriptionDialog({
   onSave,
   open,
 }: Props) {
+  const account = useAppStore(state => state.account)
   const [hours, setHours] = useState<SubscriptionHour[]>([])
 
   useEffect(
     () => {
+      if (!account) {
+        return
+      }
+
       let cancelled = false
-      checkSubscription().then(existing => {
+      checkSubscription(account).then(existing => {
         if (!cancelled && existing) {
           setHours(
             existing.hours.map(hour => ({
@@ -132,7 +138,7 @@ function SubscriptionDialog({
       }).catch(console.error)
       return () => { cancelled = true }
     },
-    [],
+    [account],
   )
 
   const handleSave = useCallback(
@@ -189,13 +195,14 @@ function SubscriptionDialog({
       <DialogTitle>
         Manage Notifications
       </DialogTitle>
-
       <DialogContentNarrowPadding>
         You can opt-in to receive daily prayer reminders.
 
         <Stack
           spacing={1}
-          paddingY={2}
+          sx={{
+            paddingY: 2
+          }}
         >
           {hours.map(({ hour, id }) => (
             <SubscriptionTime
@@ -209,17 +216,15 @@ function SubscriptionDialog({
         </Stack>
 
         <Stack spacing={1}>
-          <Stack>
-            <Button
-              data-cy="subscription-add-time"
-              disabled={hours.length > 0}
-              fullWidth
-              onClick={handleAdd}
-              variant="outlined"
-            >
-              Add Notification
-            </Button>
-          </Stack>
+          <Button
+            data-cy="subscription-add-time"
+            disabled={hours.length > 0}
+            fullWidth
+            onClick={handleAdd}
+            variant="outlined"
+          >
+            Add Notification
+          </Button>
 
           <Stack spacing={1} direction="row">
             <Button

@@ -1,30 +1,21 @@
-import { memo, ReactNode, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router'
-import {
-  Box,
-  Divider,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  styled,
-  Toolbar,
-} from '@mui/material'
+import Drawer from '@mui/material/Drawer'
+import List from '@mui/material/List'
+import Toolbar from '@mui/material/Toolbar'
+import { styled } from '@mui/material/styles'
+
 import { pages, usePage } from '../pages'
-import { PageId } from '../pages/routes'
-import { useAppDispatch } from '../../store'
-import { setUi } from '../../state/ui'
-import { useMetadataQuery } from '../../api/queries'
-import { ContractMenuIcon, ExpandMenuIcon, MuiIconType } from '../Icons'
-import { useLoggedIn } from 'src/state/selectors'
+import { ProtectedPageId } from '../pages/types'
+import { ContractMenuIcon, ExpandMenuIcon } from '../Icons'
+import { useAppStore } from 'src/state/store'
+import { MainMenuItem } from './MainMenuItem'
+import type { MinimisedProp } from './types'
+
 
 export const DRAWER_SPACING_FULL = 30
 export const DRAWER_SPACING_NARROW = 10
 
-interface MinimisedProp {
-  minimised: boolean,
-}
 const StyledDrawer = styled(
   Drawer,
   {
@@ -56,131 +47,69 @@ const FlexList = styled(List)({
   flexDirection: 'column',
   flexGrow: 1,
 })
-const StyledListItemButton = styled(
-  ListItemButton,
-  {
-    shouldForwardProp: p => p !== 'minimised',
-  },
-)<MinimisedProp>(({ minimised, theme }) => ({
-  flexGrow: 0,
-  height: theme.spacing(minimised ? 8 : 6),
-  justifyContent: 'center',
-  transition: theme.transitions.create(['color', 'height']),
-}))
-const MenuItemIcon = styled(
-  ListItemIcon,
-  {
-    shouldForwardProp: p => p !== 'minimised',
-  },
-)<MinimisedProp>(({ minimised, theme }) => ({
-  color: 'inherit',
-  minWidth: 0,
-  paddingLeft: theme.spacing(minimised ? 1.5 : 0.5),
-  paddingRight: theme.spacing(minimised ? 0 : 3),
-  transition: theme.transitions.create('padding'),
-}))
-const MenuItemText = styled(
-  ListItemText,
-  {
-    shouldForwardProp: p => p !== 'minimised',
-  },
-)<MinimisedProp>(({ minimised, theme }) => ({
-  whiteSpace: 'nowrap',
-  overflowX: 'hidden',
-  textOverflow: 'ellipsis',
-  transition: theme.transitions.create('opacity'),
-  opacity: minimised ? 0 : undefined,
 
-  '& .MuiListItemText-secondary': {
-    display: 'inline',
-  },
-}))
-
-export interface Props {
+interface Props {
+  floating?: boolean,
   minimised?: boolean,
   onClick: () => void,
   onMinimise: () => void,
   open: boolean,
 }
 
-export interface UserInterface {
-  id: string,
-  name: string,
-  icon: ReactNode,
-}
-
-type MenuActionId = 'minimise'
-
-export interface MainMenuItemProps {
-  dividerBefore?: boolean,
-  icon: MuiIconType,
-  id: PageId | MenuActionId,
-  minimisedMenu: boolean,
-  name: string,
-  onClick: (pageId?: PageId) => void,
-  selected: boolean,
-}
-
-
-function MainMenuItem({
-  dividerBefore,
-  icon: Icon,
-  id,
-  minimisedMenu,
-  name,
-  onClick,
-  selected,
-}: MainMenuItemProps) {
-  const handleClick = useCallback(
-    () => (id !== 'minimise' ? onClick(id) : onClick()),
-    [id, onClick],
-  )
-
-  return (
-    <>
-      {dividerBefore && (
-        <Divider />
-      )}
-
-      <StyledListItemButton
-        data-cy={`page-${id}`}
-        minimised={minimisedMenu}
-        onClick={handleClick}
-        selected={selected}
-      >
-        <MenuItemIcon minimised={minimisedMenu}>
-          <Icon />
-        </MenuItemIcon>
-
-        <MenuItemText
-          minimised={minimisedMenu}
-          primary={name}
-        />
-      </StyledListItemButton>
-    </>
-  )
-}
-
 
 function MainMenu({
+  floating = false,
   minimised = false,
   onClick,
   onMinimise,
   open,
 }: Props) {
-  const dispatch = useAppDispatch()
+  const setSelected = useAppStore(state => state.setSelected)
   const navigate = useNavigate()
-  const loggedIn = useLoggedIn()
-  const { data: metadata = {} } = useMetadataQuery(loggedIn)
   const page = usePage()
+  const previousPageIdRef = useRef<ProtectedPageId | undefined>(page?.id)
+  const currentPageIdRef = useRef<ProtectedPageId | undefined>(page?.id)
+
+  const pagePathById = useMemo(
+    () => new Map<ProtectedPageId, string>(pages.map(menuPage => [menuPage.id, menuPage.path])),
+    [],
+  )
+
+  useEffect(
+    () => {
+      currentPageIdRef.current = page?.id
+    },
+    [page?.id],
+  )
+
+  useEffect(
+    () => {
+      const previousPageId = previousPageIdRef.current
+      const currentPageId = page?.id
+
+      previousPageIdRef.current = currentPageId
+
+      if (!previousPageId || !currentPageId || previousPageId === currentPageId) {
+        return
+      }
+
+      if (useAppStore.getState().selected.length > 0) {
+        setSelected([])
+      }
+    },
+    [page?.id, setSelected],
+  )
 
   const handleClick = useCallback(
-    (pageId?: PageId) => {
-      if (pageId && page?.id !== pageId) {
-        const newPage = pages.find(p => p.id === pageId)!
-        navigate(newPage.path)
-        dispatch(setUi({ selected: [] }))
-      } else if (pageId === 'prayer' && page?.id === 'prayer') {
+    (pageId?: ProtectedPageId) => {
+      const currentPageId = currentPageIdRef.current
+
+      if (pageId && currentPageId !== pageId) {
+        const nextPath = pagePathById.get(pageId)
+        if (nextPath) {
+          navigate(nextPath)
+        }
+      } else if (pageId === 'prayer' && currentPageId === 'prayer') {
         navigate('/', {
           replace: true,
           state: {
@@ -190,25 +119,19 @@ function MainMenu({
       }
       onClick()
     },
-    [page?.id, dispatch, navigate, onClick],
-  )
-
-  const pagesToShow = useMemo(
-    () => pages.filter(p => (p.metadataControl ? p.metadataControl(metadata) : true)),
-    [metadata],
+    [navigate, onClick, pagePathById],
   )
 
   return (
     <StyledDrawer
       minimised={minimised}
       open={open}
-      variant="persistent"
+      variant={floating ? 'temporary' : 'permanent'}
     >
       <Toolbar />
-
       <DrawerContent>
         <FlexList>
-          {pagesToShow.map(({ id, name, icon: Icon, dividerBefore }) => (
+          {pages.map(({ id, name, icon: Icon, dividerBefore }) => (
             <MainMenuItem
               key={id}
               dividerBefore={dividerBefore}
@@ -221,16 +144,20 @@ function MainMenu({
             />
           ))}
 
-          <Box flexGrow={1} />
+          {!floating && (
+            <>
+              <div style={{ flexGrow: 1 }} />
 
-          <MainMenuItem
-            icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
-            id="minimise"
-            minimisedMenu={minimised}
-            name="Collapse Menu"
-            onClick={onMinimise}
-            selected={false}
-          />
+              <MainMenuItem
+                icon={minimised ? ExpandMenuIcon : ContractMenuIcon}
+                id="minimise"
+                minimisedMenu={minimised}
+                name="Collapse Menu"
+                onClick={onMinimise}
+                selected={false}
+              />
+            </>
+          )}
         </FlexList>
       </DrawerContent>
     </StyledDrawer>

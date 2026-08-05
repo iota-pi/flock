@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-} from '@mui/material'
-import { GroupItem, Item } from '../../state/items'
-import Search from '../Search'
-import { useStoreItemsMutation } from '../../api/queries'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Grid from '@mui/material/Grid'
 
-export interface Props {
+import { Item } from '../../state/items'
+import Search from '../Search'
+import { storeItems } from '../../features/items/mutations/itemMutations'
+import { GroupItem } from 'src/shared/schemas/items'
+
+
+interface Props {
   items: Item[],
   onClose: () => void,
   open: boolean,
@@ -25,7 +26,6 @@ function GroupDialog({
 }: Props) {
   const [addGroups, setAddGroups] = useState<GroupItem[]>([])
   const [removeGroups, setRemoveGroups] = useState<GroupItem[]>([])
-  const { mutate: storeItems } = useStoreItemsMutation()
 
   const removeGroupsIds = useMemo(() => removeGroups.map(g => g.id), [removeGroups])
   const selectedIds = useMemo(() => items.map(item => item.id), [items])
@@ -73,11 +73,19 @@ function GroupDialog({
           members: group.members.filter(m => !selectedIds.includes(m)),
         })
       }
-      storeItems(updated)
-      onClose()
+
+      void storeItems(updated)
+        .then(() => {
+          onClose()
+        })
+        .catch(error => {
+          console.error(error)
+        })
     },
-    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds, storeItems],
+    [addGroups, onClose, removeGroups, removeGroupsIds, selectedIds],
   )
+
+  const addGroupsIds = useMemo(() => addGroups.map(g => g.id), [addGroups])
 
   return (
     <Dialog
@@ -89,17 +97,17 @@ function GroupDialog({
       <DialogTitle>
         Add/Remove from Groups
       </DialogTitle>
-
       <DialogContent>
-        <Grid container spacing={2} paddingTop={1}>
+        <Grid container spacing={2} sx={{
+          paddingTop: 1
+        }}>
           <Grid size={{ xs: 12 }}>
             <Search<GroupItem>
-              autoFocus
               label="Add to Groups"
               onClear={handleClearAdd}
               onRemove={handleRemoveAdd}
               onSelect={handleSelectAdd}
-              selectedItems={addGroups}
+              selectedItemIds={addGroupsIds}
               showIcons
               showSelectedChips
               types={{ group: true }}
@@ -112,7 +120,7 @@ function GroupDialog({
               onClear={handleClearRemove}
               onRemove={handleRemoveRemove}
               onSelect={handleSelectRemove}
-              selectedItems={removeGroups}
+              selectedItemIds={removeGroupsIds}
               showIcons
               showSelectedChips
               types={{ group: true }}
@@ -120,7 +128,6 @@ function GroupDialog({
           </Grid>
         </Grid>
       </DialogContent>
-
       <DialogActions>
         <Button
           disabled={addGroups.length + removeGroups.length === 0}

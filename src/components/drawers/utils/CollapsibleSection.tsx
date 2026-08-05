@@ -3,18 +3,16 @@ import {
   useCallback,
   useState,
 } from 'react'
-import {
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  AccordionActions,
-  Typography,
-  Divider,
-  Box,
-  styled,
-} from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { MuiIconType } from '../../Icons'
+import Accordion from '@mui/material/Accordion'
+import AccordionSummary from '@mui/material/AccordionSummary'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import AccordionActions from '@mui/material/AccordionActions'
+import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
+import { ExpandIcon, MuiIconType } from '../../Icons'
 
 const StyledAccordion = styled(Accordion)(({ theme }) => ({
   '& .MuiAccordion-root': {
@@ -47,7 +45,7 @@ const StyledAccordionDetails = styled(AccordionDetails)(({ theme }) => ({
   padding: theme.spacing(2),
 }))
 
-export interface Props {
+interface Props {
   icon?: MuiIconType,
   id: string,
   initialExpanded?: boolean,
@@ -78,14 +76,16 @@ function CollapsibleSection({
       expanded={expanded}
       onChange={handleChange}
       square
-      TransitionProps={{ unmountOnExit: true }}
+      slotProps={{ transition: { unmountOnExit: true } }}
       sx={disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
     >
       <StyledAccordionSummary
         aria-controls={`${id}-content`}
-        expandIcon={<ExpandMoreIcon />}
+        expandIcon={<ExpandIcon />}
       >
-        <Box mr={2}>
+        <Box sx={{
+          mr: 2
+        }}>
           {Icon && (
             <Icon />
           )}
@@ -93,15 +93,14 @@ function CollapsibleSection({
 
         <Typography>{title}</Typography>
       </StyledAccordionSummary>
-
       <Divider />
-
       <StyledAccordionDetails>
-        <Box flexGrow={1}>
+        <Box sx={{
+          flexGrow: 1
+        }}>
           {content}
         </Box>
       </StyledAccordionDetails>
-
       {actions && (
         <AccordionActions>
           {actions}

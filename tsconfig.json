@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "esnext",
     "module": "esnext",
-    "baseUrl": "./",
+    "paths": {
+      "src/*": [
+        "./src/*"
+      ]
+    },
     "strict": true,
     "allowJs": true,
     "moduleDetection": "force",
@@ -10,7 +14,6 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "downlevelIteration": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -24,13 +27,15 @@
     "types": [
       "node",
       "vitest/globals",
-      "vite/client"
+      "vite/client",
+      "vite-plugin-pwa/client"
     ],
     "noFallthroughCasesInSwitch": true
   },
   "include": [
     "src",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "scripts"
   ],
   "exclude": [
     "node_modules",

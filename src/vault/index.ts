@@ -1,7 +1,6 @@
 import { awsLambdaFastify } from '@fastify/aws-lambda'
 import createServer from './api'
 import { handler as migrationHandler } from './migrations'
-import { handler as notifierHandler } from './notifier'
 
 const proxyPromise = createServer().then(server =>
   awsLambdaFastify(server, {
@@ -15,4 +14,7 @@ const handler = async (event: unknown, context: unknown) => {
   return proxy(event, context)
 }
 
-export { handler, migrationHandler, notifierHandler }
+export {
+  handler,
+  migrationHandler,
+}

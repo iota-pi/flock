@@ -1,65 +1,57 @@
-import { useCallback, useMemo } from 'react'
-import {
-  Box,
-  Button,
-  Container,
-  ListItemIcon,
-  ListItemText,
-  MenuItem,
-} from '@mui/material'
-import { useSwipeable } from 'react-swipeable'
-import {
-  DirtyItem,
-  Item,
-} from '../../../state/items'
-import ItemDrawer from '../../drawers/ItemDrawer'
-import ItemFormContent from '../../drawers/ItemFormContent'
-import ItemViewTopBar from '../../drawers/ItemViewTopBar'
+import { memo, useCallback, useMemo } from 'react'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import MenuItem from '@mui/material/MenuItem'
+
+import { Item } from 'src/state/items'
+import ItemFormContent from 'src/features/items/components/ItemFormContent'
+import ItemViewTopBar from 'src/features/items/components/ItemViewTopBar'
 import {
   ArchiveIcon,
-  BackIcon,
-  NextIcon,
   PrayerIcon,
   UnarchiveIcon,
 } from '../../Icons'
-import BasePage from '../BasePage'
-import PrayerStepper from './PrayerStepper'
-import { isSameDay } from '../../../utils'
-import { getLastPrayedFor } from '../../../utils/prayer'
+import { isSameDay } from 'src/utils'
+import { getLastPrayedFor } from 'src/utils/prayer'
+import SwipeableCarousel from '../../ui/SwipeableCarousel'
+import { useAppStore } from 'src/state/store'
+
 
 interface Props {
   activeIndex: number,
-  items: DirtyItem<Item>[],
-  totalSteps: number,
-  isEditDrawerOpen: boolean,
+  items: Item[],
   onBack: () => void,
   onNext: () => void,
-  onOpenEditDrawer: () => void,
-  onCloseEditDrawer: () => void,
-  onEditDrawerChange: (
-    data: DirtyItem<Partial<Omit<Item, 'type' | 'id'>>> | ((prev: Item) => Item),
-  ) => void,
-  onItemChange: <T extends Item>(data: Partial<T> | ((prev: Item) => Item)) => void,
-  onStepClick?: (index: number) => void,
+  onItemChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
 }
 
 function PrayerActiveView({
   activeIndex,
   items,
-  totalSteps,
-  isEditDrawerOpen,
   onBack,
   onNext,
-  onOpenEditDrawer,
-  onCloseEditDrawer,
-  onEditDrawerChange,
   onItemChange,
-  onStepClick,
 }: Props) {
+  const setDrawer = useAppStore(state => state.setDrawer)
   const activeItem = items[activeIndex]
-  const isLast = activeIndex >= totalSteps - 1
+
   const activeItemArchived = activeItem.archived
   const activeItemPrayedToday = isSameDay(new Date(), new Date(getLastPrayedFor(activeItem)))
+
+  const handleOpenEditDrawer = useCallback(
+    () => {
+      setDrawer({
+        item: activeItem.id,
+        fromPrayerPage: true,
+        alwaysTemporary: true,
+        disableRouting: true,
+        open: true,
+      })
+    },
+    [activeItem.id, setDrawer],
+  )
 
   const markPrayedMenuItem = useMemo(
     () => (
@@ -111,101 +103,51 @@ function PrayerActiveView({
     [activeItem.isNew, activeItemArchived, onItemChange],
   )
 
-  const handleSwiped = useCallback(
-    ({ deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
-      if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return
-      if (deltaX < 0) {
-        onNext()
-      } else {
-        onBack()
-      }
-    },
-    [onBack, onNext],
+  const formSlides = useMemo(
+    () => items.map((item, itemIndex) => (
+      <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
+        {Math.abs(itemIndex - activeIndex) <= 1
+          ? (
+            <Container maxWidth={false} sx={{ py: 2 }}>
+              <ItemFormContent
+                autoFocusName={false}
+                fromPrayerPage
+                key={item.id}
+                handleChange={
+                  itemIndex === activeIndex
+                    ? onItemChange
+                    : (() => undefined)
+                }
+                hideHeaderFields
+                hideRelationships
+                item={item}
+              />
+            </Container>
+          )
+          : <Box sx={{ height: '100%', width: '100%' }} />}
+      </Box>
+    )),
+    [activeIndex, items, onItemChange],
   )
 
-  const swipeHandlers = useSwipeable({
-    delta: 60,
-    onSwiped: handleSwiped,
-    preventScrollOnSwipe: false,
-    trackMouse: false,
-    trackTouch: true,
-  })
-
   return (
-    <BasePage noScrollContainer>
-      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-        <ItemViewTopBar
-          editButtonDataCy="active-item-edit-button"
-          item={activeItem}
-          menuButtonDataCy="active-item-menu-button"
-          menuItems={[
-            markPrayedMenuItem,
-            archiveMenuItem,
-          ]}
-          onEdit={onOpenEditDrawer}
-        />
-
-        <Box {...swipeHandlers} sx={{ flexGrow: 1, overflow: 'hidden', width: '100%' }}>
-          <Box
-            sx={{
-              display: 'flex',
-              height: '100%',
-              transform: `translateX(-${activeIndex * 100}%)`,
-              transition: 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
-              width: '100%',
-            }}
-          >
-            {items.map((item, itemIndex) => (
-              <Box key={item.id} sx={{ flexShrink: 0, height: '100%', overflowY: 'auto', width: '100%' }}>
-                <Container maxWidth={false} sx={{ py: 2 }}>
-                  <ItemFormContent
-                    autoFocusName={false}
-                    fromPrayerPage
-                    handleChange={
-                      itemIndex === activeIndex
-                        ? onItemChange
-                        : (() => undefined)
-                    }
-                    hideHeaderFields
-                    hideRelationships
-                    item={item}
-                  />
-                </Container>
-              </Box>
-            ))}
-          </Box>
-        </Box>
-
-        <PrayerStepper
-          activeStep={activeIndex}
-          onStepClick={onStepClick}
-          backButton={(
-            <Button onClick={onBack} startIcon={<BackIcon />}>
-              Back
-            </Button>
-          )}
-          nextButton={(
-            <Button endIcon={<NextIcon />} onClick={onNext}>
-              {isLast ? 'Finish' : 'Next'}
-            </Button>
-          )}
-          steps={totalSteps}
-        />
-      </Box>
-
-      <ItemDrawer
-        alwaysTemporary
-        fromPrayerPage
+    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <ItemViewTopBar
+        editButtonDataCy="active-item-edit-button"
         item={activeItem}
-        onBack={onCloseEditDrawer}
-        onChange={onEditDrawerChange}
-        onClose={onCloseEditDrawer}
-        onExited={onCloseEditDrawer}
-        open={isEditDrawerOpen}
-        stacked={false}
+        menuButtonDataCy="active-item-menu-button"
+        menuItems={[
+          markPrayedMenuItem,
+          archiveMenuItem,
+        ]}
+        onEdit={handleOpenEditDrawer}
       />
-    </BasePage>
+
+      <SwipeableCarousel activeIndex={activeIndex} onBack={onBack} onNext={onNext}>
+        {formSlides}
+      </SwipeableCarousel>
+    </Box>
   )
 }
 
-export default PrayerActiveView
+export default memo(PrayerActiveView)

@@ -1,7 +1,11 @@
 import { memo, useState } from 'react'
-import { Alert, styled, Typography } from '@mui/material'
-import { getItemTypeLabel, ItemType } from '../../../state/items'
-import InlineText from '../../InlineText'
+import Alert from '@mui/material/Alert'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+
+import { getItemTypeLabel } from 'src/state/items'
+import type { ItemType } from 'src/shared/itemTypes'
+import InlineText from '../../ui/InlineText'
 
 const StyledAlert = styled(Alert)(({ theme }) => ({
   transition: theme.transitions.create('all'),
@@ -30,7 +34,7 @@ const DuplicateAlert = memo(({
       severity={hasDescription ? 'info' : 'warning'}
     >
       <Typography>
-        There {areOrIs} <InlineText fontWeight={500}>{displayCount}</InlineText>
+        There {areOrIs} <InlineText>{displayCount}</InlineText>
         {' other '}
         {getItemTypeLabel(itemType, plural).toLowerCase()}
         {' with this name.'}
@@ -41,7 +45,7 @@ const DuplicateAlert = memo(({
           Please check if this is a duplicate.
           Otherwise, it may be helpful to
           {' '}
-          <InlineText fontWeight={500}>add a description</InlineText>
+          <InlineText>add a description</InlineText>
           {' '}
           to help distinguish between these {getItemTypeLabel(itemType, true).toLowerCase()}.
         </Typography>

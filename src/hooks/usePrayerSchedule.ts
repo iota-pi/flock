@@ -1,25 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useToday } from './useToday'
-import { useItemMap, useItems, useMetadata } from '../state/selectors'
-import { isSameDay, useStringMemo } from '../utils'
+import { usePrayerScheduleInputs } from '../state/selectors'
+import { isSameDay, useStableArray } from '../utils'
 import { getLastPrayedFor, getNaturalPrayerGoal, getPrayerSchedule } from '../utils/prayer'
 import { Item } from '../state/items'
-import { useStoreItemsMutation } from '../api/queries'
+import { mutateItem } from 'src/features/items/mutations/itemMutations'
 
 export function usePrayerSchedule() {
-  const items = useItems()
-  const itemMap = useItemMap()
+  const {
+    items,
+    prayerGoal,
+  } = usePrayerScheduleInputs()
   const today = useToday()
 
+  const itemMap = useMemo(
+    () => Object.fromEntries(items.map(item => [item.id, item])),
+    [items],
+  )
+
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
-  const [goal] = useMetadata('prayerGoal', naturalGoal)
+  const goal = prayerGoal ?? naturalGoal
   const [todaysGoal, setTodaysGoal] = useState(goal)
+  const [prevGoal, setPrevGoal] = useState(goal)
 
-  const { mutate: storeItems } = useStoreItemsMutation()
-
-  useEffect(() => {
+  if (goal !== prevGoal) {
+    setPrevGoal(goal)
     setTodaysGoal(goal)
-  }, [goal])
+  }
 
   const isPrayedForToday = useCallback(
     (item: Item): boolean => isSameDay(today, new Date(getLastPrayedFor(item))),
@@ -32,16 +39,25 @@ export function usePrayerSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [items, today],
   )
-  const scheduleIds = useStringMemo(rawPrayerSchedule)
+  const scheduleIds = useStableArray(rawPrayerSchedule)
 
-  const schedule = useMemo(
-    () => scheduleIds.map(id => itemMap[id]),
+  const rawSchedule = useMemo(
+    () => scheduleIds
+      .map(id => itemMap[id])
+      .filter((item): item is Item => !!item),
     [itemMap, scheduleIds],
   )
+  const schedule = useStableArray(rawSchedule)
 
-  const visibleSchedule = useMemo(
+  const rawVisibleSchedule = useMemo(
     () => schedule.slice(0, todaysGoal),
     [todaysGoal, schedule],
+  )
+  const visibleSchedule = useStableArray(rawVisibleSchedule)
+
+  const visibleScheduleIds = useMemo(
+    () => scheduleIds.slice(0, todaysGoal),
+    [todaysGoal, scheduleIds],
   )
 
   const completed = useMemo(
@@ -61,10 +77,10 @@ export function usePrayerSchedule() {
       } else {
         prayedFor = [...prayedFor, new Date().getTime()]
       }
-      const newItem: Item = { ...item, prayedFor }
-      storeItems(newItem)
+
+      void mutateItem(item.id, { prayedFor })
     },
-    [isPrayedForToday, storeItems],
+    [isPrayedForToday],
   )
 
   const showMore = useCallback(() => {
@@ -86,5 +102,6 @@ export function usePrayerSchedule() {
     showMore,
     showUntil,
     visibleSchedule,
+    visibleScheduleIds,
   }
 }

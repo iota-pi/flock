@@ -1,23 +1,23 @@
 import { useCallback, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Grid from '@mui/material/Grid'
+import Typography from '@mui/material/Typography'
+
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
 import { PersonIcon, GroupIcon } from '../Icons'
+
 
 export interface Defaults {
   person?: Frequency,
   group?: Frequency,
 }
 
-export interface Props {
+interface Props {
   open: boolean,
   defaults: Defaults,
   onClose: () => void,
@@ -44,7 +44,9 @@ function DefaultFrequencyDialog({ open, defaults, onClose, onSave }: Props) {
     <Dialog onClose={onClose} open={open} fullWidth maxWidth="sm">
       <DialogTitle>Default Prayer Frequency</DialogTitle>
       <DialogContent>
-        <Grid container spacing={2} alignItems="center">
+        <Grid container spacing={2} sx={{
+          alignItems: "center"
+        }}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <Typography variant="subtitle1">People</Typography>
             <FrequencyPicker

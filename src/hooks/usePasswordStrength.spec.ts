@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { usePasswordStrength } from './usePasswordStrength'
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+
 
 // Mock zxcvbn-ts modules
 vi.mock('@zxcvbn-ts/core', () => ({

@@ -1,64 +1,40 @@
-import { ReactNode, Suspense, lazy, useCallback, useMemo } from 'react'
-import {
-  Checkbox,
-  Divider,
-  FormControlLabel,
-  List,
-  styled,
-  Typography,
-} from '@mui/material'
+import { useCallback, useState } from 'react'
 import download from 'js-file-download'
+import Box from '@mui/material/Box'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+
 import BasePage from './BasePage'
-import {
-  DeleteIcon,
-  DownloadIcon,
-  FrequencyIcon,
-  EditIcon,
-  MuiIconType,
-  NotificationIcon,
-  PersonIcon,
-  SignOutIcon,
-  UploadIcon,
-} from '../Icons'
-import SettingsItem from '../SettingsItem'
-import useSettings from '../../hooks/useSettings'
+import type { Item } from 'src/state/items'
+import useSettings from 'src/hooks/useSettings'
+import { useDialogState } from 'src/hooks/useDialogState'
+import type { BackupPayloadV2 } from 'src/types/backup'
+import SettingsItemsList from './settings/SettingsItemsList'
+import SettingsDialogs from './settings/SettingsDialogs'
+import type { SettingsActionId } from './settings/settingsConfig'
+import { useVisibleItems } from 'src/state/selectors'
+import ConfirmationDialog from '../dialogs/ConfirmationDialog'
 
-const GoalDialog = lazy(() => import('../dialogs/GoalDialog'))
-const RestoreBackupDialog = lazy(() => import('../dialogs/RestoreBackupDialog'))
-const ImportPeopleDialog = lazy(() => import('../dialogs/ImportPeopleDialog'))
-const SubscriptionDialog = lazy(() => import('../dialogs/SubscriptionDialog'))
-const DefaultFrequencyDialog = lazy(() => import('../dialogs/DefaultFrequencyDialog'))
-import PageContainer from '../PageContainer'
-
-const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
-  marginRight: 0,
-
-  '& .MuiCheckbox-root': {
-    marginLeft: theme.spacing(1),
-  },
-}))
-
-type SettingsItemConfig = {
-  type: 'item',
-  id: string,
-  title: string,
-  icon?: MuiIconType,
-  onClick?: () => void,
-  value?: ReactNode,
-  disabled?: boolean,
-} | {
-  type: 'divider',
-  key: string,
-}
 
 function SettingsPage() {
-  const { actions, dialogs, values } = useSettings()
+  const items = useVisibleItems()
+  const existingPeople = items.filter(item => item.type === 'person')
+  const { actions, values } = useSettings(items)
+  const goalDialog = useDialogState('goal')
+  const restoreDialog = useDialogState('restore')
+  const recoveryDialog = useDialogState('dataRecovery')
+  const importDialog = useDialogState('import')
+  const subscriptionDialog = useDialogState('subscription')
+  const defaultFrequencyDialog = useDialogState('defaultFrequency')
+  const changePasswordDialog = useDialogState('changePassword')
+  const reencryptDialog = useDialogState('reencrypt')
+  const [confirmRemoveAccountOpen, setConfirmRemoveAccountOpen] = useState(false)
 
   const onExport = useCallback(
     async () => {
       try {
         const json = await actions.handleExport()
-        return download(json, 'flock.backup.json')
+        download(json, 'flock.backup.json')
       } catch (err) {
         console.error('Export failed', err)
       }
@@ -66,165 +42,110 @@ function SettingsPage() {
     [actions],
   )
 
-  const darkOrLightLabel = values.darkMode ? 'Always dark mode' : 'Always light mode'
-  const darkModeLabel = values.darkMode === null ? 'System default' : darkOrLightLabel
+  const handleConfirmRemoveAccount = useCallback(() => {
+    setConfirmRemoveAccountOpen(false)
+    void actions.handleRemoveAccountFromDevice()
+  }, [actions])
 
-  const settingsList: SettingsItemConfig[] = useMemo(() => [
-    {
-      type: 'item',
-      id: 'logout',
-      title: 'Sign out',
-      icon: SignOutIcon,
-      onClick: actions.handleSignOut,
+  const actionHandlers: Record<SettingsActionId, () => void> = {
+    lock: () => {
+      void actions.handleLock()
     },
-    { type: 'divider', key: 'd1' },
-    {
-      type: 'item',
-      id: 'clear-cache',
-      title: 'Clear item cache',
-      icon: DeleteIcon,
-      onClick: actions.handleClearCache,
-      disabled: !values.itemCacheExists,
+    removeAccount: () => {
+      setConfirmRemoveAccountOpen(true)
     },
-    { type: 'divider', key: 'd2' },
-    {
-      type: 'item',
-      id: 'darkmode',
-      title: 'Use dark mode',
-      onClick: actions.handleToggleDarkMode,
-      value: (
-        <LeftCheckboxLabel
-          control={(
-            <Checkbox
-              checked={values.darkMode || false}
-              indeterminate={values.darkMode === null}
-              size="small"
-            />
-          )}
-          label={darkModeLabel}
-          labelPlacement="start"
-        />
-      ),
+    toggleDarkMode: actions.handleToggleDarkMode,
+    openGoalDialog: goalDialog.openDialog,
+    openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
+    openSubscriptionDialog: subscriptionDialog.openDialog,
+    openChangePasswordDialog: changePasswordDialog.openDialog,
+    exportData: () => {
+      void onExport()
     },
-    { type: 'divider', key: 'd3' },
-    {
-      type: 'item',
-      id: 'prayer-goal',
-      title: 'Daily prayer goal',
-      icon: EditIcon,
-      onClick: () => dialogs.open('goal'),
-      value: (
-        <Typography
-          color={values.goal < values.naturalGoal ? 'secondary' : 'textPrimary'}
-          fontWeight={500}
-          sx={{ mr: 2 }}
-        >
-          {values.goal}
-        </Typography>
-      ),
-    },
-    {
-      type: 'item',
-      id: 'default-frequency',
-      title: 'Set default prayer frequency for new items',
-      icon: FrequencyIcon,
-      onClick: () => dialogs.open('defaultFrequency'),
-    },
-    { type: 'divider', key: 'd4' },
-    {
-      type: 'item',
-      id: 'reminders',
-      title: 'Prayer reminder notifications (temporarily unavailable)',
-      icon: NotificationIcon,
-      onClick: () => dialogs.open('subscription'),
-      disabled: true,
-    },
-    { type: 'divider', key: 'd5' },
-    {
-      type: 'item',
-      id: 'export',
-      title: 'Create a backup of your data',
-      icon: DownloadIcon,
-      onClick: onExport,
-    },
-    {
-      type: 'item',
-      id: 'restore',
-      title: 'Restore from a backup',
-      icon: UploadIcon,
-      onClick: () => dialogs.open('restore'),
-    },
-    {
-      type: 'item',
-      id: 'import-people',
-      title: 'Import from CSV',
-      icon: PersonIcon,
-      onClick: () => dialogs.open('import'),
-    },
-    { type: 'divider', key: 'd6' },
-  ], [actions, dialogs, darkModeLabel, onExport, values])
+    openRestoreDialog: restoreDialog.openDialog,
+    openRecoveryDialog: recoveryDialog.openDialog,
+    openImportDialog: importDialog.openDialog,
+  }
+
+  const handleRestoreConfirm = useCallback(async (payload: BackupPayloadV2) => {
+    const saved = await actions.handleConfirmRestore(payload)
+    if (saved) {
+      restoreDialog.closeDialog()
+    }
+  }, [actions, restoreDialog])
+
+  const handleImportConfirm = useCallback(async (items: Item[]) => {
+    const saved = await actions.handleConfirmImport(items)
+    if (saved) {
+      importDialog.closeDialog()
+    }
+  }, [actions, importDialog])
+
+  const handleSubscriptionSave = useCallback(async (hours: Parameters<typeof actions.handleSubscribe>[0]) => {
+    const saved = await actions.handleSubscribe(hours)
+    if (saved) {
+      subscriptionDialog.closeDialog()
+    }
+  }, [actions, subscriptionDialog])
 
   return (
     <BasePage>
-      <PageContainer maxWidth="xl">
-        <Typography variant="h4" fontWeight={300} gutterBottom>
+      <Box sx={{
+        padding: 2
+      }}>
+        <Typography variant="h4" gutterBottom sx={{
+          fontWeight: 300
+        }}>
           Settings
         </Typography>
 
         <Typography color="textSecondary">
           Account ID: {values.account}
         </Typography>
-      </PageContainer>
-
+      </Box>
       <Divider />
-
-      <List disablePadding>
-        {settingsList.map(item => {
-          if (item.type === 'divider') {
-            return <Divider key={item.key} />
-          }
-          return (
-            <SettingsItem
-              key={item.id}
-              id={item.id}
-              title={item.title}
-              icon={item.icon}
-              onClick={item.onClick}
-              value={item.value}
-              disabled={item.disabled}
-            />
-          )
-        })}
-      </List>
-
-      <Suspense fallback={null}>
-        <GoalDialog
-          naturalGoal={values.naturalGoal}
-          onClose={dialogs.close}
-          open={dialogs.active === 'goal'}
-        />
-        <RestoreBackupDialog
-          onClose={dialogs.close}
-          onConfirm={actions.handleConfirmRestore}
-          open={dialogs.active === 'restore'}
-        />
-        <ImportPeopleDialog
-          onClose={dialogs.close}
-          onConfirm={actions.handleConfirmImport}
-          open={dialogs.active === 'import'}
-        />
-        <SubscriptionDialog
-          onClose={dialogs.close}
-          onSave={actions.handleSubscribe}
-          open={dialogs.active === 'subscription'}
-        />
-        <DefaultFrequencyDialog
-          open={dialogs.active === 'defaultFrequency'}
-          defaults={values.defaultFrequencies}
-          onClose={dialogs.close}
-          onSave={actions.saveDefaultFrequencies}
-        />
-      </Suspense>
+      <SettingsItemsList actionHandlers={actionHandlers} values={values} />
+      <SettingsDialogs
+        defaultFrequencies={values.defaultFrequencies}
+        dialogs={{
+          defaultFrequency: defaultFrequencyDialog,
+          goal: goalDialog,
+          import: importDialog,
+          dataRecovery: recoveryDialog,
+          restore: restoreDialog,
+          subscription: subscriptionDialog,
+          changePassword: changePasswordDialog,
+          reencrypt: reencryptDialog,
+        }}
+        existingPeople={existingPeople}
+        handlers={{
+          onImportConfirm: handleImportConfirm,
+          onRestoreConfirm: handleRestoreConfirm,
+          onSaveDefaultFrequencies: actions.saveDefaultFrequencies,
+          onSubscriptionSave: handleSubscriptionSave,
+        }}
+        naturalGoal={values.naturalGoal}
+      />
+      <ConfirmationDialog
+        cancel="Cancel"
+        confirm="Sign out & remove data"
+        confirmColour="error"
+        onCancel={() => setConfirmRemoveAccountOpen(false)}
+        onConfirm={handleConfirmRemoveAccount}
+        open={confirmRemoveAccountOpen}
+        title="Sign out and remove local data?"
+      >
+        <Typography component="p" gutterBottom>
+          Are you sure you want to sign out and remove all local data from this device?
+          You will need an active internet connection
+          to download your data again the next time you sign in.
+        </Typography>
+        <Typography>
+          It is <strong>highly recommended</strong> to perform this action on shared devices
+          or in high-security environments.
+          Otherwise, you could simply lock the app.
+        </Typography>
+      </ConfirmationDialog>
     </BasePage>
   )
 }

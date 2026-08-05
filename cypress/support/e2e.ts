@@ -1,6 +1,7 @@
 /// <reference types="cypress" />
-import type { GroupItem, PersonItem } from '../../src/state/items'
-import type { PageId } from '../../src/components/pages/types'
+import 'cypress-axe'
+import type { ProtectedPageId } from '../../src/components/pages/types'
+import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
 declare global {
   namespace Cypress {
@@ -12,11 +13,17 @@ declare global {
        */
       dataCy(...value: string[]): Chainable<JQuery<HTMLElement>>
 
+      goOffline(): Chainable
+      goOnline(): Chainable
+      forceServerError(): Chainable
+      getOfflineQueue(): Chainable<unknown[]>
+      getDeadLetterQueue(): Chainable<unknown[]>
+
       ensureAccount(password: string): Chainable<string>
 
       createAccount(password: string): Chainable
       login(credentials: { username: string, password: string }): Chainable
-      page(page: PageId): Chainable
+      page(page: ProtectedPageId): Chainable
 
       createPerson(data: Partial<PersonItem>, manual?: boolean): Chainable
       createGroup(data: Partial<GroupItem>, manual?: boolean): Chainable
@@ -24,13 +31,41 @@ declare global {
 
       addToGroup(group: string): Chainable
       addMember(name: string): Chainable
-
-      invalidateQuery(key: string): Chainable
     }
   }
 }
 
 import './commands'
+
+Cypress.Commands.overwrite(
+  'checkA11y',
+  (originalFn, context?, options?) => {
+    const mergedOptions = {
+      includedImpacts: ['critical'],
+      ...(options || {}),
+    }
+
+    const assertViolations = (violations: Array<{ id: string; impact?: string | null; nodes: Array<{ html: string; target: string[] }> }>) => {
+      const details = violations
+        .map(violation => `${violation.id}(${violation.impact}): ${violation.nodes.map(n => `${n.target.join(' ')} [${n.html}]`).join(', ')}`)
+        .join('; ')
+
+      expect(violations, details).to.have.length(0)
+    }
+
+    if (typeof context === 'string') {
+      return cy.get('body').then($body => {
+        if ($body.find(context).length === 0) {
+          return originalFn(undefined, mergedOptions, assertViolations)
+        }
+
+        return originalFn(context, mergedOptions, assertViolations)
+      })
+    }
+
+    return originalFn(context, mergedOptions, assertViolations)
+  },
+)
 
 const TEST_PASSWORD = 'TestPass123!'
 
@@ -38,16 +73,16 @@ const establishSession = () => {
   cy.ensureAccount(TEST_PASSWORD).then(() => {
     cy.page('prayer')
 
-    // Ensure axios has been initialised (initAxios called during login)
+    // Ensure auth token has been initialised during login
     cy.window().should(win => {
-      expect(win.checkAxios && win.checkAxios()).to.eq(true)
+      expect(win.hasApiAuthToken && win.hasApiAuthToken()).to.eq(true)
     })
   })
 }
 
 beforeEach(() => {
-  cy.session('TEST_SESSION', establishSession, { cacheAcrossSpecs: true })
-  cy.visit('/')
+  establishSession()
+  cy.injectAxe()
 })
 
 Cypress.Keyboard.defaults({ keystrokeDelay: 5 })

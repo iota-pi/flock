@@ -1,26 +1,28 @@
 import { useMemo } from 'react'
-import { Box, Typography } from '@mui/material'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+
 import BaseDrawer, { BaseDrawerProps } from './BaseDrawer'
-import LargeIcon from '../LargeIcon'
+import LargeIcon from '../ui/LargeIcon'
 import { usePage } from '../pages'
-import { InternalPageId, PageId } from '../pages/types'
-import InlineText from '../InlineText'
+import { PublicPageId, ProtectedPageId } from '../pages/types'
+import InlineText from '../ui/InlineText'
 
 
-const pagesWithAddButton: PageId[] = [
+const pagesWithAddButton: ProtectedPageId[] = [
   'groups',
   'people',
   'topics',
 ]
 
-const itemNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
+const itemNameMap: Record<Exclude<ProtectedPageId, PublicPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'item',
   settings: 'item',
   topics: 'topic',
 }
-const addNameMap: Record<Exclude<PageId, InternalPageId>, string> = {
+const addNameMap: Record<Exclude<ProtectedPageId, PublicPageId>, string> = {
   groups: 'group',
   people: 'person',
   prayer: 'prayer point',
@@ -32,7 +34,6 @@ function PlaceholderDrawer({
   alwaysTemporary,
   onClose,
   open,
-  stacked,
 }: BaseDrawerProps) {
   const page = usePage()
 
@@ -52,16 +53,15 @@ function PlaceholderDrawer({
       hideTypeIcon
       onClose={onClose}
       open={open}
-      stacked={stacked}
     >
       <Box
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        flexGrow={1}
-        sx={styles}
-      >
+        sx={[{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          flexGrow: 1
+        }, ...(Array.isArray(styles) ? styles : [styles])]}>
         {page && (
           <LargeIcon icon={page.icon} />
         )}
@@ -73,8 +73,7 @@ function PlaceholderDrawer({
               or click the
               {' '}
               <InlineText
-                fontSize="h5.fontSize"
-                fontWeight={700}
+                sx={{ fontSize: 'h5.fontSize' }}
               >
                 +
               </InlineText>

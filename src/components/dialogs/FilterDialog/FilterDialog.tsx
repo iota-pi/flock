@@ -1,19 +1,18 @@
 import { useCallback, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-} from '@mui/material'
-import { useAppDispatch, useAppSelector } from '../../../store'
-import { setUi } from '../../../state/ui'
-import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP } from '../../../utils/customFilter'
-import { FilterCriterionDisplay } from './FilterCriterionDisplay'
-import type { FilterCriterion } from '../../../utils/customFilter'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
 
-export interface Props {
+import { useAppStore } from 'src/state/store'
+import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from 'src/utils/customFilter'
+import { FilterCriterionDisplay } from './FilterCriterionDisplay'
+import type { FilterCriterion } from 'src/utils/customFilter'
+
+
+interface Props {
   onClose: () => void,
   open: boolean,
 }
@@ -22,27 +21,26 @@ function FilterDialog({
   onClose,
   open,
 }: Props) {
-  const dispatch = useAppDispatch()
-  const filterCriteria = useAppSelector(state => state.ui.filters)
+  const setUi = useAppStore(state => state.setUi)
+  const filterCriteria = useAppStore(state => state.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
-  const [prevOpen, setPrevOpen] = useState(open)
-  if (open && !prevOpen) {
-    setPrevOpen(true)
+
+  const initializeLocalCriteria = useCallback(() => {
     const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type])
     if (criteria.length > 0) {
       setLocalCriteria(criteria)
     } else {
       setLocalCriteria(DEFAULT_FILTER_CRITERIA)
     }
-  } else if (!open && prevOpen) {
-    setPrevOpen(false)
-  }
+  }, [filterCriteria])
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
       return [
         ...lc,
-        ...DEFAULT_FILTER_CRITERIA,
+        {
+          ...DEFAULT_ADDITIONAL_FILTER_CRITERION,
+        },
       ]
     }),
     [],
@@ -69,16 +67,16 @@ function FilterDialog({
   const handleClear = useCallback(
     () => {
       setLocalCriteria([])
-      dispatch(setUi({ filters: [] }))
+      setUi({ filters: [] })
     },
-    [dispatch],
+    [setUi],
   )
   const handleDone = useCallback(
     () => {
-      dispatch(setUi({ filters: localCriteria }))
+      setUi({ filters: localCriteria })
       onClose()
     },
-    [dispatch, localCriteria, onClose],
+    [localCriteria, onClose, setUi],
   )
 
   return (
@@ -87,6 +85,7 @@ function FilterDialog({
       open={open}
       fullWidth
       maxWidth="sm"
+      slotProps={{ transition: { onEnter: initializeLocalCriteria } }}
     >
       <DialogTitle>
         Filter Conditions

@@ -1,27 +1,31 @@
-import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
+import { MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import {
-  Button,
-  Collapse,
-  Container,
-  IconButton,
-  InputAdornment,
-  styled,
-  TextField,
-  Typography,
-} from '@mui/material'
-import VisibilityOff from '@mui/icons-material/VisibilityOff'
-import Visibility from '@mui/icons-material/Visibility'
+import { useForm, useWatch } from 'react-hook-form'
+import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
+import Container from '@mui/material/Container'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+import { styled } from '@mui/material/styles'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+
 import { ROUTES } from './routes'
-import { HomeIcon, PasswordIcon } from '../Icons'
-import { useAppDispatch } from '../../store'
-import { setUi } from '../../state/ui'
-import { setAccount } from '../../state/account'
-import { createAccount, initialiseVault } from '../../api/VaultLazy'
-import { getSalt } from '../../api/crypto-utils'
-import { usePasswordStrength } from '../../hooks/usePasswordStrength'
+import {
+  HomeIcon,
+  PasswordIcon,
+  VisibilityIcon,
+  VisibilityOffIcon,
+} from '../Icons'
+import { createAccount, initialiseVault } from 'src/api/vault'
+import { generateSalt } from 'src/api/vault/crypto'
+import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
 import AccountCreatedDialog from '../dialogs/AccountCreatedDialog'
+import { useAppStore } from 'src/state/store'
+
 
 const Root = styled('div')({
   flexGrow: 1,
@@ -51,22 +55,36 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
   marginBottom: theme.spacing(1),
 }))
 
-export interface ChecklistItem {
-  id: string,
-  description: string,
-}
+const CreateAccountFormSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+})
+
+type CreateAccountFormInput = z.input<typeof CreateAccountFormSchema>
 
 function CreateAccountPage() {
-  const dispatch = useAppDispatch()
+  const setUi = useAppStore(state => state.setUi)
   const navigate = useNavigate()
 
   const [error, setError] = useState('')
-  const [password, setPassword] = useState('')
   const [waiting, setWaiting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showCreatedAccountDialog, setShowCreatedAccountDialog] = useState(false)
   const [newAccount, setNewAccount] = useState('')
+  const updateAuth = useAppStore(state => state.updateAuth)
 
+  const {
+    register,
+    control,
+    formState: { errors },
+  } = useForm<CreateAccountFormInput>({
+    resolver: zodResolver(CreateAccountFormSchema),
+    mode: 'onChange',
+    defaultValues: {
+      password: '',
+    },
+  })
+
+  const password = useWatch({ control, name: 'password' }) || ''
   const { score: passwordScore, error: passwordError } = usePasswordStrength(password)
 
   const handleClickHome = useCallback(
@@ -79,24 +97,20 @@ function CreateAccountPage() {
     [navigate],
   )
 
-  const handleChangePassword = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
-    [],
-  )
-
   const handleClickCreate = useCallback(
     async () => {
       setWaiting(true)
       try {
-        const salt = getSalt()
+        const salt = generateSalt()
         const authToken = await initialiseVault({
           password,
           salt,
           isNewAccount: true,
+          saltVersion: 1,
         })
-        const { account } = await createAccount({ salt, authToken })
+        const { account } = await createAccount({ salt, authToken, saltVersion: 1 })
         if (account.length > 0) {
-          dispatch(setAccount({ account }))
+          updateAuth({ account })
           setNewAccount(account)
           setShowCreatedAccountDialog(true)
         } else {
@@ -108,16 +122,16 @@ function CreateAccountPage() {
       }
       setWaiting(false)
     },
-    [dispatch, password],
+    [password, updateAuth],
   )
 
   const handleCloseCreatedAccountDialog = useCallback(
     () => {
       setShowCreatedAccountDialog(false)
-      dispatch(setUi({ justCreatedAccount: true }))
+      setUi({ justCreatedAccount: true })
       navigate(ROUTES.login.path)
     },
-    [dispatch, navigate],
+    [navigate, setUi],
   )
 
   const handleClickVisibility = useCallback(
@@ -174,9 +188,18 @@ function CreateAccountPage() {
           </Typography>
 
           <form>
+            {/* Hidden username field for accessibility / password managers */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              style={{ display: 'none' }}
+            />
             <StyledTextField
               autoComplete="new-password"
+              error={!!errors.password}
               fullWidth
+              helperText={errors.password?.message || ' '}
               id="password"
               slotProps={{
                 input: {
@@ -192,17 +215,16 @@ function CreateAccountPage() {
                         onMouseDown={handleMouseDownVisibility}
                         size="large"
                       >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                        {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                       </IconButton>
                     </InputAdornment>
                   ),
                 }
               }}
               label="Password"
-              onChange={handleChangePassword}
               type={showPassword ? 'text' : 'password'}
-              value={password}
               variant="standard"
+              {...register('password')}
             />
 
             <PasswordMeter score={passwordScore} />
@@ -210,7 +232,6 @@ function CreateAccountPage() {
             <Collapse in={!!passwordError}>
               <Typography color="error">
                 {passwordError}
-                {/* non-breaking space preserves height, smoothing exit transition */}
                 &nbsp;
               </Typography>
             </Collapse>
@@ -229,7 +250,9 @@ function CreateAccountPage() {
             </Button>
 
             {error && (
-              <Typography color="error" mt={2}>
+              <Typography color="error" sx={{
+                mt: 2
+              }}>
                 {error}
               </Typography>
             )}

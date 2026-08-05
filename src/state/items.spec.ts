@@ -5,11 +5,10 @@ import {
   supplyMissingAttributes,
   convertItem,
   isValid,
-  checkProperties,
-  importPeople,
   Item,
-  GroupItem,
 } from './items'
+import { importPeople } from '../utils/importUtils'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 
 describe('items helpers', () => {
   it('creates blank person with defaults', () => {
@@ -46,8 +45,22 @@ describe('items helpers', () => {
     expect(full.id).toBe('x')
   })
 
+  it('supplyMissingAttributes keeps defaults for undefined values', () => {
+    const partial = {
+      id: 'x',
+      type: 'person',
+      notes: undefined,
+      prayedFor: undefined,
+    } as unknown as Item
+
+    const full = supplyMissingAttributes(partial)
+
+    expect(full.notes).toEqual([])
+    expect(full.prayedFor).toEqual([])
+  })
+
   it('convertItem changes type and preserves id', () => {
-    const person = getBlankPerson('person-1', false)
+    const person = getBlankPerson('person-1' as ItemId, false)
     person.name = 'Alice'
     const group = convertItem(person, 'group') as GroupItem
     expect(group.type).toBe('group')
@@ -55,22 +68,31 @@ describe('items helpers', () => {
     expect(Array.isArray(group.members)).toBe(true)
   })
 
+  it('convertItem explicitly sets group properties to undefined when converting group to topic/person', () => {
+    const group = getBlankGroup('group-1' as ItemId, false)
+    group.name = 'Bible Study'
+    group.members = ['person-1' as ItemId]
+    group.memberPrayerFrequency = 'weekly'
+    group.memberPrayerTarget = 'all'
+
+    const topic = convertItem(group, 'topic')
+    expect(topic.type).toBe('topic')
+    expect(topic.name).toBe('Bible Study')
+    expect(topic.members).toBeUndefined()
+    expect((topic as any).memberPrayerFrequency).toBeUndefined()
+    expect((topic as any).memberPrayerTarget).toBeUndefined()
+
+    const person = convertItem(group, 'person')
+    expect(person.type).toBe('person')
+    expect(person.members).toBeUndefined()
+    expect((person as any).memberPrayerFrequency).toBeUndefined()
+  })
+
   it('isValid checks name presence', () => {
     const p = getBlankPerson()
     expect(isValid(p)).toBe(false)
     p.name = 'Bob'
     expect(isValid(p)).toBe(true)
-  })
-
-  it('checkProperties detects missing keys', () => {
-    const bad = [{ id: '1', type: 'person' } as any]
-    const res = checkProperties(bad)
-    expect(res.error).toBe(true)
-    expect(res.message).toContain('missing key')
-    // good case
-    const good = [supplyMissingAttributes({ id: '2', type: 'person' } as any)]
-    const res2 = checkProperties(good)
-    expect(res2.error).toBe(false)
   })
 
   it('importPeople builds group and adds people', () => {

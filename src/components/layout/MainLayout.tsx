@@ -1,45 +1,69 @@
-import type { ReactNode } from 'react'
-import { Box } from '@mui/material'
-import DrawerDisplay from './DrawerDisplay'
-import SelectedActions from '../SelectedActions'
-import GeneralMessage from '../GeneralMessage'
-import { useLoggedIn } from '../../state/selectors'
+import { lazy, type ReactNode } from 'react'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
 
+import GeneralMessage from '../GeneralMessage'
+import AsyncBoundary from '../ui/AsyncBoundary'
+import { useLoggedIn } from 'src/state/selectors'
+import { useAppStore } from 'src/state/store'
+
+
+const DrawerDisplay = lazy(() => import('./DrawerDisplay'))
+const SelectedActions = lazy(() => import('../SelectedActions'))
 
 function MainLayout({ children }: { children: ReactNode }) {
   const loggedIn = useLoggedIn()
+  const dataStatus = useAppStore(state => state.dataStatus)
+
+  let content = children
+  if (loggedIn && dataStatus === 'initializing') {
+    content = (
+      <Box sx={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    )
+  }
 
   return (
     <Box
-      display="flex"
-      flexGrow={1}
-      overflow="hidden"
-    >
+      sx={{
+        display: "flex",
+        flexGrow: 1,
+        overflow: "hidden"
+      }}>
       <Box
-        display="flex"
-        flexDirection="column"
-        flexGrow={1}
-        position="relative"
-      >
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          position: "relative"
+        }}>
         <Box
-          display="flex"
-          flexDirection="column"
-          flexGrow={1}
-          overflow="hidden"
-          position="relative"
-        >
-          {children}
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            flexGrow: 1,
+            overflow: "hidden",
+            position: "relative"
+          }}>
+          {content}
         </Box>
 
-        <Box flexShrink={0} overflow="hidden">
-          <SelectedActions />
+        <Box
+          sx={{
+            flexShrink: 0,
+            overflow: "hidden"
+          }}>
+          <AsyncBoundary loadingFallback={null}>
+            <SelectedActions />
+          </AsyncBoundary>
         </Box>
       </Box>
-
       {loggedIn && (
-        <DrawerDisplay />
+        <AsyncBoundary loadingFallback={null}>
+          <DrawerDisplay />
+        </AsyncBoundary>
       )}
-
       <GeneralMessage />
     </Box>
   )

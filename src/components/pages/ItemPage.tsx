@@ -1,73 +1,79 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
-import { Button, Divider, Grid, Theme, useMediaQuery } from '@mui/material'
-import { getBlankItem, getItemTypeLabel, Item } from '../../state/items'
-import ItemList from '../ItemList'
+import { useCallback, useMemo } from 'react'
+import { Theme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { DeleteIcon } from 'src/components/Icons'
+import { getItemTypeLabel, Item } from 'src/state/items'
+import type { ItemType } from 'src/shared/itemTypes'
+import ItemList from 'src/features/items/components/ItemList'
 import {
-  useIsActive,
-  useItems,
   usePracticalFilterCount,
   useMetadata,
   useSortCriteria,
-} from '../../state/selectors'
+  useItemsOfType,
+} from 'src/state/selectors'
 import BasePage from './BasePage'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { setUi, replaceActive, toggleSelected } from '../../state/ui'
-import { useAsyncItems } from '../../hooks/useAsyncItems'
+import { useAppStore } from 'src/state/store'
+import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
+import { filterItems } from 'src/utils/customFilter'
+import { sortItems } from 'src/utils/customSort'
+import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
-export interface Props<T extends Item> {
-  itemType: T['type'],
+
+interface Props {
+  itemType: ItemType,
 }
 
-function ItemPage<T extends Item>({
+function ItemPage({
   itemType,
-}: Props<T>) {
-  const dispatch = useAppDispatch()
-  const isActive = useIsActive()
-  const rawItems = useItems<T>(itemType)
-  const selected = useAppSelector(state => state.ui.selected)
-  const filters = useAppSelector(state => state.ui.filters)
+}: Props) {
+  const setDrawer = useAppStore(state => state.setDrawer)
+  const setSelected = useAppStore(state => state.setSelected)
+  const toggleSelected = useAppStore(state => state.toggleSelected)
+  const rawItems = useItemsOfType(itemType)
+  const selected = useAppStore(state => state.selected)
+  const filters = useAppStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
   const [sortCriteria] = useSortCriteria()
+  const totalApplicable = rawItems.length
 
-  const [showArchived, setShowArchived] = useState(false)
-  const handleClickShowArchived = useCallback(
-    () => setShowArchived(sa => !sa),
-    [],
+  const items = useMemo(
+    () => {
+      const filtered = filterItems(rawItems, filters)
+      const results = sortItems(filtered, sortCriteria)
+      return results
+    },
+    [rawItems, filters, sortCriteria],
   )
 
-  const {
-    items,
-    totalApplicable,
-    archivedCount,
-  } = useAsyncItems({
-    items: rawItems,
-    filters,
-    sortCriteria,
-    showArchived,
-  })
   const hiddenItemCount = totalApplicable - items.length
+  const itemIdsInList = useMemo(() => items.map(item => item.id), [items])
 
   const handleClickItem = useCallback(
-    (item: T) => {
-      dispatch(replaceActive({ item: item.id }))
+    (item: Item) => {
+      if (item.type === ERROR_ITEM_TYPE) {
+        return
+      }
+
+      setDrawer({ item: item.id })
     },
-    [dispatch],
+    [setDrawer],
   )
   const handleClickAdd = useCallback(
     () => {
-      dispatch(replaceActive({
-        newItem: {
-          ...getBlankItem(itemType),
-          prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
-        },
-      }))
+      void createItem(itemType, {
+        prayerFrequency: defaultFrequencies?.[itemType] ?? 'none',
+      }).then(createdItem => {
+        setDrawer({ item: createdItem.id })
+      }).catch(error => {
+        console.error(error)
+      })
     },
-    [defaultFrequencies, dispatch, itemType],
+    [defaultFrequencies, itemType, setDrawer],
   )
   const handleCheck = useCallback(
-    (item: T) => dispatch(toggleSelected(item.id)),
-    [dispatch],
+    (item: Item) => toggleSelected(item.id),
+    [toggleSelected],
   )
   const allSelected = useMemo(
     () => selected.length === items.length && selected.length > 0,
@@ -76,78 +82,57 @@ function ItemPage<T extends Item>({
   const handleSelectAll = useCallback(
     () => {
       const newSelected = allSelected ? [] : items.map(item => item.id)
-      dispatch(setUi({ selected: newSelected }))
+      setSelected(newSelected)
     },
-    [allSelected, dispatch, items],
+    [allSelected, items, setSelected],
   )
 
-  const getChecked = useCallback((item: T) => selected.includes(item.id), [selected])
+  const getChecked = useCallback((item: Item) => selected.includes(item.id), [selected])
   const getDescription = useCallback(
-    (item: T) => {
+    (item: Item) => {
       if (item.type === 'group') {
         const n = item.members.length
         const s = n !== 1 ? 's' : ''
         const description = item.description ? ` — ${item.description}` : ''
         return `${n} member${s}${description}`
       }
+
+      if (item.type === ERROR_ITEM_TYPE) {
+        return 'Item unavailable due to data error. Use hard-delete to remove it.'
+      }
+
       return item.description
     },
     [],
   )
-  const getHighlighted = useCallback(
-    (item: Item) => isActive(item.id),
-    [isActive],
+  const getActionIcon = useCallback(
+    (item: Item) => (item.type === ERROR_ITEM_TYPE ? <DeleteIcon /> : undefined),
+    [],
+  )
+
+  const handleClickAction = useCallback(
+    (item: Item) => {
+      if (item.type !== ERROR_ITEM_TYPE) {
+        return
+      }
+
+      void hardDeleteItems(item.id).catch(error => {
+        console.error(error)
+      })
+    },
+    [],
   )
 
   const pluralLabel = getItemTypeLabel(itemType, true)
   const pluralLabelLower = pluralLabel.toLowerCase()
 
-  const noItemsHint = (
-    hiddenItemCount
-      ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
-      : 'Click the plus button to add one!'
-  )
+  const noItemsHint = (filterCount > 0 && hiddenItemCount > 0)
+    ? `Note: ${hiddenItemCount} ${pluralLabelLower} were hidden by filters`
+    : 'Click the plus button to add one!'
   const itemCountText = (
     filterCount > 0
       ? `${items.length} / ${rawItems.length} ${pluralLabelLower}`
       : `${items.length} ${pluralLabelLower}`
-  )
-
-  const extras = useMemo(
-    () => {
-      return [
-        {
-          content: (
-            <Fragment key="show-archived">
-              <Divider />
-
-              <Grid container spacing={2} padding={2}>
-                <Grid
-                  size={{ xs: 12 }}
-                  display="flex"
-                  sx={{
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Button
-                    onClick={handleClickShowArchived}
-                    variant="outlined"
-                    disabled={archivedCount === 0}
-                  >
-                    {showArchived ? 'Hide' : 'Show'}
-                    {' '}
-                    Archived {pluralLabel}
-                  </Button>
-                </Grid>
-              </Grid>
-            </Fragment>
-          ),
-          height: 68.5,
-          index: -1,
-        }
-      ]
-    },
-    [archivedCount, handleClickShowArchived, pluralLabel, showArchived],
   )
 
   return (
@@ -159,6 +144,7 @@ function ItemPage<T extends Item>({
       onClickFab={handleClickAdd}
       onSelectAll={handleSelectAll}
       showFilter
+      showLoading={false}
       showSort
       topBar
       topBarTitle={itemCountText}
@@ -168,11 +154,11 @@ function ItemPage<T extends Item>({
         defaultRowHeight={itemType === 'group' ? 72 : undefined}
         checkboxes
         disablePadding
-        extraElements={extras}
+        getActionIcon={getActionIcon}
         getChecked={getChecked}
+        onClickAction={handleClickAction}
         getDescription={getDescription}
-        getHighlighted={getHighlighted}
-        items={items}
+        itemIds={itemIdsInList}
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}
         maxTags={3}
         noItemsHint={noItemsHint}

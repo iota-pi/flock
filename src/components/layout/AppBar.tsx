@@ -1,19 +1,18 @@
-import {
-  AppBar as MuiAppBar,
-  Box,
-  IconButton,
-  styled,
-  Theme,
-  ThemeProvider,
-  Toolbar,
-  Typography,
-  useMediaQuery,
-} from '@mui/material'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import MuiAppBar from '@mui/material/AppBar'
+import IconButton from '@mui/material/IconButton'
+import { styled, Theme, ThemeProvider } from '@mui/material/styles'
+import Toolbar from '@mui/material/Toolbar'
+import useMediaQuery from '@mui/material/useMediaQuery'
+
 import { APP_NAME } from '../../utils'
 import { dark as darkTheme } from '../../theme'
 import EverythingSearch from './EverythingSearch'
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu'
 import { MenuIcon } from '../Icons'
+import AsyncBoundary from '../ui/AsyncBoundary'
+
 
 const StyledToolbar = styled(Toolbar)(({ theme }) => ({
   paddingLeft: theme.spacing(3),
@@ -54,7 +53,7 @@ const PreSearchContent = styled(
   },
 }))
 
-export interface Props {
+interface Props {
   minimisedMenu: boolean,
   onToggleMenu: () => void,
 }
@@ -73,7 +72,9 @@ function AppBar({
     >
       <StyledToolbar>
         <PreSearchContent minimised={minimisedMenu}>
-          <Box mr={2}>
+          <Box sx={{
+            mr: 2
+          }}>
             <IconButton
               edge="start"
               color="inherit"
@@ -94,7 +95,9 @@ function AppBar({
 
         <SearchHolder>
           <ThemeProvider theme={darkTheme}>
-            <EverythingSearch label="Search" />
+            <AsyncBoundary loadingFallback={null}>
+              <EverythingSearch label="Search" />
+            </AsyncBoundary>
           </ThemeProvider>
         </SearchHolder>
       </StyledToolbar>

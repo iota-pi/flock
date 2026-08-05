@@ -1,35 +1,30 @@
-import { Suspense } from 'react'
 import { Navigate, useLocation, useMatches, RouteObject } from 'react-router'
-import { CircularProgress, Box } from '@mui/material'
-import { useLoggedIn, useAuthInitializing } from '../../state/selectors'
-
+import { useLoggedIn } from 'src/state/selectors'
+import { useAppStore } from 'src/state/store'
 import { PUBLIC_ROUTES, PROTECTED_ROUTES } from './routes'
-import { Page, PageId } from './types'
+import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
+import { Page, ProtectedPageId } from './types'
 import ErrorPage from './ErrorPage'
+import AsyncBoundary, { LoadingSpinner } from '../ui/AsyncBoundary'
 
-export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [PageId, typeof PROTECTED_ROUTES[PageId]][])
+
+export const pages: Page[] = (Object.entries(PROTECTED_ROUTES) as [ProtectedPageId, typeof PROTECTED_ROUTES[ProtectedPageId]][])
   .map(([id, config]) => ({ ...config, id }))
 
 
-function Loading() {
-  return (
-    <Box display="flex" justifyContent="center" alignItems="center" height="100%" width="100%">
-      <CircularProgress />
-    </Box>
-  )
-}
-
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthInitializing()
+  const initializing = useAppStore(state => state.initializing)
+  const account = useAppStore(state => state.account)
   const location = useLocation()
 
   if (initializing) {
-    return <Loading />
+    return <LoadingSpinner />
   }
 
   if (!loggedIn) {
-    return <Navigate to="/welcome" state={{ from: location }} replace />
+    const target = account ? '/login' : '/welcome'
+    return <Navigate to={target} state={{ from: location }} replace />
   }
 
   return <>{children}</>
@@ -42,14 +37,21 @@ function RedirectIfLoggedIn(
   },
 ) {
   const loggedIn = useLoggedIn()
-  const initializing = useAuthInitializing()
+  const initializing = useAppStore(state => state.initializing)
+  const location = useLocation()
 
   if (initializing) {
-    return <Loading />
+    return <LoadingSpinner />
   }
 
   if (loggedIn) {
-    return <Navigate to={redirect} replace />
+    const nextRoute = resolveRedirectRoute(
+      location.state as RedirectRouteState | null,
+      redirect,
+      location.pathname,
+    )
+
+    return <Navigate to={nextRoute} replace />
   }
 
   return <>{children}</>
@@ -61,9 +63,9 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RedirectIfLoggedIn redirect="/">
-        <Suspense fallback={<Loading />}>
+        <AsyncBoundary>
           {p.page}
-        </Suspense>
+        </AsyncBoundary>
       </RedirectIfLoggedIn>
     ),
     errorElement: <ErrorPage />,
@@ -74,9 +76,9 @@ export const routes: RouteObject[] = [
     path: p.path,
     element: (
       <RequireAuth>
-        <Suspense fallback={<Loading />}>
+        <AsyncBoundary>
           {p.page}
-        </Suspense>
+        </AsyncBoundary>
       </RequireAuth>
     ),
     errorElement: <ErrorPage />,

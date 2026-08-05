@@ -1,11 +1,13 @@
-import { SvgIcon, SvgIconProps, SvgIconTypeMap } from '@mui/material'
+import SvgIcon, { SvgIconProps, SvgIconTypeMap } from '@mui/material/SvgIcon'
 import type { OverridableComponent } from '@mui/material/OverridableComponent'
 
 import AddIcon from '@mui/icons-material/Add'
 import ArchiveIcon from '@mui/icons-material/Archive'
 import BackIcon from '@mui/icons-material/ChevronLeft'
+import CloudDoneIcon from '@mui/icons-material/CloudDone'
+import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CollapseIcon from '@mui/icons-material/ExpandLess'
-import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import DeleteIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
 import ExpandIcon from '@mui/icons-material/ExpandMore'
@@ -13,6 +15,7 @@ import FilterIcon from '@mui/icons-material/FilterAlt'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
+import LockIcon from '@mui/icons-material/LockOutlined'
 import MenuIcon from '@mui/icons-material/Menu'
 import MoreOptionsIcon from '@mui/icons-material/MoreVert'
 import NextIcon from '@mui/icons-material/ChevronRight'
@@ -23,6 +26,7 @@ import PasswordIcon from '@mui/icons-material/Password'
 import PersonIcon from '@mui/icons-material/Person'
 import RemoveIcon from '@mui/icons-material/Close'
 import ResetIcon from '@mui/icons-material/Replay'
+import RestoreIcon from '@mui/icons-material/Restore'
 import SaveIcon from '@mui/icons-material/Check'
 import SearchIcon from '@mui/icons-material/Search'
 import SignOutIcon from '@mui/icons-material/ExitToApp'
@@ -30,6 +34,8 @@ import SortIcon from '@mui/icons-material/Sort'
 import SuccessIcon from '@mui/icons-material/CheckCircle'
 import UnarchiveIcon from '@mui/icons-material/Unarchive'
 import UploadIcon from '@mui/icons-material/Upload'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningIcon from '@mui/icons-material/Warning'
 import TopicIcon from '@mui/icons-material/Lightbulb'
 
@@ -48,6 +54,8 @@ export {
   ArchiveIcon,
   BackIcon,
   BackIcon as ContractMenuIcon,
+  CloudDoneIcon,
+  CloudOffIcon,
   CollapseIcon,
   DeleteIcon,
   DownloadIcon,
@@ -57,6 +65,7 @@ export {
   FrequencyIcon,
   GroupIcon,
   HomeIcon,
+  LockIcon,
   MenuIcon,
   MoreOptionsIcon,
   NextIcon,
@@ -69,6 +78,7 @@ export {
   PrayerIcon,
   RemoveIcon,
   ResetIcon,
+  RestoreIcon,
   SaveIcon,
   SearchIcon,
   SignOutIcon,
@@ -76,15 +86,18 @@ export {
   SuccessIcon,
   UnarchiveIcon,
   UploadIcon,
+  VisibilityOffIcon,
+  VisibilityIcon,
   WarningIcon,
   TopicIcon,
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {
-  const iconTypeMap: Record<typeof itemType, MuiIconType> = {
+  const iconTypeMap: Record<Item['type'], MuiIconType> = {
     person: PersonIcon,
     group: GroupIcon,
     topic: TopicIcon,
+    error: WarningIcon,
   }
   return iconTypeMap[itemType]
 }

@@ -1,128 +1,52 @@
-import { useCallback, useMemo, useState } from 'react'
-import { useAppDispatch, useAppSelector } from '../store'
-import { setMessage, setUi } from '../state/ui'
+import { useCallback, useMemo } from 'react'
+
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
-  exportData,
-  signOutVault,
-} from '../api/VaultLazy'
-import { clearQueryCache, hasItemsInCache, useStoreItemsMutation } from '../api/queries'
-import { useItems, useMetadata } from '../state/selectors'
-import { getNextDarkMode } from '../themeUtils'
+  lockVault,
+  removeVaultFromDevice,
+} from '../api/vault'
+import { useMetadata } from '../state/selectors'
+import { useAppStore } from '../state/store'
 import type { Frequency } from '../utils/frequencies'
+import useBackupAndRestore from './useBackupAndRestore'
+import useThemeSettings from './useThemeSettings'
+import useSubscriptionSettings from './useSubscriptionSettings'
 import type { Item } from '../state/items'
+import { useDataRecovery } from './useDataRecovery'
 
-export type SettingsDialogType = (
-  | 'goal'
-  | 'subscription'
-  | 'restore'
-  | 'import'
-  | 'defaultFrequency'
-)
+export default function useSettings(items: Item[]) {
+  const account = useAppStore(state => state.account)
+  const setMessage = useAppStore(state => state.setMessage)
 
-export default function useSettings() {
-  const account = useAppSelector(state => state.account.account)
-  const dispatch = useAppDispatch()
-  const items = useItems()
-  const { mutateAsync: storeItems } = useStoreItemsMutation()
+  const {
+    actions: backupActions,
+  } = useBackupAndRestore({ setMessage })
+  const {
+    actions: themeActions,
+    values: themeValues,
+  } = useThemeSettings()
+  const {
+    actions: subscriptionActions,
+  } = useSubscriptionSettings({ setMessage })
+
+  const { recoveryItems } = useDataRecovery()
+  const recoveryItemsExist = recoveryItems.length > 0
 
   // Actions
-  const handleSignOut = useCallback(
-    () => {
-      signOutVault()
-      dispatch(setMessage({ message: 'Signed out' }))
-    },
-    [dispatch],
-  )
-
-  const darkMode = useAppSelector(state => state.ui.darkMode)
-  const handleToggleDarkMode = useCallback(
-    () => dispatch(setUi({
-      darkMode: (() => {
-        const next = getNextDarkMode(darkMode)
-        return next
-      })()
-    })),
-    [darkMode, dispatch],
-  )
-
-  const [cacheClearCounter, setCacheClearCounter] = useState(1)
-  const handleClearCache = useCallback(
-    () => {
-      clearQueryCache()
-      setCacheClearCounter(c => c + 1)
-      dispatch(setMessage({ message: 'Item cache cleared' }))
-    },
-    [dispatch],
-  )
-
-  const handleExport = useCallback(
+  const handleLock = useCallback(
     async () => {
-      try {
-        const data = await exportData(items)
-        const json = JSON.stringify(data)
-        dispatch(setMessage({ message: 'Backup created' }))
-        return json
-      } catch (err) {
-        dispatch(setMessage({ message: 'Failed to create backup' }))
-        throw err
-      }
+      await lockVault()
+      setMessage({ message: 'App locked' })
     },
-    [dispatch, items],
+    [setMessage],
   )
 
-  // Dialog State
-  const [activeDialog, setActiveDialog] = useState<SettingsDialogType | null>(null)
-  const openDialog = useCallback((type: SettingsDialogType) => setActiveDialog(type), [])
-  const closeDialog = useCallback(() => setActiveDialog(null), [])
-
-  // Dialog Actions
-  const handleConfirmRestore = useCallback(
-    async (restored: Item[]) => {
-      try {
-        await storeItems(restored)
-        dispatch(setMessage({ message: 'Restore successful' }))
-        closeDialog()
-      } catch (err) {
-        dispatch(setMessage({ message: 'Restore failed' }))
-        console.error('Restore failed', err)
-      }
+  const handleRemoveAccountFromDevice = useCallback(
+    async () => {
+      await removeVaultFromDevice()
+      setMessage({ message: 'Signed out and removed local data' })
     },
-    [dispatch, closeDialog, storeItems],
-  )
-
-  const handleConfirmImport = useCallback(
-    async (imported: Item[]) => {
-      try {
-        await storeItems(imported)
-        dispatch(setMessage({ message: 'Import successful' }))
-        closeDialog()
-      } catch (err) {
-        dispatch(setMessage({ message: 'Import failed' }))
-        console.error('Import failed', err)
-      }
-    },
-    [dispatch, closeDialog, storeItems],
-  )
-
-  const handleSubscribe = useCallback(
-    async (hours: number[] | null) => {
-      try {
-        const { subscribe, unsubscribe } = await import('../utils/firebase')
-        if (hours) {
-          await subscribe(hours)
-          dispatch(setMessage({ message: 'Subscription saved' }))
-        } else {
-          await unsubscribe()
-          dispatch(setMessage({ message: 'Subscription removed' }))
-        }
-        closeDialog()
-      } catch (err) {
-        dispatch(setMessage({ message: 'Failed to update subscription' }))
-        console.error('Subscription update failed', err)
-      }
-    },
-    [closeDialog, dispatch],
+    [setMessage],
   )
 
   const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
@@ -133,44 +57,35 @@ export default function useSettings() {
   const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group', Frequency>>) => {
     try {
       await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
-      dispatch(setMessage({ message: 'Default prayer frequencies saved' }))
+      setMessage({ message: 'Default prayer frequencies saved' })
     } catch (err) {
-      dispatch(setMessage({ message: 'Failed to save defaults' }))
+      setMessage({ message: 'Failed to save defaults', severity: 'error' })
       console.error('Failed to save default frequencies', err)
     }
-  }, [dispatch, setDefaultFrequencies])
+  }, [setDefaultFrequencies, setMessage])
 
   // Values
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
 
-  const itemCacheExists = useMemo(
-    () => (cacheClearCounter ? hasItemsInCache() : false),
-    [cacheClearCounter],
-  )
-
   return {
     actions: {
-      handleClearCache,
-      handleConfirmImport,
-      handleConfirmRestore,
-      handleExport,
-      handleSignOut,
-      handleSubscribe,
-      handleToggleDarkMode,
+      handleConfirmImport: backupActions.handleConfirmImport,
+      handleConfirmRestore: backupActions.handleConfirmRestore,
+      handleExport: backupActions.handleExport,
+      handleLock,
+      handleRemoveAccountFromDevice,
+      handleSignOut: handleRemoveAccountFromDevice,
+      handleSubscribe: subscriptionActions.handleSubscribe,
+      handleToggleDarkMode: themeActions.handleToggleDarkMode,
       saveDefaultFrequencies,
-    },
-    dialogs: {
-      active: activeDialog,
-      open: openDialog,
-      close: closeDialog,
     },
     values: {
       account,
-      darkMode,
+      darkMode: themeValues.darkMode,
       defaultFrequencies,
       goal,
-      itemCacheExists,
+      recoveryItemsExist,
       naturalGoal,
     },
   }

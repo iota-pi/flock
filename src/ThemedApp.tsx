@@ -1,16 +1,14 @@
-import {
-  CssBaseline,
-  ThemeProvider,
-  StyledEngineProvider,
-} from '@mui/material'
 import { useMemo } from 'react'
+import { StyledEngineProvider, ThemeProvider } from '@mui/material/styles'
+import CssBaseline from '@mui/material/CssBaseline'
+
 import App from './App'
-import { useAppSelector } from './store'
 import getTheme from './theme'
+import { useAppStore } from './state/store'
 
 
 export default function ThemedApp() {
-  const darkMode = useAppSelector(state => state.ui.darkMode)
+  const darkMode = useAppStore(state => state.darkMode)
   const theme = useMemo(() => getTheme(darkMode), [darkMode])
 
   return (

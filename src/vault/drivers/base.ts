@@ -1,24 +1,27 @@
 import { FastifyRequest } from 'fastify'
-import type { FlockPushSubscription, ItemType } from '../../shared/apiTypes'
+import { z } from 'zod'
+
+import type { WebPushSubscription } from '../types'
 import { getAuthToken } from '../api/util'
 import { HttpError } from '../api/errors'
+import type { ItemId } from 'src/shared/schemas/items'
+import {
+  VaultKeySchema,
+  VaultMetaDataSchema,
+  VaultSessionRecordSchema,
+  VaultAccountSchema,
+  VaultAccountWithAuthSchema,
+  VaultItemSchema,
+  StoredSyncMessageSchema,
+} from '../../shared/schemas/vault'
 
-export interface VaultKey {
-  account: string,
-  item: string,
-}
-
-export interface VaultMetaData {
-  type: ItemType,
-  iv: string,
-  modified: number,
-  version?: number,
-}
-
-export interface VaultData {
-  metadata: VaultMetaData,
-  cipher: string,
-}
+export type VaultKey = z.infer<typeof VaultKeySchema>
+export type VaultMetaData = z.infer<typeof VaultMetaDataSchema>
+export type VaultSessionRecord = z.infer<typeof VaultSessionRecordSchema>
+export type VaultAccount = z.infer<typeof VaultAccountSchema>
+export type VaultAccountWithAuth = z.infer<typeof VaultAccountWithAuthSchema>
+export type VaultItem = z.infer<typeof VaultItemSchema>
+export type StoredSyncMessage = z.infer<typeof StoredSyncMessageSchema>
 
 export interface BaseData {
   account: string,
@@ -28,30 +31,6 @@ export interface AuthData extends BaseData {
   session: string,
 }
 
-export interface VaultAccount extends BaseData {
-  metadata: Record<string, unknown>,
-  // Salt is not in AuthData since it is only used client-side for logins
-  salt: string,
-}
-
-export interface VaultAccountWithAuth extends VaultAccount, AuthData {}
-
-export interface VaultItem extends VaultKey, VaultData {}
-
-export type CachedVaultItem = Partial<VaultItem> & Pick<VaultItem, 'item'>
-
-export interface VaultSubscriptionFull extends FlockPushSubscription {
-  account: string,
-  id: string,
-}
-
-export function asItemType(type: string): ItemType {
-  const allowedTypes: ItemType[] = ['person', 'group', 'topic']
-  if (allowedTypes.includes(type as ItemType)) {
-    return type as ItemType
-  }
-  throw new Error(`Item type ${type} is not valid`)
-}
 
 export default abstract class BaseDriver<T = unknown> {
   abstract init(options?: T): Promise<BaseDriver<T>>
@@ -59,7 +38,7 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Create a new account record. Includes `authToken` and may include a
   // pre-populated `session` for immediate login.
-  abstract createAccount(data: VaultAccountWithAuth & { authToken: string }): Promise<boolean>
+  abstract createAccount(data: VaultAccount): Promise<boolean>
 
   // Check session/authentication. `isLogin` instructs the implementation to
   // validate against `authToken` instead of session hash.
@@ -68,31 +47,68 @@ export default abstract class BaseDriver<T = unknown> {
   // Retrieve account data; `isLogin` optional as in `checkSession`.
   abstract getAccount(data: AuthData & { isLogin?: boolean }): Promise<VaultAccountWithAuth>
 
-  abstract getAccountSalt(data: BaseData): Promise<string>
+  abstract getSecurityParams(data: BaseData): Promise<{ salt: string, iterations?: number, saltVersion?: number }>
   abstract getNewAccountId(attempts?: number): Promise<string>
 
   // Update account-level data. Accepts partial auth data so callers can update
   // either `metadata` or `session` independently.
-  abstract updateAccountData(data: Partial<AuthData> & { metadata?: Record<string, unknown>, session?: string }): Promise<void>
+  abstract updateAccountData(data: Partial<AuthData> & {
+    metadata?: Record<string, unknown>,
+    session?: string,
+    sessions?: VaultSessionRecord[],
+    pushSubscriptions?: WebPushSubscription[],
+    reminderEnabled?: boolean,
+    reminderTime?: string,
+    reminderTimezone?: string,
+    lastPrayerCompletedAt?: number,
+    lastSnapshotCursor?: number,
+    lastSnapshotAt?: number,
+    lastSnapshotRequestedAt?: number,
+    keyring?: string,
+    authToken?: string,
+    salt?: string,
+    iterations?: number,
+    saltVersion?: number,
+  }): Promise<void>
 
   // Extend session expiry for an account (called on authenticated requests)
-  abstract extendSession(data: BaseData): Promise<void>
+  abstract extendSession(data: AuthData): Promise<void>
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
-  abstract fetchMany(opts: { account: string, ids: string[] }): Promise<VaultItem[]>
-  abstract fetchAll(
-    { account, cacheTime }: Pick<VaultKey, 'account'> & { cacheTime?: number },
-  ): Promise<CachedVaultItem[]>
-
+  abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
+  abstract fetchMetadataAll(opts: Pick<VaultKey, 'account'>): Promise<Array<{ item: string; metadata: VaultMetaData }>>
   abstract delete(key: VaultKey): Promise<void>
 
-  // Subscription management
-  abstract setSubscription(data: { account: string, id: string, subscription: FlockPushSubscription }): Promise<void>
-  abstract deleteSubscription(data: { account: string, id: string }): Promise<void>
-  abstract countSubscriptionFailure(data: { account: string, token: string, maxFailures: number }): Promise<void>
-  abstract getSubscription(data: { account: string, id: string }): Promise<FlockPushSubscription | null>
+  // Sync message operations
+  abstract appendSyncMessage(input: {
+    account: string
+    itemId: ItemId
+    entry: StoredSyncMessage
+  }): Promise<void>
+
+  abstract pushSyncMessagesBatch(input: {
+    account: string
+    messages: Array<{
+      itemId: ItemId
+      entry: StoredSyncMessage
+      lastModified: number
+    }>
+  }): Promise<void>
+
+  abstract getSyncMessages(input: {
+    account: string
+    itemId: ItemId
+    fromCursor?: number
+    limit?: number
+  }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+
+  abstract pruneSyncMessagesUpToCursor(input: {
+    account: string
+    itemId: ItemId
+    cursor: number
+  }): Promise<number>
 
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account
@@ -102,6 +118,6 @@ export default abstract class BaseDriver<T = unknown> {
       throw new HttpError(403, 'Unauthorized')
     }
     // Extend session expiry on successful authentication (fire-and-forget)
-    this.extendSession({ account }).catch(() => {})
+    this.extendSession({ account, session: authToken }).catch(() => {})
   }
 }

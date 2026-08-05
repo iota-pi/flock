@@ -1,18 +1,16 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
-import { DateCalendar } from '@mui/x-date-pickers'
-import {
-  Box,
-  Button,
-  Collapse,
-  IconButton,
-  List,
-  ListItem,
-  Popover,
-  TextField,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Collapse from '@mui/material/Collapse'
+import IconButton from '@mui/material/IconButton'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import Popover from '@mui/material/Popover'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+
 import {
   AddIcon,
   ArchiveIcon,
@@ -22,8 +20,11 @@ import {
   NotesIcon,
   UnarchiveIcon,
 } from './Icons'
-import type { Note } from '../state/items'
-import { formatDate, generateItemId } from '../utils'
+import DelayedRender from './ui/DelayedRender'
+import type { Note } from '../shared/schemas/items'
+import { formatDate, generateNoteId } from '../utils'
+import DebouncedTextField from './ui/DebouncedTextField'
+
 
 interface Props {
   notes: Note[],
@@ -44,15 +45,25 @@ function NoteItem({
   onDelete: (id: string) => void
 }) {
   const [datePickerAnchor, setDatePickerAnchor] = useState<HTMLElement | null>(null)
+  const [displayText, setDisplayText] = useState(note.text)
+
+  const handleCommitText = useCallback(
+    (nextText: string) => {
+      onUpdate?.(note.id, nextText)
+    },
+    [note.id, onUpdate],
+  )
 
   return (
     <ListItem disableGutters sx={{ alignItems: 'center' }}>
-      <TextField
+      <DebouncedTextField
+        debounceMs={1000}
         fullWidth
         multiline
         minRows={note.archived ? undefined : 2}
+        onCommit={handleCommitText}
+        onValueChange={setDisplayText}
         value={note.text}
-        onChange={e => onUpdate?.(note.id, e.target.value)}
         disabled={note.archived}
         variant={note.archived ? 'filled' : 'outlined'}
         size="small"
@@ -83,13 +94,15 @@ function NoteItem({
                     horizontal: 'right',
                   }}
                 >
-                  <DateCalendar
-                    value={new Date(note.time)}
-                    onChange={newDate => {
-                      if (onUpdateDate && newDate) onUpdateDate(note.id, newDate.getTime())
-                      setDatePickerAnchor(null)
-                    }}
-                  />
+                  <DelayedRender delayMs={datePickerAnchor ? 0 : 100}>
+                    <DateCalendar
+                      value={new Date(note.time)}
+                      onChange={newDate => {
+                        if (onUpdateDate && newDate) onUpdateDate(note.id, newDate.getTime())
+                        setDatePickerAnchor(null)
+                      }}
+                    />
+                  </DelayedRender>
                 </Popover>
               </Box>
             ),
@@ -98,18 +111,18 @@ function NoteItem({
         }}
       />
       {
-        (note.text.trim() || note.archived) && (
+        (displayText.trim() || note.archived) && (
           <Tooltip title={note.archived ? "Unarchive Note" : "Archive Note"}>
-            <IconButton onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
+            <IconButton aria-label={note.archived ? 'Unarchive note' : 'Archive note'} onClick={() => onArchive(note.id, !note.archived)} size="small" sx={{ ml: 1 }}>
               {note.archived ? <UnarchiveIcon fontSize="small" /> : <ArchiveIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
         )
       }
       {
-        (note.archived || !note.text.trim()) && (
+        (note.archived || !displayText.trim()) && (
           <Tooltip title="Delete Note">
-            <IconButton onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
+            <IconButton aria-label="Delete note" onClick={() => onDelete(note.id)} size="small" sx={{ ml: 1 }} color={note.archived ? "error" : "default"}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -145,7 +158,7 @@ function NotesSection({
 
   const handleAddNote = useCallback(() => {
     const newNote: Note = {
-      id: generateItemId(),
+      id: generateNoteId(),
       text: '',
       archived: false,
       time: Date.now(),
@@ -170,9 +183,21 @@ function NotesSection({
   }, [notes, onChange])
 
   return (
-    <Box width="100%">
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-        <Box display="flex" alignItems="center">
+    <Box sx={{
+      width: "100%"
+    }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 1
+        }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center"
+          }}>
           <NotesIcon color="action" sx={{ mr: 1 }} />
           <Typography variant="h6">Notes</Typography>
         </Box>
@@ -185,7 +210,6 @@ function NotesSection({
           Add Note
         </Button>
       </Box>
-
       <List disablePadding ref={activeListRef}>
         {activeNotes.map(note => (
           <NoteItem
@@ -203,9 +227,10 @@ function NotesSection({
           </Typography>
         )}
       </List>
-
       {archivedNotes.length > 0 && (
-        <Box mb={2}>
+        <Box sx={{
+          mb: 2
+        }}>
           <Button
             onClick={() => setShowArchived(!showArchived)}
             size="small"

@@ -1,49 +1,26 @@
 import Fastify from 'fastify'
-import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import { fastifyAuth } from '@fastify/auth'
-import {
-  // Params & Query
-  AccountParamsSchema,
-  ItemParamsSchema,
-  SubscriptionParamsSchema,
-  ItemsQuerySchema,
-  // Bodies
-  PutItemBodySchema,
-  PutItemsBatchBodySchema,
-  SubscriptionBodySchema,
-  CreateAccountBodySchema,
-  LoginBodySchema,
-  UpdateMetadataBodySchema,
-  DeleteItemsBatchBodySchema,
-  // Responses
-  SuccessResponseSchema,
-  ErrorResponseSchema,
-  AccountCreationResponseSchema,
-  SaltResponseSchema,
-  SessionResponseSchema,
-  MetadataResponseSchema,
-  ItemsResponseSchema,
-  BatchResultResponseSchema,
-  SubscriptionGetResponseSchema,
-} from '../../shared/apiTypes'
-import routes from './routes'
+import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import getDriver from '../drivers'
+import { appRouter } from '../trpc/root'
+import { createContext } from '../trpc/trpc'
 
 
-async function createServer() {
+async function createServer(devMode = false) {
   const server = Fastify({
     logger: {
-      level: process.env.NODE_ENV === 'development' ? 'info' : 'warn',
+      level: devMode ? 'info' : 'warn',
     },
-  }).withTypeProvider<TypeBoxTypeProvider>()
+    // Allow large payloads for sync operations (especially for initial sync of index documents)
+    bodyLimit: 50 * 1024 * 1024,
+  })
   await server.register(cookie)
   await server.register(cors, {
     origin: [
-      /^https?:\/\/([^.]+\.)?flock\.cross-code\.org$/,
+      /^https?:\/\/flock(-[^.]+)?\.cross-code\.org$/,
       /^https?:\/\/localhost(:[0-9]+)?$/,
-      /^https?:\/\/[^.]+\.wofs12.workers.dev$/,
     ],
     methods: ['GET', 'PATCH', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -51,36 +28,22 @@ async function createServer() {
   })
   await server.register(fastifyAuth)
 
-  // Register param & query schemas
-  server.addSchema(AccountParamsSchema)
-  server.addSchema(ItemParamsSchema)
-  server.addSchema(SubscriptionParamsSchema)
-  server.addSchema(ItemsQuerySchema)
-
-  // Register body schemas
-  server.addSchema(PutItemBodySchema)
-  server.addSchema(PutItemsBatchBodySchema)
-  server.addSchema(SubscriptionBodySchema)
-  server.addSchema(CreateAccountBodySchema)
-  server.addSchema(LoginBodySchema)
-  server.addSchema(UpdateMetadataBodySchema)
-  server.addSchema(DeleteItemsBatchBodySchema)
-
-  // Register response schemas
-  server.addSchema(SuccessResponseSchema)
-  server.addSchema(ErrorResponseSchema)
-  server.addSchema(AccountCreationResponseSchema)
-  server.addSchema(SaltResponseSchema)
-  server.addSchema(SessionResponseSchema)
-  server.addSchema(MetadataResponseSchema)
-  server.addSchema(ItemsResponseSchema)
-  server.addSchema(BatchResultResponseSchema)
-  server.addSchema(SubscriptionGetResponseSchema)
-
-  const vault = getDriver('dynamo')
+  const vault = getDriver('dynamo', devMode)
   server.decorate('vault', vault)
 
-  await server.register(routes)
+  await server.register(fastifyTRPCPlugin, {
+    prefix: '/trpc',
+    trpcOptions: {
+      router: appRouter,
+      createContext,
+      onError: ({ path, error }: { path: string | undefined, error: unknown }) => {
+        console.error(`[TRPC Error] path=${path}:`, error)
+      },
+    },
+  })
+
+  server.get('/', async () => ({ ping: 'pong' }))
+
   return server
 }
 

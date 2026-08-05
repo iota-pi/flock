@@ -1,33 +1,35 @@
 import { useCallback, useMemo } from 'react'
-import {
-  Box,
-  Checkbox,
-  Divider,
-  styled,
-  Theme,
-  Typography,
-} from '@mui/material'
-import { isItem, getItemTypeLabel } from '../../state/items'
-import InlineText from '../InlineText'
+import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import Divider from '@mui/material/Divider'
+import Typography from '@mui/material/Typography'
+import { styled, Theme } from '@mui/material/styles'
+
+import { getItemTypeLabel } from 'src/state/items'
+import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
 import { getName, isSearchableStandardItem } from './utils'
 
-export const AutocompleteOption = styled('div')(({ theme }) => ({
+
+const AutocompleteOption = styled('div')(({ theme }) => ({
   alignItems: 'center',
   display: 'flex',
   minWidth: 0,
-  padding: theme.spacing(1.75, 0),
+  padding: theme.spacing(1, 0),
+  lineHeight: 1,
 }))
-export const OptionIconHolder = styled('div')(({ theme }) => ({
+const OptionIconHolder = styled('div')(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  paddingRight: theme.spacing(2),
+  paddingLeft: theme.spacing(0.5),
+  paddingRight: theme.spacing(2.5),
 }))
-export const OptionName = styled(InlineText)({
+const OptionName = styled(InlineText)(() => ({
   flexGrow: 1,
   minWidth: 0,
-})
+  lineHeight: 1,
+}))
 
 export default function OptionComponent({
   option,
@@ -61,7 +63,7 @@ export default function OptionComponent({
   )
   const clippedDescription = useMemo(
     () => {
-      if (item && isItem(item)) {
+      if (item && typeof item.description === 'string') {
         const base = item.description
         const clipped = base.slice(0, 100)
         if (clipped.length < base.length) {
@@ -83,7 +85,6 @@ export default function OptionComponent({
   return (
     <>
       {option.dividerBefore && <Divider />}
-
       <AutocompleteOption>
         {showCheckbox && (
           <OptionIconHolder>
@@ -99,34 +100,38 @@ export default function OptionComponent({
         {option.create ? (
           <div>
             <span>Add {getItemTypeLabel(option.type).toLowerCase()} </span>
-            <Typography fontWeight={500}>
+            <Typography sx={{ fontWeight: 500 }}>
               {name}
             </Typography>
           </div>
         ) : (
-          <Box minWidth={0}>
-            <Typography display="flex" alignItems="center">
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              sx={{
+                alignItems: 'center',
+                display: 'flex',
+              }}
+            >
               <OptionName noWrap>
                 {name}
               </OptionName>
 
               <InlineText
                 color="text.secondary"
-                fontWeight={300}
-                whiteSpace="pre"
+                sx={{ fontWeight: 300, whiteSpace: 'pre' }}
               >
                 {showGroupMemberCount && option.type === 'group' ? groupMembersText : ''}
               </InlineText>
             </Typography>
 
             {showDescription && clippedDescription && (
-              <InlineText
+              <OptionName
                 color="text.secondary"
-                fontSize={getFontSize}
                 noWrap
+                sx={{ fontSize: getFontSize }}
               >
                 {clippedDescription}
-              </InlineText>
+              </OptionName>
             )}
           </Box>
         )}

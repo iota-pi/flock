@@ -1,8 +1,13 @@
 import { memo, ReactNode } from 'react'
-import { Box, IconButton, ListItemButton, Typography } from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
+import ListItemButton from '@mui/material/ListItemButton'
+
 import type { MuiIconType } from './Icons'
 
-export interface SettingsItemProps {
+
+interface SettingsItemProps {
   disabled?: boolean,
   icon?: MuiIconType,
   id: string,
@@ -25,15 +30,22 @@ function SettingsItem({
       data-cy={id}
       onClick={onClick}
     >
-      <Box flexGrow={1}>
-        <Box py={1}>
+      <Box sx={{
+        flexGrow: 1
+      }}>
+        <Box sx={{
+          py: 1
+        }}>
           <Typography>
             {title}
           </Typography>
         </Box>
       </Box>
-
-      <Box display="flex" alignItems="center">
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center"
+        }}>
         {value}
 
         {Icon && (

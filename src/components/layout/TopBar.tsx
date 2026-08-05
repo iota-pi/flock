@@ -1,21 +1,21 @@
-import { useCallback, useState } from 'react'
-import {
-  Box,
-  Checkbox,
-  IconButton,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  Paper,
-  styled,
-  Theme,
-  Typography,
-  useMediaQuery,
-} from '@mui/material'
+import { lazy, Suspense, useCallback, useState } from 'react'
+import Box from '@mui/material/Box'
+import Checkbox from '@mui/material/Checkbox'
+import IconButton from '@mui/material/IconButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { styled, Theme } from '@mui/material/styles'
 import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
-import { usePracticalFilterCount } from '../../state/selectors'
-import SortDialog from '../dialogs/SortDialog'
-import FilterDialog from '../dialogs/FilterDialog'
+import { usePracticalFilterCount } from 'src/state/selectors'
+import { useDialogState } from 'src/hooks/useDialogState'
+
+
+const SortDialog = lazy(() => import('../dialogs/SortDialog'))
+const FilterDialog = lazy(() => import('../dialogs/FilterDialog'))
 
 const MENU_POPUP_ID = 'top-bar-menu'
 
@@ -23,13 +23,11 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   padding: theme.spacing(2),
+  gap: theme.spacing(0.5),
 
   [theme.breakpoints.down('md')]: {
     padding: theme.spacing(1),
   },
-}))
-const CheckboxHolder = styled('div')(({ theme }) => ({
-  paddingRight: theme.spacing(0.5),
 }))
 const TitleHolder = styled('div')(({ theme }) => ({
   paddingLeft: theme.spacing(1),
@@ -43,7 +41,7 @@ export interface MenuItemData {
   onClick: () => void,
 }
 
-export interface Props {
+interface Props {
   allSelected: boolean,
   filterable?: boolean,
   menuItems: MenuItemData[],
@@ -62,8 +60,16 @@ function TopBar({
   title,
 }: Props) {
   const [showOptions, setShowOptions] = useState(false)
-  const [showFilter, setShowFilter] = useState(false)
-  const [showSort, setShowSort] = useState(false)
+  const {
+    isOpen: isFilterOpen,
+    toggleDialog: toggleFilterDialog,
+    closeDialog: closeFilterDialog,
+  } = useDialogState('filter')
+  const {
+    isOpen: isSortOpen,
+    openDialog: openSortDialog,
+    closeDialog: closeSortDialog,
+  } = useDialogState('sort')
 
   const filterCount = usePracticalFilterCount()
 
@@ -75,16 +81,16 @@ function TopBar({
 
   const handleClickOptions = useCallback(() => setShowOptions(o => !o), [])
   const handleCloseOptions = useCallback(() => setShowOptions(false), [])
-  const handleClickFilter = useCallback(() => setShowFilter(f => !f), [])
-  const handleCloseFilter = useCallback(() => setShowFilter(false), [])
+  const handleClickFilter = useCallback(() => toggleFilterDialog(), [toggleFilterDialog])
+  const handleCloseFilter = useCallback(() => closeFilterDialog(), [closeFilterDialog])
   const handleClickSort = useCallback(
     () => {
-      setShowSort(true)
+      openSortDialog()
       handleCloseOptions()
     },
-    [handleCloseOptions],
+    [handleCloseOptions, openSortDialog],
   )
-  const handleCloseSort = useCallback(() => setShowSort(false), [])
+  const handleCloseSort = useCallback(() => closeSortDialog(), [closeSortDialog])
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
@@ -99,27 +105,33 @@ function TopBar({
   return (
     <StyledPaper>
       {showCheckbox && (
-        <CheckboxHolder>
+        <div>
           <Checkbox
             checked={allSelected}
             onClick={onSelectAll}
             data-cy='select-all'
+            slotProps={{
+              input: { 'aria-label': 'Select all items' },
+            }}
           />
-        </CheckboxHolder>
+        </div>
       )}
-
       {title && (
         <TitleHolder>
-          <Typography color="text.secondary">
+          <Typography sx={{
+            color: "text.secondary"
+          }}>
             {title}
           </Typography>
         </TitleHolder>
       )}
-
-      <Box flexGrow={1} />
-
+      <Box sx={{
+        flexGrow: 1
+      }} />
       {filterable && (
         <IconButton
+          aria-label="Open filters"
+          data-cy="open-filter"
           color={filterCount > 0 ? 'warning' : undefined}
           onClick={handleClickFilter}
           size="large"
@@ -127,19 +139,20 @@ function TopBar({
           <FilterIcon />
         </IconButton>
       )}
-
       {sortable && (
         <IconButton
+          aria-label="Open sort options"
+          data-cy="open-sort"
           onClick={handleClickSort}
           size="large"
         >
           <SortIcon />
         </IconButton>
       )}
-
       {menuItems.length > 0 && (
         <IconButton
           aria-controls={MENU_POPUP_ID}
+          aria-label="Open actions menu"
           aria-haspopup="true"
           onClick={handleClickOptions}
           ref={setOptionsAnchor}
@@ -148,7 +161,6 @@ function TopBar({
           <OptionsIcon />
         </IconButton>
       )}
-
       <Menu
         anchorEl={optionsAnchor}
         id={MENU_POPUP_ID}
@@ -169,16 +181,17 @@ function TopBar({
           </MenuItem>
         ))}
       </Menu>
+      <Suspense fallback={null}>
+        <FilterDialog
+          onClose={handleCloseFilter}
+          open={isFilterOpen}
+        />
 
-      <FilterDialog
-        onClose={handleCloseFilter}
-        open={showFilter}
-      />
-
-      <SortDialog
-        onClose={handleCloseSort}
-        open={showSort}
-      />
+        <SortDialog
+          onClose={handleCloseSort}
+          open={isSortOpen}
+        />
+      </Suspense>
     </StyledPaper>
   )
 }

@@ -6,7 +6,7 @@ import customDomainWords from '../utils/customDomainWords'
 const MIN_PASSWORD_LENGTH = 10
 const MIN_PASSWORD_STRENGTH = 3
 
-export interface PasswordFeedback {
+interface PasswordFeedback {
   score: number,
   error: string,
   feedback: ZxcvbnResult['feedback'],

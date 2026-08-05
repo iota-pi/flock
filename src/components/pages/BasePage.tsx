@@ -1,12 +1,19 @@
 import { PropsWithChildren, ReactNode } from 'react'
-import { Box, Fab, Fade, LinearProgress, styled } from '@mui/material'
+import Box from '@mui/material/Box'
+import Fab from '@mui/material/Fab'
+import Fade from '@mui/material/Fade'
+import LinearProgress from '@mui/material/LinearProgress'
+import { styled } from '@mui/material/styles'
+
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
-import { useAppSelector } from '../../store'
+import { useAppStore } from 'src/state/store'
 import { usePage } from '.'
+
 
 interface BaseProps {
   noScrollContainer?: boolean,
+  showLoading?: boolean,
 }
 interface FabProps {
   fab: true,
@@ -40,7 +47,8 @@ interface NoTopBarProps {
 }
 type CombinedProps = BaseProps & (FabProps | NoFabProps) & (TopBarProps | NoTopBarProps)
 type Props = PropsWithChildren<CombinedProps>
-export type { Props as BasePageProps }
+
+const EMPTY_MENU_ITEMS: MenuItemData[] = []
 
 
 const ContentWithScroll = styled('div')(({ theme }) => ({
@@ -76,16 +84,17 @@ function BasePage({
   fab,
   fabIcon,
   fabLabel,
-  menuItems,
+  menuItems = EMPTY_MENU_ITEMS,
   onClickFab,
   onSelectAll,
   noScrollContainer,
   showFilter = false,
+  showLoading = true,
   showSort = false,
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useAppSelector(state => state.ui.requests.active)
+  const activeRequests = useAppStore(state => state.activeRequests)
   const loading = activeRequests > 0
 
   const page = usePage()
@@ -98,23 +107,24 @@ function BasePage({
         <TopBar
           allSelected={allSelected}
           filterable={showFilter}
-          menuItems={menuItems || []}
+          menuItems={menuItems}
           onSelectAll={onSelectAll}
           sortable={showSort}
           title={topBarTitle}
         />
       )}
-
-      <Box position="relative">
-        <Fade in={loading}>
-          <StyledProgress data-cy='loading-progress' />
-        </Fade>
-      </Box>
-
+      {showLoading && (
+        <Box sx={{
+          position: "relative"
+        }}>
+          <Fade in={loading}>
+            <StyledProgress data-cy='loading-progress' />
+          </Fade>
+        </Box>
+      )}
       <ContentElement data-cy={`page-content-${page?.id}`}>
         {children}
       </ContentElement>
-
       {fab && (
         <FabContainer>
           <Fab

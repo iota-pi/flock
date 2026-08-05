@@ -1,19 +1,19 @@
 import { ChangeEvent, useCallback, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  InputAdornment,
-  TextField,
-  Typography,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
+
 import { useMetadata } from '../../state/selectors'
 import { ResetIcon, SaveIcon, WarningIcon } from '../Icons'
 
-export interface Props {
+
+interface Props {
   naturalGoal: number,
   onClose: () => void,
   open: boolean,
@@ -73,17 +73,18 @@ function GoalDialog({
       </DialogTitle>
 
       <DialogContent>
-        <Typography>
-          To get through all your prayer items in the target time,
-          set to
+        <Typography sx={{ mb: 2 }}>
+          To be able to pray for all your prayer items in their target time frames,
+          set your prayer goal to
           {' '}
-          <Typography component="span" fontWeight={500}>{naturalGoal}</Typography>
+          <strong>{naturalGoal}</strong>
           {' '}
-          or higher.
+          or more.
         </Typography>
 
         <div>
           <TextField
+            aria-label="Prayer Goal"
             error={error}
             fullWidth
             helperText={hintMessage}
@@ -97,6 +98,7 @@ function GoalDialog({
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
+                      aria-label="Reset goal to natural value"
                       disabled={parseInt(newGoal) === naturalGoal}
                       onClick={handleReset}
                       size="large"
@@ -105,9 +107,9 @@ function GoalDialog({
                     </IconButton>
                   </InputAdornment>
                 ),
-              }
+                'data-cy': 'dialog-goal-input',
+              },
             }}
-            inputProps={{ 'data-cy': 'dialog-goal-input' }}
           />
         </div>
       </DialogContent>

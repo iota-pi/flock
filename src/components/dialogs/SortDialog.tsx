@@ -1,16 +1,15 @@
-import { ChangeEvent, useCallback, useMemo, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  IconButton,
-  MenuItem,
-  Stack,
-  TextField,
-} from '@mui/material'
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import IconButton from '@mui/material/IconButton'
+import TextField from '@mui/material/TextField'
+import Stack from '@mui/material/Stack'
+import Divider from '@mui/material/Divider'
+import MenuItem from '@mui/material/MenuItem'
+
 import {
   CRITERIA_DISPLAY,
   CRITERIA_DISPLAY_MAP,
@@ -20,7 +19,8 @@ import {
 import { RemoveIcon } from '../Icons'
 import { useSortCriteria } from '../../state/selectors'
 
-export interface Props {
+
+interface Props {
   onClose: () => void,
   open: boolean,
 }
@@ -62,10 +62,11 @@ function SortCriterionField({
     <Stack
       data-cy="sort-criterion"
       direction="row"
-      alignItems="center"
       spacing={2}
-      py={2}
-    >
+      sx={{
+        alignItems: 'center',
+        py: 2
+      }}>
       <TextField
         data-cy="sort-criterion-name"
         fullWidth
@@ -83,7 +84,6 @@ function SortCriterionField({
           </MenuItem>
         ))}
       </TextField>
-
       <TextField
         data-cy="sort-criterion-order"
         fullWidth
@@ -100,8 +100,7 @@ function SortCriterionField({
           {CRITERIA_DISPLAY_MAP[criterion.type].reverse}
         </MenuItem>
       </TextField>
-
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove sort criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Stack>
@@ -117,11 +116,13 @@ function SortDialog({
 
   const [localCriteria, setLocalCriteria] = useState<SortCriterion[]>([])
 
-  const [prevSortCriteria, setPrevSortCriteria] = useState(sortCriteria)
-  if (sortCriteria !== prevSortCriteria) {
-    setPrevSortCriteria(sortCriteria)
-    setLocalCriteria(sortCriteria)
-  }
+  useEffect(() => {
+    if (open) {
+      // Align local criteria with global when dialog is opened
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLocalCriteria(sortCriteria)
+    }
+  }, [open, sortCriteria])
 
   const chosenCriteria = useMemo(
     () => new Set(localCriteria.map(lc => lc.type)),

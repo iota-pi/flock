@@ -1,12 +1,10 @@
 import { ChangeEvent, useCallback, useMemo } from 'react'
-import {
-  IconButton,
-  MenuItem,
-  Stack,
-  TextField,
-} from '@mui/material'
-import { DatePicker } from '@mui/x-date-pickers'
-import '@mui/lab'
+import IconButton from '@mui/material/IconButton'
+import MenuItem from '@mui/material/MenuItem'
+import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+
 import {
   FILTER_CRITERIA_DISPLAY_MAP,
   FilterCriterionType,
@@ -14,10 +12,11 @@ import {
   getBaseValue,
   FILTER_OPERATORS_MAP,
   FilterOperatorName,
-} from '../../../utils/customFilter'
+} from 'src/utils/customFilter'
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
-import { Frequency } from '../../../utils/frequencies'
+import { Frequency } from 'src/utils/frequencies'
+
 
 export function FilterCriterionDisplay({
   chosenCriteria,
@@ -106,10 +105,11 @@ export function FilterCriterionDisplay({
     <Stack
       data-cy="filter-criterion"
       direction="row"
-      alignItems="center"
       spacing={2}
-      py={2}
-    >
+      sx={{
+        alignItems: "center",
+        py: 2
+      }}>
       <TextField
         data-cy="filter-criterion-name"
         fullWidth
@@ -127,7 +127,6 @@ export function FilterCriterionDisplay({
           </MenuItem>
         ))}
       </TextField>
-
       <TextField
         data-cy="filter-criterion-operation"
         fullWidth
@@ -143,7 +142,6 @@ export function FilterCriterionDisplay({
           </MenuItem>
         ))}
       </TextField>
-
       {criterionDetails.dataType === 'string' && (
         <TextField
           data-cy="filter-criterion-value"
@@ -202,8 +200,7 @@ export function FilterCriterionDisplay({
           frequency={criterion.value as Frequency}
         />
       )}
-
-      <IconButton onClick={handleRemove}>
+      <IconButton aria-label="Remove filter criterion" onClick={handleRemove}>
         <RemoveIcon />
       </IconButton>
     </Stack>

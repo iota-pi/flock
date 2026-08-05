@@ -1,20 +1,19 @@
 import { useCallback, useState } from 'react'
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-} from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Grid from '@mui/material/Grid'
+
 import { Item } from '../../state/items'
-import { useStoreItemsMutation } from '../../api/queries'
+import { storeItems } from '../../features/items/mutations/itemMutations'
 import { PrayerIcon } from '../Icons'
 import FrequencyPicker from '../FrequencyPicker'
 import { Frequency } from '../../utils/frequencies'
 
 
-export interface Props {
+interface Props {
   items: Item[],
   onClose: () => void,
   open: boolean,
@@ -27,7 +26,6 @@ function FrequencyDialog({
   open,
 }: Props) {
   const [frequency, setFrequency] = useState<Frequency>('none')
-  const { mutate: storeItems } = useStoreItemsMutation()
 
   const handleDone = useCallback(
     () => {
@@ -38,10 +36,16 @@ function FrequencyDialog({
           prayerFrequency: frequency,
         })
       }
-      storeItems(updatedItems)
-      onClose()
+
+      void storeItems(updatedItems)
+        .then(() => {
+          onClose()
+        })
+        .catch(error => {
+          console.error(error)
+        })
     },
-    [frequency, items, onClose, storeItems],
+    [frequency, items, onClose],
   )
 
   return (

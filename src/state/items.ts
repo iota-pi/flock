@@ -1,56 +1,44 @@
+import { z } from 'zod'
+import { mergeWith } from 'lodash-es'
+
 import { generateItemId } from '../utils'
-import type { Frequency } from '../utils/frequencies'
-import { ITEM_TYPES, ItemType } from '../shared/apiTypes'
+import type { ItemType } from '../shared/itemTypes'
+import {
+  standardItemSchema,
+  type StandardItem,
+  type BaseItem,
+  type ErrorItem,
+  type GroupItem,
+  type PersonItem,
+  type TopicItem,
+  ITEM_TYPES,
+  ItemId,
+  ERROR_ITEM_TYPE,
+} from '../shared/schemas/items'
 
-export { ITEM_TYPES }
-export type { ItemType }
 
-export type ItemId = string
-export type OldItemType = 'general'
+export type Item = StandardItem | ErrorItem
 
-export interface Note {
-  id: string
-  text: string
-  archived: boolean
-  time: number
+function mergeItemWithDefaults<T extends object>(defaults: T, candidate: unknown): T {
+  if (!candidate || typeof candidate !== 'object') {
+    return defaults
+  }
+
+  return mergeWith({}, defaults, candidate, (currentValue, nextValue) => {
+    if (nextValue === undefined) {
+      return currentValue
+    }
+
+    if (Array.isArray(nextValue)) {
+      return nextValue
+    }
+
+    return undefined
+  }) as T
 }
 
-export interface BaseItem {
-  archived: boolean,
-  created: number,
-  description: string,
-  id: ItemId,
-  isNew?: true,
-  name: string,
-  notes: Note[],
-  prayedFor: number[],
-  prayerFrequency: Frequency,
-  summary: string,
-  type: ItemType,
-  version: number,
-}
-export interface PersonItem extends BaseItem {
-  memberPrayerFrequency?: undefined,
-  members?: undefined,
-  type: 'person',
-}
-export interface GroupItem extends BaseItem {
-  memberPrayerFrequency: Frequency,
-  memberPrayerTarget: 'one' | 'all',
-  members: ItemId[],
-  type: 'group',
-}
-export interface TopicItem extends BaseItem {
-  memberPrayerFrequency?: undefined,
-  members?: undefined,
-  type: 'topic',
-}
-export type Item = PersonItem | GroupItem | TopicItem
-
-export type DirtyItem<T> = T & { dirty?: boolean }
-
-export function isItem(item: Item): item is Item {
-  return (ITEM_TYPES as readonly Item['type'][]).includes(item.type)
+export function isItem(item: Item): item is StandardItem {
+  return (ITEM_TYPES as readonly string[]).includes(item.type)
 }
 
 function getBlankBaseItem(id?: ItemId): BaseItem {
@@ -63,9 +51,7 @@ function getBlankBaseItem(id?: ItemId): BaseItem {
     notes: [],
     prayedFor: [],
     prayerFrequency: 'none',
-    summary: '',
     type: 'person',
-    version: 1,
   }
 }
 
@@ -88,7 +74,7 @@ export function getBlankGroup(id?: ItemId, isNew = true): GroupItem {
   }
 }
 
-export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
+function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   return {
     ...getBlankBaseItem(id),
     isNew: isNew || undefined,
@@ -96,8 +82,8 @@ export function getBlankTopic(id?: ItemId, isNew = true): TopicItem {
   }
 }
 
-export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean): Item {
-  if (itemType === 'person' || itemType === 'general') {
+export function getBlankItem(itemType: ItemType, isNew?: boolean): StandardItem {
+  if (itemType === 'person') {
     return getBlankPerson(undefined, isNew)
   }
   if (itemType === 'group') {
@@ -109,31 +95,7 @@ export function getBlankItem(itemType: ItemType | OldItemType, isNew?: boolean):
   throw new Error('Unknown item type')
 }
 
-export function checkProperties(items: Item[]): { error: boolean, message: string } {
-  const ignoreProps: (keyof Item)[] = ['isNew']
-  for (const item of items) {
-    const blank = getBlankItem(item.type)
-    const filledKeys = Object.keys(item) as (keyof Item)[]
-    for (const key of Object.keys(blank) as (keyof Item)[]) {
-      if (ignoreProps.includes(key)) {
-        continue
-      }
-
-      if (!filledKeys.includes(key)) {
-        return {
-          error: true,
-          message: `Item ${item.id} is missing key "${key}"`,
-        }
-      }
-    }
-  }
-  return {
-    error: false,
-    message: 'Success',
-  }
-}
-
-export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
+export function getItemTypeLabel(itemType: Item['type'], plural?: boolean): string {
   if (itemType === 'person') {
     return plural ? 'People' : 'Person'
   }
@@ -143,6 +105,9 @@ export function getItemTypeLabel(itemType: ItemType, plural?: boolean): string {
   if (itemType === 'topic') {
     return plural ? 'Topics' : 'Topic'
   }
+  if (itemType === ERROR_ITEM_TYPE) {
+    return plural ? 'Corrupted Items' : 'Corrupted Item'
+  }
   return plural ? 'Items' : 'Item'
 }
 
@@ -150,89 +115,89 @@ export function getItemName(
   item?: Partial<Item> & Pick<Item, 'type'>,
 ): string {
   if (item === undefined) return ''
-  return (item.name || '').trim()
+  const name = item.name
+  return (name || '').trim()
 }
 
-export function compareNames(a: BaseItem, b: BaseItem) {
-  return +(a.name > b.name) - +(a.name < b.name)
+function compareNames(a: BaseItem, b: BaseItem) {
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
 export function compareIds(a: Item, b: Item) {
-  return +(a.id > b.id) - +(a.id < b.id)
+  const aId = a.id
+  const bId = b.id
+  return +(aId > bId) - +(aId < bId)
 }
 
 export function compareItems(a: Item, b: Item) {
   if (a.archived !== b.archived) {
-    return +a.archived - +b.archived
+    return +(a.archived) - +(b.archived)
   } else if (a.type !== b.type) {
-    return ITEM_TYPES.indexOf(a.type) - ITEM_TYPES.indexOf(b.type)
+    const typeOrder: Item['type'][] = [...ITEM_TYPES, ERROR_ITEM_TYPE]
+    return typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type)
   }
-  return compareNames(a, b) || compareIds(a, b)
+  return compareNames(a as BaseItem, b as BaseItem) || compareIds(a, b)
 }
 
 export function filterArchived<T extends Item>(items: T[]): T[] {
-  return items.filter(item => !item.archived)
+  return items.filter(item => item.archived !== true)
 }
 
 export function supplyMissingAttributes<T extends Item>(item: T): T {
-  const blank = getBlankItem(item.type, false)
-  const filled = {
-    ...blank,
-    ...item,
+  if (item.type === ERROR_ITEM_TYPE) {
+    return item
   }
 
-  return filled
+  try {
+    const blank = getBlankItem(item.type, false)
+    const filled = mergeItemWithDefaults(blank, item)
+    return filled as T
+  } catch (_) {
+    return item
+  }
 }
 
-export function dirtyItem<T extends Partial<Item>>(item: T): DirtyItem<T> {
-  return { ...item, dirty: true }
-}
+export function convertItem<T extends Item, S extends StandardItem>(item: T, newType: S['type']): S {
+  if (item.type === newType) {
+    return item as StandardItem as S
+  }
 
-export function cleanItem<T extends Item>(item: DirtyItem<T>): T {
-  return { ...item, dirty: undefined, isNew: undefined }
-}
+  const newBase = getBlankItem(newType, false)
 
-export function convertItem<T extends Item, S extends Item>(item: T, type: S['type']): S {
-  const result = {
-    ...getBlankItem(type, false),
-    ...item,
-    type,
-  } as S
-  return result
+  let newItem: S
+  if (newType === 'group') {
+    newItem = {
+      ...newBase,
+      ...item,
+      members: [],
+      memberPrayerFrequency: 'none',
+      memberPrayerTarget: 'one',
+      type: newType,
+    } as GroupItem as S
+  } else {
+    newItem = {
+      ...newBase,
+      ...item,
+      members: undefined,
+      memberPrayerFrequency: undefined,
+      memberPrayerTarget: undefined,
+      type: newType,
+    } as PersonItem | TopicItem as S
+  }
+
+  const parsing = standardItemSchema.safeParse(newItem)
+  if (!parsing.success) {
+    const readable = z.prettifyError(parsing.error).replace(/\n+/g, '; ')
+    throw new Error(`Failed to convert item to type "${newType}": ${readable}`)
+  }
+
+  return newItem
 }
 
 export function isValid<T extends Item>(item: T) {
-  return !!getItemName(item).trim()
-}
-
-export function importPeople(data: Record<string, string>[]): Item[] {
-  const d = new Date()
-  const todaysDate = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`
-  const importGroup = getBlankGroup()
-  importGroup.name = `Imported ${todaysDate}`
-  const results: Item[] = [
-    importGroup,
-  ]
-  for (const row of data) {
-    const name = (row.name || `${row.firstName} ${row.lastName}`).trim()
-    if (name === '') {
-      // Skip rows without a name
-      continue
-    }
-
-    const blankPerson = getBlankPerson()
-    results.push({
-      ...blankPerson,
-      name,
-      description: row.description || blankPerson.description,
-      notes: row.notes ? [{
-        id: generateItemId(),
-        text: row.notes,
-        archived: false,
-        time: blankPerson.created,
-      }] : blankPerson.notes,
-    })
-    importGroup.members.push(blankPerson.id)
+  if (item.type === ERROR_ITEM_TYPE) {
+    return false
   }
-  return results
+
+  return !!getItemName(item).trim()
 }

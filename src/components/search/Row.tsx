@@ -1,16 +1,9 @@
-import { HTMLAttributes } from 'react'
-import { RowComponentProps } from 'react-window'
-import { styled } from '@mui/material'
+import { CSSProperties, HTMLAttributes } from 'react'
 import OptionComponent from './Option'
 import { AnySearchable } from './types'
 
-export const OptionHolder = styled('li')({
-  // Force border-box sizing so MUI's padding doesn't exceed react-window's height calculations
-  boxSizing: 'border-box',
-  padding: 0,
-})
 
-export interface SearchableRowSettings {
+interface SearchableRowSettings {
   showDescriptions: boolean,
   showGroupMemberCounts: boolean,
   showIcons: boolean,
@@ -20,21 +13,26 @@ export interface SearchableRowSettings {
 
 export type PropsAndOption = [HTMLAttributes<HTMLLIElement>, AnySearchable, SearchableRowSettings]
 
-export interface SearchableRowProps {
+interface SearchableRowProps {
   itemData: PropsAndOption[],
+  index: number,
+  measureRef?: (node: HTMLElement | null) => void,
+  style?: CSSProperties,
 }
 
 export default function SearchableRow(
-  props: RowComponentProps<SearchableRowProps>,
+  props: SearchableRowProps,
 ) {
-  const { itemData, index, style } = props
+  const { itemData, index, measureRef, style } = props
   const [optionProps, option, settings] = itemData[index]
 
   return (
-    <OptionHolder
+    <li
       {...optionProps}
       key={option.id}
       style={style}
+      ref={measureRef}
+      data-index={index}
     >
       <OptionComponent
         option={option}
@@ -44,6 +42,6 @@ export default function SearchableRow(
         showCheckbox={settings.showCheckboxes}
         selected={settings.selected}
       />
-    </OptionHolder>
+    </li>
   )
 }

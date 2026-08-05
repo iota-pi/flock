@@ -1,15 +1,13 @@
 import { useMemo } from 'react'
-import {
-  Grid,
-  styled,
-  Typography,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
-  SelectChangeEvent,
-} from '@mui/material'
-import { GroupItem, Item } from '../state/items'
+import Grid from '@mui/material/Grid'
+import { styled } from '@mui/material/styles'
+import Typography from '@mui/material/Typography'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import MenuItem from '@mui/material/MenuItem'
+import Select, { SelectChangeEvent } from '@mui/material/Select'
+
+import { Item } from '../state/items'
 import FrequencyPicker from './FrequencyPicker'
 import {
   Due,
@@ -19,8 +17,10 @@ import {
 } from '../utils/frequencies'
 import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
-import InlineText from './InlineText'
-import { useItems } from '../state/selectors'
+import InlineText from './ui/InlineText'
+import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import { useItemsByIds } from 'src/state/selectors'
+
 
 type OnChangeData<T extends Item> = Partial<
   { prayerFrequency: T['prayerFrequency'] } & (
@@ -35,18 +35,18 @@ const TextColorTransition = styled(InlineText)(({ theme }) => ({
   transition: theme.transitions.create('color'),
 }))
 
-type PersonProps = {
-  id: Item['id'],
+type BaseProps = {
+  id: ItemId,
   lastPrayer?: number,
   onChange: (data: OnChangeData<Item>) => void,
   prayerFrequency: Item['prayerFrequency'],
 }
 
-type GroupProps = {
-  id: Item['id'],
-  lastPrayer?: number,
-  onChange: (data: OnChangeData<GroupItem>) => void,
-  prayerFrequency: GroupItem['prayerFrequency'],
+type PersonProps = BaseProps & {
+  partOfGroups: ItemId[],
+}
+
+type GroupProps = BaseProps & {
   memberPrayerFrequency: GroupItem['memberPrayerFrequency'],
   memberPrayerTarget: GroupItem['memberPrayerTarget'],
 }
@@ -73,15 +73,8 @@ function FrequencyControls(props: Props) {
     }
   }
 
-  const allGroups = useItems<GroupItem>('group')
-  const partOfGroups = useMemo(
-    () => (
-      isGroup
-        ? []
-        : allGroups.filter(g => g.members.includes(props.id))
-    ),
-    [allGroups, isGroup, props.id],
-  )
+  const partOfGroupIds = isGroup ? [] : ((props as PersonProps).partOfGroups)
+  const partOfGroups = useItemsByIds<GroupItem>(partOfGroupIds)
   const inheritedFrequency = useMemo(() => {
     let frequency: FrequencyOrDays = 'none'
     let group: GroupItem | null = null
@@ -113,14 +106,17 @@ function FrequencyControls(props: Props) {
   return (
     <Grid container spacing={1}>
       {isGroup && (
-        <Grid size={{ xs: 12 }} mt={2}>
-          <Typography variant="body1" color="text.secondary">
+        <Grid size={{ xs: 12 }} sx={{
+          mt: 2
+        }}>
+          <Typography variant="body1" sx={{
+            color: "text.secondary"
+          }}>
             You can choose how often to pray for the group as a whole,
             and for individual members.
           </Typography>
         </Grid>
       )}
-
       <Grid size={{ xs: 12 }}>
         <FrequencyPicker
           frequency={prayerFrequency}
@@ -135,14 +131,19 @@ function FrequencyControls(props: Props) {
           inheritedFrequency.group !== null
           && inheritedFrequencyIsFaster
           && (
-            <Typography variant="body2" color="text.secondary" mt={1}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                mt: 1
+              }}>
               As a member of&nbsp;
-              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              <InlineText variant="inherit">
                 {inheritedFrequency.group.name}
               </InlineText>
               &nbsp;this person will be scheduled at least
               {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
-              <InlineText variant="inherit" fontWeight="fontWeightMedium">
+              <InlineText variant="inherit">
                 {inheritedFrequency.frequency}
               </InlineText>
               {typeof inheritedFrequency.frequency === 'string' ? '' : ' days'}
@@ -197,10 +198,13 @@ function FrequencyControls(props: Props) {
           </Grid>
         </>
       )}
-
       <Grid size={{ xs: 12 }}>
         {lastPrayerText ? (
-          <Typography pt={1} color="text.secondary">
+          <Typography
+            sx={{
+              pt: 1,
+              color: "text.secondary"
+            }}>
             {'Last prayed for: '}
             <TextColorTransition color={lastPrayerClass}>
               {lastPrayerText}

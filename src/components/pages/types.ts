@@ -1,11 +1,21 @@
 import type { ReactNode } from 'react'
-import type { AccountMetadata } from 'src/state/account'
 import type { MuiIconType } from '../Icons'
-import type { InternalPageId, PageId, AnyPageId } from './routes'
 
-export type { InternalPageId, PageId, AnyPageId }
 
-export interface BasePageConfig {
+export type PublicPageId = (
+  | 'welcome'
+  | 'login'
+  | 'signup'
+)
+export type ProtectedPageId = (
+  | 'prayer'
+  | 'people'
+  | 'groups'
+  | 'topics'
+  | 'settings'
+)
+
+interface BasePageConfig {
   path: string
   requiresAuth: boolean
 }
@@ -23,14 +33,9 @@ export interface MenuRouteConfig extends BasePageConfig {
   name: string
   dividerBefore?: boolean
   noPlaceholderDrawer?: boolean
-  metadataControl?: (metadata: AccountMetadata) => boolean
   requiresAuth: true
 }
 
-export interface InternalPage extends InternalRouteConfig {
-  id: InternalPageId
-}
-
 export interface Page extends MenuRouteConfig {
-  id: PageId
+  id: ProtectedPageId
 }

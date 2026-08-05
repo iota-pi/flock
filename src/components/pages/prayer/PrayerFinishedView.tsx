@@ -1,15 +1,15 @@
-import {
-  Box,
-  Button,
-  Typography,
-} from '@mui/material'
-import InlineText from '../../InlineText'
+import Button from '@mui/material/Button'
+import Typography from '@mui/material/Typography'
+import Box from '@mui/material/Box'
+
+import InlineText from '../../ui/InlineText'
+import LargeIcon from 'src/components/ui/LargeIcon'
 import {
   BackIcon,
   NextIcon,
   PrayerIcon,
 } from '../../Icons'
-import BasePage from '../BasePage'
+
 
 interface Props {
   prayedCount: number,
@@ -25,54 +25,53 @@ function PrayerFinishedView({
   onBackToOverview,
 }: Props) {
   return (
-    <BasePage noScrollContainer>
-      <Box
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 2,
-          p: 4,
-          textAlign: 'center',
-        }}
-      >
-        <PrayerIcon sx={{ fontSize: 90 }} />
-        <Typography variant="h5">All done!</Typography>
-        <Typography color="text.secondary">
-          {'You prayed for '}
-          <InlineText variant="inherit" fontWeight="fontWeightMedium">
-            {prayedCount}
-          </InlineText>
-          {` item${prayedCount !== 1 ? 's' : ''} today.`}
-        </Typography>
-
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Button
-            data-cy="keep-praying"
-            disabled={!canKeepPraying}
-            endIcon={<NextIcon />}
-            fullWidth
-            onClick={onKeepPraying}
-            size="large"
-            variant="outlined"
-          >
-            Keep Praying
-          </Button>
-          <Button
-            fullWidth
-            onClick={onBackToOverview}
-            size="large"
-            startIcon={<BackIcon />}
-            variant="contained"
-          >
-            Back to Overview
-          </Button>
-        </Box>
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+        p: 4,
+        textAlign: 'center',
+      }}
+    >
+      <LargeIcon icon={PrayerIcon} />
+      <Typography variant="h5">All done!</Typography>
+      <Typography sx={{
+        color: "text.secondary"
+      }}>
+        {'You prayed for '}
+        <InlineText variant="inherit">
+          {prayedCount}
+        </InlineText>
+        {` item${prayedCount !== 1 ? 's' : ''} today.`}
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Button
+          data-cy="keep-praying"
+          disabled={!canKeepPraying}
+          endIcon={<NextIcon />}
+          fullWidth
+          onClick={onKeepPraying}
+          size="large"
+          variant="outlined"
+        >
+          Keep Praying
+        </Button>
+        <Button
+          fullWidth
+          onClick={onBackToOverview}
+          size="large"
+          startIcon={<BackIcon />}
+          variant="contained"
+        >
+          Back to Overview
+        </Button>
       </Box>
-    </BasePage>
+    </Box>
   )
 }
 
