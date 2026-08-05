@@ -8,7 +8,6 @@ import {
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb'
 import {
-  format,
   toZonedTime,
 } from 'date-fns-tz'
 import type { WebPushSubscription } from '../types'
@@ -36,11 +35,22 @@ const sqs = new SQSClient({})
 
 const utcToZonedTime = toZonedTime
 
-function isReminderTimeMatch(nowUtc: Date, reminderTime: string, timezone: string): boolean {
+export function isReminderTimeMatch(nowUtc: Date, reminderTime: string, timezone: string): boolean {
   try {
+    const [targetHourStr, targetMinuteStr] = reminderTime.split(':')
+    const targetHour = Number(targetHourStr)
+    const targetMinute = Number(targetMinuteStr)
+
+    if (Number.isNaN(targetHour) || Number.isNaN(targetMinute)) {
+      return false
+    }
+
+    const targetMinutes = targetHour * 60 + targetMinute
     const zoned = utcToZonedTime(nowUtc, timezone)
-    const currentLocalTime = format(zoned, 'HH:mm', { timeZone: timezone })
-    return currentLocalTime === reminderTime
+    const localMinutesNow = zoned.getHours() * 60 + zoned.getMinutes()
+
+    const diffMinutes = ((localMinutesNow - targetMinutes) % 1440 + 1440) % 1440
+    return diffMinutes >= 0 && diffMinutes < 15
   } catch {
     return false
   }

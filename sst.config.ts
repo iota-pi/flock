@@ -131,6 +131,9 @@ export default $config({
       timeout: "60 seconds",
       environment: {
         ACCOUNTS_TABLE: accountsTable.name,
+        VAPID_SUBJECT: vapidSubject.value,
+        VAPID_PUBLIC_KEY: vapidPublicKey.value,
+        VAPID_PRIVATE_KEY: vapidPrivateKey.value,
       },
       link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
     });

@@ -27,7 +27,7 @@ type SqsEvent = {
 const ddb = new DynamoDBClient(getConnectionParams())
 const docClient = DynamoDBDocumentClient.from(ddb)
 
-async function removeSubscription(accountId: string, endpoint: string) {
+export async function removeSubscription(accountId: string, endpoint: string) {
   const accountResponse = await docClient.send(new GetCommand({
     TableName: ACCOUNT_TABLE_NAME,
     Key: { account: accountId },
@@ -48,10 +48,13 @@ async function removeSubscription(accountId: string, endpoint: string) {
   }))
 }
 
-async function processMessage(message: ReminderMessage) {
+export async function processMessage(message: ReminderMessage) {
   const payload = {
     title: 'Prayer reminder',
     body: 'Time to pray for your flock.',
+    url: '/',
+    icon: '/flock.png',
+    badge: '/flock.png',
   }
 
   for (const subscription of message.pushSubscriptions) {

@@ -7,6 +7,7 @@ import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import { ensurePersistentStorage } from '../utils/storageQuota'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { initTrpcClient } from 'src/api/trpcClient'
+import { syncReminderTimezone } from '../utils/pushNotifications'
 
 export default function AppInitializer() {
   const loggedIn = useLoggedIn()
@@ -23,6 +24,12 @@ export default function AppInitializer() {
     void ensurePersistentStorage()
     void loadAccount().catch(console.error)
   }, [setFatalError])
+
+  useEffect(() => {
+    if (loggedIn && account) {
+      void syncReminderTimezone(account).catch(console.error)
+    }
+  }, [loggedIn, account])
 
   useSyncCoordinatorLifecycle(account, loggedIn)
 
