@@ -26,7 +26,6 @@ const DESCRIPTION_MAX_LENGTH = 500
 interface ItemFormContentProps {
   item: Item,
   handleChange: (data: Partial<Item> | ((prev: Item) => Item)) => void,
-  autoFocusName?: boolean,
   fromPrayerPage?: boolean,
   hideHeaderFields?: boolean,
   hideRelationships?: boolean,
@@ -35,7 +34,6 @@ interface ItemFormContentProps {
 function ItemFormContent({
   item,
   handleChange,
-  autoFocusName = true,
   fromPrayerPage = false,
   hideHeaderFields = false,
   hideRelationships = false,
@@ -125,7 +123,6 @@ function ItemFormContent({
     () => (
       <Grid size={{ xs: 12 }}>
         <DebouncedTextField
-          autoFocus={autoFocusName}
           debounceMs={1000}
           error={nameError}
           fullWidth
@@ -143,7 +140,7 @@ function ItemFormContent({
         />
       </Grid>
     ),
-    [autoFocusName, handleNameCommit, item.name, nameError, nameInputProps],
+    [handleNameCommit, item.name, nameError, nameInputProps],
   )
 
   const descriptionField = useMemo(

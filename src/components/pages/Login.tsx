@@ -192,7 +192,6 @@ function LoginPage() {
               }}>
               <TextField
                 autoComplete="username"
-                autoFocus
                 fullWidth
                 id="username"
                 slotProps={{

@@ -56,7 +56,6 @@ function ThemedPaper({ children, ...props }: PaperProps) {
 }
 
 interface Props<T> {
-  autoFocus?: boolean,
   dataCy?: string,
   forceDarkTheme?: boolean,
   includeArchived?: boolean,
@@ -87,7 +86,6 @@ const DARK_THEME = getTheme(true)
 const EMPTY_ITEM_IDS: ItemId[] = []
 
 function Search<T extends AnySearchableData = AnySearchableData>({
-  autoFocus,
   dataCy,
   forceDarkTheme = false,
   includeArchived = false,
@@ -345,7 +343,6 @@ function Search<T extends AnySearchableData = AnySearchableData>({
             <TextField
               {...params}
               aria-label={label || placeholder || 'Search'}
-              autoFocus={autoFocus}
               inputRef={inputRef}
               slotProps={slotProps}
               label={label}

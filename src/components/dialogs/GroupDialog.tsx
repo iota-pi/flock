@@ -103,7 +103,6 @@ function GroupDialog({
         }}>
           <Grid size={{ xs: 12 }}>
             <Search<GroupItem>
-              autoFocus
               label="Add to Groups"
               onClear={handleClearAdd}
               onRemove={handleRemoveAdd}
