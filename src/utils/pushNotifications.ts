@@ -103,3 +103,26 @@ export async function checkSubscription(account: string) {
     hours: Number.isInteger(parsedHour) ? [parsedHour] : [8],
   }
 }
+
+export async function syncReminderTimezone(account: string): Promise<boolean> {
+  try {
+    const settings = await getReminderSettings(account)
+    if (!settings.reminderEnabled) {
+      return false
+    }
+
+    const currentTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (currentTz && settings.reminderTimezone !== currentTz) {
+      await updateReminderSettings(account, {
+        reminderEnabled: true,
+        reminderTime: settings.reminderTime,
+        reminderTimezone: currentTz,
+      })
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error('Failed to sync reminder timezone', error)
+    return false
+  }
+}
