@@ -110,7 +110,6 @@ function PrayerActiveView({
           ? (
             <Container maxWidth={false} sx={{ py: 2 }}>
               <ItemFormContent
-                autoFocusName={false}
                 fromPrayerPage
                 key={item.id}
                 handleChange={
