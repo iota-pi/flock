@@ -93,6 +93,12 @@ export default defineConfig([
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/dot-notation': 'off',
+      'vitest/expect-expect': [
+        'error',
+        {
+          assertFunctionNames: ['expect', 'checkA11y'],
+        },
+      ],
     },
   },
 ])
