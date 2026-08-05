@@ -17,7 +17,7 @@ import type { ListItemTextProps } from '@mui/material/ListItemText'
 
 import TagDisplay from 'src/components/TagDisplay'
 import { getIcon as getItemIcon } from 'src/components/Icons'
-import { getItemName, isItem, type Item } from 'src/state/items'
+import { getItemName, getItemTypeLabel, isItem, type Item } from 'src/state/items'
 import { useItem } from 'src/state/selectors'
 import { useItemListContext } from './ItemListContext'
 import type { GroupLookupData } from 'src/shared/itemTypes'
@@ -227,7 +227,7 @@ export function ItemListItem(props: ItemListItemProps) {
         tabIndex={-1}
         onClick={handleCheck}
         slotProps={{
-          input: { 'aria-label': `Select ${name || 'item'}` },
+          input: { 'aria-label': `Select ${item ? getItemTypeLabel(item.type) : 'item'}` },
         }}
       />
     </CheckboxHolder>
