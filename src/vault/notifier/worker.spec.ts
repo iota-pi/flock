@@ -1,13 +1,12 @@
-import { handler, processMessage, removeSubscription } from './worker'
+import { handler, processMessage } from './worker'
 import { sendPushNotification } from './webpush'
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 
 vi.mock('./webpush', () => ({
   sendPushNotification: vi.fn(),
 }))
 
 vi.mock('@aws-sdk/lib-dynamodb', () => {
-  const sendMock = vi.fn().mockImplementation((command) => {
+  const sendMock = vi.fn().mockImplementation(command => {
     if (command.constructor.name === 'GetCommand') {
       return Promise.resolve({
         Item: {
