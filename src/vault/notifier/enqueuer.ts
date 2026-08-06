@@ -35,7 +35,12 @@ const sqs = new SQSClient({})
 
 const utcToZonedTime = toZonedTime
 
-export function isReminderTimeMatch(nowUtc: Date, reminderTime: string, timezone: string): boolean {
+export function isReminderTimeMatch(
+  nowUtc: Date,
+  reminderTime: string,
+  timezone: string,
+  windowMinutes: number = parseInt(process.env.NOTIFIER_CRON_INTERVAL_MINUTES || '15', 10),
+): boolean {
   try {
     const [targetHourStr, targetMinuteStr] = reminderTime.split(':')
     const targetHour = Number(targetHourStr)
@@ -50,7 +55,7 @@ export function isReminderTimeMatch(nowUtc: Date, reminderTime: string, timezone
     const localMinutesNow = zoned.getHours() * 60 + zoned.getMinutes()
 
     const diffMinutes = ((localMinutesNow - targetMinutes) % 1440 + 1440) % 1440
-    return diffMinutes >= 0 && diffMinutes < 15
+    return diffMinutes >= 0 && diffMinutes < windowMinutes
   } catch {
     return false
   }
@@ -94,6 +99,7 @@ export const handler = async () => {
     throw new Error('Missing PUSH_NOTIFICATIONS_QUEUE_URL')
   }
 
+  const intervalMinutes = parseInt(process.env.NOTIFIER_CRON_INTERVAL_MINUTES || '15', 10)
   const nowUtc = new Date()
   const accounts = await getEnabledReminderAccounts()
 
@@ -107,7 +113,7 @@ export const handler = async () => {
         return null
       }
 
-      if (!isReminderTimeMatch(nowUtc, reminderTime, timezone)) {
+      if (!isReminderTimeMatch(nowUtc, reminderTime, timezone, intervalMinutes)) {
         return null
       }
 

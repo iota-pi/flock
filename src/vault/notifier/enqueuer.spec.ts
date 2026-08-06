@@ -41,6 +41,18 @@ describe('isReminderTimeMatch', () => {
     expect(isReminderTimeMatch(nowUtc, '23:55', 'UTC')).toBe(true)
   })
 
+  it('supports custom windowMinutes interval', () => {
+    // 2026-08-05 08:04 UTC (4 minutes after 08:00 reminder)
+    const nowUtc = new Date('2026-08-05T08:04:00Z')
+    // With a 5 minute window: 4 < 5 -> true
+    expect(isReminderTimeMatch(nowUtc, '08:00', 'UTC', 5)).toBe(true)
+
+    // 2026-08-05 08:06 UTC (6 minutes after 08:00 reminder)
+    const nowUtc6 = new Date('2026-08-05T08:06:00Z')
+    // With a 5 minute window: 6 < 5 -> false
+    expect(isReminderTimeMatch(nowUtc6, '08:00', 'UTC', 5)).toBe(false)
+  })
+
   it('returns false for invalid time formats or timezones', () => {
     const nowUtc = new Date('2026-08-05T08:00:00Z')
     expect(isReminderTimeMatch(nowUtc, 'invalid', 'UTC')).toBe(false)
