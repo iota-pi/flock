@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import type { BaseToastMessage } from '../state/slices/toastSlice'
 import { useAppStore } from '../state/store'
+import { subscribe, unsubscribe } from '../utils/pushNotifications'
 
 type SetMessage = (payload: BaseToastMessage) => void
 
@@ -20,7 +21,6 @@ export default function useSubscriptionSettings({
   const account = useAppStore(state => state.account)
   const handleSubscribe = useCallback(async (hours: number[] | null) => {
     try {
-      const { subscribe, unsubscribe } = await import('../utils/pushNotifications')
       if (hours) {
         await subscribe(account, hours)
         setMessage({ message: 'Subscription saved' })
