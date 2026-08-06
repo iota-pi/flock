@@ -2,7 +2,7 @@ import { ReactNode, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 
-import { HomeIcon } from '../../Icons'
+import { OverviewIcon } from '../../Icons'
 
 
 interface Props {
@@ -24,8 +24,6 @@ function PrayerStepper({
   onHomeClick,
   isHomeActive = false,
 }: Props) {
-  const ACTION_SLOT_WIDTH = 144
-
   const getBackgroundColor = useCallback(
     (index: number) => {
       if (activeStep === undefined) {
@@ -73,8 +71,8 @@ function PrayerStepper({
       sx={{
         alignItems: 'center',
         backgroundColor: 'background.paper',
-        borderTop: 1,
         borderColor: 'divider',
+        borderTop: 1,
         display: 'flex',
         gap: 1,
         minHeight: 56,
@@ -82,30 +80,46 @@ function PrayerStepper({
         py: 1,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'flex-start', minWidth: 40 }}>
-        <IconButton
-          aria-label="Go to prayer overview"
-          onClick={onHomeClick}
-          size="small"
-          disabled={!isHomeActive}
-          color="primary"
-        >
-          <HomeIcon fontSize="small" />
-        </IconButton>
-      </Box>
-
       <Box
         sx={{
+          alignItems: 'center',
           display: 'flex',
-          flexShrink: 0,
+          flex: 1,
           justifyContent: 'flex-start',
-          width: ACTION_SLOT_WIDTH,
+          minWidth: 0,
         }}
       >
         {backButton}
       </Box>
 
-      <Box sx={{ display: 'flex', flexGrow: 1, gap: 1, justifyContent: 'center' }}>
+      <Box
+        sx={{
+          alignItems: 'center',
+          display: 'flex',
+          flex: '0 1 auto',
+          gap: 1,
+          justifyContent: 'center',
+          minWidth: 0,
+        }}
+      >
+        <IconButton
+          aria-label="Go to prayer overview"
+          data-cy="prayer-step-overview"
+          data-state={!isHomeActive ? 'active' : 'complete'}
+          disabled={!isHomeActive}
+          onClick={onHomeClick}
+          size="small"
+          sx={{
+            color: !isHomeActive
+              ? 'primary.light'
+              : (activeStep !== undefined ? 'primary.dark' : 'action.disabledBackground'),
+            p: 0.25,
+            transition: theme => theme.transitions.create('color'),
+          }}
+        >
+          <OverviewIcon sx={{ fontSize: '1rem' }} />
+        </IconButton>
+
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}
@@ -126,10 +140,11 @@ function PrayerStepper({
 
       <Box
         sx={{
+          alignItems: 'center',
           display: 'flex',
-          flexShrink: 0,
+          flex: 1,
           justifyContent: 'flex-end',
-          width: ACTION_SLOT_WIDTH,
+          minWidth: 0,
         }}
       >
         {nextButton}

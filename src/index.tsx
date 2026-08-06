@@ -76,7 +76,15 @@ function initializeApp() {
     const root = createRoot(rootElement)
     root.render(<ThemedApp />)
 
-    registerSW()
+    const updateSW = registerSW({
+      onNeedRefresh() {
+        console.info('[PWA] New content available, updating service worker...')
+        updateSW(true)
+      },
+      onOfflineReady() {
+        console.info('[PWA] App is ready to work offline.')
+      },
+    })
 
     if (window.Cypress) {
       window.vault = import('./api/vault')

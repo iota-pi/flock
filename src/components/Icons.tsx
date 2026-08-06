@@ -65,6 +65,7 @@ export {
   FrequencyIcon,
   GroupIcon,
   HomeIcon,
+  HomeIcon as OverviewIcon,
   LockIcon,
   MenuIcon,
   MoreOptionsIcon,

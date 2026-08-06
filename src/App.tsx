@@ -17,6 +17,7 @@ import { useAppStore } from './state/store'
 import MainLayout from './components/layout/MainLayout'
 import ErrorPage from './components/pages/ErrorPage'
 import AppProviders from './app/AppProviders'
+import AppInitializer from './app/AppInitializer'
 
 
 const Root = styled('div')({
@@ -67,6 +68,7 @@ function RootLayout() {
 
   return (
     <Root>
+      <AppInitializer />
       {loggedIn && (
         <>
           <AppBar
