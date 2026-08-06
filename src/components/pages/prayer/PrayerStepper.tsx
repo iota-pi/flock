@@ -2,7 +2,7 @@ import { ReactNode, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 
-import { HomeIcon } from '../../Icons'
+import { OverviewIcon } from '../../Icons'
 
 
 interface Props {
@@ -97,7 +97,7 @@ function PrayerStepper({
           disabled={!isHomeActive}
           color="primary"
         >
-          <HomeIcon fontSize="small" />
+          <OverviewIcon fontSize="small" />
         </IconButton>
         {backButton}
       </Box>
