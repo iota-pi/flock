@@ -137,11 +137,9 @@ export default $config({
       },
       link: [accountsTable, vapidSubject, vapidPublicKey, vapidPrivateKey],
     });
-    // -----------------------------------------------------------------
-    // Reminder Enqueuer
-    // -----------------------------------------------------------------
+    const cronMinutes = '15';
     new sst.aws.Cron("NotifierSchedule", {
-      schedule: "rate(15 minutes)",
+      schedule: `cron(0/${cronMinutes} * ? * * *)`,
       function: {
         handler: "src/vault/notifier/enqueuer.handler",
         runtime: "nodejs24.x",
@@ -150,6 +148,7 @@ export default $config({
         environment: {
           ACCOUNTS_TABLE: accountsTable.name,
           PUSH_NOTIFICATIONS_QUEUE_URL: pushNotificationsQueue.url,
+          NOTIFIER_CRON_INTERVAL_MINUTES: cronMinutes,
         },
         link: [accountsTable, pushNotificationsQueue],
       },
