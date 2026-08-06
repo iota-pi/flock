@@ -24,8 +24,6 @@ function PrayerStepper({
   onHomeClick,
   isHomeActive = false,
 }: Props) {
-  const ACTION_SLOT_WIDTH = 144
-
   const getBackgroundColor = useCallback(
     (index: number) => {
       if (activeStep === undefined) {
@@ -82,7 +80,16 @@ function PrayerStepper({
         py: 1,
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'flex-start', minWidth: 40 }}>
+      <Box
+        sx={{
+          alignItems: 'center',
+          display: 'flex',
+          flex: 1,
+          gap: 1,
+          justifyContent: 'flex-start',
+          minWidth: 0,
+        }}
+      >
         <IconButton
           aria-label="Go to prayer overview"
           onClick={onHomeClick}
@@ -92,20 +99,18 @@ function PrayerStepper({
         >
           <HomeIcon fontSize="small" />
         </IconButton>
+        {backButton}
       </Box>
 
       <Box
         sx={{
           display: 'flex',
-          flexShrink: 0,
-          justifyContent: 'flex-start',
-          width: ACTION_SLOT_WIDTH,
+          flex: '0 1 auto',
+          gap: 1,
+          justifyContent: 'center',
+          minWidth: 0,
         }}
       >
-        {backButton}
-      </Box>
-
-      <Box sx={{ display: 'flex', flexGrow: 1, gap: 1, justifyContent: 'center' }}>
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}
@@ -126,10 +131,11 @@ function PrayerStepper({
 
       <Box
         sx={{
+          alignItems: 'center',
           display: 'flex',
-          flexShrink: 0,
+          flex: 1,
           justifyContent: 'flex-end',
-          width: ACTION_SLOT_WIDTH,
+          minWidth: 0,
         }}
       >
         {nextButton}
