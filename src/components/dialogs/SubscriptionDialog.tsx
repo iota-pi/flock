@@ -9,6 +9,7 @@ import MenuItem from '@mui/material/MenuItem'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
+import CircularProgress from '@mui/material/CircularProgress'
 import { styled } from '@mui/material/styles'
 
 import { checkSubscription } from '../../utils/pushNotifications'
@@ -59,6 +60,7 @@ function SubscriptionDialog({
   const account = useAppStore(state => state.account)
   const [enabled, setEnabled] = useState(false)
   const [hour, setHour] = useState(8)
+  const [saving, setSaving] = useState(false)
 
   useEffect(
     () => {
@@ -67,6 +69,7 @@ function SubscriptionDialog({
       }
 
       let cancelled = false
+      setSaving(false)
       checkSubscription(account).then(existing => {
         if (cancelled) {
           return
@@ -85,11 +88,16 @@ function SubscriptionDialog({
   )
 
   const handleSave = useCallback(
-    () => {
-      if (enabled) {
-        onSave([hour])
-      } else {
-        onSave(null)
+    async () => {
+      setSaving(true)
+      try {
+        if (enabled) {
+          await onSave([hour])
+        } else {
+          await onSave(null)
+        }
+      } finally {
+        setSaving(false)
       }
     },
     [enabled, hour, onSave],
@@ -112,7 +120,7 @@ function SubscriptionDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={saving ? undefined : onClose}
       fullWidth
       maxWidth="sm"
     >
@@ -129,6 +137,7 @@ function SubscriptionDialog({
             control={
               <Switch
                 checked={enabled}
+                disabled={saving}
                 onChange={handleToggleEnabled}
                 color="primary"
                 data-cy="subscription-toggle"
@@ -139,6 +148,7 @@ function SubscriptionDialog({
 
           {enabled && (
             <TextField
+              disabled={saving}
               fullWidth
               label="Notification time"
               select
@@ -161,6 +171,7 @@ function SubscriptionDialog({
         <Stack spacing={1} direction="row" sx={{ mt: 3 }}>
           <Button
             data-cy="subscription-cancel"
+            disabled={saving}
             fullWidth
             onClick={onClose}
             variant="outlined"
@@ -171,11 +182,13 @@ function SubscriptionDialog({
           <Button
             color="primary"
             data-cy="subscription-confirm"
+            disabled={saving}
             fullWidth
             onClick={handleSave}
             variant="contained"
+            startIcon={saving ? <CircularProgress size={18} color="inherit" /> : null}
           >
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </Button>
         </Stack>
       </DialogContentNarrowPadding>
