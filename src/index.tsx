@@ -78,11 +78,11 @@ function initializeApp() {
 
     const updateSW = registerSW({
       onNeedRefresh() {
-        console.log('[PWA] New content available, updating service worker...')
+        console.info('[PWA] New content available, updating service worker...')
         updateSW(true)
       },
       onOfflineReady() {
-        console.log('[PWA] App is ready to work offline.')
+        console.info('[PWA] App is ready to work offline.')
       },
     })
 
