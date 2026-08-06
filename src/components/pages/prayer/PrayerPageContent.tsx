@@ -1,5 +1,4 @@
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 
 import type { PrayerFlowController } from './usePrayerFlow'
@@ -9,7 +8,7 @@ import PrayerOverviewPanel from './PrayerOverviewPanel'
 import PrayerStepper from './PrayerStepper'
 import GoalDialog from '../../dialogs/GoalDialog'
 import BasePage from '../BasePage'
-import { BackIcon, NextIcon, SaveIcon } from '../../Icons'
+import { BackIcon, NextIcon } from '../../Icons'
 
 
 type PrayerPageContentProps = {

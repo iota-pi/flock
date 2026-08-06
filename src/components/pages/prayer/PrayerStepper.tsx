@@ -110,7 +110,9 @@ function PrayerStepper({
           onClick={onHomeClick}
           size="small"
           sx={{
-            color: !isHomeActive ? 'primary.light' : (activeStep !== undefined ? 'primary.dark' : 'action.disabledBackground'),
+            color: !isHomeActive
+              ? 'primary.light'
+              : (activeStep !== undefined ? 'primary.dark' : 'action.disabledBackground'),
             p: 0.25,
             transition: theme => theme.transitions.create('color'),
           }}

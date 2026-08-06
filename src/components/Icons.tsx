@@ -22,7 +22,6 @@ import NextIcon from '@mui/icons-material/ChevronRight'
 import NotesIcon from '@mui/icons-material/Notes'
 import NotificationIcon from '@mui/icons-material/Notifications'
 import OptionsIcon from '@mui/icons-material/Settings'
-import OverviewIcon from '@mui/icons-material/Home'
 import PasswordIcon from '@mui/icons-material/Password'
 import PersonIcon from '@mui/icons-material/Person'
 import RemoveIcon from '@mui/icons-material/Close'
@@ -66,6 +65,7 @@ export {
   FrequencyIcon,
   GroupIcon,
   HomeIcon,
+  HomeIcon as OverviewIcon,
   LockIcon,
   MenuIcon,
   MoreOptionsIcon,
@@ -74,7 +74,6 @@ export {
   NotesIcon,
   NotificationIcon,
   OptionsIcon,
-  OverviewIcon,
   PasswordIcon,
   PersonIcon,
   PrayerIcon,
