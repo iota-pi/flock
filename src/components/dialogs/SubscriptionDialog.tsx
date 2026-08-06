@@ -69,7 +69,6 @@ function SubscriptionDialog({
       }
 
       let cancelled = false
-      setSaving(false)
       checkSubscription(account).then(existing => {
         if (cancelled) {
           return
