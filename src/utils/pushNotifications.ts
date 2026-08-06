@@ -22,6 +22,9 @@ async function getPushSubscription() {
   if (!registration) {
     throw new Error('Service worker registration not found')
   }
+  if (!('pushManager' in registration) || !registration.pushManager) {
+    throw new Error('Push manager is not supported in this browser')
+  }
 
   const existing = await registration.pushManager.getSubscription()
   if (existing) {
@@ -73,10 +76,12 @@ export async function subscribe(account: string, hours: number[]) {
 
 export async function unsubscribe(account: string) {
   const registration = await navigator.serviceWorker.getRegistration()
-  const existing = await registration?.pushManager.getSubscription()
-  if (existing) {
-    await deletePushSubscription(account, existing.endpoint)
-    await existing.unsubscribe()
+  if (registration && 'pushManager' in registration && registration.pushManager) {
+    const existing = await registration.pushManager.getSubscription()
+    if (existing) {
+      await deletePushSubscription(account, existing.endpoint)
+      await existing.unsubscribe()
+    }
   }
 
   await updateReminderSettings(account, {
