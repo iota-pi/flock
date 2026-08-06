@@ -71,8 +71,8 @@ function PrayerStepper({
       sx={{
         alignItems: 'center',
         backgroundColor: 'background.paper',
-        borderTop: 1,
         borderColor: 'divider',
+        borderTop: 1,
         display: 'flex',
         gap: 1,
         minHeight: 56,
@@ -85,25 +85,16 @@ function PrayerStepper({
           alignItems: 'center',
           display: 'flex',
           flex: 1,
-          gap: 1,
           justifyContent: 'flex-start',
           minWidth: 0,
         }}
       >
-        <IconButton
-          aria-label="Go to prayer overview"
-          onClick={onHomeClick}
-          size="small"
-          disabled={!isHomeActive}
-          color="primary"
-        >
-          <OverviewIcon fontSize="small" />
-        </IconButton>
         {backButton}
       </Box>
 
       <Box
         sx={{
+          alignItems: 'center',
           display: 'flex',
           flex: '0 1 auto',
           gap: 1,
@@ -111,6 +102,22 @@ function PrayerStepper({
           minWidth: 0,
         }}
       >
+        <IconButton
+          aria-label="Go to prayer overview"
+          data-cy="prayer-step-overview"
+          data-state={!isHomeActive ? 'active' : 'complete'}
+          disabled={!isHomeActive}
+          onClick={onHomeClick}
+          size="small"
+          sx={{
+            color: !isHomeActive ? 'primary.light' : (activeStep !== undefined ? 'primary.dark' : 'action.disabledBackground'),
+            p: 0.25,
+            transition: theme => theme.transitions.create('color'),
+          }}
+        >
+          <OverviewIcon sx={{ fontSize: '1rem' }} />
+        </IconButton>
+
         {Array.from({ length: steps }, (_, index) => (
           <Box
             key={index}

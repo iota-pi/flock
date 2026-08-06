@@ -1,5 +1,6 @@
-import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
 
 import type { PrayerFlowController } from './usePrayerFlow'
 import PrayerActiveView from './PrayerActiveView'
@@ -8,7 +9,7 @@ import PrayerOverviewPanel from './PrayerOverviewPanel'
 import PrayerStepper from './PrayerStepper'
 import GoalDialog from '../../dialogs/GoalDialog'
 import BasePage from '../BasePage'
-import { BackIcon, NextIcon } from '../../Icons'
+import { BackIcon, NextIcon, SaveIcon } from '../../Icons'
 
 
 type PrayerPageContentProps = {
@@ -93,25 +94,27 @@ export default function PrayerPageContent({
           onStepClick={stepper.steps > 0 ? actions.handleStepClick : undefined}
           steps={stepper.steps}
           backButton={view.showActiveNavButtons ? (
-            <Button onClick={actions.handleBack} startIcon={<BackIcon />}>
-              Back
-            </Button>
+            <IconButton
+              aria-label="Previous item"
+              color="primary"
+              onClick={actions.handleBack}
+            >
+              <BackIcon />
+            </IconButton>
           ) : undefined}
-          nextButton={view.showActiveNavButtons
-            ? (
-              <Button endIcon={<NextIcon />} onClick={actions.handleNext}>
-                {view.isLastActiveStep ? 'Finish' : 'Next'}
-              </Button>
-            )
-            : (
-              <Button
-                disabled={progress.allVisiblePrayed && !progress.canKeepPraying}
-                endIcon={<NextIcon />}
-                onClick={actions.handleStartFirst}
-              >
-                {view.startButtonLabel}
-              </Button>
-            )}
+          nextButton={
+            <IconButton
+              aria-label={view.isLastActiveStep ? 'Finish prayer' : 'Next item'}
+              color="primary"
+              onClick={
+                view.showActiveNavButtons
+                  ? actions.handleNext
+                  : actions.handleStartFirst
+              }
+            >
+              <NextIcon />
+            </IconButton>
+          }
         />
       </Box>
 
