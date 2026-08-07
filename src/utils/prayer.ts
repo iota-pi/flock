@@ -154,9 +154,9 @@ export function buildPrayerFreqMap(items: Item[]): Map<ItemId, number> {
 
   const map: Map<ItemId, number> = new Map()
 
-  // Initialise map with each person's own set frequency
+  // Initialise map with each person's or topic's own set frequency
   for (const it of items) {
-    if (it.type === 'person' && it.prayerFrequency && it.prayerFrequency !== 'none') {
+    if ((it.type === 'person' || it.type === 'topic') && it.prayerFrequency && it.prayerFrequency !== 'none') {
       map.set(it.id, frequencyToDays(it.prayerFrequency))
     }
   }

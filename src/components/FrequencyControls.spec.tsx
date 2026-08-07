@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import FrequencyControls from './FrequencyControls'
 import { ThemeProvider } from '@mui/material/styles'
 import getTheme from '../theme'
-import { useItemsByIds } from '../state/selectors'
+import { useItem, useItemsByIds } from '../state/selectors'
 import { GroupItem, ItemId } from '../shared/schemas/items'
 
 vi.mock('../state/selectors', () => ({
+  useItem: vi.fn(),
   useItemsByIds: vi.fn(),
 }))
 
@@ -27,6 +28,7 @@ describe('FrequencyControls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(useItemsByIds).mockReturnValue([])
+    vi.mocked(useItem).mockReturnValue(undefined)
   })
 
   it('renders frequency picker for person', () => {
@@ -87,6 +89,49 @@ describe('FrequencyControls', () => {
 
     expect(screen.getByText(/As a member of/)).toBeTruthy()
     expect(screen.getByText('My Group')).toBeTruthy()
+    expect(screen.getByText(/this person will be scheduled at least/)).toBeTruthy()
+  })
+
+  it('shows inherited frequency message with topic label when item is a topic', () => {
+    const topicId = 't1' as ItemId
+    const group: GroupItem = {
+      id: 'g1' as ItemId,
+      name: 'Topic Group',
+      type: 'group',
+      description: '',
+      created: 0,
+      archived: false,
+      prayedFor: [],
+      prayerFrequency: 'none',
+      notes: [],
+      members: [topicId],
+      memberPrayerFrequency: 'daily',
+      memberPrayerTarget: 'one',
+    }
+
+    vi.mocked(useItem).mockReturnValue({
+      id: topicId,
+      name: 'Topic 1',
+      type: 'topic',
+      description: '',
+      created: 0,
+      archived: false,
+      prayedFor: [],
+      prayerFrequency: 'monthly',
+      notes: [],
+    })
+    vi.mocked(useItemsByIds).mockReturnValue([group])
+
+    renderWithTheme(
+      <FrequencyControls
+        id={topicId}
+        prayerFrequency="monthly"
+        onChange={mockOnChange}
+        partOfGroups={[group.id]}
+      />
+    )
+
+    expect(screen.getByText(/this topic will be scheduled at least/)).toBeTruthy()
   })
 
   it('does not show inherited frequency message when not faster', () => {

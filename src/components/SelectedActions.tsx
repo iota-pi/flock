@@ -129,7 +129,7 @@ function SelectedActions() {
   const actions = useMemo<BulkAction[]>(
     () => {
       const result: BulkAction[] = []
-      if (workingStandardItems.find(item => item.type === 'person')) {
+      if (workingStandardItems.find(item => item.type === 'person' || item.type === 'topic')) {
         result.push({
           id: 'group',
           icon: GroupIcon,

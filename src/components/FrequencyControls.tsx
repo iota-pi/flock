@@ -19,7 +19,7 @@ import { FrequencyIcon, PrayerIcon } from './Icons'
 import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
 import type { GroupItem, ItemId } from 'src/shared/schemas/items'
-import { useItemsByIds } from 'src/state/selectors'
+import { useItem, useItemsByIds } from 'src/state/selectors'
 
 
 type OnChangeData<T extends Item> = Partial<
@@ -42,7 +42,7 @@ type BaseProps = {
   prayerFrequency: Item['prayerFrequency'],
 }
 
-type PersonProps = BaseProps & {
+type MemberItemProps = BaseProps & {
   partOfGroups: ItemId[],
 }
 
@@ -51,10 +51,11 @@ type GroupProps = BaseProps & {
   memberPrayerTarget: GroupItem['memberPrayerTarget'],
 }
 
-type Props = PersonProps | GroupProps
+type Props = MemberItemProps | GroupProps
 
 function FrequencyControls(props: Props) {
   const { lastPrayer, onChange, prayerFrequency } = props
+  const item = useItem(props.id)
   const isGroup = 'memberPrayerFrequency' in props && props.memberPrayerFrequency !== undefined
   const memberPrayerTarget = isGroup ? (props as GroupProps).memberPrayerTarget : undefined
   const memberPrayerFrequency = isGroup ? (props as GroupProps).memberPrayerFrequency : undefined
@@ -73,7 +74,7 @@ function FrequencyControls(props: Props) {
     }
   }
 
-  const partOfGroupIds = isGroup ? [] : ((props as PersonProps).partOfGroups)
+  const partOfGroupIds = isGroup ? [] : ((props as MemberItemProps).partOfGroups)
   const partOfGroups = useItemsByIds<GroupItem>(partOfGroupIds)
   const inheritedFrequency = useMemo(() => {
     let frequency: FrequencyOrDays = 'none'
@@ -102,6 +103,8 @@ function FrequencyControls(props: Props) {
     () => frequencyToDays(inheritedFrequency.frequency) < frequencyToDays(prayerFrequency),
     [inheritedFrequency, prayerFrequency],
   )
+
+  const itemLabel = item?.type === 'topic' ? 'this topic' : 'this person'
 
   return (
     <Grid container spacing={1}>
@@ -141,7 +144,7 @@ function FrequencyControls(props: Props) {
               <InlineText variant="inherit">
                 {inheritedFrequency.group.name}
               </InlineText>
-              &nbsp;this person will be scheduled at least
+              &nbsp;{itemLabel} will be scheduled at least
               {typeof inheritedFrequency.frequency === 'string' ? ' ' : ' every ~'}
               <InlineText variant="inherit">
                 {inheritedFrequency.frequency}
