@@ -57,6 +57,7 @@ async function copyAccountItems() {
       const migratedItems = items.map(item => ({
         ...item,
         account: DEST_ACCOUNT,
+        isNew: undefined,
       }))
 
       const itemChunks = chunk(migratedItems, 25)

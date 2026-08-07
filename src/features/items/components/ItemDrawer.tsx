@@ -3,11 +3,13 @@ import {
   Suspense,
   useCallback,
   useMemo,
+  useState,
 } from 'react'
 import CircularProgress from '@mui/material/CircularProgress'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import MenuItem from '@mui/material/MenuItem'
+import Typography from '@mui/material/Typography'
 
 import {
   convertItem,
@@ -18,9 +20,12 @@ import {
 } from 'src/state/items'
 import { useItem } from 'src/state/selectors'
 import BaseDrawer, { BaseDrawerProps } from 'src/components/drawers/BaseDrawer'
+import ConfirmationDialog from 'src/components/dialogs/ConfirmationDialog'
+import InlineText from 'src/components/ui/InlineText'
 import { isSameDay } from 'src/utils'
 import {
   ArchiveIcon,
+  DeleteIcon,
   getIcon,
   getIconType,
   PrayerIcon,
@@ -52,6 +57,7 @@ function ItemDrawer({
 }: Props) {
   const storeItem = useItem(itemId ?? '' as ItemId)
   const setMessage = useAppStore(state => state.setMessage)
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false)
 
   const resolvedItem = useMemo((): Item | null => {
     if (storeItem) {
@@ -84,18 +90,12 @@ function ItemDrawer({
     [itemId, isNew, resolvedItem, onClose],
   )
 
-  const handleSaveButton = useCallback(
-    () => {
-      onClose()
-    },
-    [onClose],
-  )
-
   const handleDelete = useCallback(
     () => {
       if (itemId !== null) {
         deleteItems(itemId).catch(error => console.error(error))
       }
+      setShowConfirmDelete(false)
       onClose()
     },
     [itemId, onClose],
@@ -182,6 +182,25 @@ function ItemDrawer({
     [handleChange, isNew, isPrayedForToday],
   )
 
+  const deleteMenuItem = useMemo(
+    () => (
+      <MenuItem
+        data-cy="delete"
+        key="delete"
+        disabled={isNew}
+        onClick={() => {
+          setShowConfirmDelete(true)
+        }}
+      >
+        <ListItemIcon>
+          <DeleteIcon />
+        </ListItemIcon>
+        <ListItemText>Delete</ListItemText>
+      </MenuItem>
+    ),
+    [isNew],
+  )
+
   const headerActions = useMemo(
     () => resolvedItem ? (
       <ItemViewTopBar
@@ -190,24 +209,21 @@ function ItemDrawer({
         menuButtonDataCy="item-menu-button"
         menuItems={[
           markPrayedMenuItem,
-          archiveMenuItem,
           ...(!fromPrayerPage ? changeTypeMenuItems : []),
+          archiveMenuItem,
+          deleteMenuItem,
         ]}
         showEditButton={false}
       />
     ) : undefined,
-    [archiveMenuItem, changeTypeMenuItems, fromPrayerPage, markPrayedMenuItem, resolvedItem],
+    [archiveMenuItem, changeTypeMenuItems, deleteMenuItem, fromPrayerPage, markPrayedMenuItem, resolvedItem],
   )
 
   return (
     <BaseDrawer
       ActionProps={{
         canSave: resolvedItem ? isValid(resolvedItem) : false,
-        itemIsNew: isNew,
-        itemName: resolvedItem ? getItemName(resolvedItem) : '',
-        onCancel: cleanupAndClose,
-        onDelete: handleDelete,
-        onSave: handleSaveButton,
+        onSave: cleanupAndClose,
       }}
       alwaysTemporary={alwaysTemporary}
       headerActions={headerActions}
@@ -229,6 +245,27 @@ function ItemDrawer({
           />
         )}
       </Suspense>
+
+      {resolvedItem && (
+        <ConfirmationDialog
+          open={showConfirmDelete}
+          onConfirm={handleDelete}
+          onCancel={() => setShowConfirmDelete(false)}
+        >
+          <Typography>
+            Are you sure you want to delete
+            {' '}
+            <InlineText>
+              {getItemName(resolvedItem)}
+            </InlineText>
+            ?
+          </Typography>
+
+          <Typography>
+            This action cannot be undone.
+          </Typography>
+        </ConfirmationDialog>
+      )}
     </BaseDrawer>
   )
 }

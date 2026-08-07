@@ -19,7 +19,8 @@ describe('Deletion Cleanup', () => {
     // 3. Delete Person via UI (testing the actual deletion interaction)
     cy.page('people')
     cy.contains(personName).click()
-    cy.get('[data-cy=drawer-cancel]').click() // Open delete dialog
+    cy.get('[data-cy=item-menu-button]').click() // Open item menu
+    cy.get('[data-cy=delete]').click() // Open delete dialog
     cy.get('[data-cy=confirm-confirm]').click() // Confirm delete
 
     // 4. Verify Person is gone

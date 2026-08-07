@@ -67,7 +67,7 @@ export const createDataSlice: StateCreator<
         }
 
         if (update.item) {
-          nextItems[update.id] = update.item
+          nextItems[update.id] = { ...update.item, isNew: undefined }
         } else {
           delete nextItems[update.id]
         }
