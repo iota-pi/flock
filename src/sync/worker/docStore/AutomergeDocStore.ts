@@ -36,6 +36,7 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
     ...(typeof item.id === 'string' && item.id.length > 0
       ? item
       : { ...item, id: itemId }),
+    isNew: undefined,
   }
 
   if (normalizedItem.type !== 'group') {
