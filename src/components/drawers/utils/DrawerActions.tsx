@@ -56,7 +56,7 @@ function DrawerActions({
                 fullWidth
                 onClick={onSave}
                 startIcon={canSave ? <SaveIcon /> : undefined}
-                variant={canSave ? 'contained' : 'outlined'}
+                variant="outlined"
               >
                 {canSave ? 'Done' : 'Cancel'}
               </Button>
