@@ -9,7 +9,7 @@ import ItemList from '../../items/components/ItemList'
 import { sortItems } from 'src/utils/customSort'
 import Search from 'src/components/Search'
 import { useAppStore } from 'src/state/store'
-import type { GroupItem, ItemId, PersonItem } from 'src/shared/schemas/items'
+import type { GroupItem, ItemId, PersonItem, TopicItem } from 'src/shared/schemas/items'
 import { RemoveIcon } from 'src/components/Icons'
 
 
@@ -29,7 +29,7 @@ function MemberDisplay({
   const setDrawer = useAppStore(state => state.setDrawer)
   const [sortCriteria] = useSortCriteria()
 
-  const unsortedMembers = useItemsByIds<PersonItem>(memberIds)
+  const unsortedMembers = useItemsByIds<PersonItem | TopicItem>(memberIds)
 
   const members = useMemo(
     () => sortItems(unsortedMembers, sortCriteria),
@@ -74,14 +74,14 @@ function MemberDisplay({
   return (
     <>
       {editable && (
-        <Search<PersonItem>
+        <Search<PersonItem | TopicItem>
           dataCy="members"
           label="Add group members"
-          noItemsText="No people found"
+          noItemsText="No people or topics found"
           onSelect={handleSelect}
           onRemove={handleRemove}
           selectedItemIds={sortedMemberIds}
-          types={{ person: true }}
+          types={{ person: true, topic: true }}
           searchDescription
           showIcons={false}
           showOptionCheckboxes

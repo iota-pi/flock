@@ -58,7 +58,7 @@ export default function ItemFormRelationshipsSection({
         />
       )}
 
-      {item.type === 'person' && (
+      {(item.type === 'person' || item.type === 'topic') && (
         <CollapsibleSection
           content={<GroupDisplay itemId={item.id} />}
           icon={GroupIcon}

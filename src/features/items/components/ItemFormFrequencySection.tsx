@@ -39,7 +39,7 @@ export default function ItemFormFrequencySection({
   const memberTarget = item.type === 'group'
     ? item.memberPrayerTarget
     : undefined
-  const partOfGroups = item.type === 'person'
+  const partOfGroups = (item.type === 'person' || item.type === 'topic')
     ? groupLookup.get(item.id)?.groupIds ?? []
     : []
 

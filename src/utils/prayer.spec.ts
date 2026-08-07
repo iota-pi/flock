@@ -21,6 +21,20 @@ function makePerson(id: string, prayerFrequency: Item['prayerFrequency'], prayed
   }
 }
 
+function makeTopic(id: string, prayerFrequency: Item['prayerFrequency'], prayedFor: number[] = []): Item {
+  return {
+    id: id as ItemId,
+    archived: false,
+    created: Date.now(),
+    description: '',
+    name: id,
+    prayedFor,
+    prayerFrequency,
+    notes: [],
+    type: 'topic',
+  }
+}
+
 function makeGroup(
   id: string,
   members: string[],
@@ -192,5 +206,22 @@ describe('prayer utilities', () => {
     const schedule = getPrayerSchedule(items)
 
     expect(schedule).toEqual(['A1', 'C1', 'A2'])
+  })
+
+  it('includes topic members in buildPrayerFreqMap and schedule', () => {
+    const t1 = makeTopic('t1', 'none')
+    const t2 = makeTopic('t2', 'daily')
+    const g1 = makeGroup('g1', ['t1'], 'weekly', 'all')
+
+    const items: Item[] = [t1, t2, g1]
+    const map = buildPrayerFreqMap(items)
+
+    expect(map.get('t1' as ItemId)).toBeCloseTo(7)
+    expect(map.get('t2' as ItemId)).toBeCloseTo(1)
+
+    const active = getActiveItems(items)
+    const activeIds = active.map(i => i.id)
+    expect(activeIds).toContain('t1')
+    expect(activeIds).toContain('t2')
   })
 })
