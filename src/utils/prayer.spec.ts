@@ -224,4 +224,44 @@ describe('prayer utilities', () => {
     expect(activeIds).toContain('t1')
     expect(activeIds).toContain('t2')
   })
+
+  it('excludes archived group members when calculating effective group member target frequency', () => {
+    const p1 = makePerson('p1', 'none')
+    const p2 = makePerson('p2', 'none')
+    p2.archived = true
+    const g1 = makeGroup('g1', ['p1', 'p2'], 'weekly', 'one')
+
+    // p2 is archived, so filterArchived will exclude p2
+    const unarchivedItems = [p1, g1]
+    const map = buildPrayerFreqMap(unarchivedItems)
+
+    // Since only p1 is active, activeMemberCount is 1, so effective frequency is 7 days (weekly * 1)
+    expect(map.get('p1' as ItemId)).toBeCloseTo(7)
+  })
+
+  it('spreads members of a newly added group across days relative to current time', () => {
+    const now = Date.now()
+    const oneDay = 24 * 60 * 60 * 1000
+
+    // New group members with no prayer history (prayedFor: [])
+    const p1 = makePerson('p1', 'none', [])
+    const p2 = makePerson('p2', 'none', [])
+    const p3 = makePerson('p3', 'none', [])
+    const group = makeGroup('g1', ['p1', 'p2', 'p3'], 'daily', 'one')
+
+    // Competing standalone item prayed for yesterday (due today: next = (now - 1d) + 1d = now)
+    const c1 = makePerson('c1', 'daily', [now - oneDay])
+
+    const items = [p1, p2, p3, group, c1]
+    const schedule = getPrayerSchedule(items)
+
+    // p1 effectiveNext = max(epoch+3d, now) + 0 = now (due today)
+    // c1 effectiveNext = (now - 1d) + 1d = now (due today)
+    // p2 effectiveNext = max(epoch+3d, now) + 1d = now + 1d (due tomorrow)
+    // p3 effectiveNext = max(epoch+3d, now) + 2d = now + 2d (due day after tomorrow)
+    expect(schedule.slice(0, 2)).toContain('p1')
+    expect(schedule.slice(0, 2)).toContain('c1')
+    expect(schedule[2]).toBe('p2')
+    expect(schedule[3]).toBe('p3')
+  })
 })

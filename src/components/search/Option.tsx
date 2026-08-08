@@ -6,6 +6,7 @@ import Typography from '@mui/material/Typography'
 import { styled, Theme } from '@mui/material/styles'
 
 import { getItemTypeLabel } from 'src/state/items'
+import { useAppStore } from 'src/state/store'
 import InlineText from '../ui/InlineText'
 import { getIcon } from '../Icons'
 import { AnySearchable } from './types'
@@ -49,17 +50,21 @@ export default function OptionComponent({
   const icon = getIcon(option.type)
   const name = getName(option)
   const item = isSearchableStandardItem(option) ? option.data : undefined
+  const itemsMap = useAppStore(state => state.items)
 
   const groupMembersText = useMemo(
     () => {
       if (item && item.type === 'group') {
-        const count = item.members.length
+        const count = item.members.filter(id => {
+          const m = itemsMap[id]
+          return !m || (!m.archived && !m.deleted)
+        }).length
         const s = count !== 1 ? 's' : ''
         return ` (${count} member${s})`
       }
       return ''
     },
-    [item],
+    [item, itemsMap],
   )
   const clippedDescription = useMemo(
     () => {

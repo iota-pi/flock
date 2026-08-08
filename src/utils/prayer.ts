@@ -117,7 +117,11 @@ function popPrayerBucketEntry(heap: PrayerBucketHeapEntry[]): PrayerBucketHeapEn
   return top
 }
 
-function shouldPreferGroup(current: GroupItem, best: GroupItem): boolean {
+function getActiveMemberCount(group: GroupItem, activeIdSet: Set<ItemId>): number {
+  return group.members.filter(id => activeIdSet.has(id)).length
+}
+
+function shouldPreferGroup(current: GroupItem, best: GroupItem, activeIdSet: Set<ItemId>): boolean {
   const bestFrequency = frequencyToMilliseconds(best.memberPrayerFrequency)
   const currentFrequency = frequencyToMilliseconds(current.memberPrayerFrequency)
 
@@ -126,21 +130,24 @@ function shouldPreferGroup(current: GroupItem, best: GroupItem): boolean {
   }
 
   if (currentFrequency === bestFrequency) {
-    return current.members.length < best.members.length
+    return getActiveMemberCount(current, activeIdSet) < getActiveMemberCount(best, activeIdSet)
   }
 
   return false
 }
 
-function getBucketHeadEntry(bucket: PrayerBucket): PrayerBucketHeapEntry | null {
+function getBucketHeadEntry(bucket: PrayerBucket, now: number): PrayerBucketHeapEntry | null {
   const candidate = bucket.candidates[bucket.cursor]
   if (!candidate) {
     return null
   }
 
+  const shift = bucket.selectedCount * bucket.groupShiftQuantum
+  const effectiveBase = Math.max(candidate.next, now)
+
   return {
     groupId: bucket.groupId,
-    effectiveNext: candidate.next + (bucket.selectedCount * bucket.groupShiftQuantum),
+    effectiveNext: effectiveBase + shift,
     stableOrder: candidate.stableOrder,
   }
 }
@@ -151,6 +158,7 @@ function getGroups(items: Item[]): GroupItem[] {
 
 export function buildPrayerFreqMap(items: Item[]): Map<ItemId, number> {
   const groups = getGroups(items)
+  const activeIdSet = new Set(items.map(i => i.id))
 
   const map: Map<ItemId, number> = new Map()
 
@@ -165,12 +173,16 @@ export function buildPrayerFreqMap(items: Item[]): Map<ItemId, number> {
   for (const g of groups) {
     if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
       const groupDays = frequencyToDays(g.memberPrayerFrequency)
+      const activeMemberCount = g.members.filter(memberId => activeIdSet.has(memberId)).length
       const effectiveGroupDays = (
         g.memberPrayerTarget === 'one'
-          ? groupDays * g.members.length
+          ? groupDays * activeMemberCount
           : groupDays
       )
       for (const memberId of g.members) {
+        if (!activeIdSet.has(memberId)) {
+          continue
+        }
         const currDays = map.get(memberId)
         if (currDays === undefined) {
           map.set(memberId, effectiveGroupDays)
@@ -225,12 +237,16 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
   const freqMap = buildPrayerFreqMap(unarchived)
   const activeItems = getActiveItems(unarchived, freqMap)
   const groups = getGroups(unarchived)
+  const activeIdSet = new Set(unarchived.map(i => i.id))
 
   const bestGroupByMemberId = new Map<ItemId, GroupItem>()
   for (const group of groups) {
     for (const memberId of group.members) {
+      if (!activeIdSet.has(memberId)) {
+        continue
+      }
       const currentBest = bestGroupByMemberId.get(memberId)
-      if (!currentBest || shouldPreferGroup(group, currentBest)) {
+      if (!currentBest || shouldPreferGroup(group, currentBest, activeIdSet)) {
         bestGroupByMemberId.set(memberId, group)
       }
     }
@@ -246,13 +262,13 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
     const bestGroup = bestGroupByMemberId.get(item.id)
     if (bestGroup) {
       groupId = bestGroup.id
-      const memberCount = bestGroup.members.length || 1
+      const memberCount = getActiveMemberCount(bestGroup, activeIdSet)
       const groupFreqMs = frequencyToMilliseconds(bestGroup.memberPrayerFrequency)
 
       if (bestGroup.memberPrayerTarget === 'one') {
         groupShiftQuantum = groupFreqMs
       } else {
-        groupShiftQuantum = groupFreqMs / memberCount
+        groupShiftQuantum = groupFreqMs / (memberCount || 1)
       }
     }
 
@@ -266,6 +282,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
   })
 
   const schedule: ItemId[] = []
+  const now = Date.now()
 
   const bucketByGroupId = new Map<ItemId, PrayerBucket>()
   for (const candidate of candidates) {
@@ -291,7 +308,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
       || (left.stableOrder - right.stableOrder)
     ))
 
-    const headEntry = getBucketHeadEntry(bucket)
+    const headEntry = getBucketHeadEntry(bucket, now)
     if (headEntry) {
       pushPrayerBucketEntry(bucketHeap, headEntry)
     }
@@ -317,7 +334,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
     bucket.cursor += 1
     bucket.selectedCount += 1
 
-    const nextHeadEntry = getBucketHeadEntry(bucket)
+    const nextHeadEntry = getBucketHeadEntry(bucket, now)
     if (nextHeadEntry) {
       pushPrayerBucketEntry(bucketHeap, nextHeadEntry)
     }

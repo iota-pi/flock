@@ -20,6 +20,7 @@ import { formatDate } from '../utils'
 import InlineText from './ui/InlineText'
 import type { GroupItem, ItemId } from 'src/shared/schemas/items'
 import { useItem, useItemsByIds } from 'src/state/selectors'
+import { useAppStore } from 'src/state/store'
 
 
 type OnChangeData<T extends Item> = Partial<
@@ -56,6 +57,7 @@ type Props = MemberItemProps | GroupProps
 function FrequencyControls(props: Props) {
   const { lastPrayer, onChange, prayerFrequency } = props
   const item = useItem(props.id)
+  const itemsMap = useAppStore(state => state.items)
   const isGroup = 'memberPrayerFrequency' in props && props.memberPrayerFrequency !== undefined
   const memberPrayerTarget = isGroup ? (props as GroupProps).memberPrayerTarget : undefined
   const memberPrayerFrequency = isGroup ? (props as GroupProps).memberPrayerFrequency : undefined
@@ -81,10 +83,14 @@ function FrequencyControls(props: Props) {
     let group: GroupItem | null = null
     for (const g of partOfGroups) {
       if (g.memberPrayerFrequency && g.memberPrayerFrequency !== 'none') {
+        const activeMemberCount = g.members.filter(id => {
+          const m = itemsMap[id]
+          return !m || (!m.archived && !m.deleted)
+        }).length
         const newBaseDays = frequencyToDays(g.memberPrayerFrequency)
         const newDays = (
           g.memberPrayerTarget === 'one'
-            ? newBaseDays * g.members.length
+            ? newBaseDays * activeMemberCount
             : newBaseDays
         )
         if (newDays < frequencyToDays(frequency)) {
@@ -98,7 +104,7 @@ function FrequencyControls(props: Props) {
       }
     }
     return { frequency, group }
-  }, [partOfGroups])
+  }, [partOfGroups, itemsMap])
   const inheritedFrequencyIsFaster = useMemo(
     () => frequencyToDays(inheritedFrequency.frequency) < frequencyToDays(prayerFrequency),
     [inheritedFrequency, prayerFrequency],

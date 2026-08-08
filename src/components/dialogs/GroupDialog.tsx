@@ -108,7 +108,7 @@ function GroupDialog({
               onRemove={handleRemoveAdd}
               onSelect={handleSelectAdd}
               selectedItemIds={addGroupsIds}
-              showIcons
+              showIcons={false}
               showSelectedChips
               types={{ group: true }}
             />
