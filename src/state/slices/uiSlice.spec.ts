@@ -7,6 +7,7 @@ const initialState: UIState = {
   darkMode: null,
   filters: useAppStore.getState().filters,
   justCreatedAccount: false,
+  showArchived: false,
 }
 
 describe('uiSlice', () => {
