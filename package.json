@@ -14,6 +14,7 @@
     "dev:vault": "tsx watch src/vault/api/runServer.ts",
     "initdb": "tsx src/vault/drivers/init.ts",
     "lint": "eslint src/ --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
     "start": "docker compose up -d && concurrently -n \"APP,API\" -c \"cyan,magenta\" \"yarn dev\" \"yarn dev:vault\"",
     "preview": "vite preview",
     "test": "vitest",
