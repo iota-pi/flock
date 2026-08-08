@@ -9,7 +9,14 @@ import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { styled, Theme } from '@mui/material/styles'
-import { ArchiveIcon, FilterIcon, MuiIconType, OptionsIcon, SortIcon, UnarchiveIcon } from '../Icons'
+import {
+  ArchiveIcon,
+  FilterIcon,
+  MuiIconType,
+  MoreOptionsIcon,
+  SortIcon,
+  UnarchiveIcon,
+} from '../Icons'
 import { usePracticalFilterCount } from 'src/state/selectors'
 import { useDialogState } from 'src/hooks/useDialogState'
 import { useAppStore } from 'src/state/store'
@@ -173,10 +180,18 @@ function TopBar({
         ref={setOptionsAnchor}
         size="large"
       >
-        <OptionsIcon />
+        <MoreOptionsIcon />
       </IconButton>
       <Menu
         anchorEl={optionsAnchor}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
         id={MENU_POPUP_ID}
         open={showOptions}
         onClose={handleCloseOptions}
