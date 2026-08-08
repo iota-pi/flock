@@ -103,11 +103,16 @@ function ItemPage({
     [allSelected, items, setSelected],
   )
 
+  const itemsMap = useAppStore(state => state.items)
   const getChecked = useCallback((item: Item) => selected.includes(item.id), [selected])
   const getDescription = useCallback(
     (item: Item) => {
       if (item.type === 'group') {
-        const n = item.members.length
+        const activeMembers = item.members.filter(id => {
+          const member = itemsMap[id]
+          return !member || (!member.archived && !member.deleted)
+        })
+        const n = activeMembers.length
         const s = n !== 1 ? 's' : ''
         const description = item.description ? ` — ${item.description}` : ''
         return `${n} member${s}${description}`
@@ -119,7 +124,7 @@ function ItemPage({
 
       return item.description
     },
-    [],
+    [itemsMap],
   )
   const getActionIcon = useCallback(
     (item: Item) => (item.type === ERROR_ITEM_TYPE ? <DeleteIcon /> : undefined),

@@ -224,4 +224,18 @@ describe('prayer utilities', () => {
     expect(activeIds).toContain('t1')
     expect(activeIds).toContain('t2')
   })
+
+  it('excludes archived group members when calculating effective group member target frequency', () => {
+    const p1 = makePerson('p1', 'none')
+    const p2 = makePerson('p2', 'none')
+    p2.archived = true
+    const g1 = makeGroup('g1', ['p1', 'p2'], 'weekly', 'one')
+
+    // p2 is archived, so filterArchived will exclude p2
+    const unarchivedItems = [p1, g1]
+    const map = buildPrayerFreqMap(unarchivedItems)
+
+    // Since only p1 is active, activeMemberCount is 1, so effective frequency is 7 days (weekly * 1)
+    expect(map.get('p1' as ItemId)).toBeCloseTo(7)
+  })
 })

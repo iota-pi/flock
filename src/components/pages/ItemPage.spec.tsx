@@ -147,3 +147,64 @@ describe('ItemPage - Selection refinement by visible items', () => {
     expect(useAppStore.getState().selected).toEqual(['person-2'])
   })
 })
+
+describe('ItemPage - Group member counts excluding archived members', () => {
+  const activePerson: PersonItem = {
+    id: 'person-active' as ItemId,
+    name: 'Alice',
+    type: 'person',
+    description: '',
+    created: 1000,
+    archived: false,
+    prayedFor: [],
+    prayerFrequency: 'monthly',
+    notes: [],
+  }
+
+  const archivedPerson: PersonItem = {
+    id: 'person-archived' as ItemId,
+    name: 'Bob',
+    type: 'person',
+    description: '',
+    created: 2000,
+    archived: true,
+    prayedFor: [],
+    prayerFrequency: 'monthly',
+    notes: [],
+  }
+
+  const group: GroupItem = {
+    id: 'group-1' as ItemId,
+    name: 'Test Group',
+    type: 'group',
+    description: '',
+    created: 3000,
+    archived: false,
+    prayedFor: [],
+    prayerFrequency: 'monthly',
+    notes: [],
+    members: ['person-active' as ItemId, 'person-archived' as ItemId],
+    memberPrayerFrequency: 'none',
+    memberPrayerTarget: 'one',
+  }
+
+  it('excludes archived members from group member count string', () => {
+    act(() => {
+      useAppStore.setState({
+        items: {
+          'person-active': activePerson,
+          'person-archived': archivedPerson,
+          'group-1': group,
+        },
+        itemIds: ['group-1' as ItemId],
+        selected: [],
+        filters: DEFAULT_FILTER_CRITERIA,
+        showArchived: false,
+      })
+    })
+
+    const { getByText } = renderWithProviders(<ItemPage itemType="group" />)
+    expect(getByText('1 member')).toBeTruthy()
+  })
+})
+
