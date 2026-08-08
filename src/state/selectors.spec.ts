@@ -282,16 +282,15 @@ describe('state selectors', () => {
     expect(result.current[0]).toEqual([{ type: 'created', reverse: false }])
   })
 
-  it('usePracticalFilterCount ignores default archived=false filter', () => {
+  it('usePracticalFilterCount returns 0 when filters are empty by default', () => {
     const { result } = renderHook(() => usePracticalFilterCount())
 
     expect(result.current).toBe(0)
   })
 
-  it('usePracticalFilterCount counts user filters beyond the default archived filter', () => {
+  it('usePracticalFilterCount counts user filters', () => {
     useAppStore.setState({
       filters: [
-        ...DEFAULT_FILTER_CRITERIA,
         {
           type: 'name',
           baseOperator: 'contains',

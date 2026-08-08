@@ -2,6 +2,7 @@ import { isSameDay } from '.'
 import { getItemName, Item } from '../state/items'
 import { Frequency, frequencyToDays } from './frequencies'
 import { getLastPrayedFor } from './prayer'
+import type { GroupLookupData, ItemType } from '../shared/itemTypes'
 
 type FilterFieldType = (
   'string' | 'number' | 'boolean' | 'date' | 'frequency'
@@ -36,9 +37,9 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
 }
 
 export type FilterCriterionType = (
-  | 'archived'
   | 'created'
   | 'description'
+  | 'groups'
   | 'lastPrayedFor'
   | 'name'
   | 'prayerFrequency'
@@ -58,11 +59,6 @@ export interface FilterCriterion {
 export const FILTER_CRITERIA_DISPLAY_MAP: (
   Record<FilterCriterionType, FilterCriterionDisplayData>
 ) = {
-  archived: {
-    dataType: 'boolean',
-    name: 'Archived',
-    operators: ['is', 'isnot'],
-  },
   created: {
     dataType: 'date',
     name: 'Date created',
@@ -72,6 +68,11 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     dataType: 'string',
     name: 'Description',
     operators: ['contains', 'notcontains', 'is', 'isnot'],
+  },
+  groups: {
+    dataType: 'string',
+    name: 'Group membership',
+    operators: ['contains', 'notcontains'],
   },
   lastPrayedFor: {
     dataType: 'date',
@@ -90,16 +91,23 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
   },
 }
 const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
-  'archived',
   'name',
   'description',
   'prayerFrequency',
   'created',
   'lastPrayedFor',
+  'groups',
 ]
 export const FILTER_CRITERIA_DISPLAY = (
   FILTER_CRITERIA_ORDER.map(fc => fc)
 )
+
+export function getAvailableFilterCriteria(itemType?: ItemType): FilterCriterionType[] {
+  if (itemType === 'group') {
+    return FILTER_CRITERIA_ORDER.filter(fc => fc !== 'groups')
+  }
+  return FILTER_CRITERIA_ORDER
+}
 
 export const DEFAULT_ADDITIONAL_FILTER_CRITERION: FilterCriterion = {
   type: 'name',
@@ -109,24 +117,12 @@ export const DEFAULT_ADDITIONAL_FILTER_CRITERION: FilterCriterion = {
   value: '',
 }
 
-export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [
-  {
-    type: 'archived',
-    baseOperator: 'is',
-    inverse: false,
-    operator: 'is',
-    value: false,
-  },
-]
+export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = []
 
-const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
-  archived: (item, criterion) => {
-    if (criterion.baseOperator === 'is') {
-      const expected = criterion.value === true || criterion.value === 'true'
-      return item.archived === expected
-    }
-    return true
-  },
+const criterionEvaluators: Record<
+  FilterCriterionType,
+  (item: Item, criterion: FilterCriterion, groupsByMemberId?: ReadonlyMap<string, GroupLookupData>) => boolean
+> = {
   created: (item, criterion) => {
     if (criterion.baseOperator === 'is') {
       return isSameDay(new Date(item.created), new Date(criterion.value as number))
@@ -144,6 +140,15 @@ const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: F
     }
     if (criterion.baseOperator === 'contains') {
       return description.includes(value)
+    }
+    return true
+  },
+  groups: (item, criterion, groupsByMemberId) => {
+    const groupData = groupsByMemberId?.get(item.id)
+    const groupNames = groupData?.groupNames ?? []
+    const value = (criterion.value as string).toLocaleLowerCase()
+    if (criterion.baseOperator === 'contains') {
+      return groupNames.some(gName => gName.toLocaleLowerCase().includes(value))
     }
     return true
   },
@@ -185,6 +190,7 @@ const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: F
 export function filterItems<T extends Item>(
   items: T[],
   criteria: FilterCriterion[],
+  groupsByMemberId?: ReadonlyMap<string, GroupLookupData>,
 ) {
   if (!criteria.length) {
     return items
@@ -193,7 +199,7 @@ export function filterItems<T extends Item>(
   const compiledCriteria = criteria.map(criterion => {
     const evaluator = criterionEvaluators[criterion.type]
     return (item: Item) => {
-      const baseResult = evaluator(item, criterion)
+      const baseResult = evaluator ? evaluator(item, criterion, groupsByMemberId) : true
       return criterion.inverse ? !baseResult : baseResult
     }
   })
@@ -217,7 +223,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
 
 export function isDefaultNoArchivedItemsFilter(criterion: FilterCriterion): boolean {
   return (
-    criterion.type === 'archived'
+    (criterion as unknown as { type: string }).type === 'archived'
     && criterion.baseOperator === 'is'
     && criterion.inverse === false
     && criterion.operator === 'is'

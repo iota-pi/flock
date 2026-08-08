@@ -7,6 +7,7 @@ export interface UIState {
   darkMode: boolean | null
   filters: FilterCriterion[]
   justCreatedAccount: boolean
+  showArchived: boolean
 }
 
 type SetUiPayload = Partial<UIState>
@@ -22,6 +23,7 @@ const initialUiState: UIState = {
   darkMode: null,
   filters: DEFAULT_FILTER_CRITERIA,
   justCreatedAccount: false,
+  showArchived: false,
 }
 
 export const createUiSlice: StateCreator<

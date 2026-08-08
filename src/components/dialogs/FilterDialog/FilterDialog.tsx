@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -7,17 +7,25 @@ import DialogTitle from '@mui/material/DialogTitle'
 import Divider from '@mui/material/Divider'
 
 import { useAppStore } from 'src/state/store'
-import { DEFAULT_FILTER_CRITERIA, FILTER_CRITERIA_DISPLAY, FILTER_CRITERIA_DISPLAY_MAP, DEFAULT_ADDITIONAL_FILTER_CRITERION } from 'src/utils/customFilter'
+import {
+  DEFAULT_FILTER_CRITERIA,
+  FILTER_CRITERIA_DISPLAY_MAP,
+  DEFAULT_ADDITIONAL_FILTER_CRITERION,
+  getAvailableFilterCriteria,
+} from 'src/utils/customFilter'
 import { FilterCriterionDisplay } from './FilterCriterionDisplay'
 import type { FilterCriterion } from 'src/utils/customFilter'
+import type { ItemType } from 'src/shared/itemTypes'
 
 
 interface Props {
+  itemType?: ItemType,
   onClose: () => void,
   open: boolean,
 }
 
 function FilterDialog({
+  itemType,
   onClose,
   open,
 }: Props) {
@@ -25,14 +33,18 @@ function FilterDialog({
   const filterCriteria = useAppStore(state => state.filters)
   const [localCriteria, setLocalCriteria] = useState<FilterCriterion[]>([])
 
+  const availableCriteria = useMemo(() => getAvailableFilterCriteria(itemType), [itemType])
+
   const initializeLocalCriteria = useCallback(() => {
-    const criteria = filterCriteria.filter(fc => !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type])
+    const criteria = filterCriteria.filter(fc => (
+      availableCriteria.includes((fc as FilterCriterion).type) && !!FILTER_CRITERIA_DISPLAY_MAP[(fc as FilterCriterion).type]
+    ))
     if (criteria.length > 0) {
       setLocalCriteria(criteria)
     } else {
       setLocalCriteria(DEFAULT_FILTER_CRITERIA)
     }
-  }, [filterCriteria])
+  }, [availableCriteria, filterCriteria])
 
   const handleAdd = useCallback(
     () => setLocalCriteria(lc => {
@@ -99,6 +111,7 @@ function FilterDialog({
               {index === 0 && <Divider />}
 
               <FilterCriterionDisplay
+                availableCriteria={availableCriteria}
                 criterion={lc}
                 chosenCriteria={chosenForRow}
                 onChange={handleChange}
@@ -113,7 +126,7 @@ function FilterDialog({
 
         <Button
           data-cy="add-filter-criterion"
-          disabled={localCriteria.length >= FILTER_CRITERIA_DISPLAY.length}
+          disabled={localCriteria.length >= availableCriteria.length}
           fullWidth
           onClick={handleAdd}
           variant="outlined"

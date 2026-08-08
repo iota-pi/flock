@@ -1,9 +1,8 @@
 import {
-  DEFAULT_FILTER_CRITERIA,
   filterItems,
   type FilterCriterion,
   getBaseValue,
-  isDefaultNoArchivedItemsFilter,
+  getAvailableFilterCriteria,
   isPracticalFilterCriterion,
 } from './customFilter'
 import { getBlankPerson } from '../state/items'
@@ -223,38 +222,66 @@ describe('customFilter', () => {
       })
     })
 
-    describe('archived filter', () => {
-      it('filters archived items when criterion is archived=false', () => {
-        const items = [
-          createItem({ name: 'Visible', archived: false }),
-          createItem({ name: 'Archived', archived: true }),
-        ]
+    describe('groups filter', () => {
+      const item1 = createItem({ id: 'p1' as any, name: 'Alice' })
+      const item2 = createItem({ id: 'p2' as any, name: 'Bob' })
+      const items = [item1, item2]
 
-        const result = filterItems(items, DEFAULT_FILTER_CRITERIA)
+      const groupsMap = new Map([
+        ['p1', { groupNames: ['Youth Group', 'Worship Team'], groupIds: ['g1' as any, 'g2' as any] }],
+      ])
 
+      it('filters by group membership contains', () => {
+        const criteria: FilterCriterion[] = [{
+          type: 'groups',
+          baseOperator: 'contains',
+          inverse: false,
+          operator: 'contains',
+          value: 'Youth',
+        }]
+        const result = filterItems(items, criteria, groupsMap)
         expect(result).toHaveLength(1)
-        expect(result[0].name).toBe('Visible')
+        expect(result[0].name).toBe('Alice')
       })
+
+      it('filters by group membership does not contain (notcontains)', () => {
+        const criteria: FilterCriterion[] = [{
+          type: 'groups',
+          baseOperator: 'contains',
+          inverse: true,
+          operator: 'notcontains',
+          value: 'Youth',
+        }]
+        const result = filterItems(items, criteria, groupsMap)
+        expect(result).toHaveLength(1)
+        expect(result[0].name).toBe('Bob')
+      })
+    })
+  })
+
+  describe('getAvailableFilterCriteria', () => {
+    it('omits groups criterion when itemType is group', () => {
+      const criteria = getAvailableFilterCriteria('group')
+      expect(criteria).not.toContain('groups')
+    })
+
+    it('includes groups criterion when itemType is person, topic, or undefined', () => {
+      expect(getAvailableFilterCriteria('person')).toContain('groups')
+      expect(getAvailableFilterCriteria('topic')).toContain('groups')
+      expect(getAvailableFilterCriteria()).toContain('groups')
     })
   })
 
   describe('getBaseValue', () => {
     it('returns correct default values for types', () => {
-      expect(getBaseValue('archived')).toBe(false)
       expect(getBaseValue('name')).toBe('')
       expect(getBaseValue('created')).toEqual(expect.any(Number))
       expect(getBaseValue('prayerFrequency')).toBe('monthly')
+      expect(getBaseValue('groups')).toBe('')
     })
   })
 
   describe('practical filter helpers', () => {
-    it('treats default archived=false filter as non-practical', () => {
-      const defaultArchivedFilter = DEFAULT_FILTER_CRITERIA[0] as FilterCriterion
-
-      expect(isDefaultNoArchivedItemsFilter(defaultArchivedFilter)).toBe(true)
-      expect(isPracticalFilterCriterion(defaultArchivedFilter)).toBe(false)
-    })
-
     it('counts custom criteria as practical', () => {
       const criterion: FilterCriterion = {
         type: 'name',

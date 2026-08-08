@@ -9,6 +9,7 @@ import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
 import { useAppStore } from 'src/state/store'
 import { usePage } from '.'
+import type { ItemType } from 'src/shared/itemTypes'
 
 
 interface BaseProps {
@@ -29,6 +30,7 @@ interface NoFabProps {
 }
 interface TopBarProps {
   allSelected?: boolean,
+  itemType?: ItemType,
   onSelectAll?: () => void,
   menuItems?: MenuItemData[],
   showFilter?: boolean,
@@ -38,6 +40,7 @@ interface TopBarProps {
 }
 interface NoTopBarProps {
   allSelected?: never,
+  itemType?: never,
   menuItems?: never,
   onSelectAll?: never,
   showFilter?: never,
@@ -84,6 +87,7 @@ function BasePage({
   fab,
   fabIcon,
   fabLabel,
+  itemType,
   menuItems = EMPTY_MENU_ITEMS,
   onClickFab,
   onSelectAll,
@@ -107,6 +111,7 @@ function BasePage({
         <TopBar
           allSelected={allSelected}
           filterable={showFilter}
+          itemType={itemType}
           menuItems={menuItems}
           onSelectAll={onSelectAll}
           sortable={showSort}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { DeleteIcon } from 'src/components/Icons'
@@ -7,6 +7,7 @@ import type { ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {
   usePracticalFilterCount,
+  useGroupLookupMap,
   useMetadata,
   useSortCriteria,
   useItemsOfType,
@@ -30,7 +31,9 @@ function ItemPage({
   const setSelected = useAppStore(state => state.setSelected)
   const toggleSelected = useAppStore(state => state.toggleSelected)
   const rawItems = useItemsOfType(itemType)
+  const groupsByMemberId = useGroupLookupMap()
   const selected = useAppStore(state => state.selected)
+  const showArchived = useAppStore(state => state.showArchived)
   const filters = useAppStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
@@ -39,15 +42,28 @@ function ItemPage({
 
   const items = useMemo(
     () => {
-      const filtered = filterItems(rawItems, filters)
+      const nonArchived = showArchived ? rawItems : rawItems.filter(item => !item.archived)
+      const filtered = filterItems(nonArchived, filters, groupsByMemberId)
       const results = sortItems(filtered, sortCriteria)
       return results
     },
-    [rawItems, filters, sortCriteria],
+    [rawItems, showArchived, filters, groupsByMemberId, sortCriteria],
   )
 
   const hiddenItemCount = totalApplicable - items.length
   const itemIdsInList = useMemo(() => items.map(item => item.id), [items])
+  const visibleItemIdSet = useMemo(() => new Set(itemIdsInList), [itemIdsInList])
+
+  useLayoutEffect(() => {
+    if (selected.length === 0) {
+      return
+    }
+
+    const refinedSelected = selected.filter(id => visibleItemIdSet.has(id))
+    if (refinedSelected.length !== selected.length) {
+      setSelected(refinedSelected)
+    }
+  }, [selected, setSelected, visibleItemIdSet])
 
   const handleClickItem = useCallback(
     (item: Item) => {
@@ -140,6 +156,7 @@ function ItemPage({
       allSelected={allSelected}
       fab
       fabLabel={`Add ${pluralLabel}`}
+      itemType={itemType}
       noScrollContainer
       onClickFab={handleClickAdd}
       onSelectAll={handleSelectAll}

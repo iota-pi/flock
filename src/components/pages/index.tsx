@@ -92,13 +92,17 @@ export const routes: RouteObject[] = [
 
 
 export function usePage(): Page | undefined {
-  const matches = useMatches()
+  try {
+    const matches = useMatches()
 
-  // Find the last match that has a handle which looks like a Page
-  const match = matches.findLast(m => {
-    const handle = m.handle as Page | undefined
-    return handle?.id && handle?.name
-  })
+    // Find the last match that has a handle which looks like a Page
+    const match = matches.findLast(m => {
+      const handle = m.handle as Page | undefined
+      return handle?.id && handle?.name
+    })
 
-  return match?.handle as Page | undefined
+    return match?.handle as Page | undefined
+  } catch {
+    return undefined
+  }
 }
