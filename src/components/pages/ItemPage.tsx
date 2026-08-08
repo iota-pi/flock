@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { DeleteIcon } from 'src/components/Icons'
@@ -48,6 +48,18 @@ function ItemPage({
 
   const hiddenItemCount = totalApplicable - items.length
   const itemIdsInList = useMemo(() => items.map(item => item.id), [items])
+  const visibleItemIdSet = useMemo(() => new Set(itemIdsInList), [itemIdsInList])
+
+  useLayoutEffect(() => {
+    if (selected.length === 0) {
+      return
+    }
+
+    const refinedSelected = selected.filter(id => visibleItemIdSet.has(id))
+    if (refinedSelected.length !== selected.length) {
+      setSelected(refinedSelected)
+    }
+  }, [selected, setSelected, visibleItemIdSet])
 
   const handleClickItem = useCallback(
     (item: Item) => {
