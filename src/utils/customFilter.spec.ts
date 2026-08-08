@@ -1,10 +1,8 @@
 import {
-  DEFAULT_FILTER_CRITERIA,
   filterItems,
   type FilterCriterion,
   getBaseValue,
   getAvailableFilterCriteria,
-  isDefaultNoArchivedItemsFilter,
   isPracticalFilterCriterion,
 } from './customFilter'
 import { getBlankPerson } from '../state/items'

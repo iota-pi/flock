@@ -1,12 +1,12 @@
 import { act, render } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
+import { createMemoryRouter, RouterProvider } from 'react-router'
+
 import getTheme from '../../theme'
 import ItemPage from './ItemPage'
 import { useAppStore } from '../../state/store'
-import { ItemId } from '../../shared/schemas/items'
-import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../../utils/customFilter'
-import { createMemoryRouter, RouterProvider } from 'react-router'
-import { PersonItem, GroupItem } from '../../state/items'
+import type { GroupItem, ItemId, PersonItem } from '../../shared/schemas/items'
+import { DEFAULT_FILTER_CRITERIA } from '../../utils/customFilter'
 
 const lightTheme = getTheme(false)
 
