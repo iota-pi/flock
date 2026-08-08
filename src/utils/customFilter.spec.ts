@@ -222,25 +222,10 @@ describe('customFilter', () => {
         expect(result[0].description).toBe('friend')
       })
     })
-
-    describe('archived filter', () => {
-      it('filters archived items when criterion is archived=false', () => {
-        const items = [
-          createItem({ name: 'Visible', archived: false }),
-          createItem({ name: 'Archived', archived: true }),
-        ]
-
-        const result = filterItems(items, DEFAULT_FILTER_CRITERIA)
-
-        expect(result).toHaveLength(1)
-        expect(result[0].name).toBe('Visible')
-      })
-    })
   })
 
   describe('getBaseValue', () => {
     it('returns correct default values for types', () => {
-      expect(getBaseValue('archived')).toBe(false)
       expect(getBaseValue('name')).toBe('')
       expect(getBaseValue('created')).toEqual(expect.any(Number))
       expect(getBaseValue('prayerFrequency')).toBe('monthly')
@@ -248,13 +233,6 @@ describe('customFilter', () => {
   })
 
   describe('practical filter helpers', () => {
-    it('treats default archived=false filter as non-practical', () => {
-      const defaultArchivedFilter = DEFAULT_FILTER_CRITERIA[0] as FilterCriterion
-
-      expect(isDefaultNoArchivedItemsFilter(defaultArchivedFilter)).toBe(true)
-      expect(isPracticalFilterCriterion(defaultArchivedFilter)).toBe(false)
-    })
-
     it('counts custom criteria as practical', () => {
       const criterion: FilterCriterion = {
         type: 'name',

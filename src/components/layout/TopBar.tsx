@@ -9,9 +9,10 @@ import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { styled, Theme } from '@mui/material/styles'
-import { FilterIcon, MuiIconType, OptionsIcon, SortIcon } from '../Icons'
+import { ArchiveIcon, FilterIcon, MuiIconType, OptionsIcon, SortIcon, UnarchiveIcon } from '../Icons'
 import { usePracticalFilterCount } from 'src/state/selectors'
 import { useDialogState } from 'src/hooks/useDialogState'
+import { useAppStore } from 'src/state/store'
 
 
 const SortDialog = lazy(() => import('../dialogs/SortDialog'))
@@ -59,6 +60,8 @@ function TopBar({
   sortable,
   title,
 }: Props) {
+  const showArchived = useAppStore(state => state.showArchived)
+  const setUi = useAppStore(state => state.setUi)
   const [showOptions, setShowOptions] = useState(false)
   const {
     isOpen: isFilterOpen,
@@ -82,6 +85,10 @@ function TopBar({
   const handleClickOptions = useCallback(() => setShowOptions(o => !o), [])
   const handleCloseOptions = useCallback(() => setShowOptions(false), [])
   const handleClickFilter = useCallback(() => toggleFilterDialog(), [toggleFilterDialog])
+  const handleClickFilterFromMenu = useCallback(() => {
+    toggleFilterDialog()
+    handleCloseOptions()
+  }, [handleCloseOptions, toggleFilterDialog])
   const handleCloseFilter = useCallback(() => closeFilterDialog(), [closeFilterDialog])
   const handleClickSort = useCallback(
     () => {
@@ -91,6 +98,11 @@ function TopBar({
     [handleCloseOptions, openSortDialog],
   )
   const handleCloseSort = useCallback(() => closeSortDialog(), [closeSortDialog])
+
+  const handleToggleArchived = useCallback(() => {
+    setUi({ showArchived: !showArchived })
+    handleCloseOptions()
+  }, [handleCloseOptions, setUi, showArchived])
 
   const handleClick = useCallback(
     (item: MenuItemData) => () => {
@@ -128,7 +140,7 @@ function TopBar({
       <Box sx={{
         flexGrow: 1
       }} />
-      {filterable && (
+      {!smallScreen && filterable && (
         <IconButton
           aria-label="Open filters"
           data-cy="open-filter"
@@ -139,7 +151,7 @@ function TopBar({
           <FilterIcon />
         </IconButton>
       )}
-      {sortable && (
+      {!smallScreen && sortable && (
         <IconButton
           aria-label="Open sort options"
           data-cy="open-sort"
@@ -149,24 +161,57 @@ function TopBar({
           <SortIcon />
         </IconButton>
       )}
-      {menuItems.length > 0 && (
-        <IconButton
-          aria-controls={MENU_POPUP_ID}
-          aria-label="Open actions menu"
-          aria-haspopup="true"
-          onClick={handleClickOptions}
-          ref={setOptionsAnchor}
-          size="large"
-        >
-          <OptionsIcon />
-        </IconButton>
-      )}
+      <IconButton
+        aria-controls={MENU_POPUP_ID}
+        aria-label="Open actions menu"
+        aria-haspopup="true"
+        data-cy="open-options"
+        onClick={handleClickOptions}
+        ref={setOptionsAnchor}
+        size="large"
+      >
+        <OptionsIcon />
+      </IconButton>
       <Menu
         anchorEl={optionsAnchor}
         id={MENU_POPUP_ID}
         open={showOptions}
         onClose={handleCloseOptions}
       >
+        {smallScreen && filterable && (
+          <MenuItem
+            key="mobile-filter"
+            onClick={handleClickFilterFromMenu}
+            data-cy="open-filter"
+          >
+            <ListItemIcon>
+              <FilterIcon color={filterCount > 0 ? 'warning' : undefined} />
+            </ListItemIcon>
+            Filter
+          </MenuItem>
+        )}
+        {smallScreen && sortable && (
+          <MenuItem
+            key="mobile-sort"
+            onClick={handleClickSort}
+            data-cy="open-sort"
+          >
+            <ListItemIcon>
+              <SortIcon />
+            </ListItemIcon>
+            Sort
+          </MenuItem>
+        )}
+        <MenuItem
+          key="toggle-archived"
+          onClick={handleToggleArchived}
+          data-cy="toggle-archived"
+        >
+          <ListItemIcon>
+            {showArchived ? <UnarchiveIcon /> : <ArchiveIcon />}
+          </ListItemIcon>
+          {showArchived ? 'Hide archived items' : 'Show archived items'}
+        </MenuItem>
         {menuItems.map(menuItem => (
           <MenuItem
             key={menuItem.key}

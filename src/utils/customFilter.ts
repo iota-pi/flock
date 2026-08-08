@@ -36,7 +36,6 @@ export const FILTER_OPERATORS_MAP: Record<FilterOperatorName, FilterOperator> = 
 }
 
 export type FilterCriterionType = (
-  | 'archived'
   | 'created'
   | 'description'
   | 'lastPrayedFor'
@@ -58,11 +57,6 @@ export interface FilterCriterion {
 export const FILTER_CRITERIA_DISPLAY_MAP: (
   Record<FilterCriterionType, FilterCriterionDisplayData>
 ) = {
-  archived: {
-    dataType: 'boolean',
-    name: 'Archived',
-    operators: ['is', 'isnot'],
-  },
   created: {
     dataType: 'date',
     name: 'Date created',
@@ -90,7 +84,6 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
   },
 }
 const FILTER_CRITERIA_ORDER: FilterCriterionType[] = [
-  'archived',
   'name',
   'description',
   'prayerFrequency',
@@ -109,24 +102,9 @@ export const DEFAULT_ADDITIONAL_FILTER_CRITERION: FilterCriterion = {
   value: '',
 }
 
-export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = [
-  {
-    type: 'archived',
-    baseOperator: 'is',
-    inverse: false,
-    operator: 'is',
-    value: false,
-  },
-]
+export const DEFAULT_FILTER_CRITERIA: FilterCriterion[] = []
 
 const criterionEvaluators: Record<FilterCriterionType, (item: Item, criterion: FilterCriterion) => boolean> = {
-  archived: (item, criterion) => {
-    if (criterion.baseOperator === 'is') {
-      const expected = criterion.value === true || criterion.value === 'true'
-      return item.archived === expected
-    }
-    return true
-  },
   created: (item, criterion) => {
     if (criterion.baseOperator === 'is') {
       return isSameDay(new Date(item.created), new Date(criterion.value as number))
@@ -193,7 +171,7 @@ export function filterItems<T extends Item>(
   const compiledCriteria = criteria.map(criterion => {
     const evaluator = criterionEvaluators[criterion.type]
     return (item: Item) => {
-      const baseResult = evaluator(item, criterion)
+      const baseResult = evaluator ? evaluator(item, criterion) : true
       return criterion.inverse ? !baseResult : baseResult
     }
   })
@@ -217,7 +195,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
 
 export function isDefaultNoArchivedItemsFilter(criterion: FilterCriterion): boolean {
   return (
-    criterion.type === 'archived'
+    (criterion as unknown as { type: string }).type === 'archived'
     && criterion.baseOperator === 'is'
     && criterion.inverse === false
     && criterion.operator === 'is'

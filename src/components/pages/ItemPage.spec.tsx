@@ -60,11 +60,12 @@ describe('ItemPage - Selection refinement by visible items', () => {
         itemIds: ['person-1' as ItemId, 'person-2' as ItemId],
         selected: ['person-1' as ItemId, 'person-2' as ItemId],
         filters: DEFAULT_FILTER_CRITERIA,
+        showArchived: false,
       })
     })
   })
 
-  it('deselects an item when it is archived and hidden by default filter', () => {
+  it('deselects an item when it is archived and hidden by showArchived=false', () => {
     renderWithProviders(<ItemPage itemType="person" />)
     expect(useAppStore.getState().selected).toEqual(['person-1', 'person-2'])
 
@@ -81,20 +82,10 @@ describe('ItemPage - Selection refinement by visible items', () => {
     expect(useAppStore.getState().selected).toEqual(['person-2'])
   })
 
-  it('keeps an item selected when it is archived but visible under active filters', () => {
-    const archiveShowFilter: FilterCriterion[] = [
-      {
-        type: 'archived',
-        baseOperator: 'is',
-        operator: 'is',
-        inverse: false,
-        value: true,
-      },
-    ]
-
+  it('keeps an item selected when it is archived but visible when showArchived=true', () => {
     act(() => {
       useAppStore.setState({
-        filters: archiveShowFilter,
+        showArchived: true,
         selected: ['person-1' as ItemId],
         items: {
           'person-1': { ...person1, archived: true },

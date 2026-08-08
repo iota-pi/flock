@@ -31,6 +31,7 @@ function ItemPage({
   const toggleSelected = useAppStore(state => state.toggleSelected)
   const rawItems = useItemsOfType(itemType)
   const selected = useAppStore(state => state.selected)
+  const showArchived = useAppStore(state => state.showArchived)
   const filters = useAppStore(state => state.filters)
   const [defaultFrequencies] = useMetadata('defaultPrayerFrequency', {})
   const filterCount = usePracticalFilterCount()
@@ -39,11 +40,12 @@ function ItemPage({
 
   const items = useMemo(
     () => {
-      const filtered = filterItems(rawItems, filters)
+      const nonArchived = showArchived ? rawItems : rawItems.filter(item => !item.archived)
+      const filtered = filterItems(nonArchived, filters)
       const results = sortItems(filtered, sortCriteria)
       return results
     },
-    [rawItems, filters, sortCriteria],
+    [rawItems, showArchived, filters, sortCriteria],
   )
 
   const hiddenItemCount = totalApplicable - items.length
