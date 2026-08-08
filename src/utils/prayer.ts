@@ -136,15 +136,18 @@ function shouldPreferGroup(current: GroupItem, best: GroupItem, activeIdSet: Set
   return false
 }
 
-function getBucketHeadEntry(bucket: PrayerBucket): PrayerBucketHeapEntry | null {
+function getBucketHeadEntry(bucket: PrayerBucket, now: number): PrayerBucketHeapEntry | null {
   const candidate = bucket.candidates[bucket.cursor]
   if (!candidate) {
     return null
   }
 
+  const shift = bucket.selectedCount * bucket.groupShiftQuantum
+  const effectiveBase = Math.max(candidate.next, now)
+
   return {
     groupId: bucket.groupId,
-    effectiveNext: candidate.next + (bucket.selectedCount * bucket.groupShiftQuantum),
+    effectiveNext: effectiveBase + shift,
     stableOrder: candidate.stableOrder,
   }
 }
@@ -279,6 +282,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
   })
 
   const schedule: ItemId[] = []
+  const now = Date.now()
 
   const bucketByGroupId = new Map<ItemId, PrayerBucket>()
   for (const candidate of candidates) {
@@ -304,7 +308,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
       || (left.stableOrder - right.stableOrder)
     ))
 
-    const headEntry = getBucketHeadEntry(bucket)
+    const headEntry = getBucketHeadEntry(bucket, now)
     if (headEntry) {
       pushPrayerBucketEntry(bucketHeap, headEntry)
     }
@@ -330,7 +334,7 @@ export function getPrayerSchedule(items: Item[]): ItemId[] {
     bucket.cursor += 1
     bucket.selectedCount += 1
 
-    const nextHeadEntry = getBucketHeadEntry(bucket)
+    const nextHeadEntry = getBucketHeadEntry(bucket, now)
     if (nextHeadEntry) {
       pushPrayerBucketEntry(bucketHeap, nextHeadEntry)
     }
