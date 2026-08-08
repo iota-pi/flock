@@ -83,7 +83,7 @@ function MemberDisplay({
           selectedItemIds={sortedMemberIds}
           types={{ person: true, topic: true }}
           searchDescription
-          showIcons={false}
+          showIcons
           showOptionCheckboxes
           showSelectedOptions
         />
