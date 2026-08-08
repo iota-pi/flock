@@ -13,6 +13,7 @@ import { ArchiveIcon, FilterIcon, MuiIconType, OptionsIcon, SortIcon, UnarchiveI
 import { usePracticalFilterCount } from 'src/state/selectors'
 import { useDialogState } from 'src/hooks/useDialogState'
 import { useAppStore } from 'src/state/store'
+import type { ItemType } from 'src/shared/itemTypes'
 
 
 const SortDialog = lazy(() => import('../dialogs/SortDialog'))
@@ -45,6 +46,7 @@ export interface MenuItemData {
 interface Props {
   allSelected: boolean,
   filterable?: boolean,
+  itemType?: ItemType,
   menuItems: MenuItemData[],
   onSelectAll?: () => void,
   sortable?: boolean,
@@ -55,6 +57,7 @@ interface Props {
 function TopBar({
   allSelected,
   filterable,
+  itemType,
   menuItems,
   onSelectAll,
   sortable,
@@ -228,6 +231,7 @@ function TopBar({
       </Menu>
       <Suspense fallback={null}>
         <FilterDialog
+          itemType={itemType}
           onClose={handleCloseFilter}
           open={isFilterOpen}
         />

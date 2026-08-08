@@ -28,20 +28,24 @@ vi.mock('src/state/store', () => ({
 }))
 
 vi.mock('./FilterCriterionDisplay', () => ({
-  FilterCriterionDisplay: ({ index, onChange }: { index: number, onChange: (index: number, criterion: FilterCriterion) => void }) => (
-    <button
-      data-cy={`set-criterion-${index}`}
-      onClick={() => onChange(index, {
-        type: 'prayerFrequency',
-        baseOperator: 'is',
-        inverse: false,
-        operator: 'is',
-        value: 'daily',
-      })}
-      type="button"
-    >
-      set criterion {index}
-    </button>
+  FilterCriterionDisplay: ({ index, onChange, availableCriteria }: { index: number, onChange: (index: number, criterion: FilterCriterion) => void, availableCriteria?: string[] }) => (
+    <div>
+      <span data-testid={`available-count-${index}`}>{availableCriteria?.length ?? 0}</span>
+      <span data-testid={`has-groups-${index}`}>{availableCriteria?.includes('groups') ? 'yes' : 'no'}</span>
+      <button
+        data-cy={`set-criterion-${index}`}
+        onClick={() => onChange(index, {
+          type: 'prayerFrequency',
+          baseOperator: 'is',
+          inverse: false,
+          operator: 'is',
+          value: 'daily',
+        })}
+        type="button"
+      >
+        set criterion {index}
+      </button>
+    </div>
   ),
 }))
 
@@ -88,5 +92,33 @@ describe('FilterDialog', () => {
       ],
     })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits groups criterion when itemType is group', () => {
+    const onClose = vi.fn()
+    const { rerender } = renderWithProviders(<FilterDialog itemType="group" open={false} onClose={onClose} />)
+    rerender(
+      <ThemeProvider theme={getTheme(false)}>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <FilterDialog itemType="group" open onClose={onClose} />
+        </LocalizationProvider>
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByTestId('has-groups-0').textContent).toBe('no')
+  })
+
+  it('includes groups criterion when itemType is person', () => {
+    const onClose = vi.fn()
+    const { rerender } = renderWithProviders(<FilterDialog itemType="person" open={false} onClose={onClose} />)
+    rerender(
+      <ThemeProvider theme={getTheme(false)}>
+        <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <FilterDialog itemType="person" open onClose={onClose} />
+        </LocalizationProvider>
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByTestId('has-groups-0').textContent).toBe('yes')
   })
 })

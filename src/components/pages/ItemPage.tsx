@@ -7,6 +7,7 @@ import type { ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
 import {
   usePracticalFilterCount,
+  useGroupLookupMap,
   useMetadata,
   useSortCriteria,
   useItemsOfType,
@@ -30,6 +31,7 @@ function ItemPage({
   const setSelected = useAppStore(state => state.setSelected)
   const toggleSelected = useAppStore(state => state.toggleSelected)
   const rawItems = useItemsOfType(itemType)
+  const groupsByMemberId = useGroupLookupMap()
   const selected = useAppStore(state => state.selected)
   const showArchived = useAppStore(state => state.showArchived)
   const filters = useAppStore(state => state.filters)
@@ -41,11 +43,11 @@ function ItemPage({
   const items = useMemo(
     () => {
       const nonArchived = showArchived ? rawItems : rawItems.filter(item => !item.archived)
-      const filtered = filterItems(nonArchived, filters)
+      const filtered = filterItems(nonArchived, filters, groupsByMemberId)
       const results = sortItems(filtered, sortCriteria)
       return results
     },
-    [rawItems, showArchived, filters, sortCriteria],
+    [rawItems, showArchived, filters, groupsByMemberId, sortCriteria],
   )
 
   const hiddenItemCount = totalApplicable - items.length
@@ -154,6 +156,7 @@ function ItemPage({
       allSelected={allSelected}
       fab
       fabLabel={`Add ${pluralLabel}`}
+      itemType={itemType}
       noScrollContainer
       onClickFab={handleClickAdd}
       onSelectAll={handleSelectAll}

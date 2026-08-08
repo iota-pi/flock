@@ -19,12 +19,14 @@ import { Frequency } from 'src/utils/frequencies'
 
 
 export function FilterCriterionDisplay({
+  availableCriteria,
   chosenCriteria,
   criterion,
   onChange,
   onRemove,
   index,
 }: {
+  availableCriteria?: FilterCriterionType[],
   chosenCriteria: Set<FilterCriterionType>,
   criterion: FilterCriterion,
   onChange: (index: number, criterion: FilterCriterion) => void,
@@ -32,6 +34,7 @@ export function FilterCriterionDisplay({
   index: number,
 }) {
   const criterionDetails = FILTER_CRITERIA_DISPLAY_MAP[criterion.type]
+  const validCriteriaList = availableCriteria ?? (Object.keys(FILTER_CRITERIA_DISPLAY_MAP) as FilterCriterionType[])
 
   const handleChangeKey = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -119,11 +122,11 @@ export function FilterCriterionDisplay({
         select
         variant="standard"
       >
-        {Object.keys(FILTER_CRITERIA_DISPLAY_MAP).filter(
-          crt => criterion.type === (crt as FilterCriterionType) || !chosenCriteria.has(crt as FilterCriterionType),
+        {validCriteriaList.filter(
+          crt => criterion.type === crt || !chosenCriteria.has(crt),
         ).map(key => (
           <MenuItem key={key} value={key}>
-            {FILTER_CRITERIA_DISPLAY_MAP[key as FilterCriterionType].name}
+            {FILTER_CRITERIA_DISPLAY_MAP[key].name}
           </MenuItem>
         ))}
       </TextField>
