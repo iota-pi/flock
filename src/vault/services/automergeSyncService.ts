@@ -150,9 +150,39 @@ export function createAutomergeSyncService({
     }
   }
 
+  async function pullAutomergeSyncGlobal(input: { account: string; cursor: number }): Promise<{
+    success: true
+    results: Array<{
+      success: true
+      itemId: ItemId
+      nextCursor: number
+      messages: StoredSyncMessage[]
+      hasMore: boolean
+    }>
+  }> {
+    const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
+      account: input.account,
+      cursor: input.cursor,
+    })
+
+    const results = items.map((item, index) => {
+      const messages = item.messages
+      return {
+        success: true as const,
+        itemId: item.itemId,
+        nextCursor: messages.length > 0 ? messages[messages.length - 1].cursor : input.cursor,
+        messages,
+        hasMore: index === items.length - 1 ? hasMore : false,
+      }
+    })
+
+    return { success: true, results }
+  }
+
   return {
-    pullAutomergeSyncBatch,
     pushAutomergeSyncBatch,
+    pullAutomergeSyncBatch,
+    pullAutomergeSyncGlobal,
   }
 }
 

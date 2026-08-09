@@ -6,7 +6,6 @@ import { loadSyncBatch, removeSentSyncMessages } from '../shared/VaultPersistenc
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { fetchMetadataWithToken } from '../../api/vault/SyncWorkerClient'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure'
@@ -44,49 +43,10 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'success'
 
-      // 1. Fetch server metadata to discover new, modified, or deleted items
-      try {
-        const serverMeta = await fetchMetadataWithToken({ account: this.account, authToken })
-        if (serverMeta && serverMeta.items) {
-          const localIndex = await this.indexManager.getIndexSnapshot()
-          const localLastModified = localIndex.lastModified || {}
-          const localItemIdsSet = new Set(localIndex.itemIds || [])
-
-          const newOrModified: ItemId[] = []
-          const toRemoveFromLocal: ItemId[] = []
-          const newLocalLastModified: Record<ItemId, number> = {}
-
-          for (const serverItem of serverMeta.items) {
-            const itemId = serverItem.itemId
-            if (serverItem.deleted) {
-              if (localItemIdsSet.has(itemId)) {
-                toRemoveFromLocal.push(itemId)
-              }
-            } else {
-              const localTime = localLastModified[itemId] || 0
-              if (!localItemIdsSet.has(itemId) || serverItem.modified > localTime) {
-                newOrModified.push(itemId)
-                newLocalLastModified[itemId] = serverItem.modified
-              }
-            }
-          }
-
-          if (newOrModified.length > 0) {
-            await this.indexManager.addAutomergeItemIdsToIndex(newOrModified)
-            await this.indexManager.updateLocalLastModified(newLocalLastModified)
-            for (const id of newOrModified) {
-              this.pullQueueManager.addPendingItem(id)
-            }
-          }
-
-          if (toRemoveFromLocal.length > 0) {
-            await this.indexManager.removeAutomergeItemIdsFromIndex(toRemoveFromLocal)
-          }
-        }
-
-      } catch (err) {
-        console.error('[SyncPoller] Failed to check server metadata for discovery:', err)
-      }
+      // Always sync local tracked item IDs to pullQueueManager
+      const localIndex = await this.indexManager.getIndexSnapshot()
+      const localItemIds = localIndex.itemIds || []
+      this.pullQueueManager.syncTrackedItemIds(localItemIds)
 
       let batchEntries: [ItemId, Uint8Array[]][]
       try {
@@ -97,9 +57,6 @@ export class SyncPoller {
 
       const chunks = chunk(batchEntries, 5)
       const pullCursors = this.pullQueueManager.getAllCursors()
-      if (chunks.length === 0 && pullCursors.length === 0) {
-        return 'success'
-      }
 
       if (chunks.length === 0) {
         const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
@@ -107,7 +64,8 @@ export class SyncPoller {
           account: this.account,
           authToken,
           pushMessages: [],
-          pullCursors
+          pullCursors,
+          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
         })
 
         if (response && response.pushResults) {
@@ -126,6 +84,7 @@ export class SyncPoller {
           })
         }
 
+        await this.indexManager.updateLastSyncTime(Date.now())
         return 'success'
       }
 
@@ -165,7 +124,8 @@ export class SyncPoller {
           account: this.account,
           authToken,
           pushMessages,
-          pullCursors: isFirstChunk ? pullCursors : []
+          pullCursors: isFirstChunk ? pullCursors : [],
+          clientLatestCursor: isFirstChunk ? this.pullQueueManager.getGlobalLatestCursor() : undefined,
         })
         isFirstChunk = false
 
@@ -188,6 +148,7 @@ export class SyncPoller {
         await removeSentSyncMessages(this.account, chunkEntry)
       }
 
+      await this.indexManager.updateLastSyncTime(Date.now())
       return 'success'
     } catch (error) {
       if (this.isAuthError(error)) {

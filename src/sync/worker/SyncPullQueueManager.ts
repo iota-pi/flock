@@ -13,6 +13,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 export class SyncPullQueueManager {
   private account: string | null = null
   private readonly pendingPullItemIds = new Set<ItemId>()
+  private trackedItemIds = new Set<ItemId>()
   private cursorByItemId = new Map<ItemId, number>()
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
@@ -20,15 +21,21 @@ export class SyncPullQueueManager {
 
   constructor(private readonly cursorStore: CursorStore) {}
 
-  async setAccount(account: string | null): Promise<void> {
+  setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
     this.pendingPullItemIds.clear()
+    this.trackedItemIds.clear()
     this.cursorByItemId.clear()
 
     if (account) {
-      await this.loadCursors()
+      return this.loadCursors()
     }
+    return Promise.resolve()
+  }
+
+  syncTrackedItemIds(itemIds: ItemId[]): void {
+    this.trackedItemIds = new Set(itemIds)
   }
 
   private async loadCursors(): Promise<void> {
@@ -109,13 +116,21 @@ export class SyncPullQueueManager {
   getAllCursors(): Array<{ itemId: ItemId; cursor: number }> {
     const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
-    // Only include cursors for pending item IDs
-    for (const itemId of this.pendingPullItemIds) {
+    const targetItemIds = new Set([...this.pendingPullItemIds, ...this.trackedItemIds])
+    for (const itemId of targetItemIds) {
       const cursor = this.cursorByItemId.get(itemId) ?? 0
       cursors.push({ itemId, cursor })
     }
 
     return cursors
+  }
+
+  getGlobalLatestCursor(): number {
+    let max = 0
+    for (const cursor of this.cursorByItemId.values()) {
+      if (cursor > max) max = cursor
+    }
+    return max
   }
 
   async processPullResults(results: PullSyncMessagesResponse[]): Promise<void> {

@@ -23,7 +23,14 @@ export class VaultBootstrapper {
   async bootstrapItems() {
     if (!this.deps.accountId) return
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
-    if (knownItemIds.length > 0) return
+    const lastSyncTime = await this.deps.indexManager.getLastSyncTime()
+    
+    // Check if the device has been offline for > 1 week (minus a 12-hour buffer)
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+    const BUFFER_MS = 12 * 60 * 60 * 1000
+    const isOfflineTooLong = lastSyncTime > 0 && Date.now() - lastSyncTime > (SEVEN_DAYS_MS - BUFFER_MS)
+
+    if (knownItemIds.length > 0 && !isOfflineTooLong) return
 
     if (!hasApiAuthToken()) {
       throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap items')

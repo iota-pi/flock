@@ -12,11 +12,14 @@ vi.mock('./docStore', () => ({
   }))
 }))
 
+const mockGetLastSyncTime = vi.fn()
+
 vi.mock('./docStore/AutomergeIndexManager', () => ({
   AutomergeIndexManager: vi.fn().mockImplementation(() => ({
     listAutomergeItemIds: mockListAutomergeItemIds,
     getAutomergeMetadata: mockGetAutomergeMetadata,
     addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+    getLastSyncTime: mockGetLastSyncTime,
   }))
 }))
 
@@ -65,6 +68,7 @@ describe('VaultBootstrapper', () => {
       listAutomergeItemIds: mockListAutomergeItemIds,
       getAutomergeMetadata: mockGetAutomergeMetadata,
       addAutomergeItemIdsToIndex: mockAddAutomergeItemIdsToIndex,
+      getLastSyncTime: mockGetLastSyncTime,
     } as any
 
     depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager }
@@ -81,6 +85,7 @@ describe('VaultBootstrapper', () => {
     mockListAutomergeItemIds.mockResolvedValue([])
     mockHasApiAuthToken.mockReturnValue(true)
     mockGetAutomergeMetadata.mockResolvedValue({})
+    mockGetLastSyncTime.mockResolvedValue(Date.now())
   })
 
   describe('bootstrapItems', () => {
@@ -92,12 +97,26 @@ describe('VaultBootstrapper', () => {
       expect(mockListAutomergeItemIds).not.toHaveBeenCalled()
     })
 
-    it('returns early if knownItemIds.length > 0 (already bootstrapped)', async () => {
+    it('returns early if knownItemIds.length > 0 (already bootstrapped) and not offline for too long', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      mockGetLastSyncTime.mockResolvedValue(Date.now() - 1000)
 
       await bootstrapper.bootstrapItems()
 
       expect(mockFetchMany).not.toHaveBeenCalled()
+    })
+
+    it('does not return early if offline for > 1 week (minus buffer)', async () => {
+      mockListAutomergeItemIds.mockResolvedValue(['item-1'])
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+      const BUFFER_MS = 12 * 60 * 60 * 1000
+      mockGetLastSyncTime.mockResolvedValue(Date.now() - (SEVEN_DAYS_MS - BUFFER_MS + 1000))
+      
+      mockFetchMany.mockResolvedValue({ items: [] })
+
+      await bootstrapper.bootstrapItems()
+
+      expect(mockFetchMany).toHaveBeenCalled()
     })
 
     it('throws error if hasApiAuthToken() is false', async () => {

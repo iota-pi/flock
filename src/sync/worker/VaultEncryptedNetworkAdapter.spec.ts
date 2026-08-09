@@ -28,7 +28,6 @@ vi.mock('src/api/vault', () => ({
 
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
-  fetchMetadataWithToken: vi.fn().mockResolvedValue({ success: true, items: [] }),
 }))
 
 vi.mock('../shared/workerAuthStore', () => ({
@@ -54,6 +53,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
       removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
       updateLocalLastModified: vi.fn().mockResolvedValue(undefined),
+      updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeDocStore
 
     // Clear stores for test accounts to avoid state pollution

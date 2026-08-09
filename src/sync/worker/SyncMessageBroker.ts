@@ -33,6 +33,7 @@ export class SyncMessageBroker {
         clearManualRecoveryForItems(this.account, [itemId]).catch(console.error)
       }
       this.adapter.receiveMessage(documentId, message)
+      this.indexManager.addAutomergeItemIdsToIndex([itemId]).catch(console.error)
     }
 
     this.syncPoller = new SyncPoller(

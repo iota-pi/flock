@@ -64,6 +64,7 @@ export default abstract class BaseDriver<T = unknown> {
     lastSnapshotCursor?: number,
     lastSnapshotAt?: number,
     lastSnapshotRequestedAt?: number,
+    latestSyncCursor?: number,
     keyring?: string,
     authToken?: string,
     salt?: string,
@@ -78,7 +79,6 @@ export default abstract class BaseDriver<T = unknown> {
   abstract set(item: VaultItem): Promise<void>
   abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchAll(opts: Pick<VaultKey, 'account'>): Promise<VaultItem[]>
-  abstract fetchMetadataAll(opts: Pick<VaultKey, 'account'>): Promise<Array<{ item: string; metadata: VaultMetaData }>>
   abstract delete(key: VaultKey): Promise<void>
 
   // Sync message operations
@@ -104,6 +104,12 @@ export default abstract class BaseDriver<T = unknown> {
     limit?: number
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
 
+  abstract getGlobalSyncMessagesAfterCursor(input: {
+    account: string
+    cursor: number
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
+
+  // Prunes sync messages for a given item up to the specified cursor
   abstract pruneSyncMessagesUpToCursor(input: {
     account: string
     itemId: ItemId

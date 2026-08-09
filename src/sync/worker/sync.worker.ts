@@ -227,6 +227,9 @@ export class SyncWorker implements SyncApi {
         const handleChange = () => {
           const doc = handle.doc() || null
           const item = normalizeItemSnapshot(id, doc)
+          if (item?.deleted) {
+            this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+          }
           this.clientEventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)
