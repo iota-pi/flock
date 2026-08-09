@@ -146,6 +146,38 @@ const migrations: { [name: string]: () => Promise<void> } = {
     }
     console.info(`Updated ${updated} items`)
   },
+  async backfillSyncMessageAccounts () {
+    const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
+    let lastEvaluatedKey: ScanCommandOutput['LastEvaluatedKey'] | undefined
+    let updated = 0
+    do {
+      const response = await client.send(new ScanCommand({
+        TableName: SYNC_MESSAGES_TABLE_NAME,
+        ExclusiveStartKey: lastEvaluatedKey,
+      }))
+      
+      const items = response?.Items || []
+      
+      for (const item of items) {
+        if (!item.account && item.syncId) {
+          const accountId = item.syncId.split('#')[0]
+          if (accountId) {
+            await client.send(new UpdateCommand({
+              TableName: SYNC_MESSAGES_TABLE_NAME,
+              Key: { syncId: item.syncId, cursor: item.cursor },
+              UpdateExpression: 'SET account = :account',
+              ExpressionAttributeValues: {
+                ':account': accountId,
+              },
+            }))
+            updated += 1
+          }
+        }
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey
+    } while (lastEvaluatedKey)
+    console.info(`Backfilled account attribute for ${updated} sync messages`)
+  },
 }
 
 export const handler = async (event: { migrationName: string }) => {

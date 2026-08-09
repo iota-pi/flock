@@ -36,7 +36,7 @@ export default $config({
       },
       primaryIndex: { hashKey: "account" },
       transform: {
-        table: (args, opts) => {
+        table: args => {
           args.name = `FlockAccounts_${stage}`;
         },
       },
@@ -56,7 +56,7 @@ export default $config({
         },
       },
       transform: {
-        table: (args, opts) => {
+        table: args => {
           args.name = `FlockItems_${stage}`;
         },
       },
@@ -65,10 +65,14 @@ export default $config({
       fields: {
         syncId: "string",
         cursor: "number",
+        account: "string",
       },
       primaryIndex: { hashKey: "syncId", rangeKey: "cursor" },
+      globalIndexes: {
+        AccountCursorIndex: { hashKey: "account", rangeKey: "cursor" },
+      },
       transform: {
-        table: (args) => {
+        table: args => {
           args.name = `FlockSyncMessages_${stage}`;
           args.ttl = {
             attributeName: "expiresAt",

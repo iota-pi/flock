@@ -48,10 +48,6 @@ class TestDriver extends BaseDriver {
     throw new Error('not implemented')
   }
 
-  async fetchMetadataAll(): ReturnType<BaseDriver['fetchMetadataAll']> {
-    throw new Error('not implemented')
-  }
-
   async get(): ReturnType<BaseDriver['get']> {
     throw new Error('not implemented')
   }
@@ -73,6 +69,10 @@ class TestDriver extends BaseDriver {
   }
 
   async getSyncMessages(): ReturnType<BaseDriver['getSyncMessages']> {
+    throw new Error('not implemented')
+  }
+
+  async getGlobalSyncMessagesAfterCursor(): ReturnType<BaseDriver['getGlobalSyncMessagesAfterCursor']> {
     throw new Error('not implemented')
   }
 

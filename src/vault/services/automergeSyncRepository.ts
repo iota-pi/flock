@@ -25,6 +25,10 @@ export interface AutomergeSyncRepository {
     fromCursor?: number
     limit?: number
   }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }>
+  getGlobalSyncMessagesAfterCursor(input: {
+    account: string
+    cursor: number
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
   pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number>
 }
 
@@ -52,6 +56,13 @@ export function createDynamoAutomergeSyncRepository(driver: BaseDriver): Automer
       limit?: number
     }): Promise<{ messages: StoredSyncMessage[]; hasMore: boolean }> {
       return driver.getSyncMessages(input)
+    },
+
+    async getGlobalSyncMessagesAfterCursor(input: {
+      account: string
+      cursor: number
+    }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }> {
+      return driver.getGlobalSyncMessagesAfterCursor(input)
     },
 
     async pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number> {

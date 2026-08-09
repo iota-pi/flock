@@ -18,6 +18,7 @@ export class AutomergeIndexManager {
       itemIds: doc?.itemIds || [],
       metadata: doc?.metadata || {},
       lastModified: doc?.lastModified || {},
+      lastSyncTime: doc?.lastSyncTime || 0,
     }
   }
 
@@ -90,6 +91,17 @@ export class AutomergeIndexManager {
   async updateLocalLastModified(lastModified: Record<ItemId, number>): Promise<void> {
     const doc = await this.getIndexSnapshot()
     doc.lastModified = { ...doc.lastModified, ...lastModified }
+    await this.indexStore.saveIndex(doc)
+  }
+
+  async getLastSyncTime(): Promise<number> {
+    const doc = await this.getIndexSnapshot()
+    return doc.lastSyncTime || 0
+  }
+
+  async updateLastSyncTime(time: number): Promise<void> {
+    const doc = await this.getIndexSnapshot()
+    doc.lastSyncTime = time
     await this.indexStore.saveIndex(doc)
   }
 }

@@ -3,7 +3,8 @@ import type { AppRouter } from '../../vault/trpc/root'
 import env from '../../env'
 import type { VaultSnapshotInput } from 'src/shared/schemas/snapshots'
 import type { ItemId } from 'src/shared/schemas/items'
-
+import type { z } from 'zod'
+import type { SyncPollBatchSchema } from 'src/shared/schemas/trpc'
 type SyncMessageEnvelope = {
   iv: string
   cipher: string
@@ -65,24 +66,12 @@ export type PollSyncBatchResponse = {
 }
 
 
-export async function pollSyncBatchWithToken(input: {
-  account: string
-  authToken: string
-  pushMessages: Array<{
-    itemId: ItemId
-    encryptedMessage: SyncMessageEnvelope
-  }>
-  pullCursors: Array<{
-    itemId: ItemId
-    cursor?: number
-  }>
-}): Promise<PollSyncBatchResponse> {
+export async function pollSyncBatchWithToken(
+  input: z.infer<typeof SyncPollBatchSchema> & { authToken: string }
+): Promise<PollSyncBatchResponse> {
   const client = createWorkerSyncClient(input.authToken)
-  return client.sync.pollSync.mutate({
-    account: input.account,
-    pushMessages: input.pushMessages,
-    pullCursors: input.pullCursors,
-  })
+  const { authToken, ...rpcInput } = input
+  return client.sync.pollSync.mutate(rpcInput)
 }
 
 export async function putSnapshotsWithToken(input: {
@@ -97,12 +86,3 @@ export async function putSnapshotsWithToken(input: {
   })
 }
 
-export async function fetchMetadataWithToken(input: {
-  account: string
-  authToken: string
-}): Promise<{ success: boolean; items: Array<{ itemId: ItemId; modified: number; deleted: boolean; type: string }>; serverTime: number }> {
-  const client = createWorkerSyncClient(input.authToken)
-  return client.items.fetchMetadata.query({
-    account: input.account,
-  })
-}

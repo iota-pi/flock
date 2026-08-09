@@ -19,6 +19,7 @@ export type AutomergeIndexDocument = {
   itemIds?: ItemId[]
   metadata?: AccountMetadata
   lastModified?: Record<ItemId, number>
+  lastSyncTime?: number
 }
 
 export function normalizeItemId(raw: unknown): ItemId | null {

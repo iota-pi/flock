@@ -26,6 +26,12 @@ export const syncRouter = router({
       const repository = createDynamoAutomergeSyncRepository(ctx.vault)
       const service = createAutomergeSyncService({ repository })
 
+      const account = await ctx.vault.getAccount({
+        account: input.account,
+        session: ctx.authToken,
+      })
+      const now = Date.now()
+
       let pushResults: Array<{ itemId: ItemId; cursor: number }> = []
       if (input.pushMessages.length > 0) {
         const pushResult = await service.pushAutomergeSyncBatch({
@@ -36,7 +42,19 @@ export const syncRouter = router({
       }
 
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
-      if (input.pullCursors.length > 0) {
+      
+      if (typeof input.clientLatestCursor === 'number') {
+        if (input.clientLatestCursor >= (account.latestSyncCursor ?? 0)) {
+          // Fast Path: Client is fully up to date globally, skip database query
+          pullResults = []
+        } else {
+          const pullResult = await service.pullAutomergeSyncGlobal({
+            account: input.account,
+            cursor: input.clientLatestCursor,
+          })
+          pullResults = pullResult.results
+        }
+      } else if (input.pullCursors.length > 0) {
         const pullResult = await service.pullAutomergeSyncBatch({
           account: input.account,
           cursors: input.pullCursors,
@@ -44,13 +62,13 @@ export const syncRouter = router({
         pullResults = pullResult.results
       }
 
+      const maxPushCursor = pushResults.length > 0
+        ? Math.max(...pushResults.map(result => result.cursor))
+        : 0
+
       let snapshotRequest: { requested: true; cursor: number; requestedAt: number } | undefined
-      if (pushResults.length > 0 || input.pullCursors.length > 0) {
-        const account = await ctx.vault.getAccount({
-          account: input.account,
-          session: ctx.authToken,
-        })
-        const now = Date.now()
+      let shouldUpdateAccount = false
+      if (pushResults.length > 0 || pullResults.length > 0) {
         const lastRequestedAt = account.lastSnapshotRequestedAt ?? 0
         const lastSnapshotAt = account.lastSnapshotAt ?? 0
         const isSnapshotStale = now - lastSnapshotAt >= SNAPSHOT_REFRESH_INTERVAL
@@ -59,14 +77,23 @@ export const syncRouter = router({
 
         if (shouldRequestSnapshot) {
           const cursor = pushResults.length > 0
-            ? Math.max(...pushResults.map(result => result.cursor))
+            ? maxPushCursor
             : (account.lastSnapshotCursor ?? 0)
           snapshotRequest = { requested: true, cursor, requestedAt: now }
-          await ctx.vault.updateAccountData({
-            account: input.account,
-            lastSnapshotRequestedAt: now,
-          })
+          shouldUpdateAccount = true
         }
+      }
+
+      if (pushResults.length > 0) {
+        shouldUpdateAccount = true
+      }
+
+      if (shouldUpdateAccount) {
+        await ctx.vault.updateAccountData({
+          account: input.account,
+          ...(snapshotRequest ? { lastSnapshotRequestedAt: now } : {}),
+          ...(pushResults.length > 0 ? { latestSyncCursor: maxPushCursor } : {}),
+        })
       }
 
       return { success: true, pushResults, pullResults, snapshotRequest }

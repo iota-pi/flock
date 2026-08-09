@@ -99,6 +99,7 @@ export const SyncPushBatchSchema = z.object({
 
 export const SyncPollBatchSchema = z.object({
   account: z.string().min(1),
+  clientLatestCursor: z.number().int().min(0).optional(),
   pushMessages: z.array(z.object({
     itemId: ItemIdSchema,
     encryptedMessage: SyncEncryptedMessageSchema,

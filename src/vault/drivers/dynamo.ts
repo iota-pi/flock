@@ -398,6 +398,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor,
       lastSnapshotAt,
       lastSnapshotRequestedAt,
+      latestSyncCursor,
       keyring,
       authToken,
       salt,
@@ -414,6 +415,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       lastSnapshotCursor?: number,
       lastSnapshotAt?: number,
       lastSnapshotRequestedAt?: number,
+      latestSyncCursor?: number,
       keyring?: string,
       authToken?: string,
       salt?: string,
@@ -467,6 +469,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof lastSnapshotRequestedAt === 'number') {
       updateExpressions.push('lastSnapshotRequestedAt = :lastSnapshotRequestedAt')
       expressionAttributeValues[':lastSnapshotRequestedAt'] = lastSnapshotRequestedAt
+    }
+    if (typeof latestSyncCursor === 'number') {
+      updateExpressions.push('latestSyncCursor = :latestSyncCursor')
+      expressionAttributeValues[':latestSyncCursor'] = latestSyncCursor
     }
     if (typeof keyring === 'string') {
       updateExpressions.push('keyring = :keyring')
@@ -633,41 +639,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     return items
   }
 
-  async fetchMetadataAll(
-    { account }: { account: string },
-  ): Promise<Array<{ item: string; metadata: import('./base').VaultMetaData }>> {
-    const items: Array<{ item: string; metadata: import('./base').VaultMetaData }> = []
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
-
-    while (true) {
-      const queryInput: QueryCommandInput = {
-        TableName: ITEM_TABLE_NAME,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeNames: {
-          '#itemKey': 'item',
-          '#metadata': 'metadata',
-        },
-        ExpressionAttributeValues: {
-          ':accountid': account,
-        },
-        ProjectionExpression: '#itemKey, #metadata',
-        ExclusiveStartKey: lastEvaluatedKey,
-      }
-
-      const response = await this.client.send(new QueryCommand(queryInput))
-
-      if (response?.Items) {
-        items.push(...response.Items as Array<{ item: string; metadata: import('./base').VaultMetaData }>)
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
-    }
-
-    return items
-  }
-
   async delete({ account, item }: VaultKey) {
     await this.client.send(new DeleteCommand({
       TableName: ITEM_TABLE_NAME,
@@ -716,6 +687,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       Item: {
         syncId: `${input.account}#${input.itemId}`,
         cursor: input.entry.cursor,
+        account: input.account,
         encryptedMessage: input.entry.encryptedMessage,
         createdAt: input.entry.createdAt,
         expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
@@ -741,6 +713,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
               Item: {
                 syncId: `${input.account}#${message.itemId}`,
                 cursor: message.entry.cursor,
+                account: input.account,
                 encryptedMessage: message.entry.encryptedMessage,
                 createdAt: message.entry.createdAt,
                 expiresAt: Math.floor(Date.now() / 1000) + SYNC_MESSAGE_TTL,
@@ -779,6 +752,51 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
 
     return {
       messages: (response.Items as StoredSyncMessage[]) || [],
+      hasMore: !!response.LastEvaluatedKey,
+    }
+  }
+
+  async getGlobalSyncMessagesAfterCursor(input: {
+    account: string
+    cursor: number
+  }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }> {
+    const messagesByItem = new Map<ItemId, StoredSyncMessage[]>()
+
+    const response = await this.client.send(new QueryCommand({
+      TableName: SYNC_MESSAGES_TABLE_NAME,
+      IndexName: 'AccountCursorIndex',
+      KeyConditionExpression: 'account = :account AND #c > :cursor',
+      ExpressionAttributeNames: {
+        '#c': 'cursor',
+      },
+      ExpressionAttributeValues: {
+        ':account': input.account,
+        ':cursor': input.cursor,
+      },
+      Limit: 1000,
+    }))
+
+    for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
+      const itemId = item.syncId.split('#')[1] as ItemId
+      if (!itemId) continue
+      
+      let messages = messagesByItem.get(itemId)
+      if (!messages) {
+        messages = []
+        messagesByItem.set(itemId, messages)
+      }
+      messages.push({
+        cursor: item.cursor,
+        encryptedMessage: item.encryptedMessage,
+        createdAt: item.createdAt,
+      })
+    }
+
+    return {
+      items: Array.from(messagesByItem.entries()).map(([itemId, messages]) => ({
+        itemId,
+        messages: messages.sort((a, b) => a.cursor - b.cursor),
+      })),
       hasMore: !!response.LastEvaluatedKey,
     }
   }
