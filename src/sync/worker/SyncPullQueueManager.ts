@@ -13,7 +13,7 @@ import { parseBatchedMessages } from './utils/messageParser'
 export class SyncPullQueueManager {
   private account: string | null = null
   private readonly pendingPullItemIds = new Set<ItemId>()
-  private trackedItemIds = new Set<ItemId>()
+
   private cursorByItemId = new Map<ItemId, number>()
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
@@ -24,18 +24,14 @@ export class SyncPullQueueManager {
   setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
+
     this.pendingPullItemIds.clear()
-    this.trackedItemIds.clear()
     this.cursorByItemId.clear()
 
     if (account) {
       return this.loadCursors()
     }
     return Promise.resolve()
-  }
-
-  syncTrackedItemIds(itemIds: ItemId[]): void {
-    this.trackedItemIds = new Set(itemIds)
   }
 
   private async loadCursors(): Promise<void> {
@@ -116,7 +112,7 @@ export class SyncPullQueueManager {
   getAllCursors(): Array<{ itemId: ItemId; cursor: number }> {
     const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
-    const targetItemIds = new Set([...this.pendingPullItemIds, ...this.trackedItemIds])
+    const targetItemIds = new Set([...this.pendingPullItemIds])
     for (const itemId of targetItemIds) {
       const cursor = this.cursorByItemId.get(itemId) ?? 0
       cursors.push({ itemId, cursor })

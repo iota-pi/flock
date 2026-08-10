@@ -161,7 +161,7 @@ describe('SyncPullQueueManager', () => {
   })
 
   describe('getAllCursors', () => {
-    it('includes cursors for pending items and tracked items', async () => {
+    it('includes cursors only for pending items', async () => {
       await manager.setAccount('account-1')
 
       // Add multiple cursors to internal state
@@ -170,12 +170,13 @@ describe('SyncPullQueueManager', () => {
         { itemId: 'item-2' as ItemId, cursor: 20 },
       ])
 
-      // Since none are pending or tracked yet, cursors should be empty
+      // Since none are pending yet, cursors should be empty
       let cursors = manager.getAllCursors()
       expect(cursors).toHaveLength(0)
 
-      // Sync tracked items
-      manager.syncTrackedItemIds(['item-1' as ItemId, 'item-2' as ItemId])
+      // Add pending items
+      manager.addPendingItem('item-1' as ItemId)
+      manager.addPendingItem('item-2' as ItemId)
       cursors = manager.getAllCursors()
 
       expect(cursors).toHaveLength(2)

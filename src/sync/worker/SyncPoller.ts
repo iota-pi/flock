@@ -43,11 +43,6 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'success'
 
-      // Always sync local tracked item IDs to pullQueueManager
-      const localIndex = await this.indexManager.getIndexSnapshot()
-      const localItemIds = localIndex.itemIds || []
-      this.pullQueueManager.syncTrackedItemIds(localItemIds)
-
       let batchEntries: [ItemId, Uint8Array[]][]
       try {
         batchEntries = await loadSyncBatch(this.account)
