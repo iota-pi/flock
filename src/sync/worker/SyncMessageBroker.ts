@@ -8,6 +8,7 @@ import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type Message } from '@automerge/automerge-repo/slim'
+import { decodeSyncMessage } from '@automerge/automerge/slim'
 
 export class SyncMessageBroker {
   private account: string | null = null
@@ -95,6 +96,20 @@ export class SyncMessageBroker {
       this.pullQueueManager.addPendingItem(itemId)
       this.flush()
     } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      try {
+        const decoded = decodeSyncMessage(message.data)
+        if (!decoded.changes || decoded.changes.length === 0) {
+          // Drop sync messages that only contain heads/bloom filters.
+          // Automerge generates these on startup (for initial negotiation) and for ACKs.
+          // Since the vault peer is just a dumb relay and doesn't run Automerge, it never replies
+          // so Automerge would blindly broadcast these useless messages on every startup.
+          // Dropping them prevents massive redundant payloads and worker crash loops.
+          return
+        }
+      } catch (err) {
+        console.warn('[SyncMessageBroker] Failed to decode sync message, saving anyway', err)
+      }
+
       let messages = this.pendingWrites.get(itemId)
       if (!messages) {
         messages = []
