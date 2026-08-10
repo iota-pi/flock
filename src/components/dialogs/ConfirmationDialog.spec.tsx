@@ -30,5 +30,8 @@ describe('ConfirmationDialog accessibility & interactions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
     expect(handleCancel).toHaveBeenCalledTimes(1)
+
+    const dialogActions = screen.getByRole('button', { name: /cancel/i }).parentElement
+    expect(dialogActions).not.toBeNull()
   })
 })
