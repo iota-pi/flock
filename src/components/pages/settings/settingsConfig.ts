@@ -10,12 +10,14 @@ import {
   SignOutIcon,
   UploadIcon,
   PasswordIcon,
+  FingerprintIcon,
 } from '../../Icons'
 
 export type SettingsActionId =
   | 'lock'
   | 'removeAccount'
   | 'toggleDarkMode'
+  | 'toggleBiometrics'
   | 'openGoalDialog'
   | 'openDefaultFrequencyDialog'
   | 'openSubscriptionDialog'
@@ -25,7 +27,7 @@ export type SettingsActionId =
   | 'openImportDialog'
   | 'openChangePasswordDialog'
 
-export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue'
+export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue' | 'biometricsToggle'
 
 type SettingsItemConfig = {
   type: 'item'
@@ -34,7 +36,7 @@ type SettingsItemConfig = {
   icon?: MuiIconType
   action: SettingsActionId
   valueRenderer?: SettingsValueRenderer
-  disabledWhen?: 'noRecoveryItems'
+  disabledWhen?: 'noRecoveryItems' | 'biometricsUnsupported'
 }
 
 type SettingsDividerConfig = {
@@ -66,6 +68,15 @@ export const settingsConfig: SettingsConfigEntry[] = [
     title: 'Change password',
     icon: PasswordIcon,
     action: 'openChangePasswordDialog',
+  },
+  {
+    type: 'item',
+    id: 'biometrics',
+    title: 'Unlock with biometrics',
+    icon: FingerprintIcon,
+    action: 'toggleBiometrics',
+    valueRenderer: 'biometricsToggle',
+    disabledWhen: 'biometricsUnsupported',
   },
   { type: 'divider', key: 'd-pw' },
   {

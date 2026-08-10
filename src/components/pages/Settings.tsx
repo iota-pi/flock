@@ -55,6 +55,9 @@ function SettingsPage() {
       setConfirmRemoveAccountOpen(true)
     },
     toggleDarkMode: actions.handleToggleDarkMode,
+    toggleBiometrics: () => {
+      void actions.handleToggleBiometrics()
+    },
     openGoalDialog: goalDialog.openDialog,
     openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
     openSubscriptionDialog: subscriptionDialog.openDialog,

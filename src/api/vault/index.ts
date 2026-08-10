@@ -36,8 +36,19 @@ import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
 import { clearSyncBatch } from 'src/sync/shared/VaultPersistence'
 import { clearScheduledDeletions } from 'src/sync/shared/deletionQueueStore'
+import {
+  clearBiometricData,
+  readBiometricData,
+  writeBiometricData,
+  hasBiometricData,
+} from './biometricStore'
+import {
+  registerPrfCredential,
+  getPrfOutput,
+  isWebAuthnPrfSupported,
+} from './webauthn'
 
-export { createAccount, getSecurityParams }
+export { createAccount, getSecurityParams, clearBiometricData, readBiometricData, hasBiometricData, isWebAuthnPrfSupported }
 export type { CryptoResult }
 
 export interface VaultImportExportData {
@@ -276,6 +287,7 @@ export async function removeVaultFromDevice() {
   const { useAppStore } = await import('src/state/store')
   const { account, updateAuth } = useAppStore.getState()
   clearKeyData()
+  clearBiometricData()
 
   await SyncBridge.shutdown({ clearLocalData: true })
 
@@ -390,6 +402,7 @@ export async function changePassword(account: string, currentPassword: string, n
 
   masterKey = newMasterKey
   keyHash = newAuthToken
+  clearBiometricData()
   await writeStoredMetadata(account)
 }
 
@@ -401,3 +414,87 @@ export async function rotateVaultKey(account: string): Promise<void> {
   activeKeyVersion = nextActiveVer
   await storeVault(account)
 }
+
+export async function enableBiometrics(account: string): Promise<void> {
+  const currentKey = masterKey || getVaultKey('1')
+
+  const { credentialId, prfSalt, prfOutput } = await registerPrfCredential(account)
+
+  const prfKey = await crypto.subtle.importKey(
+    'raw',
+    prfOutput,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+
+  const exportedMasterKey = await exportVaultKey(currentKey)
+  const encrypted = await encryptWithKey(prfKey, exportedMasterKey, 'master')
+
+  writeBiometricData({
+    credentialId,
+    prfSalt,
+    encryptedMasterKey: {
+      iv: encrypted.iv,
+      cipher: encrypted.cipher,
+    },
+  })
+}
+
+export function disableBiometrics(): void {
+  clearBiometricData()
+}
+
+export async function unlockWithBiometrics(account: string): Promise<void> {
+  const data = readBiometricData()
+  if (!data) {
+    throw new Error('No biometric credential saved on this device')
+  }
+
+  const prfOutput = await getPrfOutput(data.credentialId, data.prfSalt)
+
+  const prfKey = await crypto.subtle.importKey(
+    'raw',
+    prfOutput,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+
+  const exportedMasterKey = await decryptWithKey(prfKey, {
+    iv: data.encryptedMasterKey.iv,
+    cipher: data.encryptedMasterKey.cipher,
+  })
+
+  const derivedKey = await importVaultKey(exportedMasterKey)
+  masterKey = derivedKey
+  keyring.clear()
+  keyring.set('1', derivedKey)
+  activeKeyVersion = '1'
+  keyHash = await hashVaultKey(derivedKey)
+
+  await establishSessionFromKeyHash(account, keyHash)
+
+  try {
+    const encryptedKeyringStr = await getKeyring(account)
+    if (encryptedKeyringStr) {
+      const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
+      const decryptionKey = masterKey || getVaultKey('1')
+      const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
+      const keyringData = JSON.parse(plaintext)
+      if (keyringData && typeof keyringData === 'object' && keyringData.activeVersion) {
+        activeKeyVersion = keyringData.activeVersion as string
+        for (const [ver, expKey] of Object.entries(keyringData)) {
+          if (ver !== 'activeVersion') {
+            keyring.set(ver, await importVaultKey(expKey as string))
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[vault] Failed to retrieve keyring from server during biometric unlock:', err)
+  }
+
+  await writeStoredMetadata(account)
+}
+

@@ -1,9 +1,13 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
   lockVault,
   removeVaultFromDevice,
+  enableBiometrics,
+  disableBiometrics,
+  hasBiometricData,
+  isWebAuthnPrfSupported,
 } from '../api/vault'
 import { useMetadata } from '../state/selectors'
 import { useAppStore } from '../state/store'
@@ -31,6 +35,31 @@ export default function useSettings(items: Item[]) {
 
   const { recoveryItems } = useDataRecovery()
   const recoveryItemsExist = recoveryItems.length > 0
+
+  const [biometricsSupported, setBiometricsSupported] = useState(false)
+  const [biometricsEnabled, setBiometricsEnabled] = useState(() => hasBiometricData())
+
+  useEffect(() => {
+    void isWebAuthnPrfSupported().then(setBiometricsSupported)
+  }, [])
+
+  const handleToggleBiometrics = useCallback(async () => {
+    if (biometricsEnabled) {
+      disableBiometrics()
+      setBiometricsEnabled(false)
+      setMessage({ message: 'Biometric unlock disabled' })
+    } else {
+      try {
+        await enableBiometrics(account)
+        setBiometricsEnabled(true)
+        setMessage({ severity: 'success', message: 'Biometric unlock enabled' })
+      } catch (err) {
+        console.error('[useSettings] enableBiometrics failed', err)
+        const msg = err instanceof Error ? err.message : 'Failed to enable biometrics'
+        setMessage({ severity: 'error', message: msg })
+      }
+    }
+  }, [account, biometricsEnabled, setMessage])
 
   // Actions
   const handleLock = useCallback(
@@ -78,6 +107,7 @@ export default function useSettings(items: Item[]) {
       handleSignOut: handleRemoveAccountFromDevice,
       handleSubscribe: subscriptionActions.handleSubscribe,
       handleToggleDarkMode: themeActions.handleToggleDarkMode,
+      handleToggleBiometrics,
       saveDefaultFrequencies,
     },
     values: {
@@ -87,6 +117,8 @@ export default function useSettings(items: Item[]) {
       goal,
       recoveryItemsExist,
       naturalGoal,
+      biometricsEnabled,
+      biometricsSupported,
     },
   }
 }

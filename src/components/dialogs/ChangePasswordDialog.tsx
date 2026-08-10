@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -8,7 +9,7 @@ import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
 
-import { changePassword } from 'src/api/vault'
+import { changePassword, hasBiometricData } from 'src/api/vault'
 import { useAppStore } from 'src/state/store'
 import { usePasswordStrength } from 'src/hooks/usePasswordStrength'
 import PasswordMeter from '../PasswordMeter'
@@ -38,6 +39,8 @@ export default function ChangePasswordDialog({
   const [loading, setLoading] = useState(false)
   const [errorText, setErrorText] = useState('')
 
+  const biometricsActive = hasBiometricData()
+
   const { score: passwordScore, error: passwordError } = usePasswordStrength(newPassword)
 
   const handleClose = useCallback(() => {
@@ -64,9 +67,13 @@ export default function ChangePasswordDialog({
     setErrorText('')
     try {
       await changePassword(account, currentPassword, newPassword)
+      let message = 'Password changed successfully.'
+      if (biometricsActive) {
+        message += ' You can re-enable biometric unlock in Settings.'
+      }
       setMessage({
         severity: 'success',
-        message: 'Password changed successfully',
+        message,
       })
       handleClose()
       if (onPasswordChanged) {
@@ -94,6 +101,12 @@ export default function ChangePasswordDialog({
 
       <DialogContent>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
+          {biometricsActive && (
+            <Alert severity="info">
+              Changing your password will disable biometric unlock. You can re-enable biometrics in Settings afterwards.
+            </Alert>
+          )}
+
           <TextField
             label="Current Password"
             type={showCurrentPassword ? 'text' : 'password'}
