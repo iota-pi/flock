@@ -40,7 +40,7 @@ function ConfirmationDialog({
         {children}
       </DialogContent>
 
-      <DialogActions>
+      <DialogActions sx={{ alignItems: 'stretch' }}>
         <Button
           data-cy="confirm-cancel"
           fullWidth
