@@ -47,6 +47,7 @@ import {
   getPrfOutput,
   isWebAuthnPrfSupported,
 } from './webauthn'
+import { unsubscribe as unsubscribeFromNotifications } from 'src/utils/pushNotifications'
 
 export { createAccount, getSecurityParams, clearBiometricData, readBiometricData, hasBiometricData, isWebAuthnPrfSupported }
 export type { CryptoResult }
@@ -286,16 +287,21 @@ export async function lockVault() {
 export async function removeVaultFromDevice() {
   const { useAppStore } = await import('src/state/store')
   const { account, updateAuth } = useAppStore.getState()
-  clearKeyData()
-  clearBiometricData()
 
   await SyncBridge.shutdown({ clearLocalData: true })
 
   if (account) {
+    try {
+      await unsubscribeFromNotifications(account)
+    } catch (error) {
+      console.error('Failed to unsubscribe from notifications', error)
+    }
     await clearSyncBatch(account)
     await clearScheduledDeletions(account)
     await clearManualRecoveryEntries(account)
   }
+  clearKeyData()
+  clearBiometricData()
   await clearActiveSessionToken()
   clearStoredMetadata()
   updateAuth({ account: '', loggedIn: false })
@@ -330,25 +336,6 @@ export async function encryptBytes(bytes: Uint8Array): Promise<CryptoResult> {
 export async function decryptBytes(data: CryptoResult): Promise<Uint8Array> {
   const kver = data.kver || '1'
   return decryptBytesWithKey(getVaultKey(kver), data)
-}
-
-export async function addPushSubscription(account: string, subscription: WebPushSubscription): Promise<void> {
-  await addPushSubscriptionClient(account, subscription)
-}
-
-export async function deletePushSubscription(account: string, endpoint: string): Promise<void> {
-  await deletePushSubscriptionClient(account, endpoint)
-}
-
-export async function updateReminderSettings(
-  account: string,
-  settings: { reminderEnabled: boolean, reminderTime: string, reminderTimezone: string },
-): Promise<void> {
-  await updateReminderSettingsClient(account, settings)
-}
-
-export async function getReminderSettings(account: string) {
-  return getReminderSettingsClient(account)
 }
 
 export async function recordPrayerCompletion(account: string, completedAt = Date.now()): Promise<void> {
