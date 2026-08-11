@@ -1,4 +1,3 @@
-import type { WebPushSubscription } from '../../vault/types'
 import {
   clearActiveSessionToken,
   getActiveSessionToken,
@@ -7,14 +6,10 @@ import {
 import { clearManualRecoveryEntries } from '../../sync/shared/manualRecoveryStore'
 import { setApiAuthToken, setApiSessionExpiredHandler } from '../runtime'
 import {
-  addPushSubscription as addPushSubscriptionClient,
   createAccount,
-  deletePushSubscription as deletePushSubscriptionClient,
-  getReminderSettings as getReminderSettingsClient,
   getSecurityParams,
   getSession,
   recordPrayerCompletion as recordPrayerCompletionClient,
-  updateReminderSettings as updateReminderSettingsClient,
   getKeyring,
   updateKeyring,
   changePassword as changePasswordClient,
