@@ -1,16 +1,16 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa';
-import { sentryVitePlugin } from '@sentry/vite-plugin';
-import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
 
-import { visualizer } from 'rollup-plugin-visualizer';
+import { visualizer } from 'rollup-plugin-visualizer'
 
-const isProductionBuild = process.env.NODE_ENV === 'production';
-const sentryOrg = process.env.SENTRY_ORG;
-const sentryProject = process.env.SENTRY_PROJECT;
-const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+const isProductionBuild = process.env.NODE_ENV === 'production'
+const sentryOrg = process.env.SENTRY_ORG
+const sentryProject = process.env.SENTRY_PROJECT
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN
 
 export default defineConfig({
   base: '/',
@@ -25,6 +25,7 @@ export default defineConfig({
       injectManifest: {
         rollupFormat: 'es',
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
       },
       registerType: 'autoUpdate',
       manifest: {
@@ -111,4 +112,4 @@ export default defineConfig({
       topLevelAwait(),
     ],
   },
-});
+})
