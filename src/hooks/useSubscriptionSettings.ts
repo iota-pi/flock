@@ -23,15 +23,15 @@ export default function useSubscriptionSettings({
     try {
       if (hours) {
         await subscribe(account, hours)
-        setMessage({ message: 'Subscription saved' })
+        setMessage({ message: 'Notification saved' })
       } else {
         await unsubscribe(account)
-        setMessage({ message: 'Subscription removed' })
+        setMessage({ message: 'Notification removed' })
       }
       return true
     } catch (error) {
-      setMessage({ message: 'Failed to update subscription', severity: 'error' })
-      console.error('Subscription update failed', error)
+      setMessage({ message: 'Failed to update notification', severity: 'error' })
+      console.error('Notification update failed', error)
       return false
     }
   }, [account, setMessage])
