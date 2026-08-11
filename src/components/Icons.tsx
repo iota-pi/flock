@@ -12,6 +12,7 @@ import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
 import ExpandIcon from '@mui/icons-material/ExpandMore'
 import FilterIcon from '@mui/icons-material/FilterAlt'
+import FingerprintIcon from '@mui/icons-material/Fingerprint'
 import FrequencyIcon from '@mui/icons-material/Schedule'
 import GroupIcon from '@mui/icons-material/Groups'
 import HomeIcon from '@mui/icons-material/Home'
@@ -62,6 +63,7 @@ export {
   EditIcon,
   ExpandIcon,
   FilterIcon,
+  FingerprintIcon,
   FrequencyIcon,
   GroupIcon,
   HomeIcon,

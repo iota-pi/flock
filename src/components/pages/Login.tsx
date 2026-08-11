@@ -14,13 +14,14 @@ import { ROUTES } from './routes'
 import { resolveRedirectRoute, type RedirectRouteState } from './redirectUtils'
 import { useAppStore } from 'src/state/store'
 import {
+  FingerprintIcon,
   HomeIcon,
   PasswordIcon,
   PersonIcon,
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { getSecurityParams, loginVault } from 'src/api/vault'
+import { getSecurityParams, loginVault, hasBiometricData, unlockWithBiometrics } from 'src/api/vault'
 
 
 const Root = styled('div')({
@@ -120,6 +121,33 @@ function LoginPage() {
     },
     [accountInput, location.state, location.pathname, navigate, password, setUi, updateAuth],
   )
+  const handleClickBiometricUnlock = useCallback(
+    async () => {
+      setLoading(true)
+      setError('')
+      try {
+        updateAuth({ account: accountInput })
+        await unlockWithBiometrics(accountInput)
+        updateAuth({ loggedIn: true })
+        setUi({ justCreatedAccount: false })
+
+        const nextRoute = resolveRedirectRoute(
+          location.state as RedirectRouteState | null,
+          ROUTES.prayer.path,
+          location.pathname,
+        )
+
+        navigate(nextRoute)
+      } catch (err) {
+        console.error('[Login] Biometric unlock failed', err)
+        setError('Biometric unlock failed. Please use your password.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [accountInput, location.state, location.pathname, navigate, setUi, updateAuth],
+  )
+
   const handleClickCreate = useCallback(
     () => {
       navigate(ROUTES.signup.path)
@@ -142,6 +170,8 @@ function LoginPage() {
     (event: MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     [],
   )
+
+  const canUseBiometrics = hasBiometricData() && Boolean(accountInput)
 
   return (
     <Root>
@@ -180,6 +210,23 @@ function LoginPage() {
                 Account successfully created!
                 Please record your account ID and password and login again to continue.
               </Alert>
+            </Box>
+          )}
+
+          {canUseBiometrics && (
+            <Box sx={{ mb: 4 }}>
+              <Button
+                color="secondary"
+                data-cy="biometric-login"
+                disabled={loading}
+                fullWidth
+                onClick={handleClickBiometricUnlock}
+                size="large"
+                startIcon={<FingerprintIcon />}
+                variant="contained"
+              >
+                Unlock with Biometrics
+              </Button>
             </Box>
           )}
 

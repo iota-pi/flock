@@ -5,6 +5,8 @@ import Typography from '@mui/material/Typography'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import List from '@mui/material/List'
+import Switch from '@mui/material/Switch'
+import Tooltip from '@mui/material/Tooltip'
 
 import SettingsItem from '../../SettingsItem'
 import { SettingsActionId, settingsConfig, SettingsValueRenderer } from './settingsConfig'
@@ -14,6 +16,8 @@ type SettingsValues = {
   goal: number
   naturalGoal: number
   recoveryItemsExist: boolean
+  biometricsEnabled: boolean
+  biometricsSupported: boolean
 }
 
 type SettingsItemsListProps = {
@@ -21,10 +25,10 @@ type SettingsItemsListProps = {
   values: SettingsValues
 }
 
-const LeftCheckboxLabel = styled(FormControlLabel)(({ theme }) => ({
+const LeftControlLabel = styled(FormControlLabel)(({ theme }) => ({
   marginRight: 0,
 
-  '& .MuiCheckbox-root': {
+  '& .MuiCheckbox-root, & .MuiSwitch-root': {
     marginLeft: theme.spacing(1),
   },
 }))
@@ -44,7 +48,7 @@ function renderValue(renderer: SettingsValueRenderer | undefined, values: Settin
 
   if (renderer === 'darkModeToggle') {
     return (
-      <LeftCheckboxLabel
+      <LeftControlLabel
         control={(
           <Checkbox
             checked={values.darkMode || false}
@@ -53,6 +57,22 @@ function renderValue(renderer: SettingsValueRenderer | undefined, values: Settin
           />
         )}
         label={getDarkModeLabel(values.darkMode)}
+        labelPlacement="start"
+      />
+    )
+  }
+
+  if (renderer === 'biometricsToggle') {
+    return (
+      <LeftControlLabel
+        control={(
+          <Switch
+            checked={values.biometricsEnabled}
+            size="small"
+            color="primary"
+          />
+        )}
+        label={values.biometricsEnabled ? 'Enabled' : 'Disabled'}
         labelPlacement="start"
       />
     )
@@ -80,21 +100,41 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
           return <Divider key={item.key} />
         }
 
-        const disabled = (
-          item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist
-        )
+        const isBiometricsUnsupported = item.disabledWhen === 'biometricsUnsupported' && !values.biometricsSupported
+        const isNoRecoveryItems = item.disabledWhen === 'noRecoveryItems' && !values.recoveryItemsExist
+        
+        const disabled = isBiometricsUnsupported || isNoRecoveryItems
 
-        return (
-          <SettingsItem
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            icon={item.icon}
-            onClick={actionHandlers[item.action]}
-            value={renderValue(item.valueRenderer, values)}
-            disabled={disabled}
-          />
-        )
+        const itemProps = {
+          id: item.id,
+          title: item.title,
+          icon: item.icon,
+          onClick: actionHandlers[item.action],
+          value: renderValue(item.valueRenderer, values),
+          disabled,
+        }
+
+        if (isBiometricsUnsupported) {
+          return (
+            <Tooltip key={item.id} title="Biometrics are not supported on this device" placement="left">
+              <span>
+                <SettingsItem {...itemProps} />
+              </span>
+            </Tooltip>
+          )
+        }
+
+        if (isNoRecoveryItems) {
+          return (
+            <Tooltip key={item.id} title="No items require recovery" placement="left">
+              <span>
+                <SettingsItem {...itemProps} />
+              </span>
+            </Tooltip>
+          )
+        }
+
+        return <SettingsItem key={item.id} {...itemProps} />
       })}
     </List>
   )

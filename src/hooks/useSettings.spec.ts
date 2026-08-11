@@ -29,6 +29,10 @@ vi.mock('../api/vault', () => ({
   exportData: mocks.exportData,
   lockVault: mocks.lockVault,
   removeVaultFromDevice: mocks.removeVaultFromDevice,
+  hasBiometricData: vi.fn(() => false),
+  isWebAuthnPrfSupported: vi.fn(async () => true),
+  enableBiometrics: vi.fn(async () => undefined),
+  disableBiometrics: vi.fn(async () => undefined),
 }))
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
