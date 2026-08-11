@@ -1,6 +1,6 @@
 import { memo, ReactNode } from 'react'
 import Box from '@mui/material/Box'
-import IconButton from '@mui/material/IconButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
 import Typography from '@mui/material/Typography'
 import ListItemButton from '@mui/material/ListItemButton'
 
@@ -30,6 +30,11 @@ function SettingsItem({
       data-cy={id}
       onClick={onClick}
     >
+      {Icon && (
+        <ListItemIcon>
+          <Icon fontSize="small" />
+        </ListItemIcon>
+      )}
       <Box sx={{
         flexGrow: 1
       }}>
@@ -47,17 +52,6 @@ function SettingsItem({
           alignItems: "center"
         }}>
         {value}
-
-        {Icon && (
-          <IconButton
-            data-cy="edit-button"
-            disableRipple
-            size="medium"
-            aria-label={`edit-${id}`}
-          >
-            <Icon fontSize="small" />
-          </IconButton>
-        )}
       </Box>
     </ListItemButton>
   )
