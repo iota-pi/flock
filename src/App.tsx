@@ -70,7 +70,7 @@ function RootLayout() {
   return (
     <Root>
       <AppInitializer />
-      <BiometricPrompt />
+      {loggedIn && <BiometricPrompt />}
       {loggedIn && (
         <>
           <AppBar

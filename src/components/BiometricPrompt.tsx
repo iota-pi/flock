@@ -5,13 +5,11 @@ import Button from '@mui/material/Button'
 import Snackbar from '@mui/material/Snackbar'
 
 import { enableBiometrics, hasBiometricData, isWebAuthnPrfSupported } from '../api/vault'
-import { useLoggedIn } from '../state/selectors'
 import { useAppStore } from '../state/store'
 
 const PROMPT_DISMISSED_KEY = 'flock_biometric_prompt_dismissed'
 
 export default function BiometricPrompt() {
-  const loggedIn = useLoggedIn()
   const account = useAppStore(state => state.account)
   const setMessage = useAppStore(state => state.setMessage)
 
@@ -19,14 +17,11 @@ export default function BiometricPrompt() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!loggedIn || !account) {
-      setOpen(false)
-      return
-    }
-
     let isMounted = true
 
     async function checkEligibility() {
+      if (!account) return
+
       const dismissed = localStorage.getItem(PROMPT_DISMISSED_KEY) === 'true'
       if (dismissed || hasBiometricData()) {
         return
@@ -43,7 +38,7 @@ export default function BiometricPrompt() {
     return () => {
       isMounted = false
     }
-  }, [loggedIn, account])
+  }, [account])
 
   const handleDismiss = useCallback(() => {
     localStorage.setItem(PROMPT_DISMISSED_KEY, 'true')
