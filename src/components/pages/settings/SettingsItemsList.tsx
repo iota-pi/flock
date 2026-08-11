@@ -117,7 +117,7 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
         if (isBiometricsUnsupported) {
           return (
             <Tooltip key={item.id} title="Biometrics are not supported on this device" placement="left">
-              <span>
+              <span style={{ display: 'block' }}>
                 <SettingsItem {...itemProps} />
               </span>
             </Tooltip>
@@ -127,7 +127,7 @@ export default function SettingsItemsList({ actionHandlers, values }: SettingsIt
         if (isNoRecoveryItems) {
           return (
             <Tooltip key={item.id} title="No items require recovery" placement="left">
-              <span>
+              <span style={{ display: 'block' }}>
                 <SettingsItem {...itemProps} />
               </span>
             </Tooltip>
