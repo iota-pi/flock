@@ -86,7 +86,7 @@ export default function ChangePasswordDialog({
     } finally {
       setLoading(false)
     }
-  }, [account, currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage, onPasswordChanged])
+  }, [account, currentPassword, newPassword, confirmPassword, passwordError, handleClose, setMessage, onPasswordChanged, biometricsActive])
 
   const isValid =
     currentPassword.length > 0 &&
