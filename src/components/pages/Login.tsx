@@ -169,7 +169,9 @@ function LoginPage() {
       const hasAutoPrompted = sessionStorage.getItem('flock_auto_prompted') === 'true'
       if (!hasAutoPrompted) {
         sessionStorage.setItem('flock_auto_prompted', 'true')
-        handleClickBiometricUnlock()
+        queueMicrotask(() => {
+          void handleClickBiometricUnlock()
+        })
       }
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
