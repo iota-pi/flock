@@ -1,8 +1,8 @@
 import type { ProtectedPageId } from '../../src/components/pages/types'
-import { GroupItem, PersonItem } from '../../src/shared/schemas/items'
+import { GroupItem, ItemId, PersonItem } from '../../src/shared/schemas/items'
 
-function generateLocalItemId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+function generateLocalItemId(): ItemId {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` as ItemId
 }
 
 function makeBlankPerson(): PersonItem {
@@ -346,7 +346,8 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addToGroup',
   (group: string): Cypress.Chainable => {
-    cy.dataCy('groups').type(`${group}{enter}`)
+    cy.dataCy('groups').type(group)
+    cy.contains('[role="option"]', group).click()
     cy.get('body').type('{esc}')
     return cy
   },
@@ -355,7 +356,8 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addMember',
   (name: string): Cypress.Chainable => {
-    cy.dataCy('members').type(`${name}{enter}`)
+    cy.dataCy('members').type(name)
+    cy.contains('[role="option"]', name).click()
     cy.get('body').type('{esc}')
     return cy
   },
