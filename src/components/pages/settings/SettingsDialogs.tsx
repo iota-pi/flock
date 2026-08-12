@@ -21,7 +21,7 @@ type DialogState = {
 
 type SettingsDialogsProps = {
   existingPeople: Item[]
-  defaultFrequencies: Partial<Record<'person' | 'group', Frequency>>
+  defaultFrequencies: Partial<Record<'person' | 'group' | 'topic', Frequency>>
   dialogs: {
     defaultFrequency: DialogState
     goal: DialogState
@@ -35,7 +35,7 @@ type SettingsDialogsProps = {
   handlers: {
     onImportConfirm: (items: Item[]) => Promise<void>
     onRestoreConfirm: (payload: BackupPayloadV2) => Promise<void>
-    onSaveDefaultFrequencies: (defaults: Partial<Record<'person' | 'group', Frequency>>) => Promise<void>
+    onSaveDefaultFrequencies: (defaults: Partial<Record<'person' | 'group' | 'topic', Frequency>>) => Promise<void>
     onSubscriptionSave: (hours: number[] | null) => Promise<void>
   }
   naturalGoal: number
