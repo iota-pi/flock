@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -21,7 +21,14 @@ import {
   VisibilityIcon,
   VisibilityOffIcon,
 } from '../Icons'
-import { getSecurityParams, loginVault, hasBiometricData, unlockWithBiometrics } from 'src/api/vault'
+import {
+  getSecurityParams,
+  loginVault,
+  hasBiometricData,
+  readBiometricData,
+  unlockWithBiometrics,
+  getBiometricLabel,
+} from 'src/api/vault'
 
 
 const Root = styled('div')({
@@ -67,9 +74,14 @@ function LoginPage() {
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState(() => createdAccountId || '')
+  const [accountInput, setAccountInput] = useState(() => {
+    if (createdAccountId) return createdAccountId
+    const biometricData = readBiometricData()
+    return biometricData?.account || ''
+  })
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const biometricLabel = getBiometricLabel()
 
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
@@ -138,15 +150,29 @@ function LoginPage() {
         )
 
         navigate(nextRoute)
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Login] Biometric unlock failed', err)
-        setError('Biometric unlock failed. Please use your password.')
+        if (err instanceof Error && err.name === 'NotAllowedError') {
+          setError(`${biometricLabel} unlock was cancelled. Enter your password or tap to try again.`)
+        } else {
+          setError(`${biometricLabel} unlock failed. Please use your password.`)
+        }
       } finally {
         setLoading(false)
       }
     },
-    [accountInput, location.state, location.pathname, navigate, setUi, updateAuth],
+    [accountInput, biometricLabel, location.state, location.pathname, navigate, setUi, updateAuth],
   )
+
+  useEffect(() => {
+    if (hasBiometricData() && accountInput && !justCreatedAccount) {
+      const hasAutoPrompted = sessionStorage.getItem('flock_auto_prompted') === 'true'
+      if (!hasAutoPrompted) {
+        sessionStorage.setItem('flock_auto_prompted', 'true')
+        handleClickBiometricUnlock()
+      }
+    }
+  }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
 
   const handleClickCreate = useCallback(
     () => {
@@ -225,7 +251,7 @@ function LoginPage() {
                 startIcon={<FingerprintIcon />}
                 variant="contained"
               >
-                Unlock with Biometrics
+                Unlock with {biometricLabel}
               </Button>
             </Box>
           )}
