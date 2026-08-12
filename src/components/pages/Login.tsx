@@ -75,7 +75,7 @@ function LoginPage() {
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState(() => {
+  const [defaultAccount] = useState(() => {
     if (createdAccountId) return createdAccountId
     const biometricData = readBiometricData()
     if (biometricData?.account) return biometricData.account
@@ -83,6 +83,7 @@ function LoginPage() {
     if (storedMeta?.account) return storedMeta.account
     return ''
   })
+  const [accountInput, setAccountInput] = useState(defaultAccount)
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -241,6 +242,12 @@ function LoginPage() {
             </Box>
           )}
 
+          {!justCreatedAccount && (
+            <Typography variant="h4" gutterBottom align="center">
+              {defaultAccount ? 'Locked' : 'Login'}
+            </Typography>
+          )}
+
           {canUseBiometrics && !showPasswordForm ? (
             <Box sx={{ mb: 4 }}>
               <Button
@@ -259,6 +266,7 @@ function LoginPage() {
               <Box sx={{ mt: 2, textAlign: 'center' }}>
                 <Button
                   color="primary"
+                  fullWidth
                   onClick={() => setShowPasswordForm(true)}
                   variant="text"
                 >
@@ -351,6 +359,8 @@ function LoginPage() {
                   <Button
                     color="primary"
                     disabled={loading}
+                    fullWidth
+                    startIcon={<FingerprintIcon />}
                     onClick={handleClickBiometricUnlock}
                     variant="text"
                   >
