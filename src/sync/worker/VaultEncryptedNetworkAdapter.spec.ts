@@ -398,7 +398,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     orchestrator.setOnlineState(true)
     orchestrator.setLeader(true)
-    broker.queuePendingPullItems(['item-1' as ItemId])
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)
@@ -409,10 +408,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
-    // Advancing past the 30s backoff delay + jitter should trigger the third poll.
+    // Queuing a new pending pull item immediately flushes and triggers poll #3.
     broker.queuePendingPullItems(['item-2' as ItemId])
-    await vi.advanceTimersByTimeAsync(50000)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(50)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
+
+    // Advancing past the 30s backoff delay + jitter triggers poll #4.
+    await vi.advanceTimersByTimeAsync(50000)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(4)
   })
 })

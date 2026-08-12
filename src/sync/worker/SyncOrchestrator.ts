@@ -92,11 +92,9 @@ export class SyncOrchestrator {
   }
 
   private async flushSyncBatch(): Promise<void> {
-    if (this.isPolling) {
-      this.syncBatchTimeout = self.setTimeout(() => void this.flushSyncBatch(), 500)
-    } else {
-      void this.executeWrappedPoll()
-      this.syncBatchTimeout = null
+    this.syncBatchTimeout = null
+    if (!this.isPolling) {
+      void this.executeWrappedPoll(true)
     }
   }
 
@@ -108,7 +106,7 @@ export class SyncOrchestrator {
     }
 
     if (immediate) {
-      void this.executeWrappedPoll()
+      void this.executeWrappedPoll(true)
     }
 
     this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
@@ -163,9 +161,9 @@ export class SyncOrchestrator {
     )
   }
 
-  private async executeWrappedPoll(): Promise<void> {
+  private async executeWrappedPoll(force = false): Promise<void> {
     if (this.isPolling || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) return
-    if (this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
+    if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
     let outcome: PollOutcome
