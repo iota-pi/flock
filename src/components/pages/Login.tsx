@@ -80,6 +80,7 @@ function LoginPage() {
     return biometricData?.account || ''
   })
   const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
 
@@ -152,6 +153,7 @@ function LoginPage() {
         navigate(nextRoute)
       } catch (err: unknown) {
         console.error('[Login] Biometric unlock failed', err)
+        setShowPasswordForm(true)
         if (err instanceof Error && err.name === 'NotAllowedError') {
           setError(`${biometricLabel} unlock was cancelled. Enter your password or tap to try again.`)
         } else {
@@ -226,10 +228,6 @@ function LoginPage() {
         </CenterSection>
 
         <Section>
-          <Typography variant="h4" gutterBottom>
-            Login
-          </Typography>
-
           {justCreatedAccount && (
             <Box sx={{
               mb: 4
@@ -241,10 +239,10 @@ function LoginPage() {
             </Box>
           )}
 
-          {canUseBiometrics && (
+          {canUseBiometrics && !showPasswordForm ? (
             <Box sx={{ mb: 4 }}>
               <Button
-                color="secondary"
+                color="primary"
                 data-cy="biometric-login"
                 disabled={loading}
                 fullWidth
@@ -255,115 +253,131 @@ function LoginPage() {
               >
                 Unlock with {biometricLabel}
               </Button>
+
+              <Box sx={{ mt: 2, textAlign: 'center' }}>
+                <Button
+                  color="primary"
+                  onClick={() => setShowPasswordForm(true)}
+                  variant="text"
+                >
+                  Login with password instead
+                </Button>
+              </Box>
             </Box>
+          ) : (
+            <FormContent>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexGrow: 1,
+                  mb: 2
+                }}>
+                <TextField
+                  autoComplete="username"
+                  fullWidth
+                  id="username"
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <PersonIcon />
+                        </InputAdornment>
+                      ),
+                    }
+                  }}
+                  label="Account ID"
+                  name="username"
+                  onChange={handleChangeAccount}
+                  value={accountInput}
+                  variant="standard"
+                />
+              </Box>
+
+              <Box
+                sx={{
+                  display: "flex",
+                  flexGrow: 1,
+                  mb: 2
+                }}>
+                <TextField
+                  autoComplete="current-password"
+                  fullWidth
+                  id="current-password"
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <PasswordIcon />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={handleClickVisibility}
+                            onMouseDown={handleMouseDownVisibility}
+                            size="large"
+                          >
+                            {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }
+                  }}
+                  label="Password"
+                  name="password"
+                  onChange={handleChangePassword}
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  variant="standard"
+                />
+              </Box>
+
+              <Button
+                color="primary"
+                data-cy="login"
+                disabled={!accountInput || !password}
+                loading={loading}
+                onClick={handleClickLogin}
+                size="large"
+                variant="contained"
+              >
+                Login
+              </Button>
+
+              {canUseBiometrics && (
+                <Box sx={{ mt: 2, textAlign: 'center' }}>
+                  <Button
+                    color="primary"
+                    disabled={loading}
+                    onClick={handleClickBiometricUnlock}
+                    variant="text"
+                  >
+                    Unlock with {biometricLabel} instead
+                  </Button>
+                </Box>
+              )}
+            </FormContent>
           )}
 
-          <FormContent>
-            <Box
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                mb: 2
-              }}>
-              <TextField
-                autoComplete="username"
-                fullWidth
-                id="username"
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonIcon />
-                      </InputAdornment>
-                    ),
-                  }
-                }}
-                label="Account ID"
-                name="username"
-                onChange={handleChangeAccount}
-                value={accountInput}
-                variant="standard"
-              />
-            </Box>
-
-            <Box
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                mb: 2
-              }}>
-              <TextField
-                autoComplete="current-password"
-                fullWidth
-                id="current-password"
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PasswordIcon />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          onClick={handleClickVisibility}
-                          onMouseDown={handleMouseDownVisibility}
-                          size="large"
-                        >
-                          {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }
-                }}
-                label="Password"
-                name="password"
-                onChange={handleChangePassword}
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                variant="standard"
-              />
-            </Box>
-
-            <Button
-              color="primary"
-              data-cy="login"
-              disabled={!accountInput || !password}
-              loading={loading}
-              onClick={handleClickLogin}
-              size="large"
-              variant="contained"
-            >
-              Login
-            </Button>
-
-            {error && (
-              <Typography color="error" sx={{
-                mt: 2
-              }}>
-                {error}
-              </Typography>
-            )}
-          </FormContent>
+          {error && (
+            <Typography color="error" sx={{
+              mt: 2
+            }}>
+              {error}
+            </Typography>
+          )}
         </Section>
 
         <Section>
           <FormContent>
-            <Typography
-              gutterBottom
-              variant="h5"
-            >
-              Create a New Account
-            </Typography>
-
             <Button
               color="primary"
               data-cy="create-account"
               onClick={handleClickCreate}
               size="large"
-              variant="contained"
+              variant="text"
             >
-              Create Account
+              Create a New Account
             </Button>
           </FormContent>
         </Section>

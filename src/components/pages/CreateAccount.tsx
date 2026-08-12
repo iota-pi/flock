@@ -260,18 +260,14 @@ function CreateAccountPage() {
         </Section>
 
         <Section>
-          <Typography variant="h5" gutterBottom>
-            Login to Existing Account
-          </Typography>
-
           <Button
             color="primary"
             fullWidth
             onClick={handleClickLogin}
             size="large"
-            variant="contained"
+            variant="text"
           >
-            Login
+            Login to Existing Account
           </Button>
         </Section>
 
