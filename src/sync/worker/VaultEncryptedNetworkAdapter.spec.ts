@@ -1,4 +1,5 @@
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
+import { encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -349,6 +350,33 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(setItemSpy).toHaveBeenCalledTimes(1) // Should still be 1 (didn't call it again)
 
     setItemSpy.mockRestore()
+  })
+
+  it('sends seed ACK to adapter when receiving initial negotiation message with empty changes', () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const initialSyncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+    
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-test' as DocumentId,
+      data: initialSyncMsg,
+    })
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(
+      'automerge:item-test',
+      expect.any(Uint8Array),
+    )
   })
 
   it('immediately triggers next poll if hasMore is true', async () => {
