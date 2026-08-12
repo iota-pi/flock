@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -26,6 +26,7 @@ import {
   loginVault,
   hasBiometricData,
   readBiometricData,
+  readStoredMetadata,
   unlockWithBiometrics,
   getBiometricLabel,
 } from 'src/api/vault'
@@ -77,12 +78,16 @@ function LoginPage() {
   const [accountInput, setAccountInput] = useState(() => {
     if (createdAccountId) return createdAccountId
     const biometricData = readBiometricData()
-    return biometricData?.account || ''
+    if (biometricData?.account) return biometricData.account
+    const storedMeta = readStoredMetadata()
+    if (storedMeta?.account) return storedMeta.account
+    return ''
   })
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
+  const hasAutoPromptedRef = useRef(false)
 
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
@@ -167,14 +172,11 @@ function LoginPage() {
   )
 
   useEffect(() => {
-    if (hasBiometricData() && accountInput && !justCreatedAccount) {
-      const hasAutoPrompted = sessionStorage.getItem('flock_auto_prompted') === 'true'
-      if (!hasAutoPrompted) {
-        sessionStorage.setItem('flock_auto_prompted', 'true')
-        queueMicrotask(() => {
-          void handleClickBiometricUnlock()
-        })
-      }
+    if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
+      hasAutoPromptedRef.current = true
+      queueMicrotask(() => {
+        void handleClickBiometricUnlock()
+      })
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
 
