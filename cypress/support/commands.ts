@@ -346,7 +346,8 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addToGroup',
   (group: string): Cypress.Chainable => {
-    cy.dataCy('groups').type(`${group}{enter}`)
+    cy.dataCy('groups').type(group)
+    cy.contains('[role="option"]', group).click()
     cy.get('body').type('{esc}')
     return cy
   },
@@ -355,7 +356,8 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addMember',
   (name: string): Cypress.Chainable => {
-    cy.dataCy('members').type(`${name}{enter}`)
+    cy.dataCy('members').type(name)
+    cy.contains('[role="option"]', name).click()
     cy.get('body').type('{esc}')
     return cy
   },
