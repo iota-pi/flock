@@ -1,8 +1,8 @@
 import type { ProtectedPageId } from '../../src/components/pages/types'
-import { GroupItem, PersonItem } from '../../src/shared/schemas/items'
+import { GroupItem, ItemId, PersonItem } from '../../src/shared/schemas/items'
 
-function generateLocalItemId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+function generateLocalItemId(): ItemId {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` as ItemId
 }
 
 function makeBlankPerson(): PersonItem {
