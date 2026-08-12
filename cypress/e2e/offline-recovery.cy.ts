@@ -73,7 +73,8 @@ describe('Data recovery', () => {
     seedManualRecoveryEntry(`recovery-${uniqueId}`, `failed-${uniqueId}`)
 
     cy.page('settings')
-    cy.contains('Corrupted data recovery').scrollIntoView().should('be.visible').click()
+    cy.contains('Corrupted data recovery').scrollIntoView().should('be.visible')
+    cy.contains('Corrupted data recovery').click()
     cy.contains('Corrupted Data Recovery').should('be.visible')
     cy.contains('button', 'Retry').should('have.length', 1)
 
