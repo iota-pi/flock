@@ -81,8 +81,12 @@ function ItemDrawer({
 
   const cleanupAndClose = useCallback(
     () => {
-      if (itemId !== null && isNew && resolvedItem && !isValid(resolvedItem)) {
-        deleteItems(itemId).catch(error => console.error(error))
+      if (itemId !== null && isNew) {
+        const latestItem = useAppStore.getState().items[itemId] as Item | undefined
+        const itemToCheck = latestItem || resolvedItem
+        if (itemToCheck && !isValid(itemToCheck)) {
+          deleteItems(itemId).catch(error => console.error(error))
+        }
       }
 
       onClose()
