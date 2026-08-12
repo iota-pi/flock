@@ -44,7 +44,7 @@ import {
 } from './webauthn'
 import { unsubscribe as unsubscribeFromNotifications } from 'src/utils/pushNotifications'
 
-export { createAccount, getSecurityParams, clearBiometricData, readBiometricData, hasBiometricData, isWebAuthnPrfSupported }
+export { createAccount, getSecurityParams, clearBiometricData, readBiometricData, hasBiometricData, isWebAuthnPrfSupported, readStoredMetadata }
 export type { CryptoResult }
 
 export interface VaultImportExportData {

@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -26,6 +26,7 @@ import {
   loginVault,
   hasBiometricData,
   readBiometricData,
+  readStoredMetadata,
   unlockWithBiometrics,
   getBiometricLabel,
 } from 'src/api/vault'
@@ -74,15 +75,20 @@ function LoginPage() {
 
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
-  const [accountInput, setAccountInput] = useState(() => {
+  const [defaultAccount] = useState(() => {
     if (createdAccountId) return createdAccountId
     const biometricData = readBiometricData()
-    return biometricData?.account || ''
+    if (biometricData?.account) return biometricData.account
+    const storedMeta = readStoredMetadata()
+    if (storedMeta?.account) return storedMeta.account
+    return ''
   })
+  const [accountInput, setAccountInput] = useState(defaultAccount)
   const [showPassword, setShowPassword] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
+  const hasAutoPromptedRef = useRef(false)
 
   const handleClickHome = useCallback(
     () => navigate(ROUTES.welcome.path),
@@ -167,14 +173,11 @@ function LoginPage() {
   )
 
   useEffect(() => {
-    if (hasBiometricData() && accountInput && !justCreatedAccount) {
-      const hasAutoPrompted = sessionStorage.getItem('flock_auto_prompted') === 'true'
-      if (!hasAutoPrompted) {
-        sessionStorage.setItem('flock_auto_prompted', 'true')
-        queueMicrotask(() => {
-          void handleClickBiometricUnlock()
-        })
-      }
+    if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
+      hasAutoPromptedRef.current = true
+      queueMicrotask(() => {
+        void handleClickBiometricUnlock()
+      })
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
 
@@ -239,6 +242,12 @@ function LoginPage() {
             </Box>
           )}
 
+          {!justCreatedAccount && (
+            <Typography variant="h4" gutterBottom align="center">
+              {defaultAccount ? 'Locked' : 'Login'}
+            </Typography>
+          )}
+
           {canUseBiometrics && !showPasswordForm ? (
             <Box sx={{ mb: 4 }}>
               <Button
@@ -257,6 +266,7 @@ function LoginPage() {
               <Box sx={{ mt: 2, textAlign: 'center' }}>
                 <Button
                   color="primary"
+                  fullWidth
                   onClick={() => setShowPasswordForm(true)}
                   variant="text"
                 >
@@ -349,6 +359,8 @@ function LoginPage() {
                   <Button
                     color="primary"
                     disabled={loading}
+                    fullWidth
+                    startIcon={<FingerprintIcon />}
                     onClick={handleClickBiometricUnlock}
                     variant="text"
                   >
