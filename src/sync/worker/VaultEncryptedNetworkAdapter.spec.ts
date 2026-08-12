@@ -1,4 +1,5 @@
 import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
+import { encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -351,6 +352,33 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setItemSpy.mockRestore()
   })
 
+  it('sends seed ACK to adapter when receiving initial negotiation message with empty changes', () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const initialSyncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+    
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-test' as DocumentId,
+      data: initialSyncMsg,
+    })
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(
+      'automerge:item-test',
+      expect.any(Uint8Array),
+    )
+  })
+
   it('immediately triggers next poll if hasMore is true', async () => {
     const accountId = 'account-pagination'
     adapter.setAccount(accountId)
@@ -398,7 +426,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     orchestrator.setOnlineState(true)
     orchestrator.setLeader(true)
-    broker.queuePendingPullItems(['item-1' as ItemId])
 
     // Since the second poll is scheduled with 0ms delay, both polls will execute immediately within 50ms.
     await vi.advanceTimersByTimeAsync(50)
@@ -409,10 +436,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
-    // Advancing past the 30s backoff delay + jitter should trigger the third poll.
+    // Queuing a new pending pull item immediately flushes and triggers poll #3.
     broker.queuePendingPullItems(['item-2' as ItemId])
-    await vi.advanceTimersByTimeAsync(50000)
-    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(50)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
+
+    // Advancing past the 30s backoff delay + jitter triggers poll #4.
+    await vi.advanceTimersByTimeAsync(50000)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(4)
   })
 })

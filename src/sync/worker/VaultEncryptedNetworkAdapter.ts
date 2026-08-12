@@ -6,6 +6,7 @@ import {
   type StorageId,
   type DocumentId,
 } from '@automerge/automerge-repo/slim'
+import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 const VAULT_PEER_ID = 'vault' as PeerId
 
@@ -78,6 +79,25 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
     if (!this.sendEnabled) {
       return
+    }
+
+    if (message.type === 'sync' && message.data instanceof Uint8Array) {
+      try {
+        const decoded = decodeSyncMessage(message.data)
+        if (!decoded.changes || decoded.changes.length === 0) {
+          // Drop empty negotiation/ACK messages to prevent broadcast spam since the vault
+          // peer is a passive relay. If this is an initial negotiation (heads present),
+          // seed the vault's syncState with a 0-head ACK so Automerge immediately emits
+          // the actual change payload.
+          if (decoded.heads && decoded.heads.length > 0) {
+            const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+            this.receiveMessage(message.documentId!, ackMsg)
+          }
+          return
+        }
+      } catch (err) {
+        console.warn('[VaultNetworkAdapter] Failed to decode sync message', err)
+      }
     }
 
     this.onMessageToSend?.(message)
