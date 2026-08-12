@@ -4,7 +4,7 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Snackbar from '@mui/material/Snackbar'
 
-import { enableBiometrics, hasBiometricData, isWebAuthnPrfSupported } from '../api/vault'
+import { enableBiometrics, getBiometricLabel, hasBiometricData, isWebAuthnPrfSupported } from '../api/vault'
 import { useAppStore } from '../state/store'
 
 const PROMPT_DISMISSED_KEY = 'flock_biometric_prompt_dismissed'
@@ -15,6 +15,7 @@ export default function BiometricPrompt() {
 
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const biometricLabel = getBiometricLabel()
 
   useEffect(() => {
     let isMounted = true
@@ -54,18 +55,18 @@ export default function BiometricPrompt() {
       setOpen(false)
       setMessage({
         severity: 'success',
-        message: 'Biometric unlock enabled successfully!',
+        message: `${biometricLabel} unlock enabled successfully!`,
       })
     } catch (err) {
       console.error('Failed to enable biometrics from prompt:', err)
       setMessage({
         severity: 'error',
-        message: 'Failed to enable biometric unlock.',
+        message: `Failed to enable ${biometricLabel} unlock.`,
       })
     } finally {
       setLoading(false)
     }
-  }, [account, setMessage])
+  }, [account, biometricLabel, setMessage])
 
   if (!open) return null
 
@@ -89,7 +90,7 @@ export default function BiometricPrompt() {
           </Box>
         )}
       >
-        Speed up login by enabling biometric unlock?
+        Speed up future logins by enabling {biometricLabel} unlock?
       </Alert>
     </Snackbar>
   )

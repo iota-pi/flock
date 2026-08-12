@@ -1,6 +1,7 @@
 export const BIOMETRIC_STORAGE_KEY = 'FlockBiometricData'
 
 export type BiometricStoredData = {
+  account?: string
   credentialId: string
   prfSalt: string
   encryptedMasterKey: {
@@ -22,7 +23,12 @@ export function readBiometricData(): BiometricStoredData | null {
       typeof parsed.encryptedMasterKey.iv === 'string' &&
       typeof parsed.encryptedMasterKey.cipher === 'string'
     ) {
-      return parsed as BiometricStoredData
+      return {
+        account: typeof parsed.account === 'string' ? parsed.account : undefined,
+        credentialId: parsed.credentialId,
+        prfSalt: parsed.prfSalt,
+        encryptedMasterKey: parsed.encryptedMasterKey,
+      }
     }
   } catch {
     clearBiometricData()

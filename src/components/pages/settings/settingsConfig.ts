@@ -1,7 +1,6 @@
 import {
   DownloadIcon,
   FrequencyIcon,
-  EditIcon,
   LockIcon,
   MuiIconType,
   NotificationIcon,
@@ -11,6 +10,7 @@ import {
   UploadIcon,
   PasswordIcon,
   FingerprintIcon,
+  PrayerIcon,
 } from '../../Icons'
 
 export type SettingsActionId =
@@ -91,7 +91,7 @@ export const settingsConfig: SettingsConfigEntry[] = [
     type: 'item',
     id: 'prayer-goal',
     title: 'Daily prayer goal',
-    icon: EditIcon,
+    icon: PrayerIcon,
     action: 'openGoalDialog',
     valueRenderer: 'goalValue',
   },
