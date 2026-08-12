@@ -80,10 +80,10 @@ export default function useSettings(items: Item[]) {
 
   const [defaultFrequencies, setDefaultFrequencies] = useMetadata(
     'defaultPrayerFrequency',
-    { person: 'none', group: 'none' },
+    { person: 'none', group: 'none', topic: 'none' },
   )
 
-  const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group', Frequency>>) => {
+  const saveDefaultFrequencies = useCallback(async (d: Partial<Record<'person' | 'group' | 'topic', Frequency>>) => {
     try {
       await setDefaultFrequencies(prev => ({ ...(prev || {}), ...d }))
       setMessage({ message: 'Default prayer frequencies saved' })
