@@ -127,7 +127,11 @@ export function mutateItem(
 
   useAppStore.getState().optimisticUpdateItem(itemId, updatedItem)
 
-  return SyncBridge.mutateItem(itemId, changes)
+  void SyncBridge.mutateItem(itemId, changes).catch(error => {
+    console.error('[itemMutations] mutateItem SyncBridge error:', error)
+  })
+
+  return Promise.resolve()
 }
 
 export async function storeItems(
@@ -140,7 +144,9 @@ export async function storeItems(
     useAppStore.getState().optimisticUpdateItem(item.id, newItem)
   }
 
-  await SyncBridge.storeItems(current)
+  void SyncBridge.storeItems(current).catch(error => {
+    console.error('[itemMutations] storeItems SyncBridge error:', error)
+  })
 
   return current
 }
