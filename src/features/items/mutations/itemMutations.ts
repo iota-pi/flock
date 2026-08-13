@@ -144,9 +144,7 @@ export async function storeItems(
     useAppStore.getState().optimisticUpdateItem(item.id, newItem)
   }
 
-  void SyncBridge.storeItems(current).catch(error => {
-    console.error('[itemMutations] storeItems SyncBridge error:', error)
-  })
+  await SyncBridge.storeItems(current)
 
   return current
 }
