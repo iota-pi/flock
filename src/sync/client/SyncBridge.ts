@@ -113,6 +113,13 @@ export const SyncBridge = {
     const initialOnlineState = getOnlineState()
 
     const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
+    worker.onerror = (event: ErrorEvent) => {
+      const error = event.error || new Error(event.message || 'Sync Worker Error')
+      console.error('[Sync Worker Uncaught Error]', error)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
+      }
+    }
     workerInstance = worker
     syncApi = Comlink.wrap<SyncApi>(worker)
 
