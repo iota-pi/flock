@@ -86,3 +86,18 @@ beforeEach(() => {
 })
 
 Cypress.Keyboard.defaults({ keystrokeDelay: 5 })
+
+Cypress.on('window:before:load', (win) => {
+  const originalConsoleError = win.console.error
+  win.console.error = (...args: unknown[]) => {
+    originalConsoleError.apply(win.console, args)
+    const msg = args.map(a => (typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a))).join(' ')
+    if (
+      msg.includes('RangeError') ||
+      msg.includes('recursive use of an object') ||
+      msg.includes('[Sync Worker Uncaught Error]')
+    ) {
+      throw new Error(`[Cypress E2E Error Assert] Severe background/Automerge error detected: ${msg}`)
+    }
+  }
+})
