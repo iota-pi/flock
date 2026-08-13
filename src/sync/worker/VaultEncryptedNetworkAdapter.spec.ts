@@ -352,7 +352,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setItemSpy.mockRestore()
   })
 
-  it('sends seed ACK to adapter when receiving initial negotiation message with empty changes', () => {
+  it('sends seed ACK to adapter when receiving initial negotiation message with empty changes', async () => {
     const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
     const initialSyncMsg = encodeSyncMessage({
       heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
@@ -372,6 +372,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       documentId: 'automerge:item-test' as DocumentId,
       data: initialSyncMsg,
     })
+
+    await Promise.resolve()
 
     expect(receiveMessageSpy).toHaveBeenCalledWith(
       'automerge:item-test',

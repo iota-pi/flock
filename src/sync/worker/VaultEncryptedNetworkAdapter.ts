@@ -91,7 +91,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
           // the actual change payload.
           if (decoded.heads && decoded.heads.length > 0) {
             const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
-            this.receiveMessage(message.documentId!, ackMsg)
+            queueMicrotask(() => {
+              this.receiveMessage(message.documentId!, ackMsg)
+            })
           }
           return
         }
