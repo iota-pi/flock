@@ -186,8 +186,13 @@ export class AutomergeDocStore {
       return false
     }
 
-    handle.change(change)
-    return true
+    try {
+      handle.change(change)
+      return true
+    } catch (error) {
+      console.warn(`[AutomergeDocStore] Failed to change document for ${itemId}:`, error)
+      return false
+    }
   }
 
   async getAutomergeItem(itemId: ItemId): Promise<Item | null> {
