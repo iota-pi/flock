@@ -100,169 +100,191 @@ const handleSyncEvent = (event: ClientEvent) => {
   }
 }
 
+let initializationPromise: Promise<void> | null = null
+
 export const SyncBridge = {
-  initialize: async (accountId: string) => {
-    if (syncApi && currentAccountId === accountId) return
+  ensureReady: async () => {
+    if (initializationPromise) {
+      await initializationPromise
+    }
+    if (!syncApi) {
+      throw new Error('SyncBridge not initialized')
+    }
+  },
 
-    if (syncApi || workerInstance) {
-      await SyncBridge.shutdown()
+  initialize: (accountId: string): Promise<void> => {
+    if (syncApi && currentAccountId === accountId) return Promise.resolve()
+    if (initializationPromise && currentAccountId === accountId) {
+      return initializationPromise
     }
 
-    currentAccountId = accountId
-    useAppStore.getState().setSyncStatus('connecting')
-    const initialOnlineState = getOnlineState()
-
-    const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
-    worker.onerror = (event: ErrorEvent) => {
-      const error = event.error || new Error(event.message || 'Sync Worker Error')
-      console.error('[Sync Worker Uncaught Error]', error)
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
+    initializationPromise = (async () => {
+      if (syncApi || workerInstance) {
+        await SyncBridge.shutdown()
       }
-    }
-    workerInstance = worker
-    syncApi = Comlink.wrap<SyncApi>(worker)
 
-    try {
-      const vaultKey = await exportKeyringData()
-      if (!vaultKey) throw new Error('Vault key not found in storage')
+      currentAccountId = accountId
+      useAppStore.getState().setSyncStatus('connecting')
+      const initialOnlineState = getOnlineState()
 
-      await syncApi.initRepo(
-        accountId,
-        vaultKey,
-        Comlink.proxy(handleSyncEvent),
-      )
-      await syncApi.setOnlineState(initialOnlineState)
-      await syncApi.bootstrapItems()
-
-      if (!onlineListenerAttached) {
-        onlineListenerAttached = true
-
-        const handleOnlineStateChange = () => {
-          if (!syncApi) return
-          void syncApi.setOnlineState(getOnlineState())
+      const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
+      worker.onerror = (event: ErrorEvent) => {
+        const error = event.error || new Error(event.message || 'Sync Worker Error')
+        console.error('[Sync Worker Uncaught Error]', error)
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
         }
+      }
+      workerInstance = worker
+      const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
-        window.addEventListener(
-          'online',
-          handleOnlineStateChange,
+      try {
+        const vaultKey = await exportKeyringData()
+        if (!vaultKey) throw new Error('Vault key not found in storage')
+
+        await wrappedApi.initRepo(
+          accountId,
+          vaultKey,
+          Comlink.proxy(handleSyncEvent),
         )
-        window.addEventListener(
-          'offline',
-          handleOnlineStateChange,
-        )
-        if (typeof document !== 'undefined') {
-          document.addEventListener(
-            'visibilitychange',
+        await wrappedApi.setOnlineState(initialOnlineState)
+        await wrappedApi.bootstrapItems()
+
+        syncApi = wrappedApi
+
+        if (!onlineListenerAttached) {
+          onlineListenerAttached = true
+
+          const handleOnlineStateChange = () => {
+            if (!syncApi) return
+            void syncApi.setOnlineState(getOnlineState())
+          }
+
+          window.addEventListener(
+            'online',
             handleOnlineStateChange,
           )
-        }
-      }
-
-      setOnRecoveryItemsChangedListener(() => {
-        void SyncBridge.listRecoveryItems()
-      })
-
-      useAppStore.getState().clearSyncWarning()
-      setupWorkerHealthCheck({
-        worker,
-        pingFn: async () => {
-          if (syncApi) await syncApi.ping()
-        },
-        isCurrentWorker: () => workerInstance === worker && !!syncApi,
-        onCrash: () => {
-          if (workerInstance === worker) {
-            workerInstance = null
-            syncApi = null
+          window.addEventListener(
+            'offline',
+            handleOnlineStateChange,
+          )
+          if (typeof document !== 'undefined') {
+            document.addEventListener(
+              'visibilitychange',
+              handleOnlineStateChange,
+            )
           }
-        },
-        onRestart: () => {
-          setTimeout(() => {
-            if (currentAccountId === accountId) {
-              SyncBridge.initialize(accountId).catch(err => {
-                console.error('[SyncBridge] Auto-restart initialization failed:', err)
-              })
+        }
+
+        setOnRecoveryItemsChangedListener(() => {
+          void SyncBridge.listRecoveryItems()
+        })
+
+        useAppStore.getState().clearSyncWarning()
+        setupWorkerHealthCheck({
+          worker,
+          pingFn: async () => {
+            if (syncApi) await syncApi.ping()
+          },
+          isCurrentWorker: () => workerInstance === worker && !!syncApi,
+          onCrash: () => {
+            if (workerInstance === worker) {
+              workerInstance = null
+              syncApi = null
+              initializationPromise = null
             }
-          }, 1000)
-        },
-      })
-    } catch (error) {
-      console.error('Failed to initialize SyncBridge:', error)
-      useAppStore.getState().setSyncStatus('offline')
-      worker.terminate()
-      if (workerInstance === worker) {
-        workerInstance = null
+          },
+          onRestart: () => {
+            setTimeout(() => {
+              if (currentAccountId === accountId) {
+                SyncBridge.initialize(accountId).catch(err => {
+                  console.error('[SyncBridge] Auto-restart initialization failed:', err)
+                })
+              }
+            }, 1000)
+          },
+        })
+      } catch (error) {
+        console.error('Failed to initialize SyncBridge:', error)
+        useAppStore.getState().setSyncStatus('offline')
+        worker.terminate()
+        if (workerInstance === worker) {
+          workerInstance = null
+        }
+        syncApi = null
+        currentAccountId = null
+        initializationPromise = null
       }
-      syncApi = null
-      currentAccountId = null
-    }
+    })()
+
+    return initializationPromise
   },
 
   forceSync: async () => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.forceSync()
+    await SyncBridge.ensureReady()
+    await syncApi!.forceSync()
   },
 
   mutateItem: async (id: ItemId, changes: Partial<Item>) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.mutateItem(id, changes)
+    await SyncBridge.ensureReady()
+    await syncApi!.mutateItem(id, changes)
   },
 
   createItem: async (item: any) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.createItem(item)
+    await SyncBridge.ensureReady()
+    await syncApi!.createItem(item)
   },
 
   hardDeleteItems: async (itemIds: ItemId[]) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.hardDeleteItems(itemIds)
+    await SyncBridge.ensureReady()
+    await syncApi!.hardDeleteItems(itemIds)
   },
 
   storeItems: async (items: any[]) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.storeItems(items)
+    await SyncBridge.ensureReady()
+    await syncApi!.storeItems(items)
   },
 
   mutateMetadata: async (changes: any) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.mutateMetadata(changes)
+    await SyncBridge.ensureReady()
+    await syncApi!.mutateMetadata(changes)
   },
 
   exportAllBinaries: async () => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    return await syncApi.exportAllBinaries()
+    await SyncBridge.ensureReady()
+    return await syncApi!.exportAllBinaries()
   },
 
   restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    const result = await syncApi.restoreFromBinaries(documents)
+    await SyncBridge.ensureReady()
+    const result = await syncApi!.restoreFromBinaries(documents)
     useAppStore.getState().incrementGeneration()
     return result
   },
 
   retryRecoveryItem: async (itemId: ItemId) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.retryRecoveryItem(itemId)
+    await SyncBridge.ensureReady()
+    await syncApi!.retryRecoveryItem(itemId)
   },
 
   forceOverwriteRecoveryItem: async (itemId: ItemId) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.forceOverwriteRecoveryItem(itemId)
+    await SyncBridge.ensureReady()
+    await syncApi!.forceOverwriteRecoveryItem(itemId)
   },
 
   forceDeleteRecoveryItem: async (itemId: ItemId) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.forceDeleteRecoveryItem(itemId)
+    await SyncBridge.ensureReady()
+    await syncApi!.forceDeleteRecoveryItem(itemId)
   },
 
   dismissRecoveryItem: async (entryId: string) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.dismissRecoveryItem(entryId)
+    await SyncBridge.ensureReady()
+    await syncApi!.dismissRecoveryItem(entryId)
   },
 
   listRecoveryItems: async (): Promise<ManualRecoveryEntry[]> => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    const entries = await syncApi.listRecoveryItems()
+    await SyncBridge.ensureReady()
+    const entries = await syncApi!.listRecoveryItems()
     recoveryEntries = entries
     for (const listener of recoveryEntriesListeners) {
       listener(entries)
@@ -279,26 +301,27 @@ export const SyncBridge = {
   },
 
   updateVaultKey: async (vaultKey: string) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.updateVaultKey(vaultKey)
+    await SyncBridge.ensureReady()
+    await syncApi!.updateVaultKey(vaultKey)
   },
 
   reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.reencryptAllItems(Comlink.proxy(onProgress))
+    await SyncBridge.ensureReady()
+    await syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
   },
 
   exportSyncState: async () => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    return await syncApi.exportSyncState()
+    await SyncBridge.ensureReady()
+    return await syncApi!.exportSyncState()
   },
 
   restoreSyncState: async (state: Partial<BackupSyncState>) => {
-    if (!syncApi) throw new Error('SyncBridge not initialized')
-    await syncApi.restoreSyncState(state)
+    await SyncBridge.ensureReady()
+    await syncApi!.restoreSyncState(state)
   },
 
   shutdown: async (options?: { clearLocalData?: boolean }) => {
+    initializationPromise = null
     currentAccountId = null
     stopWorkerHeartbeat()
     resetCrashMetrics()
