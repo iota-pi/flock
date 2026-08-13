@@ -296,7 +296,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
     })
 
-    it('handles decryption failure by calling reportDecryptionFailure', async () => {
+    it('handles decryption failure by calling reportDecryptionFailure without advancing cursor or removing from pending pulls', async () => {
       mockDecryptBytes.mockRejectedValueOnce(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -326,8 +326,9 @@ describe('SyncPullQueueManager', () => {
           error: expect.any(Error),
         }
       )
-      // Cursors should still update to highest/nextCursor even if message decryption fails
-      expect(manager.exportCursors()).toContainEqual(['item-fail', 20])
+      // Cursors should NOT advance on decryption failure and item should stay pending
+      expect(manager.exportCursors()).toEqual([['item-fail', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
     })
 
     it('re-queues pending items and clears them based on hasMore', async () => {

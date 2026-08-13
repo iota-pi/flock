@@ -11,6 +11,8 @@ export class SyncOrchestrator {
   private isPolling = false
   private pollingPausedForAuth = false
 
+  private pendingFlush = false
+
   private pollIntervalId: number | null = null
   private syncBatchTimeout: number | null = null
   private readonly pollBackoffStepsMs = [30000, 60000, 120000, 300000]
@@ -95,6 +97,8 @@ export class SyncOrchestrator {
     this.syncBatchTimeout = null
     if (!this.isPolling) {
       void this.executeWrappedPoll(true)
+    } else {
+      this.pendingFlush = true
     }
   }
 
@@ -146,8 +150,8 @@ export class SyncOrchestrator {
       return delayMs
     }
 
-    const offset = Math.floor(Math.random() * (jitterWindow + 1))
-    return delayMs + offset
+    const offset = Math.floor(Math.random() * (jitterWindow + 1)) - Math.floor(jitterWindow / 2)
+    return Math.max(0, delayMs + offset)
   }
 
   private resetPollBackoff(): void {
@@ -173,6 +177,14 @@ export class SyncOrchestrator {
       outcome = 'failure'
     } finally {
       this.isPolling = false
+    }
+
+    if (this.pendingFlush) {
+      this.pendingFlush = false
+      if (this.isOnline && this.isLeader && !this.pollingPausedForAuth) {
+        this.scheduleNextPoll(0)
+        return
+      }
     }
 
     if (this.pollingPausedForAuth) {

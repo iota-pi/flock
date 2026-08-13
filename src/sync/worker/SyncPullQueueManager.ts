@@ -105,7 +105,7 @@ export class SyncPullQueueManager {
           error
         })
       }
-      return { parsed: false, cursor: entry.cursor }
+      return { parsed: false }
     }
   }
 
@@ -141,6 +141,7 @@ export class SyncPullQueueManager {
           const itemId = result.itemId
           const hasMore = result.hasMore === true
           let highestCursor = this.cursorByItemId.get(itemId) || 0
+          let hasParseFailure = false
 
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
@@ -148,14 +149,15 @@ export class SyncPullQueueManager {
             const handled = await this.handleMessageEntry(itemId, documentId, entry)
             if (handled.parsed) {
               successfullyPulledItemIds.add(itemId)
-            }
-
-            if (Number.isFinite(handled.cursor)) {
-              highestCursor = Math.max(highestCursor, handled.cursor!)
+              if (Number.isFinite(handled.cursor)) {
+                highestCursor = Math.max(highestCursor, handled.cursor!)
+              }
+            } else {
+              hasParseFailure = true
             }
           }
 
-          if (Number.isFinite(result.nextCursor)) {
+          if (!hasParseFailure && Number.isFinite(result.nextCursor)) {
             highestCursor = Math.max(highestCursor, result.nextCursor)
           }
 
@@ -164,7 +166,7 @@ export class SyncPullQueueManager {
             cursorsUpdated = true
           }
 
-          if (hasMore) {
+          if (hasMore || hasParseFailure) {
             this.pendingPullItemIds.add(itemId)
           } else {
             this.pendingPullItemIds.delete(itemId)

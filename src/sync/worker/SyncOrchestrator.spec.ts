@@ -1,0 +1,83 @@
+import { SyncOrchestrator } from './SyncOrchestrator'
+import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
+
+describe('SyncOrchestrator', () => {
+  let orchestrator: SyncOrchestrator
+  let mockBroker: any
+  let clientEventHub: ClientEventHub
+  let internalEventHub: WorkerInternalEventHub
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+
+    mockBroker = {
+      setOnlineState: vi.fn(),
+      setSendEnabled: vi.fn(),
+      executePoll: vi.fn().mockResolvedValue('success'),
+      hasPendingPulls: vi.fn().mockReturnValue(false),
+      onFlushNeeded: null,
+    }
+
+    clientEventHub = new ClientEventHub()
+    internalEventHub = new WorkerInternalEventHub()
+
+    orchestrator = new SyncOrchestrator(
+      'account-1',
+      mockBroker,
+      clientEventHub,
+      internalEventHub
+    )
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('queues flush if flush is called during active polling and executes immediately after', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Call flush while poll is in-flight
+    orchestrator.flush()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Should not have started a second poll yet because isPolling is true
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Now resolve the first poll
+    resolvePoll('success')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Now the pending flush should schedule and execute poll immediately (delay 0)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+  })
+
+  it('applies symmetric jitter centered around target delay', () => {
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+
+    // Access private method applyBackoffJitter for testing
+    const applyJitter = (orchestrator as any).applyBackoffJitter.bind(orchestrator)
+
+    const samples: number[] = []
+    for (let i = 0; i < 1000; i++) {
+      samples.push(applyJitter(60000))
+    }
+
+    const avg = samples.reduce((a, b) => a + b, 0) / samples.length
+    // Target is 60000, jitter window is 15000, so delay ranges 52500 - 67500. Average should be ~60000.
+    expect(avg).toBeGreaterThan(57000)
+    expect(avg).toBeLessThan(63000)
+  })
+})
