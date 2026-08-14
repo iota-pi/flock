@@ -4,7 +4,7 @@ import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
 import type { SyncApi } from './syncProtocol'
-import { ClientEventHub, WorkerInternalEventHub, type ClientEventListener, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
+import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { subscribeRealtimeBusSyncPing } from '../client/realtimeBus'
@@ -30,7 +30,7 @@ import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 
 let globalEventPort: MessagePort | null = null
-self.addEventListener('message', (ev) => {
+self.addEventListener('message', ev => {
   if (ev.data && ev.data.type === 'EVENT_PORT') {
     globalEventPort = ev.data.port
   }

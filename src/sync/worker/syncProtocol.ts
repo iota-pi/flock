@@ -1,4 +1,3 @@
-import type { ClientEventListener } from './SyncEventHub'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'

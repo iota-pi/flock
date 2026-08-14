@@ -83,7 +83,7 @@ export class ItemOperations {
         doc => {
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined) delete doc[key]
-            else (doc as any)[key] = value
+            else doc[key] = value
           }
         },
         { createIfMissing: true, knownToExist: existingIds.has(item.id) },

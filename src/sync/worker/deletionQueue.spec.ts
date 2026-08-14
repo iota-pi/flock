@@ -126,15 +126,12 @@ vi.mock('./SyncMessageBroker', () => {
 
 describe('SyncWorker Deletion Queue Integration', () => {
   let worker: SyncWorker
-  let mockOnEvent: any
   const accountId = 'test-account'
 
   beforeEach(async () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     deletionStore.clearScheduledDeletions(accountId)
-
-    mockOnEvent = vi.fn().mockResolvedValue(undefined)
 
     // Initially have item-1 and item-2
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-2'])

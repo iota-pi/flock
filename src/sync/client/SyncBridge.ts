@@ -145,7 +145,7 @@ export const SyncBridge = {
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
         _globalEventChannel = new MessageChannel()
-        _globalEventChannel.port1.onmessage = (ev) => {
+        _globalEventChannel.port1.onmessage = ev => {
           handleSyncEvent(ev.data as ClientEvent)
         }
         _globalEventChannel.port1.start()
