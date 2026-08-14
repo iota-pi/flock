@@ -3,6 +3,18 @@ import 'cypress-axe'
 import type { ProtectedPageId } from '../../src/components/pages/types'
 import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 
+Cypress.on('window:before:load', (win) => {
+  cy.spy(win.console, 'log').as('consoleLog')
+  cy.spy(win.console, 'error').as('consoleError')
+  
+  // Forward to Cypress console (Node) so it shows in terminal
+  const originalLog = win.console.log
+  win.console.log = (...args) => {
+    Cypress.log({ name: 'console.log', message: args })
+    originalLog.apply(win.console, args)
+  }
+})
+
 declare global {
   namespace Cypress {
     interface Chainable {
@@ -71,7 +83,26 @@ const TEST_PASSWORD = 'TestPass123!'
 
 const establishSession = () => {
   cy.ensureAccount(TEST_PASSWORD).then(() => {
-    cy.page('prayer')
+    // Pre-warm dynamic imports that tests depend on.
+    // Vite can take several seconds to compile these on the first test run,
+    // which causes cy.then() timeouts if we don't wait for them here.
+    cy.window({ timeout: 30000 }).then({ timeout: 30000 }, (win) => {
+      return Promise.all([
+        win.mutations,
+        win.appStore,
+        win.vault
+      ])
+    }).then(() => {
+      // Wait for SyncBridge to complete its background initialization
+      // so we don't time out the individual test's cy.then() calls later
+      return cy.window({ timeout: 30000 }).then({ timeout: 30000 }, (win: any) => {
+        if (win.SyncBridge) {
+          return win.SyncBridge.ensureReady()
+        }
+      })
+    }).then(() => {
+      cy.page('prayer')
+    })
 
     // Ensure auth token has been initialised during login
     cy.window().should(win => {

@@ -29,6 +29,13 @@ import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 
+let globalEventPort: MessagePort | null = null
+self.addEventListener('message', (ev) => {
+  if (ev.data && ev.data.type === 'EVENT_PORT') {
+    globalEventPort = ev.data.port
+  }
+})
+
 export class SyncWorker implements SyncApi {
   private _context: SyncWorkerContext | null = null
   private adapter: VaultNetworkAdapter | null = null
@@ -53,7 +60,7 @@ export class SyncWorker implements SyncApi {
     this.clientEventHub.emit({ type: 'statusChange', status })
   }
 
-  async initRepo(accountId: string, vaultKey: string, onEvent: ClientEventListener) {
+  async initRepo(accountId: string, vaultKey: string) {
     this.clearListeners()
 
     if (this._context) {
@@ -77,8 +84,10 @@ export class SyncWorker implements SyncApi {
 
     resetQuotaExceededStatus()
     this.clientEventHub = new ClientEventHub()
+    if (globalEventPort) {
+      this.clientEventHub.setExternalPort(globalEventPort)
+    }
     this.internalEventHub = new WorkerInternalEventHub()
-    this.clientEventHub.setExternalListener(onEvent)
     registerQuotaReporter((msg: string) => {
       this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
     })

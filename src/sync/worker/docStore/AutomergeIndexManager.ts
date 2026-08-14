@@ -32,18 +32,18 @@ export class AutomergeIndexManager {
 
   async addAutomergeItemIdsToIndex(itemIds: ItemId[]): Promise<void> {
     const doc = await this.getIndexSnapshot()
-    const current = new Set(doc.itemIds)
+    const current = new Set(doc.itemIds || [])
     let updated = false
-    for (const itemId of itemIds) {
-      if (!current.has(itemId)) {
-        doc.itemIds!.push(itemId)
-        current.add(itemId)
+    for (const id of itemIds) {
+      if (!current.has(id)) {
+        current.add(id)
         updated = true
       }
     }
     if (updated) {
+      doc.itemIds = Array.from(current)
       await this.indexStore.saveIndex(doc)
-      this.onIndexUpdated?.(doc.itemIds || [])
+      this.onIndexUpdated?.(doc.itemIds)
     }
   }
 

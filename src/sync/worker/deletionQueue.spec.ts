@@ -142,7 +142,7 @@ describe('SyncWorker Deletion Queue Integration', () => {
     worker = new SyncWorker()
 
     // Initialize worker
-    await worker.initRepo(accountId, 'vault-key', mockOnEvent)
+    await worker.initRepo(accountId, 'vault-key')
 
     // Set initial subscribedIds
     const workerAny = worker as any

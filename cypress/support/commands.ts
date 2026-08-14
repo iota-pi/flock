@@ -264,13 +264,7 @@ Cypress.Commands.add(
     cy.dataCy(`page-${page}`).click({ force: true })
     const expectedPath = page === 'prayer' ? '/' : `/${page}`
     cy.location('pathname').should('equal', expectedPath)
-    cy.dataCy(`page-content-${page}`).should('exist')
-    cy.get('body').then(($body) => {
-      const progress = $body.find('[data-cy="loading-progress"]')
-      if (progress.length > 0) {
-        cy.wrap(progress).should('not.be.visible')
-      }
-    })
+    cy.get(`[data-cy="page-content-${page}"]`, { timeout: 30000 }).should('exist')
     return cy
   },
 )

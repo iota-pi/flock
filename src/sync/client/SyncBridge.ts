@@ -22,6 +22,7 @@ let onlineListenerAttached = false
 
 const pendingItemUpdates = new Map<string, Item | null>()
 let itemUpdateFlushHandle: number | null = null
+let _globalEventChannel: MessageChannel | null = null
 
 let recoveryEntries: ManualRecoveryEntry[] = []
 const recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
@@ -130,11 +131,12 @@ export const SyncBridge = {
       const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
       worker.onerror = (event: ErrorEvent) => {
         const error = event.error || new Error(event.message || 'Sync Worker Error')
-        console.error('[Sync Worker Uncaught Error]', error)
+        console.error('[SyncBridge] Worker error:', error)
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
         }
       }
+
       workerInstance = worker
       const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
@@ -142,10 +144,16 @@ export const SyncBridge = {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
+        _globalEventChannel = new MessageChannel()
+        _globalEventChannel.port1.onmessage = (ev) => {
+          handleSyncEvent(ev.data as ClientEvent)
+        }
+        _globalEventChannel.port1.start()
+        worker.postMessage({ type: 'EVENT_PORT', port: _globalEventChannel.port2 }, [_globalEventChannel.port2])
+
         await wrappedApi.initRepo(
           accountId,
           vaultKey,
-          Comlink.proxy(handleSyncEvent),
         )
         await wrappedApi.setOnlineState(initialOnlineState)
         await wrappedApi.bootstrapItems()

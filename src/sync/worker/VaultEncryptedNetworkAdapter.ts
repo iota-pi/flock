@@ -17,6 +17,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   private readyPromiseResolver: (() => void) | null = null
   private readonly readyPromise: Promise<void>
   private sendEnabled = false
+  private seededDocuments = new Set<DocumentId>()
 
   public onMessageToSend: ((message: Message) => void) | null = null
 
@@ -90,10 +91,13 @@ export class VaultNetworkAdapter extends NetworkAdapter {
           // seed the vault's syncState with a 0-head ACK so Automerge immediately emits
           // the actual change payload.
           if (decoded.heads && decoded.heads.length > 0) {
-            const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
-            queueMicrotask(() => {
-              this.receiveMessage(message.documentId!, ackMsg)
-            })
+            if (message.documentId && !this.seededDocuments.has(message.documentId)) {
+              this.seededDocuments.add(message.documentId)
+              const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+              queueMicrotask(() => {
+                this.receiveMessage(message.documentId!, ackMsg)
+              })
+            }
           }
           return
         }

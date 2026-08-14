@@ -83,10 +83,10 @@ export class ItemOperations {
         doc => {
           for (const [key, value] of Object.entries(item)) {
             if (value === undefined) delete doc[key]
-            else doc[key] = value
+            else (doc as any)[key] = value
           }
         },
-        { createIfMissing: true, knownToExist: existingIds.has(item.id) }
+        { createIfMissing: true, knownToExist: existingIds.has(item.id) },
       )
       if (updated) {
         succeededIds.push(item.id)
@@ -100,13 +100,9 @@ export class ItemOperations {
       await this.deps.indexManager.addAutomergeItemIdsToIndex(succeededIds)
     }
 
-    if (failedItems.length > 0) {
-      const combinedMessage = failedItems.map(item => `${item.id}: Failed to store document`).join(', ')
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'store', error: combinedMessage })
-      for (const item of failedItems) {
-        const trueState = await this.deps.docStore.getAutomergeItem(item.id)
-        this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
-      }
+    for (const item of failedItems) {
+      const trueState = await this.deps.docStore.getAutomergeItem(item.id)
+      this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
     }
   }
 

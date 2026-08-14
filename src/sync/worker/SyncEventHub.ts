@@ -27,7 +27,7 @@ export type WorkerInternalEventListener = (event: WorkerInternalEvent) => void |
 
 export class ClientEventHub {
   private listeners = new Set<ClientEventListener>()
-  private externalListener: ClientEventListener | null = null
+  private externalPort: MessagePort | null = null
 
   subscribe(listener: ClientEventListener): () => void {
     this.listeners.add(listener)
@@ -36,8 +36,8 @@ export class ClientEventHub {
     }
   }
 
-  setExternalListener(listener: ClientEventListener | null): void {
-    this.externalListener = listener
+  setExternalPort(port: MessagePort | null): void {
+    this.externalPort = port
   }
 
   emit(event: ClientEvent): void {
@@ -53,15 +53,12 @@ export class ClientEventHub {
       }
     }
 
-    // Distribute to main-thread listener
-    if (this.externalListener) {
+    // Distribute to main-thread listener via MessagePort
+    if (this.externalPort) {
       try {
-        const result = this.externalListener(event)
-        if (result instanceof Promise) {
-          result.catch(err => console.error('[ClientEventHub] Error in external listener:', err))
-        }
+        this.externalPort.postMessage(event)
       } catch (err) {
-        console.error('[ClientEventHub] Error in external listener:', err)
+        console.error('[ClientEventHub] Error posting to external port:', err)
       }
     }
   }

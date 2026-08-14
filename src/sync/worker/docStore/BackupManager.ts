@@ -15,7 +15,7 @@ export class BackupManager {
     const exported: Partial<Record<BackupDocId, string>> = {}
 
     for (const itemId of await this.indexManager.listAutomergeItemIds()) {
-      const handle = await this.docStore.findHandle(itemId)
+      const handle = await this.docStore.findHandle(itemId, { knownToExist: true })
       if (!handle || !handle.isReady()) continue
 
       const doc = handle.doc()

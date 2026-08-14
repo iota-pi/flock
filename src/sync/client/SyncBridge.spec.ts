@@ -32,6 +32,9 @@ class MockWorker {
   url: string
   options: any
   terminate = vi.fn()
+  postMessage = vi.fn()
+  addEventListener = vi.fn()
+  removeEventListener = vi.fn()
   constructor(url: string, options: any) {
     this.url = url
     this.options = options
@@ -66,7 +69,6 @@ describe('SyncBridge', () => {
     expect(mockSyncApi.initRepo).toHaveBeenCalledWith(
       'test-account',
       'test-key',
-      expect.any(Function)
     )
     expect(mockSyncApi.bootstrapItems).toHaveBeenCalled()
   })
