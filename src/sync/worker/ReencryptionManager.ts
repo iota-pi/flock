@@ -39,7 +39,21 @@ export class ReencryptionManager {
       const snapshotPromises = chunkIds.map(
         itemId => buildSnapshot(this.deps.repo, itemId, snapshotCursor)
       )
-      const snapshots = (await Promise.all(snapshotPromises)).filter(s => s !== null)
+      const settled = await Promise.allSettled(snapshotPromises)
+
+      const snapshots = []
+      for (const [index, result] of settled.entries()) {
+        if (result.status === 'fulfilled') {
+          if (result.value !== null) {
+            snapshots.push(result.value)
+          }
+        } else {
+          console.error(
+            `[ReencryptionManager] Failed to build snapshot for item ${chunkIds[index]}:`,
+            result.reason
+          )
+        }
+      }
 
       if (snapshots.length > 0) {
         const response = await putSnapshotsWithToken({
