@@ -19,7 +19,7 @@ import { VAULT_STORAGE_KEY } from './util'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { clearActiveSessionToken } from '../../sync/shared/workerAuthStore'
 
-import { updateKeyring } from './client'
+import { updateKeyring, getKeyring } from './client'
 
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
@@ -255,5 +255,40 @@ describe('Vault Keyring Integration', () => {
     // SyncBridge.shutdown MUST NOT wipe local data
     expect(shutdownSpy).toHaveBeenCalledWith({ clearLocalData: false })
     expect(shutdownSpy).not.toHaveBeenCalledWith({ clearLocalData: true })
+  })
+
+  it('throws and clears local keys when getKeyring fails on network error during loginVault', async () => {
+    vi.mocked(getKeyring).mockRejectedValueOnce(new Error('Network offline'))
+
+    await expect(
+      loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+    ).rejects.toThrow('Failed to retrieve keyring from server during login: Network offline')
+
+    // Keyring and vault state should be wiped/cleared
+    expect(() => getVaultKey('1')).toThrow()
+    // Stored metadata should not be written
+    expect(localStorage.getItem(VAULT_STORAGE_KEY)).toBeNull()
+  })
+
+  it('throws and clears local keys when storeVault fails during loginVault for new account', async () => {
+    vi.mocked(getKeyring).mockResolvedValueOnce(undefined)
+    vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network error on seed'))
+
+    await expect(
+      loginVault({
+        account: 'test-account',
+        password: 'password123',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+    ).rejects.toThrow('Failed to seed keyring to server during login: Network error on seed')
+
+    // Keyring and vault state should be wiped/cleared
+    expect(() => getVaultKey('1')).toThrow()
   })
 })

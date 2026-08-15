@@ -128,7 +128,7 @@ function LoginPage() {
         } catch (error) {
           console.error('Error during vault initialization:', error)
           updateAuth({ account: '' })
-          setError('Login failed.')
+          setError(error instanceof Error ? error.message : 'Login failed.')
         } finally {
           setLoading(false)
         }

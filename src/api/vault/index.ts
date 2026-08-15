@@ -209,14 +209,22 @@ export async function loginVault({
       keyringNeedsUpload = true
     }
   } catch (err) {
+    clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during login:', err)
+    throw new Error(
+      `Failed to retrieve keyring from server during login: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
 
   if (keyringNeedsUpload) {
     try {
       await storeVault(account)
     } catch (err) {
+      clearKeyData()
       console.error('[vault] Failed to seed keyring to server during login:', err)
+      throw new Error(
+        `Failed to seed keyring to server during login: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
   } else {
     await writeStoredMetadata(account)
@@ -504,7 +512,11 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
       }
     }
   } catch (err) {
+    clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during biometric unlock:', err)
+    throw new Error(
+      `Failed to retrieve keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
 
   await writeStoredMetadata(account)
