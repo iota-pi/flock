@@ -57,17 +57,19 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     try {
       while (this.sendQueue.length > 0) {
         const message = this.sendQueue.shift()!
-        if (message.type === 'sync' && message.data) {
-          const cryptoResult = await encryptBytes(message.data)
-          const jsonString = JSON.stringify(cryptoResult)
-          const encodedData = new TextEncoder().encode(jsonString)
-          this.inner.send({ ...message, data: encodedData })
-        } else {
-          this.inner.send(message)
+        try {
+          if (message.type === 'sync' && message.data) {
+            const cryptoResult = await encryptBytes(message.data)
+            const jsonString = JSON.stringify(cryptoResult)
+            const encodedData = new TextEncoder().encode(jsonString)
+            this.inner.send({ ...message, data: encodedData })
+          } else {
+            this.inner.send(message)
+          }
+        } catch (err) {
+          console.error('[EncryptedBroadcastChannel] Error sending message:', err)
         }
       }
-    } catch (err) {
-      console.error('[EncryptedBroadcastChannel] Error sending message:', err)
     } finally {
       this.isSending = false
     }

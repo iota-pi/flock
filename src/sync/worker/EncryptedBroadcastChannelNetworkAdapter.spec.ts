@@ -184,4 +184,49 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     const emittedMessage = mockMessageListener.mock.calls[0][0]
     expect(emittedMessage).toEqual(incomingMessage)
   })
+
+  it('continues processing remaining queue messages when encryption throws an error', async () => {
+    const { encryptBytes } = await import('src/api/vault')
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.mocked(encryptBytes)
+      .mockRejectedValueOnce(new Error('Encryption failed'))
+      .mockImplementationOnce(async (bytes: Uint8Array) => ({
+        iv: 'mock-iv',
+        cipher: 'mock-cipher-' + Array.from(bytes).join(','),
+        kver: '1',
+        version: '1.0',
+      }))
+
+    const badMessage: Message = {
+      type: 'sync',
+      senderId: 'peer1' as PeerId,
+      targetId: 'peer2' as PeerId,
+      documentId: 'badDoc' as DocumentId,
+      data: new Uint8Array([9, 9]),
+    }
+
+    const goodMessage: Message = {
+      type: 'sync',
+      senderId: 'peer1' as PeerId,
+      targetId: 'peer2' as PeerId,
+      documentId: 'goodDoc' as DocumentId,
+      data: new Uint8Array([1, 2]),
+    }
+
+    adapter.send(badMessage)
+    adapter.send(goodMessage)
+
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[EncryptedBroadcastChannel] Error sending message:',
+      expect.any(Error)
+    )
+    expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+    const sentMessage = innerAdapterMock.send.mock.calls[0][0]
+    expect(sentMessage.documentId).toBe('goodDoc')
+
+    consoleErrorSpy.mockRestore()
+  })
 })
