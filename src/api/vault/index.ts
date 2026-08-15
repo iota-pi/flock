@@ -108,14 +108,14 @@ async function establishSessionFromKeyHash(account: string, nextKeyHash: string)
   setApiSessionExpiredHandler(handleSessionExpired)
 }
 
-async function handleSessionExpired() {
+export async function handleSessionExpired() {
   if (isHandlingSessionExpiry) {
     return
   }
 
   isHandlingSessionExpiry = true
   try {
-    await removeVaultFromDevice()
+    await lockVault()
   } finally {
     setTimeout(() => {
       isHandlingSessionExpiry = false
@@ -273,6 +273,7 @@ export async function lockVault() {
   const { useAppStore } = await import('src/state/store')
   const { updateAuth } = useAppStore.getState()
   clearKeyData()
+  await clearActiveSessionToken()
 
   await SyncBridge.shutdown({ clearLocalData: false })
 

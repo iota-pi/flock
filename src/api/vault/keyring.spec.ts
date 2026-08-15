@@ -12,9 +12,11 @@ import {
   removeVaultFromDevice,
   rotateVaultKey,
   exportKeyringData,
+  handleSessionExpired,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'
-
+import { SyncBridge } from 'src/sync/client/SyncBridge'
+import { clearActiveSessionToken } from '../../sync/shared/workerAuthStore'
 
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
@@ -168,7 +170,8 @@ describe('Vault Keyring Integration', () => {
     expect(await decrypt(enc2)).toBe('data 2')
   })
 
-  it('locks vault without clearing stored metadata', async () => {
+  it('locks vault without clearing stored metadata and clears active session token', async () => {
+    const shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
     await initialiseVault({
       password: 'password123',
       salt: 'salt123',
@@ -185,5 +188,35 @@ describe('Vault Keyring Integration', () => {
     const stored = localStorage.getItem(VAULT_STORAGE_KEY)
     expect(stored).toBeDefined()
     expect(JSON.parse(stored!).account).toBe('test-account')
+
+    // active session token should be cleared
+    expect(clearActiveSessionToken).toHaveBeenCalled()
+
+    // SyncBridge.shutdown should be called with clearLocalData: false
+    expect(shutdownSpy).toHaveBeenCalledWith({ clearLocalData: false })
+  })
+
+  it('handleSessionExpired locks vault and preserves stored metadata and offline data instead of wiping', async () => {
+    const shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
+    await initialiseVault({
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+    await storeVault('test-account')
+
+    await handleSessionExpired()
+
+    // keyring should be locked/cleared
+    expect(() => getVaultKey('1')).toThrow()
+
+    // stored metadata MUST NOT be wiped
+    const stored = localStorage.getItem(VAULT_STORAGE_KEY)
+    expect(stored).toBeDefined()
+    expect(JSON.parse(stored!).account).toBe('test-account')
+
+    // SyncBridge.shutdown MUST NOT wipe local data
+    expect(shutdownSpy).toHaveBeenCalledWith({ clearLocalData: false })
+    expect(shutdownSpy).not.toHaveBeenCalledWith({ clearLocalData: true })
   })
 })
