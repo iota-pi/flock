@@ -149,7 +149,7 @@ export class SyncWorker implements SyncApi {
           break
         case 'indexUpdated': {
           this.scheduleDeletions(event.itemIds)
-          this.subscribeToItems(event.itemIds)
+          this.updateItemSubscriptions(event.itemIds)
           break
         }
       }
@@ -176,7 +176,7 @@ export class SyncWorker implements SyncApi {
     await this.broker.setAccount(accountId)
 
     const localItemIds = await this._context.indexManager.listAutomergeItemIds()
-    this.subscribeToItems(localItemIds)
+    this.updateItemSubscriptions(localItemIds)
     this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
@@ -246,6 +246,10 @@ export class SyncWorker implements SyncApi {
         handleChange()
       }).catch(console.error)
     }
+  }
+
+  updateItemSubscriptions(itemIds: ItemId[]) {
+    this.subscribeToItems(itemIds)
 
     const itemIdsSet = new Set(itemIds)
     for (const subscribedId of Array.from(this.subscribedIds)) {
