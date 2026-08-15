@@ -212,7 +212,8 @@ export async function loginVault({
     clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during login:', err)
     throw new Error(
-      `Failed to retrieve keyring from server during login: ${err instanceof Error ? err.message : String(err)}`
+      `Failed to retrieve keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     )
   }
 
@@ -223,7 +224,8 @@ export async function loginVault({
       clearKeyData()
       console.error('[vault] Failed to seed keyring to server during login:', err)
       throw new Error(
-        `Failed to seed keyring to server during login: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to seed keyring to server during login: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
       )
     }
   } else {
@@ -409,7 +411,8 @@ export async function rotateVaultKey(account: string): Promise<void> {
     keyring.delete(nextActiveVer)
     activeKeyVersion = currentActiveVer.toString()
     throw new Error(
-      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`
+      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     )
   }
 }
@@ -515,7 +518,8 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
     clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during biometric unlock:', err)
     throw new Error(
-      `Failed to retrieve keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`
+      `Failed to retrieve keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     )
   }
 
