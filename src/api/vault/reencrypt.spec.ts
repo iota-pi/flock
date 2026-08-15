@@ -52,5 +52,20 @@ describe('reencryptAllItems coordinator', () => {
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
     expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
   })
+
+  it('fails early and does not update worker or re-encrypt items when rotateVaultKey fails', async () => {
+    vi.mocked(rotateVaultKey).mockRejectedValueOnce(
+      new Error('Key rotation failed: keyring upload unsuccessful. Local state rolled back.')
+    )
+
+    await expect(reencryptAllItems('test-account')).rejects.toThrow(
+      'Key rotation failed: keyring upload unsuccessful. Local state rolled back.'
+    )
+
+    expect(rotateVaultKey).toHaveBeenCalledTimes(1)
+    expect(exportKeyringData).not.toHaveBeenCalled()
+    expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
+    expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
+  })
 })
 

@@ -213,7 +213,11 @@ export async function loginVault({
   }
 
   if (keyringNeedsUpload) {
-    await storeVault(account)
+    try {
+      await storeVault(account)
+    } catch (err) {
+      console.error('[vault] Failed to seed keyring to server during login:', err)
+    }
   } else {
     await writeStoredMetadata(account)
   }
@@ -243,20 +247,16 @@ export async function exportKeyringData(): Promise<string> {
 export async function storeVault(account: string) {
   await writeStoredMetadata(account)
   if (session) {
-    try {
-      const keyringData: Record<string, string> = {
-        activeVersion: activeKeyVersion,
-      }
-      for (const [ver, k] of keyring.entries()) {
-        keyringData[ver] = await exportVaultKey(k)
-      }
-      const plaintext = JSON.stringify(keyringData)
-      const encryptionKey = masterKey || getVaultKey('1')
-      const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
-      await updateKeyring(account, JSON.stringify(encrypted))
-    } catch (err) {
-      console.error('[vault] Failed to sync keyring to server:', err)
+    const keyringData: Record<string, string> = {
+      activeVersion: activeKeyVersion,
     }
+    for (const [ver, k] of keyring.entries()) {
+      keyringData[ver] = await exportVaultKey(k)
+    }
+    const plaintext = JSON.stringify(keyringData)
+    const encryptionKey = masterKey || getVaultKey('1')
+    const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
+    await updateKeyring(account, JSON.stringify(encrypted))
   }
 }
 
@@ -395,7 +395,15 @@ export async function rotateVaultKey(account: string): Promise<void> {
   const nextActiveVer = (currentActiveVer + 1).toString()
   keyring.set(nextActiveVer, newKey)
   activeKeyVersion = nextActiveVer
-  await storeVault(account)
+  try {
+    await storeVault(account)
+  } catch (err) {
+    keyring.delete(nextActiveVer)
+    activeKeyVersion = currentActiveVer.toString()
+    throw new Error(
+      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
 }
 
 export async function enableBiometrics(account: string): Promise<void> {

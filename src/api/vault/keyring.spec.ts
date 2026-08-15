@@ -1,5 +1,6 @@
 import {
   initialiseVault,
+  loginVault,
   initWorkerVault,
   getVaultKey,
   encrypt,
@@ -18,11 +19,15 @@ import { VAULT_STORAGE_KEY } from './util'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { clearActiveSessionToken } from '../../sync/shared/workerAuthStore'
 
+import { updateKeyring } from './client'
+
 vi.mock('./client', () => ({
   getSession: vi.fn().mockResolvedValue('mock-session'),
   createAccount: vi.fn(),
   getSecurityParams: vi.fn(),
   recordPrayerCompletion: vi.fn(),
+  getKeyring: vi.fn().mockResolvedValue(undefined),
+  updateKeyring: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../sync/shared/workerAuthStore', () => ({
@@ -168,6 +173,38 @@ describe('Vault Keyring Integration', () => {
     // Both should decrypt correctly
     expect(await decrypt(enc1)).toBe('data 1')
     expect(await decrypt(enc2)).toBe('data 2')
+  })
+
+  it('rolls back local keyring and activeKeyVersion when keyring upload fails during rotation', async () => {
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    expect(getVaultKey('1')).toBeDefined()
+    expect(() => getVaultKey('2')).toThrow()
+
+    vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network offline'))
+
+    await expect(rotateVaultKey('test-account')).rejects.toThrow(
+      'Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: Network offline'
+    )
+
+    // Keyring must be rolled back to version 1
+    expect(getVaultKey('1')).toBeDefined()
+    expect(() => getVaultKey('2')).toThrow()
+
+    // Keyring data activeVersion must be rolled back to 1
+    const exported = await exportKeyringData()
+    const parsed = JSON.parse(exported)
+    expect(parsed.activeVersion).toBe('1')
+    expect(parsed['2']).toBeUndefined()
+
+    // Subsequent encryption should still use key version 1
+    const enc = await encrypt('still on version 1')
+    expect(enc.kver).toBe('1')
   })
 
   it('locks vault without clearing stored metadata and clears active session token', async () => {
