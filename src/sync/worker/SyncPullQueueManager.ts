@@ -86,7 +86,7 @@ export class SyncPullQueueManager {
     try {
       const decrypted = await decryptBytes(entry.encryptedMessage)
       const isBatched = entry.encryptedMessage.version === '1.0'
-
+      let hasError = false
       if (isBatched) {
         parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
       } else {
@@ -94,7 +94,12 @@ export class SyncPullQueueManager {
           this.onMessageParsed(itemId, documentId, decrypted)
         } catch (error) {
           console.error('[SyncPullQueueManager] Error processing message', error)
+          hasError = true
         }
+      }
+
+      if (hasError) {
+        return { parsed: false }
       }
 
       return { parsed: true, cursor: entry.cursor }

@@ -423,7 +423,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.exportCursors()).toContainEqual(['item-batch-error', 15])
     })
 
-    it('handles message processing error for non-batched message without failing the batch', async () => {
+    it('handles message processing error for non-batched message without advancing cursor', async () => {
       const onMessageParsedSpy = vi.fn().mockImplementation(() => {
         throw new Error('Processing failed')
       })
@@ -450,7 +450,8 @@ describe('SyncPullQueueManager', () => {
       ]
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
-      expect(manager.exportCursors()).toContainEqual(['item-1', 5])
+      expect(manager.exportCursors()).toEqual([['item-1', 0]])
+      expect(manager.hasPendingPulls()).toBe(true)
     })
 
     it('continues processing subsequent items if one item throws an error', async () => {
