@@ -16,7 +16,10 @@ export class BackupManager {
 
     for (const itemId of await this.indexManager.listAutomergeItemIds()) {
       const handle = await this.docStore.findHandle(itemId, { knownToExist: true })
-      if (!handle || !handle.isReady()) continue
+      if (!handle || !handle.isReady()) {
+        console.warn(`[BackupManager] Skipping item ${itemId}: document could not be loaded in time`)
+        continue
+      }
 
       const doc = handle.doc()
       if (!doc) continue
