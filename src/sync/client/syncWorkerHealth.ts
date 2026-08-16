@@ -96,16 +96,21 @@ export const setupWorkerHealthCheck = ({
       return
     }
 
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
     try {
       await Promise.race([
         pingFn(),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error('Heartbeat timeout')), HEARTBEAT_TIMEOUT_MS)
-        ),
+        new Promise<void>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Heartbeat timeout')), HEARTBEAT_TIMEOUT_MS)
+        }),
       ])
     } catch (error) {
       console.error('[SyncBridge] Worker heartbeat failed:', error)
       handleCrash()
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+      }
     }
   }, HEARTBEAT_INTERVAL_MS)
 }

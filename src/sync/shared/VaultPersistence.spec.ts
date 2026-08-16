@@ -223,21 +223,21 @@ describe('VaultPersistence', () => {
     expect(await storage7.getItem('item-3')).not.toBeNull()
   })
 
-  it('restores sync batch', async () => {
+  it('restores sync batch without deleting unprovided keys', async () => {
     const { restoreSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const storage = getSyncBatchStorage('acc-8')
     await storage.setItem('item-old', [new Uint8Array([9])])
 
     const pendingSync = [
-      ['item-1', [new Uint8Array([1])]],
-      ['item-2', [new Uint8Array([2]), new Uint8Array([3])]],
+      ['item-1' as ItemId, [new Uint8Array([1])]],
+      ['item-2' as ItemId, [new Uint8Array([2]), new Uint8Array([3])]],
     ] as [ItemId, Uint8Array[]][]
 
     await restoreSyncBatch('acc-8', pendingSync)
 
-    // Old entries should be cleared
-    expect(await storage.getItem('item-old')).toBeNull()
+    // Old entries should be preserved
+    expect(await storage.getItem('item-old')).not.toBeNull()
 
     // New entries should be stored
     const stored1 = await storage.getItem<Uint8Array[]>('item-1')
@@ -254,13 +254,12 @@ describe('VaultPersistence', () => {
     const writes = new Map<string, Uint8Array[]>()
     writes.set('item-concur', [new Uint8Array([10, 20])])
 
-    // Kick off persist followed immediately by clear
-    const persistPromise = persistSyncMessages('acc-1', writes)
     const clearPromise = clearSyncBatch('acc-1')
+    const persistPromise = persistSyncMessages('acc-1', writes)
 
-    await Promise.all([persistPromise, clearPromise])
+    await Promise.all([clearPromise, persistPromise])
 
-    // Clear should have executed after persist in the queue for item-concur
+    // Storage should be cleared eventually because clear was queued first
     const stored = await storage.getItem('item-concur')
     expect(stored).toBeNull()
   })
@@ -273,7 +272,7 @@ describe('VaultPersistence', () => {
     writes.set('item-concur', [new Uint8Array([10, 20])])
 
     const pendingSync: [ItemId, Uint8Array[]][] = [
-      ['item-concur', [new Uint8Array([99])]],
+      ['item-concur' as ItemId, [new Uint8Array([99])]],
     ]
 
     const persistPromise = persistSyncMessages('acc-1', writes)

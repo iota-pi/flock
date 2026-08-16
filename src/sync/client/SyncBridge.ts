@@ -392,6 +392,7 @@ export const SyncBridge = {
     for (const listener of recoveryEntriesListeners) {
       listener([])
     }
+    recoveryEntriesListeners.clear()
   },
 }
 

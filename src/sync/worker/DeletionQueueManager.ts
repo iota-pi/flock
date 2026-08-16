@@ -77,8 +77,12 @@ export class DeletionQueueManager {
             continue
           }
 
-          await this.deps.docStore.removeAutomergeItem(item.itemId)
-          toRemove.push(item.itemId)
+          try {
+            await this.deps.docStore.removeAutomergeItem(item.itemId)
+            toRemove.push(item.itemId)
+          } catch (err) {
+            console.error(`[DeletionQueueManager] Failed to remove item ${item.itemId} from docStore`, err)
+          }
         }
 
         if (toRemove.length > 0) {

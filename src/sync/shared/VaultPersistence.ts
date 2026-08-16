@@ -204,24 +204,13 @@ export async function restoreSyncBatch(
 ): Promise<void> {
   try {
     const storage = getSyncBatchStorage(account)
-    const dbKeys = await storage.keys()
-    const prefix = `${account}:`
-    const activeKeys = Array.from(writeQueues.keys())
-      .filter(k => k.startsWith(prefix))
-      .map(k => k.slice(prefix.length))
-
     const pendingMap = new Map<string, Uint8Array[]>(pendingSync)
-    const allKeys = new Set([...dbKeys, ...activeKeys, ...pendingMap.keys()])
 
     await Promise.all(
-      Array.from(allKeys).map(itemId => {
+      Array.from(pendingMap.entries()).map(([itemId, messages]) => {
         const queueKey = `${account}:${itemId}`
         return enqueue(queueKey, async () => {
-          if (pendingMap.has(itemId)) {
-            await storage.setItem(itemId, pendingMap.get(itemId)!)
-          } else {
-            await storage.removeItem(itemId)
-          }
+          await storage.setItem(itemId, messages)
         })
       })
     )

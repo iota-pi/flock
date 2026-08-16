@@ -13,9 +13,12 @@ export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
 }
 
+const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
+
 export class SnapshotManager {
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
+  private consecutiveBuildFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
@@ -206,8 +209,22 @@ export class SnapshotManager {
       const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
       if (!snapshot) {
         success = false
+        const failures = (this.consecutiveBuildFailures.get(itemId) ?? 0) + 1
+        if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+          console.error(
+            `[SnapshotManager] Item ${itemId} reached max consecutive snapshot build failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
+          )
+          this.consecutiveBuildFailures.delete(itemId)
+          if (this.dirtyItems.get(itemId) === tick) {
+            this.dirtyItems.delete(itemId)
+          }
+        } else {
+          this.consecutiveBuildFailures.set(itemId, failures)
+        }
         continue
       }
+
+      this.consecutiveBuildFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
 
@@ -357,6 +374,7 @@ export class SnapshotManager {
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()
+    this.consecutiveBuildFailures.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false

@@ -63,16 +63,19 @@ export class ItemOperations {
   }
 
   async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
+    const successfullyDeleted: ItemId[] = []
     try {
       for (const id of itemIds) {
         await this.deps.deletionQueueManager.cancelDeletion(id).catch(console.error)
         await this.deps.docStore.removeAutomergeItem(id)
-      }
-      if (itemIds.length > 0) {
-        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(itemIds)
+        successfullyDeleted.push(id)
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'hardDelete', error: (err as Error).message })
+    } finally {
+      if (successfullyDeleted.length > 0) {
+        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(successfullyDeleted).catch(console.error)
+      }
     }
   }
 

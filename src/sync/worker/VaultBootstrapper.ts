@@ -36,12 +36,15 @@ export class VaultBootstrapper {
       throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap items')
     }
 
-    const response = await fetchMany({
-      account: this.deps.accountId,
-    }).catch(e => {
+    let response: Awaited<ReturnType<typeof fetchMany>>
+    try {
+      response = await fetchMany({
+        account: this.deps.accountId,
+      })
+    } catch (e) {
       console.error('[VaultBootstrapper] failed to fetch item snapshots', e)
-      return { items: [] as VaultItem[] }
-    })
+      throw new Error(`[VaultBootstrapper] Failed to fetch item snapshots: ${(e as Error).message || String(e)}`)
+    }
 
     const fetchedItems = response.items.filter(
       entry =>
