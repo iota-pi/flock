@@ -36,7 +36,7 @@ vi.mock('./docStore', async importOriginal => {
 })
 
 vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
+  toAutomergeUrlFromItemId: vi.fn((itemId: string) => `automerge:${itemId}`),
 }))
 
 describe('SnapshotManager Retry Mechanism', () => {
@@ -92,6 +92,69 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     expect(manager['snapshotRequestCursor']).toBeNull()
     expect(manager['retryAttempt']).toBe(0)
+  })
+
+  it('schedules retry and retains cursor when buildSnapshot returns null (e.g. not ready)', async () => {
+    mockHandle.isReady.mockReturnValue(false)
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    expect(manager['snapshotRequestCursor']).toBe(42)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+
+    // When handle becomes ready on retry
+    mockHandle.isReady.mockReturnValue(true)
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    expect(manager['snapshotRequestCursor']).toBeNull()
+    expect(manager['retryAttempt']).toBe(0)
+  })
+
+  it('retains cursor and schedules retry when some items succeed but another returns null', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    // item-1 is ready, item-2 is not ready
+    mockRepo.find.mockImplementation((url: string) => {
+      if (url.includes('item-1')) {
+        return Promise.resolve({
+          isReady: () => true,
+          doc: () => ({ id: 'item-1', type: 'note' }),
+        })
+      }
+      return Promise.resolve({
+        isReady: () => false,
+        doc: () => null,
+      })
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.markItemDirty('item-2' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
+    expect(manager['snapshotRequestCursor']).toBe(42)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
   })
 
   it('aggressively schedules retries with exponential backoff on failure', async () => {
@@ -310,4 +373,77 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
     })
   })
+
+  describe('Shutdown and Persistence', () => {
+    it('persists lastModified on shutdown without clearing the persisted store', async () => {
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+      const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
+
+      // Set some lastModified state
+      await manager.importLastModified([['item-1' as ItemId, 123456]])
+
+      // Execute shutdown
+      await manager.shutdown()
+
+      expect(saveSpy).toHaveBeenCalledWith([['item-1', 123456]])
+      expect(clearSpy).not.toHaveBeenCalled()
+    })
+
+    it('clear() resets in-memory state without clearing the persisted store', async () => {
+      const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
+
+      await manager.importLastModified([['item-1' as ItemId, 123456]])
+      manager.clear()
+
+      expect(manager.exportLastModified()).toHaveLength(0)
+      expect(clearSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('In-Flight Dirty Tracking', () => {
+    it('preserves dirty status if item is re-dirtied while snapshot upload is in flight', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+
+      // Start the snapshot push
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+      // While upload is in flight, item-1 is modified again
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Complete the in-flight upload
+      resolveUpload!({
+        success: true,
+        persisted: 1,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+
+      // item-1 should still be dirty because it was modified after batch preparation
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    })
+
+    it('clears dirty status if item was not modified during in flight upload', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    })
+  })
 })
+

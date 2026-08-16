@@ -38,7 +38,6 @@ export class DeletionQueueManager {
 
   async shutdown(): Promise<void> {
     this.stopTimer()
-    await this.clearQueue().catch(console.error)
   }
 
   async handleIndexChange(newItemIdsSet: Set<ItemId>, subscribedIds: Set<ItemId>) {
@@ -78,13 +77,20 @@ export class DeletionQueueManager {
             continue
           }
 
-          await this.deps.docStore.removeAutomergeItem(item.itemId)
-          toRemove.push(item.itemId)
-          await cancelDeletion(this.deps.accountId, item.itemId)
+          try {
+            await this.deps.docStore.removeAutomergeItem(item.itemId)
+            toRemove.push(item.itemId)
+          } catch (err) {
+            console.error(`[DeletionQueueManager] Failed to remove item ${item.itemId} from docStore`, err)
+          }
         }
 
         if (toRemove.length > 0) {
           await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
+          
+          for (const itemId of toRemove) {
+            await cancelDeletion(this.deps.accountId, itemId)
+          }
         }
       }
     } catch (err) {

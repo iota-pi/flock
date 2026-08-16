@@ -13,8 +13,12 @@ export interface SnapshotManagerOptions {
   maxPayloadBytes?: number
 }
 
+const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
+
 export class SnapshotManager {
-  private dirtyItems = new Set<ItemId>()
+  private dirtyItems = new Map<ItemId, number>()
+  private dirtyItemsTick = 0
+  private consecutiveBuildFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
@@ -65,12 +69,13 @@ export class SnapshotManager {
 
   markItemDirty(itemId: ItemId) {
     if (!itemId) return
-    this.dirtyItems.add(itemId)
+    this.dirtyItemsTick += 1
+    this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.flushDirtyDocumentsToIndexDebounced()
   }
 
   async flushDirtyDocumentsToIndex(): Promise<void> {
-    const dirtyItemIds = Array.from(this.dirtyItems)
+    const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       return
     }
@@ -136,7 +141,7 @@ export class SnapshotManager {
   private async preparePushContext(): Promise<{
     accountId: string
     authToken: string
-    dirtyItemIds: ItemId[]
+    dirtyItems: { itemId: ItemId; tick: number }[]
     snapshotCursor: number
   } | null> {
     if (this.snapshotRequestCursor === null) {
@@ -148,8 +153,8 @@ export class SnapshotManager {
       return null
     }
 
-    const dirtyItemIds = Array.from(this.dirtyItems)
-    if (dirtyItemIds.length === 0) {
+    const dirtyItems = Array.from(this.dirtyItems.entries()).map(([itemId, tick]) => ({ itemId, tick }))
+    if (dirtyItems.length === 0) {
       this.snapshotRequestCursor = null
       return null
     }
@@ -157,7 +162,7 @@ export class SnapshotManager {
     return {
       accountId: this.deps.accountId,
       authToken,
-      dirtyItemIds,
+      dirtyItems,
       snapshotCursor: this.snapshotRequestCursor,
     }
   }
@@ -178,9 +183,6 @@ export class SnapshotManager {
       })
 
       if (response?.success) {
-        for (const snapshot of batch) {
-          this.dirtyItems.delete(snapshot.itemId)
-        }
         return { success: true, persisted: response.persisted }
       }
       return { success: false, persisted: 0 }
@@ -193,19 +195,37 @@ export class SnapshotManager {
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
-    dirtyItemIds: ItemId[]
+    dirtyItems: { itemId: ItemId; tick: number }[]
     snapshotCursor: number
   }): Promise<{ persisted: number; total: number; success: boolean }> {
-    const { accountId, authToken, dirtyItemIds, snapshotCursor } = context
+    const { accountId, authToken, dirtyItems, snapshotCursor } = context
     let persisted = 0
     let total = 0
     let success = true
-    let currentBatch: VaultSnapshotInput[] = []
+    let sendFailed = false
+    let currentBatch: { snapshot: VaultSnapshotInput; tick: number }[] = []
     let currentBatchBytes = 0
 
-    for (const itemId of dirtyItemIds) {
+    for (const { itemId, tick } of dirtyItems) {
       const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-      if (!snapshot) continue
+      if (!snapshot) {
+        success = false
+        const failures = (this.consecutiveBuildFailures.get(itemId) ?? 0) + 1
+        if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+          console.error(
+            `[SnapshotManager] Item ${itemId} reached max consecutive snapshot build failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
+          )
+          this.consecutiveBuildFailures.delete(itemId)
+          if (this.dirtyItems.get(itemId) === tick) {
+            this.dirtyItems.delete(itemId)
+          }
+        } else {
+          this.consecutiveBuildFailures.set(itemId, failures)
+        }
+        continue
+      }
+
+      this.consecutiveBuildFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
 
@@ -215,27 +235,46 @@ export class SnapshotManager {
 
       if ((wouldExceedCount || wouldExceedBytes) && currentBatch.length > 0) {
         total += currentBatch.length
-        const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
+        const result = await this.sendSnapshotBatch(
+          accountId,
+          authToken,
+          currentBatch.map(b => b.snapshot),
+        )
         if (!result.success) {
           success = false
+          sendFailed = true
           break
+        }
+        for (const item of currentBatch) {
+          if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
+            this.dirtyItems.delete(item.snapshot.itemId)
+          }
         }
         persisted += result.persisted
         currentBatch = []
         currentBatchBytes = 0
       }
 
-      currentBatch.push(snapshot)
+      currentBatch.push({ snapshot, tick })
       currentBatchBytes += snapshotSize
     }
 
     // Flush any remaining items in the batch
-    if (success && currentBatch.length > 0) {
+    if (!sendFailed && currentBatch.length > 0) {
       total += currentBatch.length
-      const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
+      const result = await this.sendSnapshotBatch(
+        accountId,
+        authToken,
+        currentBatch.map(b => b.snapshot),
+      )
       if (!result.success) {
         success = false
       } else {
+        for (const item of currentBatch) {
+          if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
+            this.dirtyItems.delete(item.snapshot.itemId)
+          }
+        }
         persisted += result.persisted
       }
     }
@@ -270,7 +309,7 @@ export class SnapshotManager {
       total = result.total
       success = result.success
 
-      if (persisted > 0) {
+      if (success) {
         this.snapshotRequestCursor = null
       }
 
@@ -336,6 +375,7 @@ export class SnapshotManager {
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()
+    this.consecutiveBuildFailures.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false
@@ -345,9 +385,6 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
     this.retryAttempt = 0
-    this.lastModifiedStore.clear().catch(error => {
-      console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)
-    })
   }
 
   exportLastModified(): [ItemId, number][] {

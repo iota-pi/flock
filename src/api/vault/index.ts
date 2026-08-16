@@ -108,14 +108,14 @@ async function establishSessionFromKeyHash(account: string, nextKeyHash: string)
   setApiSessionExpiredHandler(handleSessionExpired)
 }
 
-async function handleSessionExpired() {
+export async function handleSessionExpired() {
   if (isHandlingSessionExpiry) {
     return
   }
 
   isHandlingSessionExpiry = true
   try {
-    await removeVaultFromDevice()
+    await lockVault()
   } finally {
     setTimeout(() => {
       isHandlingSessionExpiry = false
@@ -209,11 +209,25 @@ export async function loginVault({
       keyringNeedsUpload = true
     }
   } catch (err) {
+    clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during login:', err)
+    throw new Error(
+      `Failed to retrieve keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    )
   }
 
   if (keyringNeedsUpload) {
-    await storeVault(account)
+    try {
+      await storeVault(account)
+    } catch (err) {
+      clearKeyData()
+      console.error('[vault] Failed to seed keyring to server during login:', err)
+      throw new Error(
+        `Failed to seed keyring to server during login: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
+    }
   } else {
     await writeStoredMetadata(account)
   }
@@ -243,20 +257,16 @@ export async function exportKeyringData(): Promise<string> {
 export async function storeVault(account: string) {
   await writeStoredMetadata(account)
   if (session) {
-    try {
-      const keyringData: Record<string, string> = {
-        activeVersion: activeKeyVersion,
-      }
-      for (const [ver, k] of keyring.entries()) {
-        keyringData[ver] = await exportVaultKey(k)
-      }
-      const plaintext = JSON.stringify(keyringData)
-      const encryptionKey = masterKey || getVaultKey('1')
-      const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
-      await updateKeyring(account, JSON.stringify(encrypted))
-    } catch (err) {
-      console.error('[vault] Failed to sync keyring to server:', err)
+    const keyringData: Record<string, string> = {
+      activeVersion: activeKeyVersion,
     }
+    for (const [ver, k] of keyring.entries()) {
+      keyringData[ver] = await exportVaultKey(k)
+    }
+    const plaintext = JSON.stringify(keyringData)
+    const encryptionKey = masterKey || getVaultKey('1')
+    const encrypted = await encryptWithKey(encryptionKey, plaintext, 'master')
+    await updateKeyring(account, JSON.stringify(encrypted))
   }
 }
 
@@ -273,6 +283,7 @@ export async function lockVault() {
   const { useAppStore } = await import('src/state/store')
   const { updateAuth } = useAppStore.getState()
   clearKeyData()
+  await clearActiveSessionToken()
 
   await SyncBridge.shutdown({ clearLocalData: false })
 
@@ -383,9 +394,9 @@ export async function changePassword(account: string, currentPassword: string, n
   })
 
   masterKey = newMasterKey
-  keyHash = newAuthToken
   clearBiometricData()
   await writeStoredMetadata(account)
+  await establishSessionFromKeyHash(account, newAuthToken)
 }
 
 export async function rotateVaultKey(account: string): Promise<void> {
@@ -394,7 +405,16 @@ export async function rotateVaultKey(account: string): Promise<void> {
   const nextActiveVer = (currentActiveVer + 1).toString()
   keyring.set(nextActiveVer, newKey)
   activeKeyVersion = nextActiveVer
-  await storeVault(account)
+  try {
+    await storeVault(account)
+  } catch (err) {
+    keyring.delete(nextActiveVer)
+    activeKeyVersion = currentActiveVer.toString()
+    throw new Error(
+      `Key rotation failed: keyring upload unsuccessful. Local state rolled back. Cause: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    )
+  }
 }
 
 export async function enableBiometrics(account: string): Promise<void> {
@@ -495,7 +515,12 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
       }
     }
   } catch (err) {
+    clearKeyData()
     console.error('[vault] Failed to retrieve keyring from server during biometric unlock:', err)
+    throw new Error(
+      `Failed to retrieve keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    )
   }
 
   await writeStoredMetadata(account)

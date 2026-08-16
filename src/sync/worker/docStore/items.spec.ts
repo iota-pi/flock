@@ -94,4 +94,63 @@ describe('items operations', () => {
     expect((normalized as any).memberPrayerFrequency).toBeUndefined()
     expect((normalized as any).memberPrayerTarget).toBeUndefined()
   })
+
+  it('should not delete existing storage document or overwrite with blank doc when load times out', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to indicate doc exists in storage
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    // Mock repo.find to time out / fail
+    vi.spyOn(customRepo, 'find').mockRejectedValue(new Error('Timed out'))
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'existing-item' as ItemId,
+      draft => {
+        draft.name = 'New Name'
+      },
+      { createIfMissing: true }
+    )
+
+    // Should return false rather than deleting or overwriting
+    expect(result).toBe(false)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(importSpy).not.toHaveBeenCalled()
+  })
+
+  it('should create document if it genuinely does not exist in storage', async () => {
+    const customRepo = new Repo()
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    // Mock storageSubsystem to indicate doc does NOT exist
+    const mockStorage = {
+      loadDocData: vi.fn().mockResolvedValue(undefined),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const result = await customDocStore.changeDocument(
+      'new-item' as ItemId,
+      draft => {
+        draft.id = 'new-item'
+        draft.type = 'person'
+        draft.name = 'New Person'
+      },
+      { createIfMissing: true }
+    )
+
+    expect(result).toBe(true)
+    expect(importSpy).toHaveBeenCalled()
+  })
 })
+

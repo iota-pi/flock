@@ -52,6 +52,10 @@ export class ItemOperations {
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
+      } else {
+        this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: `Failed to create document ${item.id}` })
+        const trueState = await this.deps.docStore.getAutomergeItem(item.id)
+        this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: (err as Error).message })
@@ -59,16 +63,19 @@ export class ItemOperations {
   }
 
   async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
+    const successfullyDeleted: ItemId[] = []
     try {
       for (const id of itemIds) {
         await this.deps.deletionQueueManager.cancelDeletion(id).catch(console.error)
         await this.deps.docStore.removeAutomergeItem(id)
-      }
-      if (itemIds.length > 0) {
-        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(itemIds)
+        successfullyDeleted.push(id)
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'hardDelete', error: (err as Error).message })
+    } finally {
+      if (successfullyDeleted.length > 0) {
+        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(successfullyDeleted).catch(console.error)
+      }
     }
   }
 

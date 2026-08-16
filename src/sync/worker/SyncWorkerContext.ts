@@ -47,18 +47,19 @@ export class SyncWorkerContext {
     public readonly internalEventHub: WorkerInternalEventHub,
     indexStore: IndexStore,
     indexManager: AutomergeIndexManager,
+    cursorStore: CursorStore,
+    pullQueueManager: SyncPullQueueManager,
     legacyStoreItems: (items: Item[]) => Promise<void>,
     legacyMutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   ) {
     this.indexStore = indexStore
     this.indexManager = indexManager
-    this.cursorStore = new CursorStore(accountId)
+    this.cursorStore = cursorStore
+    this.pullQueueManager = pullQueueManager
     this.lastModifiedStore = new LastModifiedStore(accountId)
 
     this.docStore = new AutomergeDocStore(repo)
     this.backupManager = new BackupManager(this.docStore, indexManager)
-
-    this.pullQueueManager = new SyncPullQueueManager(this.cursorStore)
 
     this.snapshotManager = new SnapshotManager({
       accountId,
@@ -116,6 +117,12 @@ export class SyncWorkerContext {
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
     await this.orchestrator.shutdown()
+
+    try {
+      await this.pullQueueManager.shutdown()
+    } catch (err) {
+      console.error('[SyncWorkerContext] Error shutting down PullQueueManager', err)
+    }
 
     try {
       await this.deletionQueueManager.shutdown()

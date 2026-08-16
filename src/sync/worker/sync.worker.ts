@@ -64,8 +64,30 @@ export class SyncWorker implements SyncApi {
     this.clearListeners()
 
     if (this._context) {
-      await this._context.shutdown()
+      try {
+        await this._context.shutdown()
+      } catch (err) {
+        console.error('[SyncWorker] Error shutting down context in initRepo', err)
+      }
       this._context = null
+    }
+
+    if (this.broker) {
+      try {
+        await this.broker.shutdown()
+      } catch (err) {
+        console.error('[SyncWorker] Error shutting down broker in initRepo', err)
+      }
+      this.broker = null
+    }
+
+    if (this.adapter) {
+      try {
+        this.adapter.disconnect()
+      } catch (err) {
+        console.error('[SyncWorker] Error disconnecting adapter in initRepo', err)
+      }
+      this.adapter = null
     }
 
     if (this.repoManager) {
@@ -132,6 +154,8 @@ export class SyncWorker implements SyncApi {
       this.internalEventHub,
       indexStore,
       indexManager,
+      cursorStore,
+      pullQueueManager,
       items => this.storeItems(items),
       changes => this.mutateMetadata(changes)
     )
@@ -149,7 +173,7 @@ export class SyncWorker implements SyncApi {
           break
         case 'indexUpdated': {
           this.scheduleDeletions(event.itemIds)
-          this.subscribeToItems(event.itemIds)
+          this.updateItemSubscriptions(event.itemIds)
           break
         }
       }
@@ -176,7 +200,7 @@ export class SyncWorker implements SyncApi {
     await this.broker.setAccount(accountId)
 
     const localItemIds = await this._context.indexManager.listAutomergeItemIds()
-    this.subscribeToItems(localItemIds)
+    this.updateItemSubscriptions(localItemIds)
     this.clientEventHub.emit({ type: 'indexUpdated', itemIds: localItemIds })
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
@@ -233,19 +257,32 @@ export class SyncWorker implements SyncApi {
       repo.find(url).then(handle => {
         if (!this.subscribedIds.has(id)) return
 
+        const existingListener = this.changeListenersByItemId.get(id)
+        if (existingListener) {
+          handle.off('change', existingListener)
+        }
+
         const handleChange = () => {
-          const doc = handle.doc() || null
-          const item = normalizeItemSnapshot(id, doc)
-          if (item?.deleted) {
-            this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+          try {
+            const doc = handle.doc() || null
+            const item = normalizeItemSnapshot(id, doc)
+            if (item?.deleted) {
+              this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+            }
+            this.clientEventHub.emit({ type: 'itemUpdated', id, item })
+          } catch (err) {
+            console.error(`[SyncWorker] Error handling Automerge doc change for item ${id}:`, err)
           }
-          this.clientEventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)
         this.changeListenersByItemId.set(id, handleChange)
         handleChange()
       }).catch(console.error)
     }
+  }
+
+  updateItemSubscriptions(itemIds: ItemId[]) {
+    this.subscribeToItems(itemIds)
 
     const itemIdsSet = new Set(itemIds)
     for (const subscribedId of Array.from(this.subscribedIds)) {

@@ -91,9 +91,6 @@ export async function persistSyncMessages(
         await runStorageOperation(() => storage.setItem(itemId, bounded))
       } catch (err) {
         console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
-        // Put them back in the pending map so we can try again
-        const existingPending = writes.get(itemId) || []
-        writes.set(itemId, [...newMessages, ...existingPending])
       }
     })
   })
@@ -169,11 +166,25 @@ export async function removeSentSyncMessages(
 
 /**
  * Clears any pending sync batch messages for a specific account.
+ * Serializes removals through the per-key write queue to avoid race conditions with in-flight persists.
  */
 export async function clearSyncBatch(account: string): Promise<void> {
   try {
     const storage = getSyncBatchStorage(account)
-    await storage.clear()
+    const dbKeys = await storage.keys()
+    const prefix = `${account}:`
+    const activeKeys = Array.from(writeQueues.keys())
+      .filter(k => k.startsWith(prefix))
+      .map(k => k.slice(prefix.length))
+
+    const allKeys = new Set([...dbKeys, ...activeKeys])
+
+    await Promise.all(
+      Array.from(allKeys).map(itemId => {
+        const queueKey = `${account}:${itemId}`
+        return enqueue(queueKey, () => storage.removeItem(itemId))
+      })
+    )
   } catch (err) {
     console.error(`[VaultPersistence] Failed to clear sync batch for ${account}`, err)
     throw err
@@ -182,17 +193,22 @@ export async function clearSyncBatch(account: string): Promise<void> {
 
 /**
  * Restores pending sync batch entries to IndexedDB for the given account.
+ * Serializes operations through the per-key write queue to ensure state consistency with concurrent persists.
  */
 export async function restoreSyncBatch(
   account: string,
   pendingSync: [ItemId, Uint8Array[]][]
 ): Promise<void> {
   try {
-    await clearSyncBatch(account)
     const storage = getSyncBatchStorage(account)
+    const pendingMap = new Map<string, Uint8Array[]>(pendingSync)
+
     await Promise.all(
-      pendingSync.map(([itemId, messages]) => {
-        return storage.setItem(itemId, messages)
+      Array.from(pendingMap.entries()).map(([itemId, messages]) => {
+        const queueKey = `${account}:${itemId}`
+        return enqueue(queueKey, async () => {
+          await storage.setItem(itemId, messages)
+        })
       })
     )
   } catch (err) {

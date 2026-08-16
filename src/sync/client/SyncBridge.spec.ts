@@ -33,8 +33,25 @@ class MockWorker {
   options: any
   terminate = vi.fn()
   postMessage = vi.fn()
-  addEventListener = vi.fn()
-  removeEventListener = vi.fn()
+  private listeners: Record<string, ((event: any) => void)[]> = {}
+
+  addEventListener = vi.fn((event: string, handler: (event: any) => void) => {
+    if (!this.listeners[event]) this.listeners[event] = []
+    this.listeners[event].push(handler)
+  })
+
+  removeEventListener = vi.fn((event: string, handler: (event: any) => void) => {
+    if (this.listeners[event]) {
+      this.listeners[event] = this.listeners[event].filter(h => h !== handler)
+    }
+  })
+
+  dispatchEvent = vi.fn((event: any) => {
+    const handlers = this.listeners[event.type] || []
+    handlers.forEach(h => h(event))
+    return true
+  })
+
   constructor(url: string, options: any) {
     this.url = url
     this.options = options
@@ -139,7 +156,7 @@ describe('SyncBridge', () => {
     expect(Comlink.wrap).toHaveBeenCalledTimes(2)
   })
 
-  it('attempts to restart the worker if worker.onerror is triggered', async () => {
+  it('attempts to restart the worker and dispatches to window if worker error event is triggered', async () => {
     vi.useFakeTimers()
     let capturedWorker: any = null
     globalThis.Worker = class extends MockWorker {
@@ -150,12 +167,18 @@ describe('SyncBridge', () => {
       }
     } as any
 
+    const windowDispatchSpy = vi.spyOn(window, 'dispatchEvent')
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
     expect(capturedWorker).not.toBeNull()
 
-    // Trigger the onerror handler
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'WASM crash' }))
+    // Trigger the error event
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'WASM crash' }))
+
+    // Expect window error event dispatched
+    expect(windowDispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', message: 'WASM crash' })
+    )
 
     // Expect status to be connecting, and reconnect warning set
     expect(useAppStore.getState().syncStatus).toBe('connecting')
@@ -165,6 +188,7 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(initializeSpy).toHaveBeenCalledTimes(2)
+    windowDispatchSpy.mockRestore()
     vi.useRealTimers()
   })
 
@@ -212,17 +236,17 @@ describe('SyncBridge', () => {
     await SyncBridge.initialize('test-account')
 
     // First crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 1' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 1' }))
     await vi.advanceTimersByTimeAsync(1000) // triggers restart
     expect(initializeSpy).toHaveBeenCalledTimes(2)
 
     // Second crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 2' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 2' }))
     await vi.advanceTimersByTimeAsync(1000) // triggers restart
     expect(initializeSpy).toHaveBeenCalledTimes(3)
 
     // Third crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 3' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 3' }))
 
     // No more restarts. Fatal error should be set.
     expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
@@ -263,4 +287,133 @@ describe('SyncBridge', () => {
     onLineSpy.mockRestore()
     visibilityStateSpy.mockRestore()
   })
+
+  it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
+    let worker1Terminate: any
+    let worker2Terminate: any
+    let workerCount = 0
+
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        if (workerCount === 0) {
+          worker1Terminate = this.terminate
+        } else {
+          worker2Terminate = this.terminate
+        }
+        workerCount += 1
+      }
+    } as any
+
+    await SyncBridge.initialize('test-account')
+    expect(workerCount).toBe(1)
+
+    let resolveShutdown: () => void = () => {}
+    mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveShutdown = resolve
+    }))
+
+    const shutdownPromise = SyncBridge.shutdown()
+    const initPromise = SyncBridge.initialize('test-account-2')
+
+    resolveShutdown()
+    await shutdownPromise
+    await initPromise
+
+    expect(worker1Terminate).toHaveBeenCalledTimes(1)
+    expect(worker2Terminate).not.toHaveBeenCalled()
+    expect(useAppStore.getState().syncStatus).not.toBe('offline')
+  })
+
+  it('resets initializationPromise when initialization is aborted due to concurrent account change', async () => {
+    let resolveKeyring1: (val: string) => void = () => {}
+    const { exportKeyringData } = await import('src/api/vault')
+    vi.mocked(exportKeyringData).mockImplementationOnce(
+      () => new Promise<string>(resolve => { resolveKeyring1 = resolve })
+    )
+
+    const init1 = SyncBridge.initialize('account-1')
+    const init2 = SyncBridge.initialize('account-2')
+
+    resolveKeyring1('test-key')
+    await init1
+    await init2
+
+    // Should be successfully initialized with account-2, and ensureReady should not throw
+    await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
+  })
+
+  it('flushes item updates asynchronously via setTimeout', async () => {
+    let capturedEventPort: MessagePort | null = null
+    globalThis.Worker = class extends MockWorker {
+      postMessage = vi.fn((msg: any) => {
+        if (msg?.type === 'EVENT_PORT') {
+          capturedEventPort = msg.port
+        }
+      })
+    } as any
+
+    const updateItemsSpy = vi.spyOn(useAppStore.getState(), 'updateItemsFromServer')
+
+    await SyncBridge.initialize('test-account')
+    expect(capturedEventPort).not.toBeNull()
+
+    capturedEventPort!.postMessage({
+      type: 'itemUpdated',
+      id: 'item-1',
+      item: { id: 'item-1', name: 'Test Item' } as any,
+    })
+
+    // Should not have updated synchronously
+    expect(updateItemsSpy).not.toHaveBeenCalled()
+
+    // Wait for macro-task / setTimeout 0
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(updateItemsSpy).toHaveBeenCalledWith([
+      { id: 'item-1', item: expect.objectContaining({ id: 'item-1', name: 'Test Item' }) },
+    ])
+  })
+
+  it('closes _globalEventChannel.port1 on worker crash', async () => {
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        capturedWorker = this
+      }
+    } as any
+
+    const originalMessageChannel = globalThis.MessageChannel
+    let port1CloseSpy: any
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+      }
+
+      port2 = {}
+
+      constructor() {
+        port1CloseSpy = this.port1.close
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      await SyncBridge.initialize('test-account')
+      expect(capturedWorker).not.toBeNull()
+      expect(port1CloseSpy).not.toHaveBeenCalled()
+
+      // Trigger worker crash error
+      capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
+
+      expect(port1CloseSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
 })
+

@@ -109,7 +109,7 @@ describe('VaultPersistence', () => {
     consoleWarnSpy.mockRestore()
   })
 
-  it('handles quota errors in persistSyncMessages by reporting and retaining in map', async () => {
+  it('handles quota errors in persistSyncMessages by reporting error', async () => {
     const { persistSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const storage = getSyncBatchStorage('acc-3')
@@ -126,13 +126,11 @@ describe('VaultPersistence', () => {
     expect(setItemSpy).toHaveBeenCalled()
     expect(mockReportQuotaExceeded).toHaveBeenCalled()
 
-    // It should put the unsaved items back in the writes map so they can be retried
-    expect(writes.get('item-1')).toEqual([msg1])
-
     // Subsequent calls to persistSyncMessages when quota is exceeded should early return
     setItemSpy.mockClear()
     mockReportQuotaExceeded.mockClear()
 
+    writes.set('item-2', [msg1])
     await persistSyncMessages('acc-3', writes)
     expect(setItemSpy).not.toHaveBeenCalled()
     expect(mockReportQuotaExceeded).toHaveBeenCalled() // reported again because we called it
@@ -223,21 +221,21 @@ describe('VaultPersistence', () => {
     expect(await storage7.getItem('item-3')).not.toBeNull()
   })
 
-  it('restores sync batch', async () => {
+  it('restores sync batch without deleting unprovided keys', async () => {
     const { restoreSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const storage = getSyncBatchStorage('acc-8')
     await storage.setItem('item-old', [new Uint8Array([9])])
 
     const pendingSync = [
-      ['item-1', [new Uint8Array([1])]],
-      ['item-2', [new Uint8Array([2]), new Uint8Array([3])]],
+      ['item-1' as ItemId, [new Uint8Array([1])]],
+      ['item-2' as ItemId, [new Uint8Array([2]), new Uint8Array([3])]],
     ] as [ItemId, Uint8Array[]][]
 
     await restoreSyncBatch('acc-8', pendingSync)
 
-    // Old entries should be cleared
-    expect(await storage.getItem('item-old')).toBeNull()
+    // Old entries should be preserved
+    expect(await storage.getItem('item-old')).not.toBeNull()
 
     // New entries should be stored
     const stored1 = await storage.getItem<Uint8Array[]>('item-1')
@@ -245,5 +243,44 @@ describe('VaultPersistence', () => {
 
     expect(stored1).toHaveLength(1)
     expect(stored2).toHaveLength(2)
+  })
+
+  it('serializes clearSyncBatch after concurrent in-flight persistSyncMessages', async () => {
+    const { persistSyncMessages, clearSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    const storage = getSyncBatchStorage('acc-1')
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-concur', [new Uint8Array([10, 20])])
+
+    const clearPromise = clearSyncBatch('acc-1')
+    const persistPromise = persistSyncMessages('acc-1', writes)
+
+    await Promise.all([clearPromise, persistPromise])
+
+    // Storage should be cleared eventually because clear was queued first
+    const stored = await storage.getItem('item-concur')
+    expect(stored).toBeNull()
+  })
+
+  it('serializes restoreSyncBatch with concurrent in-flight persistSyncMessages', async () => {
+    const { persistSyncMessages, restoreSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    const storage = getSyncBatchStorage('acc-1')
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-concur', [new Uint8Array([10, 20])])
+
+    const pendingSync: [ItemId, Uint8Array[]][] = [
+      ['item-concur' as ItemId, [new Uint8Array([99])]],
+    ]
+
+    const persistPromise = persistSyncMessages('acc-1', writes)
+    const restorePromise = restoreSyncBatch('acc-1', pendingSync)
+
+    await Promise.all([persistPromise, restorePromise])
+
+    // Restore should have executed after persist in the queue for item-concur
+    const stored = await storage.getItem<Uint8Array[]>('item-concur')
+    expect(stored).toHaveLength(1)
+    expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([99])
   })
 })

@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   storeItems: vi.fn(),
   setMetadata: vi.fn(),
 
-  exportAllBinaries: vi.fn(() => ({ i1: 'base64-doc' })),
+  exportAllBinaries: vi.fn(() => ({
+    documents: { i1: 'base64-doc' },
+    skipped: [] as string[],
+  })),
   restoreFromBinaries: vi.fn(async () => ['i1']),
   clearAutomergeDocStore: vi.fn(async () => undefined),
   exportSyncState: vi.fn(async () => (
@@ -111,6 +114,25 @@ describe('useSettings backup portability', () => {
       lastModified: [['i1', 12345]]
     })
     expect(mocks.exportSyncState).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns the user when items were skipped during export', async () => {
+    mocks.exportData.mockImplementation(async (payload: unknown) => payload)
+    mocks.exportAllBinaries.mockResolvedValueOnce({
+      documents: { i1: 'base64-doc' },
+      skipped: ['i2'],
+    })
+
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    await act(async () => {
+      await result.current.actions.handleExport()
+    })
+
+    expect(mocks.setMessage).toHaveBeenCalledWith({
+      message: 'Backup created, but 1 item could not be loaded.',
+      severity: 'warning',
+    })
   })
 
   it('restores metadata, binaries, and sync state without queue side effects', async () => {

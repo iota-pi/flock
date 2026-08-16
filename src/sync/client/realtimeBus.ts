@@ -30,6 +30,10 @@ export function subscribeRealtimeBusSyncPing(listener: SyncPingListener): () => 
 
   return () => {
     listeners.delete(listener)
+    if (listeners.size === 0 && broadcastChannel) {
+      broadcastChannel.close()
+      broadcastChannel = null
+    }
   }
 }
 

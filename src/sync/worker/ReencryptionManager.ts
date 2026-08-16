@@ -4,6 +4,8 @@ import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
 
+const MAX_BATCH_RETRIES = 3
+
 export class ReencryptionManager {
   constructor(
     private deps: {
@@ -39,17 +41,52 @@ export class ReencryptionManager {
       const snapshotPromises = chunkIds.map(
         itemId => buildSnapshot(this.deps.repo, itemId, snapshotCursor)
       )
-      const snapshots = (await Promise.all(snapshotPromises)).filter(s => s !== null)
+      const settled = await Promise.allSettled(snapshotPromises)
+
+      const snapshots = []
+      for (const [index, result] of settled.entries()) {
+        if (result.status === 'fulfilled') {
+          if (result.value !== null) {
+            snapshots.push(result.value)
+          }
+        } else {
+          console.error(
+            `[ReencryptionManager] Failed to build snapshot for item ${chunkIds[index]}:`,
+            result.reason
+          )
+        }
+      }
 
       if (snapshots.length > 0) {
-        const response = await putSnapshotsWithToken({
-          account: this.deps.accountId,
-          authToken,
-          snapshots,
-        })
+        let uploadSuccess = false
+        let lastError: unknown = null
 
-        if (!response?.success) {
-          throw new Error(`Failed to upload snapshots for batch starting at index ${start}`)
+        for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
+          try {
+            const response = await putSnapshotsWithToken({
+              account: this.deps.accountId,
+              authToken,
+              snapshots,
+            })
+
+            if (response?.success) {
+              uploadSuccess = true
+              break
+            }
+          } catch (err) {
+            lastError = err
+            console.warn(
+              `[ReencryptionManager] Attempt ${attempt} failed to upload snapshots for batch at index ${start}:`,
+              err
+            )
+          }
+        }
+
+        if (!uploadSuccess) {
+          throw new Error(
+            `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
+              (lastError instanceof Error ? `: ${lastError.message}` : '')
+          )
         }
       }
 

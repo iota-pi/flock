@@ -77,15 +77,15 @@ export const setupWorkerHealthCheck = ({
     handleWorkerCrash({ worker, onCrash, onRestart })
   }
 
-  worker.onerror = event => {
+  worker.addEventListener('error', event => {
     console.error('[SyncBridge] Web worker error:', event)
     handleCrash()
-  }
+  })
 
-  worker.onmessageerror = event => {
+  worker.addEventListener('messageerror', event => {
     console.error('[SyncBridge] Web worker message error:', event)
     handleCrash()
-  }
+  })
 
   const HEARTBEAT_INTERVAL_MS = 15000
   const HEARTBEAT_TIMEOUT_MS = 5000
@@ -96,16 +96,21 @@ export const setupWorkerHealthCheck = ({
       return
     }
 
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
     try {
       await Promise.race([
         pingFn(),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error('Heartbeat timeout')), HEARTBEAT_TIMEOUT_MS)
-        ),
+        new Promise<void>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Heartbeat timeout')), HEARTBEAT_TIMEOUT_MS)
+        }),
       ])
     } catch (error) {
       console.error('[SyncBridge] Worker heartbeat failed:', error)
       handleCrash()
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+      }
     }
   }, HEARTBEAT_INTERVAL_MS)
 }

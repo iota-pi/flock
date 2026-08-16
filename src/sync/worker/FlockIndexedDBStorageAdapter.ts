@@ -54,6 +54,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       const request = store.clear()
 
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       request.onsuccess = () => resolve()
     })
   }
@@ -66,7 +67,8 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       const store = transaction.objectStore(this.storeName)
       const request = store.get(key)
 
-      transaction.onerror = () => reject(request.error)
+      transaction.onerror = () => reject(request.error || transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       request.onsuccess = () => {
         const result = request.result
         if (result && typeof result === 'object' && 'binary' in result) {
@@ -86,6 +88,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       store.put({ key, binary }, key)
 
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       transaction.oncomplete = () => resolve()
     })
   }
@@ -98,6 +101,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       store.delete(key)
 
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       transaction.oncomplete = () => resolve()
     })
   }
@@ -115,6 +119,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       const chunks: Chunk[] = []
 
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       request.onsuccess = () => {
         const cursor = request.result
         if (cursor) {
@@ -142,6 +147,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
       store.delete(range)
 
       transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error || new DOMException('Transaction aborted', 'AbortError'))
       transaction.oncomplete = () => resolve()
     })
   }

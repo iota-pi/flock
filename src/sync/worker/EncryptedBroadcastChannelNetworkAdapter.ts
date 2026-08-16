@@ -16,6 +16,8 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
   private inner: BroadcastChannelNetworkAdapter
   private sendQueue: Message[] = []
   private isSending = false
+  private receiveQueue: Message[] = []
+  private isReceiving = false
 
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
@@ -24,7 +26,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     // Forward events
     this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
     this.inner.on('peer-disconnected', payload => this.emit('peer-disconnected', payload))
-    this.inner.on('message', message => void this.handleIncomingMessage(message))
+    this.inner.on('message', message => this.handleIncomingMessage(message))
     this.inner.on('close', () => this.emit('close'))
   }
 
@@ -57,34 +59,50 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     try {
       while (this.sendQueue.length > 0) {
         const message = this.sendQueue.shift()!
-        if (message.type === 'sync' && message.data) {
-          const cryptoResult = await encryptBytes(message.data)
-          const jsonString = JSON.stringify(cryptoResult)
-          const encodedData = new TextEncoder().encode(jsonString)
-          this.inner.send({ ...message, data: encodedData })
-        } else {
-          this.inner.send(message)
+        try {
+          if (message.type === 'sync' && message.data) {
+            const cryptoResult = await encryptBytes(message.data)
+            const jsonString = JSON.stringify(cryptoResult)
+            const encodedData = new TextEncoder().encode(jsonString)
+            this.inner.send({ ...message, data: encodedData })
+          } else {
+            this.inner.send(message)
+          }
+        } catch (err) {
+          console.error('[EncryptedBroadcastChannel] Error sending message:', err)
         }
       }
-    } catch (err) {
-      console.error('[EncryptedBroadcastChannel] Error sending message:', err)
     } finally {
       this.isSending = false
     }
   }
 
-  private async handleIncomingMessage(message: Message) {
-    if (message.type === 'sync' && message.data) {
-      try {
-        const jsonString = new TextDecoder().decode(message.data)
-        const cryptoResult = JSON.parse(jsonString) as CryptoResult
-        const decryptedData = await decryptBytes(cryptoResult)
-        this.emit('message', { ...message, data: decryptedData })
-      } catch (err) {
-        console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
+  private handleIncomingMessage(message: Message) {
+    this.receiveQueue.push(message)
+    void this.processReceiveQueue()
+  }
+
+  private async processReceiveQueue() {
+    if (this.isReceiving) return
+    this.isReceiving = true
+    try {
+      while (this.receiveQueue.length > 0) {
+        const message = this.receiveQueue.shift()!
+        try {
+          if (message.type === 'sync' && message.data) {
+            const jsonString = new TextDecoder().decode(message.data)
+            const cryptoResult = JSON.parse(jsonString) as CryptoResult
+            const decryptedData = await decryptBytes(cryptoResult)
+            this.emit('message', { ...message, data: decryptedData })
+          } else {
+            this.emit('message', message)
+          }
+        } catch (err) {
+          console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
+        }
       }
-    } else {
-      this.emit('message', message)
+    } finally {
+      this.isReceiving = false
     }
   }
 }

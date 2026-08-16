@@ -110,7 +110,11 @@ export class SyncOrchestrator {
     }
 
     if (immediate) {
-      void this.executeWrappedPoll(true)
+      if (!this.isPolling) {
+        void this.executeWrappedPoll(true)
+      } else {
+        this.pendingFlush = true
+      }
     }
 
     this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
@@ -179,13 +183,8 @@ export class SyncOrchestrator {
       this.isPolling = false
     }
 
-    if (this.pendingFlush) {
-      this.pendingFlush = false
-      if (this.isOnline && this.isLeader && !this.pollingPausedForAuth) {
-        this.scheduleNextPoll(0)
-        return
-      }
-    }
+    const wasFlushPending = this.pendingFlush
+    this.pendingFlush = false
 
     if (this.pollingPausedForAuth) {
       return
@@ -207,7 +206,9 @@ export class SyncOrchestrator {
 
     this.internalEventHub.emit({ type: 'pollResult', outcome })
 
-    if (outcome === 'success' && this.broker.hasPendingPulls()) {
+    if (wasFlushPending) {
+      this.scheduleNextPoll(0)
+    } else if (outcome === 'success' && this.broker.hasPendingPulls()) {
       this.scheduleNextPoll(0)
     } else {
       this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])

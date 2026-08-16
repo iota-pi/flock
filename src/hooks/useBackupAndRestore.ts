@@ -31,7 +31,7 @@ export default function useBackupAndRestore({
     async () => {
       try {
         const currentMetadata = useAppStore.getState().metadata
-        const documents = await SyncBridge.exportAllBinaries()
+        const { documents, skipped } = await SyncBridge.exportAllBinaries()
         let syncState: BackupSyncState | undefined
         try {
           syncState = await SyncBridge.exportSyncState()
@@ -51,7 +51,12 @@ export default function useBackupAndRestore({
         const data = await exportData(backupPayload)
         const json = JSON.stringify(data)
 
-        if (syncState?.pendingSync && syncState.pendingSync.length > 0) {
+        if (skipped && skipped.length > 0) {
+          setMessage({
+            message: `Backup created, but ${skipped.length} item${skipped.length === 1 ? '' : 's'} could not be loaded.`,
+            severity: 'warning',
+          })
+        } else if (syncState?.pendingSync && syncState.pendingSync.length > 0) {
           setMessage({
             message: 'You have unsent offline changes. Please connect to the internet to sync before exporting a backup.',
             severity: 'warning',

@@ -80,4 +80,73 @@ describe('SyncOrchestrator', () => {
     expect(avg).toBeGreaterThan(57000)
     expect(avg).toBeLessThan(63000)
   })
+
+  it('handles auth-failure properly and pauses polling even if flush is called during poll', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Call flush while poll is in-flight
+    orchestrator.flush()
+
+    const authFailureSpy = vi.fn()
+    clientEventHub.subscribe(authFailureSpy)
+    const internalPollResultSpy = vi.fn()
+    internalEventHub.subscribe(internalPollResultSpy)
+
+    // Resolve with auth-failure
+    resolvePoll('auth-failure')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Auth failure event should be emitted and internal pollResult emitted
+    expect(authFailureSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'authFailure', message: expect.stringContaining('session has expired') })
+    )
+    expect(internalPollResultSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'pollResult', outcome: 'auth-failure' })
+    )
+
+    // Polling should be paused, so advancing timers should not trigger another poll despite flush
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+  })
+
+  it('emits pollResult event when flush is pending after successful poll', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Call flush while poll is in-flight
+    orchestrator.flush()
+
+    const internalPollResultSpy = vi.fn()
+    internalEventHub.subscribe(internalPollResultSpy)
+
+    resolvePoll('success')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(internalPollResultSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'pollResult', outcome: 'success' })
+    )
+
+    // Immediate flush execution
+    await vi.advanceTimersByTimeAsync(10)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+  })
 })

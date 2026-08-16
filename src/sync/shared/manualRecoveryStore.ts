@@ -79,13 +79,17 @@ async function runMigration(accountId: string): Promise<void> {
     await metaStorage.setItem('__migrated_v2', true)
   } catch (error) {
     console.error('[ManualRecoveryStore] Migration failed', error)
+    throw error
   }
 }
 
 async function ensureMigrated(accountId: string): Promise<void> {
   let promise = migrationPromisesByAccount.get(accountId)
   if (!promise) {
-    promise = runMigration(accountId)
+    promise = runMigration(accountId).catch(error => {
+      migrationPromisesByAccount.delete(accountId)
+      throw error
+    })
     migrationPromisesByAccount.set(accountId, promise)
   }
   return promise

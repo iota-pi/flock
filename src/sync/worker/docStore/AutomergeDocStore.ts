@@ -1,4 +1,4 @@
-import { Repo, DocHandle, interpretAsDocumentId } from '@automerge/automerge-repo/slim'
+import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
@@ -81,6 +81,32 @@ export class AutomergeDocStore {
     return { url, documentId: interpretAsDocumentId(url) }
   }
 
+  private async hasDataInStorage(itemId: ItemId): Promise<boolean> {
+    if (!this.repo.storageSubsystem) return false
+    const { documentId } = this.resolveDocumentId(itemId)
+    try {
+      const data = await this.repo.storageSubsystem.loadDocData(documentId)
+      return !!(data && data.length > 0)
+    } catch {
+      return false
+    }
+  }
+
+  private async timedFind(
+    url: AutomergeUrl,
+    timeoutMs: number,
+  ): Promise<RepoDocHandle> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      return await this.repo.find<RepoDoc>(url, { signal: controller.signal })
+    } catch {
+      return undefined
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
   // Core Document Helpers
   async findHandle(
     itemId: ItemId,
@@ -88,39 +114,41 @@ export class AutomergeDocStore {
   ): Promise<RepoDocHandle> {
     const { url, documentId } = this.resolveDocumentId(itemId)
 
-    // 1. Check in-memory handles cache first
+    // 1. Check in-memory handles cache first (only if ready)
     let handle: RepoDocHandle = this.repo.handles[documentId]
+    if (handle && handle.isReady()) return handle
 
-    // 2. Determine if it's known to exist (or check locally as fallback)
-    let shouldFind = false
-    if (options.knownToExist !== undefined) {
-      shouldFind = options.knownToExist
-    } else {
-      // Fall back to checking storage subsystem existence
-      if (this.repo.storageSubsystem) {
-        try {
-          const data = await this.repo.storageSubsystem.loadDocData(documentId)
-          shouldFind = !!(data && data.length > 0)
-        } catch (_) {
-          shouldFind = false
-        }
+    // If handle exists in cache but is still loading, bypass storage check
+    // since loading has already been initiated.
+    let existsInStorage = !!handle
+    if (!existsInStorage) {
+      // 2. Determine if it's known to exist (or check locally as fallback)
+      if (options.knownToExist !== undefined) {
+        existsInStorage = options.knownToExist
+      } else {
+        existsInStorage = await this.hasDataInStorage(itemId)
       }
     }
 
-    // 3. Query the repository if the document is known to exist
-    if (!handle && shouldFind) {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 2000) // 2s safety timeout
-      try {
-        handle = await this.repo.find<RepoDoc>(url, { signal: controller.signal })
-      } catch (error) {
-        console.warn(`[AutomergeDocStore] Failed to find document for ${itemId}:`, error)
-      } finally {
-        clearTimeout(timeoutId)
-      }
-    }
+    if (!existsInStorage) return undefined
 
-    return handle
+    // 3. Fast-path attempt (2s)
+    handle = await this.timedFind(url, 2000)
+    if (handle && handle.isReady()) return handle
+
+    // 4. Extended attempt for confirmed-to-exist documents (8s)
+    // Check cache in case it became ready after timedFind aborted
+    handle = this.repo.handles[documentId]
+    if (handle && handle.isReady()) return handle
+
+    console.warn(
+      `[AutomergeDocStore] Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
+    )
+    handle = await this.timedFind(url, 8000)
+
+    // Final cache check — strictly require readiness before returning
+    const finalHandle = handle ?? this.repo.handles[documentId]
+    return (finalHandle && finalHandle.isReady()) ? finalHandle : undefined
   }
 
   async findOrCreateHandle(
@@ -128,28 +156,40 @@ export class AutomergeDocStore {
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
     let handle = await this.findHandle(itemId, options)
+    if (handle) return handle
 
-    if (!handle) {
-      const { documentId } = this.resolveDocumentId(itemId)
-      try {
-        this.repo.delete(documentId)
-      } catch (error) {
-        console.error('[automerge] failed to clear unavailable handle before import', {
-          itemId,
-          error,
-        })
-      }
+    // SAFETY: Before creating a blank document, independently verify that
+    // the item genuinely doesn't exist in storage. If it does, we must NOT
+    // delete it — the load just timed out or hit a transient error.
+    const dataExists = await this.hasDataInStorage(itemId)
+    if (dataExists) {
+      console.error(
+        `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+        `Document exists in storage but could not be loaded within the timeout.`
+      )
+      return undefined
+    }
 
-      const newDoc = Automerge.init()
-      const binary = Automerge.save(newDoc)
-      try {
-        handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
-      } catch (error) {
-        throw new Error(
-          `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
-          { cause: error },
-        )
-      }
+    // Document genuinely doesn't exist — safe to create
+    const { documentId } = this.resolveDocumentId(itemId)
+    try {
+      this.repo.delete(documentId)
+    } catch (error) {
+      console.error('[automerge] failed to clear unavailable handle before import', {
+        itemId,
+        error,
+      })
+    }
+
+    const newDoc = Automerge.init()
+    const binary = Automerge.save(newDoc)
+    try {
+      handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
+    } catch (error) {
+      throw new Error(
+        `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
+        { cause: error },
+      )
     }
 
     return handle

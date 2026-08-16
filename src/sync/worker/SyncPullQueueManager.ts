@@ -62,11 +62,6 @@ export class SyncPullQueueManager {
     this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
-    if (this.account) {
-      this.cursorStore.clear().catch(error => {
-        console.error('[SyncPullQueueManager] Failed to clear cursor store', error)
-      })
-    }
   }
 
   addPendingItem(itemId: ItemId): void {
@@ -86,15 +81,23 @@ export class SyncPullQueueManager {
     try {
       const decrypted = await decryptBytes(entry.encryptedMessage)
       const isBatched = entry.encryptedMessage.version === '1.0'
-
+      let hasError = false
       if (isBatched) {
-        parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
+        const success = parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
+        if (!success) {
+          hasError = true
+        }
       } else {
         try {
           this.onMessageParsed(itemId, documentId, decrypted)
         } catch (error) {
           console.error('[SyncPullQueueManager] Error processing message', error)
+          hasError = true
         }
+      }
+
+      if (hasError) {
+        return { parsed: false }
       }
 
       return { parsed: true, cursor: entry.cursor }
@@ -154,6 +157,7 @@ export class SyncPullQueueManager {
               }
             } else {
               hasParseFailure = true
+              break
             }
           }
 

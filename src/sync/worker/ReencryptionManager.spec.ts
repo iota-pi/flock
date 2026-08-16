@@ -39,7 +39,7 @@ vi.mock('./docStore', () => ({
 }))
 
 vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
+  toAutomergeUrlFromItemId: vi.fn().mockImplementation((id: string) => `automerge:${id}`),
 }))
 
 describe('ReencryptionManager', () => {
@@ -120,5 +120,41 @@ describe('ReencryptionManager', () => {
     mockPutSnapshotsWithToken.mockResolvedValue({ success: false })
 
     await expect(manager.reencryptAllItems()).rejects.toThrow('Failed to upload snapshots for batch starting at index 0')
+  })
+
+  it('continues processing remaining items if a single item fails to build snapshot', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-bad', 'item-2'])
+    mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
+
+    mockRepo.find.mockImplementation(async (url: string) => {
+      if (url === 'automerge:item-bad') {
+        return {
+          isReady: () => true,
+          doc: () => {
+            throw new Error('Corrupt document')
+          },
+        }
+      }
+      return {
+        isReady: () => true,
+        doc: () => ({ id: 'item-doc', type: 'note' }),
+      }
+    })
+
+    const onProgress = vi.fn()
+    await manager.reencryptAllItems(onProgress)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    const callArgs = mockPutSnapshotsWithToken.mock.calls[0][0]
+    expect(callArgs.snapshots).toHaveLength(2)
+    expect(callArgs.snapshots.map((s: any) => s.itemId)).toEqual(['item-1', 'item-2'])
+    expect(onProgress).toHaveBeenCalledWith(3, 3)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[ReencryptionManager] Failed to build snapshot for item item-bad:'),
+      expect.any(Error)
+    )
+    consoleErrorSpy.mockRestore()
   })
 })

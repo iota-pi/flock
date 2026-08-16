@@ -84,6 +84,7 @@ export class SyncPoller {
       }
 
       let isFirstChunk = true
+      let snapshotNeededEmitted = false
       for (const chunkEntry of chunks) {
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
@@ -132,7 +133,8 @@ export class SyncPoller {
           await this.pullQueueManager.processPullResults(response.pullResults)
         }
 
-        if (response?.snapshotRequest?.requested) {
+        if (response?.snapshotRequest?.requested && !snapshotNeededEmitted) {
+          snapshotNeededEmitted = true
           this.internalEventHub.emit({
             type: 'snapshotNeeded',
             cursor: response.snapshotRequest.cursor,
