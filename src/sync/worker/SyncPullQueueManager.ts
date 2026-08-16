@@ -62,11 +62,6 @@ export class SyncPullQueueManager {
     this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
-    if (this.account) {
-      this.cursorStore.clear().catch(error => {
-        console.error('[SyncPullQueueManager] Failed to clear cursor store', error)
-      })
-    }
   }
 
   addPendingItem(itemId: ItemId): void {

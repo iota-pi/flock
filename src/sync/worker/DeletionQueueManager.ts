@@ -38,7 +38,6 @@ export class DeletionQueueManager {
 
   async shutdown(): Promise<void> {
     this.stopTimer()
-    await this.clearQueue().catch(console.error)
   }
 
   async handleIndexChange(newItemIdsSet: Set<ItemId>, subscribedIds: Set<ItemId>) {
