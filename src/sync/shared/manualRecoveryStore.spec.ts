@@ -172,17 +172,22 @@ describe('manualRecoveryStore', () => {
     setItemSpy.mockRestore()
   })
 
-  it('contains errors thrown during migration runMigration', async () => {
+  it('re-throws errors during migration and allows retrying on next call without stale caching', async () => {
     const metaStorage = createdInstances.find(i => i.config?.().name === 'FlockVault_ManualRecoveryDB_test-account-id' && i.config?.().storeName === 'manual-recovery-metadata')
     const getItemSpy = vi.spyOn(metaStorage, 'getItem').mockRejectedValueOnce(new Error('Migration read failed'))
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     resetMigrationForTesting()
 
-    await expect(readManualRecoveryEntries(accountId)).resolves.toBeDefined()
+    // First attempt fails and rejects
+    await expect(readManualRecoveryEntries(accountId)).rejects.toThrow('Migration read failed')
     expect(consoleErrorSpy).toHaveBeenCalledWith('[ManualRecoveryStore] Migration failed', expect.any(Error))
 
     getItemSpy.mockRestore()
+
+    // Second attempt should retry migration rather than using cached failure/resolution
+    await expect(readManualRecoveryEntries(accountId)).resolves.toEqual([])
+
     consoleErrorSpy.mockRestore()
   })
 })
