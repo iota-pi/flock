@@ -83,7 +83,10 @@ export class SyncPullQueueManager {
       const isBatched = entry.encryptedMessage.version === '1.0'
       let hasError = false
       if (isBatched) {
-        parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
+        const success = parseBatchedMessages(itemId, documentId, decrypted, this.onMessageParsed)
+        if (!success) {
+          hasError = true
+        }
       } else {
         try {
           this.onMessageParsed(itemId, documentId, decrypted)

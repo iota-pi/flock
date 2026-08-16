@@ -6,8 +6,9 @@ export function parseBatchedMessages(
   documentId: DocumentId,
   decrypted: Uint8Array,
   onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void
-): void {
+): boolean {
   let offset = 0
+  let success = true
   const view = new DataView(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
   while (offset < decrypted.byteLength) {
     try {
@@ -20,10 +21,13 @@ export function parseBatchedMessages(
         onMessageParsed(itemId, documentId, msg)
       } catch (error) {
         console.error('[messageParser] Error processing message in batch', error)
+        success = false
       }
     } catch (error) {
       console.error('[messageParser] Error parsing message batch structure', error)
+      success = false
       break
     }
   }
+  return success
 }
