@@ -394,9 +394,9 @@ export async function changePassword(account: string, currentPassword: string, n
   })
 
   masterKey = newMasterKey
-  keyHash = newAuthToken
   clearBiometricData()
   await writeStoredMetadata(account)
+  await establishSessionFromKeyHash(account, newAuthToken)
 }
 
 export async function rotateVaultKey(account: string): Promise<void> {
