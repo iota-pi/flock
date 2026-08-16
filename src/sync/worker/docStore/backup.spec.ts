@@ -3,7 +3,7 @@ import { AutomergeDocStore } from './AutomergeDocStore'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
 import { BackupManager } from './BackupManager'
 import { IndexStore } from '../stores/IndexStore'
-import { ACCOUNT_INDEX_DOCUMENT_ID } from '../utils/automerge'
+import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
 import type { Item } from '../../../state/items'
 import type { ItemId } from '../../../shared/schemas/items'
 
@@ -95,6 +95,6 @@ describe('backup operations', () => {
 
     const exported = await backupManager.exportAllBinaries()
     expect(exported.skipped).toContain('missing-item')
-    expect(exported.documents['missing-item']).toBeUndefined()
+    expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
   })
 })
