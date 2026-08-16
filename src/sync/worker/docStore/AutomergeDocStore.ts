@@ -114,37 +114,41 @@ export class AutomergeDocStore {
   ): Promise<RepoDocHandle> {
     const { url, documentId } = this.resolveDocumentId(itemId)
 
-    // 1. Check in-memory handles cache first
+    // 1. Check in-memory handles cache first (only if ready)
     let handle: RepoDocHandle = this.repo.handles[documentId]
-    if (handle) return handle
+    if (handle && handle.isReady()) return handle
 
-    // 2. Determine if it's known to exist (or check locally as fallback)
-    let existsInStorage = false
-    if (options.knownToExist !== undefined) {
-      existsInStorage = options.knownToExist
-    } else {
-      existsInStorage = await this.hasDataInStorage(itemId)
+    // If handle exists in cache but is still loading, bypass storage check
+    // since loading has already been initiated.
+    let existsInStorage = !!handle
+    if (!existsInStorage) {
+      // 2. Determine if it's known to exist (or check locally as fallback)
+      if (options.knownToExist !== undefined) {
+        existsInStorage = options.knownToExist
+      } else {
+        existsInStorage = await this.hasDataInStorage(itemId)
+      }
     }
 
     if (!existsInStorage) return undefined
 
     // 3. Fast-path attempt (2s)
     handle = await this.timedFind(url, 2000)
-    if (handle) return handle
+    if (handle && handle.isReady()) return handle
 
     // 4. Extended attempt for confirmed-to-exist documents (8s)
-    // The fast-path repo.find() may have registered the handle even though
-    // the await was aborted — check the cache before retrying.
+    // Check cache in case it became ready after timedFind aborted
     handle = this.repo.handles[documentId]
-    if (handle) return handle
+    if (handle && handle.isReady()) return handle
 
     console.warn(
       `[AutomergeDocStore] Document ${itemId} exists in storage but fast-path timed out. Retrying with extended timeout.`
     )
     handle = await this.timedFind(url, 8000)
 
-    // Final cache check — repo.find may have populated the handle
-    return handle ?? this.repo.handles[documentId]
+    // Final cache check — strictly require readiness before returning
+    const finalHandle = handle ?? this.repo.handles[documentId]
+    return (finalHandle && finalHandle.isReady()) ? finalHandle : undefined
   }
 
   async findOrCreateHandle(
