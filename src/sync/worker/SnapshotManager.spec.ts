@@ -399,5 +399,51 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(clearSpy).not.toHaveBeenCalled()
     })
   })
+
+  describe('In-Flight Dirty Tracking', () => {
+    it('preserves dirty status if item is re-dirtied while snapshot upload is in flight', async () => {
+      let resolveUpload: (val: any) => void
+      const uploadPromise = new Promise(resolve => {
+        resolveUpload = resolve
+      })
+
+      mockPutSnapshotsWithToken.mockImplementation(() => uploadPromise)
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+
+      // Start the snapshot push
+      await vi.advanceTimersByTimeAsync(0)
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+
+      // While upload is in flight, item-1 is modified again
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Complete the in-flight upload
+      resolveUpload!({
+        success: true,
+        persisted: 1,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+
+      // item-1 should still be dirty because it was modified after batch preparation
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    })
+
+    it('clears dirty status if item was not modified during in flight upload', async () => {
+      mockPutSnapshotsWithToken.mockResolvedValue({
+        success: true,
+        persisted: 1,
+      })
+
+      manager.markItemDirty('item-1' as ItemId)
+      manager.scheduleSnapshotPush(42)
+
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    })
+  })
 })
 
