@@ -91,9 +91,6 @@ export async function persistSyncMessages(
         await runStorageOperation(() => storage.setItem(itemId, bounded))
       } catch (err) {
         console.error(`[VaultPersistence] Failed to persist sync messages for ${itemId}`, err)
-        // Put them back in the pending map so we can try again
-        const existingPending = writes.get(itemId) || []
-        writes.set(itemId, [...newMessages, ...existingPending])
       }
     })
   })

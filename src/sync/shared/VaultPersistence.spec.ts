@@ -109,7 +109,7 @@ describe('VaultPersistence', () => {
     consoleWarnSpy.mockRestore()
   })
 
-  it('handles quota errors in persistSyncMessages by reporting and retaining in map', async () => {
+  it('handles quota errors in persistSyncMessages by reporting error', async () => {
     const { persistSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
     const storage = getSyncBatchStorage('acc-3')
@@ -126,13 +126,11 @@ describe('VaultPersistence', () => {
     expect(setItemSpy).toHaveBeenCalled()
     expect(mockReportQuotaExceeded).toHaveBeenCalled()
 
-    // It should put the unsaved items back in the writes map so they can be retried
-    expect(writes.get('item-1')).toEqual([msg1])
-
     // Subsequent calls to persistSyncMessages when quota is exceeded should early return
     setItemSpy.mockClear()
     mockReportQuotaExceeded.mockClear()
 
+    writes.set('item-2', [msg1])
     await persistSyncMessages('acc-3', writes)
     expect(setItemSpy).not.toHaveBeenCalled()
     expect(mockReportQuotaExceeded).toHaveBeenCalled() // reported again because we called it

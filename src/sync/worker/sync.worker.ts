@@ -154,6 +154,8 @@ export class SyncWorker implements SyncApi {
       this.internalEventHub,
       indexStore,
       indexManager,
+      cursorStore,
+      pullQueueManager,
       items => this.storeItems(items),
       changes => this.mutateMetadata(changes)
     )
