@@ -80,11 +80,14 @@ export class DeletionQueueManager {
 
           await this.deps.docStore.removeAutomergeItem(item.itemId)
           toRemove.push(item.itemId)
-          await cancelDeletion(this.deps.accountId, item.itemId)
         }
 
         if (toRemove.length > 0) {
           await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
+          
+          for (const itemId of toRemove) {
+            await cancelDeletion(this.deps.accountId, itemId)
+          }
         }
       }
     } catch (err) {
