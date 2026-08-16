@@ -110,7 +110,11 @@ export class SyncOrchestrator {
     }
 
     if (immediate) {
-      void this.executeWrappedPoll(true)
+      if (!this.isPolling) {
+        void this.executeWrappedPoll(true)
+      } else {
+        this.pendingFlush = true
+      }
     }
 
     this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
