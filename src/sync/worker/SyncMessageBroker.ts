@@ -112,12 +112,6 @@ export class SyncMessageBroker {
     const writes = new Map(this.pendingWrites)
     this.pendingWrites.clear()
     await persistSyncMessages(this.account, writes)
-    if (writes.size > 0) {
-      for (const [itemId, msgs] of writes.entries()) {
-        const existing = this.pendingWrites.get(itemId) || []
-        this.pendingWrites.set(itemId, [...msgs, ...existing])
-      }
-    }
   }
 
   flush(): void {
