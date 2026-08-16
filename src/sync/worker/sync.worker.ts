@@ -64,8 +64,30 @@ export class SyncWorker implements SyncApi {
     this.clearListeners()
 
     if (this._context) {
-      await this._context.shutdown()
+      try {
+        await this._context.shutdown()
+      } catch (err) {
+        console.error('[SyncWorker] Error shutting down context in initRepo', err)
+      }
       this._context = null
+    }
+
+    if (this.broker) {
+      try {
+        await this.broker.shutdown()
+      } catch (err) {
+        console.error('[SyncWorker] Error shutting down broker in initRepo', err)
+      }
+      this.broker = null
+    }
+
+    if (this.adapter) {
+      try {
+        this.adapter.disconnect()
+      } catch (err) {
+        console.error('[SyncWorker] Error disconnecting adapter in initRepo', err)
+      }
+      this.adapter = null
     }
 
     if (this.repoManager) {
@@ -232,6 +254,11 @@ export class SyncWorker implements SyncApi {
       const url = toAutomergeUrlFromItemId(id)
       repo.find(url).then(handle => {
         if (!this.subscribedIds.has(id)) return
+
+        const existingListener = this.changeListenersByItemId.get(id)
+        if (existingListener) {
+          handle.off('change', existingListener)
+        }
 
         const handleChange = () => {
           try {
