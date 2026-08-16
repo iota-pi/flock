@@ -246,4 +246,44 @@ describe('VaultPersistence', () => {
     expect(stored1).toHaveLength(1)
     expect(stored2).toHaveLength(2)
   })
+
+  it('serializes clearSyncBatch after concurrent in-flight persistSyncMessages', async () => {
+    const { persistSyncMessages, clearSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    const storage = getSyncBatchStorage('acc-1')
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-concur', [new Uint8Array([10, 20])])
+
+    // Kick off persist followed immediately by clear
+    const persistPromise = persistSyncMessages('acc-1', writes)
+    const clearPromise = clearSyncBatch('acc-1')
+
+    await Promise.all([persistPromise, clearPromise])
+
+    // Clear should have executed after persist in the queue for item-concur
+    const stored = await storage.getItem('item-concur')
+    expect(stored).toBeNull()
+  })
+
+  it('serializes restoreSyncBatch with concurrent in-flight persistSyncMessages', async () => {
+    const { persistSyncMessages, restoreSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    const storage = getSyncBatchStorage('acc-1')
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-concur', [new Uint8Array([10, 20])])
+
+    const pendingSync: [ItemId, Uint8Array[]][] = [
+      ['item-concur', [new Uint8Array([99])]],
+    ]
+
+    const persistPromise = persistSyncMessages('acc-1', writes)
+    const restorePromise = restoreSyncBatch('acc-1', pendingSync)
+
+    await Promise.all([persistPromise, restorePromise])
+
+    // Restore should have executed after persist in the queue for item-concur
+    const stored = await storage.getItem<Uint8Array[]>('item-concur')
+    expect(stored).toHaveLength(1)
+    expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([99])
+  })
 })
