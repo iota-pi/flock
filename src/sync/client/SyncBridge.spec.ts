@@ -263,4 +263,41 @@ describe('SyncBridge', () => {
     onLineSpy.mockRestore()
     visibilityStateSpy.mockRestore()
   })
+
+  it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
+    let worker1Terminate: any
+    let worker2Terminate: any
+    let workerCount = 0
+
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        if (workerCount === 0) {
+          worker1Terminate = this.terminate
+        } else {
+          worker2Terminate = this.terminate
+        }
+        workerCount += 1
+      }
+    } as any
+
+    await SyncBridge.initialize('test-account')
+    expect(workerCount).toBe(1)
+
+    let resolveShutdown: () => void = () => {}
+    mockSyncApi.shutdown.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveShutdown = resolve
+    }))
+
+    const shutdownPromise = SyncBridge.shutdown()
+    const initPromise = SyncBridge.initialize('test-account-2')
+
+    resolveShutdown()
+    await shutdownPromise
+    await initPromise
+
+    expect(worker1Terminate).toHaveBeenCalledTimes(1)
+    expect(worker2Terminate).not.toHaveBeenCalled()
+    expect(useAppStore.getState().syncStatus).not.toBe('offline')
+  })
 })

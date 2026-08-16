@@ -128,21 +128,27 @@ export const SyncBridge = {
       useAppStore.getState().setSyncStatus('connecting')
       const initialOnlineState = getOnlineState()
 
-      const worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
-      worker.onerror = (event: ErrorEvent) => {
-        const error = event.error || new Error(event.message || 'Sync Worker Error')
-        console.error('[SyncBridge] Worker error:', error)
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
-        }
-      }
-
-      workerInstance = worker
-      const wrappedApi = Comlink.wrap<SyncApi>(worker)
-
+      let worker: Worker | null = null
       try {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
+
+        if (currentAccountId !== accountId) {
+          console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          return
+        }
+
+        worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
+        worker.onerror = (event: ErrorEvent) => {
+          const error = event.error || new Error(event.message || 'Sync Worker Error')
+          console.error('[SyncBridge] Worker error:', error)
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
+          }
+        }
+
+        workerInstance = worker
+        const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
         _globalEventChannel = new MessageChannel()
         _globalEventChannel.port1.onmessage = ev => {
@@ -215,7 +221,9 @@ export const SyncBridge = {
       } catch (error) {
         console.error('Failed to initialize SyncBridge:', error)
         useAppStore.getState().setSyncStatus('offline')
-        worker.terminate()
+        if (worker) {
+          worker.terminate()
+        }
         if (workerInstance === worker) {
           workerInstance = null
         }
@@ -335,6 +343,11 @@ export const SyncBridge = {
     resetCrashMetrics()
     resetSyncHealthState()
 
+    const oldWorker = workerInstance
+    const oldSyncApi = syncApi
+    workerInstance = null
+    syncApi = null
+
     if (itemUpdateFlushHandle !== null) {
       cancelAnimationFrame(itemUpdateFlushHandle)
       itemUpdateFlushHandle = null
@@ -342,10 +355,10 @@ export const SyncBridge = {
     pendingItemUpdates.clear()
     useAppStore.getState().reset()
 
-    if (syncApi) {
+    if (oldSyncApi) {
       try {
         await Promise.race([
-          syncApi.shutdown(options),
+          oldSyncApi.shutdown(options),
           new Promise<void>((_, reject) =>
             setTimeout(() => reject(new Error('Sync worker shutdown timed out')), 1000)
           ),
@@ -355,12 +368,12 @@ export const SyncBridge = {
       }
     }
 
-    if (workerInstance) {
-      workerInstance.terminate()
-      workerInstance = null
+    if (oldWorker) {
+      oldWorker.terminate()
     }
-    syncApi = null
-    useAppStore.getState().setSyncStatus('offline')
+    if (!initializationPromise) {
+      useAppStore.getState().setSyncStatus('offline')
+    }
 
     recoveryEntries = []
     for (const listener of recoveryEntriesListeners) {
