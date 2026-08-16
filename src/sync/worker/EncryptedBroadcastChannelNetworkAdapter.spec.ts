@@ -229,4 +229,105 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
 
     consoleErrorSpy.mockRestore()
   })
+
+  it('decrypts incoming messages maintaining queue order even if decryption durations vary', async () => {
+    const { decryptBytes } = await import('src/api/vault')
+    const mockMessageListener = vi.fn()
+    adapter.on('message', mockMessageListener)
+
+    const innerOnCalls = innerAdapterMock.on.mock.calls
+    const messageCall = innerOnCalls.find((call: any) => call[0] === 'message')
+    const innerMessageCallback = messageCall[1]
+
+    // Custom decryptBytes implementation where message 1 takes longer than message 2
+    vi.mocked(decryptBytes).mockImplementation(async (payload: any) => {
+      const suffix = payload.cipher.replace('mock-cipher-', '')
+      if (suffix === 'first') {
+        await new Promise(resolve => setTimeout(resolve, 30))
+        return new Uint8Array([1, 1, 1])
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        return new Uint8Array([2, 2, 2])
+      }
+    })
+
+    const payload1 = { iv: 'iv1', cipher: 'mock-cipher-first', kver: '1', version: '1.0' }
+    const payload2 = { iv: 'iv2', cipher: 'mock-cipher-second', kver: '1', version: '1.0' }
+
+    const message1: Message = {
+      type: 'sync',
+      senderId: 'peer2' as PeerId,
+      targetId: 'peer1' as PeerId,
+      documentId: 'doc1' as DocumentId,
+      data: new TextEncoder().encode(JSON.stringify(payload1)),
+    }
+
+    const message2: Message = {
+      type: 'sync',
+      senderId: 'peer2' as PeerId,
+      targetId: 'peer1' as PeerId,
+      documentId: 'doc2' as DocumentId,
+      data: new TextEncoder().encode(JSON.stringify(payload2)),
+    }
+
+    innerMessageCallback(message1)
+    innerMessageCallback(message2)
+
+    await new Promise(resolve => setTimeout(resolve, 60))
+
+    expect(mockMessageListener).toHaveBeenCalledTimes(2)
+    expect(mockMessageListener.mock.calls[0][0].documentId).toBe('doc1')
+    expect(Array.from(mockMessageListener.mock.calls[0][0].data)).toEqual([1, 1, 1])
+    expect(mockMessageListener.mock.calls[1][0].documentId).toBe('doc2')
+    expect(Array.from(mockMessageListener.mock.calls[1][0].data)).toEqual([2, 2, 2])
+  })
+
+  it('continues processing remaining receiveQueue messages when decryption throws an error', async () => {
+    const { decryptBytes } = await import('src/api/vault')
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mockMessageListener = vi.fn()
+    adapter.on('message', mockMessageListener)
+
+    const innerOnCalls = innerAdapterMock.on.mock.calls
+    const messageCall = innerOnCalls.find((call: any) => call[0] === 'message')
+    const innerMessageCallback = messageCall[1]
+
+    vi.mocked(decryptBytes)
+      .mockRejectedValueOnce(new Error('Decryption failed'))
+      .mockResolvedValueOnce(new Uint8Array([4, 2]))
+
+    const badPayload = { iv: 'iv1', cipher: 'mock-cipher-bad', kver: '1', version: '1.0' }
+    const goodPayload = { iv: 'iv2', cipher: 'mock-cipher-good', kver: '1', version: '1.0' }
+
+    const badMessage: Message = {
+      type: 'sync',
+      senderId: 'peer2' as PeerId,
+      targetId: 'peer1' as PeerId,
+      documentId: 'badDoc' as DocumentId,
+      data: new TextEncoder().encode(JSON.stringify(badPayload)),
+    }
+
+    const goodMessage: Message = {
+      type: 'sync',
+      senderId: 'peer2' as PeerId,
+      targetId: 'peer1' as PeerId,
+      documentId: 'goodDoc' as DocumentId,
+      data: new TextEncoder().encode(JSON.stringify(goodPayload)),
+    }
+
+    innerMessageCallback(badMessage)
+    innerMessageCallback(goodMessage)
+
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[EncryptedBroadcastChannel] Error decrypting message:',
+      expect.any(Error)
+    )
+    expect(mockMessageListener).toHaveBeenCalledTimes(1)
+    expect(mockMessageListener.mock.calls[0][0].documentId).toBe('goodDoc')
+    expect(Array.from(mockMessageListener.mock.calls[0][0].data)).toEqual([4, 2])
+
+    consoleErrorSpy.mockRestore()
+  })
 })
