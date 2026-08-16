@@ -36,7 +36,7 @@ vi.mock('./docStore', async importOriginal => {
 })
 
 vi.mock('./utils/automerge', () => ({
-  toAutomergeUrlFromItemId: vi.fn().mockReturnValue('automerge:item-1'),
+  toAutomergeUrlFromItemId: vi.fn((itemId: string) => `automerge:${itemId}`),
 }))
 
 describe('SnapshotManager Retry Mechanism', () => {
@@ -92,6 +92,69 @@ describe('SnapshotManager Retry Mechanism', () => {
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     expect(manager['snapshotRequestCursor']).toBeNull()
     expect(manager['retryAttempt']).toBe(0)
+  })
+
+  it('schedules retry and retains cursor when buildSnapshot returns null (e.g. not ready)', async () => {
+    mockHandle.isReady.mockReturnValue(false)
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+    expect(manager['snapshotRequestCursor']).toBe(42)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
+
+    // When handle becomes ready on retry
+    mockHandle.isReady.mockReturnValue(true)
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    expect(manager['snapshotRequestCursor']).toBeNull()
+    expect(manager['retryAttempt']).toBe(0)
+  })
+
+  it('retains cursor and schedules retry when some items succeed but another returns null', async () => {
+    mockPutSnapshotsWithToken.mockResolvedValue({
+      success: true,
+      persisted: 1,
+    })
+
+    // item-1 is ready, item-2 is not ready
+    mockRepo.find.mockImplementation((url: string) => {
+      if (url.includes('item-1')) {
+        return Promise.resolve({
+          isReady: () => true,
+          doc: () => ({ id: 'item-1', type: 'note' }),
+        })
+      }
+      return Promise.resolve({
+        isReady: () => false,
+        doc: () => null,
+      })
+    })
+
+    manager.markItemDirty('item-1' as ItemId)
+    manager.markItemDirty('item-2' as ItemId)
+    manager.scheduleSnapshotPush(42)
+
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
+    expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    expect(manager['dirtyItems'].has('item-2' as ItemId)).toBe(true)
+    expect(manager['snapshotRequestCursor']).toBe(42)
+    expect(manager['retryAttempt']).toBe(1)
+    expect(manager['retryTimeoutId']).not.toBeNull()
   })
 
   it('aggressively schedules retries with exponential backoff on failure', async () => {

@@ -200,12 +200,16 @@ export class SnapshotManager {
     let persisted = 0
     let total = 0
     let success = true
+    let sendFailed = false
     let currentBatch: VaultSnapshotInput[] = []
     let currentBatchBytes = 0
 
     for (const itemId of dirtyItemIds) {
       const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-      if (!snapshot) continue
+      if (!snapshot) {
+        success = false
+        continue
+      }
 
       const snapshotSize = JSON.stringify(snapshot).length
 
@@ -218,6 +222,7 @@ export class SnapshotManager {
         const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
         if (!result.success) {
           success = false
+          sendFailed = true
           break
         }
         persisted += result.persisted
@@ -230,7 +235,7 @@ export class SnapshotManager {
     }
 
     // Flush any remaining items in the batch
-    if (success && currentBatch.length > 0) {
+    if (!sendFailed && currentBatch.length > 0) {
       total += currentBatch.length
       const result = await this.sendSnapshotBatch(accountId, authToken, currentBatch)
       if (!result.success) {
@@ -270,7 +275,7 @@ export class SnapshotManager {
       total = result.total
       success = result.success
 
-      if (persisted > 0) {
+      if (success) {
         this.snapshotRequestCursor = null
       }
 
