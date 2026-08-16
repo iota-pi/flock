@@ -52,6 +52,10 @@ export class ItemOperations {
       if (updated) {
         await this.deps.indexManager.addAutomergeItemIdsToIndex([item.id])
         this.deps.markDocumentDirty(item.id)
+      } else {
+        this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: `Failed to create document ${item.id}` })
+        const trueState = await this.deps.docStore.getAutomergeItem(item.id)
+        this.deps.eventHub.emit({ type: 'itemUpdated', id: item.id, item: trueState })
       }
     } catch (err) {
       this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'create', error: (err as Error).message })
