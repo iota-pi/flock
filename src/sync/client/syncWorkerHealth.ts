@@ -77,15 +77,15 @@ export const setupWorkerHealthCheck = ({
     handleWorkerCrash({ worker, onCrash, onRestart })
   }
 
-  worker.onerror = event => {
+  worker.addEventListener('error', event => {
     console.error('[SyncBridge] Web worker error:', event)
     handleCrash()
-  }
+  })
 
-  worker.onmessageerror = event => {
+  worker.addEventListener('messageerror', event => {
     console.error('[SyncBridge] Web worker message error:', event)
     handleCrash()
-  }
+  })
 
   const HEARTBEAT_INTERVAL_MS = 15000
   const HEARTBEAT_TIMEOUT_MS = 5000

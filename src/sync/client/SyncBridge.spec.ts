@@ -33,8 +33,21 @@ class MockWorker {
   options: any
   terminate = vi.fn()
   postMessage = vi.fn()
-  addEventListener = vi.fn()
-  removeEventListener = vi.fn()
+  private listeners: Record<string, ((event: any) => void)[]> = {}
+  addEventListener = vi.fn((event: string, handler: (event: any) => void) => {
+    if (!this.listeners[event]) this.listeners[event] = []
+    this.listeners[event].push(handler)
+  })
+  removeEventListener = vi.fn((event: string, handler: (event: any) => void) => {
+    if (this.listeners[event]) {
+      this.listeners[event] = this.listeners[event].filter(h => h !== handler)
+    }
+  })
+  dispatchEvent = vi.fn((event: any) => {
+    const handlers = this.listeners[event.type] || []
+    handlers.forEach(h => h(event))
+    return true
+  })
   constructor(url: string, options: any) {
     this.url = url
     this.options = options
@@ -139,7 +152,7 @@ describe('SyncBridge', () => {
     expect(Comlink.wrap).toHaveBeenCalledTimes(2)
   })
 
-  it('attempts to restart the worker if worker.onerror is triggered', async () => {
+  it('attempts to restart the worker and dispatches to window if worker error event is triggered', async () => {
     vi.useFakeTimers()
     let capturedWorker: any = null
     globalThis.Worker = class extends MockWorker {
@@ -150,12 +163,18 @@ describe('SyncBridge', () => {
       }
     } as any
 
+    const windowDispatchSpy = vi.spyOn(window, 'dispatchEvent')
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
     expect(capturedWorker).not.toBeNull()
 
-    // Trigger the onerror handler
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'WASM crash' }))
+    // Trigger the error event
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'WASM crash' }))
+
+    // Expect window error event dispatched
+    expect(windowDispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', message: 'WASM crash' })
+    )
 
     // Expect status to be connecting, and reconnect warning set
     expect(useAppStore.getState().syncStatus).toBe('connecting')
@@ -165,6 +184,7 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(initializeSpy).toHaveBeenCalledTimes(2)
+    windowDispatchSpy.mockRestore()
     vi.useRealTimers()
   })
 
@@ -212,17 +232,17 @@ describe('SyncBridge', () => {
     await SyncBridge.initialize('test-account')
 
     // First crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 1' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 1' }))
     await vi.advanceTimersByTimeAsync(1000) // triggers restart
     expect(initializeSpy).toHaveBeenCalledTimes(2)
 
     // Second crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 2' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 2' }))
     await vi.advanceTimersByTimeAsync(1000) // triggers restart
     expect(initializeSpy).toHaveBeenCalledTimes(3)
 
     // Third crash
-    capturedWorker.onerror(new ErrorEvent('error', { message: 'crash 3' }))
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash 3' }))
 
     // No more restarts. Fatal error should be set.
     expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')

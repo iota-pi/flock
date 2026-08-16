@@ -140,13 +140,13 @@ export const SyncBridge = {
         }
 
         worker = new Worker(new URL('../worker/sync.worker.ts', import.meta.url), { type: 'module' })
-        worker.onerror = (event: ErrorEvent) => {
+        worker.addEventListener('error', (event: ErrorEvent) => {
           const error = event.error || new Error(event.message || 'Sync Worker Error')
           console.error('[SyncBridge] Worker error:', error)
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new ErrorEvent('error', { error, message: event.message || error.message }))
           }
-        }
+        })
 
         workerInstance = worker
         const wrappedApi = Comlink.wrap<SyncApi>(worker)
