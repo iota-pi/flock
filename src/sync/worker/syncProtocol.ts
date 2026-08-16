@@ -13,7 +13,7 @@ export interface SyncApi {
   hardDeleteItems: (itemIds: ItemId[]) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
   mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
-  exportAllBinaries: () => Promise<Partial<Record<string, string>>>
+  exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
   forceSync: () => Promise<void>,
   pushSnapshots: () => Promise<{ persisted: number; total: number }>

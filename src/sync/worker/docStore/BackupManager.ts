@@ -11,18 +11,27 @@ export class BackupManager {
     private readonly indexManager: AutomergeIndexManager
   ) {}
 
-  async exportAllBinaries(): Promise<Partial<Record<BackupDocId, string>>> {
+  async exportAllBinaries(): Promise<{
+    documents: Partial<Record<BackupDocId, string>>
+    skipped: ItemId[]
+  }> {
     const exported: Partial<Record<BackupDocId, string>> = {}
+    const skipped: ItemId[] = []
 
     for (const itemId of await this.indexManager.listAutomergeItemIds()) {
       const handle = await this.docStore.findHandle(itemId, { knownToExist: true })
       if (!handle || !handle.isReady()) {
         console.warn(`[BackupManager] Skipping item ${itemId}: document could not be loaded in time`)
+        skipped.push(itemId)
         continue
       }
 
       const doc = handle.doc()
-      if (!doc) continue
+      if (!doc) {
+        console.warn(`[BackupManager] Skipping item ${itemId}: document handle doc is empty`)
+        skipped.push(itemId)
+        continue
+      }
 
       const binary = Automerge.save(doc)
       exported[itemId] = encodeBytesToBase64(binary)
@@ -32,7 +41,7 @@ export class BackupManager {
     const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
     exported[ACCOUNT_INDEX_DOCUMENT_ID] = encodeBytesToBase64(indexBinary)
 
-    return exported
+    return { documents: exported, skipped }
   }
 
   async restoreFromBinaries(items: Partial<Record<BackupDocId, string>>): Promise<ItemId[]> {

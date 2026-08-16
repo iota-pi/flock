@@ -56,8 +56,9 @@ describe('backup operations', () => {
 
     // Export binaries
     const exported = await backupManager.exportAllBinaries()
-    expect(Object.keys(exported)).toContain(item.id)
-    expect(Object.keys(exported)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
+    expect(Object.keys(exported.documents)).toContain(item.id)
+    expect(Object.keys(exported.documents)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
+    expect(exported.skipped).toEqual([])
 
     // Clean current state
     await docStore.removeAutomergeItem(item.id)
@@ -71,7 +72,7 @@ describe('backup operations', () => {
     expect(metadataBefore.prayerGoal).toBeUndefined()
 
     // Restore from binaries
-    const restored = await backupManager.restoreFromBinaries(exported)
+    const restored = await backupManager.restoreFromBinaries(exported.documents)
     expect(restored).toContain(item.id)
 
     // Verify item restored
@@ -84,5 +85,16 @@ describe('backup operations', () => {
     // Verify metadata restored
     const metadataAfter = await indexManager.getAutomergeMetadata()
     expect(metadataAfter.prayerGoal).toBe(42)
+  })
+
+  it('should track skipped items when documents fail to load', async () => {
+    // Add missing item to index
+    await indexManager.addAutomergeItemIdsToIndex(['missing-item' as ItemId])
+
+    vi.spyOn(docStore, 'findHandle').mockResolvedValue(undefined)
+
+    const exported = await backupManager.exportAllBinaries()
+    expect(exported.skipped).toContain('missing-item')
+    expect(exported.documents['missing-item']).toBeUndefined()
   })
 })
