@@ -159,6 +159,7 @@ export class SyncPullQueueManager {
               }
             } else {
               hasParseFailure = true
+              break
             }
           }
 
