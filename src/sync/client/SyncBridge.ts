@@ -21,7 +21,7 @@ const ITEM_UPDATE_BATCH_MAX = 50
 let onlineListenerAttached = false
 
 const pendingItemUpdates = new Map<string, Item | null>()
-let itemUpdateFlushHandle: number | null = null
+let itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
 let _globalEventChannel: MessageChannel | null = null
 
 let recoveryEntries: ManualRecoveryEntry[] = []
@@ -39,7 +39,7 @@ const flushItemUpdates = () => {
 
 const scheduleItemUpdateFlush = () => {
   if (itemUpdateFlushHandle !== null) return
-  itemUpdateFlushHandle = requestAnimationFrame(flushItemUpdates)
+  itemUpdateFlushHandle = setTimeout(flushItemUpdates, 0)
 }
 
 const handleSyncEvent = (event: ClientEvent) => {
@@ -55,7 +55,7 @@ const handleSyncEvent = (event: ClientEvent) => {
 
       if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
         if (itemUpdateFlushHandle !== null) {
-          cancelAnimationFrame(itemUpdateFlushHandle)
+          clearTimeout(itemUpdateFlushHandle)
           itemUpdateFlushHandle = null
         }
         flushItemUpdates()
@@ -354,7 +354,7 @@ export const SyncBridge = {
     syncApi = null
 
     if (itemUpdateFlushHandle !== null) {
-      cancelAnimationFrame(itemUpdateFlushHandle)
+      clearTimeout(itemUpdateFlushHandle)
       itemUpdateFlushHandle = null
     }
     pendingItemUpdates.clear()

@@ -338,5 +338,76 @@ describe('SyncBridge', () => {
     // Should be successfully initialized with account-2, and ensureReady should not throw
     await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
   })
+
+  it('flushes item updates asynchronously via setTimeout', async () => {
+    let capturedEventPort: MessagePort | null = null
+    globalThis.Worker = class extends MockWorker {
+      postMessage = vi.fn((msg: any) => {
+        if (msg?.type === 'EVENT_PORT') {
+          capturedEventPort = msg.port
+        }
+      })
+    } as any
+
+    const updateItemsSpy = vi.spyOn(useAppStore.getState(), 'updateItemsFromServer')
+
+    await SyncBridge.initialize('test-account')
+    expect(capturedEventPort).not.toBeNull()
+
+    capturedEventPort!.postMessage({
+      type: 'itemUpdated',
+      id: 'item-1',
+      item: { id: 'item-1', name: 'Test Item' } as any,
+    })
+
+    // Should not have updated synchronously
+    expect(updateItemsSpy).not.toHaveBeenCalled()
+
+    // Wait for macro-task / setTimeout 0
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(updateItemsSpy).toHaveBeenCalledWith([
+      { id: 'item-1', item: expect.objectContaining({ id: 'item-1', name: 'Test Item' }) },
+    ])
+  })
+
+  it('closes _globalEventChannel.port1 on worker crash', async () => {
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        capturedWorker = this
+      }
+    } as any
+
+    const originalMessageChannel = globalThis.MessageChannel
+    let port1CloseSpy: any
+    class MockMessageChannel {
+      port1 = {
+        onmessage: null,
+        start: vi.fn(),
+        close: vi.fn(),
+      }
+      port2 = {}
+      constructor() {
+        port1CloseSpy = this.port1.close
+      }
+    }
+    globalThis.MessageChannel = MockMessageChannel as any
+
+    try {
+      await SyncBridge.initialize('test-account')
+      expect(capturedWorker).not.toBeNull()
+      expect(port1CloseSpy).not.toHaveBeenCalled()
+
+      // Trigger worker crash error
+      capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
+
+      expect(port1CloseSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      globalThis.MessageChannel = originalMessageChannel
+    }
+  })
 })
 
