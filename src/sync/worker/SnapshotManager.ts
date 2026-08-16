@@ -345,9 +345,6 @@ export class SnapshotManager {
       this.retryTimeoutId = null
     }
     this.retryAttempt = 0
-    this.lastModifiedStore.clear().catch(error => {
-      console.error('[SnapshotManager] Failed to clear persisted lastModified timestamps', error)
-    })
   }
 
   exportLastModified(): [ItemId, number][] {

@@ -310,4 +310,31 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
     })
   })
+
+  describe('Shutdown and Persistence', () => {
+    it('persists lastModified on shutdown without clearing the persisted store', async () => {
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+      const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
+
+      // Set some lastModified state
+      await manager.importLastModified([['item-1' as ItemId, 123456]])
+
+      // Execute shutdown
+      await manager.shutdown()
+
+      expect(saveSpy).toHaveBeenCalledWith([['item-1', 123456]])
+      expect(clearSpy).not.toHaveBeenCalled()
+    })
+
+    it('clear() resets in-memory state without clearing the persisted store', async () => {
+      const clearSpy = vi.spyOn(lastModifiedStore, 'clear')
+
+      await manager.importLastModified([['item-1' as ItemId, 123456]])
+      manager.clear()
+
+      expect(manager.exportLastModified()).toHaveLength(0)
+      expect(clearSpy).not.toHaveBeenCalled()
+    })
+  })
 })
+
