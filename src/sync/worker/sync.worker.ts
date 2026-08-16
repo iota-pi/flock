@@ -234,12 +234,16 @@ export class SyncWorker implements SyncApi {
         if (!this.subscribedIds.has(id)) return
 
         const handleChange = () => {
-          const doc = handle.doc() || null
-          const item = normalizeItemSnapshot(id, doc)
-          if (item?.deleted) {
-            this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+          try {
+            const doc = handle.doc() || null
+            const item = normalizeItemSnapshot(id, doc)
+            if (item?.deleted) {
+              this.context.indexManager.removeAutomergeItemIdsFromIndex([id]).catch(console.error)
+            }
+            this.clientEventHub.emit({ type: 'itemUpdated', id, item })
+          } catch (err) {
+            console.error(`[SyncWorker] Error handling Automerge doc change for item ${id}:`, err)
           }
-          this.clientEventHub.emit({ type: 'itemUpdated', id, item })
         }
         handle.on('change', handleChange)
         this.changeListenersByItemId.set(id, handleChange)

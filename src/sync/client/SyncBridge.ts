@@ -224,6 +224,10 @@ export const SyncBridge = {
         if (worker) {
           worker.terminate()
         }
+        if (_globalEventChannel) {
+          _globalEventChannel.port1.close()
+          _globalEventChannel = null
+        }
         if (workerInstance === worker) {
           workerInstance = null
         }
@@ -370,6 +374,10 @@ export const SyncBridge = {
 
     if (oldWorker) {
       oldWorker.terminate()
+    }
+    if (_globalEventChannel) {
+      _globalEventChannel.port1.close()
+      _globalEventChannel = null
     }
     if (!initializationPromise) {
       useAppStore.getState().setSyncStatus('offline')
