@@ -300,4 +300,23 @@ describe('SyncBridge', () => {
     expect(worker2Terminate).not.toHaveBeenCalled()
     expect(useAppStore.getState().syncStatus).not.toBe('offline')
   })
+
+  it('resets initializationPromise when initialization is aborted due to concurrent account change', async () => {
+    let resolveKeyring1: (val: string) => void = () => {}
+    const { exportKeyringData } = await import('src/api/vault')
+    vi.mocked(exportKeyringData).mockImplementationOnce(
+      () => new Promise<string>(resolve => { resolveKeyring1 = resolve })
+    )
+
+    const init1 = SyncBridge.initialize('account-1')
+    const init2 = SyncBridge.initialize('account-2')
+
+    resolveKeyring1('test-key')
+    await init1
+    await init2
+
+    // Should be successfully initialized with account-2, and ensureReady should not throw
+    await expect(SyncBridge.ensureReady()).resolves.toBeUndefined()
+  })
 })
+

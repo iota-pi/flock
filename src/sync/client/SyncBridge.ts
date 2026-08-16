@@ -135,6 +135,7 @@ export const SyncBridge = {
 
         if (currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          initializationPromise = null
           return
         }
 
