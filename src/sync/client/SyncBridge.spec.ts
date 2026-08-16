@@ -34,20 +34,24 @@ class MockWorker {
   terminate = vi.fn()
   postMessage = vi.fn()
   private listeners: Record<string, ((event: any) => void)[]> = {}
+
   addEventListener = vi.fn((event: string, handler: (event: any) => void) => {
     if (!this.listeners[event]) this.listeners[event] = []
     this.listeners[event].push(handler)
   })
+
   removeEventListener = vi.fn((event: string, handler: (event: any) => void) => {
     if (this.listeners[event]) {
       this.listeners[event] = this.listeners[event].filter(h => h !== handler)
     }
   })
+
   dispatchEvent = vi.fn((event: any) => {
     const handlers = this.listeners[event.type] || []
     handlers.forEach(h => h(event))
     return true
   })
+
   constructor(url: string, options: any) {
     this.url = url
     this.options = options
@@ -389,7 +393,9 @@ describe('SyncBridge', () => {
         start: vi.fn(),
         close: vi.fn(),
       }
+
       port2 = {}
+
       constructor() {
         port1CloseSpy = this.port1.close
       }

@@ -204,6 +204,10 @@ export const SyncBridge = {
           isCurrentWorker: () => workerInstance === worker && !!syncApi,
           onCrash: () => {
             if (workerInstance === worker) {
+              if (_globalEventChannel) {
+                _globalEventChannel.port1.close()
+                _globalEventChannel = null
+              }
               workerInstance = null
               syncApi = null
               initializationPromise = null
