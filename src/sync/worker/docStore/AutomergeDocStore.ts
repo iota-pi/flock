@@ -1,4 +1,4 @@
-import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl, type DocumentId } from '@automerge/automerge-repo/slim'
+import { Repo, DocHandle, interpretAsDocumentId, type AutomergeUrl } from '@automerge/automerge-repo/slim'
 import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'

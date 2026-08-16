@@ -69,7 +69,8 @@ export class SnapshotManager {
 
   markItemDirty(itemId: ItemId) {
     if (!itemId) return
-    this.dirtyItems.set(itemId, ++this.dirtyItemsTick)
+    this.dirtyItemsTick += 1
+    this.dirtyItems.set(itemId, this.dirtyItemsTick)
     this.flushDirtyDocumentsToIndexDebounced()
   }
 

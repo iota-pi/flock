@@ -5,7 +5,6 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { fetchMany } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
-import { VaultItem } from 'src/vault/drivers/base'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
 
@@ -24,7 +23,7 @@ export class VaultBootstrapper {
     if (!this.deps.accountId) return
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     const lastSyncTime = await this.deps.indexManager.getLastSyncTime()
-    
+
     // Check if the device has been offline for > 1 week (minus a 12-hour buffer)
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
     const BUFFER_MS = 12 * 60 * 60 * 1000
@@ -43,7 +42,7 @@ export class VaultBootstrapper {
       })
     } catch (e) {
       console.error('[VaultBootstrapper] failed to fetch item snapshots', e)
-      throw new Error(`[VaultBootstrapper] Failed to fetch item snapshots: ${(e as Error).message || String(e)}`)
+      throw new Error(`[VaultBootstrapper] Failed to fetch item snapshots: ${(e as Error).message || String(e)}`, { cause: e })
     }
 
     const fetchedItems = response.items.filter(
