@@ -87,17 +87,15 @@ export class VaultNetworkAdapter extends NetworkAdapter {
         const decoded = decodeSyncMessage(message.data)
         if (!decoded.changes || decoded.changes.length === 0) {
           // Drop empty negotiation/ACK messages to prevent broadcast spam since the vault
-          // peer is a passive relay. If this is an initial negotiation (heads present),
+          // peer is a passive relay. If this is an initial negotiation,
           // seed the vault's syncState with a 0-head ACK so Automerge immediately emits
           // the actual change payload.
-          if (decoded.heads && decoded.heads.length > 0) {
-            if (message.documentId && !this.seededDocuments.has(message.documentId)) {
-              this.seededDocuments.add(message.documentId)
-              const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
-              queueMicrotask(() => {
-                this.receiveMessage(message.documentId!, ackMsg)
-              })
-            }
+          if (message.documentId && !this.seededDocuments.has(message.documentId)) {
+            this.seededDocuments.add(message.documentId)
+            const ackMsg = encodeSyncMessage({ heads: [], need: [], have: [], changes: [] })
+            queueMicrotask(() => {
+              this.receiveMessage(message.documentId!, ackMsg)
+            })
           }
           return
         }
