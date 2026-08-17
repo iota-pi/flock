@@ -1,5 +1,5 @@
-import type { DocumentId, Message, PeerId } from '@automerge/automerge-repo/slim'
-import { encodeSyncMessage } from '@automerge/automerge/slim'
+import { type DocumentId, type Message, type PeerId, Repo } from '@automerge/automerge-repo/slim'
+import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -352,10 +352,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     setItemSpy.mockRestore()
   })
 
-  it('sends seed ACK to adapter when receiving initial negotiation message with empty changes', async () => {
+  it('sends reflected heads ACK to adapter when receiving initial negotiation message with empty changes', async () => {
     const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
     const initialSyncMsg = encodeSyncMessage({
-      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      heads: testHeads,
       need: [],
       have: [],
       changes: [],
@@ -379,6 +380,57 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       'automerge:item-test',
       expect.any(Uint8Array),
     )
+
+    const receivedPayload = receiveMessageSpy.mock.calls[0][1] as Uint8Array
+    const decodedAck = decodeSyncMessage(receivedPayload)
+    expect(decodedAck.heads).toEqual(testHeads)
+    expect(decodedAck.changes).toEqual([])
+  })
+
+  it('reflects heads to prevent history dumps and allows future changes through Automerge Repo', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+
+    const outgoingMessages: Message[] = []
+    testAdapter.onMessageToSend = msg => {
+      outgoingMessages.push(msg)
+    }
+
+    const repo = new Repo({
+      network: [testAdapter],
+    })
+
+    // Create a document and populate it with initial data before connection settles
+    const handle = repo.create<{ count: number; name?: string }>()
+    handle.change(doc => {
+      doc.count = 1
+    })
+
+    // Allow microtasks and timers for Automerge Repo network handshake and negotiation to execute
+    await vi.runAllTimersAsync()
+
+    // 1. Initial negotiation should have been intercepted, heads reflected, and NO changes emitted to onMessageToSend
+    expect(outgoingMessages.length).toBe(0)
+
+    // 2. Now perform a new mutation
+    handle.change(doc => {
+      doc.count = 2
+      doc.name = 'updated'
+    })
+
+    await vi.runAllTimersAsync()
+
+    // 3. The new mutation should produce a sync message that passes through onMessageToSend with changes
+    expect(outgoingMessages.length).toBeGreaterThanOrEqual(1)
+    const lastMsg = outgoingMessages[outgoingMessages.length - 1]
+    expect(lastMsg.type).toBe('sync')
+    expect(lastMsg.data).toBeInstanceOf(Uint8Array)
+
+    const decoded = decodeSyncMessage(lastMsg.data as Uint8Array)
+    expect(decoded.changes.length).toBeGreaterThan(0)
+
+    await repo.shutdown()
   })
 
   it('immediately triggers next poll if hasMore is true', async () => {
