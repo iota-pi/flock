@@ -42,16 +42,15 @@ function sortMessagesAscendingByCursor(messages: StoredSyncMessage[]): StoredSyn
 }
 
 const SYNC_MESSAGE_PAGE_LIMIT = 200
+const TIMESTAMP_MULTIPLIER = 10_000_000
+const MAX_OFFSET = 9_999_000
+const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
 
 export function createAutomergeSyncService({
   now = Date.now,
   repository,
 }: AutomergeSyncServiceDeps) {
   async function pushAutomergeSyncBatch(input: PushSyncBatchInput): Promise<{ success: true; results: Array<{ itemId: ItemId; cursor: number }> }> {
-    const CUSTOM_EPOCH = 1760000000000 // 2026-01-01T00:00:00.000Z
-    const TIMESTAMP_MULTIPLIER = 10_000_000
-    const MAX_OFFSET = 9_999_000
-
     const timestamp = now()
     const relativeTimestampMs = Math.max(0, timestamp - CUSTOM_EPOCH)
     const relativeTimestampSeconds = Math.floor(relativeTimestampMs / 1000)
@@ -97,10 +96,11 @@ export function createAutomergeSyncService({
     hasMore: boolean
   }> {
     const fromCursor = typeof input.cursor === 'number' ? input.cursor : 0
+    const overlapCursor = Math.max(0, fromCursor - TIMESTAMP_MULTIPLIER)
     const { messages: storedMessages, hasMore } = await repository.getSyncMessages({
       account: input.account,
       itemId: input.itemId,
-      fromCursor,
+      fromCursor: overlapCursor,
       limit: SYNC_MESSAGE_PAGE_LIMIT,
     })
     const messages = sortMessagesAscendingByCursor(storedMessages)
@@ -160,9 +160,10 @@ export function createAutomergeSyncService({
       hasMore: boolean
     }>
   }> {
+    const overlapCursor = Math.max(0, input.cursor - TIMESTAMP_MULTIPLIER)
     const { items, hasMore } = await repository.getGlobalSyncMessagesAfterCursor({
       account: input.account,
-      cursor: input.cursor,
+      cursor: overlapCursor,
     })
 
     const results = items.map((item, index) => {

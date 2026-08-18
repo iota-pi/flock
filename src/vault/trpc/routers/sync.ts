@@ -44,7 +44,7 @@ export const syncRouter = router({
       let pullResults: Awaited<ReturnType<typeof service.pullAutomergeSyncBatch>>['results'] = []
       
       if (typeof input.clientLatestCursor === 'number') {
-        if (input.clientLatestCursor >= (account.latestSyncCursor ?? 0)) {
+        if (input.clientLatestCursor > 0 && input.clientLatestCursor >= (account.latestSyncCursor ?? 0)) {
           // Fast Path: Client is fully up to date globally, skip database query
           pullResults = []
         } else {
@@ -92,7 +92,9 @@ export const syncRouter = router({
         await ctx.vault.updateAccountData({
           account: input.account,
           ...(snapshotRequest ? { lastSnapshotRequestedAt: now } : {}),
-          ...(pushResults.length > 0 ? { latestSyncCursor: maxPushCursor } : {}),
+          ...(pushResults.length > 0
+            ? { latestSyncCursor: Math.max(maxPushCursor, account.latestSyncCursor ?? 0) }
+            : {}),
         })
       }
 
