@@ -137,4 +137,29 @@ describe('DeletionQueueManager', () => {
     await manager.cancelDeletion('item-1' as ItemId)
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-1')
   })
+
+  it('prevents concurrent executions of processQueue', async () => {
+    let resolveList: () => void
+    const listPromise = new Promise<any[]>(resolve => {
+      resolveList = () => resolve([])
+    })
+    vi.mocked(deletionStore.listScheduledDeletions).mockReturnValueOnce(listPromise)
+
+    // First call starts and stays pending
+    const firstCall = manager.processQueue()
+
+    // Second call starts while first is in progress
+    await manager.processQueue()
+
+    // listScheduledDeletions should only be called once because second call returned immediately
+    expect(deletionStore.listScheduledDeletions).toHaveBeenCalledTimes(1)
+
+    // Complete first call
+    resolveList!()
+    await firstCall
+
+    // Subsequent call after completion should run
+    await manager.processQueue()
+    expect(deletionStore.listScheduledDeletions).toHaveBeenCalledTimes(2)
+  })
 })

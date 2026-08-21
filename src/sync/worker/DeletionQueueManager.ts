@@ -12,6 +12,7 @@ export class DeletionQueueManager {
   private deletionGracePeriodMs = 24 * 60 * 60 * 1000 // 24 hours
   private deletionQueueCheckInterval = 60 * 1000 // 1 minute
   private deletionQueueTimer: ReturnType<typeof setInterval> | null = null
+  private isProcessingQueue = false
 
   constructor(
     private deps: {
@@ -61,6 +62,11 @@ export class DeletionQueueManager {
   }
 
   async processQueue() {
+    if (this.isProcessingQueue) {
+      return
+    }
+    this.isProcessingQueue = true
+
     try {
       const scheduled = await listScheduledDeletions(this.deps.accountId)
       const now = Date.now()
@@ -95,6 +101,8 @@ export class DeletionQueueManager {
       }
     } catch (err) {
       console.error('[DeletionQueueManager] Error processing deletion queue', err)
+    } finally {
+      this.isProcessingQueue = false
     }
   }
 
