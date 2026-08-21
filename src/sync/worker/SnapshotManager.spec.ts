@@ -354,7 +354,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(1)
     })
 
-    it('sends a single snapshot in its own batch even if it exceeds maxPayloadBytes', async () => {
+    it('skips a single snapshot if it exceeds maxPayloadBytes', async () => {
       // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
       const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10 })
 
@@ -368,9 +368,9 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       await vi.runAllTimersAsync()
 
-      // Should still be pushed in 1 call, not getting stuck.
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
-      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
+      // Should not be pushed, and should be removed from dirtyItems to avoid retry loops
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(testManager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
     })
   })
 

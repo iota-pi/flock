@@ -44,7 +44,7 @@ export class SnapshotManager {
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.maxPayloadBytes = options?.maxPayloadBytes ?? 200 * 1024
+    this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
   }
 
   async loadLastModified(): Promise<void> {
@@ -228,6 +228,17 @@ export class SnapshotManager {
       this.consecutiveBuildFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
+
+      if (snapshotSize > this.maxPayloadBytes) {
+        console.error(
+          `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
+        )
+        success = false
+        if (this.dirtyItems.get(itemId) === tick) {
+          this.dirtyItems.delete(itemId)
+        }
+        continue
+      }
 
       // Check if we should flush the current batch before adding this snapshot.
       const wouldExceedCount = currentBatch.length >= 25
