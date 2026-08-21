@@ -28,7 +28,7 @@ describe('ItemOperations', () => {
       indexManager: {
         addAutomergeItemIdsToIndex: addAutomergeItemIdsToIndexMock,
         listAutomergeItemIds: vi.fn().mockResolvedValue([]),
-        removeAutomergeItemIdsFromIndex: vi.fn(),
+        removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
         updateAutomergeMetadata: vi.fn(),
         getAutomergeMetadata: vi.fn(),
       } as any,
@@ -87,6 +87,50 @@ describe('ItemOperations', () => {
         type: 'mutationFailed',
         mutationType: 'create',
         error: 'Storage unavailable',
+      })
+    })
+  })
+
+  describe('hardDeleteItems', () => {
+    it('deletes items, removes from index, and cancels scheduled deletions', async () => {
+      await operations.hardDeleteItems(['item-1' as ItemId, 'item-2' as ItemId])
+
+      expect(deps.docStore.removeAutomergeItem).toHaveBeenCalledWith('item-1')
+      expect(deps.docStore.removeAutomergeItem).toHaveBeenCalledWith('item-2')
+      expect(deps.indexManager.removeAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-1', 'item-2'])
+      expect(deps.deletionQueueManager.cancelDeletion).toHaveBeenCalledWith('item-1')
+      expect(deps.deletionQueueManager.cancelDeletion).toHaveBeenCalledWith('item-2')
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('continues processing remaining items and retains deletion queue entry for failed items when partial failure occurs', async () => {
+      const removeMock = deps.docStore.removeAutomergeItem as any
+      removeMock.mockImplementation(async (id: ItemId) => {
+        if (id === 'item-2') {
+          throw new Error('Failed to delete item-2')
+        }
+      })
+
+      await operations.hardDeleteItems(['item-1' as ItemId, 'item-2' as ItemId, 'item-3' as ItemId])
+
+      // All items were attempted
+      expect(deps.docStore.removeAutomergeItem).toHaveBeenCalledWith('item-1')
+      expect(deps.docStore.removeAutomergeItem).toHaveBeenCalledWith('item-2')
+      expect(deps.docStore.removeAutomergeItem).toHaveBeenCalledWith('item-3')
+
+      // Only successfully deleted items are removed from index
+      expect(deps.indexManager.removeAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-1', 'item-3'])
+
+      // Only successfully deleted items have scheduled deletions cancelled
+      expect(deps.deletionQueueManager.cancelDeletion).toHaveBeenCalledWith('item-1')
+      expect(deps.deletionQueueManager.cancelDeletion).toHaveBeenCalledWith('item-3')
+      expect(deps.deletionQueueManager.cancelDeletion).not.toHaveBeenCalledWith('item-2')
+
+      // Emits mutationFailed for the failed item
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'mutationFailed',
+        mutationType: 'hardDelete',
+        error: 'Failed to delete item-2',
       })
     })
   })
