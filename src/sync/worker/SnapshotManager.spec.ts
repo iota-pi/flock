@@ -398,6 +398,20 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(manager.exportLastModified()).toHaveLength(0)
       expect(clearSpy).not.toHaveBeenCalled()
     })
+
+    it('flushes dirty documents on shutdown without scheduling a dangling debounced save', async () => {
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      await manager.shutdown()
+
+      expect(saveSpy).toHaveBeenCalledTimes(1)
+
+      // Advance timers to verify no dangling timer fires
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(saveSpy).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('In-Flight Dirty Tracking', () => {

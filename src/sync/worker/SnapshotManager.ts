@@ -74,7 +74,7 @@ export class SnapshotManager {
     this.flushDirtyDocumentsToIndexDebounced()
   }
 
-  async flushDirtyDocumentsToIndex(): Promise<void> {
+  private updateLastModifiedForDirtyItems(): void {
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       return
@@ -85,6 +85,10 @@ export class SnapshotManager {
     for (const itemId of dirtyItemIds) {
       this.lastModifiedByItemId.set(itemId, timestamp)
     }
+  }
+
+  async flushDirtyDocumentsToIndex(): Promise<void> {
+    this.updateLastModifiedForDirtyItems()
     this.saveLastModifiedDebounced()
   }
 
@@ -370,11 +374,7 @@ export class SnapshotManager {
     }
 
     if (this.dirtyItems.size > 0) {
-      try {
-        await this.flushDirtyDocumentsToIndex()
-      } catch (error) {
-        console.error('[SnapshotManager] Failed to flush dirty documents during shutdown', error)
-      }
+      this.updateLastModifiedForDirtyItems()
     }
 
     await this.persistLastModified()
