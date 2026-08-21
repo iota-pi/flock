@@ -175,7 +175,7 @@ export class SyncPullQueueManager {
             cursorsUpdated = true
           }
 
-          if (hasMore || hasParseFailure) {
+          if (hasMore && !hasParseFailure) {
             this.pendingPullItemIds.add(itemId)
           } else {
             this.pendingPullItemIds.delete(itemId)

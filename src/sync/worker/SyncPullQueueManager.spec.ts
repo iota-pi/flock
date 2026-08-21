@@ -296,7 +296,7 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
     })
 
-    it('handles decryption failure by calling reportDecryptionFailure without advancing cursor or removing from pending pulls', async () => {
+    it('handles decryption failure by calling reportDecryptionFailure without advancing cursor and removes item from pending pulls', async () => {
       mockDecryptBytes.mockRejectedValueOnce(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -326,9 +326,9 @@ describe('SyncPullQueueManager', () => {
           error: expect.any(Error),
         }
       )
-      // Cursors should NOT advance on decryption failure and item should stay pending
+      // Cursors should NOT advance on decryption failure and item should not stay pending to avoid infinite loop
       expect(manager.exportCursors()).toEqual([['item-fail', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('re-queues pending items and clears them based on hasMore', async () => {
@@ -421,7 +421,7 @@ describe('SyncPullQueueManager', () => {
       )
 
       expect(manager.exportCursors()).toEqual([['item-batch-error', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('handles message processing error for non-batched message without advancing cursor', async () => {
@@ -452,7 +452,7 @@ describe('SyncPullQueueManager', () => {
 
       await expect(manager.processPullResults(pullResults)).resolves.not.toThrow()
       expect(manager.exportCursors()).toEqual([['item-1', 0]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('stops processing messages and preserves cursor before failed message when a parse failure occurs mid-batch', async () => {
@@ -500,7 +500,34 @@ describe('SyncPullQueueManager', () => {
       expect(onMessageParsedSpy).toHaveBeenCalledTimes(1)
       expect(mockDecryptBytes).toHaveBeenCalledTimes(2)
       expect(manager.exportCursors()).toEqual([['item-partial', 10]])
-      expect(manager.hasPendingPulls()).toBe(true)
+      expect(manager.hasPendingPulls()).toBe(false)
+    })
+
+    it('does not re-queue pending pull item when parse failure occurs even if hasMore is true', async () => {
+      mockDecryptBytes.mockRejectedValueOnce(new Error('Corrupt ciphertext'))
+
+      const pullResults: PullSyncMessagesResponse[] = [
+        {
+          success: true,
+          itemId: 'item-corrupt-hasmore' as ItemId,
+          hasMore: true,
+          nextCursor: 50,
+          messages: [
+            {
+              cursor: 10,
+              encryptedMessage: {
+                iv: 'iv-corrupt',
+                cipher: 'bad-payload',
+              },
+            },
+          ],
+        },
+      ]
+
+      await manager.processPullResults(pullResults)
+
+      expect(manager.exportCursors()).toEqual([['item-corrupt-hasmore', 0]])
+      expect(manager.hasPendingPulls()).toBe(false)
     })
 
     it('continues processing subsequent items if one item throws an error', async () => {
