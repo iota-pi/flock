@@ -219,4 +219,51 @@ describe('SyncOrchestrator', () => {
 
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
   })
+
+  it('preserves pendingFlush when auth-failure occurs and executes it when polling is resumed', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Trigger flush while poll is running
+    orchestrator.flush()
+
+    // Poll fails with auth-failure
+    resolvePoll('auth-failure')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Polling is paused
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Start polling without immediate flag (e.g. standard schedule)
+    let resolvePoll2: (val: any) => void = () => {}
+    const poll2Promise = new Promise(resolve => {
+      resolvePoll2 = resolve
+    })
+    mockBroker.executePoll.mockImplementationOnce(() => poll2Promise)
+    orchestrator.startPolling(false)
+
+    // Advance timer to the scheduled poll time
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+    // Resolve poll 2 with success
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    resolvePoll2('success')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Because pendingFlush was preserved, after the successful poll it immediately scheduled and executed the queued flush
+    await vi.advanceTimersByTimeAsync(10)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
+  })
 })
+

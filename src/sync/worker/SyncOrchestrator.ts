@@ -129,6 +129,7 @@ export class SyncOrchestrator {
     if (this.syncBatchTimeout) {
       self.clearTimeout(this.syncBatchTimeout)
       this.syncBatchTimeout = null
+      this.pendingFlush = true
     }
     this.nextPollAt = 0
   }
@@ -184,13 +185,6 @@ export class SyncOrchestrator {
       this.isPolling = false
     }
 
-    const wasFlushPending = this.pendingFlush
-    this.pendingFlush = false
-
-    if (this.pollingPausedForAuth) {
-      return
-    }
-
     if (outcome === 'auth-failure') {
       this.pollingPausedForAuth = true
       this.stopPolling()
@@ -198,6 +192,9 @@ export class SyncOrchestrator {
       this.internalEventHub.emit({ type: 'pollResult', outcome })
       return
     }
+
+    const wasFlushPending = this.pendingFlush
+    this.pendingFlush = false
 
     if (outcome === 'failure') {
       this.increasePollBackoff()
@@ -208,9 +205,7 @@ export class SyncOrchestrator {
 
     this.internalEventHub.emit({ type: 'pollResult', outcome })
 
-    if (wasFlushPending) {
-      this.scheduleNextPoll(0)
-    } else if (outcome === 'success' && this.broker.hasPendingPulls()) {
+    if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
       this.scheduleNextPoll(0)
     } else {
       this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
