@@ -29,7 +29,16 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   }
 
   setSendEnabled(sendEnabled: boolean): void {
+    if (this.sendEnabled === sendEnabled) {
+      return
+    }
     this.sendEnabled = sendEnabled
+
+    if (sendEnabled) {
+      this.connectPeer()
+    } else {
+      this.disconnectPeer()
+    }
   }
 
   setAccount(account: string | null): void {
@@ -38,14 +47,14 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    this.account = nextAccount
-
-    if (!this.connected) {
-      return
+    if (this.account && !nextAccount) {
+      this.disconnectPeer()
     }
 
+    this.account = nextAccount
+
     if (this.account) {
-      this.emitPeerCandidate()
+      this.connectPeer()
     }
   }
 
@@ -68,9 +77,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       this.readyPromiseResolver = null
     }
 
-    if (this.account) {
-      this.emitPeerCandidate()
-    }
+    this.connectPeer()
   }
 
   send(message: Message): void {
@@ -125,17 +132,26 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   disconnect(): void {
     this.connected = false
+    this.disconnectPeer()
     this.emit('close')
   }
 
-  private emitPeerCandidate(): void {
-    this.emit('peer-candidate', {
-      peerId: VAULT_PEER_ID,
-      peerMetadata: {
-        storageId: `vault:${this.account}` as StorageId,
-        isEphemeral: false,
-      },
-    })
+  private connectPeer(): void {
+    if (this.account && this.connected && this.sendEnabled) {
+      this.emit('peer-candidate', {
+        peerId: VAULT_PEER_ID,
+        peerMetadata: {
+          storageId: `vault:${this.account}` as StorageId,
+          isEphemeral: false,
+        },
+      })
+    }
+  }
+
+  private disconnectPeer(): void {
+    if (this.peerId) {
+      this.emit('peer-disconnected', { peerId: VAULT_PEER_ID })
+    }
   }
 }
 
