@@ -119,12 +119,13 @@ export const SyncBridge = {
       return initializationPromise
     }
 
+    currentAccountId = accountId
+
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
-        await SyncBridge.shutdown()
+        await SyncBridge.shutdown({ internalRestart: true })
       }
 
-      currentAccountId = accountId
       useAppStore.getState().setSyncStatus('connecting')
       const initialOnlineState = getOnlineState()
 
@@ -239,6 +240,7 @@ export const SyncBridge = {
         syncApi = null
         currentAccountId = null
         initializationPromise = null
+        throw error
       }
     })()
 
@@ -345,9 +347,11 @@ export const SyncBridge = {
     await syncApi!.restoreSyncState(state)
   },
 
-  shutdown: async (options?: { clearLocalData?: boolean }) => {
-    initializationPromise = null
-    currentAccountId = null
+  shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
+    if (!options?.internalRestart) {
+      initializationPromise = null
+      currentAccountId = null
+    }
     stopWorkerHeartbeat()
     resetCrashMetrics()
     resetSyncHealthState()

@@ -415,5 +415,41 @@ describe('SyncBridge', () => {
       globalThis.MessageChannel = originalMessageChannel
     }
   })
+
+  it('re-throws error when initialization fails', async () => {
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed'))
+
+    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('initRepo failed')
+    expect(useAppStore.getState().syncStatus).toBe('offline')
+  })
+
+  it('allows ensureReady to wait for initialization during re-initialization with a new account', async () => {
+    await SyncBridge.initialize('account-one')
+
+    let resolveInitRepo: () => void = () => {}
+    mockSyncApi.initRepo.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveInitRepo = resolve
+        })
+    )
+
+    const initTwoPromise = SyncBridge.initialize('account-two')
+    const ensureReadyPromise = SyncBridge.ensureReady()
+
+    // ensureReady should be pending and not throw prematurely
+    let ready = false
+    ensureReadyPromise.then(() => {
+      ready = true
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+    expect(ready).toBe(false)
+
+    resolveInitRepo()
+    await initTwoPromise
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+  })
 })
 
