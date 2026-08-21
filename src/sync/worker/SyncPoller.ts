@@ -8,7 +8,7 @@ import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
-export type PollOutcome = 'success' | 'failure' | 'auth-failure'
+export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
 export class SyncPoller {
   private account: string | null = null
@@ -35,13 +35,13 @@ export class SyncPoller {
   }
 
   async executePoll(): Promise<PollOutcome> {
-    if (this.isPolling || !this.isOnline || !this.account) return 'success'
+    if (this.isPolling || !this.isOnline || !this.account) return 'no-poll'
     this.isPolling = true
 
     this.clientEventHub.emit({ type: 'startRequest' })
     try {
       const authToken = await getActiveSessionToken()
-      if (!authToken) return 'success'
+      if (!authToken) return 'no-poll'
 
       let batchEntries: [ItemId, Uint8Array[]][]
       try {

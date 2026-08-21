@@ -242,7 +242,7 @@ export class SyncWorker implements SyncApi {
       if (this.syncStatus !== 'syncing') {
         this.updateStatus('idle')
       }
-    } else {
+    } else if (outcome !== 'no-poll') {
       this.updateStatus('offline')
     }
   }
