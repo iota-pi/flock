@@ -102,6 +102,7 @@ const handleSyncEvent = (event: ClientEvent) => {
 }
 
 let initializationPromise: Promise<void> | null = null
+let currentInitSession = 0
 
 export const SyncBridge = {
   ensureReady: async () => {
@@ -120,6 +121,7 @@ export const SyncBridge = {
     }
 
     currentAccountId = accountId
+    const initSession = ++currentInitSession
 
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
@@ -134,9 +136,8 @@ export const SyncBridge = {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
-        if (currentAccountId !== accountId) {
+        if (initSession !== currentInitSession || currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
-          initializationPromise = null
           return
         }
 
@@ -165,6 +166,15 @@ export const SyncBridge = {
         )
         await wrappedApi.setOnlineState(initialOnlineState)
         await wrappedApi.bootstrapItems()
+
+        if (initSession !== currentInitSession || currentAccountId !== accountId) {
+          console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          worker.terminate()
+          if (workerInstance === worker) {
+            workerInstance = null
+          }
+          return
+        }
 
         syncApi = wrappedApi
 
@@ -226,7 +236,6 @@ export const SyncBridge = {
         })
       } catch (error) {
         console.error('Failed to initialize SyncBridge:', error)
-        useAppStore.getState().setSyncStatus('offline')
         if (worker) {
           worker.terminate()
         }
@@ -237,9 +246,12 @@ export const SyncBridge = {
         if (workerInstance === worker) {
           workerInstance = null
         }
-        syncApi = null
-        currentAccountId = null
-        initializationPromise = null
+        if (initSession === currentInitSession) {
+          useAppStore.getState().setSyncStatus('offline')
+          syncApi = null
+          currentAccountId = null
+          initializationPromise = null
+        }
         throw error
       }
     })()
@@ -349,6 +361,7 @@ export const SyncBridge = {
 
   shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
     if (!options?.internalRestart) {
+      currentInitSession++
       initializationPromise = null
       currentAccountId = null
     }

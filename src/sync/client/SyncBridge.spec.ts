@@ -451,5 +451,39 @@ describe('SyncBridge', () => {
     await ensureReadyPromise
     expect(ready).toBe(true)
   })
+
+  it('safely handles concurrent initialize calls for different accounts without destroying the newer promise', async () => {
+    let resolveKeyringA: (val: string) => void = () => {}
+    let resolveKeyringB: (val: string) => void = () => {}
+
+    const { exportKeyringData } = await import('src/api/vault')
+    vi.mocked(exportKeyringData)
+      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringA = resolve }))
+      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringB = resolve }))
+
+    const initAPromise = SyncBridge.initialize('account-A')
+    const initBPromise = SyncBridge.initialize('account-B')
+
+    const ensureReadyPromise = SyncBridge.ensureReady()
+
+    let ready = false
+    ensureReadyPromise.then(() => {
+      ready = true
+    })
+
+    // Release A's keyring -> A discovers account changed to B and aborts
+    resolveKeyringA('key-a')
+    await initAPromise
+
+    // ensureReady should still be pending on B
+    await new Promise(r => setTimeout(r, 10))
+    expect(ready).toBe(false)
+
+    // Release B's keyring -> B finishes
+    resolveKeyringB('key-b')
+    await initBPromise
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+  })
 })
 
