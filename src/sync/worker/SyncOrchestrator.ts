@@ -79,8 +79,6 @@ export class SyncOrchestrator {
       this.resetPollBackoff()
       this.startPolling(true)
       this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
-    } else {
-      this.clientEventHub.emit({ type: 'statusChange', status: 'offline' })
     }
   }
 
