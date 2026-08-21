@@ -257,28 +257,51 @@ describe('Vault Keyring Integration', () => {
     expect(shutdownSpy).not.toHaveBeenCalledWith({ clearLocalData: true })
   })
 
-  it('throws and clears local keys when getKeyring fails on network error during loginVault', async () => {
+  it('succeeds and preserves local keys when getKeyring fails on network error during loginVault', async () => {
     vi.mocked(getKeyring).mockRejectedValueOnce(new Error('Network offline'))
 
-    await expect(
-      loginVault({
-        account: 'test-account',
-        password: 'password123',
-        salt: 'salt123',
-        iterations: 1000,
-      })
-    ).rejects.toThrow('Failed to retrieve keyring from server during login: Network offline')
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
 
-    // Keyring and vault state should be wiped/cleared
-    expect(() => getVaultKey('1')).toThrow()
-    // Stored metadata should not be written
-    expect(localStorage.getItem(VAULT_STORAGE_KEY)).toBeNull()
+    // Keyring and vault state should be preserved
+    expect(getVaultKey('1')).toBeDefined()
+    // Stored metadata should be written
+    const stored = localStorage.getItem(VAULT_STORAGE_KEY)
+    expect(stored).toBeDefined()
+    expect(JSON.parse(stored!).account).toBe('test-account')
   })
 
-  it('throws and clears local keys when storeVault fails during loginVault for new account', async () => {
+  it('succeeds and preserves local keys when storeVault fails during loginVault for new account', async () => {
     vi.mocked(getKeyring).mockResolvedValueOnce(undefined)
     vi.mocked(updateKeyring).mockRejectedValueOnce(new Error('Network error on seed'))
 
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    // Keyring and vault state should be preserved
+    expect(getVaultKey('1')).toBeDefined()
+    // Stored metadata should be written
+    const stored = localStorage.getItem(VAULT_STORAGE_KEY)
+    expect(stored).toBeDefined()
+    expect(JSON.parse(stored!).account).toBe('test-account')
+  })
+
+  it('throws and clears local keys when decryption of retrieved keyring fails during loginVault', async () => {
+    vi.mocked(getKeyring).mockResolvedValueOnce(
+      JSON.stringify({
+        iv: 'invalid-iv',
+        cipher: 'invalid-cipher',
+      })
+    )
+
     await expect(
       loginVault({
         account: 'test-account',
@@ -286,9 +309,9 @@ describe('Vault Keyring Integration', () => {
         salt: 'salt123',
         iterations: 1000,
       })
-    ).rejects.toThrow('Failed to seed keyring to server during login: Network error on seed')
+    ).rejects.toThrow(/Failed to decrypt keyring from server during login/)
 
-    // Keyring and vault state should be wiped/cleared
+    // Keyring and vault state should be wiped/cleared on decryption failure
     expect(() => getVaultKey('1')).toThrow()
   })
 })

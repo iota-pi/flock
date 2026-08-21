@@ -190,9 +190,18 @@ export async function loginVault({
   await establishSessionFromKeyHash(account, keyHash)
 
   let keyringNeedsUpload = false
+  let encryptedKeyringStr: string | undefined
   try {
-    const encryptedKeyringStr = await getKeyring(account)
-    if (encryptedKeyringStr) {
+    encryptedKeyringStr = await getKeyring(account)
+    if (!encryptedKeyringStr) {
+      keyringNeedsUpload = true
+    }
+  } catch (err) {
+    console.warn('[vault] Failed to retrieve keyring from server during login (network error):', err)
+  }
+
+  if (encryptedKeyringStr) {
+    try {
       const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
       const decryptionKey = masterKey || getVaultKey('1')
       const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
@@ -205,32 +214,25 @@ export async function loginVault({
           }
         }
       }
-    } else {
-      keyringNeedsUpload = true
+    } catch (err) {
+      clearKeyData()
+      console.error('[vault] Failed to decrypt keyring from server during login:', err)
+      throw new Error(
+        `Failed to decrypt keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
     }
-  } catch (err) {
-    clearKeyData()
-    console.error('[vault] Failed to retrieve keyring from server during login:', err)
-    throw new Error(
-      `Failed to retrieve keyring from server during login: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
-    )
   }
 
   if (keyringNeedsUpload) {
     try {
       await storeVault(account)
     } catch (err) {
-      clearKeyData()
-      console.error('[vault] Failed to seed keyring to server during login:', err)
-      throw new Error(
-        `Failed to seed keyring to server during login: ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err },
-      )
+      console.warn('[vault] Failed to seed keyring to server during login (network error):', err)
     }
-  } else {
-    await writeStoredMetadata(account)
   }
+
+  await writeStoredMetadata(account)
 }
 
 export async function loadAccount() {
@@ -498,9 +500,15 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
 
   await establishSessionFromKeyHash(account, keyHash)
 
+  let encryptedKeyringStr: string | undefined
   try {
-    const encryptedKeyringStr = await getKeyring(account)
-    if (encryptedKeyringStr) {
+    encryptedKeyringStr = await getKeyring(account)
+  } catch (err) {
+    console.warn('[vault] Failed to retrieve keyring from server during biometric unlock (network error):', err)
+  }
+
+  if (encryptedKeyringStr) {
+    try {
       const encryptedKeyring = JSON.parse(encryptedKeyringStr) as CryptoResult
       const decryptionKey = masterKey || getVaultKey('1')
       const plaintext = await decryptWithKey(decryptionKey, encryptedKeyring)
@@ -513,14 +521,14 @@ export async function unlockWithBiometrics(account: string): Promise<void> {
           }
         }
       }
+    } catch (err) {
+      clearKeyData()
+      console.error('[vault] Failed to decrypt keyring from server during biometric unlock:', err)
+      throw new Error(
+        `Failed to decrypt keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
     }
-  } catch (err) {
-    clearKeyData()
-    console.error('[vault] Failed to retrieve keyring from server during biometric unlock:', err)
-    throw new Error(
-      `Failed to retrieve keyring from server during biometric unlock: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
-    )
   }
 
   await writeStoredMetadata(account)
