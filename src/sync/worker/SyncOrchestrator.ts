@@ -83,6 +83,7 @@ export class SyncOrchestrator {
   }
 
   flush(): void {
+    this.pollingPausedForAuth = false
     if (this.syncBatchTimeout === null) {
       this.syncBatchTimeout = self.setTimeout(
         () => void this.flushSyncBatch(),
@@ -106,6 +107,8 @@ export class SyncOrchestrator {
     if (!this.isLeader) {
       return
     }
+
+    this.pollingPausedForAuth = false
 
     if (immediate) {
       if (!this.isPolling) {
@@ -168,7 +171,7 @@ export class SyncOrchestrator {
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
-    if (this.isPolling || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) return
+    if (this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
     if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
@@ -200,6 +203,7 @@ export class SyncOrchestrator {
       this.increasePollBackoff()
     } else {
       this.resetPollBackoff()
+      this.pollingPausedForAuth = false
     }
 
     this.internalEventHub.emit({ type: 'pollResult', outcome })

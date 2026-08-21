@@ -149,4 +149,74 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(10)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
   })
+
+  it('resumes polling after auth failure when startPolling is called', async () => {
+    mockBroker.executePoll.mockResolvedValueOnce('auth-failure')
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Verify polling is stopped/paused
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // User re-authenticates and startPolling is called
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    orchestrator.startPolling(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+    // Subsequent scheduled polling should also work
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
+  })
+
+  it('resumes polling after auth failure when flush is called', async () => {
+    mockBroker.executePoll.mockResolvedValueOnce('auth-failure')
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Verify polling is stopped/paused
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // An item change or manual sync triggers flush after re-authenticating
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    orchestrator.flush()
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+
+    // Subsequent scheduled polling should also work
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
+  })
+
+  it('resumes polling after auth failure when reconnecting online', async () => {
+    mockBroker.executePoll.mockResolvedValueOnce('auth-failure')
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Network goes offline then online
+    orchestrator.setOnlineState(false)
+    mockBroker.executePoll.mockResolvedValueOnce('success')
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(2)
+  })
 })
