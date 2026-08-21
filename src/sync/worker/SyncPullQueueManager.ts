@@ -143,7 +143,9 @@ export class SyncPullQueueManager {
         try {
           const itemId = result.itemId
           const hasMore = result.hasMore === true
-          let highestCursor = this.cursorByItemId.get(itemId) || 0
+          const hasExisting = this.cursorByItemId.has(itemId)
+          const originalCursor = this.cursorByItemId.get(itemId) || 0
+          let highestCursor = originalCursor
           let hasParseFailure = false
 
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
@@ -165,7 +167,10 @@ export class SyncPullQueueManager {
             highestCursor = Math.max(highestCursor, result.nextCursor)
           }
 
-          if (highestCursor >= 0) {
+          if (highestCursor > originalCursor) {
+            this.cursorByItemId.set(itemId, highestCursor)
+            cursorsUpdated = true
+          } else if (!hasExisting && highestCursor >= 0) {
             this.cursorByItemId.set(itemId, highestCursor)
             cursorsUpdated = true
           }
