@@ -16,7 +16,7 @@ export class SyncMessageBroker {
 
   private syncPoller: SyncPoller
 
-  private pendingWrites: Map<string, Uint8Array[]> = new Map()
+  private pendingWritesByAccount: Map<string, Map<string, Uint8Array[]>> = new Map()
   private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   public onFlushNeeded: (() => void) | null = null
@@ -80,7 +80,7 @@ export class SyncMessageBroker {
   }
 
   private handleOutgoingMessage(message: Message): void {
-    if (!this.sendEnabled) {
+    if (!this.sendEnabled || !this.account) {
       return
     }
 
@@ -95,10 +95,15 @@ export class SyncMessageBroker {
       this.pullQueueManager.addPendingItem(itemId)
       this.flush()
     } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      let messages = this.pendingWrites.get(itemId)
+      let accountWrites = this.pendingWritesByAccount.get(this.account)
+      if (!accountWrites) {
+        accountWrites = new Map()
+        this.pendingWritesByAccount.set(this.account, accountWrites)
+      }
+      let messages = accountWrites.get(itemId)
       if (!messages) {
         messages = []
-        this.pendingWrites.set(itemId, messages)
+        accountWrites.set(itemId, messages)
       }
       messages.push(message.data)
       this.flush()
@@ -106,23 +111,45 @@ export class SyncMessageBroker {
   }
 
   private async persistPendingWrites(): Promise<void> {
-    if (this.pendingWrites.size === 0 || !this.account) {
+    if (this.pendingWritesByAccount.size === 0) {
       return
     }
-    const writes = new Map(this.pendingWrites)
-    this.pendingWrites.clear()
-    try {
-      await persistSyncMessages(this.account, writes)
-    } catch (err) {
-      for (const [itemId, messages] of writes.entries()) {
-        const existing = this.pendingWrites.get(itemId)
-        if (existing) {
-          this.pendingWrites.set(itemId, [...messages, ...existing])
-        } else {
-          this.pendingWrites.set(itemId, messages)
-        }
+    const writesToProcess = new Map(this.pendingWritesByAccount)
+    this.pendingWritesByAccount.clear()
+
+    let firstError: unknown = null
+
+    for (const [account, writes] of writesToProcess.entries()) {
+      if (firstError) {
+        this.restoreWrites(account, writes)
+        continue
       }
-      throw err
+      try {
+        await persistSyncMessages(account, writes)
+      } catch (err) {
+        firstError = err
+        this.restoreWrites(account, writes)
+      }
+    }
+
+    if (firstError) {
+      throw firstError
+    }
+  }
+
+  private restoreWrites(account: string, writes: Map<string, Uint8Array[]>): void {
+    let accountWrites = this.pendingWritesByAccount.get(account)
+    if (!accountWrites) {
+      accountWrites = new Map()
+      this.pendingWritesByAccount.set(account, accountWrites)
+    }
+    for (const [itemId, messages] of writes.entries()) {
+      const existing = accountWrites.get(itemId)
+      if (existing) {
+        accountWrites.set(itemId, [...messages, ...existing])
+      } else {
+        accountWrites.set(itemId, messages)
+      }
     }
   }
 
