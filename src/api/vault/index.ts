@@ -63,7 +63,7 @@ let masterKey: CryptoKey | null = null
 let activeKeyVersion = '1'
 let keyHash = ''
 let session = ''
-let isHandlingSessionExpiry = false
+let sessionExpiryPromise: Promise<void> | null = null
 
 function getActiveKey(): CryptoKey {
   const k = keyring.get(activeKeyVersion)
@@ -108,19 +108,20 @@ async function establishSessionFromKeyHash(account: string, nextKeyHash: string)
   setApiSessionExpiredHandler(handleSessionExpired)
 }
 
-export async function handleSessionExpired() {
-  if (isHandlingSessionExpiry) {
-    return
+export function handleSessionExpired(): Promise<void> {
+  if (sessionExpiryPromise) {
+    return sessionExpiryPromise
   }
 
-  isHandlingSessionExpiry = true
-  try {
-    await lockVault()
-  } finally {
-    setTimeout(() => {
-      isHandlingSessionExpiry = false
-    }, 1000)
-  }
+  sessionExpiryPromise = (async () => {
+    try {
+      await lockVault()
+    } finally {
+      sessionExpiryPromise = null
+    }
+  })()
+
+  return sessionExpiryPromise
 }
 
 export async function initialiseVault({

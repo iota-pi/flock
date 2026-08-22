@@ -257,6 +257,28 @@ describe('Vault Keyring Integration', () => {
     expect(shutdownSpy).not.toHaveBeenCalledWith({ clearLocalData: true })
   })
 
+  it('handleSessionExpired shares promise across concurrent calls and prevents redundant lock cycles', async () => {
+    const shutdownSpy = vi.spyOn(SyncBridge, 'shutdown').mockResolvedValue(undefined)
+    await initialiseVault({
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+    await storeVault('test-account')
+
+    const p1 = handleSessionExpired()
+    const p2 = handleSessionExpired()
+    const p3 = handleSessionExpired()
+
+    expect(p1).toBe(p2)
+    expect(p2).toBe(p3)
+
+    await Promise.all([p1, p2, p3])
+
+    // lockVault should only have been executed once
+    expect(shutdownSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('succeeds and preserves local keys when getKeyring fails on network error during loginVault', async () => {
     vi.mocked(getKeyring).mockRejectedValueOnce(new Error('Network offline'))
 
