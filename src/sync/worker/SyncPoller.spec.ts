@@ -176,4 +176,75 @@ describe('SyncPoller', () => {
       expect(await poller.executePoll()).toBe('failure')
     })
   })
+
+  describe('snapshotNeeded emission', () => {
+    it('emits snapshotNeeded for single chunk with snapshot request', async () => {
+      const emitSpy = vi.spyOn(internalEventHub, 'emit')
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+        snapshotRequest: {
+          requested: true,
+          cursor: 42,
+          requestedAt: 123456,
+        },
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(emitSpy).toHaveBeenCalledWith({
+        type: 'snapshotNeeded',
+        cursor: 42,
+        requestedAt: 123456,
+      })
+    })
+
+    it('emits snapshotNeeded with the highest cursor across multiple chunks', async () => {
+      const emitSpy = vi.spyOn(internalEventHub, 'emit')
+      const mockBatch: [ItemId, Uint8Array[]][] = Array.from({ length: 12 }, (_, i) => [
+        `item-${i}` as ItemId,
+        [new Uint8Array([1, 2, 3])],
+      ])
+      vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
+
+      // 3 chunks (5, 5, 2)
+      mockPollSyncBatchWithToken
+        .mockResolvedValueOnce({
+          success: true,
+          pushResults: [],
+          pullResults: [],
+          snapshotRequest: {
+            requested: true,
+            cursor: 10,
+            requestedAt: 100,
+          },
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          pushResults: [],
+          pullResults: [],
+          // No snapshot request in chunk 2
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          pushResults: [],
+          pullResults: [],
+          snapshotRequest: {
+            requested: true,
+            cursor: 25,
+            requestedAt: 300,
+          },
+        })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(emitSpy).toHaveBeenCalledTimes(1)
+      expect(emitSpy).toHaveBeenCalledWith({
+        type: 'snapshotNeeded',
+        cursor: 25,
+        requestedAt: 300,
+      })
+    })
+  })
 })

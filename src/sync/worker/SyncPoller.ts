@@ -83,7 +83,7 @@ export class SyncPoller {
         return 'success'
       }
 
-      let snapshotNeededEmitted = false
+      let highestSnapshotRequest: { cursor: number; requestedAt: number } | null = null
       for (const chunkEntry of chunks) {
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
@@ -131,16 +131,24 @@ export class SyncPoller {
           await this.pullQueueManager.processPullResults(response.pullResults)
         }
 
-        if (response?.snapshotRequest?.requested && !snapshotNeededEmitted) {
-          snapshotNeededEmitted = true
-          this.internalEventHub.emit({
-            type: 'snapshotNeeded',
-            cursor: response.snapshotRequest.cursor,
-            requestedAt: response.snapshotRequest.requestedAt,
-          })
+        if (response?.snapshotRequest?.requested) {
+          if (!highestSnapshotRequest || response.snapshotRequest.cursor > highestSnapshotRequest.cursor) {
+            highestSnapshotRequest = {
+              cursor: response.snapshotRequest.cursor,
+              requestedAt: response.snapshotRequest.requestedAt,
+            }
+          }
         }
 
         await removeSentSyncMessages(this.account, chunkEntry)
+      }
+
+      if (highestSnapshotRequest) {
+        this.internalEventHub.emit({
+          type: 'snapshotNeeded',
+          cursor: highestSnapshotRequest.cursor,
+          requestedAt: highestSnapshotRequest.requestedAt,
+        })
       }
 
       await this.indexManager.updateLastSyncTime(Date.now())
