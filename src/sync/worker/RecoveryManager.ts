@@ -67,13 +67,12 @@ export class RecoveryManager {
 
   async forceDeleteRecoveryItem(itemId: ItemId) {
     if (!this.deps.accountId) return
-    const existing = await this.deps.docStore.getAutomergeItem(itemId)
-
     await this.deps.docStore.changeDocument(
       itemId,
       doc => {
-        doc.id = itemId
-        doc.type = existing?.type || 'person'
+        if (typeof doc.id !== 'string' || doc.id.length === 0) {
+          doc.id = itemId
+        }
         doc.deleted = true
       },
       { createIfMissing: true },
