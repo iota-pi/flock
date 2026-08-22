@@ -112,6 +112,21 @@ describe('DeletionQueueManager', () => {
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 
+  it('cancels deletion even if removeAutomergeItemIdsFromIndex throws', async () => {
+    mockRemoveAutomergeItemIdsFromIndex.mockRejectedValueOnce(new Error('Index update failed'))
+
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
+
+    // Advance past 24 hours (expired!)
+    await vi.advanceTimersByTimeAsync(25 * 60 * 60 * 1000)
+
+    await manager.processQueue()
+
+    expect(mockRemoveAutomergeItem).toHaveBeenCalledWith('item-2')
+    expect(mockRemoveAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-2'])
+    expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
+  })
+
   it('does not delete item if it has reappeared during check', async () => {
     await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 

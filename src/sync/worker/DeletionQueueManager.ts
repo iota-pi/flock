@@ -93,8 +93,12 @@ export class DeletionQueueManager {
         }
 
         if (toRemove.length > 0) {
-          await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
-          
+          try {
+            await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
+          } catch (err) {
+            console.error('[DeletionQueueManager] Failed to remove items from index', err)
+          }
+
           for (const itemId of toRemove) {
             await cancelDeletion(this.deps.accountId, itemId)
           }
