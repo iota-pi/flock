@@ -111,7 +111,7 @@ export class SyncPullQueueManager {
     }
   }
 
-  getAllCursors(): Array<{ itemId: ItemId; cursor: number }> {
+  getCursors(): Array<{ itemId: ItemId; cursor: number }> {
     const cursors: Array<{ itemId: ItemId; cursor: number }> = []
 
     const targetItemIds = new Set([...this.pendingPullItemIds])

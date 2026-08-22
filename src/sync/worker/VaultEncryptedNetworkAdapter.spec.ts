@@ -365,7 +365,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter.setSendEnabled(true)
     adapter.setAccount('test')
     adapter.connect('vault' as PeerId)
-    
+
     adapter.send({
       type: 'sync',
       senderId: 'client' as PeerId,
@@ -523,14 +523,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
-    // Queuing a new pending pull item immediately flushes and triggers poll #3.
-    broker.queuePendingPullItems(['item-2' as ItemId])
-    await vi.advanceTimersByTimeAsync(50)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
-
-    // Advancing past the 30s backoff delay + jitter triggers poll #4.
+    // Advancing past the 30s backoff delay + jitter triggers poll #3.
     await vi.advanceTimersByTimeAsync(50000)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(4)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
   })
 
   it('cleans up seededDocuments on disconnect and account change', async () => {

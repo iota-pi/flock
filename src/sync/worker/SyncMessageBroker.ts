@@ -145,14 +145,6 @@ export class SyncMessageBroker {
     this.onFlushNeeded?.()
   }
 
-  queuePendingPullItems(itemIds: ItemId[]): void {
-    if (!itemIds || itemIds.length === 0) return
-    for (const itemId of itemIds) {
-      this.pullQueueManager.addPendingItem(itemId)
-    }
-    this.flush()
-  }
-
   exportCursors(): [ItemId, number][] {
     return this.pullQueueManager.exportCursors()
   }

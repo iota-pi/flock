@@ -4,9 +4,20 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { CursorStore } from './stores/CursorStore'
 
+import { loadSyncBatch } from '../shared/VaultPersistence'
+import { ItemId } from 'src/shared/schemas/items'
+
 const mockPollSyncBatchWithToken = vi.fn()
 vi.mock('../../api/vault/SyncWorkerClient', () => ({
   pollSyncBatchWithToken: (...args: any[]) => mockPollSyncBatchWithToken(...args),
+}))
+
+vi.mock('../../api/vault', () => ({
+  encryptBytes: vi.fn().mockResolvedValue({
+    iv: 'iv',
+    cipher: 'cipher',
+    kver: 'kver',
+  }),
 }))
 
 vi.mock('../shared/workerAuthStore', () => ({
@@ -63,6 +74,52 @@ describe('SyncPoller', () => {
     const outcome = await poller.executePoll()
     expect(outcome).toBe('success')
     expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
+  })
+
+  it('sends cursors with every chunk in multi-chunk batch', async () => {
+    // 6 items will produce 2 chunks of size 5 and 1
+    const mockBatch: [ItemId, Uint8Array[]][] = Array.from({ length: 6 }, (_, i) => [
+      `item-${i}` as ItemId,
+      [new Uint8Array([1, 2, 3])],
+    ])
+    vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
+
+    // Add a pending item to pullQueueManager to verify cursors are populated
+    pullQueueManager.addPendingItem('pending-item-1' as ItemId)
+
+    mockPollSyncBatchWithToken
+      .mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [],
+      })
+
+    const outcome = await poller.executePoll()
+    expect(outcome).toBe('success')
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
+
+    // First chunk
+    expect(mockPollSyncBatchWithToken).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
+        clientLatestCursor: 0,
+      }),
+    )
+
+    // Second chunk - should also carry cursors
+    expect(mockPollSyncBatchWithToken).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        pullCursors: [{ itemId: 'pending-item-1', cursor: 0 }],
+        clientLatestCursor: 0,
+      }),
+    )
   })
 
   describe('isAuthError classification', () => {

@@ -51,7 +51,7 @@ export class SyncPoller {
       }
 
       const chunks = chunk(batchEntries, 5)
-      const pullCursors = this.pullQueueManager.getAllCursors()
+      const pullCursors = this.pullQueueManager.getCursors()
 
       if (chunks.length === 0) {
         const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
@@ -83,7 +83,6 @@ export class SyncPoller {
         return 'success'
       }
 
-      let isFirstChunk = true
       let snapshotNeededEmitted = false
       for (const chunkEntry of chunks) {
         const pushMessages = await Promise.all(
@@ -120,10 +119,9 @@ export class SyncPoller {
           account: this.account,
           authToken,
           pushMessages,
-          pullCursors: isFirstChunk ? pullCursors : [],
-          clientLatestCursor: isFirstChunk ? this.pullQueueManager.getGlobalLatestCursor() : undefined,
+          pullCursors: this.pullQueueManager.getCursors(),
+          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
         })
-        isFirstChunk = false
 
         if (response && response.pushResults) {
           this.pullQueueManager.processPushResults(response.pushResults)

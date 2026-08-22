@@ -171,13 +171,13 @@ describe('SyncPullQueueManager', () => {
       ])
 
       // Since none are pending yet, cursors should be empty
-      let cursors = manager.getAllCursors()
+      let cursors = manager.getCursors()
       expect(cursors).toHaveLength(0)
 
       // Add pending items
       manager.addPendingItem('item-1' as ItemId)
       manager.addPendingItem('item-2' as ItemId)
-      cursors = manager.getAllCursors()
+      cursors = manager.getCursors()
 
       expect(cursors).toHaveLength(2)
       expect(cursors).toContainEqual({ itemId: 'item-1', cursor: 10 })
