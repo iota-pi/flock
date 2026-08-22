@@ -42,7 +42,7 @@ export class ClientEventHub {
 
   emit(event: ClientEvent): void {
     // Distribute to local subscribers
-    for (const listener of this.listeners) {
+    for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
         if (result instanceof Promise) {
@@ -75,7 +75,7 @@ export class WorkerInternalEventHub {
   }
 
   emit(event: WorkerInternalEvent): void {
-    for (const listener of this.listeners) {
+    for (const listener of Array.from(this.listeners)) {
       try {
         const result = listener(event)
         if (result instanceof Promise) {
