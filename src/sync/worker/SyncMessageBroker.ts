@@ -111,13 +111,29 @@ export class SyncMessageBroker {
     }
     const writes = new Map(this.pendingWrites)
     this.pendingWrites.clear()
-    await persistSyncMessages(this.account, writes)
+    try {
+      await persistSyncMessages(this.account, writes)
+    } catch (err) {
+      for (const [itemId, messages] of writes.entries()) {
+        const existing = this.pendingWrites.get(itemId)
+        if (existing) {
+          this.pendingWrites.set(itemId, [...messages, ...existing])
+        } else {
+          this.pendingWrites.set(itemId, messages)
+        }
+      }
+      throw err
+    }
   }
 
   flush(): void {
     if (this.persistTimeoutId === null) {
       this.persistTimeoutId = setTimeout(
-        () => void this.flushPersistAndSignal(),
+        () => {
+          this.flushPersistAndSignal().catch((err) => {
+            console.error('[SyncMessageBroker] Error in flushPersistAndSignal:', err)
+          })
+        },
         0
       )
     }
