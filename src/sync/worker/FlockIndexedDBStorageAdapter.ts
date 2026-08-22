@@ -14,7 +14,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
 
   private connect(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.databaseName, 1)
+      const request = indexedDB.open(this.databaseName)
 
       request.onerror = () => reject(request.error)
       request.onsuccess = event => {
