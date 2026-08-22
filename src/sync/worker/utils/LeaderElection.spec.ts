@@ -102,13 +102,13 @@ describe('LeaderElection', () => {
 
     expect(requestMock).toHaveBeenCalled()
     expect(abortSignal).toBeDefined()
-    expect(abortSignal?.aborted).toBe(false)
+    expect((abortSignal as any)?.aborted).toBe(false)
     expect(onLeaderGranted).not.toHaveBeenCalled()
 
     // Call release while pending
     election.release()
 
-    expect(abortSignal?.aborted).toBe(true)
+    expect((abortSignal as any)?.aborted).toBe(true)
     expect(onLeaderRevoked).not.toHaveBeenCalled()
 
     // Ensure onLeaderGranted is never called even after catch handles AbortError

@@ -184,4 +184,15 @@ describe('useSettings backup portability', () => {
     expect(mocks.removeVaultFromDevice).toHaveBeenCalledTimes(1)
     expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'Signed out and removed local data' })
   })
+
+  it('saves auto-lock settings and displays updated summary', async () => {
+    const { result } = renderHook(() => useSettings(mockItems))
+
+    act(() => {
+      result.current.actions.saveAutoLockSettings({ mode: 'focus', inactivityMinutes: 5 })
+    })
+
+    expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'Auto-lock settings saved' })
+    expect(result.current.values.autoLockSummary).toBe('When app loses focus')
+  })
 })

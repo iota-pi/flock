@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import type { Frequency } from 'src/utils/frequencies'
 import type { Item } from 'src/state/items'
 import type { BackupPayloadV2 } from 'src/types/backup'
+import type { AutoLockSettings } from 'src/api/vault/autoLockStore'
 
 const GoalDialog = lazy(() => import('../../dialogs/GoalDialog'))
 const RestoreBackupDialog = lazy(() => import('../../dialogs/RestoreBackupDialog'))
@@ -11,6 +12,7 @@ const SubscriptionDialog = lazy(() => import('../../dialogs/SubscriptionDialog')
 const DefaultFrequencyDialog = lazy(() => import('../../dialogs/DefaultFrequencyDialog'))
 const ChangePasswordDialog = lazy(() => import('../../dialogs/ChangePasswordDialog'))
 const ReencryptVaultDialog = lazy(() => import('../../dialogs/ReencryptVaultDialog'))
+const AutoLockDialog = lazy(() => import('../../dialogs/AutoLockDialog'))
 
 
 type DialogState = {
@@ -23,6 +25,7 @@ type SettingsDialogsProps = {
   existingPeople: Item[]
   defaultFrequencies: Partial<Record<'person' | 'group' | 'topic', Frequency>>
   dialogs: {
+    autoLock: DialogState
     defaultFrequency: DialogState
     goal: DialogState
     import: DialogState
@@ -35,6 +38,7 @@ type SettingsDialogsProps = {
   handlers: {
     onImportConfirm: (items: Item[]) => Promise<void>
     onRestoreConfirm: (payload: BackupPayloadV2) => Promise<void>
+    onSaveAutoLockSettings: (settings: AutoLockSettings) => void
     onSaveDefaultFrequencies: (defaults: Partial<Record<'person' | 'group' | 'topic', Frequency>>) => Promise<void>
     onSubscriptionSave: (hours: number[] | null) => Promise<void>
   }
@@ -89,6 +93,11 @@ export default function SettingsDialogs({
       <ReencryptVaultDialog
         open={dialogs.reencrypt.isOpen}
         onClose={dialogs.reencrypt.closeDialog}
+      />
+      <AutoLockDialog
+        open={dialogs.autoLock.isOpen}
+        onClose={dialogs.autoLock.closeDialog}
+        onSave={handlers.onSaveAutoLockSettings}
       />
     </Suspense>
   )

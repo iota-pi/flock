@@ -32,7 +32,12 @@ export class VaultBootstrapper {
     if (knownItemIds.length > 0 && !isOfflineTooLong) return
 
     if (!hasApiAuthToken()) {
-      throw new Error('[VaultBootstrapper] No API auth token found, cannot bootstrap items')
+      if (knownItemIds.length > 0) {
+        console.info('[VaultBootstrapper] No auth token, using local data only')
+        return
+      }
+      console.warn('[VaultBootstrapper] No API auth token found and no local data, cannot bootstrap items from server')
+      return
     }
 
     let response: Awaited<ReturnType<typeof fetchMany>>
@@ -41,6 +46,10 @@ export class VaultBootstrapper {
         account: this.deps.accountId,
       })
     } catch (e) {
+      if (knownItemIds.length > 0) {
+        console.warn('[VaultBootstrapper] failed to fetch item snapshots, falling back to local data', e)
+        return
+      }
       console.error('[VaultBootstrapper] failed to fetch item snapshots', e)
       throw new Error(`[VaultBootstrapper] Failed to fetch item snapshots: ${(e as Error).message || String(e)}`, { cause: e })
     }

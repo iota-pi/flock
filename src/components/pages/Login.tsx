@@ -100,12 +100,23 @@ function LoginPage() {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      const securityParams = await getSecurityParams(accountInput).catch(
-        (err): { salt: string, iterations?: number, saltVersion?: number } => {
-          console.error('[Login] getSecurityParams failed', err)
-          return { salt: '', iterations: undefined, saltVersion: undefined }
+      let securityParams: { salt: string; iterations?: number; saltVersion?: number }
+      try {
+        securityParams = await getSecurityParams(accountInput)
+      } catch (err) {
+        console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
+        const cached = readStoredMetadata()
+        if (cached?.salt && cached?.account === accountInput) {
+          securityParams = {
+            salt: cached.salt,
+            iterations: cached.iterations,
+            saltVersion: cached.saltVersion,
+          }
+        } else {
+          securityParams = { salt: '', iterations: undefined, saltVersion: undefined }
         }
-      )
+      }
+
       if (securityParams.salt.length) {
         try {
           await loginVault({

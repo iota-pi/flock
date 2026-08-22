@@ -18,6 +18,7 @@ type SettingsValues = {
   recoveryItemsExist: boolean
   biometricsEnabled: boolean
   biometricsSupported: boolean
+  autoLockSummary?: string
 }
 
 type SettingsItemsListProps = {
@@ -85,6 +86,14 @@ function renderValue(renderer: SettingsValueRenderer | undefined, values: Settin
         sx={{ mr: 2, fontWeight: 500 }}
       >
         {values.goal}
+      </Typography>
+    )
+  }
+
+  if (renderer === 'autoLockValue') {
+    return (
+      <Typography color="textSecondary" sx={{ mr: 2 }}>
+        {values.autoLockSummary || 'Never'}
       </Typography>
     )
   }
