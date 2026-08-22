@@ -59,8 +59,14 @@ export class ReencryptionManager {
       const snapshots = []
       for (const [index, result] of settled.entries()) {
         if (result.status === 'fulfilled') {
-          if (result.value !== null) {
-            snapshots.push(result.value)
+          if (result.value.type === 'success') {
+            snapshots.push(result.value.snapshot)
+          } else if (result.value.type === 'not-ready') {
+            console.warn(`[ReencryptionManager] Item ${chunkIds[index]} was not ready. Skipping.`)
+          } else if (result.value.type === 'error') {
+            const errMsg = `Failed to build snapshot for item ${chunkIds[index]}`
+            console.error(`[ReencryptionManager] ${errMsg}`)
+            errors.push(new Error(errMsg))
           }
         } else {
           const errMsg = `Failed to build snapshot for item ${chunkIds[index]}: ${

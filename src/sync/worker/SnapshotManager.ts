@@ -5,7 +5,7 @@ import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
-import { buildSnapshot } from './snapshotBuilder'
+import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 
@@ -211,8 +211,13 @@ export class SnapshotManager {
     let currentBatchBytes = 0
 
     for (const { itemId, tick } of dirtyItems) {
-      const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-      if (!snapshot) {
+      const buildResult = await this.buildSnapshot(itemId, snapshotCursor)
+      if (buildResult.type === 'not-ready') {
+        success = false
+        continue
+      }
+
+      if (buildResult.type === 'error') {
         success = false
         const failures = (this.consecutiveBuildFailures.get(itemId) ?? 0) + 1
         if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
@@ -229,6 +234,7 @@ export class SnapshotManager {
         continue
       }
 
+      const snapshot = buildResult.snapshot
       this.consecutiveBuildFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
@@ -356,12 +362,12 @@ export class SnapshotManager {
     }
   }
 
-  private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
+  private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
     try {
       return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
     } catch (error) {
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
-      return null
+      return { type: 'error' }
     }
   }
 

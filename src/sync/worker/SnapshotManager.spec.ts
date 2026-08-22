@@ -459,5 +459,39 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
     })
   })
+
+  describe('Not-Ready vs Error Build Failure Handling', () => {
+    it('does not increment consecutiveBuildFailures or drop item when handle is not ready', async () => {
+      mockHandle.isReady.mockReturnValue(false)
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Run 6 push attempts
+      for (let i = 0; i < 6; i++) {
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Should still be dirty and failures map should not have counted failures
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['consecutiveBuildFailures'].get('item-1' as ItemId)).toBeUndefined()
+    })
+
+    it('increments consecutiveBuildFailures and drops item after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
+      mockHandle.doc.mockReturnValue(undefined) // Triggers error in buildSnapshot
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Run 5 attempts to reach MAX_CONSECUTIVE_SNAPSHOT_FAILURES (5)
+      for (let i = 1; i <= 5; i++) {
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Item should now be dropped from dirty queue
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['consecutiveBuildFailures'].has('item-1' as ItemId)).toBe(false)
+    })
+  })
 })
 

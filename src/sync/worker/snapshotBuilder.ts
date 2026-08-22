@@ -9,36 +9,41 @@ import { normalizeSnapshotType } from './utils/snapshot'
 import { ItemId } from 'src/shared/schemas/items'
 
 
+export type BuildSnapshotResult =
+  | { type: 'success'; snapshot: VaultSnapshotInput }
+  | { type: 'not-ready' }
+  | { type: 'error' }
+
 export async function buildSnapshot(
   repo: Repo,
   itemId: ItemId,
   snapshotCursor: number,
-): Promise<VaultSnapshotInput | null> {
+): Promise<BuildSnapshotResult> {
   const documentUrl = toAutomergeUrlFromItemId(itemId)
   const handle = await repo.find(documentUrl).catch(() => undefined)
   if (!handle) {
-    return null
+    return { type: 'error' }
   }
 
   if (!handle.isReady()) {
-    return null
+    return { type: 'not-ready' }
   }
 
   const doc = handle.doc()
   if (!doc) {
-    return null
+    return { type: 'error' }
   }
 
   const binary = Automerge.save(doc)
   if (!binary || binary.byteLength === 0) {
-    return null
+    return { type: 'error' }
   }
 
   const encryptedDoc = await encryptBytes(binary)
 
   const itemSnapshot = normalizeItemSnapshot(itemId, doc as Record<string, unknown>)
   if (!itemSnapshot) {
-    return null
+    return { type: 'error' }
   }
 
   const originalType = (
@@ -47,11 +52,14 @@ export async function buildSnapshot(
       : itemSnapshot.type
   )
   return {
-    itemId,
-    snapshot: encryptedDoc,
-    snapshotCursor,
-    type: normalizeSnapshotType(itemSnapshot.type, originalType),
-    modified: Date.now(),
-    deleted: !!itemSnapshot.deleted || undefined,
+    type: 'success',
+    snapshot: {
+      itemId,
+      snapshot: encryptedDoc,
+      snapshotCursor,
+      type: normalizeSnapshotType(itemSnapshot.type, originalType),
+      modified: Date.now(),
+      deleted: !!itemSnapshot.deleted || undefined,
+    },
   }
 }
