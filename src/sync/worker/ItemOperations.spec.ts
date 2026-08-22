@@ -90,4 +90,87 @@ describe('ItemOperations', () => {
       })
     })
   })
+
+  describe('mutateItem', () => {
+    const itemId = 'item-1' as ItemId
+    const changes = { text: 'updated text' }
+
+    it('marks document dirty when changeDocument succeeds', async () => {
+      changeDocumentMock.mockResolvedValue(true)
+
+      await operations.mutateItem(itemId, changes)
+
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith(itemId)
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('emits mutationFailed and itemUpdated when changeDocument returns false', async () => {
+      changeDocumentMock.mockResolvedValue(false)
+      const trueState = { id: itemId, text: 'old text' }
+      getAutomergeItemMock.mockResolvedValue(trueState)
+
+      await operations.mutateItem(itemId, changes)
+
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'mutationFailed',
+        mutationType: 'edit',
+        error: `Failed to update document ${itemId}`,
+      })
+      expect(getAutomergeItemMock).toHaveBeenCalledWith(itemId)
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: itemId,
+        item: trueState,
+      })
+    })
+
+    it('emits mutationFailed and itemUpdated when changeDocument throws', async () => {
+      changeDocumentMock.mockRejectedValue(new Error('Doc update error'))
+      const trueState = { id: itemId, text: 'old text' }
+      getAutomergeItemMock.mockResolvedValue(trueState)
+
+      await operations.mutateItem(itemId, changes)
+
+      expect(markDocumentDirtyMock).not.toHaveBeenCalled()
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'mutationFailed',
+        mutationType: 'edit',
+        error: 'Doc update error',
+      })
+      expect(getAutomergeItemMock).toHaveBeenCalledWith(itemId)
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: itemId,
+        item: trueState,
+      })
+    })
+  })
+
+  describe('storeItems', () => {
+    it('handles successful items and thrown exceptions gracefully', async () => {
+      const items = [
+        { id: 'item-1' as ItemId, text: 'one' } as unknown as Item,
+        { id: 'item-2' as ItemId, text: 'two' } as unknown as Item,
+      ]
+
+      changeDocumentMock.mockImplementation(async (id: ItemId) => {
+        if (id === 'item-1') return true
+        throw new Error('Disk failure')
+      })
+      getAutomergeItemMock.mockResolvedValue({ id: 'item-2' as ItemId, text: 'fallback' })
+
+      await operations.storeItems(items)
+
+      expect(addAutomergeItemIdsToIndexMock).toHaveBeenCalledWith(['item-1'])
+      expect(markDocumentDirtyMock).toHaveBeenCalledWith('item-1')
+      expect(getAutomergeItemMock).toHaveBeenCalledWith('item-2')
+      expect(emitMock).toHaveBeenCalledWith({
+        type: 'itemUpdated',
+        id: 'item-2',
+        item: { id: 'item-2', text: 'fallback' },
+      })
+    })
+  })
 })
+
