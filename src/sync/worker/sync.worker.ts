@@ -3,6 +3,7 @@ import * as Comlink from 'comlink'
 import * as Automerge from '@automerge/automerge/slim'
 import wasmUrl from '@automerge/automerge/automerge.wasm?url'
 
+import type { DocHandle } from '@automerge/automerge-repo/slim'
 import type { SyncApi } from './syncProtocol'
 import { ClientEventHub, WorkerInternalEventHub, type ClientEvent, type WorkerInternalEvent } from './SyncEventHub'
 import type { Item } from '../../state/items'
@@ -47,7 +48,7 @@ export class SyncWorker implements SyncApi {
   private unsubscribeRealtimeBus: (() => void) | null = null
   private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
-  private changeListenersByItemId = new Map<ItemId, () => void>()
+  private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<any>; listener: () => void }>()
 
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
@@ -257,9 +258,9 @@ export class SyncWorker implements SyncApi {
       repo.find(url).then(handle => {
         if (!this.subscribedIds.has(id)) return
 
-        const existingListener = this.changeListenersByItemId.get(id)
-        if (existingListener) {
-          handle.off('change', existingListener)
+        const existing = this.changeListenersByItemId.get(id)
+        if (existing) {
+          existing.handle.off('change', existing.listener)
         }
 
         const handleChange = () => {
@@ -275,7 +276,7 @@ export class SyncWorker implements SyncApi {
           }
         }
         handle.on('change', handleChange)
-        this.changeListenersByItemId.set(id, handleChange)
+        this.changeListenersByItemId.set(id, { handle, listener: handleChange })
         handleChange()
       }).catch(console.error)
     }
@@ -302,14 +303,11 @@ export class SyncWorker implements SyncApi {
 
   private unsubscribe(itemId: ItemId) {
     this.subscribedIds.delete(itemId)
-    const listener = this.changeListenersByItemId.get(itemId)
+    const sub = this.changeListenersByItemId.get(itemId)
     this.changeListenersByItemId.delete(itemId)
 
-    if (listener) {
-      const url = toAutomergeUrlFromItemId(itemId)
-      this.context.repo.find(url).then(handle => {
-        handle.off('change', listener)
-      }).catch(console.error)
+    if (sub) {
+      sub.handle.off('change', sub.listener)
     }
   }
 
