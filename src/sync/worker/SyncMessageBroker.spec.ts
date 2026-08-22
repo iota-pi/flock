@@ -161,4 +161,22 @@ describe('SyncMessageBroker', () => {
     const map = secondCall[1] as Map<string, Uint8Array[]>
     expect(map.has('item1')).toBe(true)
   })
+
+  it('persists pending writes during shutdown even if pullQueueManager.shutdown throws', async () => {
+    broker.setSendEnabled(true)
+    await broker.setAccount('account-1')
+
+    const msg = createSyncMessage('item1', [1])
+    adapter.onMessageToSend?.(msg)
+
+    vi.mocked(pullQueueManager.shutdown).mockRejectedValueOnce(new Error('PullQueue shutdown error'))
+
+    await expect(broker.shutdown()).rejects.toThrow('PullQueue shutdown error')
+
+    expect(persistSyncMessages).toHaveBeenCalledWith('account-1', expect.any(Map))
+    const calls = vi.mocked(persistSyncMessages).mock.calls
+    const writtenMap = calls[0][1] as Map<string, Uint8Array[]>
+    expect(writtenMap.has('item1')).toBe(true)
+  })
 })
+

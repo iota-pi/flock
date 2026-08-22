@@ -193,7 +193,10 @@ export class SyncMessageBroker {
       clearTimeout(this.persistTimeoutId)
       this.persistTimeoutId = null
     }
-    await this.pullQueueManager.shutdown()
-    await this.persistPendingWrites()
+    try {
+      await this.pullQueueManager.shutdown()
+    } finally {
+      await this.persistPendingWrites()
+    }
   }
 }
