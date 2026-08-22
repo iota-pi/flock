@@ -43,7 +43,7 @@ export class RecoveryManager {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
     }
 
-    const localSnapshot = structuredClone(localItem) as Record<string, unknown>
+    const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
     if (Array.isArray(localItem.prayedFor)) {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
