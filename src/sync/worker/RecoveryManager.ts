@@ -48,6 +48,8 @@ export class RecoveryManager {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
 
+    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
+
     await this.deps.docStore.changeDocument(
       itemId,
       doc => {
@@ -61,12 +63,13 @@ export class RecoveryManager {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId) {
     if (!this.deps.accountId) return
+    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
+
     await this.deps.docStore.changeDocument(
       itemId,
       doc => {
@@ -80,7 +83,6 @@ export class RecoveryManager {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()
   }
 

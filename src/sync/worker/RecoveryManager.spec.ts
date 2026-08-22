@@ -37,11 +37,15 @@ describe('RecoveryManager', () => {
   let depsObj: { accountId: string | null; docStore: any; indexManager: any }
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
 
     eventHub = new ClientEventHub()
     onEventMock = vi.fn()
     eventHub.subscribe(onEventMock)
+
+    mockReadManualRecoveryEntries.mockResolvedValue([])
+    mockRemoveManualRecoveryEntryById.mockResolvedValue(undefined)
+    mockRemoveManualRecoveryEntryByItemId.mockResolvedValue(undefined)
 
     const mockDocStore = {
       getAutomergeItem: mockGetAutomergeItem,
@@ -142,6 +146,7 @@ describe('RecoveryManager', () => {
       await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).toHaveBeenCalledWith('item-3')
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-3')
       expect(mockChangeDocument).toHaveBeenCalledWith(
         'item-3',
         expect.any(Function),
@@ -157,15 +162,24 @@ describe('RecoveryManager', () => {
         prayedFor: ['a', 'b'],
       })
 
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-3')
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
+    })
+
+    it('does not mutate document if removeManualRecoveryEntryByItemId fails', async () => {
+      const localItem = { id: 'item-3', type: 'person' }
+      mockGetAutomergeItem.mockResolvedValue(localItem)
+      mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
+
+      await expect(
+        recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
+      ).rejects.toThrow('Deletion failed')
+
+      expect(mockChangeDocument).not.toHaveBeenCalled()
     })
   })
 
   describe('forceDeleteRecoveryItem', () => {
-    it('sets type to default person and deleted to true on Automerge doc', async () => {
-      mockGetAutomergeItem.mockResolvedValue(null) // no existing type
-
+    it('sets deleted to true on Automerge doc and removes recovery entry', async () => {
       let capturedDoc: any = null
       mockChangeDocument.mockImplementation(
         async (itemId, changeCallback) => {
@@ -176,6 +190,7 @@ describe('RecoveryManager', () => {
 
       await recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
 
+      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
       expect(mockChangeDocument).toHaveBeenCalledWith(
         'item-4',
         expect.any(Function),
@@ -185,31 +200,18 @@ describe('RecoveryManager', () => {
 
       expect(capturedDoc).toEqual({
         id: 'item-4',
-        type: 'person',
         deleted: true,
       })
-
-      expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
     })
 
-    it('preserves existing item type when marking deleted', async () => {
-      mockGetAutomergeItem.mockResolvedValue({ id: 'item-5', type: 'prayer' })
+    it('does not mutate document if removeManualRecoveryEntryByItemId fails', async () => {
+      mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
 
-      let capturedDoc: any = null
-      mockChangeDocument.mockImplementation(
-        async (itemId, changeCallback) => {
-          capturedDoc = {}
-          changeCallback(capturedDoc)
-        }
-      )
+      await expect(
+        recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
+      ).rejects.toThrow('Deletion failed')
 
-      await recoveryManager.forceDeleteRecoveryItem('item-5' as ItemId)
-
-      expect(capturedDoc).toEqual({
-        id: 'item-5',
-        type: 'prayer',
-        deleted: true,
-      })
+      expect(mockChangeDocument).not.toHaveBeenCalled()
     })
   })
 
