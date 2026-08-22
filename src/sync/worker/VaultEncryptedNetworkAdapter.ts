@@ -107,7 +107,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
               changes: []
             })
             queueMicrotask(() => {
-              this.receiveMessage(message.documentId!, ackMsg)
+              if (this.connected) {
+                this.receiveMessage(message.documentId!, ackMsg)
+              }
             })
           }
           return

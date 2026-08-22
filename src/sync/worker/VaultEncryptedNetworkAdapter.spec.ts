@@ -387,6 +387,39 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(decodedAck.changes).toEqual([])
   })
 
+  it('does not fire reflected ACK microtask after adapter is disconnected', async () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const emitSpy = vi.spyOn(adapter, 'emit')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
+    const initialSyncMsg = encodeSyncMessage({
+      heads: testHeads,
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-test-disconnect' as DocumentId,
+      data: initialSyncMsg,
+    })
+
+    // Disconnect immediately after send before microtasks run
+    adapter.disconnect()
+
+    // Wait for microtasks to resolve
+    await Promise.resolve()
+
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
+    expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
+  })
+
   it('reflects heads to prevent history dumps and allows future changes through Automerge Repo', async () => {
     const testAdapter = new VaultNetworkAdapter()
     testAdapter.setSendEnabled(true)
