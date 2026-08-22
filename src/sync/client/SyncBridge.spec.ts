@@ -485,5 +485,22 @@ describe('SyncBridge', () => {
     await ensureReadyPromise
     expect(ready).toBe(true)
   })
+
+  it('preserves recovery entries subscriptions and app store state on shutdown with internalRestart', async () => {
+    await SyncBridge.initialize('test-account')
+
+    const recoveryListener = vi.fn()
+    SyncBridge.subscribeRecoveryItems(recoveryListener)
+    expect(recoveryListener).toHaveBeenCalledTimes(1)
+
+    useAppStore.setState({ items: { 'item-1': { id: 'item-1' } as any } })
+
+    await SyncBridge.shutdown({ internalRestart: true })
+
+    // Listener shouldn't have been called with empty array upon shutdown
+    expect(recoveryListener).toHaveBeenCalledTimes(1)
+    // App store state shouldn't be reset
+    expect(useAppStore.getState().items['item-1']).toBeDefined()
+  })
 })
 

@@ -369,12 +369,14 @@ export const SyncBridge = {
     workerInstance = null
     syncApi = null
 
-    if (itemUpdateFlushHandle !== null) {
-      clearTimeout(itemUpdateFlushHandle)
-      itemUpdateFlushHandle = null
+    if (!options?.internalRestart) {
+      if (itemUpdateFlushHandle !== null) {
+        clearTimeout(itemUpdateFlushHandle)
+        itemUpdateFlushHandle = null
+      }
+      pendingItemUpdates.clear()
+      useAppStore.getState().reset()
     }
-    pendingItemUpdates.clear()
-    useAppStore.getState().reset()
 
     if (oldSyncApi) {
       try {
@@ -400,11 +402,13 @@ export const SyncBridge = {
       useAppStore.getState().setSyncStatus('offline')
     }
 
-    recoveryEntries = []
-    for (const listener of recoveryEntriesListeners) {
-      listener([])
+    if (!options?.internalRestart) {
+      recoveryEntries = []
+      for (const listener of recoveryEntriesListeners) {
+        listener([])
+      }
+      recoveryEntriesListeners.clear()
     }
-    recoveryEntriesListeners.clear()
   },
 }
 
