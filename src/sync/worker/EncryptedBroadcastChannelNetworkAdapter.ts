@@ -36,14 +36,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner.on('close', () => this.emit('close'))
   }
 
-  private resetConnection() {
-    console.warn('[EncryptedBroadcastChannel] Resetting broadcast channel connection due to crypto failure')
-    this.inner.disconnect()
-    this.setupInner()
-    if (this.peerId) {
-      this.inner.connect(this.peerId, this.peerMetadata)
-    }
-  }
 
   isReady(): boolean {
     return this.inner.isReady()
@@ -85,9 +77,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error sending message:', err)
-          this.sendQueue = []
-          this.resetConnection()
-          break
         }
       }
     } finally {
@@ -117,9 +106,6 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
-          this.receiveQueue = []
-          this.resetConnection()
-          break
         }
       }
     } finally {

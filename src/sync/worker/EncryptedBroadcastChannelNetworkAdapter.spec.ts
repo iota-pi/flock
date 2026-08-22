@@ -185,10 +185,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     expect(emittedMessage).toEqual(incomingMessage)
   })
 
-  it('resets connection and clears queue when encryption throws an error', async () => {
+  it('continues processing send queue and does not reset connection when encryption throws an error', async () => {
     const { encryptBytes } = await import('src/api/vault')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     vi.mocked(encryptBytes).mockRejectedValueOnce(new Error('Encryption failed'))
 
@@ -217,11 +216,13 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       '[EncryptedBroadcastChannel] Error sending message:',
       expect.any(Error)
     )
-    expect(innerAdapterMock.disconnect).toHaveBeenCalled()
-    expect(innerAdapterMock.send).not.toHaveBeenCalled()
+    expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
+    expect(innerAdapterMock.send).toHaveBeenCalledTimes(1)
+    expect(innerAdapterMock.send).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'goodDoc' })
+    )
 
     consoleErrorSpy.mockRestore()
-    consoleWarnSpy.mockRestore()
   })
 
   it('decrypts incoming messages maintaining queue order even if decryption durations vary', async () => {
@@ -276,10 +277,9 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
     expect(Array.from(mockMessageListener.mock.calls[1][0].data)).toEqual([2, 2, 2])
   })
 
-  it('resets connection and clears queue when decryption throws an error', async () => {
+  it('continues processing receive queue and does not reset connection when decryption throws an error', async () => {
     const { decryptBytes } = await import('src/api/vault')
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const mockMessageListener = vi.fn()
     adapter.on('message', mockMessageListener)
 
@@ -317,10 +317,12 @@ describe('EncryptedBroadcastChannelNetworkAdapter', () => {
       '[EncryptedBroadcastChannel] Error decrypting message:',
       expect.any(Error)
     )
-    expect(innerAdapterMock.disconnect).toHaveBeenCalled()
-    expect(mockMessageListener).not.toHaveBeenCalled()
+    expect(innerAdapterMock.disconnect).not.toHaveBeenCalled()
+    expect(mockMessageListener).toHaveBeenCalledTimes(1)
+    expect(mockMessageListener).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'goodDoc' })
+    )
 
     consoleErrorSpy.mockRestore()
-    consoleWarnSpy.mockRestore()
   })
 })
