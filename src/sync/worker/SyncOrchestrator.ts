@@ -10,6 +10,7 @@ export class SyncOrchestrator {
   private isLeader = false
   private isPolling = false
   private pollingPausedForAuth = false
+  private isShutdown = false
 
   private pendingFlush = false
 
@@ -83,6 +84,7 @@ export class SyncOrchestrator {
   }
 
   flush(): void {
+    if (this.isShutdown) return
     this.pollingPausedForAuth = false
     if (this.syncBatchTimeout === null) {
       this.syncBatchTimeout = self.setTimeout(
@@ -102,6 +104,7 @@ export class SyncOrchestrator {
   }
 
   startPolling(immediate?: boolean): void {
+    if (this.isShutdown) return
     this.stopPolling()
 
     if (!this.isLeader) {
@@ -135,7 +138,7 @@ export class SyncOrchestrator {
   }
 
   private scheduleNextPoll(delayMs: number): void {
-    if (this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
+    if (this.isShutdown || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
       return
     }
 
@@ -172,7 +175,7 @@ export class SyncOrchestrator {
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
-    if (this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
+    if (this.isShutdown || this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
     if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
@@ -184,6 +187,8 @@ export class SyncOrchestrator {
     } finally {
       this.isPolling = false
     }
+
+    if (this.isShutdown) return
 
     if (outcome === 'auth-failure') {
       this.pollingPausedForAuth = true
@@ -213,6 +218,8 @@ export class SyncOrchestrator {
   }
 
   async shutdown(): Promise<void> {
+    this.isShutdown = true
+    this.setLeader(false)
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null

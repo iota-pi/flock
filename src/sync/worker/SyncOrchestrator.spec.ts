@@ -265,5 +265,31 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(10)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(3)
   })
+
+  it('prevents zombie polling when in-flight poll finishes after shutdown', async () => {
+    let resolvePoll: (val: any) => void = () => {}
+    const pollPromise = new Promise(resolve => {
+      resolvePoll = resolve
+    })
+
+    mockBroker.executePoll.mockImplementationOnce(() => pollPromise)
+
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+
+    // Shutdown while poll is in flight
+    await orchestrator.shutdown()
+
+    // Complete in-flight poll
+    resolvePoll('success')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Advancing timers further should not trigger any scheduled next polls
+    await vi.advanceTimersByTimeAsync(100000)
+    expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
+  })
 })
 
