@@ -74,10 +74,11 @@ export class DeletionQueueManager {
 
       if (expired.length > 0) {
         const itemIds = await this.deps.indexManager.listAutomergeItemIds()
+        const itemIdsSet = new Set(itemIds)
         const toRemove: ItemId[] = []
 
         for (const item of expired) {
-          if (itemIds.includes(item.itemId)) {
+          if (itemIdsSet.has(item.itemId)) {
             // Re-appeared, cancel deletion
             await cancelDeletion(this.deps.accountId, item.itemId)
             continue

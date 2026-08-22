@@ -9,6 +9,7 @@ import {
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 const VAULT_PEER_ID = 'vault' as PeerId
+export const MAX_SEEDED_DOCUMENTS = 5000
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -46,6 +47,8 @@ export class VaultNetworkAdapter extends NetworkAdapter {
     if (this.account === nextAccount) {
       return
     }
+
+    this.seededDocuments.clear()
 
     if (this.account && !nextAccount) {
       this.disconnectPeer()
@@ -99,6 +102,12 @@ export class VaultNetworkAdapter extends NetworkAdapter {
           // already in sync. This avoids dumping the entire document history and ensures
           // only future changes are sent through the push pipeline.
           if (message.documentId && !this.seededDocuments.has(message.documentId)) {
+            if (this.seededDocuments.size >= MAX_SEEDED_DOCUMENTS) {
+              const oldest = this.seededDocuments.values().next().value
+              if (oldest) {
+                this.seededDocuments.delete(oldest)
+              }
+            }
             this.seededDocuments.add(message.documentId)
             const ackMsg = encodeSyncMessage({
               heads: decoded.heads || [],
@@ -134,8 +143,17 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   disconnect(): void {
     this.connected = false
+    this.seededDocuments.clear()
     this.disconnectPeer()
     this.emit('close')
+  }
+
+  clearSeededDocuments(): void {
+    this.seededDocuments.clear()
+  }
+
+  removeSeededDocument(documentId: DocumentId): void {
+    this.seededDocuments.delete(documentId)
   }
 
   private connectPeer(): void {

@@ -532,4 +532,70 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(50000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(4)
   })
+
+  it('cleans up seededDocuments on disconnect and account change', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+    testAdapter.connect('vault' as PeerId)
+
+    const syncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+
+    // First send adds to seededDocuments and reflects ACK
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Second send for same doc does not re-add or re-reflect
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Disconnecting clears seeded documents
+    testAdapter.disconnect()
+
+    // Reconnecting and sending again reflects ACK because seededDocuments was cleared
+    testAdapter.connect('vault' as PeerId)
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(2)
+
+    // Changing account also clears seeded documents
+    testAdapter.setAccount('other-account')
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(3)
+  })
 })
+

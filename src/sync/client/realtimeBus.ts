@@ -26,7 +26,7 @@ function getChannel(): BroadcastChannel {
 
 export function subscribeRealtimeBusSyncPing(listener: SyncPingListener): () => void {
   listeners.add(listener)
-  getChannel() // ensure initialized
+  void getChannel()
 
   return () => {
     listeners.delete(listener)
@@ -40,6 +40,14 @@ export function subscribeRealtimeBusSyncPing(listener: SyncPingListener): () => 
 export function publishRealtimeBusSyncPing(itemIds: ItemId[]): void {
   if (!itemIds || itemIds.length === 0) return
 
-  const channel = getChannel()
-  channel.postMessage({ type: 'sync_ping', itemIds })
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: 'sync_ping', itemIds })
+  } else {
+    const channel = new BroadcastChannel(CHANNEL_NAME)
+    try {
+      channel.postMessage({ type: 'sync_ping', itemIds })
+    } finally {
+      channel.close()
+    }
+  }
 }

@@ -59,7 +59,6 @@ export class SyncPullQueueManager {
   async shutdown(): Promise<void> {
     this.saveCursorsDebounced.cancel()
     await this.persistCursors()
-    this.saveCursorsDebounced.cancel()
     this.pendingPullItemIds.clear()
     this.cursorByItemId.clear()
   }

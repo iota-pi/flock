@@ -170,19 +170,33 @@ export class SyncPoller {
     const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
       | { httpStatus?: number; code?: string }
       | undefined
-    const httpStatus = data?.httpStatus
+    const httpStatus = data?.httpStatus ?? (anyError.httpStatus as number | undefined) ?? (anyError.status as number | undefined) ?? (anyError.statusCode as number | undefined)
     if (httpStatus === 401 || httpStatus === 403) {
       return true
     }
 
-    const code = data?.code || (anyError.code as string | undefined)
+    const code = data?.code ?? (anyError.code as string | undefined)
     if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
       return true
     }
 
-    const message = typeof (anyError as { message?: unknown }).message === 'string'
-      ? ((anyError as { message: string }).message).toLowerCase()
-      : ''
-    return message.includes('unauthorized') || message.includes('forbidden')
+    if (anyError.cause && typeof anyError.cause === 'object') {
+      const cause = anyError.cause as { [key: string]: unknown }
+      const causeStatus = (cause.status ?? cause.statusCode ?? cause.httpStatus) as number | undefined
+      if (causeStatus === 401 || causeStatus === 403) {
+        return true
+      }
+      const causeCode = cause.code as string | undefined
+      if (causeCode === 'UNAUTHORIZED' || causeCode === 'FORBIDDEN') {
+        return true
+      }
+    }
+
+    const name = anyError.name as string | undefined
+    if (name === 'UnauthorizedError' || name === 'ForbiddenError') {
+      return true
+    }
+
+    return false
   }
 }
