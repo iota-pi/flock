@@ -111,8 +111,8 @@ export class SyncWorkerContext {
     await Promise.all([
       this.indexManager.ensureIndexDocument(),
       this.snapshotManager.loadLastModified(),
-      this.orchestrator.start(),
     ])
+    await this.orchestrator.start()
   }
 
   async shutdown(options?: { clearLocalData?: boolean }): Promise<void> {
