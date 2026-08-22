@@ -194,12 +194,6 @@ export const SyncBridge = {
             'offline',
             handleOnlineStateChange,
           )
-          if (typeof document !== 'undefined') {
-            document.addEventListener(
-              'visibilitychange',
-              handleOnlineStateChange,
-            )
-          }
         }
 
         setOnRecoveryItemsChangedListener(() => {
