@@ -174,10 +174,26 @@ function LoginPage() {
 
   useEffect(() => {
     if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
-      hasAutoPromptedRef.current = true
-      queueMicrotask(() => {
-        void handleClickBiometricUnlock()
-      })
+      if (document.visibilityState === 'hidden') {
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
+            hasAutoPromptedRef.current = true
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+            queueMicrotask(() => {
+              void handleClickBiometricUnlock()
+            })
+          }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+      } else {
+        hasAutoPromptedRef.current = true
+        queueMicrotask(() => {
+          void handleClickBiometricUnlock()
+        })
+      }
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
 
