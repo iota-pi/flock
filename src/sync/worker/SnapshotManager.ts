@@ -18,7 +18,7 @@ const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 export class SnapshotManager {
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
-  private consecutiveBuildFailures = new Map<ItemId, number>()
+  private consecutiveFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
@@ -196,6 +196,21 @@ export class SnapshotManager {
     }
   }
 
+  private handleSnapshotFailure(itemId: ItemId, tick: number, failureType: string) {
+    const failures = (this.consecutiveFailures.get(itemId) ?? 0) + 1
+    if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+      console.error(
+        `[SnapshotManager] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
+      )
+      this.consecutiveFailures.delete(itemId)
+      if (this.dirtyItems.get(itemId) === tick) {
+        this.dirtyItems.delete(itemId)
+      }
+    } else {
+      this.consecutiveFailures.set(itemId, failures)
+    }
+  }
+
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
@@ -219,23 +234,12 @@ export class SnapshotManager {
 
       if (buildResult.type === 'error') {
         success = false
-        const failures = (this.consecutiveBuildFailures.get(itemId) ?? 0) + 1
-        if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
-          console.error(
-            `[SnapshotManager] Item ${itemId} reached max consecutive snapshot build failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
-          )
-          this.consecutiveBuildFailures.delete(itemId)
-          if (this.dirtyItems.get(itemId) === tick) {
-            this.dirtyItems.delete(itemId)
-          }
-        } else {
-          this.consecutiveBuildFailures.set(itemId, failures)
-        }
+        this.handleSnapshotFailure(itemId, tick, 'build')
         continue
       }
 
       const snapshot = buildResult.snapshot
-      this.consecutiveBuildFailures.delete(itemId)
+      this.consecutiveFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
 
@@ -264,6 +268,9 @@ export class SnapshotManager {
         if (!result.success) {
           success = false
           sendFailed = true
+          for (const item of currentBatch) {
+            this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
+          }
           break
         }
         for (const item of currentBatch) {
@@ -290,6 +297,9 @@ export class SnapshotManager {
       )
       if (!result.success) {
         success = false
+        for (const item of currentBatch) {
+          this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
+        }
       } else {
         for (const item of currentBatch) {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
@@ -392,7 +402,7 @@ export class SnapshotManager {
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()
-    this.consecutiveBuildFailures.clear()
+    this.consecutiveFailures.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false

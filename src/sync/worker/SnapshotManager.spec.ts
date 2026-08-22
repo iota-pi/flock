@@ -474,7 +474,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Should still be dirty and failures map should not have counted failures
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
-      expect(manager['consecutiveBuildFailures'].get('item-1' as ItemId)).toBeUndefined()
+      expect(manager['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
     })
 
     it('increments consecutiveBuildFailures and drops item after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
@@ -490,7 +490,7 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       // Item should now be dropped from dirty queue
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
-      expect(manager['consecutiveBuildFailures'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
     })
   })
 })
