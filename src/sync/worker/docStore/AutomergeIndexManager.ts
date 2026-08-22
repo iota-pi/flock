@@ -37,6 +37,12 @@ export class AutomergeIndexManager {
     }
   }
 
+  async replaceIndex(indexDoc: AutomergeIndexDocument): Promise<void> {
+    return this.enqueue(async () => {
+      await this.indexStore.saveIndex(indexDoc)
+    })
+  }
+
   async ensureIndexDocument(): Promise<void> {
     return this.enqueue(async () => {
       const doc = await this.indexStore.getIndex()
