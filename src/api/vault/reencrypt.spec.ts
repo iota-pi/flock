@@ -1,4 +1,4 @@
-import { reencryptAllItems } from './reencrypt'
+import { reencryptAllItems, resumePendingReencryption, REENCRYPT_PENDING_KEY_PREFIX } from './reencrypt'
 import { rotateVaultKey, exportKeyringData } from './index'
 import { SyncBridge } from '../../sync/client/SyncBridge'
 
@@ -23,6 +23,7 @@ vi.mock('../../sync/client/SyncBridge', () => ({
 describe('reencryptAllItems coordinator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   it('rotates vault key, updates sync worker keyring, and triggers worker re-encryption', async () => {
@@ -41,6 +42,7 @@ describe('reencryptAllItems coordinator', () => {
       [5, 10],
       [10, 10],
     ])
+    expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
   })
 
   it('throws an error if keyring is missing after rotation', async () => {
@@ -51,6 +53,8 @@ describe('reencryptAllItems coordinator', () => {
     expect(rotateVaultKey).toHaveBeenCalledTimes(1)
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
     expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
+    // Intent flag should remain set for crash recovery
+    expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBe('true')
   })
 
   it('fails early and does not update worker or re-encrypt items when rotateVaultKey fails', async () => {
@@ -67,5 +71,33 @@ describe('reencryptAllItems coordinator', () => {
     expect(SyncBridge.updateVaultKey).not.toHaveBeenCalled()
     expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
   })
+
+  describe('resumePendingReencryption', () => {
+    it('does nothing if no re-encryption is pending', async () => {
+      await resumePendingReencryption('test-account')
+
+      expect(SyncBridge.reencryptAllItems).not.toHaveBeenCalled()
+    })
+
+    it('resumes re-encryption and clears pending flag if flag is set', async () => {
+      localStorage.setItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`, 'true')
+
+      await resumePendingReencryption('test-account')
+
+      expect(SyncBridge.reencryptAllItems).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBeNull()
+    })
+
+    it('retains pending flag if resume re-encryption fails', async () => {
+      localStorage.setItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`, 'true')
+      vi.mocked(SyncBridge.reencryptAllItems).mockRejectedValueOnce(new Error('Network error'))
+
+      await resumePendingReencryption('test-account')
+
+      expect(SyncBridge.reencryptAllItems).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem(`${REENCRYPT_PENDING_KEY_PREFIX}test-account`)).toBe('true')
+    })
+  })
 })
+
 
