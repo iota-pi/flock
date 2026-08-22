@@ -13,7 +13,8 @@ import { encryptBytes, decryptBytes, type CryptoResult } from 'src/api/vault'
 
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
-  private inner: BroadcastChannelNetworkAdapter
+  private options?: BroadcastChannelNetworkAdapterOptions
+  private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: Message[] = []
   private isSending = false
   private receiveQueue: Message[] = []
@@ -21,13 +22,27 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
-    this.inner = new BroadcastChannelNetworkAdapter(options)
+    this.options = options
+    this.setupInner()
+  }
+
+  private setupInner() {
+    this.inner = new BroadcastChannelNetworkAdapter(this.options)
 
     // Forward events
     this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
     this.inner.on('peer-disconnected', payload => this.emit('peer-disconnected', payload))
     this.inner.on('message', message => this.handleIncomingMessage(message))
     this.inner.on('close', () => this.emit('close'))
+  }
+
+  private resetConnection() {
+    console.warn('[EncryptedBroadcastChannel] Resetting broadcast channel connection due to crypto failure')
+    this.inner.disconnect()
+    this.setupInner()
+    if (this.peerId) {
+      this.inner.connect(this.peerId, this.peerMetadata)
+    }
   }
 
   isReady(): boolean {
@@ -70,6 +85,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error sending message:', err)
+          this.sendQueue = []
+          this.resetConnection()
+          break
         }
       }
     } finally {
@@ -99,6 +117,9 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
           }
         } catch (err) {
           console.error('[EncryptedBroadcastChannel] Error decrypting message:', err)
+          this.receiveQueue = []
+          this.resetConnection()
+          break
         }
       }
     } finally {
