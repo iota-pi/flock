@@ -19,7 +19,7 @@ import {
 import { useItemsByIds } from '../state/selectors'
 import { Item } from '../state/items'
 import { usePrevious } from '../utils'
-import { deleteItems, hardDeleteItems, storeItems } from '../features/items/mutations/itemMutations'
+import { deleteItems, storeItems } from '../features/items/mutations/itemMutations'
 import { useAppStore } from '../state/store'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
 
@@ -61,10 +61,6 @@ function SelectedActions() {
     () => selectedItems.filter(item => item.type !== ERROR_ITEM_TYPE),
     [selectedItems],
   )
-  const selectedErrorItems = useMemo(
-    () => selectedItems.filter(item => item.type === ERROR_ITEM_TYPE),
-    [selectedItems],
-  )
 
   const [showConfirm, setShowConfirm] = useState(false)
   const [showGroup, setShowGroup] = useState(false)
@@ -91,20 +87,13 @@ function SelectedActions() {
   const handleConfirmDelete = useCallback(
     () => {
       const standardIds = selectedStandardItems.map(item => item.id)
-      const errorIds = selectedErrorItems.map(item => item.id)
 
-      const tasks: Promise<unknown>[] = []
       if (standardIds.length > 0) {
-        tasks.push(deleteItems(standardIds))
+        void deleteItems(standardIds).catch(error => console.error(error))
       }
-      if (errorIds.length > 0) {
-        tasks.push(hardDeleteItems(errorIds))
-      }
-
-      void Promise.all(tasks).catch(error => console.error(error))
       setShowConfirm(false)
     },
-    [selectedErrorItems, selectedStandardItems],
+    [selectedStandardItems],
   )
   const handleConfirmCancel = useCallback(() => setShowConfirm(false), [])
   const handleClear = useCallback(
@@ -114,15 +103,11 @@ function SelectedActions() {
 
   const open = selectedItems.length > 0
   const workingItems = useMemo(
-    () => (open ? selectedItems : (prevSelectedItems || EMPTY_SELECTED_ITEMS)),
+    (): Item[] => (open ? selectedItems : (prevSelectedItems || EMPTY_SELECTED_ITEMS)),
     [open, prevSelectedItems, selectedItems],
   )
   const workingStandardItems = useMemo(
-    () => workingItems.filter(item => item.type !== ERROR_ITEM_TYPE),
-    [workingItems],
-  )
-  const hasWorkingErrorItems = useMemo(
-    () => workingItems.some(item => item.type === ERROR_ITEM_TYPE),
+    () => workingItems.filter((item: Item) => item.type !== ERROR_ITEM_TYPE),
     [workingItems],
   )
 
@@ -161,22 +146,21 @@ function SelectedActions() {
             onClick: handleUnarchive,
           })
         }
-      }
-      result.push(
-        {
+
+        result.push({
           id: 'delete',
           icon: DeleteIcon,
-          label: hasWorkingErrorItems && workingStandardItems.length === 0 ? 'Hard Delete' : 'Delete',
+          label: 'Delete',
           onClick: handleInitialDelete,
-        },
-        {
-          dividerBefore: true,
-          id: 'clear',
-          icon: RemoveIcon,
-          label: `Clear Selection (${workingItems.length} items)`,
-          onClick: handleClear,
-        },
-      )
+        })
+      }
+      result.push({
+        dividerBefore: workingStandardItems.length > 0,
+        id: 'clear',
+        icon: RemoveIcon,
+        label: `Clear Selection (${workingItems.length} items)`,
+        onClick: handleClear,
+      })
       return result
     },
     [
@@ -186,7 +170,6 @@ function SelectedActions() {
       handleShowFrequency,
       handleShowGroup,
       handleUnarchive,
-      hasWorkingErrorItems,
       workingItems,
       workingStandardItems,
     ],

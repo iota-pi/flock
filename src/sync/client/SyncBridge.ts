@@ -274,11 +274,6 @@ export const SyncBridge = {
     await syncApi!.createItem(item)
   },
 
-  hardDeleteItems: async (itemIds: ItemId[]) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.hardDeleteItems(itemIds)
-  },
-
   storeItems: async (items: any[]) => {
     await SyncBridge.ensureReady()
     await syncApi!.storeItems(items)

@@ -327,7 +327,6 @@ export class SyncWorker implements SyncApi {
   async bootstrapItems() { await this.context.vaultBootstrapper.bootstrapItems() }
   async mutateItem(id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(id, changes) }
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
-  async hardDeleteItems(itemIds: ItemId[]) { await this.context.itemOperations.hardDeleteItems(itemIds) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
   async mutateMetadata(changes: Partial<AccountMetadata>) { await this.context.itemOperations.mutateMetadata(changes) }
   async exportAllBinaries() { return this.context.backupManager.exportAllBinaries() }

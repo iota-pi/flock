@@ -62,43 +62,6 @@ export class ItemOperations {
     }
   }
 
-  async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
-    const successfullyDeleted: ItemId[] = []
-    const errors: string[] = []
-
-    for (const id of itemIds) {
-      try {
-        await this.deps.docStore.removeAutomergeItem(id)
-        successfullyDeleted.push(id)
-      } catch (err) {
-        errors.push((err as Error).message)
-      }
-    }
-
-    if (errors.length > 0) {
-      this.deps.eventHub.emit({
-        type: 'mutationFailed',
-        mutationType: 'hardDelete',
-        error: errors.join('; '),
-      })
-    }
-
-    if (successfullyDeleted.length > 0) {
-      try {
-        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(successfullyDeleted)
-      } catch (err) {
-        console.error(err)
-      }
-      for (const id of successfullyDeleted) {
-        try {
-          await this.deps.deletionQueueManager.cancelDeletion(id)
-        } catch (err) {
-          console.error(err)
-        }
-      }
-    }
-  }
-
   async storeItems(items: Item[]): Promise<void> {
     const failedItems: Item[] = []
     const succeededIds: ItemId[] = []
