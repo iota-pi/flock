@@ -22,9 +22,12 @@ export default function AppInitializer() {
       useAppStore.getState().finishRequest,
     )
     initTrpcClient(trackedFetch)
-    initializeSyncHealthWatchers()
+    const teardownWatchers = initializeSyncHealthWatchers()
     void ensurePersistentStorage()
     void loadAccount().catch(console.error)
+    return () => {
+      teardownWatchers()
+    }
   }, [setFatalError])
 
   useEffect(() => {

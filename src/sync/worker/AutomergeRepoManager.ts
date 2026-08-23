@@ -8,7 +8,7 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   constructor(private delegate: StorageAdapterInterface) {}
 
   async load(key: string[]): Promise<Uint8Array | undefined> {
-    return this.delegate.load(key)
+    return runStorageOperation(() => this.delegate.load(key))
   }
 
   async save(key: string[], data: Uint8Array): Promise<void> {
@@ -20,7 +20,7 @@ class QuotaHandlingStorageAdapter implements StorageAdapterInterface {
   }
 
   async loadRange(keyPrefix: string[]): Promise<Chunk[]> {
-    return this.delegate.loadRange(keyPrefix)
+    return runStorageOperation(() => this.delegate.loadRange(keyPrefix))
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {

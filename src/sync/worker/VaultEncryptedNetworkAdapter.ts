@@ -9,6 +9,7 @@ import {
 import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 const VAULT_PEER_ID = 'vault' as PeerId
+export const MAX_SEEDED_DOCUMENTS = 5000
 
 export class VaultNetworkAdapter extends NetworkAdapter {
   private account: string | null = null
@@ -29,7 +30,16 @@ export class VaultNetworkAdapter extends NetworkAdapter {
   }
 
   setSendEnabled(sendEnabled: boolean): void {
+    if (this.sendEnabled === sendEnabled) {
+      return
+    }
     this.sendEnabled = sendEnabled
+
+    if (sendEnabled) {
+      this.connectPeer()
+    } else {
+      this.disconnectPeer()
+    }
   }
 
   setAccount(account: string | null): void {
@@ -38,14 +48,16 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       return
     }
 
-    this.account = nextAccount
+    this.seededDocuments.clear()
 
-    if (!this.connected) {
-      return
+    if (this.account && !nextAccount) {
+      this.disconnectPeer()
     }
 
+    this.account = nextAccount
+
     if (this.account) {
-      this.emitPeerCandidate()
+      this.connectPeer()
     }
   }
 
@@ -68,9 +80,7 @@ export class VaultNetworkAdapter extends NetworkAdapter {
       this.readyPromiseResolver = null
     }
 
-    if (this.account) {
-      this.emitPeerCandidate()
-    }
+    this.connectPeer()
   }
 
   send(message: Message): void {
@@ -92,6 +102,12 @@ export class VaultNetworkAdapter extends NetworkAdapter {
           // already in sync. This avoids dumping the entire document history and ensures
           // only future changes are sent through the push pipeline.
           if (message.documentId && !this.seededDocuments.has(message.documentId)) {
+            if (this.seededDocuments.size >= MAX_SEEDED_DOCUMENTS) {
+              const oldest = this.seededDocuments.values().next().value
+              if (oldest) {
+                this.seededDocuments.delete(oldest)
+              }
+            }
             this.seededDocuments.add(message.documentId)
             const ackMsg = encodeSyncMessage({
               heads: decoded.heads || [],
@@ -100,7 +116,9 @@ export class VaultNetworkAdapter extends NetworkAdapter {
               changes: []
             })
             queueMicrotask(() => {
-              this.receiveMessage(message.documentId!, ackMsg)
+              if (this.connected) {
+                this.receiveMessage(message.documentId!, ackMsg)
+              }
             })
           }
           return
@@ -125,17 +143,35 @@ export class VaultNetworkAdapter extends NetworkAdapter {
 
   disconnect(): void {
     this.connected = false
+    this.seededDocuments.clear()
+    this.disconnectPeer()
     this.emit('close')
   }
 
-  private emitPeerCandidate(): void {
-    this.emit('peer-candidate', {
-      peerId: VAULT_PEER_ID,
-      peerMetadata: {
-        storageId: `vault:${this.account}` as StorageId,
-        isEphemeral: false,
-      },
-    })
+  clearSeededDocuments(): void {
+    this.seededDocuments.clear()
+  }
+
+  removeSeededDocument(documentId: DocumentId): void {
+    this.seededDocuments.delete(documentId)
+  }
+
+  private connectPeer(): void {
+    if (this.account && this.connected && this.sendEnabled) {
+      this.emit('peer-candidate', {
+        peerId: VAULT_PEER_ID,
+        peerMetadata: {
+          storageId: `vault:${this.account}` as StorageId,
+          isEphemeral: false,
+        },
+      })
+    }
+  }
+
+  private disconnectPeer(): void {
+    if (this.peerId) {
+      this.emit('peer-disconnected', { peerId: VAULT_PEER_ID })
+    }
   }
 }
 

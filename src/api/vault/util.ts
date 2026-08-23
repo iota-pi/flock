@@ -6,6 +6,9 @@ export const VAULT_STORAGE_KEY = 'FlockVaultMeta'
 
 export type VaultStoredMetadata = {
   account: string,
+  salt?: string,
+  iterations?: number,
+  saltVersion?: number,
 }
 
 export function readStoredMetadata(): VaultStoredMetadata | null {
@@ -16,6 +19,9 @@ export function readStoredMetadata(): VaultStoredMetadata | null {
       if (typeof parsed.account === 'string') {
         return {
           account: parsed.account,
+          salt: typeof parsed.salt === 'string' ? parsed.salt : undefined,
+          iterations: typeof parsed.iterations === 'number' ? parsed.iterations : undefined,
+          saltVersion: typeof parsed.saltVersion === 'number' ? parsed.saltVersion : undefined,
         }
       }
     } catch {

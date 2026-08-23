@@ -206,10 +206,4 @@ describe('SyncWorker Deletion Queue Integration', () => {
     expect(deletionStore.clearScheduledDeletions).toHaveBeenCalledWith(accountId)
     expect(mockClearAutomergeDocStore).not.toHaveBeenCalled()
   })
-
-  it('clears pending timer and cancels deletions on hardDeleteItems', async () => {
-    await worker.hardDeleteItems(['item-2' as ItemId])
-    expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
-    expect(mockRemoveAutomergeItem).toHaveBeenCalledWith('item-2')
-  })
 })

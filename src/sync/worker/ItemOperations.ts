@@ -19,22 +19,32 @@ export class ItemOperations {
   constructor(private deps: ItemOperationsDeps) {}
 
   async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
-    const updated = await this.deps.docStore.changeDocument(
-      id,
-      doc => {
-        for (const [key, value] of Object.entries(changes)) {
-          if (value === undefined) delete doc[key]
-          else doc[key] = value
-        }
-      },
-      { knownToExist: true },
-    )
-    if (updated) {
-      this.deps.markDocumentDirty(id)
-    } else {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: `Failed to update document ${id}` })
-      const trueState = await this.deps.docStore.getAutomergeItem(id)
-      this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+    try {
+      const updated = await this.deps.docStore.changeDocument(
+        id,
+        doc => {
+          for (const [key, value] of Object.entries(changes)) {
+            if (value === undefined) delete doc[key]
+            else doc[key] = value
+          }
+        },
+        { knownToExist: true },
+      )
+      if (updated) {
+        this.deps.markDocumentDirty(id)
+      } else {
+        this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: `Failed to update document ${id}` })
+        const trueState = await this.deps.docStore.getAutomergeItem(id)
+        this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+      }
+    } catch (err) {
+      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'edit', error: (err as Error).message })
+      try {
+        const trueState = await this.deps.docStore.getAutomergeItem(id)
+        this.deps.eventHub.emit({ type: 'itemUpdated', id, item: trueState })
+      } catch {
+        // Doc retrieval failure fallback
+      }
     }
   }
 
@@ -62,43 +72,30 @@ export class ItemOperations {
     }
   }
 
-  async hardDeleteItems(itemIds: ItemId[]): Promise<void> {
-    const successfullyDeleted: ItemId[] = []
-    try {
-      for (const id of itemIds) {
-        await this.deps.deletionQueueManager.cancelDeletion(id).catch(console.error)
-        await this.deps.docStore.removeAutomergeItem(id)
-        successfullyDeleted.push(id)
-      }
-    } catch (err) {
-      this.deps.eventHub.emit({ type: 'mutationFailed', mutationType: 'hardDelete', error: (err as Error).message })
-    } finally {
-      if (successfullyDeleted.length > 0) {
-        await this.deps.indexManager.removeAutomergeItemIdsFromIndex(successfullyDeleted).catch(console.error)
-      }
-    }
-  }
-
   async storeItems(items: Item[]): Promise<void> {
     const failedItems: Item[] = []
     const succeededIds: ItemId[] = []
     const existingIds = new Set(await this.deps.indexManager.listAutomergeItemIds())
 
     for (const item of items) {
-      const updated = await this.deps.docStore.changeDocument(
-        item.id,
-        doc => {
-          for (const [key, value] of Object.entries(item)) {
-            if (value === undefined) delete doc[key]
-            else doc[key] = value
-          }
-        },
-        { createIfMissing: true, knownToExist: existingIds.has(item.id) },
-      )
-      if (updated) {
-        succeededIds.push(item.id)
-        this.deps.markDocumentDirty(item.id)
-      } else {
+      try {
+        const updated = await this.deps.docStore.changeDocument(
+          item.id,
+          doc => {
+            for (const [key, value] of Object.entries(item)) {
+              if (value === undefined) delete doc[key]
+              else doc[key] = value
+            }
+          },
+          { createIfMissing: true, knownToExist: existingIds.has(item.id) },
+        )
+        if (updated) {
+          succeededIds.push(item.id)
+          this.deps.markDocumentDirty(item.id)
+        } else {
+          failedItems.push(item)
+        }
+      } catch {
         failedItems.push(item)
       }
     }

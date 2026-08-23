@@ -18,6 +18,13 @@ import useSubscriptionSettings from './useSubscriptionSettings'
 import type { Item } from '../state/items'
 import { useDataRecovery } from './useDataRecovery'
 
+import {
+  readAutoLockSettings,
+  writeAutoLockSettings,
+  getAutoLockSummary,
+  type AutoLockSettings,
+} from '../api/vault/autoLockStore'
+
 export default function useSettings(items: Item[]) {
   const account = useAppStore(state => state.account)
   const setMessage = useAppStore(state => state.setMessage)
@@ -38,6 +45,7 @@ export default function useSettings(items: Item[]) {
 
   const [biometricsSupported, setBiometricsSupported] = useState(false)
   const [biometricsEnabled, setBiometricsEnabled] = useState(() => hasBiometricData())
+  const [autoLockSettings, setAutoLockSettings] = useState(() => readAutoLockSettings())
 
   useEffect(() => {
     void isWebAuthnPrfSupported().then(setBiometricsSupported)
@@ -60,6 +68,15 @@ export default function useSettings(items: Item[]) {
       }
     }
   }, [account, biometricsEnabled, setMessage])
+
+  const saveAutoLockSettings = useCallback((settings: AutoLockSettings) => {
+    writeAutoLockSettings(settings)
+    setAutoLockSettings(settings)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('flock-autolock-changed'))
+    }
+    setMessage({ message: 'Auto-lock settings saved' })
+  }, [setMessage])
 
   // Actions
   const handleLock = useCallback(
@@ -108,6 +125,7 @@ export default function useSettings(items: Item[]) {
       handleSubscribe: subscriptionActions.handleSubscribe,
       handleToggleDarkMode: themeActions.handleToggleDarkMode,
       handleToggleBiometrics,
+      saveAutoLockSettings,
       saveDefaultFrequencies,
     },
     values: {
@@ -119,6 +137,7 @@ export default function useSettings(items: Item[]) {
       naturalGoal,
       biometricsEnabled,
       biometricsSupported,
+      autoLockSummary: getAutoLockSummary(autoLockSettings),
     },
   }
 }

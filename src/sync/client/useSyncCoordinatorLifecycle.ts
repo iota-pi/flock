@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { useAppStore } from '../../state/store'
 import { SyncBridge } from './SyncBridge'
+import { resumePendingReencryption } from '../../api/vault/reencrypt'
+import { attemptSessionRecovery } from '../../api/vault/sessionRecovery'
 
 export default function useSyncCoordinatorLifecycle(
   account: string | null | undefined,
@@ -17,13 +19,30 @@ export default function useSyncCoordinatorLifecycle(
       }
 
       clearFatalError()
-      SyncBridge.initialize(account).catch(error => {
-        console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
-      })
+      SyncBridge.initialize(account)
+        .then(() => {
+          void resumePendingReencryption(account)
+        })
+        .catch(error => {
+          console.error('[useSyncCoordinatorLifecycle] bootstrap failed', error)
+        })
 
-      return () => void SyncBridge.shutdown().catch(error => {
-        console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
-      })
+      const handleOnline = async () => {
+        const recovered = await attemptSessionRecovery(account)
+        if (recovered) {
+          useAppStore.getState().clearSyncWarning()
+          SyncBridge.forceSync().catch(console.error)
+        }
+      }
+
+      window.addEventListener('online', handleOnline)
+
+      return () => {
+        window.removeEventListener('online', handleOnline)
+        void SyncBridge.shutdown().catch(error => {
+          console.error('[useSyncCoordinatorLifecycle] shutdown failed', error)
+        })
+      }
     },
     [account, enabled],
   )

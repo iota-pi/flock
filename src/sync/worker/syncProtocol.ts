@@ -10,7 +10,6 @@ export interface SyncApi {
   bootstrapItems: () => Promise<void>
   mutateItem: (id: ItemId, changes: Partial<Item>) => Promise<void>
   createItem: (item: Item) => Promise<void>
-  hardDeleteItems: (itemIds: ItemId[]) => Promise<void>
   storeItems: (items: Item[]) => Promise<void>
   mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>

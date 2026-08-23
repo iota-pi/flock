@@ -283,4 +283,22 @@ describe('VaultPersistence', () => {
     expect(stored).toHaveLength(1)
     expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([99])
   })
+
+  it('serializes loadSyncBatch with concurrent in-flight persistSyncMessages', async () => {
+    const { persistSyncMessages, loadSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    getSyncBatchStorage('acc-1')
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-concur', [new Uint8Array([10, 20])])
+
+    const persistPromise = persistSyncMessages('acc-1', writes)
+    const loadPromise = loadSyncBatch('acc-1')
+
+    const [, loadResult] = await Promise.all([persistPromise, loadPromise])
+
+    const entry = loadResult.find(e => e[0] === 'item-concur')
+    expect(entry).toBeDefined()
+    expect(entry![1]).toHaveLength(1)
+    expect(Array.from(normalizeUint8Array(entry![1][0]))).toEqual([10, 20])
+  })
 })

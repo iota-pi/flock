@@ -72,6 +72,8 @@ export function normalizeItemSnapshot(itemId: ItemId, snapshot: RepoDoc | null):
 }
 
 export class AutomergeDocStore {
+  private pendingFindOrCreate = new Map<ItemId, Promise<RepoDocHandle>>()
+
   constructor(
     private readonly repo: Repo,
   ) {}
@@ -155,44 +157,59 @@ export class AutomergeDocStore {
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
-    let handle = await this.findHandle(itemId, options)
-    if (handle) return handle
-
-    // SAFETY: Before creating a blank document, independently verify that
-    // the item genuinely doesn't exist in storage. If it does, we must NOT
-    // delete it — the load just timed out or hit a transient error.
-    const dataExists = await this.hasDataInStorage(itemId)
-    if (dataExists) {
-      console.error(
-        `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
-        `Document exists in storage but could not be loaded within the timeout.`
-      )
-      return undefined
+    const pending = this.pendingFindOrCreate.get(itemId)
+    if (pending) {
+      return pending
     }
 
-    // Document genuinely doesn't exist — safe to create
-    const { documentId } = this.resolveDocumentId(itemId)
+    const promise = (async () => {
+      let handle = await this.findHandle(itemId, options)
+      if (handle) return handle
+
+      // SAFETY: Before creating a blank document, independently verify that
+      // the item genuinely doesn't exist in storage. If it does, we must NOT
+      // delete it — the load just timed out or hit a transient error.
+      const dataExists = await this.hasDataInStorage(itemId)
+      if (dataExists) {
+        console.error(
+          `[AutomergeDocStore] Refusing to overwrite existing storage data for ${itemId}. ` +
+          `Document exists in storage but could not be loaded within the timeout.`
+        )
+        return undefined
+      }
+
+      // Document genuinely doesn't exist — safe to create
+      const { documentId } = this.resolveDocumentId(itemId)
+      try {
+        this.repo.delete(documentId)
+      } catch (error) {
+        console.error('[automerge] failed to clear unavailable handle before import', {
+          itemId,
+          error,
+        })
+      }
+
+      const newDoc = Automerge.init()
+      const binary = Automerge.save(newDoc)
+      try {
+        handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
+      } catch (error) {
+        throw new Error(
+          `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
+          { cause: error },
+        )
+      }
+
+      return handle
+    })()
+
+    this.pendingFindOrCreate.set(itemId, promise)
+
     try {
-      this.repo.delete(documentId)
-    } catch (error) {
-      console.error('[automerge] failed to clear unavailable handle before import', {
-        itemId,
-        error,
-      })
+      return await promise
+    } finally {
+      this.pendingFindOrCreate.delete(itemId)
     }
-
-    const newDoc = Automerge.init()
-    const binary = Automerge.save(newDoc)
-    try {
-      handle = this.repo.import<RepoDoc>(binary, { docId: documentId })
-    } catch (error) {
-      throw new Error(
-        `[AutomergeDocStore] Failed to import/create document for ${itemId}: ${(error as Error).message}`,
-        { cause: error },
-      )
-    }
-
-    return handle
   }
 
   snapshotFromHandle(handle: RepoDocHandle): RepoDoc | null {

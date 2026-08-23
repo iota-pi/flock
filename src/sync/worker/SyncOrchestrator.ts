@@ -10,6 +10,7 @@ export class SyncOrchestrator {
   private isLeader = false
   private isPolling = false
   private pollingPausedForAuth = false
+  private isShutdown = false
 
   private pendingFlush = false
 
@@ -79,12 +80,12 @@ export class SyncOrchestrator {
       this.resetPollBackoff()
       this.startPolling(true)
       this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
-    } else {
-      this.clientEventHub.emit({ type: 'statusChange', status: 'offline' })
     }
   }
 
   flush(): void {
+    if (this.isShutdown) return
+    this.pollingPausedForAuth = false
     if (this.syncBatchTimeout === null) {
       this.syncBatchTimeout = self.setTimeout(
         () => void this.flushSyncBatch(),
@@ -103,11 +104,14 @@ export class SyncOrchestrator {
   }
 
   startPolling(immediate?: boolean): void {
+    if (this.isShutdown) return
     this.stopPolling()
 
     if (!this.isLeader) {
       return
     }
+
+    this.pollingPausedForAuth = false
 
     if (immediate) {
       if (!this.isPolling) {
@@ -128,12 +132,13 @@ export class SyncOrchestrator {
     if (this.syncBatchTimeout) {
       self.clearTimeout(this.syncBatchTimeout)
       this.syncBatchTimeout = null
+      this.pendingFlush = true
     }
     this.nextPollAt = 0
   }
 
   private scheduleNextPoll(delayMs: number): void {
-    if (this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
+    if (this.isShutdown || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) {
       return
     }
 
@@ -170,7 +175,7 @@ export class SyncOrchestrator {
   }
 
   private async executeWrappedPoll(force = false): Promise<void> {
-    if (this.isPolling || this.pollingPausedForAuth || !this.isOnline || !this.isLeader) return
+    if (this.isShutdown || this.isPolling || (!force && this.pollingPausedForAuth) || !this.isOnline || !this.isLeader) return
     if (!force && this.nextPollAt > 0 && Date.now() < this.nextPollAt) return
     this.isPolling = true
 
@@ -183,12 +188,7 @@ export class SyncOrchestrator {
       this.isPolling = false
     }
 
-    const wasFlushPending = this.pendingFlush
-    this.pendingFlush = false
-
-    if (this.pollingPausedForAuth) {
-      return
-    }
+    if (this.isShutdown) return
 
     if (outcome === 'auth-failure') {
       this.pollingPausedForAuth = true
@@ -198,17 +198,19 @@ export class SyncOrchestrator {
       return
     }
 
+    const wasFlushPending = this.pendingFlush
+    this.pendingFlush = false
+
     if (outcome === 'failure') {
       this.increasePollBackoff()
     } else {
       this.resetPollBackoff()
+      this.pollingPausedForAuth = false
     }
 
     this.internalEventHub.emit({ type: 'pollResult', outcome })
 
-    if (wasFlushPending) {
-      this.scheduleNextPoll(0)
-    } else if (outcome === 'success' && this.broker.hasPendingPulls()) {
+    if (wasFlushPending || (outcome === 'success' && this.broker.hasPendingPulls())) {
       this.scheduleNextPoll(0)
     } else {
       this.scheduleNextPoll(this.pollBackoffStepsMs[this.pollBackoffIndex])
@@ -216,6 +218,8 @@ export class SyncOrchestrator {
   }
 
   async shutdown(): Promise<void> {
+    this.isShutdown = true
+    this.setLeader(false)
     if (this.leaderElection) {
       this.leaderElection.release()
       this.leaderElection = null

@@ -13,7 +13,8 @@ import { encryptBytes, decryptBytes, type CryptoResult } from 'src/api/vault'
 
 
 export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
-  private inner: BroadcastChannelNetworkAdapter
+  private options?: BroadcastChannelNetworkAdapterOptions
+  private inner!: BroadcastChannelNetworkAdapter
   private sendQueue: Message[] = []
   private isSending = false
   private receiveQueue: Message[] = []
@@ -21,7 +22,12 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
-    this.inner = new BroadcastChannelNetworkAdapter(options)
+    this.options = options
+    this.setupInner()
+  }
+
+  private setupInner() {
+    this.inner = new BroadcastChannelNetworkAdapter(this.options)
 
     // Forward events
     this.inner.on('peer-candidate', payload => this.emit('peer-candidate', payload))
@@ -29,6 +35,7 @@ export class EncryptedBroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.inner.on('message', message => this.handleIncomingMessage(message))
     this.inner.on('close', () => this.emit('close'))
   }
+
 
   isReady(): boolean {
     return this.inner.isReady()

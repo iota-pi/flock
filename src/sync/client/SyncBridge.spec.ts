@@ -256,21 +256,10 @@ describe('SyncBridge', () => {
     vi.useRealTimers()
   })
 
-  it('responds to online, offline, and visibilitychange events', async () => {
+  it('responds to online and offline events', async () => {
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
-    const visibilityStateSpy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
 
     await SyncBridge.initialize('test-account')
-    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
-
-    // Hidden -> should trigger setOnlineState(false)
-    visibilityStateSpy.mockReturnValue('hidden')
-    document.dispatchEvent(new Event('visibilitychange'))
-    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
-
-    // Visible again -> should trigger setOnlineState(true)
-    visibilityStateSpy.mockReturnValue('visible')
-    document.dispatchEvent(new Event('visibilitychange'))
     expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
 
     // Offline network event -> should trigger setOnlineState(false)
@@ -278,14 +267,12 @@ describe('SyncBridge', () => {
     window.dispatchEvent(new Event('offline'))
     expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
 
-    // Online network event, but document hidden -> should trigger setOnlineState(false)
+    // Online network event -> should trigger setOnlineState(true)
     onLineSpy.mockReturnValue(true)
-    visibilityStateSpy.mockReturnValue('hidden')
     window.dispatchEvent(new Event('online'))
-    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(false)
+    expect(mockSyncApi.setOnlineState).toHaveBeenLastCalledWith(true)
 
     onLineSpy.mockRestore()
-    visibilityStateSpy.mockRestore()
   })
 
   it('does not terminate a new worker if initialize() is called concurrently while shutdown() is awaiting worker shutdown', async () => {
@@ -414,6 +401,93 @@ describe('SyncBridge', () => {
     } finally {
       globalThis.MessageChannel = originalMessageChannel
     }
+  })
+
+  it('re-throws error when initialization fails', async () => {
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed'))
+
+    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('initRepo failed')
+    expect(useAppStore.getState().syncStatus).toBe('offline')
+  })
+
+  it('allows ensureReady to wait for initialization during re-initialization with a new account', async () => {
+    await SyncBridge.initialize('account-one')
+
+    let resolveInitRepo: () => void = () => {}
+    mockSyncApi.initRepo.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveInitRepo = resolve
+        })
+    )
+
+    const initTwoPromise = SyncBridge.initialize('account-two')
+    const ensureReadyPromise = SyncBridge.ensureReady()
+
+    // ensureReady should be pending and not throw prematurely
+    let ready = false
+    ensureReadyPromise.then(() => {
+      ready = true
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+    expect(ready).toBe(false)
+
+    resolveInitRepo()
+    await initTwoPromise
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+  })
+
+  it('safely handles concurrent initialize calls for different accounts without destroying the newer promise', async () => {
+    let resolveKeyringA: (val: string) => void = () => {}
+    let resolveKeyringB: (val: string) => void = () => {}
+
+    const { exportKeyringData } = await import('src/api/vault')
+    vi.mocked(exportKeyringData)
+      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringA = resolve }))
+      .mockImplementationOnce(() => new Promise<string>(resolve => { resolveKeyringB = resolve }))
+
+    const initAPromise = SyncBridge.initialize('account-A')
+    const initBPromise = SyncBridge.initialize('account-B')
+
+    const ensureReadyPromise = SyncBridge.ensureReady()
+
+    let ready = false
+    ensureReadyPromise.then(() => {
+      ready = true
+    })
+
+    // Release A's keyring -> A discovers account changed to B and aborts
+    resolveKeyringA('key-a')
+    await initAPromise
+
+    // ensureReady should still be pending on B
+    await new Promise(r => setTimeout(r, 10))
+    expect(ready).toBe(false)
+
+    // Release B's keyring -> B finishes
+    resolveKeyringB('key-b')
+    await initBPromise
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+  })
+
+  it('preserves recovery entries subscriptions and app store state on shutdown with internalRestart', async () => {
+    await SyncBridge.initialize('test-account')
+
+    const recoveryListener = vi.fn()
+    SyncBridge.subscribeRecoveryItems(recoveryListener)
+    expect(recoveryListener).toHaveBeenCalledTimes(1)
+
+    useAppStore.setState({ items: { 'item-1': { id: 'item-1' } as any } })
+
+    await SyncBridge.shutdown({ internalRestart: true })
+
+    // Listener shouldn't have been called with empty array upon shutdown
+    expect(recoveryListener).toHaveBeenCalledTimes(1)
+    // App store state shouldn't be reset
+    expect(useAppStore.getState().items['item-1']).toBeDefined()
   })
 })
 

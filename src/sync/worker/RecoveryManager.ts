@@ -43,10 +43,12 @@ export class RecoveryManager {
       throw new Error(`No local item found for ${itemId}. Force delete is available instead.`)
     }
 
-    const localSnapshot = structuredClone(localItem) as Record<string, unknown>
+    const localSnapshot = JSON.parse(JSON.stringify(localItem)) as Record<string, unknown>
     if (Array.isArray(localItem.prayedFor)) {
       localSnapshot.prayedFor = [...localItem.prayedFor]
     }
+
+    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
@@ -61,19 +63,19 @@ export class RecoveryManager {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()
   }
 
   async forceDeleteRecoveryItem(itemId: ItemId) {
     if (!this.deps.accountId) return
-    const existing = await this.deps.docStore.getAutomergeItem(itemId)
+    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
 
     await this.deps.docStore.changeDocument(
       itemId,
       doc => {
-        doc.id = itemId
-        doc.type = existing?.type || 'person'
+        if (typeof doc.id !== 'string' || doc.id.length === 0) {
+          doc.id = itemId
+        }
         doc.deleted = true
       },
       { createIfMissing: true },
@@ -81,7 +83,6 @@ export class RecoveryManager {
 
     await this.deps.indexManager.addAutomergeItemIdsToIndex([itemId])
 
-    await removeManualRecoveryEntryByItemId(this.deps.accountId, itemId)
     await this.pushRecoveryItems()
   }
 

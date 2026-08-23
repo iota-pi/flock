@@ -152,4 +152,20 @@ describe('AutomergeIndexManager', () => {
     const itemIds = await manager.listAutomergeItemIds()
     expect(itemIds).toEqual(['item-1', 'item-2'])
   })
+
+  it('should replace the entire index document serialized through queue', async () => {
+    const manager = new AutomergeIndexManager(accountId, indexStore)
+    const newDoc: AutomergeIndexDocument = {
+      accountId,
+      itemIds: ['restored-1' as ItemId, 'restored-2' as ItemId],
+      metadata: { prayerGoal: 100 },
+      lastModified: { ['restored-1' as ItemId]: 500 },
+      lastSyncTime: 7777,
+    }
+
+    await manager.replaceIndex(newDoc)
+
+    const snapshot = await manager.getIndexSnapshot()
+    expect(snapshot).toEqual(newDoc)
+  })
 })

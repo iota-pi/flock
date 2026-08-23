@@ -5,7 +5,7 @@ import type { VaultSnapshotInput } from '../../shared/schemas/snapshots'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import type { SyncMessageBroker } from './SyncMessageBroker'
-import { buildSnapshot } from './snapshotBuilder'
+import { buildSnapshot, type BuildSnapshotResult } from './snapshotBuilder'
 import { ItemId } from 'src/shared/schemas/items'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 
@@ -18,7 +18,7 @@ const MAX_CONSECUTIVE_SNAPSHOT_FAILURES = 5
 export class SnapshotManager {
   private dirtyItems = new Map<ItemId, number>()
   private dirtyItemsTick = 0
-  private consecutiveBuildFailures = new Map<ItemId, number>()
+  private consecutiveFailures = new Map<ItemId, number>()
   private lastModifiedByItemId = new Map<ItemId, number>()
   private snapshotPushInFlight = false
   private snapshotPushPending = false
@@ -44,7 +44,7 @@ export class SnapshotManager {
     private readonly lastModifiedStore: LastModifiedStore,
     options?: SnapshotManagerOptions,
   ) {
-    this.maxPayloadBytes = options?.maxPayloadBytes ?? 200 * 1024
+    this.maxPayloadBytes = options?.maxPayloadBytes ?? 350 * 1024
   }
 
   async loadLastModified(): Promise<void> {
@@ -74,7 +74,7 @@ export class SnapshotManager {
     this.flushDirtyDocumentsToIndexDebounced()
   }
 
-  async flushDirtyDocumentsToIndex(): Promise<void> {
+  private updateLastModifiedForDirtyItems(): void {
     const dirtyItemIds = Array.from(this.dirtyItems.keys())
     if (dirtyItemIds.length === 0) {
       return
@@ -85,6 +85,10 @@ export class SnapshotManager {
     for (const itemId of dirtyItemIds) {
       this.lastModifiedByItemId.set(itemId, timestamp)
     }
+  }
+
+  async flushDirtyDocumentsToIndex(): Promise<void> {
+    this.updateLastModifiedForDirtyItems()
     this.saveLastModifiedDebounced()
   }
 
@@ -192,6 +196,21 @@ export class SnapshotManager {
     }
   }
 
+  private handleSnapshotFailure(itemId: ItemId, tick: number, failureType: string) {
+    const failures = (this.consecutiveFailures.get(itemId) ?? 0) + 1
+    if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
+      console.error(
+        `[SnapshotManager] Item ${itemId} reached max consecutive snapshot ${failureType} failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
+      )
+      this.consecutiveFailures.delete(itemId)
+      if (this.dirtyItems.get(itemId) === tick) {
+        this.dirtyItems.delete(itemId)
+      }
+    } else {
+      this.consecutiveFailures.set(itemId, failures)
+    }
+  }
+
   private async processSnapshotPush(context: {
     accountId: string
     authToken: string
@@ -207,27 +226,33 @@ export class SnapshotManager {
     let currentBatchBytes = 0
 
     for (const { itemId, tick } of dirtyItems) {
-      const snapshot = await this.buildSnapshot(itemId, snapshotCursor)
-      if (!snapshot) {
+      const buildResult = await this.buildSnapshot(itemId, snapshotCursor)
+      if (buildResult.type === 'not-ready') {
         success = false
-        const failures = (this.consecutiveBuildFailures.get(itemId) ?? 0) + 1
-        if (failures >= MAX_CONSECUTIVE_SNAPSHOT_FAILURES) {
-          console.error(
-            `[SnapshotManager] Item ${itemId} reached max consecutive snapshot build failures (${MAX_CONSECUTIVE_SNAPSHOT_FAILURES}). Removing from dirty queue.`
-          )
-          this.consecutiveBuildFailures.delete(itemId)
-          if (this.dirtyItems.get(itemId) === tick) {
-            this.dirtyItems.delete(itemId)
-          }
-        } else {
-          this.consecutiveBuildFailures.set(itemId, failures)
-        }
         continue
       }
 
-      this.consecutiveBuildFailures.delete(itemId)
+      if (buildResult.type === 'error') {
+        success = false
+        this.handleSnapshotFailure(itemId, tick, 'build')
+        continue
+      }
+
+      const snapshot = buildResult.snapshot
+      this.consecutiveFailures.delete(itemId)
 
       const snapshotSize = JSON.stringify(snapshot).length
+
+      if (snapshotSize > this.maxPayloadBytes) {
+        console.error(
+          `[SnapshotManager] Snapshot for item ${itemId} exceeds maxPayloadBytes (${snapshotSize} > ${this.maxPayloadBytes}). Skipping.`
+        )
+        success = false
+        if (this.dirtyItems.get(itemId) === tick) {
+          this.dirtyItems.delete(itemId)
+        }
+        continue
+      }
 
       // Check if we should flush the current batch before adding this snapshot.
       const wouldExceedCount = currentBatch.length >= 25
@@ -243,6 +268,9 @@ export class SnapshotManager {
         if (!result.success) {
           success = false
           sendFailed = true
+          for (const item of currentBatch) {
+            this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
+          }
           break
         }
         for (const item of currentBatch) {
@@ -269,6 +297,9 @@ export class SnapshotManager {
       )
       if (!result.success) {
         success = false
+        for (const item of currentBatch) {
+          this.handleSnapshotFailure(item.snapshot.itemId, item.tick, 'send')
+        }
       } else {
         for (const item of currentBatch) {
           if (this.dirtyItems.get(item.snapshot.itemId) === item.tick) {
@@ -341,12 +372,12 @@ export class SnapshotManager {
     }
   }
 
-  private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<VaultSnapshotInput | null> {
+  private async buildSnapshot(itemId: ItemId, snapshotCursor: number): Promise<BuildSnapshotResult> {
     try {
       return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
     } catch (error) {
       console.error('[SnapshotManager] failed to encrypt snapshot binary', error)
-      return null
+      return { type: 'error' }
     }
   }
 
@@ -359,11 +390,7 @@ export class SnapshotManager {
     }
 
     if (this.dirtyItems.size > 0) {
-      try {
-        await this.flushDirtyDocumentsToIndex()
-      } catch (error) {
-        console.error('[SnapshotManager] Failed to flush dirty documents during shutdown', error)
-      }
+      this.updateLastModifiedForDirtyItems()
     }
 
     await this.persistLastModified()
@@ -375,7 +402,7 @@ export class SnapshotManager {
     this.saveLastModifiedDebounced.cancel()
     this.flushDirtyDocumentsToIndexDebounced.cancel()
     this.dirtyItems.clear()
-    this.consecutiveBuildFailures.clear()
+    this.consecutiveFailures.clear()
     this.lastModifiedByItemId.clear()
     this.snapshotPushInFlight = false
     this.snapshotPushPending = false

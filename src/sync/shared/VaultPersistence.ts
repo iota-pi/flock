@@ -106,23 +106,37 @@ export async function loadSyncBatch(account: string): Promise<[ItemId, Uint8Arra
   const batchEntries: [ItemId, Uint8Array[]][] = []
   const storage = getSyncBatchStorage(account)
   try {
-    await storage.iterate<(Uint8Array | object)[], void>((value, itemId) => {
-      if (value && value.length > 0) {
-        const normalized = value.map(m => {
-          if (m instanceof Uint8Array) {
-            return m
+    const dbKeys = await storage.keys()
+    const prefix = `${account}:`
+    const activeKeys = Array.from(writeQueues.keys())
+      .filter(k => k.startsWith(prefix))
+      .map(k => k.slice(prefix.length))
+
+    const allKeys = new Set([...dbKeys, ...activeKeys])
+
+    await Promise.all(
+      Array.from(allKeys).map(itemId => {
+        const queueKey = `${account}:${itemId}`
+        return enqueue(queueKey, async () => {
+          const value = await storage.getItem<(Uint8Array | object)[]>(itemId)
+          if (value && value.length > 0) {
+            const normalized = value.map(m => {
+              if (m instanceof Uint8Array) {
+                return m
+              }
+              if (m && typeof m === 'object') {
+                const rawObj = m as { [index: number]: number; length: number }
+                const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
+                const arr = Array.from({ ...rawObj, length }) as number[]
+                return new Uint8Array(arr)
+              }
+              return new Uint8Array()
+            })
+            batchEntries.push([itemId as ItemId, normalized])
           }
-          if (m && typeof m === 'object') {
-            const rawObj = m as { [index: number]: number, length: number }
-            const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
-            const arr = Array.from({ ...rawObj, length }) as number[]
-            return new Uint8Array(arr)
-          }
-          return new Uint8Array()
         })
-        batchEntries.push([itemId as ItemId, normalized])
-      }
-    })
+      })
+    )
   } catch (err) {
     console.error('[VaultPersistence] Failed to load sync batch from IndexedDB', err)
     throw err

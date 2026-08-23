@@ -35,25 +35,45 @@ export class ReencryptionManager {
 
     const snapshotCursor = Date.now()
     const batchSize = 10
+    const errors: Error[] = []
 
     for (let start = 0; start < total; start += batchSize) {
       const chunkIds = itemIds.slice(start, start + batchSize)
-      const snapshotPromises = chunkIds.map(
-        itemId => buildSnapshot(this.deps.repo, itemId, snapshotCursor)
-      )
+      const snapshotPromises = chunkIds.map(async itemId => {
+        let lastError: unknown = null
+        for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
+          try {
+            return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
+          } catch (err) {
+            lastError = err
+            console.warn(
+              `[ReencryptionManager] Attempt ${attempt} failed to build snapshot for item ${itemId}:`,
+              err
+            )
+          }
+        }
+        throw lastError
+      })
       const settled = await Promise.allSettled(snapshotPromises)
 
       const snapshots = []
       for (const [index, result] of settled.entries()) {
         if (result.status === 'fulfilled') {
-          if (result.value !== null) {
-            snapshots.push(result.value)
+          if (result.value.type === 'success') {
+            snapshots.push(result.value.snapshot)
+          } else if (result.value.type === 'not-ready') {
+            console.warn(`[ReencryptionManager] Item ${chunkIds[index]} was not ready. Skipping.`)
+          } else if (result.value.type === 'error') {
+            const errMsg = `Failed to build snapshot for item ${chunkIds[index]}`
+            console.error(`[ReencryptionManager] ${errMsg}`)
+            errors.push(new Error(errMsg))
           }
         } else {
-          console.error(
-            `[ReencryptionManager] Failed to build snapshot for item ${chunkIds[index]}:`,
-            result.reason
-          )
+          const errMsg = `Failed to build snapshot for item ${chunkIds[index]}: ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`
+          console.error(`[ReencryptionManager] ${errMsg}`, result.reason)
+          errors.push(result.reason instanceof Error ? result.reason : new Error(errMsg))
         }
       }
 
@@ -83,10 +103,11 @@ export class ReencryptionManager {
         }
 
         if (!uploadSuccess) {
-          throw new Error(
+          const errMsg =
             `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
-              (lastError instanceof Error ? `: ${lastError.message}` : '')
-          )
+            (lastError instanceof Error ? `: ${lastError.message}` : '')
+          console.error(`[ReencryptionManager] ${errMsg}`)
+          errors.push(new Error(errMsg))
         }
       }
 
@@ -94,6 +115,12 @@ export class ReencryptionManager {
         const done = Math.min(start + batchSize, total)
         onProgress(done, total)
       }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(
+        `Re-encryption completed with ${errors.length} error(s). First error: ${errors[0].message}`
+      )
     }
   }
 }

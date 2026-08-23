@@ -100,12 +100,23 @@ function LoginPage() {
       setLoading(true)
       setError('')
       updateAuth({ account: accountInput })
-      const securityParams = await getSecurityParams(accountInput).catch(
-        (err): { salt: string, iterations?: number, saltVersion?: number } => {
-          console.error('[Login] getSecurityParams failed', err)
-          return { salt: '', iterations: undefined, saltVersion: undefined }
+      let securityParams: { salt: string; iterations?: number; saltVersion?: number }
+      try {
+        securityParams = await getSecurityParams(accountInput)
+      } catch (err) {
+        console.warn('[Login] getSecurityParams failed (offline or network error), checking cached metadata:', err)
+        const cached = readStoredMetadata()
+        if (cached?.salt && cached?.account === accountInput) {
+          securityParams = {
+            salt: cached.salt,
+            iterations: cached.iterations,
+            saltVersion: cached.saltVersion,
+          }
+        } else {
+          securityParams = { salt: '', iterations: undefined, saltVersion: undefined }
         }
-      )
+      }
+
       if (securityParams.salt.length) {
         try {
           await loginVault({
@@ -174,10 +185,26 @@ function LoginPage() {
 
   useEffect(() => {
     if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
-      hasAutoPromptedRef.current = true
-      queueMicrotask(() => {
-        void handleClickBiometricUnlock()
-      })
+      if (document.visibilityState === 'hidden') {
+        const handleVisibilityChange = () => {
+          if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
+            hasAutoPromptedRef.current = true
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+            queueMicrotask(() => {
+              void handleClickBiometricUnlock()
+            })
+          }
+        }
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => {
+          document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+      } else {
+        hasAutoPromptedRef.current = true
+        queueMicrotask(() => {
+          void handleClickBiometricUnlock()
+        })
+      }
     }
   }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
 

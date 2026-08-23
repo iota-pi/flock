@@ -8,7 +8,7 @@ import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 
-export type PollOutcome = 'success' | 'failure' | 'auth-failure'
+export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
 export class SyncPoller {
   private account: string | null = null
@@ -35,13 +35,13 @@ export class SyncPoller {
   }
 
   async executePoll(): Promise<PollOutcome> {
-    if (this.isPolling || !this.isOnline || !this.account) return 'success'
+    if (this.isPolling || !this.isOnline || !this.account) return 'no-poll'
     this.isPolling = true
 
     this.clientEventHub.emit({ type: 'startRequest' })
     try {
       const authToken = await getActiveSessionToken()
-      if (!authToken) return 'success'
+      if (!authToken) return 'no-poll'
 
       let batchEntries: [ItemId, Uint8Array[]][]
       try {
@@ -51,7 +51,7 @@ export class SyncPoller {
       }
 
       const chunks = chunk(batchEntries, 5)
-      const pullCursors = this.pullQueueManager.getAllCursors()
+      const pullCursors = this.pullQueueManager.getCursors()
 
       if (chunks.length === 0) {
         const { pollSyncBatchWithToken } = await import('../../api/vault/SyncWorkerClient')
@@ -83,8 +83,7 @@ export class SyncPoller {
         return 'success'
       }
 
-      let isFirstChunk = true
-      let snapshotNeededEmitted = false
+      let highestSnapshotRequest: { cursor: number; requestedAt: number } | null = null
       for (const chunkEntry of chunks) {
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
@@ -120,10 +119,9 @@ export class SyncPoller {
           account: this.account,
           authToken,
           pushMessages,
-          pullCursors: isFirstChunk ? pullCursors : [],
-          clientLatestCursor: isFirstChunk ? this.pullQueueManager.getGlobalLatestCursor() : undefined,
+          pullCursors: this.pullQueueManager.getCursors(),
+          clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
         })
-        isFirstChunk = false
 
         if (response && response.pushResults) {
           this.pullQueueManager.processPushResults(response.pushResults)
@@ -133,16 +131,24 @@ export class SyncPoller {
           await this.pullQueueManager.processPullResults(response.pullResults)
         }
 
-        if (response?.snapshotRequest?.requested && !snapshotNeededEmitted) {
-          snapshotNeededEmitted = true
-          this.internalEventHub.emit({
-            type: 'snapshotNeeded',
-            cursor: response.snapshotRequest.cursor,
-            requestedAt: response.snapshotRequest.requestedAt,
-          })
+        if (response?.snapshotRequest?.requested) {
+          if (!highestSnapshotRequest || response.snapshotRequest.cursor > highestSnapshotRequest.cursor) {
+            highestSnapshotRequest = {
+              cursor: response.snapshotRequest.cursor,
+              requestedAt: response.snapshotRequest.requestedAt,
+            }
+          }
         }
 
         await removeSentSyncMessages(this.account, chunkEntry)
+      }
+
+      if (highestSnapshotRequest) {
+        this.internalEventHub.emit({
+          type: 'snapshotNeeded',
+          cursor: highestSnapshotRequest.cursor,
+          requestedAt: highestSnapshotRequest.requestedAt,
+        })
       }
 
       await this.indexManager.updateLastSyncTime(Date.now())
@@ -170,19 +176,33 @@ export class SyncPoller {
     const data = (anyError.data || (anyError as { shape?: { data?: unknown } }).shape?.data) as
       | { httpStatus?: number; code?: string }
       | undefined
-    const httpStatus = data?.httpStatus
+    const httpStatus = data?.httpStatus ?? (anyError.httpStatus as number | undefined) ?? (anyError.status as number | undefined) ?? (anyError.statusCode as number | undefined)
     if (httpStatus === 401 || httpStatus === 403) {
       return true
     }
 
-    const code = data?.code || (anyError.code as string | undefined)
+    const code = data?.code ?? (anyError.code as string | undefined)
     if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') {
       return true
     }
 
-    const message = typeof (anyError as { message?: unknown }).message === 'string'
-      ? ((anyError as { message: string }).message).toLowerCase()
-      : ''
-    return message.includes('unauthorized') || message.includes('forbidden')
+    if (anyError.cause && typeof anyError.cause === 'object') {
+      const cause = anyError.cause as { [key: string]: unknown }
+      const causeStatus = (cause.status ?? cause.statusCode ?? cause.httpStatus) as number | undefined
+      if (causeStatus === 401 || causeStatus === 403) {
+        return true
+      }
+      const causeCode = cause.code as string | undefined
+      if (causeCode === 'UNAUTHORIZED' || causeCode === 'FORBIDDEN') {
+        return true
+      }
+    }
+
+    const name = anyError.name as string | undefined
+    if (name === 'UnauthorizedError' || name === 'ForbiddenError') {
+      return true
+    }
+
+    return false
   }
 }

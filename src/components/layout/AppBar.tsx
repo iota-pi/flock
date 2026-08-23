@@ -6,12 +6,16 @@ import { styled, Theme, ThemeProvider } from '@mui/material/styles'
 import Toolbar from '@mui/material/Toolbar'
 import useMediaQuery from '@mui/material/useMediaQuery'
 
+import Chip from '@mui/material/Chip'
+import Tooltip from '@mui/material/Tooltip'
+
 import { APP_NAME } from '../../utils'
 import { dark as darkTheme } from '../../theme'
 import EverythingSearch from './EverythingSearch'
 import { DRAWER_SPACING_FULL, DRAWER_SPACING_NARROW } from './MainMenu'
-import { MenuIcon } from '../Icons'
+import { CloudOffIcon, MenuIcon } from '../Icons'
 import AsyncBoundary from '../ui/AsyncBoundary'
+import { useAppStore } from '../../state/store'
 
 
 const StyledToolbar = styled(Toolbar)(({ theme }) => ({
@@ -64,6 +68,7 @@ function AppBar({
   onToggleMenu,
 }: Props) {
   const showAppTitle = useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))
+  const syncStatus = useAppStore(state => state.syncStatus)
 
   return (
     <MuiAppBar
@@ -100,6 +105,24 @@ function AppBar({
             </AsyncBoundary>
           </ThemeProvider>
         </SearchHolder>
+
+        {syncStatus === 'offline' && (
+          <Box sx={{ ml: 1, mr: 2, display: 'flex', alignItems: 'center' }}>
+            <Tooltip title="Offline mode — changes are saved locally and will sync when reconnected">
+              <Chip
+                icon={<CloudOffIcon fontSize="small" />}
+                label="Offline"
+                size="small"
+                variant="outlined"
+                sx={{
+                  color: 'inherit',
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                  '& .MuiChip-icon': { color: 'inherit' },
+                }}
+              />
+            </Tooltip>
+          </Box>
+        )}
       </StyledToolbar>
     </MuiAppBar>
   )

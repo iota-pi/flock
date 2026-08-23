@@ -152,5 +152,34 @@ describe('items operations', () => {
     expect(result).toBe(true)
     expect(importSpy).toHaveBeenCalled()
   })
+
+  it('should handle concurrent findOrCreateHandle calls without duplicate creation or orphaned handles', async () => {
+    const customRepo = new Repo()
+    const deleteSpy = vi.spyOn(customRepo, 'delete')
+    const importSpy = vi.spyOn(customRepo, 'import')
+
+    const mockStorage = {
+      loadDocData: vi.fn().mockImplementation(async () => {
+        // Yield to allow concurrent calls to interleave
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return undefined
+      }),
+    }
+    // @ts-expect-error Mocking internal storageSubsystem
+    customRepo.storageSubsystem = mockStorage
+
+    const customDocStore = new AutomergeDocStore(customRepo)
+
+    const [handleA, handleB] = await Promise.all([
+      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+      customDocStore.findOrCreateHandle('concurrent-item' as ItemId),
+    ])
+
+    expect(handleA).toBeDefined()
+    expect(handleB).toBeDefined()
+    expect(handleA).toBe(handleB)
+    expect(importSpy).toHaveBeenCalledTimes(1)
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+  })
 })
 

@@ -54,12 +54,15 @@ describe('buildSnapshot helper function', () => {
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
 
     expect(result).toEqual({
-      itemId: 'item-1',
-      snapshot: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
-      snapshotCursor: 42,
-      type: 'topic',
-      modified: expect.any(Number),
-      deleted: undefined,
+      type: 'success',
+      snapshot: {
+        itemId: 'item-1',
+        snapshot: { iv: 'mock-iv', cipher: 'mock-cipher', kver: '1' },
+        snapshotCursor: 42,
+        type: 'topic',
+        modified: expect.any(Number),
+        deleted: undefined,
+      },
     })
 
     expect(mockToAutomergeUrlFromItemId).toHaveBeenCalledWith('item-1')
@@ -69,37 +72,37 @@ describe('buildSnapshot helper function', () => {
     expect(mockNormalizeItemSnapshot).toHaveBeenCalledWith('item-1', { id: 'item-1', type: 'topic' })
   })
 
-  it('returns null if repo.find throws or returns undefined', async () => {
+  it('returns error if repo.find throws or returns undefined', async () => {
     mockRepo.find.mockRejectedValue(new Error('not found'))
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'error' })
 
     mockRepo.find.mockResolvedValue(undefined)
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'error' })
   })
 
-  it('returns null if document handle is not ready', async () => {
+  it('returns not-ready if document handle is not ready', async () => {
     mockHandle.isReady.mockReturnValue(false)
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'not-ready' })
   })
 
-  it('returns null if doc is missing or saving binary is empty', async () => {
+  it('returns error if doc is missing or saving binary is empty', async () => {
     mockHandle.doc.mockReturnValue(undefined)
     let result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'error' })
 
     mockHandle.doc.mockReturnValue({ id: 'item-1' })
     mockSave.mockReturnValue(new Uint8Array([]))
     result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'error' })
   })
 
-  it('returns null if normalizeItemSnapshot returns null', async () => {
+  it('returns error if normalizeItemSnapshot returns null', async () => {
     mockNormalizeItemSnapshot.mockReturnValue(null)
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result).toBeNull()
+    expect(result).toEqual({ type: 'error' })
   })
 
   it('correctly reports deleted status if document is deleted', async () => {
@@ -109,7 +112,12 @@ describe('buildSnapshot helper function', () => {
     })
 
     const result = await buildSnapshot(mockRepo, 'item-1' as ItemId, 42)
-    expect(result?.deleted).toBe(true)
+    expect(result).toEqual({
+      type: 'success',
+      snapshot: expect.objectContaining({
+        deleted: true,
+      }),
+    })
   })
 
   it('propagates encryptBytes exception (caller handles it)', async () => {

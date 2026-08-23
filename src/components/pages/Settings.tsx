@@ -28,6 +28,7 @@ function SettingsPage() {
   const defaultFrequencyDialog = useDialogState('defaultFrequency')
   const changePasswordDialog = useDialogState('changePassword')
   const reencryptDialog = useDialogState('reencrypt')
+  const autoLockDialog = useDialogState('autoLock')
   const [confirmRemoveAccountOpen, setConfirmRemoveAccountOpen] = useState(false)
 
   const onExport = useCallback(
@@ -58,6 +59,7 @@ function SettingsPage() {
     toggleBiometrics: () => {
       void actions.handleToggleBiometrics()
     },
+    openAutoLockDialog: autoLockDialog.openDialog,
     openGoalDialog: goalDialog.openDialog,
     openDefaultFrequencyDialog: defaultFrequencyDialog.openDialog,
     openSubscriptionDialog: subscriptionDialog.openDialog,
@@ -111,6 +113,7 @@ function SettingsPage() {
       <SettingsDialogs
         defaultFrequencies={values.defaultFrequencies}
         dialogs={{
+          autoLock: autoLockDialog,
           defaultFrequency: defaultFrequencyDialog,
           goal: goalDialog,
           import: importDialog,
@@ -124,6 +127,7 @@ function SettingsPage() {
         handlers={{
           onImportConfirm: handleImportConfirm,
           onRestoreConfirm: handleRestoreConfirm,
+          onSaveAutoLockSettings: actions.saveAutoLockSettings,
           onSaveDefaultFrequencies: actions.saveDefaultFrequencies,
           onSubscriptionSave: handleSubscriptionSave,
         }}

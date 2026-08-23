@@ -354,7 +354,7 @@ describe('SnapshotManager Retry Mechanism', () => {
       expect(mockPutSnapshotsWithToken.mock.calls[1][0].snapshots).toHaveLength(1)
     })
 
-    it('sends a single snapshot in its own batch even if it exceeds maxPayloadBytes', async () => {
+    it('skips a single snapshot if it exceeds maxPayloadBytes', async () => {
       // Create a manager with extremely small maxPayloadBytes, e.g. 10 bytes
       const testManager = new SnapshotManager(context as any, lastModifiedStore, { maxPayloadBytes: 10 })
 
@@ -368,9 +368,9 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       await vi.runAllTimersAsync()
 
-      // Should still be pushed in 1 call, not getting stuck.
-      expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
-      expect(mockPutSnapshotsWithToken.mock.calls[0][0].snapshots).toHaveLength(1)
+      // Should not be pushed, and should be removed from dirtyItems to avoid retry loops
+      expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
+      expect(testManager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
     })
   })
 
@@ -397,6 +397,20 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(manager.exportLastModified()).toHaveLength(0)
       expect(clearSpy).not.toHaveBeenCalled()
+    })
+
+    it('flushes dirty documents on shutdown without scheduling a dangling debounced save', async () => {
+      const saveSpy = vi.spyOn(lastModifiedStore, 'saveLastModified')
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      await manager.shutdown()
+
+      expect(saveSpy).toHaveBeenCalledTimes(1)
+
+      // Advance timers to verify no dangling timer fires
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(saveSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -443,6 +457,40 @@ describe('SnapshotManager Retry Mechanism', () => {
 
       expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
       expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+    })
+  })
+
+  describe('Not-Ready vs Error Build Failure Handling', () => {
+    it('does not increment consecutiveBuildFailures or drop item when handle is not ready', async () => {
+      mockHandle.isReady.mockReturnValue(false)
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Run 6 push attempts
+      for (let i = 0; i < 6; i++) {
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Should still be dirty and failures map should not have counted failures
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(true)
+      expect(manager['consecutiveFailures'].get('item-1' as ItemId)).toBeUndefined()
+    })
+
+    it('increments consecutiveBuildFailures and drops item after MAX_CONSECUTIVE_SNAPSHOT_FAILURES on real error', async () => {
+      mockHandle.doc.mockReturnValue(undefined) // Triggers error in buildSnapshot
+
+      manager.markItemDirty('item-1' as ItemId)
+
+      // Run 5 attempts to reach MAX_CONSECUTIVE_SNAPSHOT_FAILURES (5)
+      for (let i = 1; i <= 5; i++) {
+        manager.scheduleSnapshotPush(42)
+        await vi.advanceTimersByTimeAsync(0)
+      }
+
+      // Item should now be dropped from dirty queue
+      expect(manager['dirtyItems'].has('item-1' as ItemId)).toBe(false)
+      expect(manager['consecutiveFailures'].has('item-1' as ItemId)).toBe(false)
     })
   })
 })

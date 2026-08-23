@@ -119,17 +119,46 @@ describe('ReencryptionManager', () => {
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
     mockPutSnapshotsWithToken.mockResolvedValue({ success: false })
 
-    await expect(manager.reencryptAllItems()).rejects.toThrow('Failed to upload snapshots for batch starting at index 0')
+    await expect(manager.reencryptAllItems()).rejects.toThrow(
+      'Re-encryption completed with 1 error(s). First error: Failed to upload snapshots for batch starting at index 0 after 3 attempts'
+    )
   })
 
-  it('continues processing remaining items if a single item fails to build snapshot', async () => {
+  it('continues processing remaining batches if a single batch upload fails', async () => {
+    mockGetActiveSessionToken.mockResolvedValue('mock-token')
+    // 12 items -> batch 1 (0-10), batch 2 (10-12)
+    const items = Array.from({ length: 12 }, (_, i) => `item-${i}`)
+    mockListAutomergeItemIds.mockResolvedValue(items)
+
+    // First batch fails upload 3 times, second batch succeeds
+    mockPutSnapshotsWithToken
+      .mockResolvedValueOnce({ success: false })
+      .mockResolvedValueOnce({ success: false })
+      .mockResolvedValueOnce({ success: false })
+      .mockResolvedValueOnce({ success: true })
+
+    const onProgress = vi.fn()
+    await expect(manager.reencryptAllItems(onProgress)).rejects.toThrow(
+      'Re-encryption completed with 1 error(s).'
+    )
+
+    // 3 attempts for batch 1 + 1 attempt for batch 2 = 4 calls
+    expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(4)
+    expect(onProgress).toHaveBeenCalledWith(10, 12)
+    expect(onProgress).toHaveBeenCalledWith(12, 12)
+  })
+
+  it('continues processing remaining items if a single item fails to build snapshot and retries building', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1', 'item-bad', 'item-2'])
     mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
 
+    let badItemAttempts = 0
     mockRepo.find.mockImplementation(async (url: string) => {
       if (url === 'automerge:item-bad') {
+        badItemAttempts += 1
         return {
           isReady: () => true,
           doc: () => {
@@ -144,8 +173,12 @@ describe('ReencryptionManager', () => {
     })
 
     const onProgress = vi.fn()
-    await manager.reencryptAllItems(onProgress)
+    await expect(manager.reencryptAllItems(onProgress)).rejects.toThrow(
+      'Re-encryption completed with 1 error(s).'
+    )
 
+    // Should have retried bad item 3 times
+    expect(badItemAttempts).toBe(3)
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     const callArgs = mockPutSnapshotsWithToken.mock.calls[0][0]
     expect(callArgs.snapshots).toHaveLength(2)
@@ -156,5 +189,6 @@ describe('ReencryptionManager', () => {
       expect.any(Error)
     )
     consoleErrorSpy.mockRestore()
+    consoleWarnSpy.mockRestore()
   })
 })

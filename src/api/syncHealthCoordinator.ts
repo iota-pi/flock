@@ -22,7 +22,7 @@ type DecryptionFailedEvent = {
 }
 
 const RECOVERY_RETRY_COOLDOWN_MS = 60 * 1000
-let syncHealthWatchersInitialized = false
+let unsubscribeRealtimeBus: (() => void) | null = null
 
 class SyncHealthState {
   private inFlightItemIds = new Set<ItemId>()
@@ -88,6 +88,7 @@ const tracker = new SyncHealthState()
 
 export function resetSyncHealthState(): void {
   tracker.reset()
+  teardownSyncHealthWatchers()
 }
 
 
@@ -150,21 +151,28 @@ export async function clearManualRecoveryForItems(accountId: string, itemIds: It
   }
 }
 
-export function initializeSyncHealthWatchers(): void {
-  if (syncHealthWatchersInitialized) {
-    return
+export function initializeSyncHealthWatchers(): () => void {
+  if (!unsubscribeRealtimeBus) {
+    unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
+      if (itemIds && itemIds.length > 0) {
+        const accountId = useAppStore.getState().account
+        if (accountId) {
+          clearManualRecoveryForItems(accountId, itemIds).catch(console.error)
+        }
+      }
+    })
   }
 
-  subscribeRealtimeBusSyncPing(itemIds => {
-    if (itemIds && itemIds.length > 0) {
-      const accountId = useAppStore.getState().account
-      if (accountId) {
-        clearManualRecoveryForItems(accountId, itemIds).catch(console.error)
-      }
-    }
-  })
+  return () => {
+    teardownSyncHealthWatchers()
+  }
+}
 
-  syncHealthWatchersInitialized = true
+export function teardownSyncHealthWatchers(): void {
+  if (unsubscribeRealtimeBus) {
+    unsubscribeRealtimeBus()
+    unsubscribeRealtimeBus = null
+  }
 }
 
 export function reportDecryptionFailure(accountId: string, event: DecryptionFailedEvent): void {

@@ -1,7 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { Theme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
-import { DeleteIcon } from 'src/components/Icons'
 import { getItemTypeLabel, Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import ItemList from 'src/features/items/components/ItemList'
@@ -14,7 +13,7 @@ import {
 } from 'src/state/selectors'
 import BasePage from './BasePage'
 import { useAppStore } from 'src/state/store'
-import { createItem, hardDeleteItems } from 'src/features/items/mutations/itemMutations'
+import { createItem } from 'src/features/items/mutations/itemMutations'
 import { filterItems } from 'src/utils/customFilter'
 import { sortItems } from 'src/utils/customSort'
 import { ERROR_ITEM_TYPE } from 'src/shared/schemas/items'
@@ -119,29 +118,12 @@ function ItemPage({
       }
 
       if (item.type === ERROR_ITEM_TYPE) {
-        return 'Item unavailable due to data error. Use hard-delete to remove it.'
+        return 'Item unavailable due to format error. See Settings > Corrupted Data Recovery to manage.'
       }
 
       return item.description
     },
     [itemsMap],
-  )
-  const getActionIcon = useCallback(
-    (item: Item) => (item.type === ERROR_ITEM_TYPE ? <DeleteIcon /> : undefined),
-    [],
-  )
-
-  const handleClickAction = useCallback(
-    (item: Item) => {
-      if (item.type !== ERROR_ITEM_TYPE) {
-        return
-      }
-
-      void hardDeleteItems(item.id).catch(error => {
-        console.error(error)
-      })
-    },
-    [],
   )
 
   const pluralLabel = getItemTypeLabel(itemType, true)
@@ -176,9 +158,7 @@ function ItemPage({
         defaultRowHeight={itemType === 'group' ? 72 : undefined}
         checkboxes
         disablePadding
-        getActionIcon={getActionIcon}
         getChecked={getChecked}
-        onClickAction={handleClickAction}
         getDescription={getDescription}
         itemIds={itemIdsInList}
         showTags={useMediaQuery<Theme>(theme => theme.breakpoints.up('sm'))}

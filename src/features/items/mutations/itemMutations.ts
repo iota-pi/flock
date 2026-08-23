@@ -186,16 +186,6 @@ export async function deleteItems(
   return ids
 }
 
-export async function hardDeleteItems(itemIds: ItemId | ItemId[]): Promise<ItemId[]> {
-  const ids = normalizeItemIds(itemIds)
-
-  useAppStore.getState().updateItemsFromServer(ids.map(id => ({ id, item: null })))
-
-  await SyncBridge.hardDeleteItems(ids)
-  useAppStore.getState().closeIfOpen(ids)
-  return ids
-}
-
 export async function setMetadata(
   metadata: AccountMetadata | ((previous: AccountMetadata) => AccountMetadata),
 ): Promise<AccountMetadata> {

@@ -19,6 +19,7 @@ import ErrorPage from './components/pages/ErrorPage'
 import AppProviders from './app/AppProviders'
 import AppInitializer from './app/AppInitializer'
 import BiometricPrompt from './components/BiometricPrompt'
+import useAutoLock from './hooks/useAutoLock'
 
 
 const Root = styled('div')({
@@ -33,6 +34,7 @@ const Content = styled('div')({
 
 function RootLayout() {
   const loggedIn = useLoggedIn()
+  useAutoLock()
   const syncWarning = useAppStore(state => state.syncWarning)
   const clearSyncWarning = useAppStore(state => state.clearSyncWarning)
   const small = useMediaQuery<Theme>(theme => theme.breakpoints.down('md'))

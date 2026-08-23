@@ -5,7 +5,6 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from '../shared/VaultPersistence'
 import { registerQuotaReporter } from '../../utils/storageManager'
-import { ItemId } from 'src/shared/schemas/items'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
@@ -365,7 +364,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter.setSendEnabled(true)
     adapter.setAccount('test')
     adapter.connect('vault' as PeerId)
-    
+
     adapter.send({
       type: 'sync',
       senderId: 'client' as PeerId,
@@ -385,6 +384,39 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const decodedAck = decodeSyncMessage(receivedPayload)
     expect(decodedAck.heads).toEqual(testHeads)
     expect(decodedAck.changes).toEqual([])
+  })
+
+  it('does not fire reflected ACK microtask after adapter is disconnected', async () => {
+    const receiveMessageSpy = vi.spyOn(adapter, 'receiveMessage')
+    const emitSpy = vi.spyOn(adapter, 'emit')
+    const testHeads = ['0000000000000000000000000000000000000000000000000000000000000000' as any]
+    const initialSyncMsg = encodeSyncMessage({
+      heads: testHeads,
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    adapter.setSendEnabled(true)
+    adapter.setAccount('test')
+    adapter.connect('vault' as PeerId)
+
+    adapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'automerge:item-test-disconnect' as DocumentId,
+      data: initialSyncMsg,
+    })
+
+    // Disconnect immediately after send before microtasks run
+    adapter.disconnect()
+
+    // Wait for microtasks to resolve
+    await Promise.resolve()
+
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
+    expect(emitSpy).not.toHaveBeenCalledWith('message', expect.anything())
   })
 
   it('reflects heads to prevent history dumps and allows future changes through Automerge Repo', async () => {
@@ -490,13 +522,74 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(2)
 
-    // Queuing a new pending pull item immediately flushes and triggers poll #3.
-    broker.queuePendingPullItems(['item-2' as ItemId])
-    await vi.advanceTimersByTimeAsync(50)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
-
-    // Advancing past the 30s backoff delay + jitter triggers poll #4.
+    // Advancing past the 30s backoff delay + jitter triggers poll #3.
     await vi.advanceTimersByTimeAsync(50000)
-    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(4)
+    expect(mockPollSyncBatchWithToken).toHaveBeenCalledTimes(3)
+  })
+
+  it('cleans up seededDocuments on disconnect and account change', async () => {
+    const testAdapter = new VaultNetworkAdapter()
+    testAdapter.setSendEnabled(true)
+    testAdapter.setAccount('test-account')
+    testAdapter.connect('vault' as PeerId)
+
+    const syncMsg = encodeSyncMessage({
+      heads: ['0000000000000000000000000000000000000000000000000000000000000000' as any],
+      need: [],
+      have: [],
+      changes: [],
+    })
+
+    const receiveSpy = vi.spyOn(testAdapter, 'receiveMessage')
+
+    // First send adds to seededDocuments and reflects ACK
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Second send for same doc does not re-add or re-reflect
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(1)
+
+    // Disconnecting clears seeded documents
+    testAdapter.disconnect()
+
+    // Reconnecting and sending again reflects ACK because seededDocuments was cleared
+    testAdapter.connect('vault' as PeerId)
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(2)
+
+    // Changing account also clears seeded documents
+    testAdapter.setAccount('other-account')
+    testAdapter.send({
+      type: 'sync',
+      senderId: 'client' as PeerId,
+      targetId: 'vault' as PeerId,
+      documentId: 'doc-1' as DocumentId,
+      data: syncMsg,
+    })
+    await Promise.resolve()
+    expect(receiveSpy).toHaveBeenCalledTimes(3)
   })
 })
+

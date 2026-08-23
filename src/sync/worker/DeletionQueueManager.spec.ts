@@ -112,6 +112,21 @@ describe('DeletionQueueManager', () => {
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
   })
 
+  it('cancels deletion even if removeAutomergeItemIdsFromIndex throws', async () => {
+    mockRemoveAutomergeItemIdsFromIndex.mockRejectedValueOnce(new Error('Index update failed'))
+
+    await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
+
+    // Advance past 24 hours (expired!)
+    await vi.advanceTimersByTimeAsync(25 * 60 * 60 * 1000)
+
+    await manager.processQueue()
+
+    expect(mockRemoveAutomergeItem).toHaveBeenCalledWith('item-2')
+    expect(mockRemoveAutomergeItemIdsFromIndex).toHaveBeenCalledWith(['item-2'])
+    expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-2')
+  })
+
   it('does not delete item if it has reappeared during check', async () => {
     await manager.handleIndexChange(new Set(['item-1'] as ItemId[]), new Set(['item-1', 'item-2'] as ItemId[]))
 
@@ -136,5 +151,30 @@ describe('DeletionQueueManager', () => {
   it('cancels specific deletion', async () => {
     await manager.cancelDeletion('item-1' as ItemId)
     expect(deletionStore.cancelDeletion).toHaveBeenCalledWith(accountId, 'item-1')
+  })
+
+  it('prevents concurrent executions of processQueue', async () => {
+    let resolveList: () => void
+    const listPromise = new Promise<any[]>(resolve => {
+      resolveList = () => resolve([])
+    })
+    vi.mocked(deletionStore.listScheduledDeletions).mockReturnValueOnce(listPromise)
+
+    // First call starts and stays pending
+    const firstCall = manager.processQueue()
+
+    // Second call starts while first is in progress
+    await manager.processQueue()
+
+    // listScheduledDeletions should only be called once because second call returned immediately
+    expect(deletionStore.listScheduledDeletions).toHaveBeenCalledTimes(1)
+
+    // Complete first call
+    resolveList!()
+    await firstCall
+
+    // Subsequent call after completion should run
+    await manager.processQueue()
+    expect(deletionStore.listScheduledDeletions).toHaveBeenCalledTimes(2)
   })
 })

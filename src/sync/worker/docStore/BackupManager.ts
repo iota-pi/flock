@@ -53,7 +53,7 @@ export class BackupManager {
         const indexBinary = decodeBase64ToBytes(encodedIndex)
         const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
         if (indexDoc && typeof indexDoc === 'object') {
-          await this.indexManager.indexStore.saveIndex(indexDoc)
+          await this.indexManager.replaceIndex(indexDoc)
         }
       } catch (err) {
         console.error('[backup] Failed to restore index metadata from backup', err)

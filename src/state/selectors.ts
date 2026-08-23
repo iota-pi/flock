@@ -7,7 +7,7 @@ import type { Item } from './items'
 import type { GroupLookupData } from '../shared/itemTypes'
 import { setMetadata } from '../features/items/mutations/itemMutations'
 import { useAppStore } from './store'
-import type { GroupItem, ItemId } from 'src/shared/schemas/items'
+import { ERROR_ITEM_TYPE, type ErrorItem, type GroupItem, type ItemId } from 'src/shared/schemas/items'
 
 const EMPTY_ARRAY: Item[] = []
 type PrayerScheduleInputs = {
@@ -68,6 +68,17 @@ export function useItemsOfType<T extends Item>(itemType?: Item['type']): T[] {
       return visibleItems.filter(item => item.type === itemType) as T[]
     },
     [itemType, visibleItems],
+  )
+
+  return useDeepMemo(nextItems)
+}
+
+export function useQuarantinedItems(): ErrorItem[] {
+  const visibleItems = useVisibleItems()
+
+  const nextItems = useMemo(
+    () => visibleItems.filter((item): item is ErrorItem => item.type === ERROR_ITEM_TYPE),
+    [visibleItems],
   )
 
   return useDeepMemo(nextItems)

@@ -3,6 +3,7 @@ import { StorageAdapterInterface, StorageKey, Chunk } from '@automerge/automerge
 export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   private db: IDBDatabase | null = null
   private dbPromise: Promise<IDBDatabase> | null = null
+  private isExplicitlyClosed = false
 
   constructor(
     private readonly databaseName: string,
@@ -13,7 +14,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
 
   private connect(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.databaseName, 1)
+      const request = indexedDB.open(this.databaseName)
 
       request.onerror = () => reject(request.error)
       request.onsuccess = event => {
@@ -21,7 +22,7 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
         this.db = db
         db.addEventListener('versionchange', () => {
           console.warn(`[FlockIndexedDBStorageAdapter] Database versionchange event received for ${this.databaseName}. Closing connection.`)
-          this.close()
+          this.disconnect()
         })
         resolve(db)
       }
@@ -35,10 +36,18 @@ export class FlockIndexedDBStorageAdapter implements StorageAdapterInterface {
   private async getDB(): Promise<IDBDatabase> {
     if (this.db) return this.db
     if (this.dbPromise) return this.dbPromise
-    throw new Error('Database is closed')
+    if (this.isExplicitlyClosed) throw new Error('Database is closed')
+
+    this.dbPromise = this.connect()
+    return this.dbPromise
   }
 
   close(): void {
+    this.isExplicitlyClosed = true
+    this.disconnect()
+  }
+
+  private disconnect(): void {
     if (this.db) {
       this.db.close()
       this.db = null

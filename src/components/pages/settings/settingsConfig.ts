@@ -18,6 +18,7 @@ export type SettingsActionId =
   | 'removeAccount'
   | 'toggleDarkMode'
   | 'toggleBiometrics'
+  | 'openAutoLockDialog'
   | 'openGoalDialog'
   | 'openDefaultFrequencyDialog'
   | 'openSubscriptionDialog'
@@ -27,7 +28,7 @@ export type SettingsActionId =
   | 'openImportDialog'
   | 'openChangePasswordDialog'
 
-export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue' | 'biometricsToggle'
+export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue' | 'biometricsToggle' | 'autoLockValue'
 
 type SettingsItemConfig = {
   type: 'item'
@@ -77,6 +78,14 @@ export const settingsConfig: SettingsConfigEntry[] = [
     action: 'toggleBiometrics',
     valueRenderer: 'biometricsToggle',
     disabledWhen: 'biometricsUnsupported',
+  },
+  {
+    type: 'item',
+    id: 'auto-lock',
+    title: 'Auto-lock',
+    icon: LockIcon,
+    action: 'openAutoLockDialog',
+    valueRenderer: 'autoLockValue',
   },
   { type: 'divider', key: 'd-pw' },
   {

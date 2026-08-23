@@ -102,6 +102,7 @@ const handleSyncEvent = (event: ClientEvent) => {
 }
 
 let initializationPromise: Promise<void> | null = null
+let currentInitSession = 0
 
 export const SyncBridge = {
   ensureReady: async () => {
@@ -119,12 +120,15 @@ export const SyncBridge = {
       return initializationPromise
     }
 
+    currentAccountId = accountId
+    currentInitSession += 1
+    const initSession = currentInitSession
+
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
-        await SyncBridge.shutdown()
+        await SyncBridge.shutdown({ internalRestart: true })
       }
 
-      currentAccountId = accountId
       useAppStore.getState().setSyncStatus('connecting')
       const initialOnlineState = getOnlineState()
 
@@ -133,9 +137,8 @@ export const SyncBridge = {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
-        if (currentAccountId !== accountId) {
+        if (initSession !== currentInitSession || currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
-          initializationPromise = null
           return
         }
 
@@ -165,6 +168,15 @@ export const SyncBridge = {
         await wrappedApi.setOnlineState(initialOnlineState)
         await wrappedApi.bootstrapItems()
 
+        if (initSession !== currentInitSession || currentAccountId !== accountId) {
+          console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
+          worker.terminate()
+          if (workerInstance === worker) {
+            workerInstance = null
+          }
+          return
+        }
+
         syncApi = wrappedApi
 
         if (!onlineListenerAttached) {
@@ -183,12 +195,6 @@ export const SyncBridge = {
             'offline',
             handleOnlineStateChange,
           )
-          if (typeof document !== 'undefined') {
-            document.addEventListener(
-              'visibilitychange',
-              handleOnlineStateChange,
-            )
-          }
         }
 
         setOnRecoveryItemsChangedListener(() => {
@@ -225,7 +231,6 @@ export const SyncBridge = {
         })
       } catch (error) {
         console.error('Failed to initialize SyncBridge:', error)
-        useAppStore.getState().setSyncStatus('offline')
         if (worker) {
           worker.terminate()
         }
@@ -236,9 +241,13 @@ export const SyncBridge = {
         if (workerInstance === worker) {
           workerInstance = null
         }
-        syncApi = null
-        currentAccountId = null
-        initializationPromise = null
+        if (initSession === currentInitSession) {
+          useAppStore.getState().setSyncStatus('offline')
+          syncApi = null
+          currentAccountId = null
+          initializationPromise = null
+        }
+        throw error
       }
     })()
 
@@ -258,11 +267,6 @@ export const SyncBridge = {
   createItem: async (item: any) => {
     await SyncBridge.ensureReady()
     await syncApi!.createItem(item)
-  },
-
-  hardDeleteItems: async (itemIds: ItemId[]) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.hardDeleteItems(itemIds)
   },
 
   storeItems: async (items: any[]) => {
@@ -345,9 +349,12 @@ export const SyncBridge = {
     await syncApi!.restoreSyncState(state)
   },
 
-  shutdown: async (options?: { clearLocalData?: boolean }) => {
-    initializationPromise = null
-    currentAccountId = null
+  shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
+    if (!options?.internalRestart) {
+      currentInitSession += 1
+      initializationPromise = null
+      currentAccountId = null
+    }
     stopWorkerHeartbeat()
     resetCrashMetrics()
     resetSyncHealthState()
@@ -357,12 +364,14 @@ export const SyncBridge = {
     workerInstance = null
     syncApi = null
 
-    if (itemUpdateFlushHandle !== null) {
-      clearTimeout(itemUpdateFlushHandle)
-      itemUpdateFlushHandle = null
+    if (!options?.internalRestart) {
+      if (itemUpdateFlushHandle !== null) {
+        clearTimeout(itemUpdateFlushHandle)
+        itemUpdateFlushHandle = null
+      }
+      pendingItemUpdates.clear()
+      useAppStore.getState().reset()
     }
-    pendingItemUpdates.clear()
-    useAppStore.getState().reset()
 
     if (oldSyncApi) {
       try {
@@ -388,11 +397,13 @@ export const SyncBridge = {
       useAppStore.getState().setSyncStatus('offline')
     }
 
-    recoveryEntries = []
-    for (const listener of recoveryEntriesListeners) {
-      listener([])
+    if (!options?.internalRestart) {
+      recoveryEntries = []
+      for (const listener of recoveryEntriesListeners) {
+        listener([])
+      }
+      recoveryEntriesListeners.clear()
     }
-    recoveryEntriesListeners.clear()
   },
 }
 

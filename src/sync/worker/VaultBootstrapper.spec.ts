@@ -119,12 +119,11 @@ describe('VaultBootstrapper', () => {
       expect(mockFetchMany).toHaveBeenCalled()
     })
 
-    it('throws error if hasApiAuthToken() is false', async () => {
+    it('returns early without throwing if hasApiAuthToken() is false', async () => {
       mockHasApiAuthToken.mockReturnValue(false)
 
-      await expect(bootstrapper.bootstrapItems()).rejects.toThrow(
-        '[VaultBootstrapper] No API auth token found, cannot bootstrap items'
-      )
+      await expect(bootstrapper.bootstrapItems()).resolves.toBeUndefined()
+      expect(mockFetchMany).not.toHaveBeenCalled()
     })
 
     it('processes deleted, snapshot, and legacy object envelopes correctly', async () => {

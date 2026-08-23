@@ -12,6 +12,7 @@ export class DeletionQueueManager {
   private deletionGracePeriodMs = 24 * 60 * 60 * 1000 // 24 hours
   private deletionQueueCheckInterval = 60 * 1000 // 1 minute
   private deletionQueueTimer: ReturnType<typeof setInterval> | null = null
+  private isProcessingQueue = false
 
   constructor(
     private deps: {
@@ -61,6 +62,11 @@ export class DeletionQueueManager {
   }
 
   async processQueue() {
+    if (this.isProcessingQueue) {
+      return
+    }
+    this.isProcessingQueue = true
+
     try {
       const scheduled = await listScheduledDeletions(this.deps.accountId)
       const now = Date.now()
@@ -68,10 +74,11 @@ export class DeletionQueueManager {
 
       if (expired.length > 0) {
         const itemIds = await this.deps.indexManager.listAutomergeItemIds()
+        const itemIdsSet = new Set(itemIds)
         const toRemove: ItemId[] = []
 
         for (const item of expired) {
-          if (itemIds.includes(item.itemId)) {
+          if (itemIdsSet.has(item.itemId)) {
             // Re-appeared, cancel deletion
             await cancelDeletion(this.deps.accountId, item.itemId)
             continue
@@ -86,8 +93,12 @@ export class DeletionQueueManager {
         }
 
         if (toRemove.length > 0) {
-          await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
-          
+          try {
+            await this.deps.indexManager.removeAutomergeItemIdsFromIndex(toRemove)
+          } catch (err) {
+            console.error('[DeletionQueueManager] Failed to remove items from index', err)
+          }
+
           for (const itemId of toRemove) {
             await cancelDeletion(this.deps.accountId, itemId)
           }
@@ -95,6 +106,8 @@ export class DeletionQueueManager {
       }
     } catch (err) {
       console.error('[DeletionQueueManager] Error processing deletion queue', err)
+    } finally {
+      this.isProcessingQueue = false
     }
   }
 
