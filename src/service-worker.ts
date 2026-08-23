@@ -11,6 +11,7 @@ type PushPayload = {
   icon?: string
   badge?: string
   url?: string
+  tag?: string
 }
 
 self.addEventListener('push', event => {
@@ -61,6 +62,7 @@ self.addEventListener('push', event => {
         body,
         icon: payload.icon || '/flock.png',
         badge: payload.badge || '/flock.png',
+        tag: payload.tag || 'prayer-reminder',
         data: {
           url: payload.url || '/',
         },
