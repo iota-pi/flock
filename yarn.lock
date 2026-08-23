@@ -1491,7 +1491,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/runtime@npm:^7.11.2, @babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.18.3, @babel/runtime@npm:^7.23.8, @babel/runtime@npm:^7.29.2, @babel/runtime@npm:^7.29.7, @babel/runtime@npm:^7.4.4, @babel/runtime@npm:^7.5.5, @babel/runtime@npm:^7.8.7":
+"@babel/runtime@npm:^7.11.2, @babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.18.3, @babel/runtime@npm:^7.23.8, @babel/runtime@npm:^7.29.2, @babel/runtime@npm:^7.29.7, @babel/runtime@npm:^7.5.5, @babel/runtime@npm:^7.8.7":
   version: 7.29.7
   resolution: "@babel/runtime@npm:7.29.7"
   checksum: 10c0/ca11572f7146b21e0bde6a9ed4bb6a89eafbee5f0944c7eb54d0d8a2dac962c33638a1d611e14faa71dfbb92b4b5f9236232208568a6b7d5c6f3f39ddb91771e
@@ -1748,7 +1748,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emotion/react@npm:^11.11.1":
+"@emotion/react@npm:^11.11.1, @emotion/react@npm:^11.14.0":
   version: 11.14.0
   resolution: "@emotion/react@npm:11.14.0"
   dependencies:
@@ -1789,7 +1789,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emotion/styled@npm:^11.11.0":
+"@emotion/styled@npm:^11.11.0, @emotion/styled@npm:^11.14.0":
   version: 11.14.1
   resolution: "@emotion/styled@npm:11.14.1"
   dependencies:
@@ -5103,7 +5103,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"attr-accept@npm:^2.0.0":
+"attr-accept@npm:^2.2.5":
   version: 2.2.5
   resolution: "attr-accept@npm:2.2.5"
   checksum: 10c0/9b4cb82213925cab2d568f71b3f1c7a7778f9192829aac39a281e5418cd00c04a88f873eb89f187e0bf786fa34f8d52936f178e62cbefb9254d57ecd88ada99b
@@ -5603,14 +5603,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"clsx@npm:^1.0.2":
-  version: 1.2.1
-  resolution: "clsx@npm:1.2.1"
-  checksum: 10c0/34dead8bee24f5e96f6e7937d711978380647e936a22e76380290e35486afd8634966ce300fc4b74a32f3762c7d4c0303f442c3e259f4ce02374eb0c82834f27
-  languageName: node
-  linkType: hard
-
-"clsx@npm:^2.1.1":
+"clsx@npm:^2.1.0, clsx@npm:^2.1.1":
   version: 2.1.1
   resolution: "clsx@npm:2.1.1"
   checksum: 10c0/c4c8eb865f8c82baab07e71bfa8897c73454881c4f99d6bc81585aecd7c441746c1399d08363dc096c550cceaf97bd4ce1e8854e1771e9998d9f94c4fe075839
@@ -7039,12 +7032,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"file-selector@npm:^0.1.12":
-  version: 0.1.19
-  resolution: "file-selector@npm:0.1.19"
-  dependencies:
-    tslib: "npm:^2.0.1"
-  checksum: 10c0/6ed76fd91b77f05c0f3d089aa67d198e4c6096b5752796f1875cd9302664acaccfa35bf2fb6f4c6bcf5527775d9ef80f6d2dc6197d6a5eee91ef26c2160853c1
+"file-selector@npm:^4.1.0":
+  version: 4.1.0
+  resolution: "file-selector@npm:4.1.0"
+  checksum: 10c0/231bee6b42cd984f8b176f765a173a2ac6f9aca5554c154118441bc4dcbb768bafb36afb564101b288a8ded14f6c26e2aedac7ffc6bfd06f589c3d95e20058dd
   languageName: node
   linkType: hard
 
@@ -7168,7 +7159,7 @@ __metadata:
     localforage: "npm:^1.10.0"
     lodash-es: "npm:^4.17.23"
     match-sorter: "npm:^8.2.0"
-    mui-file-dropzone: "npm:^4.0.2"
+    mui2-file-dropzone: "npm:^7.1.1"
     nanoid: "npm:^6.0.0"
     react: "npm:^19.2.0"
     react-dom: "npm:^19.2.0"
@@ -8934,20 +8925,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mui-file-dropzone@npm:^4.0.2":
-  version: 4.0.2
-  resolution: "mui-file-dropzone@npm:4.0.2"
+"mui2-file-dropzone@npm:^7.1.1":
+  version: 7.1.1
+  resolution: "mui2-file-dropzone@npm:7.1.1"
   dependencies:
-    "@babel/runtime": "npm:^7.4.4"
-    clsx: "npm:^1.0.2"
-    react-dropzone: "npm:^10.2.1"
+    "@emotion/react": "npm:^11.14.0"
+    "@emotion/styled": "npm:^11.14.0"
+    clsx: "npm:^2.1.0"
+    react-dropzone: "npm:^19.0.0"
+    tslib: "npm:^2.6.2"
   peerDependencies:
-    "@mui/icons-material": ^5.0.0
-    "@mui/material": ^5.0.0
+    "@mui/icons-material": ^9.2.0
+    "@mui/material": ^9.2.0
     prop-types: ^15.7.2
-    react: ">= 17.0"
-    react-dom: ">= 17.0"
-  checksum: 10c0/c774627d09d964133c3a23a5e53c79100d6045587edfe72d229296e85944953a5ab9dd67799edf9306767cb80471367bc6b9f9c43c7ad9914a20336db0668c59
+    react: ">= 19.0"
+    react-dom: ">= 19.0"
+  checksum: 10c0/942a87a27429acd159c08370cdf71117274262c55dd9488ce2937c36afc5d3be67596ed91e94d66f44613de412d0a0122a9c5f0134b2696cd7f4317519b83845
   languageName: node
   linkType: hard
 
@@ -9661,7 +9654,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prop-types@npm:^15.6.2, prop-types@npm:^15.7.2, prop-types@npm:^15.8.1":
+"prop-types@npm:^15.6.2, prop-types@npm:^15.8.1":
   version: 15.8.1
   resolution: "prop-types@npm:15.8.1"
   dependencies:
@@ -9731,16 +9724,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-dropzone@npm:^10.2.1":
-  version: 10.2.2
-  resolution: "react-dropzone@npm:10.2.2"
+"react-dropzone@npm:^19.0.0":
+  version: 19.3.0
+  resolution: "react-dropzone@npm:19.3.0"
   dependencies:
-    attr-accept: "npm:^2.0.0"
-    file-selector: "npm:^0.1.12"
-    prop-types: "npm:^15.7.2"
+    attr-accept: "npm:^2.2.5"
+    file-selector: "npm:^4.1.0"
   peerDependencies:
-    react: ">= 16.8"
-  checksum: 10c0/64d94db7c0ba6d21a69ded4cb383df8228f0e99ba4377da975c20432595ed53cb1ece47a1412a0378e1da8048066dae21b688dccd22adb9c46a18419a57a362d
+    "@types/react": "*"
+    react: ">= 18"
+  peerDependenciesMeta:
+    "@types/react":
+      optional: true
+  checksum: 10c0/be438ed32a5a51f5c276b2e7244d2b51fb63c93cf3728a811f42ee60bf5943fad3a813911648b5c070eb6f7a320b7a817e1c9df9637b0435c92b242a2a767df2
   languageName: node
   linkType: hard
 
@@ -11161,7 +11157,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tslib@npm:^2.0.1, tslib@npm:^2.1.0, tslib@npm:^2.4.0, tslib@npm:^2.6.2":
+"tslib@npm:^2.1.0, tslib@npm:^2.4.0, tslib@npm:^2.6.2":
   version: 2.8.1
   resolution: "tslib@npm:2.8.1"
   checksum: 10c0/9c4759110a19c53f992d9aae23aac5ced636e99887b51b9e61def52611732872ff7668757d4e4c61f19691e36f4da981cd9485e869b4a7408d689f6bf1f14e62

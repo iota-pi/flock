@@ -56,7 +56,7 @@
     "localforage": "^1.10.0",
     "lodash-es": "^4.17.23",
     "match-sorter": "^8.2.0",
-    "mui-file-dropzone": "^4.0.2",
+    "mui2-file-dropzone": "^7.1.1",
     "nanoid": "^6.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

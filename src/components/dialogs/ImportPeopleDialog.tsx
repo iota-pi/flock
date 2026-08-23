@@ -6,7 +6,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import { DropzoneArea } from 'mui-file-dropzone'
+import { DropzoneArea } from 'mui2-file-dropzone'
 import { parse } from 'csv-parse/browser/esm/sync'
 
 import { Item } from '../../state/items'
@@ -118,9 +118,8 @@ function ImportPeopleDialog({
       </DialogTitle>
       <DialogContent>
         <DropzoneArea
-          acceptedFiles={['.csv']}
+          acceptedFiles={{ 'text/csv': ['.csv'] }}
           dropzoneText="Upload a CSV file here"
-          fileObjects={null}
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}
