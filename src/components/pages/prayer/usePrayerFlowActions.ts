@@ -169,7 +169,7 @@ export function usePrayerFlowActions(params: UsePrayerFlowActionsParams): Prayer
     if (nextIndex >= visibleSchedule.length) {
       recordPrayerCompletion(account, Date.now()).catch(() => {})
       finish(completed + (prayerUpdate.addedPrayer ? 1 : 0))
-      void SyncBridge.forceSync().catch(err => {
+      void SyncBridge.flushSync().catch(err => {
         console.error('Failed to trigger forceSync after finishing prayer schedule:', err)
       })
       return

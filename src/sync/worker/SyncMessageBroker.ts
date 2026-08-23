@@ -180,6 +180,10 @@ export class SyncMessageBroker {
     await this.pullQueueManager.importCursors(cursors)
   }
 
+  async resetCursors(): Promise<void> {
+    await this.pullQueueManager.resetCursors()
+  }
+
   async executePoll(): Promise<PollOutcome> {
     return await this.syncPoller.executePoll()
   }

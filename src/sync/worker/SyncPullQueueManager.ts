@@ -232,4 +232,11 @@ export class SyncPullQueueManager {
     this.cursorByItemId = new Map(cursors)
     await this.cursorStore.saveCursors(cursors)
   }
+
+  async resetCursors(): Promise<void> {
+    if (!this.account) return
+    this.cursorByItemId.clear()
+    this.pendingPullItemIds.clear()
+    await this.cursorStore.clear()
+  }
 }

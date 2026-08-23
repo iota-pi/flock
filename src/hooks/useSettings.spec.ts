@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   )),
   restoreSyncState: vi.fn(async () => undefined),
   forceSync: vi.fn(async () => undefined),
+  fullResync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -77,6 +78,7 @@ vi.mock('../sync/client/SyncBridge', () => ({
     exportSyncState: mocks.exportSyncState,
     restoreSyncState: mocks.restoreSyncState,
     forceSync: mocks.forceSync,
+    fullResync: mocks.fullResync,
     listRecoveryItems: vi.fn(async () => []),
     subscribeRecoveryItems: vi.fn(() => () => {}),
     shutdown: vi.fn(async () => {}),

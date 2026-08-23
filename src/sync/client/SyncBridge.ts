@@ -254,9 +254,14 @@ export const SyncBridge = {
     return initializationPromise
   },
 
-  forceSync: async () => {
+  flushSync: async () => {
     await SyncBridge.ensureReady()
-    await syncApi!.forceSync()
+    syncApi!.flushSync()
+  },
+
+  fullResync: async () => {
+    await SyncBridge.ensureReady()
+    await syncApi!.fullResync()
   },
 
   mutateItem: async (id: ItemId, changes: Partial<Item>) => {

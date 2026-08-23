@@ -91,7 +91,7 @@ export default function useBackupAndRestore({
           })
         }
 
-        await SyncBridge.forceSync()
+        await SyncBridge.flushSync()
 
         setMessage({ message: 'Restore successful' })
         return true
