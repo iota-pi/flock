@@ -10,7 +10,7 @@ import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Tooltip from '@mui/material/Tooltip'
 
-import { DropzoneArea } from 'mui-file-dropzone'
+import { DropzoneArea } from 'mui2-file-dropzone'
 import { useCallback, useMemo, useState } from 'react'
 import { UploadIcon } from '../Icons'
 import InlineText from '../ui/InlineText'
@@ -190,9 +190,8 @@ function RestoreBackupDialog({
       </DialogTitle>
       <DialogContent>
         <DropzoneArea
-          acceptedFiles={['.json']}
+          acceptedFiles={{ 'application/json': ['.json'] }}
           dropzoneText="Upload a backup file here"
-          fileObjects={null}
           filesLimit={1}
           showAlerts={['error']}
           showPreviewsInDropzone={false}
