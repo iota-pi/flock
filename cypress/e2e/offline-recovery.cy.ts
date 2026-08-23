@@ -75,10 +75,10 @@ describe('Data recovery', () => {
     cy.page('settings')
     cy.contains('Corrupted data recovery').scrollIntoView().should('be.visible')
     cy.contains('Corrupted data recovery').click()
-    cy.contains('Corrupted Data Recovery').should('be.visible')
+    cy.contains('Corrupted & Quarantined Data Recovery').should('be.visible')
     cy.contains('button', 'Retry').should('have.length', 1)
 
     cy.contains('button', 'Dismiss').click()
-    cy.contains('No corrupted data recovery actions are required right now.').should('be.visible')
+    cy.contains('No corrupted or quarantined data recovery actions are required right now.').should('be.visible')
   })
 })
