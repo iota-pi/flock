@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
+
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -6,8 +7,8 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { persistSyncMessages } from '../shared/VaultPersistence'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { interpretAsDocumentId, type Message } from '@automerge/automerge-repo/slim'
 import type { ItemId } from 'src/shared/schemas/items'
+
 
 vi.mock('../shared/VaultPersistence', () => ({
   persistSyncMessages: vi.fn().mockResolvedValue(undefined),
@@ -99,7 +100,7 @@ describe('SyncMessageBroker', () => {
     const msgA = createSyncMessage('itemA', [10, 20])
 
     let resolvePersist: (() => void) | null = null
-    const persistDeferred = new Promise<void>((resolve) => {
+    const persistDeferred = new Promise<void>(resolve => {
       resolvePersist = resolve
     })
 

@@ -22,7 +22,7 @@ import { IndexStore } from './stores/IndexStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
-import { normalizeItemSnapshot } from './docStore'
+import { normalizeItemSnapshot, RepoDoc } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { loadSyncBatch, restoreSyncBatch } from '../shared/VaultPersistence'
 import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
@@ -48,7 +48,7 @@ export class SyncWorker implements SyncApi {
   private unsubscribeRealtimeBus: (() => void) | null = null
   private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
-  private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<any>; listener: () => void }>()
+  private changeListenersByItemId = new Map<ItemId, { handle: DocHandle<RepoDoc>; listener: () => void }>()
 
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
@@ -255,7 +255,7 @@ export class SyncWorker implements SyncApi {
       this.subscribedIds.add(id)
 
       const url = toAutomergeUrlFromItemId(id)
-      repo.find(url).then(handle => {
+      repo.find<RepoDoc>(url).then(handle => {
         if (!this.subscribedIds.has(id)) return
 
         const existing = this.changeListenersByItemId.get(id)

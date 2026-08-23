@@ -287,7 +287,7 @@ describe('VaultPersistence', () => {
   it('serializes loadSyncBatch with concurrent in-flight persistSyncMessages', async () => {
     const { persistSyncMessages, loadSyncBatch, getSyncBatchStorage } = await import('./VaultPersistence')
 
-    const storage = getSyncBatchStorage('acc-1')
+    getSyncBatchStorage('acc-1')
     const writes = new Map<string, Uint8Array[]>()
     writes.set('item-concur', [new Uint8Array([10, 20])])
 

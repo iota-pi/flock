@@ -33,9 +33,7 @@ describe('LeaderElection', () => {
   })
 
   it('grants leadership when lock is acquired and revokes on release', async () => {
-    let lockCallback: (() => Promise<void>) | null = null
     const requestMock = vi.fn().mockImplementation((name, options, callback) => {
-      lockCallback = callback
       return callback()
     })
 
@@ -68,12 +66,10 @@ describe('LeaderElection', () => {
 
   it('aborts pending lock request when release is called before lock is granted', async () => {
     let abortSignal: AbortSignal | null = null
-    let requestPromiseReject: ((err: any) => void) | null = null
 
-    const requestMock = vi.fn().mockImplementation((name, options, callback) => {
+    const requestMock = vi.fn().mockImplementation((name, options) => {
       abortSignal = options.signal
       return new Promise<void>((_, reject) => {
-        requestPromiseReject = reject
         if (options.signal) {
           options.signal.addEventListener('abort', () => {
             const abortError = new Error('The request was aborted')

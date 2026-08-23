@@ -157,7 +157,7 @@ export class SyncMessageBroker {
     if (this.persistTimeoutId === null) {
       this.persistTimeoutId = setTimeout(
         () => {
-          this.flushPersistAndSignal().catch((err) => {
+          this.flushPersistAndSignal().catch(err => {
             console.error('[SyncMessageBroker] Error in flushPersistAndSignal:', err)
           })
         },

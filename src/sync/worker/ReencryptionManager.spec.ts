@@ -158,7 +158,7 @@ describe('ReencryptionManager', () => {
     let badItemAttempts = 0
     mockRepo.find.mockImplementation(async (url: string) => {
       if (url === 'automerge:item-bad') {
-        badItemAttempts++
+        badItemAttempts += 1
         return {
           isReady: () => true,
           doc: () => {

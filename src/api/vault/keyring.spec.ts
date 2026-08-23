@@ -15,8 +15,6 @@ import {
   exportKeyringData,
   handleSessionExpired,
   readCachedKeyring,
-  writeCachedKeyring,
-  clearCachedKeyring,
   KEYRING_CACHE_KEY,
 } from './index'
 import { VAULT_STORAGE_KEY } from './util'

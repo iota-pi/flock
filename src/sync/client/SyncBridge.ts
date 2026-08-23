@@ -121,7 +121,8 @@ export const SyncBridge = {
     }
 
     currentAccountId = accountId
-    const initSession = ++currentInitSession
+    currentInitSession += 1
+    const initSession = currentInitSession
 
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
@@ -350,7 +351,7 @@ export const SyncBridge = {
 
   shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
     if (!options?.internalRestart) {
-      currentInitSession++
+      currentInitSession += 1
       initializationPromise = null
       currentAccountId = null
     }
