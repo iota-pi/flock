@@ -19,7 +19,7 @@ export class VaultBootstrapper {
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   ) {}
 
-  async bootstrapItems() {
+  async bootstrapItems(force = false) {
     if (!this.deps.accountId) return
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
     const lastSyncTime = await this.deps.indexManager.getLastSyncTime()
@@ -29,7 +29,7 @@ export class VaultBootstrapper {
     const BUFFER_MS = 12 * 60 * 60 * 1000
     const isOfflineTooLong = lastSyncTime > 0 && Date.now() - lastSyncTime > (SEVEN_DAYS_MS - BUFFER_MS)
 
-    if (knownItemIds.length > 0 && !isOfflineTooLong) return
+    if (!force && knownItemIds.length > 0 && !isOfflineTooLong) return
 
     if (!hasApiAuthToken()) {
       if (knownItemIds.length > 0) {
@@ -77,8 +77,10 @@ export class VaultBootstrapper {
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
-            await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
-            hydratedIds.push(item.item as ItemId)
+            if (!knownItemIds.includes(item.item as ItemId)) {
+              await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
+              hydratedIds.push(item.item as ItemId)
+            }
             return
           }
         }
@@ -99,7 +101,9 @@ export class VaultBootstrapper {
             if (!snapshot.id || typeof snapshot.id !== 'string') {
               snapshot.id = item.item
             }
-            snapshots.push(snapshot as Item)
+            if (!knownItemIds.includes(snapshot.id as ItemId)) {
+              snapshots.push(snapshot as Item)
+            }
           }
         }
       } catch (error) {
