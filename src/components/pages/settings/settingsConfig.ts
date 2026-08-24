@@ -11,6 +11,7 @@ import {
   PasswordIcon,
   FingerprintIcon,
   PrayerIcon,
+  SyncIcon,
 } from '../../Icons'
 
 export type SettingsActionId =
@@ -27,6 +28,7 @@ export type SettingsActionId =
   | 'openRecoveryDialog'
   | 'openImportDialog'
   | 'openChangePasswordDialog'
+  | 'forceSync'
 
 export type SettingsValueRenderer = 'none' | 'darkModeToggle' | 'goalValue' | 'biometricsToggle' | 'autoLockValue'
 
@@ -148,6 +150,13 @@ export const settingsConfig: SettingsConfigEntry[] = [
     title: 'Import from CSV',
     icon: PersonIcon,
     action: 'openImportDialog',
+  },
+  {
+    type: 'item',
+    id: 'force-sync',
+    title: 'Full sync now',
+    icon: SyncIcon,
+    action: 'forceSync',
   },
   { type: 'divider', key: 'd5' },
 ]

@@ -70,6 +70,9 @@ function SettingsPage() {
     openRestoreDialog: restoreDialog.openDialog,
     openRecoveryDialog: recoveryDialog.openDialog,
     openImportDialog: importDialog.openDialog,
+    forceSync: () => {
+      void actions.handleForceFullSync()
+    },
   }
 
   const handleRestoreConfirm = useCallback(async (payload: BackupPayloadV2) => {

@@ -14,7 +14,8 @@ export interface SyncApi {
   mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   exportAllBinaries: () => Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }>
   restoreFromBinaries: (documents: Partial<Record<string, string>>) => Promise<string[]>
-  forceSync: () => Promise<void>,
+  flushSync: () => void,
+  fullResync: () => Promise<void>,
   pushSnapshots: () => Promise<{ persisted: number; total: number }>
   retryRecoveryItem: (itemId: ItemId) => Promise<void>
   forceOverwriteRecoveryItem: (itemId: ItemId) => Promise<void>

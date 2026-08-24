@@ -23,7 +23,8 @@ const mocks = vi.hoisted(() => ({
     { cursors: [], pendingSync: [], lastModified: [] } as BackupSyncState
   )),
   restoreSyncState: vi.fn(async () => undefined),
-  forceSync: vi.fn(async () => undefined),
+  flushSync: vi.fn(async () => undefined),
+  fullResync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
   setUi: vi.fn(),
 }))
@@ -76,7 +77,8 @@ vi.mock('../sync/client/SyncBridge', () => ({
     restoreFromBinaries: mocks.restoreFromBinaries,
     exportSyncState: mocks.exportSyncState,
     restoreSyncState: mocks.restoreSyncState,
-    forceSync: mocks.forceSync,
+    flushSync: mocks.flushSync,
+    fullResync: mocks.fullResync,
     listRecoveryItems: vi.fn(async () => []),
     subscribeRecoveryItems: vi.fn(() => () => {}),
     shutdown: vi.fn(async () => {}),
@@ -159,7 +161,7 @@ describe('useSettings backup portability', () => {
       pendingSync: [['i1', ['msg1']]],
       lastModified: [['i1', 12345]]
     })
-    expect(mocks.forceSync).toHaveBeenCalledTimes(1)
+    expect(mocks.flushSync).toHaveBeenCalledTimes(1)
     expect(mocks.storeItems).not.toHaveBeenCalled()
   })
 

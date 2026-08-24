@@ -39,6 +39,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningIcon from '@mui/icons-material/Warning'
 import TopicIcon from '@mui/icons-material/Lightbulb'
+import SyncIcon from '@mui/icons-material/Sync'
 
 import { FaPrayingHands } from 'react-icons/fa'
 
@@ -93,6 +94,7 @@ export {
   VisibilityIcon,
   WarningIcon,
   TopicIcon,
+  SyncIcon,
 }
 
 export function getIconType(itemType: Item['type']): MuiIconType {

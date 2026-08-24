@@ -31,7 +31,7 @@ export default function useSyncCoordinatorLifecycle(
         const recovered = await attemptSessionRecovery(account)
         if (recovered) {
           useAppStore.getState().clearSyncWarning()
-          SyncBridge.forceSync().catch(console.error)
+          SyncBridge.flushSync().catch(console.error)
         }
       }
 

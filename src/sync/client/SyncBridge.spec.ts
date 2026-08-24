@@ -17,6 +17,7 @@ const mockSyncApi = {
   exportSyncState: vi.fn().mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] }),
   restoreSyncState: vi.fn().mockResolvedValue(undefined),
   forceSync: vi.fn().mockResolvedValue(undefined),
+  fullResync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
   ping: vi.fn().mockResolvedValue(undefined),
 }

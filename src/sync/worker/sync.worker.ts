@@ -333,7 +333,12 @@ export class SyncWorker implements SyncApi {
     return restored
   }
 
-  async forceSync() { this.context.orchestrator.flush() }
+  flushSync() { this.context.orchestrator.flush() }
+  async fullResync() {
+    await this.context.broker.resetCursors()
+    this.flushSync()
+  }
+
   async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
   async retryRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.retryRecoveryItem(itemId) }
   async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceOverwriteRecoveryItem(itemId) }

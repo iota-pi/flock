@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SyncBridge } from '../sync/client/SyncBridge'
 
 import { getNaturalPrayerGoal } from '../utils/prayer'
 import {
@@ -110,6 +111,16 @@ export default function useSettings(items: Item[]) {
     }
   }, [setDefaultFrequencies, setMessage])
 
+  const handleForceFullSync = useCallback(async () => {
+    try {
+      await SyncBridge.fullResync()
+      setMessage({ message: 'Full sync started', severity: 'success' })
+    } catch (err) {
+      console.error('Manual sync failed', err)
+      setMessage({ message: 'Sync failed', severity: 'error' })
+    }
+  }, [setMessage])
+
   // Values
   const naturalGoal = useMemo(() => getNaturalPrayerGoal(items), [items])
   const [goal] = useMetadata('prayerGoal', naturalGoal)
@@ -127,6 +138,7 @@ export default function useSettings(items: Item[]) {
       handleToggleBiometrics,
       saveAutoLockSettings,
       saveDefaultFrequencies,
+      handleForceFullSync,
     },
     values: {
       account,
