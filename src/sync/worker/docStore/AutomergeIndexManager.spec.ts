@@ -35,6 +35,7 @@ describe('AutomergeIndexManager', () => {
       metadata: {},
       lastModified: {},
       lastSyncTime: 0,
+      lastManifestSyncTime: 0,
     })
   })
 
@@ -153,6 +154,14 @@ describe('AutomergeIndexManager', () => {
     expect(itemIds).toEqual(['item-1', 'item-2'])
   })
 
+  it('should update manifest sync time', async () => {
+    const manager = new AutomergeIndexManager(accountId, indexStore)
+    expect(await manager.getLastManifestSyncTime()).toBe(0)
+
+    await manager.updateLastManifestSyncTime(987654)
+    expect(await manager.getLastManifestSyncTime()).toBe(987654)
+  })
+
   it('should replace the entire index document serialized through queue', async () => {
     const manager = new AutomergeIndexManager(accountId, indexStore)
     const newDoc: AutomergeIndexDocument = {
@@ -161,6 +170,7 @@ describe('AutomergeIndexManager', () => {
       metadata: { prayerGoal: 100 },
       lastModified: { ['restored-1' as ItemId]: 500 },
       lastSyncTime: 7777,
+      lastManifestSyncTime: 8888,
     }
 
     await manager.replaceIndex(newDoc)

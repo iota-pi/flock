@@ -322,7 +322,7 @@ export class SyncWorker implements SyncApi {
   }
 
   // Sync API Pass-through Delegation
-  async bootstrapItems() { await this.context.vaultBootstrapper.bootstrapItems() }
+  async bootstrapItems() { await this.context.manifestSyncManager.sync() }
   async mutateItem(id: ItemId, changes: Partial<Item>) { await this.context.itemOperations.mutateItem(id, changes) }
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
@@ -335,8 +335,7 @@ export class SyncWorker implements SyncApi {
 
   async flushSync() { this.context.orchestrator.flush() }
   async fullResync() {
-    await this.context.broker.resetCursors()
-    await this.context.vaultBootstrapper.bootstrapItems(true)
+    await this.context.manifestSyncManager.sync(true)
     this.context.orchestrator.flush()
   }
 

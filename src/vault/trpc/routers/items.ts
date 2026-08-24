@@ -1,11 +1,16 @@
 import { router, protectedProcedure } from '../trpc'
 import {
   FetchItemsInputSchema,
+  FetchSnapshotsByIdsInputSchema,
   PutSnapshotBatchSchema,
 } from 'src/shared/schemas/trpc'
 import {
   fetchItems,
 } from '../../services/itemService'
+import {
+  fetchManifest,
+  fetchSnapshotsByIds,
+} from '../../services/manifestService'
 import {
   createDynamoAutomergeSyncRepository,
 } from '../../services/automergeSyncRepository'
@@ -13,6 +18,7 @@ import type { VaultItem } from '../../drivers/base'
 import type { ItemType } from '../../types'
 
 export const itemsRouter = router({
+  // TODO: legacy route, remove after migration to fetchManifest is complete
   fetchMany: protectedProcedure
     .input(FetchItemsInputSchema)
     .query(async ({ ctx, input }) => {
@@ -22,6 +28,30 @@ export const itemsRouter = router({
         success: true,
         items: result.items,
         nextCursor: null,
+        serverTime: result.serverTime,
+      }
+    }),
+
+  fetchManifest: protectedProcedure
+    .input(FetchItemsInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await fetchManifest(ctx, input)
+
+      return {
+        success: true,
+        manifest: result.manifest,
+        serverTime: result.serverTime,
+      }
+    }),
+
+  fetchSnapshotsByIds: protectedProcedure
+    .input(FetchSnapshotsByIdsInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await fetchSnapshotsByIds(ctx, input)
+
+      return {
+        success: true,
+        items: result.items,
         serverTime: result.serverTime,
       }
     }),

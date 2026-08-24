@@ -46,7 +46,7 @@ describe('Backup and restore', () => {
     const branchA = generateMockEncryptedDoc()
     const branchB = generateMockEncryptedDoc()
 
-    cy.intercept('GET', '**/trpc/items.fetchMany*', (req) => {
+    cy.intercept('GET', '**/trpc/items.fetchManifest*', (req) => {
       req.reply({
         statusCode: 200,
         body: [{

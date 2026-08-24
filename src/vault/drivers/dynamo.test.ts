@@ -365,4 +365,50 @@ describe('DynamoDriver', function () {
     expect(await driver.checkSession({ account, session: sessionA })).toMatchObject({ success: true })
     expect(await driver.checkSession({ account, session: sessionB })).toMatchObject({ success: false, reason: 'expired' })
   })
+
+  it('fetchManifest returns item and modifiedAt tuples without payload', async () => {
+    const account = generateAccountId()
+    const type: ItemType = 'person'
+    const cipher = 'test-cipher'
+    const iv = 'test-iv'
+    const modified = 1234567890
+
+    const item1 = generateItemId()
+    const item2 = generateItemId()
+
+    await driver.set({ account, item: item1, cipher, metadata: { type, iv, modified } })
+    await driver.set({ account, item: item2, cipher, metadata: { type, iv, modified: modified + 100 } })
+
+    const manifest = await driver.fetchManifest({ account })
+    expect(manifest.length).toBe(2)
+
+    const ids = manifest.map(m => m.itemId)
+    expect(ids).toContain(item1)
+    expect(ids).toContain(item2)
+
+    const entry1 = manifest.find(m => m.itemId === item1)
+    expect(entry1?.modifiedAt).toBe(modified)
+  })
+
+  it('fetchByIds retrieves exact items in batches', async () => {
+    const account = generateAccountId()
+    const type: ItemType = 'person'
+    const cipher = 'targeted-cipher'
+    const iv = 'targeted-iv'
+
+    const item1 = generateItemId()
+    const item2 = generateItemId()
+    const item3 = generateItemId()
+
+    await driver.set({ account, item: item1, cipher, metadata: { type, iv, modified: 100 } })
+    await driver.set({ account, item: item2, cipher, metadata: { type, iv, modified: 200 } })
+    await driver.set({ account, item: item3, cipher, metadata: { type, iv, modified: 300 } })
+
+    const result = await driver.fetchByIds({ account, itemIds: [item1, item3] })
+    expect(result.length).toBe(2)
+    const fetchedIds = result.map(r => r.item)
+    expect(fetchedIds).toContain(item1)
+    expect(fetchedIds).toContain(item3)
+    expect(fetchedIds).not.toContain(item2)
+  })
 })

@@ -60,6 +60,11 @@ export const FetchItemsInputSchema = z.object({
   account: z.string().min(1),
 })
 
+export const FetchSnapshotsByIdsInputSchema = z.object({
+  account: z.string().min(1),
+  itemIds: z.array(ItemIdSchema).min(1).max(50),
+})
+
 export const PushSubscriptionBodySchema = z.object({
   account: z.string().min(1),
   endpoint: z.string().min(1),

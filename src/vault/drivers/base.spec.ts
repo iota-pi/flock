@@ -48,6 +48,14 @@ class TestDriver extends BaseDriver {
     throw new Error('not implemented')
   }
 
+  async fetchManifest(): ReturnType<BaseDriver['fetchManifest']> {
+    throw new Error('not implemented')
+  }
+
+  async fetchByIds(): ReturnType<BaseDriver['fetchByIds']> {
+    throw new Error('not implemented')
+  }
+
   async get(): ReturnType<BaseDriver['get']> {
     throw new Error('not implemented')
   }
