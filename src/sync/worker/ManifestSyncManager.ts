@@ -1,14 +1,20 @@
+import { chunk } from 'lodash-es'
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { fetchMany } from '../../api/vault/ItemClient'
+import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
 import type { ItemId } from 'src/shared/schemas/items'
 import { getTrpcClient } from 'src/api/trpcClient'
+import type { VaultItem } from '../../api/vault/clientTypes'
 
-export class VaultBootstrapper {
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const BATCH_SIZE = 50
+
+export class ManifestSyncManager {
   constructor(
     private deps: {
       accountId: string
@@ -19,42 +25,82 @@ export class VaultBootstrapper {
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   ) {}
 
-  async bootstrapItems(force = false) {
-    if (!this.deps.accountId) return
+  async sync(force = false): Promise<{ added: ItemId[] }> {
+    if (!this.deps.accountId) return { added: [] }
+
     const knownItemIds = await this.deps.indexManager.listAutomergeItemIds()
-    const lastSyncTime = await this.deps.indexManager.getLastSyncTime()
+    const lastManifestSyncTime = await this.deps.indexManager.getLastManifestSyncTime()
 
-    // Check if the device has been offline for > 1 week (minus a 12-hour buffer)
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
-    const BUFFER_MS = 12 * 60 * 60 * 1000
-    const isOfflineTooLong = lastSyncTime > 0 && Date.now() - lastSyncTime > (SEVEN_DAYS_MS - BUFFER_MS)
+    const hasKnownItems = knownItemIds.length > 0
+    const timeSinceLastSync = lastManifestSyncTime > 0 ? Date.now() - lastManifestSyncTime : Infinity
 
-    if (!force && knownItemIds.length > 0 && !isOfflineTooLong) return
+    // Gating logic:
+    // - Force runs unconditionally
+    // - If it has been more than 7 days, always run (even if not forced)
+    // - If we already have items and last run was less than 24 hours ago, skip
+    const isOfflineTooLong = timeSinceLastSync >= SEVEN_DAYS_MS
+    const isWithinDailyWindow = hasKnownItems && timeSinceLastSync < ONE_DAY_MS
 
-    if (!hasApiAuthToken()) {
-      if (knownItemIds.length > 0) {
-        console.info('[VaultBootstrapper] No auth token, using local data only')
-        return
-      }
-      console.warn('[VaultBootstrapper] No API auth token found and no local data, cannot bootstrap items from server')
-      return
+    if (!force && !isOfflineTooLong && isWithinDailyWindow) {
+      return { added: [] }
     }
 
-    let response: Awaited<ReturnType<typeof fetchMany>>
+    if (!hasApiAuthToken()) {
+      if (hasKnownItems) {
+        console.info('[ManifestSyncManager] No auth token, using local data only')
+        return { added: [] }
+      }
+      console.warn('[ManifestSyncManager] No API auth token found and no local data, cannot sync manifest from server')
+      return { added: [] }
+    }
+
+    let manifestResponse: Awaited<ReturnType<typeof fetchManifest>>
     try {
-      response = await fetchMany({
+      manifestResponse = await fetchManifest({
         account: this.deps.accountId,
       })
     } catch (e) {
-      if (knownItemIds.length > 0) {
-        console.warn('[VaultBootstrapper] failed to fetch item snapshots, falling back to local data', e)
-        return
+      if (hasKnownItems) {
+        console.warn('[ManifestSyncManager] Failed to fetch manifest, falling back to local data', e)
+        return { added: [] }
       }
-      console.error('[VaultBootstrapper] failed to fetch item snapshots', e)
-      throw new Error(`[VaultBootstrapper] Failed to fetch item snapshots: ${(e as Error).message || String(e)}`, { cause: e })
+      console.error('[ManifestSyncManager] Failed to fetch manifest', e)
+      throw new Error(`[ManifestSyncManager] Failed to fetch manifest: ${(e as Error).message || String(e)}`, { cause: e })
     }
 
-    const fetchedItems = response.items.filter(
+    const knownSet = new Set(knownItemIds)
+    const missingIds = manifestResponse.manifest
+      .map(([itemId]) => itemId as ItemId)
+      .filter((id): id is ItemId => !!id && !knownSet.has(id))
+
+    if (missingIds.length === 0) {
+      await this.hydrateMetadata()
+      await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+      return { added: [] }
+    }
+
+    // Fetch missing item snapshots in batches of 50
+    const batches = chunk(missingIds, BATCH_SIZE)
+    const fetchedItems: VaultItem[] = []
+
+    for (const batch of batches) {
+      try {
+        const response = await fetchSnapshotsByIds({
+          account: this.deps.accountId,
+          itemIds: batch,
+        })
+        if (response.items && Array.isArray(response.items)) {
+          fetchedItems.push(...response.items)
+        }
+      } catch (error) {
+        console.error('[ManifestSyncManager] Failed to fetch snapshot batch', {
+          batch,
+          error,
+        })
+      }
+    }
+
+    const validFetchedItems = fetchedItems.filter(
       entry =>
         entry &&
         typeof entry === 'object' &&
@@ -62,12 +108,10 @@ export class VaultBootstrapper {
         entry.item.length > 0,
     )
 
-    if (fetchedItems.length === 0) return
-
     const snapshots: Item[] = []
     const hydratedIds: ItemId[] = []
 
-    const promises = fetchedItems.map(async item => {
+    const promises = validFetchedItems.map(async item => {
       try {
         if (item.metadata?.deleted === true) {
           snapshots.push({ id: item.item, deleted: true } as unknown as Item)
@@ -107,7 +151,7 @@ export class VaultBootstrapper {
           }
         }
       } catch (error) {
-        console.error('[VaultBootstrapper] failed to hydrate fetched item envelope', {
+        console.error('[ManifestSyncManager] Failed to hydrate fetched item envelope', {
           itemId: item.item,
           error,
         })
@@ -125,6 +169,9 @@ export class VaultBootstrapper {
     }
 
     await this.hydrateMetadata()
+    await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+
+    return { added: hydratedIds }
   }
 
   private async decryptSnapshotBinary(
@@ -143,7 +190,9 @@ export class VaultBootstrapper {
     const localMetadata = await this.deps.indexManager.getAutomergeMetadata()
     if (Object.keys(localMetadata || {}).length > 0) return
 
-    const response = await getTrpcClient().accounts.getMetadata.query({ account: this.deps.accountId }).catch(() => null)
+    const response = await Promise.resolve(
+      getTrpcClient().accounts.getMetadata.query({ account: this.deps.accountId })
+    ).catch(() => null)
     if (
       response?.success &&
       !!response.metadata &&
@@ -153,7 +202,7 @@ export class VaultBootstrapper {
       try {
         await this.mutateMetadata(response.metadata as AccountMetadata)
       } catch (error) {
-        console.error('[VaultBootstrapper] metadata hydration skipped', error)
+        console.error('[ManifestSyncManager] Metadata hydration skipped', error)
       }
     }
   }

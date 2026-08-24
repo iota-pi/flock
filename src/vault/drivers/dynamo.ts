@@ -6,6 +6,8 @@ import {
   DynamoDBClientConfig,
 } from '@aws-sdk/client-dynamodb'
 import {
+  BatchGetCommand,
+  BatchGetCommandInput,
   BatchWriteCommand,
   BatchWriteCommandInput,
   DeleteCommand,
@@ -637,6 +639,132 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     return items
+  }
+
+  async fetchManifest(
+    { account }: { account: string },
+  ): Promise<Array<{ itemId: string; modifiedAt: number }>> {
+    const manifest: Array<{ itemId: string; modifiedAt: number }> = []
+    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
+
+    while (true) {
+      const queryInput: QueryCommandInput = {
+        TableName: ITEM_TABLE_NAME,
+        KeyConditionExpression: 'account = :accountid',
+        ExpressionAttributeNames: {
+          '#itemKey': 'item',
+          '#modifiedAt': 'modifiedAt',
+          '#metadata': 'metadata',
+        },
+        ExpressionAttributeValues: {
+          ':accountid': account,
+        },
+        ProjectionExpression: '#itemKey, #modifiedAt, #metadata.modified',
+        ExclusiveStartKey: lastEvaluatedKey,
+      }
+
+      const response = await this.client.send(new QueryCommand(queryInput))
+
+      if (response?.Items) {
+        for (const record of response.Items) {
+          const itemId = record.item as string
+          if (!itemId) continue
+          const modifiedAt = typeof record.modifiedAt === 'number'
+            ? record.modifiedAt
+            : (typeof record.metadata?.modified === 'number' ? record.metadata.modified : 0)
+          manifest.push({ itemId, modifiedAt })
+        }
+      }
+      lastEvaluatedKey = response?.LastEvaluatedKey
+      if (!lastEvaluatedKey) {
+        break
+      }
+    }
+
+    return manifest
+  }
+
+  private async executeBatchGetWithRetry(
+    requestItems: BatchGetCommandInput['RequestItems'],
+    maxRetries = 5,
+  ): Promise<Record<string, Record<string, unknown>[]>> {
+    let currentRequestItems = requestItems
+    let attempt = 0
+    let delayMs = 100
+    const accumulatedResponses: Record<string, Record<string, unknown>[]> = {}
+
+    while (true) {
+      const response = await this.client.send(new BatchGetCommand({
+        RequestItems: currentRequestItems,
+      }))
+
+      if (response.Responses) {
+        for (const [tableName, items] of Object.entries(response.Responses)) {
+          if (!accumulatedResponses[tableName]) {
+            accumulatedResponses[tableName] = []
+          }
+          accumulatedResponses[tableName].push(...items)
+        }
+      }
+
+      const unprocessed = response.UnprocessedKeys
+      if (!unprocessed || Object.keys(unprocessed).length === 0) {
+        break
+      }
+
+      attempt += 1
+      if (attempt > maxRetries) {
+        throw new Error(`Failed to execute BatchGetCommand after ${maxRetries} attempts due to DynamoDB unprocessed keys.`)
+      }
+
+      const jitter = Math.random() * 50
+      await new Promise(resolve => setTimeout(resolve, delayMs + jitter))
+      delayMs *= 2
+
+      currentRequestItems = unprocessed
+    }
+
+    return accumulatedResponses
+  }
+
+  async fetchByIds(
+    { account, itemIds }: { account: string; itemIds: string[] },
+  ): Promise<VaultItem[]> {
+    if (!itemIds || itemIds.length === 0) {
+      return []
+    }
+
+    const uniqueItemIds = Array.from(new Set(itemIds))
+    const batches = chunk(uniqueItemIds, 100)
+    const results: VaultItem[] = []
+
+    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES, '#ttl'].join(',')
+    const expressionAttributeNames = {
+      '#itemKey': 'item',
+      ...DATA_ATTRIBUTE_NAMES,
+      '#ttl': 'ttl',
+    }
+
+    for (const batch of batches) {
+      const requestItems: BatchGetCommandInput['RequestItems'] = {
+        [ITEM_TABLE_NAME]: {
+          Keys: batch.map(itemId => ({
+            account,
+            item: itemId,
+          })),
+          ProjectionExpression: projectionExpression,
+          ExpressionAttributeNames: expressionAttributeNames,
+        },
+      }
+
+      const responses = await this.executeBatchGetWithRetry(requestItems)
+      const items = responses[ITEM_TABLE_NAME] as VaultItem[] | undefined
+      if (items) {
+        results.push(...items)
+      }
+    }
+
+    return results
   }
 
   async delete({ account, item }: VaultKey) {

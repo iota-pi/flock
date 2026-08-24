@@ -10,7 +10,7 @@ import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { DeletionQueueManager } from './DeletionQueueManager'
 import { RecoveryManager } from './RecoveryManager'
-import { VaultBootstrapper } from './VaultBootstrapper'
+import { ManifestSyncManager } from './ManifestSyncManager'
 import { ReencryptionManager } from './ReencryptionManager'
 import { ItemOperations } from './ItemOperations'
 import { SyncMessageBroker } from './SyncMessageBroker'
@@ -34,7 +34,7 @@ export class SyncWorkerContext {
   public readonly orchestrator: SyncOrchestrator
   public readonly deletionQueueManager: DeletionQueueManager
   public readonly recoveryManager: RecoveryManager
-  public readonly vaultBootstrapper: VaultBootstrapper
+  public readonly manifestSyncManager: ManifestSyncManager
   public readonly reencryptionManager: ReencryptionManager
   public readonly itemOperations: ItemOperations
 
@@ -49,8 +49,8 @@ export class SyncWorkerContext {
     indexManager: AutomergeIndexManager,
     cursorStore: CursorStore,
     pullQueueManager: SyncPullQueueManager,
-    legacyStoreItems: (items: Item[]) => Promise<void>,
-    legacyMutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
+    storeItems: (items: Item[]) => Promise<void>,
+    mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
   ) {
     this.indexStore = indexStore
     this.indexManager = indexManager
@@ -81,14 +81,14 @@ export class SyncWorkerContext {
       indexManager: this.indexManager,
     }, clientEventHub)
 
-    this.vaultBootstrapper = new VaultBootstrapper(
+    this.manifestSyncManager = new ManifestSyncManager(
       {
         accountId,
         docStore: this.docStore,
         indexManager: this.indexManager,
       },
-      legacyStoreItems,
-      legacyMutateMetadata
+      storeItems,
+      mutateMetadata,
     )
 
     this.reencryptionManager = new ReencryptionManager({

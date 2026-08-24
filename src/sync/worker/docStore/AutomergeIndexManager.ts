@@ -34,6 +34,7 @@ export class AutomergeIndexManager {
       metadata: doc?.metadata || {},
       lastModified: doc?.lastModified || {},
       lastSyncTime: doc?.lastSyncTime || 0,
+      lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
     }
   }
 
@@ -53,6 +54,7 @@ export class AutomergeIndexManager {
           metadata: doc?.metadata || {},
           lastModified: doc?.lastModified || {},
           lastSyncTime: doc?.lastSyncTime || 0,
+          lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
         }
         await this.indexStore.saveIndex(newDoc)
       }
@@ -142,6 +144,19 @@ export class AutomergeIndexManager {
     return this.enqueue(async () => {
       const doc = await this.getIndexSnapshot()
       doc.lastSyncTime = time
+      await this.indexStore.saveIndex(doc)
+    })
+  }
+
+  async getLastManifestSyncTime(): Promise<number> {
+    const doc = await this.getIndexSnapshot()
+    return doc.lastManifestSyncTime || 0
+  }
+
+  async updateLastManifestSyncTime(time: number): Promise<void> {
+    return this.enqueue(async () => {
+      const doc = await this.getIndexSnapshot()
+      doc.lastManifestSyncTime = time
       await this.indexStore.saveIndex(doc)
     })
   }
