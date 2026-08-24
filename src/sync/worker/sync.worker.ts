@@ -333,10 +333,11 @@ export class SyncWorker implements SyncApi {
     return restored
   }
 
-  flushSync() { this.context.orchestrator.flush() }
+  async flushSync() { this.context.orchestrator.flush() }
   async fullResync() {
     await this.context.broker.resetCursors()
-    this.flushSync()
+    await this.context.vaultBootstrapper.bootstrapItems(true)
+    this.context.orchestrator.flush()
   }
 
   async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
