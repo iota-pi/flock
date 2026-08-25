@@ -109,8 +109,18 @@ export class AutomergeDocStore {
     }
   }
 
-  // Core Document Helpers
   async findHandle(
+    itemId: ItemId,
+    options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
+  ): Promise<RepoDocHandle> {
+    const pending = this.pendingFindOrCreate.get(itemId)
+    if (pending) {
+      return pending
+    }
+    return this.findHandleInternal(itemId, options)
+  }
+
+  private async findHandleInternal(
     itemId: ItemId,
     options: Pick<ChangeDocumentOptions, 'knownToExist'> = {},
   ): Promise<RepoDocHandle> {
@@ -163,7 +173,7 @@ export class AutomergeDocStore {
     }
 
     const promise = (async () => {
-      let handle = await this.findHandle(itemId, options)
+      let handle = await this.findHandleInternal(itemId, options)
       if (handle) return handle
 
       // SAFETY: Before creating a blank document, independently verify that
