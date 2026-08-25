@@ -280,7 +280,7 @@ Cypress.Commands.add(
           cy.dataCy(key).click()
           cy.dataCy(`frequency-${value}`).click()
         } else if (value !== undefined) {
-          cy.dataCy(key).clear().type(String(value))
+          cy.dataCy(key).clear().type(String(value)).blur()
         }
       })
       return cy
@@ -314,7 +314,7 @@ Cypress.Commands.add(
           cy.dataCy(key).click()
           cy.dataCy(`frequency-${value}`).click()
         } else if (value !== undefined) {
-          cy.dataCy(key).clear().type(String(value))
+          cy.dataCy(key).clear().type(String(value)).blur()
         }
       })
       return cy
