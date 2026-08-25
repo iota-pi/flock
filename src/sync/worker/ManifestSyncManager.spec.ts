@@ -59,7 +59,7 @@ describe('ManifestSyncManager', () => {
   let manifestSyncManager: ManifestSyncManager
   let storeItemsSpy: any
   let mutateMetadataSpy: any
-  let depsObj: { accountId: string | null; docStore: any; indexManager: any }
+  let depsObj: { accountId: string | null; docStore: any; indexManager: any; snapshotManager: any }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -76,7 +76,12 @@ describe('ManifestSyncManager', () => {
       updateLastManifestSyncTime: mockUpdateLastManifestSyncTime,
     } as any
 
-    depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager }
+    const mockSnapshotManager = {
+      exportLastModified: vi.fn().mockReturnValue([]),
+      importLastModified: vi.fn().mockResolvedValue(undefined),
+    } as any
+
+    depsObj = { accountId: 'acc-123', docStore: mockDocStore, indexManager: mockIndexManager, snapshotManager: mockSnapshotManager }
     storeItemsSpy = vi.fn().mockResolvedValue(undefined)
     mutateMetadataSpy = vi.fn().mockResolvedValue(undefined)
 
@@ -214,9 +219,10 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: ['item-snap'] })
     })
 
-    it('performs warm path: only fetches missing items that are not in knownItemIds', async () => {
+    it('performs warm path: fetches missing items and outdated known items', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
           ['item-1', 100],
@@ -249,9 +255,10 @@ describe('ManifestSyncManager', () => {
       expect(result).toEqual({ added: ['item-3'] })
     })
 
-    it('is a no-op when all manifest items are already known', async () => {
+    it('is a no-op when all manifest items are already known and up to date', async () => {
       mockListAutomergeItemIds.mockResolvedValue(['item-1' as ItemId, 'item-2' as ItemId])
       mockGetLastManifestSyncTime.mockResolvedValue(0)
+      depsObj.snapshotManager.exportLastModified.mockReturnValue([['item-1', 100], ['item-2', 100]])
       mockFetchManifest.mockResolvedValue({
         manifest: [
           ['item-1', 100],

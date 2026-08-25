@@ -33,7 +33,6 @@ describe('AutomergeIndexManager', () => {
       accountId,
       itemIds: [],
       metadata: {},
-      lastModified: {},
       lastSyncTime: 0,
       lastManifestSyncTime: 0,
     })
@@ -64,22 +63,17 @@ describe('AutomergeIndexManager', () => {
     expect(onIndexUpdated).not.toHaveBeenCalled()
   })
 
-  it('should remove item IDs and clear lastModified timestamps', async () => {
+  it('should remove item IDs', async () => {
     const onIndexUpdated = vi.fn()
     const manager = new AutomergeIndexManager(accountId, indexStore, onIndexUpdated)
 
     await manager.addAutomergeItemIdsToIndex(['item-1' as ItemId, 'item-2' as ItemId])
-    await manager.updateLocalLastModified({
-      ['item-1' as ItemId]: 1000,
-      ['item-2' as ItemId]: 2000,
-    })
 
     await manager.removeAutomergeItemIdsFromIndex(['item-1' as ItemId])
 
     expect(onIndexUpdated).toHaveBeenLastCalledWith(['item-2'])
     const snapshot = await manager.getIndexSnapshot()
     expect(snapshot.itemIds).toEqual(['item-2'])
-    expect(snapshot.lastModified).toEqual({ ['item-2']: 2000 })
   })
 
   it('should update metadata and notify listener', async () => {
@@ -168,7 +162,6 @@ describe('AutomergeIndexManager', () => {
       accountId,
       itemIds: ['restored-1' as ItemId, 'restored-2' as ItemId],
       metadata: { prayerGoal: 100 },
-      lastModified: { ['restored-1' as ItemId]: 500 },
       lastSyncTime: 7777,
       lastManifestSyncTime: 8888,
     }

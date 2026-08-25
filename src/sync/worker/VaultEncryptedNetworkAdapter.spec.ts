@@ -49,10 +49,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     resetQuotaExceededStatus()
 
     mockDocStore = {
-      getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [], lastModified: {} }),
+      getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
       removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      updateLocalLastModified: vi.fn().mockResolvedValue(undefined),
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeDocStore
 

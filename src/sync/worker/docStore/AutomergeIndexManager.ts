@@ -32,7 +32,6 @@ export class AutomergeIndexManager {
       accountId: doc?.accountId || this.accountId,
       itemIds: doc?.itemIds || [],
       metadata: doc?.metadata || {},
-      lastModified: doc?.lastModified || {},
       lastSyncTime: doc?.lastSyncTime || 0,
       lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
     }
@@ -52,7 +51,6 @@ export class AutomergeIndexManager {
           accountId: this.accountId,
           itemIds: doc?.itemIds || [],
           metadata: doc?.metadata || {},
-          lastModified: doc?.lastModified || {},
           lastSyncTime: doc?.lastSyncTime || 0,
           lastManifestSyncTime: doc?.lastManifestSyncTime || 0,
         }
@@ -85,14 +83,8 @@ export class AutomergeIndexManager {
       const doc = await this.getIndexSnapshot()
       const removeSet = new Set(itemIds)
       const newItemIds = doc.itemIds?.filter(id => !removeSet.has(id)) || []
-      const lastModified = doc.lastModified || {}
-
-      for (const id of removeSet) {
-        delete lastModified[id]
-      }
 
       doc.itemIds = newItemIds
-      doc.lastModified = lastModified
       await this.indexStore.saveIndex(doc)
       this.onIndexUpdated?.(newItemIds)
     })
@@ -127,13 +119,6 @@ export class AutomergeIndexManager {
     })
   }
 
-  async updateLocalLastModified(lastModified: Record<ItemId, number>): Promise<void> {
-    return this.enqueue(async () => {
-      const doc = await this.getIndexSnapshot()
-      doc.lastModified = { ...doc.lastModified, ...lastModified }
-      await this.indexStore.saveIndex(doc)
-    })
-  }
 
   async getLastSyncTime(): Promise<number> {
     const doc = await this.getIndexSnapshot()

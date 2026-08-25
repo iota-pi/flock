@@ -86,6 +86,7 @@ export class SyncWorkerContext {
         accountId,
         docStore: this.docStore,
         indexManager: this.indexManager,
+        snapshotManager: this.snapshotManager,
       },
       storeItems,
       mutateMetadata,
