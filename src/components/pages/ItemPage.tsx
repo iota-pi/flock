@@ -109,7 +109,7 @@ function ItemPage({
       if (item.type === 'group') {
         const activeMembers = item.members.filter(id => {
           const member = itemsMap[id]
-          return !member || (!member.archived && !member.deleted)
+          return member && !member.archived && !member.deleted
         })
         const n = activeMembers.length
         const s = n !== 1 ? 's' : ''

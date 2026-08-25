@@ -49,10 +49,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     resetQuotaExceededStatus()
 
     mockDocStore = {
-      getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [], lastModified: {} }),
+      getIndexSnapshot: vi.fn().mockResolvedValue({ itemIds: [] }),
       addAutomergeItemIdsToIndex: vi.fn().mockResolvedValue(undefined),
       removeAutomergeItemIdsFromIndex: vi.fn().mockResolvedValue(undefined),
-      updateLocalLastModified: vi.fn().mockResolvedValue(undefined),
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeDocStore
 
@@ -440,7 +439,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     })
 
     // Allow microtasks and timers for Automerge Repo network handshake and negotiation to execute
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(500)
+    await Promise.resolve() // flush microtasks
 
     // 1. Initial negotiation should have been intercepted, heads reflected, and NO changes emitted to onMessageToSend
     expect(outgoingMessages.length).toBe(0)
@@ -451,7 +451,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       doc.name = 'updated'
     })
 
-    await vi.runAllTimersAsync()
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(50)
+      if (outgoingMessages.length >= 1) break
+    }
 
     // 3. The new mutation should produce a sync message that passes through onMessageToSend with changes
     expect(outgoingMessages.length).toBeGreaterThanOrEqual(1)

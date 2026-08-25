@@ -18,7 +18,6 @@ export type AutomergeIndexDocument = {
   accountId?: string
   itemIds?: ItemId[]
   metadata?: AccountMetadata
-  lastModified?: Record<ItemId, number>
   lastSyncTime?: number
   lastManifestSyncTime?: number
 }

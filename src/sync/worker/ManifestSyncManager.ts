@@ -3,6 +3,7 @@ import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import type { SnapshotManager } from './SnapshotManager'
 import { fetchManifest, fetchSnapshotsByIds } from '../../api/vault/ItemClient'
 import { decryptObject, decryptBytes, type CryptoResult } from '../../api/vault'
 import { hasApiAuthToken } from '../../api/runtime'
@@ -20,6 +21,7 @@ export class ManifestSyncManager {
       accountId: string
       docStore: AutomergeDocStore
       indexManager: AutomergeIndexManager
+      snapshotManager: SnapshotManager
     },
     private storeItems: (items: Item[]) => Promise<void>,
     private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
@@ -69,9 +71,17 @@ export class ManifestSyncManager {
     }
 
     const knownSet = new Set(knownItemIds)
+    const localLastModifiedMap = new Map(this.deps.snapshotManager.exportLastModified())
+
     const missingIds = manifestResponse.manifest
+      .filter(([itemId, serverTime]) => {
+        const id = itemId as ItemId
+        if (!id) return false
+        if (!knownSet.has(id)) return true
+        const localTime = localLastModifiedMap.get(id) ?? 0
+        return serverTime > localTime
+      })
       .map(([itemId]) => itemId as ItemId)
-      .filter((id): id is ItemId => !!id && !knownSet.has(id))
 
     if (missingIds.length === 0) {
       await this.hydrateMetadata()
@@ -110,21 +120,25 @@ export class ManifestSyncManager {
 
     const snapshots: Item[] = []
     const hydratedIds: ItemId[] = []
+    const lastModifiedUpdates: [ItemId, number][] = []
 
     const promises = validFetchedItems.map(async item => {
       try {
+        const manifestEntry = manifestResponse.manifest.find(([id]) => id === item.item)
+        const serverTime = manifestEntry ? manifestEntry[1] : Date.now()
+
         if (item.metadata?.deleted === true) {
           snapshots.push({ id: item.item, deleted: true } as unknown as Item)
+          lastModifiedUpdates.push([item.item as ItemId, serverTime])
           return
         }
 
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
-            if (!knownItemIds.includes(item.item as ItemId)) {
-              await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
-              hydratedIds.push(item.item as ItemId)
-            }
+            await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
+            hydratedIds.push(item.item as ItemId)
+            lastModifiedUpdates.push([item.item as ItemId, serverTime])
             return
           }
         }
@@ -145,9 +159,8 @@ export class ManifestSyncManager {
             if (!snapshot.id || typeof snapshot.id !== 'string') {
               snapshot.id = item.item
             }
-            if (!knownItemIds.includes(snapshot.id as ItemId)) {
-              snapshots.push(snapshot as Item)
-            }
+            snapshots.push(snapshot as Item)
+            lastModifiedUpdates.push([snapshot.id as ItemId, serverTime])
           }
         }
       } catch (error) {
@@ -166,6 +179,14 @@ export class ManifestSyncManager {
 
     if (snapshots.length > 0) {
       await this.storeItems(snapshots)
+    }
+
+    if (lastModifiedUpdates.length > 0) {
+      const currentLastModified = new Map(this.deps.snapshotManager.exportLastModified())
+      for (const [id, time] of lastModifiedUpdates) {
+        currentLastModified.set(id, time)
+      }
+      await this.deps.snapshotManager.importLastModified(Array.from(currentLastModified.entries()))
     }
 
     await this.hydrateMetadata()
