@@ -148,12 +148,13 @@ function DebouncedTextField({
   const handleBlur = useCallback(
     (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       if (flushOnBlur) {
-        flushDebouncedCommit()
+        cancelDebouncedCommit()
+        onCommit(localValue)
       }
 
       onBlur?.(event)
     },
-    [flushDebouncedCommit, flushOnBlur, onBlur],
+    [cancelDebouncedCommit, flushOnBlur, localValue, onBlur, onCommit],
   )
 
   return (
