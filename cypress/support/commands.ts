@@ -360,10 +360,11 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'saveDrawer',
   (): Cypress.Chainable => {
-    return cy.dataCy('drawer-done').last().then($button => {
-      const shouldWait = $button.text().toLowerCase().includes('save') || $button.text().toLowerCase().includes('done')
+    return cy.dataCy('drawer-done').last().should(($btn) => {
+      expect($btn.text().toLowerCase()).to.match(/save|done/)
+    }).then($button => {
       const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
-      const shouldWaitForNetwork = shouldWait && networkMode !== 'offline'
+      const shouldWaitForNetwork = networkMode !== 'offline'
 
       if (shouldWaitForNetwork) {
         cy.intercept({ method: /PUT|POST/, url: '**/trpc/items.put*' }).as('saveItem')
