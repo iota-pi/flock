@@ -36,6 +36,7 @@ import {
   readBiometricData,
   writeBiometricData,
   hasBiometricData,
+  subscribeBiometrics,
 } from './biometricStore'
 import {
   registerPrfCredential,
@@ -50,6 +51,7 @@ export {
   clearBiometricData,
   readBiometricData,
   hasBiometricData,
+  subscribeBiometrics,
   isWebAuthnPrfSupported,
   readStoredMetadata,
 }
