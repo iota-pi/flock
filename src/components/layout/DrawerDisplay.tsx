@@ -56,13 +56,21 @@ function useDrawerRouting(activeDrawer: DrawerData | null) {
       if (activeDrawer && activeDrawer !== prevDrawer) {
         if (isHashRouted && activeItemId && activeItemId !== currentHash) {
           const replace = !!prevHash
-          navigate(`#${activeItemId}`, { replace })
+          navigate(`#${activeItemId}`, {
+            replace,
+            state: { ...routerLocation.state, drawerOpened: true },
+          })
         }
       }
       // Drawer was closed programmatically (and it was hash routed)
       else if (!activeDrawer && prevDrawer && isHashRoutedDrawer(prevDrawer)) {
         if (currentHash === prevItemId) {
-          navigate(-1)
+          const state = routerLocation.state as { drawerOpened?: boolean } | null
+          if (state?.drawerOpened) {
+            navigate(-1)
+          } else {
+            navigate(routerLocation.pathname + routerLocation.search, { replace: true })
+          }
         }
       }
       // URL Hash changed by user navigation (e.g. back button or link)
@@ -76,7 +84,19 @@ function useDrawerRouting(activeDrawer: DrawerData | null) {
         }
       }
     },
-    [activeDrawer, isHashRouted, navigate, prevDrawer, prevLocationHash, removeActive, routerLocation.hash, setDrawer],
+    [
+      activeDrawer,
+      isHashRouted,
+      navigate,
+      prevDrawer,
+      prevLocationHash,
+      removeActive,
+      routerLocation.hash,
+      routerLocation.pathname,
+      routerLocation.search,
+      routerLocation.state,
+      setDrawer,
+    ],
   )
 }
 
