@@ -6,6 +6,7 @@ const proxyPromise = createServer().then(server =>
   awsLambdaFastify(server, {
     decorateRequest: true,
     serializeLambdaArguments: true,
+    parseCommaSeparatedQueryParams: false,
   })
 )
 
