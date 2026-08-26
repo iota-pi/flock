@@ -361,7 +361,7 @@ Cypress.Commands.add(
   'saveDrawer',
   (): Cypress.Chainable => {
     return cy.dataCy('drawer-done').last().then($button => {
-      const shouldWait = $button.text().toLowerCase().includes('save')
+      const shouldWait = $button.text().toLowerCase().includes('save') || $button.text().toLowerCase().includes('done')
       const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       const shouldWaitForNetwork = shouldWait && networkMode !== 'offline'
 
