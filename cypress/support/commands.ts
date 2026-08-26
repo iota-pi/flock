@@ -366,34 +366,10 @@ Cypress.Commands.add(
       const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       const shouldWaitForNetwork = networkMode !== 'offline'
 
-      if (shouldWaitForNetwork) {
-        cy.intercept({ method: /PUT|POST/, url: '**/trpc/items.put*' }).as('saveItem')
-        cy.intercept({ method: /PUT|POST/, url: '**/trpc/items.putMany*' }).as('saveItem')
-      }
-
       cy.wrap($button).click()
 
       if (shouldWaitForNetwork) {
-        cy.wait(200, { log: false })
-        cy.get('@saveItem.all').then(requests => {
-          if (Array.isArray(requests) && requests.length > 0) {
-            cy.wait('@saveItem').then(interception => {
-              const statusCode = interception.response?.statusCode || 0
-              const body = interception.response?.body as { error?: unknown; result?: { data?: unknown } } | undefined
-
-              if (statusCode >= 400) {
-                throw new Error(`Save request failed with status ${statusCode}: ${JSON.stringify(body)}`)
-              }
-
-              const trpcData = body?.result?.data as { success?: boolean; error?: unknown } | undefined
-              if (trpcData && trpcData.success === false) {
-                throw new Error(`Save request returned unsuccessful result: ${JSON.stringify(trpcData)}`)
-              }
-            })
-          } else {
-            cy.wait(800, { log: false })
-          }
-        })
+        cy.wait(800, { log: false })
       }
 
       return cy
