@@ -256,6 +256,31 @@ describe('customFilter', () => {
         expect(result).toHaveLength(1)
         expect(result[0].name).toBe('Bob')
       })
+
+      it('filters by group membership contains group id', () => {
+        const criteria: FilterCriterion[] = [{
+          type: 'groups',
+          baseOperator: 'contains',
+          inverse: false,
+          operator: 'contains',
+          value: 'g1',
+        }]
+        const result = filterItems(items, criteria, groupsMap)
+        expect(result).toHaveLength(1)
+        expect(result[0].name).toBe('Alice')
+      })
+
+      it('does not exclude items when group value is empty string', () => {
+        const criteria: FilterCriterion[] = [{
+          type: 'groups',
+          baseOperator: 'contains',
+          inverse: false,
+          operator: 'contains',
+          value: '',
+        }]
+        const result = filterItems(items, criteria, groupsMap)
+        expect(result).toHaveLength(2)
+      })
     })
   })
 
