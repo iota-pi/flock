@@ -27,16 +27,21 @@ const mocks = vi.hoisted(() => ({
   fullResync: vi.fn(async () => undefined),
   setMessage: vi.fn(),
   setUi: vi.fn(),
+  hasBiometricData: vi.fn(() => false),
+  subscribeBiometrics: vi.fn((_: () => void) => () => {}),
+  enableBiometrics: vi.fn(async () => undefined),
+  disableBiometrics: vi.fn(async () => undefined),
 }))
 
 vi.mock('../api/vault', () => ({
   exportData: mocks.exportData,
   lockVault: mocks.lockVault,
   removeVaultFromDevice: mocks.removeVaultFromDevice,
-  hasBiometricData: vi.fn(() => false),
+  hasBiometricData: mocks.hasBiometricData,
+  subscribeBiometrics: mocks.subscribeBiometrics,
   isWebAuthnPrfSupported: vi.fn(async () => true),
-  enableBiometrics: vi.fn(async () => undefined),
-  disableBiometrics: vi.fn(async () => undefined),
+  enableBiometrics: mocks.enableBiometrics,
+  disableBiometrics: mocks.disableBiometrics,
 }))
 
 vi.mock('../features/items/mutations/itemMutations', () => ({
@@ -196,5 +201,54 @@ describe('useSettings backup portability', () => {
 
     expect(mocks.setMessage).toHaveBeenCalledWith({ message: 'Auto-lock settings saved' })
     expect(result.current.values.autoLockSummary).toBe('When app loses focus')
+  })
+
+  it('updates biometricsEnabled state when biometric store updates', async () => {
+    let biometricListener: (() => void) | null = null
+    let biometricActive = false
+
+    mocks.hasBiometricData.mockImplementation(() => biometricActive)
+    mocks.subscribeBiometrics.mockImplementation((cb: () => void) => {
+      biometricListener = cb
+      return () => {
+        biometricListener = null
+      }
+    })
+
+    const { result } = renderHook(() => useSettings(mockItems))
+    expect(result.current.values.biometricsEnabled).toBe(false)
+
+    // Simulate enabling biometrics
+    await act(async () => {
+      await result.current.actions.handleToggleBiometrics()
+    })
+    expect(mocks.enableBiometrics).toHaveBeenCalledWith('acct-1')
+    expect(mocks.setMessage).toHaveBeenCalledWith({
+      severity: 'success',
+      message: 'Biometric unlock enabled',
+    })
+
+    // Simulate subscriber notification that biometrics are now enabled
+    act(() => {
+      biometricActive = true
+      biometricListener?.()
+    })
+    expect(result.current.values.biometricsEnabled).toBe(true)
+
+    // Simulate disabling biometrics
+    await act(async () => {
+      await result.current.actions.handleToggleBiometrics()
+    })
+    expect(mocks.disableBiometrics).toHaveBeenCalledTimes(1)
+    expect(mocks.setMessage).toHaveBeenCalledWith({
+      message: 'Biometric unlock disabled',
+    })
+
+    // Simulate password change / external clear event
+    act(() => {
+      biometricActive = false
+      biometricListener?.()
+    })
+    expect(result.current.values.biometricsEnabled).toBe(false)
   })
 })

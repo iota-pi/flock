@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { SyncBridge } from '../sync/client/SyncBridge'
 
 import { getNaturalPrayerGoal } from '../utils/prayer'
@@ -8,6 +8,7 @@ import {
   enableBiometrics,
   disableBiometrics,
   hasBiometricData,
+  subscribeBiometrics,
   isWebAuthnPrfSupported,
 } from '../api/vault'
 import { useMetadata } from '../state/selectors'
@@ -45,7 +46,7 @@ export default function useSettings(items: Item[]) {
   const recoveryItemsExist = recoveryItems.length > 0
 
   const [biometricsSupported, setBiometricsSupported] = useState(false)
-  const [biometricsEnabled, setBiometricsEnabled] = useState(() => hasBiometricData())
+  const biometricsEnabled = useSyncExternalStore(subscribeBiometrics, hasBiometricData, () => false)
   const [autoLockSettings, setAutoLockSettings] = useState(() => readAutoLockSettings())
 
   useEffect(() => {
@@ -55,12 +56,10 @@ export default function useSettings(items: Item[]) {
   const handleToggleBiometrics = useCallback(async () => {
     if (biometricsEnabled) {
       disableBiometrics()
-      setBiometricsEnabled(false)
       setMessage({ message: 'Biometric unlock disabled' })
     } else {
       try {
         await enableBiometrics(account)
-        setBiometricsEnabled(true)
         setMessage({ severity: 'success', message: 'Biometric unlock enabled' })
       } catch (err) {
         console.error('[useSettings] enableBiometrics failed', err)

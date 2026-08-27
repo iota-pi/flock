@@ -3,6 +3,7 @@ import {
   writeBiometricData,
   clearBiometricData,
   hasBiometricData,
+  subscribeBiometrics,
   BIOMETRIC_STORAGE_KEY,
 } from './biometricStore'
 
@@ -51,5 +52,29 @@ describe('biometricStore', () => {
     localStorage.setItem(BIOMETRIC_STORAGE_KEY, 'invalid-json')
     expect(readBiometricData()).toBeNull()
     expect(hasBiometricData()).toBe(false)
+  })
+
+  it('notifies subscribers when biometric data is written and cleared', () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeBiometrics(listener)
+
+    const data = {
+      credentialId: 'cred-123',
+      prfSalt: 'salt-456',
+      encryptedMasterKey: {
+        iv: 'iv-789',
+        cipher: 'cipher-012',
+      },
+    }
+
+    writeBiometricData(data)
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    clearBiometricData()
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+    writeBiometricData(data)
+    expect(listener).toHaveBeenCalledTimes(2)
   })
 })
