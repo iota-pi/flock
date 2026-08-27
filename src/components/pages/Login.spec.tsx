@@ -120,8 +120,72 @@ describe('LoginPage', () => {
     })
 
     await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined()
       expect(screen.getByText(/Incorrect password\. Please try again\./i)).toBeDefined()
       expect(useAppStore.getState().message).toBeNull()
     })
+  })
+
+  it('allows dismissing error alert with close button', async () => {
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
+      salt: 'test-salt',
+      iterations: 5000,
+      saltVersion: 1,
+    })
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+
+    renderLoginPage()
+
+    const accountInput = screen.getByLabelText(/Account ID/i)
+    const passwordInput = screen.getByLabelText(/Password/i)
+    const loginButton = screen.getByRole('button', { name: /Login/i })
+
+    await act(async () => {
+      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
+      fireEvent.click(loginButton)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined()
+    })
+
+    const closeButton = screen.getByRole('button', { name: /close/i })
+    await act(async () => {
+      fireEvent.click(closeButton)
+    })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('clears error alert when typing in input fields', async () => {
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
+      salt: 'test-salt',
+      iterations: 5000,
+      saltVersion: 1,
+    })
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+
+    renderLoginPage()
+
+    const accountInput = screen.getByLabelText(/Account ID/i)
+    const passwordInput = screen.getByLabelText(/Password/i)
+    const loginButton = screen.getByRole('button', { name: /Login/i })
+
+    await act(async () => {
+      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
+      fireEvent.click(loginButton)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined()
+    })
+
+    await act(async () => {
+      fireEvent.change(passwordInput, { target: { value: 'wrong-pass-2' } })
+    })
+
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

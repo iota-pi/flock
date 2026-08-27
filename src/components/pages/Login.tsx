@@ -227,11 +227,17 @@ function LoginPage() {
     [navigate],
   )
   const handleChangeAccount = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setAccountInput(event.target.value),
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setAccountInput(event.target.value)
+      setError('')
+    },
     [],
   )
   const handleChangePassword = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setPassword(event.target.value)
+      setError('')
+    },
     [],
   )
   const handleClickVisibility = useCallback(
@@ -411,11 +417,15 @@ function LoginPage() {
           )}
 
           {error && (
-            <Typography color="error" sx={{
-              mt: 2
-            }}>
-              {error}
-            </Typography>
+            <Box sx={{ mt: 3 }}>
+              <Alert
+                severity="error"
+                onClose={() => setError('')}
+                data-cy="login-error"
+              >
+                {error}
+              </Alert>
+            </Box>
           )}
         </Section>
 
