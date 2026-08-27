@@ -295,11 +295,14 @@ export async function loginVault({
 }) {
   await initialiseVault({ password, salt, iterations, saltVersion })
 
+  let passwordVerified = false
+
   // Phase 1: Load cached keyring for offline operation
   const cachedKeyring = readCachedKeyring()
   if (cachedKeyring) {
     try {
       await loadKeyringFromEncrypted(cachedKeyring)
+      passwordVerified = true
     } catch {
       clearCachedKeyring()
     }
@@ -308,8 +311,14 @@ export async function loginVault({
   // Phase 2: Best-effort server session
   try {
     await establishSessionFromKeyHash(account, keyHash)
+    passwordVerified = true
   } catch (err) {
     console.info('[vault] Operating in offline mode — sync deferred:', err)
+  }
+
+  if (!passwordVerified) {
+    clearKeyData()
+    throw new Error('Incorrect password. Please try again.')
   }
 
   // If session was established, sync latest keyring from server

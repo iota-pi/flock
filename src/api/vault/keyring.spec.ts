@@ -380,4 +380,83 @@ describe('Vault Keyring Integration', () => {
     expect(readCachedKeyring()).toBeNull()
     expect(localStorage.getItem(KEYRING_CACHE_KEY)).toBeNull()
   })
+
+  it('throws when password cannot be verified (no cached keyring and server session fails)', async () => {
+    vi.mocked(getSession).mockRejectedValueOnce(new Error('Invalid auth token'))
+
+    await expect(
+      loginVault({
+        account: 'test-account',
+        password: 'wrong-password',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+    ).rejects.toThrow(/Incorrect password/)
+
+    expect(() => getVaultKey('1')).toThrow()
+  })
+
+  it('succeeds offline when cached keyring decryption validates the password', async () => {
+    // First, login normally to seed the keyring cache
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    const cachedKeyring = readCachedKeyring()
+    expect(cachedKeyring).toBeDefined()
+
+    // Clear memory keyring state, simulate offline
+    await removeVaultFromDevice()
+    // Restore the cached keyring
+    localStorage.setItem(KEYRING_CACHE_KEY, cachedKeyring!)
+
+    vi.mocked(getSession).mockRejectedValueOnce(new Error('Network offline'))
+    vi.mocked(getKeyring).mockRejectedValueOnce(new Error('Network offline'))
+
+    // Should succeed with correct password and cached keyring
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    expect(getVaultKey('1')).toBeDefined()
+  })
+
+  it('throws offline when incorrect password fails cached keyring decryption and server session fails', async () => {
+    // First, login normally to seed the keyring cache
+    await loginVault({
+      account: 'test-account',
+      password: 'password123',
+      salt: 'salt123',
+      iterations: 1000,
+    })
+
+    const cachedKeyring = readCachedKeyring()
+    expect(cachedKeyring).toBeDefined()
+
+    // Clear memory keyring state, simulate offline
+    await removeVaultFromDevice()
+    // Restore the cached keyring
+    localStorage.setItem(KEYRING_CACHE_KEY, cachedKeyring!)
+
+    vi.mocked(getSession).mockRejectedValueOnce(new Error('Network offline'))
+    vi.mocked(getKeyring).mockRejectedValueOnce(new Error('Network offline'))
+
+    // Should fail with incorrect password
+    await expect(
+      loginVault({
+        account: 'test-account',
+        password: 'wrong-password',
+        salt: 'salt123',
+        iterations: 1000,
+      })
+    ).rejects.toThrow(/Incorrect password/)
+
+    expect(() => getVaultKey('1')).toThrow()
+  })
 })
