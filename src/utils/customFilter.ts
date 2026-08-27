@@ -5,7 +5,7 @@ import { getLastPrayedFor } from './prayer'
 import type { GroupLookupData, ItemType } from '../shared/itemTypes'
 
 type FilterFieldType = (
-  'string' | 'number' | 'boolean' | 'date' | 'frequency'
+  'string' | 'number' | 'boolean' | 'date' | 'frequency' | 'group'
 )
 type FilterBaseOperatorName = (
   'is' |
@@ -70,7 +70,7 @@ export const FILTER_CRITERIA_DISPLAY_MAP: (
     operators: ['contains', 'notcontains', 'is', 'isnot'],
   },
   groups: {
-    dataType: 'string',
+    dataType: 'group',
     name: 'Group membership',
     operators: ['contains', 'notcontains'],
   },
@@ -146,9 +146,16 @@ const criterionEvaluators: Record<
   groups: (item, criterion, groupsByMemberId) => {
     const groupData = groupsByMemberId?.get(item.id)
     const groupNames = groupData?.groupNames ?? []
+    const groupIds = groupData?.groupIds ?? []
     const value = (criterion.value as string).toLocaleLowerCase()
     if (criterion.baseOperator === 'contains') {
-      return groupNames.some(gName => gName.toLocaleLowerCase().includes(value))
+      if (!value) {
+        return true
+      }
+      return (
+        groupIds.some(gId => gId.toLocaleLowerCase() === value) ||
+        groupNames.some(gName => gName.toLocaleLowerCase().includes(value))
+      )
     }
     return true
   },
@@ -217,6 +224,7 @@ export function getBaseValue(field: FilterCriterionType): FilterCriterion['value
   if (dataType === 'number') return 0
   if (dataType === 'string') return ''
   if (dataType === 'frequency') return 'monthly' as Frequency
+  if (dataType === 'group') return ''
 
   throw new Error(`Unknown data type ${dataType}`)
 }

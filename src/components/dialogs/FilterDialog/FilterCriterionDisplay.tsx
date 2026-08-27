@@ -1,4 +1,5 @@
 import { ChangeEvent, useCallback, useMemo } from 'react'
+import Autocomplete from '@mui/material/Autocomplete'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
@@ -16,12 +17,16 @@ import {
 import { RemoveIcon } from '../../Icons'
 import FrequencyPicker from '../../FrequencyPicker'
 import { Frequency } from 'src/utils/frequencies'
+import { useItemsOfType } from 'src/state/selectors'
+import type { GroupItem } from 'src/shared/schemas/items'
+import { getItemName } from 'src/state/items'
 
 
 export function FilterCriterionDisplay({
   availableCriteria,
   chosenCriteria,
   criterion,
+  groups,
   onChange,
   onRemove,
   index,
@@ -29,6 +34,7 @@ export function FilterCriterionDisplay({
   availableCriteria?: FilterCriterionType[],
   chosenCriteria: Set<FilterCriterionType>,
   criterion: FilterCriterion,
+  groups?: GroupItem[],
   onChange: (index: number, criterion: FilterCriterion) => void,
   onRemove: (index: number) => void,
   index: number,
@@ -84,6 +90,39 @@ export function FilterCriterionDisplay({
       })
     },
     [criterion, onChange, index],
+  )
+  const storeGroups = useItemsOfType<GroupItem>('group')
+  const availableGroups = groups ?? storeGroups
+
+  const activeGroups = useMemo(
+    () => availableGroups.filter(g => !g.archived),
+    [availableGroups],
+  )
+  const sortedActiveGroups = useMemo(
+    () => [...activeGroups].sort((a, b) => (
+      (getItemName(a) || '').localeCompare(getItemName(b) || '', undefined, { sensitivity: 'base' })
+    )),
+    [activeGroups],
+  )
+
+  const selectedGroup = useMemo(() => {
+    if (!criterion.value) return null
+    return (
+      activeGroups.find(
+        g => g.id === criterion.value || g.name === criterion.value || getItemName(g) === criterion.value,
+      ) ?? null
+    )
+  }, [activeGroups, criterion.value])
+
+  const handleChangeGroupValue = useCallback(
+    (_event: React.SyntheticEvent, newValue: GroupItem | string | null) => {
+      const value = newValue ? (typeof newValue === 'string' ? newValue : getItemName(newValue)) : ''
+      onChange(index, {
+        ...criterion,
+        value,
+      })
+    },
+    [criterion, index, onChange],
   )
   const handleChangeFrequencyValue = useCallback(
     (frequency: Frequency) => {
@@ -153,6 +192,29 @@ export function FilterCriterionDisplay({
           onChange={handleChangeValue}
           value={criterion.value}
           variant="standard"
+        />
+      )}
+      {criterionDetails.dataType === 'group' && (
+        <Autocomplete
+          data-cy="filter-criterion-value"
+          fullWidth
+          getOptionLabel={option => (typeof option === 'string' ? option : getItemName(option))}
+          isOptionEqualToValue={(option, val) => (
+            typeof val === 'string'
+              ? option.name === val || option.id === val || getItemName(option) === val
+              : option.id === val.id
+          )}
+          noOptionsText="No groups found"
+          onChange={handleChangeGroupValue}
+          options={sortedActiveGroups}
+          renderInput={params => (
+            <TextField
+              {...params}
+              label="Value"
+              variant="standard"
+            />
+          )}
+          value={selectedGroup}
         />
       )}
       {criterionDetails.dataType === 'number' && (
