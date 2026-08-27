@@ -354,7 +354,7 @@ export class SyncWorker implements SyncApi {
     const pendingSyncRaw = await loadSyncBatch(context.accountId)
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
       itemId,
-      messages.map(encodeBytesToBase64)
+      messages.map(m => encodeBytesToBase64(m.data))
     ] as [ItemId, string[]])
     const lastModified = context.snapshotManager.exportLastModified()
 
