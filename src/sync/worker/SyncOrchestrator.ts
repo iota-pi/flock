@@ -54,9 +54,6 @@ export class SyncOrchestrator {
     this.broker.setSendEnabled(isLeader)
 
     if (isLeader) {
-      if (this.isOnline) {
-        this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
-      }
       this.startPolling(true)
     } else {
       this.stopPolling()
@@ -72,14 +69,12 @@ export class SyncOrchestrator {
 
     if (!isOnline) {
       this.stopPolling()
-      this.clientEventHub.emit({ type: 'statusChange', status: 'offline' })
       return
     }
 
     if (this.isLeader) {
       this.resetPollBackoff()
       this.startPolling(true)
-      this.clientEventHub.emit({ type: 'statusChange', status: 'idle' })
     }
   }
 

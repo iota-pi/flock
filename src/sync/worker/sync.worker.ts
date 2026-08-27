@@ -13,7 +13,7 @@ import { initWorkerVault } from '../../api/vault'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import type { SyncStatus } from '../../state/slices/syncSlice'
+import { SyncStatusManager } from './SyncStatusManager'
 import { registerQuotaReporter, resetQuotaExceededStatus } from '../../utils/storageManager'
 import { type BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
@@ -55,7 +55,7 @@ export class SyncWorker implements SyncApi {
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
-  private syncStatus: SyncStatus = 'idle'
+  private syncStatusManager = new SyncStatusManager(this.clientEventHub)
   private unsubscribeRealtimeBus: (() => void) | null = null
   private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
@@ -64,12 +64,6 @@ export class SyncWorker implements SyncApi {
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
     return this._context
-  }
-
-  private updateStatus(status: SyncStatus) {
-    if (this.syncStatus === status) return
-    this.syncStatus = status
-    this.clientEventHub.emit({ type: 'statusChange', status })
   }
 
   async initRepo(accountId: string, vaultKey: string) {
@@ -121,6 +115,7 @@ export class SyncWorker implements SyncApi {
     if (globalEventPort) {
       this.clientEventHub.setExternalPort(globalEventPort)
     }
+    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
     this.internalEventHub = new WorkerInternalEventHub()
     registerQuotaReporter((msg: string) => {
       this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
@@ -174,14 +169,11 @@ export class SyncWorker implements SyncApi {
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
-        case 'statusChange':
-          this.syncStatus = event.status
-          break
         case 'startRequest':
-          if (this.isOnline) this.updateStatus('syncing')
+          this.syncStatusManager.startRequest()
           break
         case 'finishRequest':
-          if (this.isOnline && this.syncStatus === 'syncing') this.updateStatus('idle')
+          this.syncStatusManager.finishRequest()
           break
         case 'indexUpdated': {
           this.scheduleDeletions(event.itemIds)
@@ -220,7 +212,7 @@ export class SyncWorker implements SyncApi {
     })
 
     this.clientEventHub.emit({ type: 'ready' })
-    this.updateStatus(this.isOnline ? 'idle' : 'offline')
+    this.syncStatusManager.reset(this.isOnline)
     this._context.deletionQueueManager.startTimer()
   }
 
@@ -229,34 +221,11 @@ export class SyncWorker implements SyncApi {
 
     this.context.orchestrator.setOnlineState(isOnline)
     this.context.snapshotManager.onOnlineStateChange(isOnline)
-
-    if (!isOnline) {
-      this.updateStatus('offline')
-      return
-    }
-
-    if (this.syncStatus === 'offline') {
-      this.updateStatus('degraded')
-      return
-    }
-
-    if (this.syncStatus !== 'syncing') {
-      this.updateStatus('idle')
-    }
+    this.syncStatusManager.setOnlineState(isOnline)
   }
 
   handlePollResult(outcome: PollOutcome) {
-    if (!this.isOnline) return
-
-    if (outcome === 'failure') {
-      this.updateStatus('degraded')
-    } else if (outcome === 'success') {
-      if (this.syncStatus !== 'syncing') {
-        this.updateStatus('idle')
-      }
-    } else if (outcome !== 'no-poll') {
-      this.updateStatus('offline')
-    }
+    this.syncStatusManager.handlePollResult(outcome)
   }
 
   subscribeToItems(itemIds: ItemId[]) {
