@@ -132,7 +132,9 @@ export class SyncOrchestrator {
     if (this.syncBatchTimeout) {
       self.clearTimeout(this.syncBatchTimeout)
       this.syncBatchTimeout = null
-      this.pendingFlush = true
+      if (!this.isShutdown) {
+        this.pendingFlush = true
+      }
     }
     this.nextPollAt = 0
   }
