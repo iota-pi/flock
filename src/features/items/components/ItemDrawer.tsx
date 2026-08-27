@@ -58,6 +58,14 @@ function ItemDrawer({
   const storeItem = useItem(itemId ?? '' as ItemId)
   const setMessage = useAppStore(state => state.setMessage)
   const [showConfirmDelete, setShowConfirmDelete] = useState(false)
+  const [hasEdited, setHasEdited] = useState(false)
+
+  const [prevItemId, setPrevItemId] = useState(itemId)
+
+  if (itemId !== prevItemId) {
+    setPrevItemId(itemId)
+    setHasEdited(false)
+  }
 
   const resolvedItem = useMemo((): Item | null => {
     if (storeItem) {
@@ -70,6 +78,7 @@ function ItemDrawer({
     (data: Partial<Item> | ((prev: Item) => Item)) => {
       if (!itemId || !resolvedItem) return
 
+      setHasEdited(true)
       const changes = typeof data === 'function' ? data(resolvedItem) : data
 
       mutateItem(itemId, changes).catch(error => console.error(error))
@@ -84,14 +93,16 @@ function ItemDrawer({
       if (itemId !== null && isNew) {
         const latestItem = useAppStore.getState().items[itemId] as Item | undefined
         const itemToCheck = latestItem || resolvedItem
-        if (itemToCheck && !isValid(itemToCheck)) {
+        // If the user edited the item, assume it's valid and don't delete it
+        // even if a race condition temporarily makes it appear invalid.
+        if (!hasEdited && itemToCheck && !isValid(itemToCheck)) {
           deleteItems(itemId).catch(error => console.error(error))
         }
       }
 
       onClose()
     },
-    [itemId, isNew, resolvedItem, onClose],
+    [hasEdited, itemId, isNew, resolvedItem, onClose],
   )
 
   const handleDelete = useCallback(

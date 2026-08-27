@@ -340,7 +340,7 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addToGroup',
   (group: string): Cypress.Chainable => {
-    cy.dataCy('groups').type(group)
+    cy.dataCy('groups').clear().type(group)
     cy.contains('[role="option"]', group).click()
     cy.get('body').type('{esc}')
     return cy
@@ -350,7 +350,7 @@ Cypress.Commands.add(
 Cypress.Commands.add(
   'addMember',
   (name: string): Cypress.Chainable => {
-    cy.dataCy('members').type(name)
+    cy.dataCy('members').clear().type(name)
     cy.contains('[role="option"]', name).click()
     cy.get('body').type('{esc}')
     return cy
@@ -365,6 +365,12 @@ Cypress.Commands.add(
     }).then($button => {
       const networkMode = (Cypress.expose('NETWORK_MODE') as NetworkMode | undefined) || 'online'
       const shouldWaitForNetwork = networkMode !== 'offline'
+
+      // Wait for React state, DebouncedTextField flushes, and Automerge worker 
+      // optimistic updates to settle. This prevents a race condition where the 
+      // UI temporarily receives an `itemUpdated(blank)` from the worker just as 
+      // the drawer closes, causing the item to be incorrectly deleted as invalid.
+      cy.wait(250, { log: false })
 
       cy.wrap($button).click()
 
