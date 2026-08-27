@@ -98,4 +98,30 @@ describe('LoginPage', () => {
       expect(screen.getByText(/Could not find matching account ID and password/i)).toBeDefined()
     })
   })
+
+  it('displays incorrect password error and does not show server failure message', async () => {
+    vi.spyOn(vault, 'getSecurityParams').mockResolvedValue({
+      salt: 'test-salt',
+      iterations: 5000,
+      saltVersion: 1,
+    })
+    vi.spyOn(vault, 'loginVault').mockRejectedValue(new Error('Incorrect password. Please try again.'))
+
+    renderLoginPage()
+
+    const accountInput = screen.getByLabelText(/Account ID/i)
+    const passwordInput = screen.getByLabelText(/Password/i)
+    const loginButton = screen.getByRole('button', { name: /Login/i })
+
+    await act(async () => {
+      fireEvent.change(accountInput, { target: { value: 'my-account' } })
+      fireEvent.change(passwordInput, { target: { value: 'wrong-pass' } })
+      fireEvent.click(loginButton)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Incorrect password\. Please try again\./i)).toBeDefined()
+      expect(useAppStore.getState().message).toBeNull()
+    })
+  })
 })

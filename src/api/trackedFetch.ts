@@ -1,6 +1,7 @@
 import { getApiAuthToken, getSessionExpiredHandler } from './runtime'
+import { getOnlineState } from 'src/utils/onlineStatus'
 
-class ApiHttpError extends Error {
+export class ApiHttpError extends Error {
   readonly status: number
   readonly url: string
 
@@ -16,6 +17,18 @@ function isCypressRuntime(): boolean {
   return typeof window !== 'undefined' && !!(window as Window & { Cypress?: unknown }).Cypress
 }
 
+function shouldShowServerErrorMessage(error: unknown): boolean {
+  if (!getOnlineState()) {
+    return false
+  }
+
+  if (error instanceof ApiHttpError && (error.status === 401 || error.status === 403)) {
+    return false
+  }
+
+  return true
+}
+
 async function trackedRequest<T>(
   factory: () => Promise<T>,
   start: () => void,
@@ -27,7 +40,11 @@ async function trackedRequest<T>(
     stop()
     return result
   } catch (error) {
-    stop('A request to the server failed. Please retry later.')
+    if (shouldShowServerErrorMessage(error)) {
+      stop('A request to the server failed. Please retry later.')
+    } else {
+      stop()
+    }
     throw error
   }
 }
@@ -69,7 +86,7 @@ export function getTrackedFetch(
           message: `Server request failed (${response.status}) for ${requestUrl}`,
         })
 
-        if (isCypressRuntime()) {
+        if (isCypressRuntime() && response.status !== 401 && response.status !== 403) {
           setTimeout(() => {
             throw error
           }, 0)
