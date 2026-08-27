@@ -35,6 +35,17 @@ self.addEventListener('message', ev => {
   if (ev.data && ev.data.type === 'EVENT_PORT') {
     globalEventPort = ev.data.port
   }
+  if (ev.data && ev.data.type === 'INIT_PING_PORT') {
+    const pingPort: MessagePort = ev.data.port
+    pingPort.onmessage = (event) => {
+      if (event.data === 'ping') {
+        pingPort.postMessage('pong')
+      }
+    }
+    if (typeof pingPort.start === 'function') {
+      pingPort.start()
+    }
+  }
 })
 
 export class SyncWorker implements SyncApi {
@@ -431,8 +442,6 @@ export class SyncWorker implements SyncApi {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
   }
-
-  async ping() {}
 }
 
 Comlink.expose(new SyncWorker())

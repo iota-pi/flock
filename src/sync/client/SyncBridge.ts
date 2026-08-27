@@ -23,6 +23,7 @@ let onlineListenerAttached = false
 const pendingItemUpdates = new Map<string, Item | null>()
 let itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
 let _globalEventChannel: MessageChannel | null = null
+let _pingChannel: MessageChannel | null = null
 
 let recoveryEntries: ManualRecoveryEntry[] = []
 const recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
@@ -154,12 +155,18 @@ export const SyncBridge = {
         workerInstance = worker
         const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
-        _globalEventChannel = new MessageChannel()
-        _globalEventChannel.port1.onmessage = ev => {
+        const globalEventChannel = new MessageChannel()
+        _globalEventChannel = globalEventChannel
+        globalEventChannel.port1.onmessage = ev => {
           handleSyncEvent(ev.data as ClientEvent)
         }
-        _globalEventChannel.port1.start()
-        worker.postMessage({ type: 'EVENT_PORT', port: _globalEventChannel.port2 }, [_globalEventChannel.port2])
+        globalEventChannel.port1.start()
+        worker.postMessage({ type: 'EVENT_PORT', port: globalEventChannel.port2 }, [globalEventChannel.port2])
+
+        const pingChannel = new MessageChannel()
+        _pingChannel = pingChannel
+        pingChannel.port1.start()
+        worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
         await wrappedApi.initRepo(
           accountId,
@@ -204,15 +211,17 @@ export const SyncBridge = {
         useAppStore.getState().clearSyncWarning()
         setupWorkerHealthCheck({
           worker,
-          pingFn: async () => {
-            if (syncApi) await syncApi.ping()
-          },
+          pingPort: pingChannel.port1,
           isCurrentWorker: () => workerInstance === worker && !!syncApi,
           onCrash: () => {
             if (workerInstance === worker) {
               if (_globalEventChannel) {
                 _globalEventChannel.port1.close()
                 _globalEventChannel = null
+              }
+              if (_pingChannel) {
+                _pingChannel.port1.close()
+                _pingChannel = null
               }
               workerInstance = null
               syncApi = null
@@ -237,6 +246,10 @@ export const SyncBridge = {
         if (_globalEventChannel) {
           _globalEventChannel.port1.close()
           _globalEventChannel = null
+        }
+        if (_pingChannel) {
+          _pingChannel.port1.close()
+          _pingChannel = null
         }
         if (workerInstance === worker) {
           workerInstance = null
@@ -366,8 +379,12 @@ export const SyncBridge = {
 
     const oldWorker = workerInstance
     const oldSyncApi = syncApi
+    const oldGlobalEventChannel = _globalEventChannel
+    const oldPingChannel = _pingChannel
     workerInstance = null
     syncApi = null
+    _globalEventChannel = null
+    _pingChannel = null
 
     if (!options?.internalRestart) {
       if (itemUpdateFlushHandle !== null) {
@@ -394,9 +411,11 @@ export const SyncBridge = {
     if (oldWorker) {
       oldWorker.terminate()
     }
-    if (_globalEventChannel) {
-      _globalEventChannel.port1.close()
-      _globalEventChannel = null
+    if (oldGlobalEventChannel) {
+      oldGlobalEventChannel.port1.close()
+    }
+    if (oldPingChannel) {
+      oldPingChannel.port1.close()
     }
     if (!initializationPromise) {
       useAppStore.getState().setSyncStatus('offline')

@@ -19,7 +19,6 @@ const mockSyncApi = {
   forceSync: vi.fn().mockResolvedValue(undefined),
   fullResync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
-  ping: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -33,7 +32,25 @@ class MockWorker {
   url: string
   options: any
   terminate = vi.fn()
-  postMessage = vi.fn()
+  postMessage = vi.fn((data: any) => {
+    if (data && data.type === 'INIT_PING_PORT' && data.port) {
+      const port = data.port
+      const reply = () => {
+        port.postMessage?.('pong')
+      }
+      if (typeof port.addEventListener === 'function') {
+        port.addEventListener('message', (event: any) => {
+          if (event.data === 'ping') reply()
+        })
+      }
+      port.onmessage = (event: any) => {
+        if (event.data === 'ping') reply()
+      }
+      if (typeof port.start === 'function') {
+        port.start()
+      }
+    }
+  })
   private listeners: Record<string, ((event: any) => void)[]> = {}
 
   addEventListener = vi.fn((event: string, handler: (event: any) => void) => {
@@ -198,17 +215,16 @@ describe('SyncBridge', () => {
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
+        // Mock ping port to hang / not respond
+        this.postMessage = vi.fn()
       }
     } as any
-
-    // Mock ping to hang forever
-    mockSyncApi.ping.mockImplementation(() => new Promise(() => {}))
 
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
 
-    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (5s)
-    await vi.advanceTimersByTimeAsync(20000)
+    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s)
+    await vi.advanceTimersByTimeAsync(45000)
 
     expect(useAppStore.getState().syncStatus).toBe('connecting')
     expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
@@ -217,8 +233,6 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(initializeSpy).toHaveBeenCalledTimes(2)
 
-    // Clean up mock
-    mockSyncApi.ping.mockReset().mockResolvedValue(undefined)
     vi.useRealTimers()
   })
 
@@ -363,7 +377,7 @@ describe('SyncBridge', () => {
     ])
   })
 
-  it('closes _globalEventChannel.port1 on worker crash', async () => {
+  it('closes _globalEventChannel.port1 and _pingChannel.port1 on worker crash', async () => {
     let capturedWorker: any = null
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
@@ -374,18 +388,27 @@ describe('SyncBridge', () => {
     } as any
 
     const originalMessageChannel = globalThis.MessageChannel
-    let port1CloseSpy: any
+    const closeSpies: any[] = []
     class MockMessageChannel {
       port1 = {
         onmessage: null,
         start: vi.fn(),
         close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
       }
 
-      port2 = {}
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
 
       constructor() {
-        port1CloseSpy = this.port1.close
+        closeSpies.push(this.port1.close)
       }
     }
     globalThis.MessageChannel = MockMessageChannel as any
@@ -393,12 +416,13 @@ describe('SyncBridge', () => {
     try {
       await SyncBridge.initialize('test-account')
       expect(capturedWorker).not.toBeNull()
-      expect(port1CloseSpy).not.toHaveBeenCalled()
+      expect(closeSpies.length).toBe(2)
+      closeSpies.forEach(spy => expect(spy).not.toHaveBeenCalled())
 
       // Trigger worker crash error
       capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
 
-      expect(port1CloseSpy).toHaveBeenCalledTimes(1)
+      closeSpies.forEach(spy => expect(spy).toHaveBeenCalledTimes(1))
     } finally {
       globalThis.MessageChannel = originalMessageChannel
     }
