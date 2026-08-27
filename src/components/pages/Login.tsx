@@ -88,6 +88,13 @@ function LoginPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
+  const [wasManuallyLocked] = useState(() => {
+    const flag = sessionStorage.getItem('flock-manual-lock') === 'true'
+    if (flag) {
+      sessionStorage.removeItem('flock-manual-lock')
+    }
+    return flag
+  })
   const hasAutoPromptedRef = useRef(false)
 
   const handleClickHome = useCallback(
@@ -185,6 +192,11 @@ function LoginPage() {
 
   useEffect(() => {
     if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
+      if (wasManuallyLocked) {
+        hasAutoPromptedRef.current = true
+        return
+      }
+
       if (document.visibilityState === 'hidden') {
         const handleVisibilityChange = () => {
           if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
@@ -206,7 +218,7 @@ function LoginPage() {
         })
       }
     }
-  }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
+  }, [accountInput, justCreatedAccount, handleClickBiometricUnlock, wasManuallyLocked])
 
   const handleClickCreate = useCallback(
     () => {
