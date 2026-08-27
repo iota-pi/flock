@@ -1,5 +1,5 @@
 import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { deleteItems, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
+import { createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../sync/client/SyncBridge'
 import { setApiAuthToken } from './runtime'
 import { useAppStore } from '../state/store'
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../sync/client/SyncBridge', () => ({
   SyncBridge: {
+    mutateItem: vi.fn(async () => true),
     storeItems: vi.fn(async () => true),
     createItem: vi.fn(async () => true),
     mutateMetadata: vi.fn(async () => true),
@@ -26,15 +27,30 @@ vi.mock('./util', () => ({
 }))
 
 
-const mockStoreState = vi.hoisted(() => ({
-  pruneItemDrawers: mocks.pruneItemDrawers,
-  closeIfOpen: vi.fn(),
-  optimisticUpdateItem: vi.fn(),
-  updateItemsFromServer: vi.fn(),
-  updateMetadataFromServer: vi.fn(),
-  items: {} as any,
-  metadata: {} as any,
-}))
+const mockStoreState = vi.hoisted(() => {
+  const state = {
+    pruneItemDrawers: mocks.pruneItemDrawers,
+    closeIfOpen: vi.fn(),
+    optimisticUpdateItem: vi.fn((id: string, partial: any) => {
+      state.items[id] = { ...state.items[id], ...partial }
+    }),
+    updateItemsFromServer: vi.fn((updates: any[]) => {
+      for (const update of updates) {
+        if (update.item) {
+          state.items[update.id] = update.item
+        } else {
+          delete state.items[update.id]
+        }
+      }
+    }),
+    updateMetadataFromServer: vi.fn((metadata: any) => {
+      state.metadata = { ...state.metadata, ...metadata }
+    }),
+    items: {} as any,
+    metadata: {} as any,
+  }
+  return state
+})
 
 vi.mock('../state/store', () => ({
   useAppStore: Object.assign(
@@ -126,6 +142,135 @@ describe('local-first mutations', () => {
 
     expect(metadataState.prayerGoal).toBe(25)
     expect(metadataState.sortCriteria).toEqual([{ type: 'name', reverse: false }])
+  })
+
+  describe('optimistic update rollbacks on worker failure', () => {
+    it('rolls back mutateItem on SyncBridge failure', async () => {
+      const originalPerson = getBlankPerson('p1' as ItemId, false)
+      originalPerson.name = 'Original Name'
+      useAppStore.setState({
+        items: {
+          p1: originalPerson,
+        },
+      })
+
+      vi.mocked(SyncBridge.mutateItem).mockRejectedValueOnce(new Error('Worker crashed'))
+
+      await mutateItem('p1' as ItemId, { name: 'Optimistic Name' })
+
+      // Wait for promise microtask queue to flush the catch block
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: 'p1',
+          item: expect.objectContaining({
+            id: 'p1',
+            name: 'Original Name',
+          }),
+        },
+      ])
+    })
+
+    it('preserves concurrent edits on other fields during mutateItem rollback', async () => {
+      const originalPerson = getBlankPerson('p1' as ItemId, false)
+      originalPerson.name = 'Original Name'
+      originalPerson.summary = 'Original Summary'
+      useAppStore.setState({
+        items: {
+          p1: originalPerson,
+        },
+      })
+
+      let rejectMutate: (err: any) => void = () => {}
+      const mutatePromise = new Promise((_, reject) => {
+        rejectMutate = reject
+      })
+      vi.mocked(SyncBridge.mutateItem).mockReturnValueOnce(mutatePromise as any)
+
+      await mutateItem('p1' as ItemId, { name: 'New Name' })
+
+      // Simulate a concurrent edit to summary happening in between
+      useAppStore.setState({
+        items: {
+          p1: {
+            ...originalPerson,
+            name: 'New Name',
+            summary: 'Concurrent Summary Update',
+          },
+        },
+      })
+
+      rejectMutate(new Error('Worker timeout'))
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: 'p1',
+          item: expect.objectContaining({
+            id: 'p1',
+            name: 'Original Name',
+            summary: 'Concurrent Summary Update',
+          }),
+        },
+      ])
+    })
+
+    it('rolls back createItem on SyncBridge failure', async () => {
+      vi.mocked(SyncBridge.createItem).mockRejectedValueOnce(new Error('Worker error'))
+
+      const created = await createItem('person')
+
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: created.id,
+          item: null,
+        },
+      ])
+    })
+
+    it('rolls back storeItems on SyncBridge failure', async () => {
+      const originalPerson = getBlankPerson('p1' as ItemId, false)
+      originalPerson.name = 'Old Name'
+      useAppStore.setState({
+        items: {
+          p1: originalPerson,
+        },
+      })
+
+      vi.mocked(SyncBridge.storeItems).mockRejectedValueOnce(new Error('Automerge error'))
+
+      const updated = { ...originalPerson, name: 'New Name' }
+      await expect(storeItems(updated)).rejects.toThrow('Automerge error')
+
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: 'p1',
+          item: expect.objectContaining({
+            id: 'p1',
+            name: 'Old Name',
+          }),
+        },
+      ])
+    })
+
+    it('rolls back setMetadata on SyncBridge failure', async () => {
+      useAppStore.setState({
+        metadata: {
+          prayerGoal: 10,
+        },
+      })
+
+      vi.mocked(SyncBridge.mutateMetadata).mockRejectedValueOnce(new Error('Sync error'))
+
+      await expect(setMetadata({ prayerGoal: 50 } as any)).rejects.toThrow('Sync error')
+
+      expect(mockStoreState.updateMetadataFromServer).toHaveBeenCalledWith({
+        prayerGoal: 10,
+      })
+    })
   })
 })
 

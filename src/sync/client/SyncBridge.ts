@@ -70,7 +70,7 @@ const handleSyncEvent = (event: ClientEvent) => {
       useAppStore.getState().updateIndexFromServer(event.itemIds)
       break
     case 'metadataUpdated':
-      useAppStore.getState().updateMetadataFromServer(event.metadata)
+      useAppStore.getState().updateMetadata(event.metadata)
       break
     case 'mutationFailed':
       console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
