@@ -51,4 +51,38 @@ describe('syncHealthCoordinator watchers lifecycle', () => {
     initializeSyncHealthWatchers()
     expect(realtimeBus.subscribeRealtimeBusSyncPing).toHaveBeenCalledTimes(2)
   })
+
+  it('respects cooldown and lazily expires it', async () => {
+    vi.useFakeTimers()
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { reportDecryptionFailure } = await import('./syncHealthCoordinator')
+    const { upsertManualRecoveryEntry } = await import('../sync/shared/manualRecoveryStore')
+
+    reportDecryptionFailure('test-account', { itemId: 'item-1', error: new Error('fail') })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+      itemId: 'item-1',
+      reason: 'Automated recovery is unavailable for this revision',
+    })
+
+    // Second failure within cooldown window should not trigger upsertManualRecoveryEntry again
+    reportDecryptionFailure('test-account', { itemId: 'item-1', error: new Error('fail') })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
+
+    // Advance time past cooldown (60 seconds)
+    vi.advanceTimersByTime(61 * 1000)
+
+    // Now it should trigger again and lazily clear expired cooldown
+    reportDecryptionFailure('test-account', { itemId: 'item-1', error: new Error('fail') })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
+
+    consoleSpy.mockRestore()
+    vi.useRealTimers()
+  })
 })

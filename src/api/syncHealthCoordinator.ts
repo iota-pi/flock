@@ -27,29 +27,13 @@ let unsubscribeRealtimeBus: (() => void) | null = null
 class SyncHealthState {
   private inFlightItemIds = new Set<ItemId>()
   private cooldownUntilByItemId = new Map<ItemId, number>()
-  private cooldownCleanupTimeoutByItemId = new Map<ItemId, ReturnType<typeof setTimeout>>()
 
   clearRecoveryCooldown(itemId: ItemId): void {
-    const timeoutId = this.cooldownCleanupTimeoutByItemId.get(itemId)
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId)
-      this.cooldownCleanupTimeoutByItemId.delete(itemId)
-    }
-
     this.cooldownUntilByItemId.delete(itemId)
   }
 
   setRecoveryCooldown(itemId: ItemId, cooldownUntil: number): void {
-    this.clearRecoveryCooldown(itemId)
     this.cooldownUntilByItemId.set(itemId, cooldownUntil)
-
-    const delayMs = Math.max(0, cooldownUntil - Date.now())
-    const timeoutId = setTimeout(() => {
-      this.cooldownCleanupTimeoutByItemId.delete(itemId)
-      this.cooldownUntilByItemId.delete(itemId)
-    }, delayMs)
-
-    this.cooldownCleanupTimeoutByItemId.set(itemId, timeoutId)
   }
 
   getRecoveryCooldownUntil(itemId: ItemId): number {
@@ -77,10 +61,6 @@ class SyncHealthState {
   reset(): void {
     this.inFlightItemIds.clear()
     this.cooldownUntilByItemId.clear()
-    for (const timeoutId of this.cooldownCleanupTimeoutByItemId.values()) {
-      clearTimeout(timeoutId)
-    }
-    this.cooldownCleanupTimeoutByItemId.clear()
   }
 }
 
