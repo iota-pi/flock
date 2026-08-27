@@ -19,10 +19,10 @@ export const DRAWER_SPACING_NARROW = 10
 const StyledDrawer = styled(
   Drawer,
   {
-    shouldForwardProp: p => p !== 'minimised',
+    shouldForwardProp: p => p !== 'minimised' && p !== 'floating',
   },
-)<MinimisedProp>(
-  ({ minimised, open, theme }) => ({
+)<MinimisedProp & { floating: boolean }>(
+  ({ floating, minimised, open, theme }) => ({
     width: open ? (
       theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL)
     ) : 0,
@@ -32,7 +32,8 @@ const StyledDrawer = styled(
 
     '& .MuiDrawer-paper': {
       transition: theme.transitions.create('width'),
-      width: theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL),
+      width: (!floating && !open) ? 0 : theme.spacing(minimised ? DRAWER_SPACING_NARROW : DRAWER_SPACING_FULL),
+      overflowX: 'hidden',
     },
   }),
 )
@@ -52,6 +53,7 @@ interface Props {
   floating?: boolean,
   minimised?: boolean,
   onClick: () => void,
+  onClose?: () => void,
   onMinimise: () => void,
   open: boolean,
 }
@@ -61,6 +63,7 @@ function MainMenu({
   floating = false,
   minimised = false,
   onClick,
+  onClose,
   onMinimise,
   open,
 }: Props) {
@@ -124,8 +127,10 @@ function MainMenu({
 
   return (
     <StyledDrawer
+      floating={floating}
       minimised={minimised}
       open={open}
+      onClose={onClose}
       variant={floating ? 'temporary' : 'permanent'}
     >
       <Toolbar />

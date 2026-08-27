@@ -62,11 +62,11 @@ function RootLayout() {
   )
   const handleMenuClick = useCallback(
     () => {
-      if (xs) {
+      if (floatingMenu) {
         setOpenMenu(undefined)
       }
     },
-    [xs],
+    [floatingMenu],
   )
 
   return (
@@ -84,6 +84,7 @@ function RootLayout() {
             minimised={miniMenu}
             open={openMenu}
             onClick={handleMenuClick}
+            onClose={handleMenuClick}
             onMinimise={handleToggleMiniMenu}
           />
         </>
