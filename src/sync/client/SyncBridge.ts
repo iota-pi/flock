@@ -362,6 +362,10 @@ export type SyncBridgeType = typeof baseBridge & Promisified<SyncApi>
 
 export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as unknown as SyncBridgeType, {
   get(target, prop, receiver) {
+    if (prop === 'then') {
+      return undefined
+    }
+
     if (prop in target) {
       return Reflect.get(target, prop, receiver)
     }

@@ -6,7 +6,7 @@ import type { GroupItem, PersonItem } from '../../src/shared/schemas/items'
 Cypress.on('window:before:load', (win) => {
   cy.spy(win.console, 'log').as('consoleLog')
   cy.spy(win.console, 'error').as('consoleError')
-  
+
   // Forward to Cypress console (Node) so it shows in terminal
   const originalLog = win.console.log
   win.console.log = (...args) => {
@@ -96,8 +96,8 @@ const establishSession = () => {
       // Wait for SyncBridge to complete its background initialization
       // so we don't time out the individual test's cy.then() calls later
       return cy.window({ timeout: 30000 }).then({ timeout: 30000 }, (win: any) => {
-        if (win.SyncBridge) {
-          return win.SyncBridge.ensureReady()
+        if (win.syncBridge) {
+          return win.syncBridge.then((bridge: any) => bridge.ensureReady())
         }
       })
     }).then(() => {
