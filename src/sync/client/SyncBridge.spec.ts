@@ -610,10 +610,8 @@ describe('SyncBridge', () => {
         {
           id: 'rec-1',
           itemId: 'item-1' as ItemId,
-          type: 'corrupted',
           reason: 'invalid document',
-          occurredAt: 123456,
-          rawPayload: 'data',
+          createdAt: 123456,
         },
       ]
       mockSyncApi.listRecoveryItems.mockResolvedValueOnce(entries)

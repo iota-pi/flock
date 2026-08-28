@@ -109,7 +109,7 @@ describe('local-first mutations', () => {
   it('deletes with group updates and tombstones', async () => {
     const group = {
       ...getBlankGroup('g1' as ItemId, false),
-      members: ['p1'],
+      members: ['p1' as ItemId],
     }
     const person = getBlankPerson('p1' as ItemId, false)
     useAppStore.setState({ items: { g1: group, p1: person } })
