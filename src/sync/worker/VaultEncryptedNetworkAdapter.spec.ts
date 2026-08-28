@@ -3,7 +3,13 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import { getSyncBatchStorage, clearInstancesCacheForTesting, resetQuotaExceededStatus } from '../shared/VaultPersistence'
+import {
+  getSyncBatchStorage,
+  clearInstancesCacheForTesting,
+  resetQuotaExceededStatus,
+  loadSyncBatch,
+  clearSyncBatch,
+} from '../shared/VaultPersistence'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -66,7 +72,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       'account-pagination',
     ]
     for (const acc of accounts) {
-      await getSyncBatchStorage(acc).clear()
+      await clearSyncBatch(acc)
     }
 
     clientEventHub = new ClientEventHub()
@@ -115,17 +121,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     // Await flush/persistence by advancing fake timers
     await vi.advanceTimersByTimeAsync(50)
 
-    const storage = getSyncBatchStorage(accountId)
-    const stored: Uint8Array[] | null = await storage.getItem('item-1')
-    expect(stored).toBeDefined()
-    expect(stored).toHaveLength(1)
-
-    const rawFirst = stored![0] as any
-    const normalized = rawFirst instanceof Uint8Array
-      ? rawFirst
-      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
-
-    expect(Array.from(normalized)).toEqual([1, 2, 3])
+    const batch = await loadSyncBatch(accountId)
+    const item1 = batch.find(([id]) => id === 'item-1')
+    expect(item1).toBeDefined()
+    expect(item1![1]).toHaveLength(1)
+    expect(Array.from(item1![1][0].data)).toEqual([1, 2, 3])
   })
 
   it('enforces bounds of 2000 messages maximum per item', async () => {
@@ -145,17 +145,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const storage = getSyncBatchStorage(accountId)
-    const stored: Uint8Array[] | null = await storage.getItem('item-1')
-    expect(stored).toBeDefined()
-    expect(stored).toHaveLength(2000)
-
-    const rawFirst = stored![0] as any
-    const normalizedFirst = rawFirst instanceof Uint8Array
-      ? rawFirst
-      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
-
-    expect(normalizedFirst[0]).toBe(10) // 2010 - 2000 = 10
+    const batch = await loadSyncBatch(accountId)
+    const item1 = batch.find(([id]) => id === 'item-1')
+    expect(item1).toBeDefined()
+    expect(item1![1]).toHaveLength(2000)
+    expect(item1![1][0].data[0]).toBe(10) // 2010 - 2000 = 10
   })
 
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
@@ -198,11 +192,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(call2.pushMessages).toHaveLength(2)
 
     // Verify all items were transactionally cleaned from IndexedDB
-    const storage = getSyncBatchStorage(accountId)
-    for (let i = 1; i <= 7; i++) {
-      const stored = await storage.getItem(`item-${i}`)
-      expect(stored).toBeNull()
-    }
+    const batch = await loadSyncBatch(accountId)
+    expect(batch).toHaveLength(0)
   })
 
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
@@ -255,23 +246,13 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
-    const storage = getSyncBatchStorage(accountId)
-    const stored: Uint8Array[] | null = await storage.getItem('item-1')
-    expect(stored).toBeDefined()
-    expect(stored).toHaveLength(2)
+    const batch = await loadSyncBatch(accountId)
+    const item1 = batch.find(([id]) => id === 'item-1')
+    expect(item1).toBeDefined()
+    expect(item1![1]).toHaveLength(2)
 
-    const raw0 = stored![0] as any
-    const raw1 = stored![1] as any
-
-    const normalized0 = raw0 instanceof Uint8Array
-      ? raw0
-      : new Uint8Array(Array.from({ ...raw0, length: Object.keys(raw0).length }))
-    const normalized1 = raw1 instanceof Uint8Array
-      ? raw1
-      : new Uint8Array(Array.from({ ...raw1, length: Object.keys(raw1).length }))
-
-    expect(Array.from(normalized0)).toEqual([20])
-    expect(Array.from(normalized1)).toEqual([30])
+    expect(Array.from(item1![1][0].data)).toEqual([20])
+    expect(Array.from(item1![1][1].data)).toEqual([30])
   })
 
   it('retains messages in IndexedDB if the poll call fails', async () => {
@@ -298,17 +279,12 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     broker.setOnlineState(false)
 
     // Message must still exist in IndexedDB due to failure
-    const storage = getSyncBatchStorage(accountId)
-    const stored: Uint8Array[] | null = await storage.getItem('item-1')
-    expect(stored).toBeDefined()
-    expect(stored).toHaveLength(1)
+    const batch = await loadSyncBatch(accountId)
+    const item1 = batch.find(([id]) => id === 'item-1')
+    expect(item1).toBeDefined()
+    expect(item1![1]).toHaveLength(1)
 
-    const rawFirst = stored![0] as any
-    const normalized = rawFirst instanceof Uint8Array
-      ? rawFirst
-      : new Uint8Array(Array.from({ ...rawFirst, length: Object.keys(rawFirst).length }))
-
-    expect(Array.from(normalized)).toEqual([100])
+    expect(Array.from(item1![1][0].data)).toEqual([100])
   })
 
   it('detects and reports QuotaExceededError when persisting pending writes', async () => {
