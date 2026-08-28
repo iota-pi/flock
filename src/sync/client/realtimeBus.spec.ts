@@ -72,9 +72,8 @@ describe('realtimeBus', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
-  it('publishes messages through the BroadcastChannel and closes it if no listeners', async () => {
+  it('publishes messages through a single long-lived BroadcastChannel without closing it', async () => {
     const { publishRealtimeBusSyncPing } = await import('./realtimeBus')
-    // Calling publishRealtimeBusSyncPing should initialize a temporary channel, postMessage, and close it
     publishRealtimeBusSyncPing(['item-1', 'item-2'] as ItemId[])
 
     expect(MockBroadcastChannel.instances).toHaveLength(1)
@@ -83,10 +82,18 @@ describe('realtimeBus', () => {
       type: 'sync_ping',
       itemIds: ['item-1', 'item-2'],
     })
-    expect(channel.close).toHaveBeenCalledTimes(1)
+    expect(channel.close).not.toHaveBeenCalled()
+
+    publishRealtimeBusSyncPing(['item-3'] as ItemId[])
+    expect(MockBroadcastChannel.instances).toHaveLength(1)
+    expect(channel.postMessage).toHaveBeenCalledWith({
+      type: 'sync_ping',
+      itemIds: ['item-3'],
+    })
+    expect(channel.close).not.toHaveBeenCalled()
   })
 
-  it('reuses active BroadcastChannel when publishing with subscribers without closing prematurely', async () => {
+  it('reuses the same BroadcastChannel across subscribers and publishers without closing on unsubscribe', async () => {
     const { subscribeRealtimeBusSyncPing, publishRealtimeBusSyncPing } = await import('./realtimeBus')
     const listener = vi.fn()
     const unsubscribe = subscribeRealtimeBusSyncPing(listener)
@@ -102,7 +109,8 @@ describe('realtimeBus', () => {
     expect(channel.close).not.toHaveBeenCalled()
 
     unsubscribe()
-    expect(channel.close).toHaveBeenCalledTimes(1)
+    expect(channel.close).not.toHaveBeenCalled()
+    expect(MockBroadcastChannel.instances).toHaveLength(1)
   })
 
   it('ignores empty item lists when publishing', async () => {
