@@ -7,11 +7,8 @@ import { useAppStore } from 'src/state/store'
 import { exportKeyringData } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
-import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api/syncHealthCoordinator'
-import type { BackupSyncState } from 'src/types/backup'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
-import { ItemId } from 'src/shared/schemas/items'
 
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
@@ -105,7 +102,7 @@ const handleSyncEvent = (event: ClientEvent) => {
 let initializationPromise: Promise<void> | null = null
 let currentInitSession = 0
 
-export const SyncBridge = {
+const baseBridge = {
   ensureReady: async () => {
     if (initializationPromise) {
       await initializationPromise
@@ -127,7 +124,7 @@ export const SyncBridge = {
 
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
-        await SyncBridge.shutdown({ internalRestart: true })
+        await baseBridge.shutdown({ internalRestart: true })
       }
 
       useAppStore.getState().setSyncStatus('connecting')
@@ -204,10 +201,6 @@ export const SyncBridge = {
           )
         }
 
-        setOnRecoveryItemsChangedListener(() => {
-          void SyncBridge.listRecoveryItems()
-        })
-
         useAppStore.getState().clearSyncWarning()
         setupWorkerHealthCheck({
           worker,
@@ -267,70 +260,8 @@ export const SyncBridge = {
     return initializationPromise
   },
 
-  flushSync: async () => {
-    await SyncBridge.ensureReady()
-    syncApi!.flushSync()
-  },
-
-  fullResync: async () => {
-    await SyncBridge.ensureReady()
-    await syncApi!.fullResync()
-  },
-
-  mutateItem: async (id: ItemId, changes: Partial<Item>) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.mutateItem(id, changes)
-  },
-
-  createItem: async (item: any) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.createItem(item)
-  },
-
-  storeItems: async (items: any[]) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.storeItems(items)
-  },
-
-  mutateMetadata: async (changes: any) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.mutateMetadata(changes)
-  },
-
-  exportAllBinaries: async () => {
-    await SyncBridge.ensureReady()
-    return await syncApi!.exportAllBinaries()
-  },
-
-  restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
-    await SyncBridge.ensureReady()
-    const result = await syncApi!.restoreFromBinaries(documents)
-    useAppStore.getState().incrementGeneration()
-    return result
-  },
-
-  retryRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.retryRecoveryItem(itemId)
-  },
-
-  forceOverwriteRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.forceOverwriteRecoveryItem(itemId)
-  },
-
-  forceDeleteRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.forceDeleteRecoveryItem(itemId)
-  },
-
-  dismissRecoveryItem: async (entryId: string) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.dismissRecoveryItem(entryId)
-  },
-
   listRecoveryItems: async (): Promise<ManualRecoveryEntry[]> => {
-    await SyncBridge.ensureReady()
+    await baseBridge.ensureReady()
     const entries = await syncApi!.listRecoveryItems()
     recoveryEntries = entries
     for (const listener of recoveryEntriesListeners) {
@@ -347,24 +278,16 @@ export const SyncBridge = {
     }
   },
 
-  updateVaultKey: async (vaultKey: string) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.updateVaultKey(vaultKey)
+  restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
+    await baseBridge.ensureReady()
+    const result = await syncApi!.restoreFromBinaries(documents)
+    useAppStore.getState().incrementGeneration()
+    return result
   },
 
   reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
-    await SyncBridge.ensureReady()
+    await baseBridge.ensureReady()
     await syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
-  },
-
-  exportSyncState: async () => {
-    await SyncBridge.ensureReady()
-    return await syncApi!.exportSyncState()
-  },
-
-  restoreSyncState: async (state: Partial<BackupSyncState>) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.restoreSyncState(state)
   },
 
   shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
@@ -375,7 +298,6 @@ export const SyncBridge = {
     }
     stopWorkerHeartbeat()
     resetCrashMetrics()
-    resetSyncHealthState()
 
     const oldWorker = workerInstance
     const oldSyncApi = syncApi
@@ -430,4 +352,33 @@ export const SyncBridge = {
     }
   },
 }
+
+type Promisified<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : T[K]
+}
+
+export type SyncBridgeType = typeof baseBridge & Promisified<SyncApi>
+
+export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as any, {
+  get(target, prop, receiver) {
+    if (prop in target) {
+      return Reflect.get(target, prop, receiver)
+    }
+
+    if (typeof prop === 'string') {
+      return async (...args: any[]) => {
+        await target.ensureReady()
+        const method = (syncApi as any)?.[prop]
+        if (typeof method !== 'function') {
+          throw new TypeError(`SyncBridge: method '${prop}' does not exist on syncApi`)
+        }
+        return await method.apply(syncApi, args)
+      }
+    }
+
+    return Reflect.get(target, prop, receiver)
+  },
+})
 
