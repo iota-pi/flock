@@ -67,7 +67,7 @@ function handleWorkerCrash({
 }
 
 const sendPing = (port: MessagePort): Promise<void> => {
-  return new Promise<void>((resolve) => {
+  return new Promise<void>(resolve => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data === 'pong') {
         if (typeof port.removeEventListener === 'function') {

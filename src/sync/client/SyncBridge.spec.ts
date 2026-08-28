@@ -67,6 +67,7 @@ class MockWorker {
       }
     }
   })
+
   private listeners: Record<string, ((event: any) => void)[]> = {}
 
   addEventListener = vi.fn((event: string, handler: (event: any) => void) => {

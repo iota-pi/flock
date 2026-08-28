@@ -27,7 +27,7 @@ export class SyncStatusManager {
   }
 
   public startRequest() {
-    this.activeRequests++
+    this.activeRequests += 1
     this.updateStatus()
   }
 

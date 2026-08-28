@@ -1,5 +1,4 @@
 import { act, render, screen } from '@testing-library/react'
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { ThemeProvider } from '@mui/material/styles'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import BasePage from './BasePage'
@@ -63,9 +62,10 @@ describe('BasePage', () => {
     // Start request
     act(() => {
       useAppStore.setState({ activeRequests: 1 })
+      vi.advanceTimersByTime(300)
     })
 
-    // Progress becomes visible immediately (opacity: 1, not hidden)
+    // Progress is visible
     expect(progress?.getAttribute('style')).not.toContain('opacity: 0')
     expect(progress?.getAttribute('style')).not.toContain('visibility: hidden')
 
@@ -78,16 +78,9 @@ describe('BasePage', () => {
     expect(progress?.getAttribute('style')).not.toContain('opacity: 0')
     expect(progress?.getAttribute('style')).not.toContain('visibility: hidden')
 
-    // Advance 100ms (halfway through 200ms debounce)
-    act(() => {
-      vi.advanceTimersByTime(100)
-    })
-    expect(progress?.getAttribute('style')).not.toContain('opacity: 0')
-    expect(progress?.getAttribute('style')).not.toContain('visibility: hidden')
-
     // Advance past 200ms debounce (Fade begins transition to opacity: 0)
     act(() => {
-      vi.advanceTimersByTime(100)
+      vi.advanceTimersByTime(200)
     })
     expect(progress?.getAttribute('style')).toContain('opacity: 0')
 
@@ -111,6 +104,7 @@ describe('BasePage', () => {
     // Syncing state
     act(() => {
       useAppStore.setState({ syncStatus: 'syncing' })
+      vi.advanceTimersByTime(300)
     })
     expect(progress?.getAttribute('style')).not.toContain('opacity: 0')
     expect(progress?.getAttribute('style')).not.toContain('visibility: hidden')

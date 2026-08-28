@@ -223,7 +223,7 @@ const baseBridge = {
           onRestart: () => {
             setTimeout(() => {
               if (currentAccountId === accountId) {
-                SyncBridge.initialize(accountId).catch(err => {
+                baseBridge.initialize(accountId).catch(err => {
                   console.error('[SyncBridge] Auto-restart initialization failed:', err)
                 })
               }

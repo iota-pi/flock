@@ -1,5 +1,4 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { useDebouncedSyncIndicator } from './useDebouncedSyncIndicator'
 import { useAppStore } from '../state/store'
 
@@ -160,6 +159,7 @@ describe('useDebouncedSyncIndicator', () => {
   })
 
   it('cleans up timeout on unmount', () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
     let syncing = true
     const { rerender, unmount } = renderHook(() => useDebouncedSyncIndicator(syncing, 200))
 
@@ -168,9 +168,7 @@ describe('useDebouncedSyncIndicator', () => {
 
     unmount()
 
-    // Verify advancing timers does not throw or error after unmount
-    act(() => {
-      vi.advanceTimersByTime(300)
-    })
+    expect(clearTimeoutSpy).toHaveBeenCalled()
+    clearTimeoutSpy.mockRestore()
   })
 })

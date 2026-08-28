@@ -99,7 +99,7 @@ export class SyncWorkerContext {
       void this.itemOperations.reportDecryptionFailure(itemId, error)
     }
 
-    this.broker.onItemMessageParsed = (itemId) => {
+    this.broker.onItemMessageParsed = itemId => {
       void this.itemOperations.clearManualRecoveryForItems([itemId])
     }
 
