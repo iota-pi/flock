@@ -1,4 +1,5 @@
 import localforage from 'localforage'
+import { nanoid } from 'nanoid'
 import { ItemId } from 'src/shared/schemas/items'
 import {
   runStorageOperation,
@@ -27,6 +28,51 @@ export function clearInstancesCacheForTesting(): void {
 }
 
 const MAX_MESSAGES_PER_ITEM = 2000
+
+export interface QueuedMessage {
+  id: string
+  data: Uint8Array
+}
+
+function toUint8Array(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) {
+    return data
+  }
+  if (data && typeof data === 'object') {
+    const rawObj = data as Record<string | number, unknown>
+    const length = typeof rawObj.length === 'number' && Number.isFinite(rawObj.length)
+      ? rawObj.length
+      : Object.keys(rawObj).length
+    const arr: number[] = []
+    for (let i = 0; i < length; i++) {
+      const val = rawObj[i]
+      arr.push(typeof val === 'number' ? val : 0)
+    }
+    return new Uint8Array(arr)
+  }
+  return new Uint8Array()
+}
+
+function normalizeMessage(m: unknown): { msg: QueuedMessage; wasModified: boolean } {
+  if (m instanceof Uint8Array) {
+    return { msg: { id: nanoid(), data: m }, wasModified: true }
+  }
+
+  if (m && typeof m === 'object' && 'id' in m && 'data' in m) {
+    const obj = m as { id: unknown; data: unknown }
+    const id = typeof obj.id === 'string' ? obj.id : nanoid()
+    const isDataValidUint8Array = obj.data instanceof Uint8Array
+    const data = toUint8Array(obj.data)
+    const wasModified = !isDataValidUint8Array || id !== obj.id
+    return { msg: { id, data }, wasModified }
+  }
+
+  if (m && typeof m === 'object') {
+    return { msg: { id: nanoid(), data: toUint8Array(m) }, wasModified: true }
+  }
+
+  return { msg: { id: nanoid(), data: new Uint8Array() }, wasModified: true }
+}
 
 const writeQueues = new Map<string, Promise<unknown>>()
 
@@ -77,8 +123,13 @@ export async function persistSyncMessages(
     const queueKey = `${account}:${itemId}`
     return enqueue(queueKey, async () => {
       try {
-        const existing: Uint8Array[] | null = await storage.getItem(itemId)
-        const combined = existing ? [...existing, ...newMessages] : newMessages
+        const existing: unknown[] | null = await storage.getItem<unknown[]>(itemId)
+        const normalizedExisting = existing ? existing.map(m => normalizeMessage(m).msg) : []
+        const newWrapped: QueuedMessage[] = newMessages.map(m => ({
+          id: nanoid(),
+          data: m,
+        }))
+        const combined = [...normalizedExisting, ...newWrapped]
 
         let bounded = combined
         if (combined.length > MAX_MESSAGES_PER_ITEM) {
@@ -102,8 +153,8 @@ export async function persistSyncMessages(
  * Loads pending sync batch entries from IndexedDB for the given account.
  * Normalizes message format in case of serialized object representation.
  */
-export async function loadSyncBatch(account: string): Promise<[ItemId, Uint8Array[]][]> {
-  const batchEntries: [ItemId, Uint8Array[]][] = []
+export async function loadSyncBatch(account: string): Promise<[ItemId, QueuedMessage[]][]> {
+  const batchEntries: [ItemId, QueuedMessage[]][] = []
   const storage = getSyncBatchStorage(account)
   try {
     const dbKeys = await storage.keys()
@@ -118,20 +169,19 @@ export async function loadSyncBatch(account: string): Promise<[ItemId, Uint8Arra
       Array.from(allKeys).map(itemId => {
         const queueKey = `${account}:${itemId}`
         return enqueue(queueKey, async () => {
-          const value = await storage.getItem<(Uint8Array | object)[]>(itemId)
+          const value = await storage.getItem<unknown[]>(itemId)
           if (value && value.length > 0) {
+            let needsSave = false
             const normalized = value.map(m => {
-              if (m instanceof Uint8Array) {
-                return m
+              const res = normalizeMessage(m)
+              if (res.wasModified) {
+                needsSave = true
               }
-              if (m && typeof m === 'object') {
-                const rawObj = m as { [index: number]: number; length: number }
-                const length = Number.isFinite(rawObj.length) ? rawObj.length : Object.keys(rawObj).length
-                const arr = Array.from({ ...rawObj, length }) as number[]
-                return new Uint8Array(arr)
-              }
-              return new Uint8Array()
+              return res.msg
             })
+            if (needsSave) {
+              await storage.setItem(itemId, normalized)
+            }
             batchEntries.push([itemId as ItemId, normalized])
           }
         })
@@ -145,21 +195,22 @@ export async function loadSyncBatch(account: string): Promise<[ItemId, Uint8Arra
 }
 
 /**
- * Transactionally updates IndexedDB to remove or slice successfully sent messages.
+ * Transactionally updates IndexedDB to remove successfully sent messages by their IDs.
  */
 export async function removeSentSyncMessages(
   account: string,
-  chunkEntry: [ItemId, Uint8Array[]][]
+  chunkEntry: [ItemId, QueuedMessage[]][]
 ): Promise<void> {
   const storage = getSyncBatchStorage(account)
   const promises = chunkEntry.map(([itemId, sentMessages]) => {
     const queueKey = `${account}:${itemId}`
-    const numSent = sentMessages.length
+    const sentIds = new Set(sentMessages.map(m => m.id))
     return enqueue(queueKey, async () => {
       try {
-        const current: Uint8Array[] | null = await storage.getItem(itemId)
+        const current: unknown[] | null = await storage.getItem<unknown[]>(itemId)
         if (current) {
-          const remaining = current.slice(numSent)
+          const normalized = current.map(m => normalizeMessage(m).msg)
+          const remaining = normalized.filter(m => !sentIds.has(m.id))
           if (remaining.length > 0) {
             await storage.setItem(itemId, remaining)
           } else {
@@ -221,7 +272,11 @@ export async function restoreSyncBatch(
       Array.from(pendingMap.entries()).map(([itemId, messages]) => {
         const queueKey = `${account}:${itemId}`
         return enqueue(queueKey, async () => {
-          await storage.setItem(itemId, messages)
+          const wrapped: QueuedMessage[] = messages.map(m => ({
+            id: nanoid(),
+            data: m,
+          }))
+          await storage.setItem(itemId, wrapped)
         })
       })
     )

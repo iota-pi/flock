@@ -88,6 +88,13 @@ function LoginPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const biometricLabel = getBiometricLabel()
+  const [wasManuallyLocked] = useState(() => {
+    const flag = sessionStorage.getItem('flock-manual-lock') === 'true'
+    if (flag) {
+      sessionStorage.removeItem('flock-manual-lock')
+    }
+    return flag
+  })
   const hasAutoPromptedRef = useRef(false)
 
   const handleClickHome = useCallback(
@@ -185,6 +192,11 @@ function LoginPage() {
 
   useEffect(() => {
     if (hasBiometricData() && accountInput && !justCreatedAccount && !hasAutoPromptedRef.current) {
+      if (wasManuallyLocked) {
+        hasAutoPromptedRef.current = true
+        return
+      }
+
       if (document.visibilityState === 'hidden') {
         const handleVisibilityChange = () => {
           if (document.visibilityState === 'visible' && !hasAutoPromptedRef.current) {
@@ -206,7 +218,7 @@ function LoginPage() {
         })
       }
     }
-  }, [accountInput, justCreatedAccount, handleClickBiometricUnlock])
+  }, [accountInput, justCreatedAccount, handleClickBiometricUnlock, wasManuallyLocked])
 
   const handleClickCreate = useCallback(
     () => {
@@ -215,11 +227,17 @@ function LoginPage() {
     [navigate],
   )
   const handleChangeAccount = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setAccountInput(event.target.value),
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setAccountInput(event.target.value)
+      setError('')
+    },
     [],
   )
   const handleChangePassword = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value),
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setPassword(event.target.value)
+      setError('')
+    },
     [],
   )
   const handleClickVisibility = useCallback(
@@ -399,11 +417,15 @@ function LoginPage() {
           )}
 
           {error && (
-            <Typography color="error" sx={{
-              mt: 2
-            }}>
-              {error}
-            </Typography>
+            <Box sx={{ mt: 3 }}>
+              <Alert
+                severity="error"
+                onClose={() => setError('')}
+                data-cy="login-error"
+              >
+                {error}
+              </Alert>
+            </Box>
           )}
         </Section>
 

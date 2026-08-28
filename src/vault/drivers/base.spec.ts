@@ -83,10 +83,6 @@ class TestDriver extends BaseDriver {
   async getGlobalSyncMessagesAfterCursor(): ReturnType<BaseDriver['getGlobalSyncMessagesAfterCursor']> {
     throw new Error('not implemented')
   }
-
-  async pruneSyncMessagesUpToCursor(): ReturnType<BaseDriver['pruneSyncMessagesUpToCursor']> {
-    throw new Error('not implemented')
-  }
 }
 
 describe('BaseDriver auth', () => {

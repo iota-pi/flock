@@ -4,7 +4,7 @@ const mockReportQuotaExceeded = vi.fn()
 let mockIsQuotaExceeded = false
 
 vi.mock('../../utils/storageManager', () => ({
-  runStorageOperation: vi.fn(async (op: any) => {
+  runStorageOperation: vi.fn(async <T>(op: () => Promise<T>): Promise<T> => {
     try {
       return await op()
     } catch (err) {
@@ -13,7 +13,7 @@ vi.mock('../../utils/storageManager', () => ({
       throw err
     }
   }),
-  reportQuotaExceeded: (...args: any[]) => mockReportQuotaExceeded(...args),
+  reportQuotaExceeded: (...args: unknown[]) => mockReportQuotaExceeded(...args),
   checkQuotaExceeded: vi.fn(() => {
     if (mockIsQuotaExceeded) {
       mockReportQuotaExceeded()
@@ -26,14 +26,21 @@ vi.mock('../../utils/storageManager', () => ({
   }),
 }))
 
-function normalizeUint8Array(m: any): Uint8Array {
+function normalizeUint8Array(m: unknown): Uint8Array {
   if (m instanceof Uint8Array) {
     return m
   }
+  if (m && typeof m === 'object' && 'data' in m) {
+    return normalizeUint8Array((m as { data: unknown }).data)
+  }
   if (m && typeof m === 'object') {
-    const rawObj = m as any
+    const rawObj = m as Record<string | number, unknown>
     const length = Object.keys(rawObj).length
-    const arr = Array.from({ ...rawObj, length }) as number[]
+    const arr: number[] = []
+    for (let i = 0; i < length; i++) {
+      const val = rawObj[i]
+      arr.push(typeof val === 'number' ? val : 0)
+    }
     return new Uint8Array(arr)
   }
   return new Uint8Array()
@@ -100,11 +107,11 @@ describe('VaultPersistence', () => {
     expect(consoleWarnSpy).toHaveBeenCalled()
 
     const storage = getSyncBatchStorage('acc-2')
-    const stored = await storage.getItem<Uint8Array[]>('item-1')
+    const stored = await storage.getItem<unknown[]>('item-1')
     expect(stored).toHaveLength(2000)
     // The stored items should be the latest 2000 ones (index 10 to 2009)
-    expect(stored![0][0]).toBe(10)
-    expect(stored![1999][0]).toBe(2009 % 256)
+    expect(normalizeUint8Array(stored![0])[0]).toBe(10)
+    expect(normalizeUint8Array(stored![1999])[0]).toBe(2009 % 256)
 
     consoleWarnSpy.mockRestore()
   })
@@ -161,48 +168,103 @@ describe('VaultPersistence', () => {
 
     expect(normalEntry).toBeDefined()
     expect(normalEntry![1]).toHaveLength(1)
-    expect(normalEntry![1][0]).toBeInstanceOf(Uint8Array)
-    expect(Array.from(normalEntry![1][0])).toEqual([1, 2])
+    expect(normalEntry![1][0].id).toBeDefined()
+    expect(normalEntry![1][0].data).toBeInstanceOf(Uint8Array)
+    expect(Array.from(normalEntry![1][0].data)).toEqual([1, 2])
 
     expect(objEntry).toBeDefined()
     expect(objEntry![1]).toHaveLength(1)
-    expect(objEntry![1][0]).toBeInstanceOf(Uint8Array)
-    expect(Array.from(objEntry![1][0])).toEqual([10, 20, 30])
+    expect(objEntry![1][0].id).toBeDefined()
+    expect(objEntry![1][0].data).toBeInstanceOf(Uint8Array)
+    expect(Array.from(objEntry![1][0].data)).toEqual([10, 20, 30])
 
     expect(invalidEntry).toBeDefined()
     expect(invalidEntry![1]).toHaveLength(2)
-    expect(invalidEntry![1][0]).toBeInstanceOf(Uint8Array)
-    expect(invalidEntry![1][0].length).toBe(0)
+    expect(invalidEntry![1][0].id).toBeDefined()
+    expect(invalidEntry![1][0].data).toBeInstanceOf(Uint8Array)
+    expect(invalidEntry![1][0].data.length).toBe(0)
   })
 
-  it('removes sent messages or slices them properly', async () => {
-    const { removeSentSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
+  it('removes sent messages by ID properly', async () => {
+    const { persistSyncMessages, loadSyncBatch, removeSentSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
 
-    const storage = getSyncBatchStorage('acc-5')
-    await storage.setItem('item-1', [
+    const writes = new Map<string, Uint8Array[]>()
+    writes.set('item-1', [
       new Uint8Array([1]),
       new Uint8Array([2]),
       new Uint8Array([3]),
     ])
+    await persistSyncMessages('acc-5', writes)
 
-    // Case 1: Partial removal (slice)
-    const chunkEntry1 = [
-      ['item-1', [new Uint8Array([1]), new Uint8Array([2])]],
-    ] as [ItemId, Uint8Array[]][]
+    const batch = await loadSyncBatch('acc-5')
+    const item1Messages = batch.find(e => e[0] === 'item-1')![1]
+
+    // Case 1: Partial removal (remove first 2)
+    const chunkEntry1: [ItemId, typeof item1Messages][] = [
+      ['item-1' as ItemId, [item1Messages[0], item1Messages[1]]],
+    ]
     await removeSentSyncMessages('acc-5', chunkEntry1)
 
-    let stored = await storage.getItem<Uint8Array[]>('item-1')
+    const storage = getSyncBatchStorage('acc-5')
+    let stored = await storage.getItem<unknown[]>('item-1')
     expect(stored).toHaveLength(1)
     expect(Array.from(normalizeUint8Array(stored![0]))).toEqual([3])
 
     // Case 2: Complete removal
-    const chunkEntry2 = [
-      ['item-1', [new Uint8Array([3])]],
-    ] as [ItemId, Uint8Array[]][]
+    const chunkEntry2: [ItemId, typeof item1Messages][] = [
+      ['item-1' as ItemId, [item1Messages[2]]],
+    ]
     await removeSentSyncMessages('acc-5', chunkEntry2)
 
-    stored = await storage.getItem<Uint8Array[]>('item-1')
+    stored = await storage.getItem<unknown[]>('item-1')
     expect(stored).toBeNull()
+  })
+
+  it('does not drop unsent messages when truncation occurs during in-flight send', async () => {
+    const { persistSyncMessages, loadSyncBatch, removeSentSyncMessages, getSyncBatchStorage } = await import('./VaultPersistence')
+
+    // 1. Initial 2000 messages
+    const initialList: Uint8Array[] = []
+    for (let i = 0; i < 2000; i++) {
+      initialList.push(new Uint8Array([i % 256]))
+    }
+    const writes1 = new Map<string, Uint8Array[]>()
+    writes1.set('item-race', initialList)
+    await persistSyncMessages('acc-1', writes1)
+
+    // 2. Load the batch (simulating poller reading batch to send)
+    const loadedBatch = await loadSyncBatch('acc-1')
+    const itemEntry = loadedBatch.find(e => e[0] === 'item-race')!
+    expect(itemEntry[1]).toHaveLength(2000)
+    const sentChunk = itemEntry[1].slice(0, 100) // Poller will push the first 100 messages
+
+    // 3. User generates 50 new messages while push is in-flight -> Truncation happens
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const newWrites = new Map<string, Uint8Array[]>()
+    const newlyAdded: Uint8Array[] = []
+    for (let i = 0; i < 50; i++) {
+      newlyAdded.push(new Uint8Array([200 + i]))
+    }
+    newWrites.set('item-race', newlyAdded)
+    await persistSyncMessages('acc-1', newWrites)
+    consoleWarnSpy.mockRestore()
+
+    // 4. Poller completes sending first 100 messages and removes them
+    await removeSentSyncMessages('acc-1', [['item-race' as ItemId, sentChunk]])
+
+    // 5. Verify the remaining messages:
+    // The 2000 queue had 50 truncated from front (messages 0..49 discarded on persist).
+    // Messages 50..99 were in sentChunk and successfully deleted.
+    // Messages 100..1999 + newly added 50 messages should STILL be present!
+    const storage = getSyncBatchStorage('acc-1')
+    const stored = await storage.getItem<unknown[]>('item-race')
+    expect(stored).toBeDefined()
+    // Total should be: 2000 (after truncation) - 50 (from sentChunk 50..99 that were still in queue) = 1950
+    expect(stored).toHaveLength(1950)
+
+    // Verify the latest 50 newly added messages are preserved at the end
+    const lastMsg = normalizeUint8Array(stored![stored!.length - 1])
+    expect(Array.from(lastMsg)).toEqual([249])
   })
 
   it('clears sync batch for a specific account', async () => {

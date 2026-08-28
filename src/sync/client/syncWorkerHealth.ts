@@ -3,12 +3,14 @@ import { useAppStore } from '../../state/store'
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let crashCount = 0
 let lastCrashTime = 0
+let isPinging = false
 
 export const stopWorkerHeartbeat = () => {
   if (heartbeatTimer !== null) {
     clearInterval(heartbeatTimer)
     heartbeatTimer = null
   }
+  isPinging = false
 }
 
 export const resetCrashMetrics = () => {
@@ -18,7 +20,8 @@ export const resetCrashMetrics = () => {
 
 interface HealthCheckOptions {
   worker: Worker
-  pingFn: () => Promise<void>
+  pingPort?: MessagePort
+  pingFn?: () => Promise<void>
   isCurrentWorker: () => boolean
   onCrash: () => void
   onRestart: () => void
@@ -28,7 +31,7 @@ function handleWorkerCrash({
   worker,
   onCrash,
   onRestart,
-}: Omit<HealthCheckOptions, 'pingFn' | 'isCurrentWorker'>) {
+}: Omit<HealthCheckOptions, 'pingPort' | 'pingFn' | 'isCurrentWorker'>) {
   stopWorkerHeartbeat()
 
   try {
@@ -63,8 +66,31 @@ function handleWorkerCrash({
   }
 }
 
+const sendPing = (port: MessagePort): Promise<void> => {
+  return new Promise<void>(resolve => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data === 'pong') {
+        if (typeof port.removeEventListener === 'function') {
+          port.removeEventListener('message', handleMessage)
+        }
+        resolve()
+      }
+    }
+    if (typeof port.addEventListener === 'function') {
+      port.addEventListener('message', handleMessage)
+    } else {
+      port.onmessage = handleMessage
+    }
+    if (typeof port.start === 'function') {
+      port.start()
+    }
+    port.postMessage('ping')
+  })
+}
+
 export const setupWorkerHealthCheck = ({
   worker,
+  pingPort,
   pingFn,
   isCurrentWorker,
   onCrash,
@@ -88,7 +114,11 @@ export const setupWorkerHealthCheck = ({
   })
 
   const HEARTBEAT_INTERVAL_MS = 15000
-  const HEARTBEAT_TIMEOUT_MS = 5000
+  const HEARTBEAT_TIMEOUT_MS = 30000
+
+  const performPing = pingPort
+    ? () => sendPing(pingPort)
+    : (pingFn ?? (() => Promise.resolve()))
 
   heartbeatTimer = setInterval(async () => {
     if (!isCurrentWorker()) {
@@ -96,10 +126,15 @@ export const setupWorkerHealthCheck = ({
       return
     }
 
+    if (isPinging) {
+      return
+    }
+
+    isPinging = true
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     try {
       await Promise.race([
-        pingFn(),
+        performPing(),
         new Promise<void>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error('Heartbeat timeout')), HEARTBEAT_TIMEOUT_MS)
         }),
@@ -108,6 +143,7 @@ export const setupWorkerHealthCheck = ({
       console.error('[SyncBridge] Worker heartbeat failed:', error)
       handleCrash()
     } finally {
+      isPinging = false
       if (timeoutId !== null) {
         clearTimeout(timeoutId)
       }

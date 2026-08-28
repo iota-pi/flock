@@ -13,7 +13,7 @@ import { initWorkerVault } from '../../api/vault'
 import { AutomergeRepoManager } from './AutomergeRepoManager'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
-import type { SyncStatus } from '../../state/slices/syncSlice'
+import { SyncStatusManager } from './SyncStatusManager'
 import { registerQuotaReporter, resetQuotaExceededStatus } from '../../utils/storageManager'
 import { type BackupSyncState } from '../../types/backup'
 import { ItemId } from 'src/shared/schemas/items'
@@ -29,11 +29,23 @@ import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
+import { reencryptAllItems } from './reencryptAllItems'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
   if (ev.data && ev.data.type === 'EVENT_PORT') {
     globalEventPort = ev.data.port
+  }
+  if (ev.data && ev.data.type === 'INIT_PING_PORT') {
+    const pingPort: MessagePort = ev.data.port
+    pingPort.onmessage = event => {
+      if (event.data === 'ping') {
+        pingPort.postMessage('pong')
+      }
+    }
+    if (typeof pingPort.start === 'function') {
+      pingPort.start()
+    }
   }
 })
 
@@ -44,7 +56,7 @@ export class SyncWorker implements SyncApi {
   private clientEventHub = new ClientEventHub()
   private internalEventHub = new WorkerInternalEventHub()
   private isOnline = true
-  private syncStatus: SyncStatus = 'idle'
+  private syncStatusManager = new SyncStatusManager(this.clientEventHub)
   private unsubscribeRealtimeBus: (() => void) | null = null
   private repoManager: AutomergeRepoManager | null = null
   private subscribedIds = new Set<ItemId>()
@@ -53,12 +65,6 @@ export class SyncWorker implements SyncApi {
   private get context(): SyncWorkerContext {
     if (!this._context) throw new Error("SyncWorker not initialized. Call initRepo first.")
     return this._context
-  }
-
-  private updateStatus(status: SyncStatus) {
-    if (this.syncStatus === status) return
-    this.syncStatus = status
-    this.clientEventHub.emit({ type: 'statusChange', status })
   }
 
   async initRepo(accountId: string, vaultKey: string) {
@@ -110,6 +116,7 @@ export class SyncWorker implements SyncApi {
     if (globalEventPort) {
       this.clientEventHub.setExternalPort(globalEventPort)
     }
+    this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
     this.internalEventHub = new WorkerInternalEventHub()
     registerQuotaReporter((msg: string) => {
       this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
@@ -146,31 +153,26 @@ export class SyncWorker implements SyncApi {
       pullQueueManager
     )
 
-    this._context = new SyncWorkerContext(
+    this._context = new SyncWorkerContext({
       accountId,
       repo,
-      this.adapter,
-      this.broker,
-      this.clientEventHub,
-      this.internalEventHub,
+      adapter: this.adapter,
+      broker: this.broker,
+      clientEventHub: this.clientEventHub,
+      internalEventHub: this.internalEventHub,
       indexStore,
       indexManager,
       cursorStore,
       pullQueueManager,
-      items => this.storeItems(items),
-      changes => this.mutateMetadata(changes)
-    )
+    })
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
-        case 'statusChange':
-          this.syncStatus = event.status
-          break
         case 'startRequest':
-          if (this.isOnline) this.updateStatus('syncing')
+          this.syncStatusManager.startRequest()
           break
         case 'finishRequest':
-          if (this.isOnline && this.syncStatus === 'syncing') this.updateStatus('idle')
+          this.syncStatusManager.finishRequest()
           break
         case 'indexUpdated': {
           this.scheduleDeletions(event.itemIds)
@@ -206,10 +208,13 @@ export class SyncWorker implements SyncApi {
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
       this.subscribeToItems(itemIds)
+      if (this._context) {
+        this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
+      }
     })
 
     this.clientEventHub.emit({ type: 'ready' })
-    this.updateStatus(this.isOnline ? 'idle' : 'offline')
+    this.syncStatusManager.reset(this.isOnline)
     this._context.deletionQueueManager.startTimer()
   }
 
@@ -218,34 +223,11 @@ export class SyncWorker implements SyncApi {
 
     this.context.orchestrator.setOnlineState(isOnline)
     this.context.snapshotManager.onOnlineStateChange(isOnline)
-
-    if (!isOnline) {
-      this.updateStatus('offline')
-      return
-    }
-
-    if (this.syncStatus === 'offline') {
-      this.updateStatus('degraded')
-      return
-    }
-
-    if (this.syncStatus !== 'syncing') {
-      this.updateStatus('idle')
-    }
+    this.syncStatusManager.setOnlineState(isOnline)
   }
 
   handlePollResult(outcome: PollOutcome) {
-    if (!this.isOnline) return
-
-    if (outcome === 'failure') {
-      this.updateStatus('degraded')
-    } else if (outcome === 'success') {
-      if (this.syncStatus !== 'syncing') {
-        this.updateStatus('idle')
-      }
-    } else if (outcome !== 'no-poll') {
-      this.updateStatus('offline')
-    }
+    this.syncStatusManager.handlePollResult(outcome)
   }
 
   subscribeToItems(itemIds: ItemId[]) {
@@ -327,9 +309,9 @@ export class SyncWorker implements SyncApi {
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
   async mutateMetadata(changes: Partial<AccountMetadata>) { await this.context.itemOperations.mutateMetadata(changes) }
-  async exportAllBinaries() { return this.context.backupManager.exportAllBinaries() }
+  async exportAllBinaries() { return this.context.docStore.exportAllBinaries(this.context.indexManager) }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const restored = await this.context.backupManager.restoreFromBinaries(documents)
+    const restored = await this.context.docStore.restoreFromBinaries(documents, this.context.indexManager)
     return restored
   }
 
@@ -340,13 +322,19 @@ export class SyncWorker implements SyncApi {
   }
 
   async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
-  async retryRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.retryRecoveryItem(itemId) }
-  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceOverwriteRecoveryItem(itemId) }
-  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceDeleteRecoveryItem(itemId) }
-  async dismissRecoveryItem(entryId: string) { await this.context.recoveryManager.dismissRecoveryItem(entryId) }
-  async listRecoveryItems() { return this.context.recoveryManager.listRecoveryItems() }
+  async retryRecoveryItem(itemId: ItemId) { await this.context.itemOperations.retryRecoveryItem(itemId) }
+  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceOverwriteRecoveryItem(itemId) }
+  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceDeleteRecoveryItem(itemId) }
+  async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }
+  async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
   async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
-  async reencryptAllItems(onProgress: (done: number, total: number) => void) { await this.context.reencryptionManager.reencryptAllItems(onProgress) }
+  async reencryptAllItems(onProgress: (done: number, total: number) => void) {
+    await reencryptAllItems({
+      accountId: this.context.accountId,
+      repo: this.context.repo,
+      indexManager: this.context.indexManager,
+    }, onProgress)
+  }
 
   async exportSyncState(): Promise<BackupSyncState> {
     const context = this.context
@@ -354,7 +342,7 @@ export class SyncWorker implements SyncApi {
     const pendingSyncRaw = await loadSyncBatch(context.accountId)
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
       itemId,
-      messages.map(encodeBytesToBase64)
+      messages.map(m => encodeBytesToBase64(m.data))
     ] as [ItemId, string[]])
     const lastModified = context.snapshotManager.exportLastModified()
 
@@ -431,8 +419,6 @@ export class SyncWorker implements SyncApi {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
   }
-
-  async ping() {}
 }
 
 Comlink.expose(new SyncWorker())

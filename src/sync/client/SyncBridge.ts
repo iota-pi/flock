@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Comlink from 'comlink'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
@@ -7,11 +6,8 @@ import { useAppStore } from 'src/state/store'
 import { exportKeyringData } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
-import { setOnRecoveryItemsChangedListener, resetSyncHealthState } from 'src/api/syncHealthCoordinator'
-import type { BackupSyncState } from 'src/types/backup'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
-import { ItemId } from 'src/shared/schemas/items'
 
 
 let syncApi: Comlink.Remote<SyncApi> | null = null
@@ -23,6 +19,7 @@ let onlineListenerAttached = false
 const pendingItemUpdates = new Map<string, Item | null>()
 let itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
 let _globalEventChannel: MessageChannel | null = null
+let _pingChannel: MessageChannel | null = null
 
 let recoveryEntries: ManualRecoveryEntry[] = []
 const recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
@@ -69,7 +66,7 @@ const handleSyncEvent = (event: ClientEvent) => {
       useAppStore.getState().updateIndexFromServer(event.itemIds)
       break
     case 'metadataUpdated':
-      useAppStore.getState().updateMetadataFromServer(event.metadata)
+      useAppStore.getState().updateMetadata(event.metadata)
       break
     case 'mutationFailed':
       console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
@@ -104,7 +101,7 @@ const handleSyncEvent = (event: ClientEvent) => {
 let initializationPromise: Promise<void> | null = null
 let currentInitSession = 0
 
-export const SyncBridge = {
+const baseBridge = {
   ensureReady: async () => {
     if (initializationPromise) {
       await initializationPromise
@@ -126,7 +123,7 @@ export const SyncBridge = {
 
     initializationPromise = (async () => {
       if (syncApi || workerInstance) {
-        await SyncBridge.shutdown({ internalRestart: true })
+        await baseBridge.shutdown({ internalRestart: true })
       }
 
       useAppStore.getState().setSyncStatus('connecting')
@@ -154,12 +151,18 @@ export const SyncBridge = {
         workerInstance = worker
         const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
-        _globalEventChannel = new MessageChannel()
-        _globalEventChannel.port1.onmessage = ev => {
+        const globalEventChannel = new MessageChannel()
+        _globalEventChannel = globalEventChannel
+        globalEventChannel.port1.onmessage = ev => {
           handleSyncEvent(ev.data as ClientEvent)
         }
-        _globalEventChannel.port1.start()
-        worker.postMessage({ type: 'EVENT_PORT', port: _globalEventChannel.port2 }, [_globalEventChannel.port2])
+        globalEventChannel.port1.start()
+        worker.postMessage({ type: 'EVENT_PORT', port: globalEventChannel.port2 }, [globalEventChannel.port2])
+
+        const pingChannel = new MessageChannel()
+        _pingChannel = pingChannel
+        pingChannel.port1.start()
+        worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
         await wrappedApi.initRepo(
           accountId,
@@ -197,22 +200,20 @@ export const SyncBridge = {
           )
         }
 
-        setOnRecoveryItemsChangedListener(() => {
-          void SyncBridge.listRecoveryItems()
-        })
-
         useAppStore.getState().clearSyncWarning()
         setupWorkerHealthCheck({
           worker,
-          pingFn: async () => {
-            if (syncApi) await syncApi.ping()
-          },
+          pingPort: pingChannel.port1,
           isCurrentWorker: () => workerInstance === worker && !!syncApi,
           onCrash: () => {
             if (workerInstance === worker) {
               if (_globalEventChannel) {
                 _globalEventChannel.port1.close()
                 _globalEventChannel = null
+              }
+              if (_pingChannel) {
+                _pingChannel.port1.close()
+                _pingChannel = null
               }
               workerInstance = null
               syncApi = null
@@ -222,7 +223,7 @@ export const SyncBridge = {
           onRestart: () => {
             setTimeout(() => {
               if (currentAccountId === accountId) {
-                SyncBridge.initialize(accountId).catch(err => {
+                baseBridge.initialize(accountId).catch(err => {
                   console.error('[SyncBridge] Auto-restart initialization failed:', err)
                 })
               }
@@ -237,6 +238,10 @@ export const SyncBridge = {
         if (_globalEventChannel) {
           _globalEventChannel.port1.close()
           _globalEventChannel = null
+        }
+        if (_pingChannel) {
+          _pingChannel.port1.close()
+          _pingChannel = null
         }
         if (workerInstance === worker) {
           workerInstance = null
@@ -254,70 +259,8 @@ export const SyncBridge = {
     return initializationPromise
   },
 
-  flushSync: async () => {
-    await SyncBridge.ensureReady()
-    syncApi!.flushSync()
-  },
-
-  fullResync: async () => {
-    await SyncBridge.ensureReady()
-    await syncApi!.fullResync()
-  },
-
-  mutateItem: async (id: ItemId, changes: Partial<Item>) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.mutateItem(id, changes)
-  },
-
-  createItem: async (item: any) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.createItem(item)
-  },
-
-  storeItems: async (items: any[]) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.storeItems(items)
-  },
-
-  mutateMetadata: async (changes: any) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.mutateMetadata(changes)
-  },
-
-  exportAllBinaries: async () => {
-    await SyncBridge.ensureReady()
-    return await syncApi!.exportAllBinaries()
-  },
-
-  restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
-    await SyncBridge.ensureReady()
-    const result = await syncApi!.restoreFromBinaries(documents)
-    useAppStore.getState().incrementGeneration()
-    return result
-  },
-
-  retryRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.retryRecoveryItem(itemId)
-  },
-
-  forceOverwriteRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.forceOverwriteRecoveryItem(itemId)
-  },
-
-  forceDeleteRecoveryItem: async (itemId: ItemId) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.forceDeleteRecoveryItem(itemId)
-  },
-
-  dismissRecoveryItem: async (entryId: string) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.dismissRecoveryItem(entryId)
-  },
-
   listRecoveryItems: async (): Promise<ManualRecoveryEntry[]> => {
-    await SyncBridge.ensureReady()
+    await baseBridge.ensureReady()
     const entries = await syncApi!.listRecoveryItems()
     recoveryEntries = entries
     for (const listener of recoveryEntriesListeners) {
@@ -334,24 +277,16 @@ export const SyncBridge = {
     }
   },
 
-  updateVaultKey: async (vaultKey: string) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.updateVaultKey(vaultKey)
+  restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
+    await baseBridge.ensureReady()
+    const result = await syncApi!.restoreFromBinaries(documents)
+    useAppStore.getState().incrementGeneration()
+    return result
   },
 
   reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
-    await SyncBridge.ensureReady()
+    await baseBridge.ensureReady()
     await syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
-  },
-
-  exportSyncState: async () => {
-    await SyncBridge.ensureReady()
-    return await syncApi!.exportSyncState()
-  },
-
-  restoreSyncState: async (state: Partial<BackupSyncState>) => {
-    await SyncBridge.ensureReady()
-    await syncApi!.restoreSyncState(state)
   },
 
   shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
@@ -362,12 +297,15 @@ export const SyncBridge = {
     }
     stopWorkerHeartbeat()
     resetCrashMetrics()
-    resetSyncHealthState()
 
     const oldWorker = workerInstance
     const oldSyncApi = syncApi
+    const oldGlobalEventChannel = _globalEventChannel
+    const oldPingChannel = _pingChannel
     workerInstance = null
     syncApi = null
+    _globalEventChannel = null
+    _pingChannel = null
 
     if (!options?.internalRestart) {
       if (itemUpdateFlushHandle !== null) {
@@ -394,9 +332,11 @@ export const SyncBridge = {
     if (oldWorker) {
       oldWorker.terminate()
     }
-    if (_globalEventChannel) {
-      _globalEventChannel.port1.close()
-      _globalEventChannel = null
+    if (oldGlobalEventChannel) {
+      oldGlobalEventChannel.port1.close()
+    }
+    if (oldPingChannel) {
+      oldPingChannel.port1.close()
     }
     if (!initializationPromise) {
       useAppStore.getState().setSyncStatus('offline')
@@ -411,4 +351,35 @@ export const SyncBridge = {
     }
   },
 }
+
+type Promisified<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : T[K]
+}
+
+export type SyncBridgeType = typeof baseBridge & Promisified<SyncApi>
+
+export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as unknown as SyncBridgeType, {
+  get(target, prop, receiver) {
+    if (prop in target) {
+      return Reflect.get(target, prop, receiver)
+    }
+
+    if (typeof prop === 'string') {
+      return async (...args: unknown[]) => {
+        await target.ensureReady()
+        const method = syncApi
+          ? (syncApi as unknown as Record<string, (...methodArgs: unknown[]) => unknown>)[prop]
+          : undefined
+        if (typeof method !== 'function') {
+          throw new TypeError(`SyncBridge: method '${prop}' does not exist on syncApi`)
+        }
+        return await method.apply(syncApi, args)
+      }
+    }
+
+    return Reflect.get(target, prop, receiver)
+  },
+})
 

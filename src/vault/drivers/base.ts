@@ -111,13 +111,6 @@ export default abstract class BaseDriver<T = unknown> {
     cursor: number
   }): Promise<{ items: Array<{ itemId: ItemId, messages: StoredSyncMessage[] }>; hasMore: boolean }>
 
-  // Prunes sync messages for a given item up to the specified cursor
-  abstract pruneSyncMessagesUpToCursor(input: {
-    account: string
-    itemId: ItemId
-    cursor: number
-  }): Promise<number>
-
   async auth(request: FastifyRequest) {
     const account = (request.params as { account: string }).account
     const authToken = getAuthToken(request)

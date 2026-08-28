@@ -11,9 +11,6 @@ import {
   fetchManifest,
   fetchSnapshotsByIds,
 } from '../../services/manifestService'
-import {
-  createDynamoAutomergeSyncRepository,
-} from '../../services/automergeSyncRepository'
 import type { VaultItem } from '../../drivers/base'
 import type { ItemType } from '../../types'
 
@@ -90,17 +87,6 @@ export const itemsRouter = router({
           lastSnapshotCursor: snapshotCursor,
           lastSnapshotAt: Date.now(),
         })
-
-        const syncRepository = createDynamoAutomergeSyncRepository(ctx.vault)
-        await Promise.all(
-          persistedSnapshots.map(snapshot => syncRepository.pruneSyncMessagesUpToCursor({
-            account: input.account,
-            itemId: snapshot.itemId,
-            cursor: snapshot.snapshotCursor,
-          }).catch(() => {
-            console.error(`Failed to prune sync messages up to cursor ${snapshot.snapshotCursor} for item ${snapshot.itemId}`)
-          }))
-        )
       }
 
       return { success: true, persisted, total: input.snapshots.length }

@@ -110,6 +110,72 @@ function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): It
   return [...groupsToUpdate, ...tombstones]
 }
 
+function revertOptimisticObject<T extends Record<string, unknown>>(
+  current: T | undefined,
+  previous: T | undefined,
+  optimistic: T,
+): T | undefined {
+  if (!current || !previous) return undefined
+
+  const reverted: Record<string, unknown> = { ...current }
+  let needsRevert = false
+
+  const allKeys = new Set([
+    ...Object.keys(previous),
+    ...Object.keys(optimistic),
+  ])
+
+  for (const key of allKeys) {
+    if (previous[key] !== optimistic[key]) {
+      if (current[key] === optimistic[key]) {
+        if (previous[key] === undefined) {
+          delete reverted[key]
+        } else {
+          reverted[key] = previous[key]
+        }
+        needsRevert = true
+      }
+    }
+  }
+
+  return needsRevert ? (reverted as T) : undefined
+}
+
+function applyOptimisticItemUpdate(itemId: ItemId, nextItem: Item): () => void {
+  const store = useAppStore.getState()
+  const previousItem = store.items[itemId] as Item | undefined
+
+  store.optimisticUpdateItem(itemId, nextItem)
+
+  return () => {
+    const currentState = useAppStore.getState().items[itemId]
+    if (!previousItem) {
+      if (currentState) {
+        useAppStore.getState().updateItemsFromServer([{ id: itemId, item: null }])
+      }
+      return
+    }
+
+    const reverted = revertOptimisticObject(currentState, previousItem, nextItem)
+    if (reverted) {
+      useAppStore.getState().updateItemsFromServer([{ id: itemId, item: reverted }])
+    }
+  }
+}
+
+function applyOptimisticMetadataUpdate(nextMetadata: AccountMetadata): () => void {
+  const currentMetadata = useAppStore.getState().metadata
+  useAppStore.getState().updateMetadata(nextMetadata)
+
+  return () => {
+    const latestMetadata = useAppStore.getState().metadata
+    const reverted = revertOptimisticObject(latestMetadata, currentMetadata, nextMetadata)
+    if (reverted) {
+      useAppStore.getState().updateMetadata(reverted)
+    }
+  }
+}
+
 export function mutateItem(
   itemId: ItemId,
   changes: Partial<Item>,
@@ -124,11 +190,11 @@ export function mutateItem(
   }
 
   const updatedItem = { ...item, ...changes } as Item
-
-  useAppStore.getState().optimisticUpdateItem(itemId, updatedItem)
+  const rollback = applyOptimisticItemUpdate(itemId, updatedItem)
 
   void SyncBridge.mutateItem(itemId, changes).catch(error => {
     console.error('[itemMutations] mutateItem SyncBridge error:', error)
+    rollback()
   })
 
   return Promise.resolve()
@@ -139,12 +205,17 @@ export async function storeItems(
 ): Promise<Item[]> {
   const current = normalizeItemsInput(items)
 
-  for (const item of current) {
-    const newItem: Item = { ...item, isNew: undefined }
-    useAppStore.getState().optimisticUpdateItem(item.id, newItem)
-  }
+  const rollbacks = current.map(item =>
+    applyOptimisticItemUpdate(item.id, { ...item, isNew: undefined })
+  )
 
-  await SyncBridge.storeItems(current)
+  try {
+    await SyncBridge.storeItems(current)
+  } catch (error) {
+    console.error('[itemMutations] storeItems SyncBridge error:', error)
+    rollbacks.forEach(rollback => rollback())
+    throw error
+  }
 
   return current
 }
@@ -161,9 +232,10 @@ export async function createItem(
     type: itemType,
   } as Item
 
-  useAppStore.getState().optimisticUpdateItem(nextItem.id, nextItem)
+  const rollback = applyOptimisticItemUpdate(nextItem.id, nextItem)
   void SyncBridge.createItem(nextItem).catch(error => {
-    console.error(error)
+    console.error('[itemMutations] createItem SyncBridge error:', error)
+    rollback()
   })
 
   return nextItem
@@ -196,8 +268,15 @@ export async function setMetadata(
       : metadata,
   )
 
-  useAppStore.getState().updateMetadataFromServer(nextMetadata)
-  await SyncBridge.mutateMetadata(nextMetadata)
+  const rollback = applyOptimisticMetadataUpdate(nextMetadata)
+
+  try {
+    await SyncBridge.mutateMetadata(nextMetadata)
+  } catch (error) {
+    console.error('[itemMutations] setMetadata SyncBridge error:', error)
+    rollback()
+    throw error
+  }
 
   return nextMetadata
 }

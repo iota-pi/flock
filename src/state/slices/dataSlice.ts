@@ -17,7 +17,7 @@ interface DataActions {
   setReady: () => void
   updateItemsFromServer: (updates: Array<{ id: string, item: Item | null }>) => void
   updateIndexFromServer: (itemIds: ItemId[]) => void
-  updateMetadataFromServer: (metadata: AccountMetadata) => void
+  updateMetadata: (metadata: AccountMetadata) => void
   optimisticUpdateItem: (id: string, partial: Partial<Item>) => void
   reset: () => void
 }
@@ -121,7 +121,7 @@ export const createDataSlice: StateCreator<
     }
   },
 
-  updateMetadataFromServer: metadata =>
+  updateMetadata: metadata =>
     set(state => ({
       metadata: {
         ...state.metadata,

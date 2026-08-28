@@ -928,48 +928,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       hasMore: !!response.LastEvaluatedKey,
     }
   }
-
-  async pruneSyncMessagesUpToCursor(input: { account: string; itemId: ItemId; cursor: number }): Promise<number> {
-    const syncId = `${input.account}#${input.itemId}`
-    let deleted = 0
-    let lastEvaluatedKey: Record<string, unknown> | undefined
-
-    do {
-      const response = await this.client.send(new QueryCommand({
-        TableName: SYNC_MESSAGES_TABLE_NAME,
-        KeyConditionExpression: 'syncId = :syncId AND #c <= :cursor',
-        ExpressionAttributeNames: { '#c': 'cursor' },
-        ExpressionAttributeValues: {
-          ':syncId': syncId,
-          ':cursor': input.cursor,
-        },
-        ProjectionExpression: '#c',
-        ExclusiveStartKey: lastEvaluatedKey,
-        Limit: PUSH_BATCH_SIZE,
-      }))
-
-      const items = (response.Items as Array<{ cursor: number }>) || []
-      if (items.length > 0) {
-        const requestItems: BatchWriteCommandInput['RequestItems'] = {
-          [SYNC_MESSAGES_TABLE_NAME]: items.map(item => ({
-            DeleteRequest: {
-              Key: {
-                syncId,
-                cursor: item.cursor,
-              },
-            },
-          })),
-        }
-
-        await this.executeBatchWriteWithRetry(requestItems)
-        deleted += items.length
-      }
-
-      lastEvaluatedKey = response.LastEvaluatedKey
-    } while (lastEvaluatedKey)
-
-    return deleted
-  }
 }
 
 export function getConnectionParams(options?: DynamoDBClientConfig): DynamoDBClientConfig {

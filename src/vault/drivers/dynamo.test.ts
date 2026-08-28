@@ -293,7 +293,7 @@ describe('DynamoDriver', function () {
     expect(result.keyring).toBe(keyringValue)
   })
 
-  it('can append, push, get, and prune sync messages', async () => {
+  it('can append, push, and get sync messages', async () => {
     const account = generateAccountId()
     const itemId = 'test-item-123' as ItemId
     const entry1 = {
@@ -320,13 +320,6 @@ describe('DynamoDriver', function () {
     const sorted = result.messages.sort((a, b) => a.cursor - b.cursor)
     expect(sorted[0].cursor).toBe(1001)
     expect(sorted[1].cursor).toBe(1002)
-
-    const deleted = await driver.pruneSyncMessagesUpToCursor({ account, itemId, cursor: 1001 })
-    expect(deleted).toBe(1)
-
-    const resultAfterPrune = await driver.getSyncMessages({ account, itemId })
-    expect(resultAfterPrune.messages.length).toBe(1)
-    expect(resultAfterPrune.messages[0].cursor).toBe(1002)
   })
 
   it('session eviction on updateAccountData works', async () => {

@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import { DEFAULT_FILTER_CRITERIA, FilterCriterion } from '../../utils/customFilter'
+import { getOnlineState } from '../../utils/onlineStatus'
 import type { AppStore } from '../store'
 
 export interface UIState {
@@ -46,7 +47,7 @@ export const createUiSlice: StateCreator<
       activeRequests: Math.max(0, state.activeRequests - 1),
     }))
 
-    if (error) {
+    if (error && getOnlineState()) {
       get().setMessage({
         severity: 'error',
         message: error,

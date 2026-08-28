@@ -1,6 +1,8 @@
 import { MouseEvent, useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useForm, useWatch } from 'react-hook-form'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import Container from '@mui/material/Container'
@@ -250,11 +252,14 @@ function CreateAccountPage() {
             </Button>
 
             {error && (
-              <Typography color="error" sx={{
-                mt: 2
-              }}>
-                {error}
-              </Typography>
+              <Box sx={{ mt: 3 }}>
+                <Alert
+                  severity="error"
+                  onClose={() => setError('')}
+                >
+                  {error}
+                </Alert>
+              </Box>
             )}
           </form>
         </Section>

@@ -4,7 +4,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { CursorStore } from './stores/CursorStore'
 
-import { loadSyncBatch } from '../shared/VaultPersistence'
+import { loadSyncBatch, type QueuedMessage } from '../shared/VaultPersistence'
 import { ItemId } from 'src/shared/schemas/items'
 
 const mockPollSyncBatchWithToken = vi.fn()
@@ -78,9 +78,9 @@ describe('SyncPoller', () => {
 
   it('sends cursors with every chunk in multi-chunk batch', async () => {
     // 6 items will produce 2 chunks of size 5 and 1
-    const mockBatch: [ItemId, Uint8Array[]][] = Array.from({ length: 6 }, (_, i) => [
+    const mockBatch: [ItemId, QueuedMessage[]][] = Array.from({ length: 6 }, (_, i) => [
       `item-${i}` as ItemId,
-      [new Uint8Array([1, 2, 3])],
+      [{ id: `msg-${i}`, data: new Uint8Array([1, 2, 3]) }],
     ])
     vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
 
@@ -202,9 +202,9 @@ describe('SyncPoller', () => {
 
     it('emits snapshotNeeded with the highest cursor across multiple chunks', async () => {
       const emitSpy = vi.spyOn(internalEventHub, 'emit')
-      const mockBatch: [ItemId, Uint8Array[]][] = Array.from({ length: 12 }, (_, i) => [
+      const mockBatch: [ItemId, QueuedMessage[]][] = Array.from({ length: 12 }, (_, i) => [
         `item-${i}` as ItemId,
-        [new Uint8Array([1, 2, 3])],
+        [{ id: `msg-${i}`, data: new Uint8Array([1, 2, 3]) }],
       ])
       vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
 

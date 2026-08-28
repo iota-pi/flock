@@ -3,8 +3,10 @@ import * as Automerge from '@automerge/automerge/slim'
 import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } from '../../../shared/schemas/items'
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
-import { readObjectSnapshot, toAutomergeUrlFromItemId } from '../utils/automerge'
+import { readObjectSnapshot, toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
+import { encodeBytesToBase64, decodeBase64ToBytes } from '../utils/base64Utils'
 import { isPlainObject } from '../utils/objectUtils'
+import type { AutomergeIndexManager } from './AutomergeIndexManager'
 
 export type RepoDoc = Record<string, unknown>
 export type RepoDocHandle = DocHandle<RepoDoc> | undefined
@@ -324,6 +326,77 @@ export class AutomergeDocStore {
     this.repo.import<RepoDoc>(binary, {
       docId: documentId,
     })
+  }
+
+  async exportAllBinaries(indexManager: AutomergeIndexManager): Promise<{
+    documents: Partial<Record<BackupDocId, string>>
+    skipped: ItemId[]
+  }> {
+    const exported: Partial<Record<BackupDocId, string>> = {}
+    const skipped: ItemId[] = []
+
+    for (const itemId of await indexManager.listAutomergeItemIds()) {
+      const handle = await this.findHandle(itemId, { knownToExist: true })
+      if (!handle || !handle.isReady()) {
+        console.warn(`[AutomergeDocStore] Skipping item ${itemId}: document could not be loaded in time`)
+        skipped.push(itemId)
+        continue
+      }
+
+      const doc = handle.doc()
+      if (!doc) {
+        console.warn(`[AutomergeDocStore] Skipping item ${itemId}: document handle doc is empty`)
+        skipped.push(itemId)
+        continue
+      }
+
+      const binary = Automerge.save(doc)
+      exported[itemId] = encodeBytesToBase64(binary)
+    }
+
+    const indexDoc = await indexManager.getIndexSnapshot()
+    const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
+    exported[ACCOUNT_INDEX_DOCUMENT_ID] = encodeBytesToBase64(indexBinary)
+
+    return { documents: exported, skipped }
+  }
+
+  async restoreFromBinaries(
+    items: Partial<Record<BackupDocId, string>>,
+    indexManager: AutomergeIndexManager
+  ): Promise<ItemId[]> {
+    const restoredItemIds: ItemId[] = []
+
+    const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID]
+    if (encodedIndex && typeof encodedIndex === 'string') {
+      try {
+        const indexBinary = decodeBase64ToBytes(encodedIndex)
+        const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
+        if (indexDoc && typeof indexDoc === 'object') {
+          await indexManager.replaceIndex(indexDoc)
+        }
+      } catch (err) {
+        console.error('[AutomergeDocStore] Failed to restore index metadata from backup', err)
+      }
+    }
+
+    for (const [itemId, encodedBinary] of Object.entries(items)) {
+      if (itemId === ACCOUNT_INDEX_DOCUMENT_ID) continue
+      if (typeof encodedBinary !== 'string' || encodedBinary.length === 0) continue
+
+      const normalizedItemId = normalizeItemId(itemId)
+      if (!normalizedItemId) continue
+
+      await this.hydrateAutomergeDocumentBinary(
+        normalizedItemId,
+        decodeBase64ToBytes(encodedBinary)
+      )
+
+      restoredItemIds.push(normalizedItemId)
+    }
+
+    await indexManager.addAutomergeItemIdsToIndex(restoredItemIds)
+    return restoredItemIds
   }
 
   async shutdown(): Promise<void> {

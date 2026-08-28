@@ -1,4 +1,4 @@
-import { ReencryptionManager } from './ReencryptionManager'
+import { reencryptAllItems } from './reencryptAllItems'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()
@@ -42,8 +42,7 @@ vi.mock('./utils/automerge', () => ({
   toAutomergeUrlFromItemId: vi.fn().mockImplementation((id: string) => `automerge:${id}`),
 }))
 
-describe('ReencryptionManager', () => {
-  let manager: ReencryptionManager
+describe('reencryptAllItems', () => {
   let mockRepo: any
   let mockHandle: any
   let context: {
@@ -73,22 +72,20 @@ describe('ReencryptionManager', () => {
       repo: mockRepo,
       indexManager: mockIndexManager,
     }
-
-    manager = new ReencryptionManager(context as any)
   })
 
   it('throws an error if accountId or repo is missing', async () => {
     context.accountId = null
-    await expect(manager.reencryptAllItems()).rejects.toThrow('SyncWorker not initialized')
+    await expect(reencryptAllItems(context as any)).rejects.toThrow('SyncWorker not initialized')
 
     context.accountId = 'test-account'
     context.repo = null
-    await expect(manager.reencryptAllItems()).rejects.toThrow('SyncWorker not initialized')
+    await expect(reencryptAllItems(context as any)).rejects.toThrow('SyncWorker not initialized')
   })
 
   it('throws an error if authToken is missing', async () => {
     mockGetActiveSessionToken.mockResolvedValue(null)
-    await expect(manager.reencryptAllItems()).rejects.toThrow('No active session token available')
+    await expect(reencryptAllItems(context as any)).rejects.toThrow('No active session token available')
   })
 
   it('handles empty item list', async () => {
@@ -96,7 +93,7 @@ describe('ReencryptionManager', () => {
     mockListAutomergeItemIds.mockResolvedValue([])
 
     const onProgress = vi.fn()
-    await manager.reencryptAllItems(onProgress)
+    await reencryptAllItems(context as any, onProgress)
 
     expect(onProgress).toHaveBeenCalledWith(0, 0)
     expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
@@ -108,7 +105,7 @@ describe('ReencryptionManager', () => {
     mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
 
     const onProgress = vi.fn()
-    await manager.reencryptAllItems(onProgress)
+    await reencryptAllItems(context as any, onProgress)
 
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     expect(onProgress).toHaveBeenCalledWith(2, 2)
@@ -119,7 +116,7 @@ describe('ReencryptionManager', () => {
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
     mockPutSnapshotsWithToken.mockResolvedValue({ success: false })
 
-    await expect(manager.reencryptAllItems()).rejects.toThrow(
+    await expect(reencryptAllItems(context as any)).rejects.toThrow(
       'Re-encryption completed with 1 error(s). First error: Failed to upload snapshots for batch starting at index 0 after 3 attempts'
     )
   })
@@ -138,7 +135,7 @@ describe('ReencryptionManager', () => {
       .mockResolvedValueOnce({ success: true })
 
     const onProgress = vi.fn()
-    await expect(manager.reencryptAllItems(onProgress)).rejects.toThrow(
+    await expect(reencryptAllItems(context as any, onProgress)).rejects.toThrow(
       'Re-encryption completed with 1 error(s).'
     )
 
@@ -173,7 +170,7 @@ describe('ReencryptionManager', () => {
     })
 
     const onProgress = vi.fn()
-    await expect(manager.reencryptAllItems(onProgress)).rejects.toThrow(
+    await expect(reencryptAllItems(context as any, onProgress)).rejects.toThrow(
       'Re-encryption completed with 1 error(s).'
     )
 
@@ -185,7 +182,7 @@ describe('ReencryptionManager', () => {
     expect(callArgs.snapshots.map((s: any) => s.itemId)).toEqual(['item-1', 'item-2'])
     expect(onProgress).toHaveBeenCalledWith(3, 3)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[ReencryptionManager] Failed to build snapshot for item item-bad:'),
+      expect.stringContaining('[reencryptAllItems] Failed to build snapshot for item item-bad:'),
       expect.any(Error)
     )
     consoleErrorSpy.mockRestore()

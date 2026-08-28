@@ -81,6 +81,7 @@ export default function useSettings(items: Item[]) {
   // Actions
   const handleLock = useCallback(
     async () => {
+      sessionStorage.setItem('flock-manual-lock', 'true')
       await lockVault()
       setMessage({ message: 'App locked' })
     },

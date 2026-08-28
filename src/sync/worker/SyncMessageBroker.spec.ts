@@ -14,10 +14,6 @@ vi.mock('../shared/VaultPersistence', () => ({
   persistSyncMessages: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../api/syncHealthCoordinator', () => ({
-  clearManualRecoveryForItems: vi.fn().mockResolvedValue(undefined),
-}))
-
 function createSyncMessage(itemId: string, data: number[]): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
   return {
@@ -178,6 +174,17 @@ describe('SyncMessageBroker', () => {
     const calls = vi.mocked(persistSyncMessages).mock.calls
     const writtenMap = calls[0][1] as Map<string, Uint8Array[]>
     expect(writtenMap.has('item1')).toBe(true)
+  })
+
+  it('notifies onItemMessageParsed when pullQueueManager parses a message', async () => {
+    const mockOnItemParsed = vi.fn()
+    broker.onItemMessageParsed = mockOnItemParsed
+    await broker.setAccount('account-1')
+
+    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-1' as ItemId))
+    pullQueueManager.onMessageParsed('item-1' as ItemId, docId, new Uint8Array([1, 2, 3]))
+
+    expect(mockOnItemParsed).toHaveBeenCalledWith('item-1')
   })
 })
 

@@ -2,7 +2,6 @@ import { interpretAsDocumentId, type DocumentId } from '@automerge/automerge-rep
 import { debounce } from 'lodash-es'
 
 import type { PullSyncMessagesResponse } from '../../api/vault/SyncWorkerClient'
-import { reportDecryptionFailure } from '../../api/syncHealthCoordinator'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { publishRealtimeBusSyncPing } from '../client/realtimeBus'
 import { decryptBytes } from 'src/api/vault'
@@ -18,6 +17,7 @@ export class SyncPullQueueManager {
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
 
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
+  public onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
 
   constructor(private readonly cursorStore: CursorStore) {}
 
@@ -102,10 +102,7 @@ export class SyncPullQueueManager {
       return { parsed: true, cursor: entry.cursor }
     } catch (error) {
       if (this.account) {
-        reportDecryptionFailure(this.account, {
-          itemId,
-          error
-        })
+        this.onDecryptionFailure?.(itemId, error)
       }
       return { parsed: false }
     }

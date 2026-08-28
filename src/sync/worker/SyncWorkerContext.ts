@@ -2,110 +2,117 @@ import type { Repo } from '@automerge/automerge-repo/slim'
 
 import { AutomergeDocStore } from './docStore'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import { BackupManager } from './docStore/BackupManager'
 import { IndexStore } from './stores/IndexStore'
 import { CursorStore } from './stores/CursorStore'
 import { LastModifiedStore } from './stores/LastModifiedStore'
 import { SnapshotManager } from './SnapshotManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
 import { DeletionQueueManager } from './DeletionQueueManager'
-import { RecoveryManager } from './RecoveryManager'
 import { ManifestSyncManager } from './ManifestSyncManager'
-import { ReencryptionManager } from './ReencryptionManager'
 import { ItemOperations } from './ItemOperations'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import type { Item } from 'src/state/items'
-import type { AccountMetadata } from 'src/state/metadata'
 
+export interface SyncWorkerContextDeps {
+  accountId: string
+  repo: Repo
+  adapter: VaultNetworkAdapter
+  broker: SyncMessageBroker
+  clientEventHub: ClientEventHub
+  internalEventHub: WorkerInternalEventHub
+  indexStore: IndexStore
+  indexManager: AutomergeIndexManager
+  cursorStore: CursorStore
+  pullQueueManager: SyncPullQueueManager
+}
 
 export class SyncWorkerContext {
+  public readonly accountId: string
+  public readonly repo: Repo
+  public readonly adapter: VaultNetworkAdapter
+  public readonly broker: SyncMessageBroker
+  public readonly clientEventHub: ClientEventHub
+  public readonly internalEventHub: WorkerInternalEventHub
+
   public readonly indexStore: IndexStore
   public readonly cursorStore: CursorStore
   public readonly lastModifiedStore: LastModifiedStore
 
   public readonly docStore: AutomergeDocStore
   public readonly indexManager: AutomergeIndexManager
-  public readonly backupManager: BackupManager
   public readonly pullQueueManager: SyncPullQueueManager
   public readonly snapshotManager: SnapshotManager
   public readonly orchestrator: SyncOrchestrator
   public readonly deletionQueueManager: DeletionQueueManager
-  public readonly recoveryManager: RecoveryManager
   public readonly manifestSyncManager: ManifestSyncManager
-  public readonly reencryptionManager: ReencryptionManager
   public readonly itemOperations: ItemOperations
 
-  constructor(
-    public readonly accountId: string,
-    public readonly repo: Repo,
-    public readonly adapter: VaultNetworkAdapter,
-    public readonly broker: SyncMessageBroker,
-    public readonly clientEventHub: ClientEventHub,
-    public readonly internalEventHub: WorkerInternalEventHub,
-    indexStore: IndexStore,
-    indexManager: AutomergeIndexManager,
-    cursorStore: CursorStore,
-    pullQueueManager: SyncPullQueueManager,
-    storeItems: (items: Item[]) => Promise<void>,
-    mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
-  ) {
-    this.indexStore = indexStore
-    this.indexManager = indexManager
-    this.cursorStore = cursorStore
-    this.pullQueueManager = pullQueueManager
-    this.lastModifiedStore = new LastModifiedStore(accountId)
+  constructor(deps: SyncWorkerContextDeps) {
+    this.accountId = deps.accountId
+    this.repo = deps.repo
+    this.adapter = deps.adapter
+    this.broker = deps.broker
+    this.clientEventHub = deps.clientEventHub
+    this.internalEventHub = deps.internalEventHub
 
-    this.docStore = new AutomergeDocStore(repo)
-    this.backupManager = new BackupManager(this.docStore, indexManager)
+    this.indexStore = deps.indexStore
+    this.indexManager = deps.indexManager
+    this.cursorStore = deps.cursorStore
+    this.pullQueueManager = deps.pullQueueManager
+    this.lastModifiedStore = new LastModifiedStore(deps.accountId)
 
-    this.snapshotManager = new SnapshotManager({
-      accountId,
-      repo,
-      broker,
-    }, this.lastModifiedStore)
+    this.docStore = new AutomergeDocStore(deps.repo)
 
-    this.orchestrator = new SyncOrchestrator(accountId, broker, clientEventHub, internalEventHub)
-
-    this.deletionQueueManager = new DeletionQueueManager({
-      accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-    })
-
-    this.recoveryManager = new RecoveryManager({
-      accountId,
-      docStore: this.docStore,
-      indexManager: this.indexManager,
-    }, clientEventHub)
-
-    this.manifestSyncManager = new ManifestSyncManager(
+    this.snapshotManager = new SnapshotManager(
       {
-        accountId,
-        docStore: this.docStore,
-        indexManager: this.indexManager,
-        snapshotManager: this.snapshotManager,
+        accountId: deps.accountId,
+        repo: deps.repo,
+        broker: deps.broker,
       },
-      storeItems,
-      mutateMetadata,
+      this.lastModifiedStore
     )
 
-    this.reencryptionManager = new ReencryptionManager({
-      accountId,
-      repo,
+    this.orchestrator = new SyncOrchestrator(
+      deps.accountId,
+      deps.broker,
+      deps.clientEventHub,
+      deps.internalEventHub
+    )
+
+    this.deletionQueueManager = new DeletionQueueManager({
+      accountId: deps.accountId,
+      docStore: this.docStore,
       indexManager: this.indexManager,
     })
 
     this.itemOperations = new ItemOperations({
-      accountId,
+      accountId: deps.accountId,
       docStore: this.docStore,
       indexManager: this.indexManager,
-      eventHub: clientEventHub,
+      eventHub: deps.clientEventHub,
       markDocumentDirty: id => this.snapshotManager.markItemDirty(id),
-      deletionQueueManager: this.deletionQueueManager,
     })
+
+    this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
+      void this.itemOperations.reportDecryptionFailure(itemId, error)
+    }
+
+    this.broker.onItemMessageParsed = itemId => {
+      void this.itemOperations.clearManualRecoveryForItems([itemId])
+    }
+
+    this.manifestSyncManager = new ManifestSyncManager(
+      {
+        accountId: deps.accountId,
+        docStore: this.docStore,
+        indexManager: this.indexManager,
+        snapshotManager: this.snapshotManager,
+      },
+      items => this.itemOperations.storeItems(items),
+      changes => this.itemOperations.mutateMetadata(changes),
+    )
   }
 
   async initialize() {
@@ -142,6 +149,8 @@ export class SyncWorkerContext {
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
     }
+
+    this.itemOperations.resetRecoveryState()
 
     if (options?.clearLocalData) {
       try {

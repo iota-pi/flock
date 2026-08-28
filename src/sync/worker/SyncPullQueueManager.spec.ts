@@ -50,11 +50,6 @@ vi.mock('src/api/vault', () => ({
   decryptBytes: (...args: any[]) => mockDecryptBytes(...args),
 }))
 
-const mockReportDecryptionFailure = vi.fn()
-vi.mock('../../api/syncHealthCoordinator', () => ({
-  reportDecryptionFailure: (...args: any[]) => mockReportDecryptionFailure(...args),
-}))
-
 const mockPublishRealtimeBusSyncPing = vi.fn()
 vi.mock('../client/realtimeBus', () => ({
   publishRealtimeBusSyncPing: (...args: any[]) => mockPublishRealtimeBusSyncPing(...args),
@@ -296,7 +291,9 @@ describe('SyncPullQueueManager', () => {
       expect(manager.hasPendingPulls()).toBe(true) // because hasMore was true
     })
 
-    it('handles decryption failure by calling reportDecryptionFailure without advancing cursor and removes item from pending pulls', async () => {
+    it('handles decryption failure by calling onDecryptionFailure without advancing cursor and removes item from pending pulls', async () => {
+      const mockOnDecryptionFailure = vi.fn()
+      manager.onDecryptionFailure = mockOnDecryptionFailure
       mockDecryptBytes.mockRejectedValueOnce(new Error('Decryption failed'))
 
       const pullResults: PullSyncMessagesResponse[] = [
@@ -319,12 +316,9 @@ describe('SyncPullQueueManager', () => {
 
       await manager.processPullResults(pullResults)
 
-      expect(mockReportDecryptionFailure).toHaveBeenCalledWith(
-        'account-1',
-        {
-          itemId: 'item-fail',
-          error: expect.any(Error),
-        }
+      expect(mockOnDecryptionFailure).toHaveBeenCalledWith(
+        'item-fail',
+        expect.any(Error)
       )
       // Cursors should NOT advance on decryption failure and item should not stay pending to avoid infinite loop
       expect(manager.exportCursors()).toEqual([['item-fail', 0]])

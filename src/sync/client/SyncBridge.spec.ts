@@ -2,6 +2,9 @@ import { SyncBridge } from './SyncBridge'
 import * as Comlink from 'comlink'
 import { useAppStore } from '../../state/store'
 import { VAULT_STORAGE_KEY } from '../../api/vault/util'
+import type { ItemId } from 'src/shared/schemas/items'
+import { getBlankPerson } from '../../state/items'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
@@ -19,7 +22,19 @@ const mockSyncApi = {
   forceSync: vi.fn().mockResolvedValue(undefined),
   fullResync: vi.fn().mockResolvedValue(undefined),
   shutdown: vi.fn().mockResolvedValue(undefined),
-  ping: vi.fn().mockResolvedValue(undefined),
+  mutateItem: vi.fn().mockResolvedValue(undefined),
+  createItem: vi.fn().mockResolvedValue(undefined),
+  storeItems: vi.fn().mockResolvedValue(undefined),
+  mutateMetadata: vi.fn().mockResolvedValue(undefined),
+  exportAllBinaries: vi.fn().mockResolvedValue({ documents: {}, skipped: [] }),
+  restoreFromBinaries: vi.fn().mockResolvedValue(['doc-1']),
+  retryRecoveryItem: vi.fn().mockResolvedValue(undefined),
+  forceOverwriteRecoveryItem: vi.fn().mockResolvedValue(undefined),
+  forceDeleteRecoveryItem: vi.fn().mockResolvedValue(undefined),
+  dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
+  updateVaultKey: vi.fn().mockResolvedValue(undefined),
+  reencryptAllItems: vi.fn().mockResolvedValue(undefined),
+  flushSync: vi.fn().mockReturnValue(undefined),
 }
 
 vi.mock('comlink', () => {
@@ -33,7 +48,26 @@ class MockWorker {
   url: string
   options: any
   terminate = vi.fn()
-  postMessage = vi.fn()
+  postMessage = vi.fn((data: any) => {
+    if (data && data.type === 'INIT_PING_PORT' && data.port) {
+      const port = data.port
+      const reply = () => {
+        port.postMessage?.('pong')
+      }
+      if (typeof port.addEventListener === 'function') {
+        port.addEventListener('message', (event: any) => {
+          if (event.data === 'ping') reply()
+        })
+      }
+      port.onmessage = (event: any) => {
+        if (event.data === 'ping') reply()
+      }
+      if (typeof port.start === 'function') {
+        port.start()
+      }
+    }
+  })
+
   private listeners: Record<string, ((event: any) => void)[]> = {}
 
   addEventListener = vi.fn((event: string, handler: (event: any) => void) => {
@@ -198,17 +232,16 @@ describe('SyncBridge', () => {
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
         super(url, options)
+        // Mock ping port to hang / not respond
+        this.postMessage = vi.fn()
       }
     } as any
-
-    // Mock ping to hang forever
-    mockSyncApi.ping.mockImplementation(() => new Promise(() => {}))
 
     const initializeSpy = vi.spyOn(SyncBridge, 'initialize')
     await SyncBridge.initialize('test-account')
 
-    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (5s)
-    await vi.advanceTimersByTimeAsync(20000)
+    // Move time forward by HEARTBEAT_INTERVAL (15s) + HEARTBEAT_TIMEOUT (30s)
+    await vi.advanceTimersByTimeAsync(45000)
 
     expect(useAppStore.getState().syncStatus).toBe('connecting')
     expect(useAppStore.getState().syncWarning).toBe('Sync connection lost. Reconnecting...')
@@ -217,8 +250,6 @@ describe('SyncBridge', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(initializeSpy).toHaveBeenCalledTimes(2)
 
-    // Clean up mock
-    mockSyncApi.ping.mockReset().mockResolvedValue(undefined)
     vi.useRealTimers()
   })
 
@@ -363,7 +394,7 @@ describe('SyncBridge', () => {
     ])
   })
 
-  it('closes _globalEventChannel.port1 on worker crash', async () => {
+  it('closes _globalEventChannel.port1 and _pingChannel.port1 on worker crash', async () => {
     let capturedWorker: any = null
     globalThis.Worker = class extends MockWorker {
       constructor(url: string, options: any) {
@@ -374,18 +405,27 @@ describe('SyncBridge', () => {
     } as any
 
     const originalMessageChannel = globalThis.MessageChannel
-    let port1CloseSpy: any
+    const closeSpies: any[] = []
     class MockMessageChannel {
       port1 = {
         onmessage: null,
         start: vi.fn(),
         close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
       }
 
-      port2 = {}
+      port2 = {
+        start: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        postMessage: vi.fn(),
+      }
 
       constructor() {
-        port1CloseSpy = this.port1.close
+        closeSpies.push(this.port1.close)
       }
     }
     globalThis.MessageChannel = MockMessageChannel as any
@@ -393,12 +433,13 @@ describe('SyncBridge', () => {
     try {
       await SyncBridge.initialize('test-account')
       expect(capturedWorker).not.toBeNull()
-      expect(port1CloseSpy).not.toHaveBeenCalled()
+      expect(closeSpies.length).toBe(2)
+      closeSpies.forEach(spy => expect(spy).not.toHaveBeenCalled())
 
       // Trigger worker crash error
       capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
 
-      expect(port1CloseSpy).toHaveBeenCalledTimes(1)
+      closeSpies.forEach(spy => expect(spy).toHaveBeenCalledTimes(1))
     } finally {
       globalThis.MessageChannel = originalMessageChannel
     }
@@ -489,6 +530,101 @@ describe('SyncBridge', () => {
     expect(recoveryListener).toHaveBeenCalledTimes(1)
     // App store state shouldn't be reset
     expect(useAppStore.getState().items['item-1']).toBeDefined()
+  })
+
+  describe('proxied worker methods', () => {
+    it('throws an error if proxied methods are called before initialization', async () => {
+      await expect(SyncBridge.mutateItem('item-1' as ItemId, { name: 'Test' })).rejects.toThrow(
+        'SyncBridge not initialized'
+      )
+      await expect(SyncBridge.fullResync()).rejects.toThrow('SyncBridge not initialized')
+      await expect(SyncBridge.exportSyncState()).rejects.toThrow('SyncBridge not initialized')
+    })
+
+    it('forwards proxied method calls with arguments to syncApi when initialized', async () => {
+      await SyncBridge.initialize('test-account')
+
+      const person = getBlankPerson('item-2' as ItemId, false)
+      const person3 = getBlankPerson('item-3' as ItemId, false)
+
+      await SyncBridge.mutateItem('item-1' as ItemId, { name: 'Updated' })
+      expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'Updated' })
+
+      await SyncBridge.createItem(person)
+      expect(mockSyncApi.createItem).toHaveBeenCalledWith(person)
+
+      await SyncBridge.storeItems([person3])
+      expect(mockSyncApi.storeItems).toHaveBeenCalledWith([person3])
+
+      await SyncBridge.mutateMetadata({ prayerGoal: 10 })
+      expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
+
+      await SyncBridge.flushSync()
+      expect(mockSyncApi.flushSync).toHaveBeenCalledTimes(1)
+
+      await SyncBridge.fullResync()
+      expect(mockSyncApi.fullResync).toHaveBeenCalledTimes(1)
+
+      const exported = await SyncBridge.exportAllBinaries()
+      expect(mockSyncApi.exportAllBinaries).toHaveBeenCalledTimes(1)
+      expect(exported).toEqual({ documents: {}, skipped: [] })
+
+      await SyncBridge.retryRecoveryItem('item-1' as ItemId)
+      expect(mockSyncApi.retryRecoveryItem).toHaveBeenCalledWith('item-1')
+
+      await SyncBridge.forceOverwriteRecoveryItem('item-1' as ItemId)
+      expect(mockSyncApi.forceOverwriteRecoveryItem).toHaveBeenCalledWith('item-1')
+
+      await SyncBridge.forceDeleteRecoveryItem('item-1' as ItemId)
+      expect(mockSyncApi.forceDeleteRecoveryItem).toHaveBeenCalledWith('item-1')
+
+      await SyncBridge.dismissRecoveryItem('entry-1')
+      expect(mockSyncApi.dismissRecoveryItem).toHaveBeenCalledWith('entry-1')
+
+      await SyncBridge.updateVaultKey('new-key')
+      expect(mockSyncApi.updateVaultKey).toHaveBeenCalledWith('new-key')
+
+      const syncState = await SyncBridge.exportSyncState()
+      expect(mockSyncApi.exportSyncState).toHaveBeenCalledTimes(1)
+      expect(syncState).toEqual({ cursors: [], pendingSync: [], lastModified: [] })
+
+      await SyncBridge.restoreSyncState({ cursors: [] })
+      expect(mockSyncApi.restoreSyncState).toHaveBeenCalledWith({ cursors: [] })
+    })
+
+    it('handles custom override methods correctly', async () => {
+      await SyncBridge.initialize('test-account')
+
+      const incrementSpy = vi.spyOn(useAppStore.getState(), 'incrementGeneration')
+      const restoreResult = await SyncBridge.restoreFromBinaries({ doc1: 'data' })
+      expect(mockSyncApi.restoreFromBinaries).toHaveBeenCalledWith({ doc1: 'data' })
+      expect(incrementSpy).toHaveBeenCalledTimes(1)
+      expect(restoreResult).toEqual(['doc-1'])
+
+      const onProgress = vi.fn()
+      await SyncBridge.reencryptAllItems(onProgress)
+      expect(mockSyncApi.reencryptAllItems).toHaveBeenCalledTimes(1)
+      expect(Comlink.proxy).toHaveBeenCalledWith(onProgress)
+
+      const entries: ManualRecoveryEntry[] = [
+        {
+          id: 'rec-1',
+          itemId: 'item-1' as ItemId,
+          reason: 'invalid document',
+          createdAt: 123456,
+        },
+      ]
+      mockSyncApi.listRecoveryItems.mockResolvedValueOnce(entries)
+      const listResult = await SyncBridge.listRecoveryItems()
+      expect(listResult).toEqual(entries)
+    })
+
+    it('throws a TypeError when calling a nonexistent method on syncApi', async () => {
+      await SyncBridge.initialize('test-account')
+      await expect(
+        (SyncBridge as unknown as Record<string, () => Promise<void>>).nonExistentMethod()
+      ).rejects.toThrow("SyncBridge: method 'nonExistentMethod' does not exist on syncApi")
+    })
   })
 })
 

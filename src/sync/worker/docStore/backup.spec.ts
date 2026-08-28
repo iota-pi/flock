@@ -1,7 +1,6 @@
 import { Repo } from '@automerge/automerge-repo/slim'
 import { AutomergeDocStore } from './AutomergeDocStore'
 import { AutomergeIndexManager } from './AutomergeIndexManager'
-import { BackupManager } from './BackupManager'
 import { IndexStore } from '../stores/IndexStore'
 import { ACCOUNT_INDEX_DOCUMENT_ID, BackupDocId } from '../utils/automerge'
 import type { Item } from '../../../state/items'
@@ -13,14 +12,12 @@ describe('backup operations', () => {
   const accountId = 'test-account-id-backup'
   let docStore: AutomergeDocStore
   let indexManager: AutomergeIndexManager
-  let backupManager: BackupManager
   let indexStore: IndexStore
 
   beforeEach(async () => {
     indexStore = new IndexStore(accountId)
     docStore = new AutomergeDocStore(testRepo)
     indexManager = new AutomergeIndexManager(accountId, indexStore)
-    backupManager = new BackupManager(docStore, indexManager)
 
     await indexStore.clear()
     await indexManager.ensureIndexDocument()
@@ -55,7 +52,7 @@ describe('backup operations', () => {
     await indexManager.updateAutomergeMetadata({ prayerGoal: 42 })
 
     // Export binaries
-    const exported = await backupManager.exportAllBinaries()
+    const exported = await docStore.exportAllBinaries(indexManager)
     expect(Object.keys(exported.documents)).toContain(item.id)
     expect(Object.keys(exported.documents)).toContain(ACCOUNT_INDEX_DOCUMENT_ID)
     expect(exported.skipped).toEqual([])
@@ -72,7 +69,7 @@ describe('backup operations', () => {
     expect(metadataBefore.prayerGoal).toBeUndefined()
 
     // Restore from binaries
-    const restored = await backupManager.restoreFromBinaries(exported.documents)
+    const restored = await docStore.restoreFromBinaries(exported.documents, indexManager)
     expect(restored).toContain(item.id)
 
     // Verify item restored
@@ -93,7 +90,7 @@ describe('backup operations', () => {
 
     vi.spyOn(docStore, 'findHandle').mockResolvedValue(undefined)
 
-    const exported = await backupManager.exportAllBinaries()
+    const exported = await docStore.exportAllBinaries(indexManager)
     expect(exported.skipped).toContain('missing-item')
     expect(exported.documents['missing-item' as BackupDocId]).toBeUndefined()
   })

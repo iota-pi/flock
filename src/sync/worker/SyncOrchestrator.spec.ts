@@ -291,5 +291,19 @@ describe('SyncOrchestrator', () => {
     await vi.advanceTimersByTimeAsync(100000)
     expect(mockBroker.executePoll).toHaveBeenCalledTimes(1)
   })
+
+  it('does not set pendingFlush when shutting down with a pending batch timeout', async () => {
+    orchestrator.setLeader(true)
+    orchestrator.setOnlineState(true)
+
+    // Schedule a flush (syncBatchTimeout)
+    orchestrator.flush()
+    expect((orchestrator as any).syncBatchTimeout).not.toBeNull()
+
+    // Shut down before batch timeout fires
+    await orchestrator.shutdown()
+
+    expect((orchestrator as any).pendingFlush).toBe(false)
+  })
 })
 

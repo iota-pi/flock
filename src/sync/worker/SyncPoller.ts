@@ -2,7 +2,7 @@ import { chunk } from 'lodash-es'
 
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { encryptBytes } from '../../api/vault'
-import { loadSyncBatch, removeSentSyncMessages } from '../shared/VaultPersistence'
+import { loadSyncBatch, removeSentSyncMessages, type QueuedMessage } from '../shared/VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
@@ -43,7 +43,7 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'no-poll'
 
-      let batchEntries: [ItemId, Uint8Array[]][]
+      let batchEntries: [ItemId, QueuedMessage[]][]
       try {
         batchEntries = await loadSyncBatch(this.account)
       } catch (_) {
@@ -89,16 +89,16 @@ export class SyncPoller {
           chunkEntry.map(async ([itemId, messages]) => {
             let totalLength = 0
             for (const m of messages) {
-              totalLength += 4 + m.length
+              totalLength += 4 + m.data.length
             }
             const combined = new Uint8Array(totalLength)
             const view = new DataView(combined.buffer)
             let offset = 0
             for (const m of messages) {
-              view.setUint32(offset, m.length, false)
+              view.setUint32(offset, m.data.length, false)
               offset += 4
-              combined.set(m, offset)
-              offset += m.length
+              combined.set(m.data, offset)
+              offset += m.data.length
             }
 
             const encryptedMessage = await encryptBytes(combined)
