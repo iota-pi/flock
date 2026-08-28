@@ -6,25 +6,25 @@ import { buildSnapshot } from './snapshotBuilder'
 
 const MAX_BATCH_RETRIES = 3
 
-export class ReencryptionManager {
-  constructor(
-    private deps: {
-      accountId: string
-      repo: Repo
-      indexManager: AutomergeIndexManager
-    }
-  ) {}
+export interface ReencryptDeps {
+  accountId: string
+  repo: Repo
+  indexManager: AutomergeIndexManager
+}
 
-  async reencryptAllItems(onProgress?: (done: number, total: number) => void): Promise<void> {
-    if (!this.deps.accountId || !this.deps.repo || !this.deps.indexManager) {
-      throw new Error('SyncWorker not initialized')
-    }
-    const authToken = await getActiveSessionToken()
-    if (!authToken) {
-      throw new Error('No active session token available')
-    }
+export async function reencryptAllItems(
+  deps: ReencryptDeps,
+  onProgress?: (done: number, total: number) => void
+): Promise<void> {
+  if (!deps.accountId || !deps.repo || !deps.indexManager) {
+    throw new Error('SyncWorker not initialized')
+  }
+  const authToken = await getActiveSessionToken()
+  if (!authToken) {
+    throw new Error('No active session token available')
+  }
 
-    const itemIds = await this.deps.indexManager.listAutomergeItemIds()
+  const itemIds = await deps.indexManager.listAutomergeItemIds()
     const total = itemIds.length
     if (total === 0) {
       if (onProgress) {
@@ -43,11 +43,11 @@ export class ReencryptionManager {
         let lastError: unknown = null
         for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
           try {
-            return await buildSnapshot(this.deps.repo, itemId, snapshotCursor)
+            return await buildSnapshot(deps.repo, itemId, snapshotCursor)
           } catch (err) {
             lastError = err
             console.warn(
-              `[ReencryptionManager] Attempt ${attempt} failed to build snapshot for item ${itemId}:`,
+              `[reencryptAllItems] Attempt ${attempt} failed to build snapshot for item ${itemId}:`,
               err
             )
           }
@@ -62,17 +62,17 @@ export class ReencryptionManager {
           if (result.value.type === 'success') {
             snapshots.push(result.value.snapshot)
           } else if (result.value.type === 'not-ready') {
-            console.warn(`[ReencryptionManager] Item ${chunkIds[index]} was not ready. Skipping.`)
+            console.warn(`[reencryptAllItems] Item ${chunkIds[index]} was not ready. Skipping.`)
           } else if (result.value.type === 'error') {
             const errMsg = `Failed to build snapshot for item ${chunkIds[index]}`
-            console.error(`[ReencryptionManager] ${errMsg}`)
+            console.error(`[reencryptAllItems] ${errMsg}`)
             errors.push(new Error(errMsg))
           }
         } else {
           const errMsg = `Failed to build snapshot for item ${chunkIds[index]}: ${
             result.reason instanceof Error ? result.reason.message : String(result.reason)
           }`
-          console.error(`[ReencryptionManager] ${errMsg}`, result.reason)
+          console.error(`[reencryptAllItems] ${errMsg}`, result.reason)
           errors.push(result.reason instanceof Error ? result.reason : new Error(errMsg))
         }
       }
@@ -84,7 +84,7 @@ export class ReencryptionManager {
         for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
           try {
             const response = await putSnapshotsWithToken({
-              account: this.deps.accountId,
+              account: deps.accountId,
               authToken,
               snapshots,
             })
@@ -96,7 +96,7 @@ export class ReencryptionManager {
           } catch (err) {
             lastError = err
             console.warn(
-              `[ReencryptionManager] Attempt ${attempt} failed to upload snapshots for batch at index ${start}:`,
+              `[reencryptAllItems] Attempt ${attempt} failed to upload snapshots for batch at index ${start}:`,
               err
             )
           }
@@ -106,7 +106,7 @@ export class ReencryptionManager {
           const errMsg =
             `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
             (lastError instanceof Error ? `: ${lastError.message}` : '')
-          console.error(`[ReencryptionManager] ${errMsg}`)
+          console.error(`[reencryptAllItems] ${errMsg}`)
           errors.push(new Error(errMsg))
         }
       }
@@ -122,5 +122,4 @@ export class ReencryptionManager {
         `Re-encryption completed with ${errors.length} error(s). First error: ${errors[0].message}`
       )
     }
-  }
 }

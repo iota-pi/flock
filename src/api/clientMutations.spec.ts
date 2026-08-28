@@ -3,9 +3,10 @@ import { createItem, deleteItems, mutateItem, setMetadata, storeItems } from '..
 import { SyncBridge } from '../sync/client/SyncBridge'
 import { setApiAuthToken } from './runtime'
 import { useAppStore } from '../state/store'
+import type { AccountMetadata } from '../state/metadata'
 import { ItemId } from 'src/shared/schemas/items'
 
-const metadataState: Record<string, unknown> = {}
+const metadataState: Partial<AccountMetadata> = {}
 
 const mocks = vi.hoisted(() => ({
   pruneItemDrawers: vi.fn(),
@@ -13,11 +14,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../sync/client/SyncBridge', () => ({
   SyncBridge: {
-    mutateItem: vi.fn(async () => true),
-    storeItems: vi.fn(async () => true),
-    createItem: vi.fn(async () => true),
-    mutateMetadata: vi.fn(async () => true),
-    clearAutomergeDocStore: vi.fn(async () => true),
+    mutateItem: vi.fn(async () => {}),
+    storeItems: vi.fn(async () => {}),
+    createItem: vi.fn(async () => {}),
+    mutateMetadata: vi.fn(async () => {}),
+    clearAutomergeDocStore: vi.fn(async () => {}),
     shutdown: vi.fn(async () => {}),
   }
 }))
@@ -31,10 +32,10 @@ const mockStoreState = vi.hoisted(() => {
   const state = {
     pruneItemDrawers: mocks.pruneItemDrawers,
     closeIfOpen: vi.fn(),
-    optimisticUpdateItem: vi.fn((id: string, partial: any) => {
-      state.items[id] = { ...state.items[id], ...partial }
+    optimisticUpdateItem: vi.fn((id: string, partial: Partial<Item>) => {
+      state.items[id] = { ...state.items[id], ...partial } as Item
     }),
-    updateItemsFromServer: vi.fn((updates: any[]) => {
+    updateItemsFromServer: vi.fn((updates: { id: string; item: Item | null }[]) => {
       for (const update of updates) {
         if (update.item) {
           state.items[update.id] = update.item
@@ -43,21 +44,21 @@ const mockStoreState = vi.hoisted(() => {
         }
       }
     }),
-    updateMetadataFromServer: vi.fn((metadata: any) => {
-      state.metadata = { ...state.metadata, ...metadata }
+    updateMetadata: vi.fn((metadata: Partial<AccountMetadata>) => {
+      state.metadata = { ...state.metadata, ...metadata } as AccountMetadata
     }),
-    items: {} as any,
-    metadata: {} as any,
+    items: {} as Record<string, Item>,
+    metadata: {} as AccountMetadata,
   }
   return state
 })
 
 vi.mock('../state/store', () => ({
   useAppStore: Object.assign(
-    (selector: any) => selector(mockStoreState),
+    (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
     {
       getState: () => mockStoreState,
-      setState: vi.fn((update: any) => {
+      setState: vi.fn((update: Partial<typeof mockStoreState>) => {
         Object.assign(mockStoreState, update)
       }),
     }
@@ -67,17 +68,16 @@ vi.mock('../state/store', () => ({
 describe('local-first mutations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    for (const key of Object.keys(metadataState)) {
+    for (const key of Object.keys(metadataState) as (keyof AccountMetadata)[]) {
       delete metadataState[key]
     }
 
-    vi.mocked(SyncBridge.mutateMetadata).mockImplementation(async (changes: any) => {
+    vi.mocked(SyncBridge.mutateMetadata).mockImplementation(async (changes: Partial<AccountMetadata>) => {
       Object.assign(metadataState, changes)
-      return true as any
     })
 
     setApiAuthToken('')
-    useAppStore.setState({ items: {}, metadata: metadataState })
+    useAppStore.setState({ items: {}, metadata: metadataState as AccountMetadata })
   })
 
   it('stores single-item snapshots', async () => {
@@ -112,7 +112,7 @@ describe('local-first mutations', () => {
       members: ['p1'],
     }
     const person = getBlankPerson('p1' as ItemId, false)
-    useAppStore.setState({ items: { g1: group, p1: person } as any })
+    useAppStore.setState({ items: { g1: group, p1: person } })
 
     await deleteItems('p1' as ItemId)
     expect(SyncBridge.storeItems).toHaveBeenCalledWith(expect.arrayContaining([
@@ -122,7 +122,7 @@ describe('local-first mutations', () => {
   })
 
   it('updates metadata locally', async () => {
-    const result = await setMetadata({ prayerGoal: 20 } as any)
+    const result = await setMetadata({ prayerGoal: 20 })
 
     expect(result.prayerGoal).toBe(20)
     expect(SyncBridge.mutateMetadata).toHaveBeenCalledTimes(1)
@@ -133,11 +133,11 @@ describe('local-first mutations', () => {
       setMetadata(previous => ({
         ...previous,
         prayerGoal: 25,
-      } as any)),
+      })),
       setMetadata(previous => ({
         ...previous,
         sortCriteria: [{ type: 'name', reverse: false }],
-      } as any)),
+      })),
     ])
 
     expect(metadataState.prayerGoal).toBe(25)
@@ -182,11 +182,11 @@ describe('local-first mutations', () => {
         },
       })
 
-      let rejectMutate: (err: any) => void = () => {}
-      const mutatePromise = new Promise((_, reject) => {
+      let rejectMutate: (err: unknown) => void = () => {}
+      const mutatePromise = new Promise<void>((_, reject) => {
         rejectMutate = reject
       })
-      vi.mocked(SyncBridge.mutateItem).mockReturnValueOnce(mutatePromise as any)
+      vi.mocked(SyncBridge.mutateItem).mockReturnValueOnce(mutatePromise)
 
       await mutateItem('p1' as ItemId, { name: 'New Name' })
 
@@ -265,9 +265,9 @@ describe('local-first mutations', () => {
 
       vi.mocked(SyncBridge.mutateMetadata).mockRejectedValueOnce(new Error('Sync error'))
 
-      await expect(setMetadata({ prayerGoal: 50 } as any)).rejects.toThrow('Sync error')
+      await expect(setMetadata({ prayerGoal: 50 })).rejects.toThrow('Sync error')
 
-      expect(mockStoreState.updateMetadataFromServer).toHaveBeenCalledWith({
+      expect(mockStoreState.updateMetadata).toHaveBeenCalledWith({
         prayerGoal: 10,
       })
     })

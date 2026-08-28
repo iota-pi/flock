@@ -110,14 +110,14 @@ function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): It
   return [...groupsToUpdate, ...tombstones]
 }
 
-function revertOptimisticObject<T extends Record<string, any>>(
+function revertOptimisticObject<T extends Record<string, unknown>>(
   current: T | undefined,
   previous: T | undefined,
   optimistic: T,
 ): T | undefined {
   if (!current || !previous) return undefined
 
-  const reverted: Record<string, any> = { ...current }
+  const reverted: Record<string, unknown> = { ...current }
   let needsRevert = false
 
   const allKeys = new Set([

@@ -29,6 +29,7 @@ import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
+import { reencryptAllItems } from './reencryptAllItems'
 
 let globalEventPort: MessagePort | null = null
 self.addEventListener('message', ev => {
@@ -152,20 +153,18 @@ export class SyncWorker implements SyncApi {
       pullQueueManager
     )
 
-    this._context = new SyncWorkerContext(
+    this._context = new SyncWorkerContext({
       accountId,
       repo,
-      this.adapter,
-      this.broker,
-      this.clientEventHub,
-      this.internalEventHub,
+      adapter: this.adapter,
+      broker: this.broker,
+      clientEventHub: this.clientEventHub,
+      internalEventHub: this.internalEventHub,
       indexStore,
       indexManager,
       cursorStore,
       pullQueueManager,
-      items => this.storeItems(items),
-      changes => this.mutateMetadata(changes)
-    )
+    })
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
       switch (event.type) {
@@ -210,7 +209,7 @@ export class SyncWorker implements SyncApi {
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
       this.subscribeToItems(itemIds)
       if (this._context) {
-        this._context.recoveryManager.clearManualRecoveryForItems(itemIds).catch(console.error)
+        this._context.itemOperations.clearManualRecoveryForItems(itemIds).catch(console.error)
       }
     })
 
@@ -310,9 +309,9 @@ export class SyncWorker implements SyncApi {
   async createItem(item: Item) { await this.context.itemOperations.createItem(item) }
   async storeItems(items: Item[]) { await this.context.itemOperations.storeItems(items) }
   async mutateMetadata(changes: Partial<AccountMetadata>) { await this.context.itemOperations.mutateMetadata(changes) }
-  async exportAllBinaries() { return this.context.backupManager.exportAllBinaries() }
+  async exportAllBinaries() { return this.context.docStore.exportAllBinaries(this.context.indexManager) }
   async restoreFromBinaries(documents: Partial<Record<string, string>>) {
-    const restored = await this.context.backupManager.restoreFromBinaries(documents)
+    const restored = await this.context.docStore.restoreFromBinaries(documents, this.context.indexManager)
     return restored
   }
 
@@ -323,13 +322,19 @@ export class SyncWorker implements SyncApi {
   }
 
   async pushSnapshots() { return this.context.snapshotManager.pushSnapshots() }
-  async retryRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.retryRecoveryItem(itemId) }
-  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceOverwriteRecoveryItem(itemId) }
-  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.recoveryManager.forceDeleteRecoveryItem(itemId) }
-  async dismissRecoveryItem(entryId: string) { await this.context.recoveryManager.dismissRecoveryItem(entryId) }
-  async listRecoveryItems() { return this.context.recoveryManager.listRecoveryItems() }
+  async retryRecoveryItem(itemId: ItemId) { await this.context.itemOperations.retryRecoveryItem(itemId) }
+  async forceOverwriteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceOverwriteRecoveryItem(itemId) }
+  async forceDeleteRecoveryItem(itemId: ItemId) { await this.context.itemOperations.forceDeleteRecoveryItem(itemId) }
+  async dismissRecoveryItem(entryId: string) { await this.context.itemOperations.dismissRecoveryItem(entryId) }
+  async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
   async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
-  async reencryptAllItems(onProgress: (done: number, total: number) => void) { await this.context.reencryptionManager.reencryptAllItems(onProgress) }
+  async reencryptAllItems(onProgress: (done: number, total: number) => void) {
+    await reencryptAllItems({
+      accountId: this.context.accountId,
+      repo: this.context.repo,
+      indexManager: this.context.indexManager,
+    }, onProgress)
+  }
 
   async exportSyncState(): Promise<BackupSyncState> {
     const context = this.context

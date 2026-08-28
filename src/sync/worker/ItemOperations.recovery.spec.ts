@@ -1,5 +1,5 @@
 import { ItemId } from 'src/shared/schemas/items'
-import { RecoveryManager } from './RecoveryManager'
+import { ItemOperations } from './ItemOperations'
 import { ClientEventHub } from './SyncEventHub'
 
 // Mock dependencies
@@ -34,11 +34,11 @@ vi.mock('./docStore/AutomergeIndexManager', () => ({
   }))
 }))
 
-describe('RecoveryManager', () => {
-  let recoveryManager: RecoveryManager
+describe('ItemOperations - Recovery', () => {
+  let itemOperations: ItemOperations
   let eventHub: ClientEventHub
   let onEventMock: any
-  let depsObj: { accountId: string | null; docStore: any; indexManager: any }
+  let depsObj: { accountId: string | null; docStore: any; indexManager: any; eventHub: any; markDocumentDirty: any }
 
   beforeEach(() => {
     vi.resetAllMocks()
@@ -66,9 +66,11 @@ describe('RecoveryManager', () => {
       accountId: 'account-123',
       docStore: mockDocStore,
       indexManager: mockIndexManager,
+      eventHub,
+      markDocumentDirty: vi.fn(),
     }
 
-    recoveryManager = new RecoveryManager(depsObj as any, eventHub)
+    itemOperations = new ItemOperations(depsObj as any)
   })
 
   describe('pushRecoveryItems', () => {
@@ -76,7 +78,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'error', createdAt: 12345 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.pushRecoveryItems()
+      await itemOperations.pushRecoveryItems()
 
       expect(mockReadManualRecoveryEntries).toHaveBeenCalledWith('account-123')
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
@@ -85,7 +87,7 @@ describe('RecoveryManager', () => {
     it('does nothing if accountId is not set', async () => {
       depsObj.accountId = null
 
-      await recoveryManager.pushRecoveryItems()
+      await itemOperations.pushRecoveryItems()
 
       expect(mockReadManualRecoveryEntries).not.toHaveBeenCalled()
     })
@@ -94,7 +96,7 @@ describe('RecoveryManager', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       mockReadManualRecoveryEntries.mockRejectedValue(new Error('Read failed'))
 
-      await expect(recoveryManager.pushRecoveryItems()).resolves.toBeUndefined()
+      await expect(itemOperations.pushRecoveryItems()).resolves.toBeUndefined()
       expect(consoleSpy).toHaveBeenCalled()
       consoleSpy.mockRestore()
     })
@@ -105,7 +107,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'entry-2', itemId: 'item-2', reason: 'error2', createdAt: 67890 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.retryRecoveryItem('item-2' as ItemId)
+      await itemOperations.retryRecoveryItem('item-2' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-2')
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: mockEntries })
@@ -116,7 +118,7 @@ describe('RecoveryManager', () => {
     it('throws if no local item is found', async () => {
       mockGetAutomergeItem.mockResolvedValue(null)
 
-      await expect(recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
+      await expect(itemOperations.forceOverwriteRecoveryItem('item-3' as ItemId)).rejects.toThrow(
         'No local item found for item-3. Force delete is available instead.'
       )
     })
@@ -124,7 +126,7 @@ describe('RecoveryManager', () => {
     it('does nothing if accountId is not set', async () => {
       depsObj.accountId = null
 
-      await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
+      await itemOperations.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).not.toHaveBeenCalled()
     })
@@ -149,7 +151,7 @@ describe('RecoveryManager', () => {
       const mockEntries: any[] = []
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
+      await itemOperations.forceOverwriteRecoveryItem('item-3' as ItemId)
 
       expect(mockGetAutomergeItem).toHaveBeenCalledWith('item-3')
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-3')
@@ -177,7 +179,7 @@ describe('RecoveryManager', () => {
       mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
 
       await expect(
-        recoveryManager.forceOverwriteRecoveryItem('item-3' as ItemId)
+        itemOperations.forceOverwriteRecoveryItem('item-3' as ItemId)
       ).rejects.toThrow('Deletion failed')
 
       expect(mockChangeDocument).not.toHaveBeenCalled()
@@ -194,7 +196,7 @@ describe('RecoveryManager', () => {
         }
       )
 
-      await recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
+      await itemOperations.forceDeleteRecoveryItem('item-4' as ItemId)
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-4')
       expect(mockChangeDocument).toHaveBeenCalledWith(
@@ -214,7 +216,7 @@ describe('RecoveryManager', () => {
       mockRemoveManualRecoveryEntryByItemId.mockRejectedValue(new Error('Deletion failed'))
 
       await expect(
-        recoveryManager.forceDeleteRecoveryItem('item-4' as ItemId)
+        itemOperations.forceDeleteRecoveryItem('item-4' as ItemId)
       ).rejects.toThrow('Deletion failed')
 
       expect(mockChangeDocument).not.toHaveBeenCalled()
@@ -223,7 +225,7 @@ describe('RecoveryManager', () => {
 
   describe('dismissRecoveryItem', () => {
     it('removes manual recovery entry by entry ID and updates callbacks', async () => {
-      await recoveryManager.dismissRecoveryItem('entry-123')
+      await itemOperations.dismissRecoveryItem('entry-123')
 
       expect(mockRemoveManualRecoveryEntryById).toHaveBeenCalledWith('account-123', 'entry-123')
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: [] })
@@ -232,32 +234,32 @@ describe('RecoveryManager', () => {
 
   describe('tracking & cooldowns', () => {
     it('manages in-flight tracking correctly', () => {
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(true)
-      recoveryManager.setInFlight('item-1' as ItemId, false)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(false)
+      itemOperations.setInFlight('item-1' as ItemId, true)
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(true)
+      itemOperations.setInFlight('item-1' as ItemId, false)
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(false)
     })
 
     it('manages and lazily cleans up expired cooldowns', () => {
       vi.useFakeTimers()
       const now = Date.now()
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, now + 1000)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(now + 1000)
+      itemOperations.setRecoveryCooldown('item-1' as ItemId, now + 1000)
+      expect(itemOperations.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(now + 1000)
 
       vi.advanceTimersByTime(1500)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      expect(itemOperations.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
       vi.useRealTimers()
     })
 
     it('clears cooldown and resets state', () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 10000)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
-      recoveryManager.clearRecoveryCooldown('item-1' as ItemId)
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      itemOperations.setRecoveryCooldown('item-1' as ItemId, Date.now() + 10000)
+      itemOperations.setInFlight('item-1' as ItemId, true)
+      itemOperations.clearRecoveryCooldown('item-1' as ItemId)
+      expect(itemOperations.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
 
-      recoveryManager.reset()
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      itemOperations.reset()
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(false)
     })
   })
 
@@ -267,7 +269,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'entry-1', itemId: 'item-1', reason: 'fail', createdAt: 1 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('bad decrypt'))
+      await itemOperations.reportDecryptionFailure('item-1' as ItemId, new Error('bad decrypt'))
 
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledWith('account-123', {
         itemId: 'item-1',
@@ -279,7 +281,7 @@ describe('RecoveryManager', () => {
 
     it('includes failed branches hint when available', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure(
+      await itemOperations.reportDecryptionFailure(
         'item-1' as ItemId,
         new Error('bad decrypt'),
         ['branch-A', 'branch-B']
@@ -296,17 +298,17 @@ describe('RecoveryManager', () => {
       vi.useFakeTimers()
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 1'))
+      await itemOperations.reportDecryptionFailure('item-1' as ItemId, new Error('fail 1'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
 
       // Immediate second call should be blocked by cooldown
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 2'))
+      await itemOperations.reportDecryptionFailure('item-1' as ItemId, new Error('fail 2'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(1)
 
       // Advance past 60s cooldown
       vi.advanceTimersByTime(61 * 1000)
 
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail 3'))
+      await itemOperations.reportDecryptionFailure('item-1' as ItemId, new Error('fail 3'))
       expect(mockUpsertManualRecoveryEntry).toHaveBeenCalledTimes(2)
 
       consoleSpy.mockRestore()
@@ -315,11 +317,11 @@ describe('RecoveryManager', () => {
 
     it('does nothing if accountId or itemId is not set', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      await recoveryManager.reportDecryptionFailure('' as ItemId, new Error('fail'))
+      await itemOperations.reportDecryptionFailure('' as ItemId, new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
 
       depsObj.accountId = null
-      await recoveryManager.reportDecryptionFailure('item-1' as ItemId, new Error('fail'))
+      await itemOperations.reportDecryptionFailure('item-1' as ItemId, new Error('fail'))
       expect(mockUpsertManualRecoveryEntry).not.toHaveBeenCalled()
       consoleSpy.mockRestore()
     })
@@ -327,38 +329,38 @@ describe('RecoveryManager', () => {
 
   describe('clearManualRecoveryForItems', () => {
     it('removes recovery entries, clears cooldowns, and emits recoveryItemsChanged', async () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
+      itemOperations.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
+      itemOperations.setInFlight('item-1' as ItemId, true)
       mockReadManualRecoveryCount
         .mockResolvedValueOnce(1) // previousCount
         .mockResolvedValueOnce(0) // nextCount
 
-      await recoveryManager.clearManualRecoveryForItems(['item-1' as ItemId])
+      await itemOperations.clearManualRecoveryForItems(['item-1' as ItemId])
 
       expect(mockRemoveManualRecoveryEntryByItemId).toHaveBeenCalledWith('account-123', 'item-1')
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(itemOperations.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(false)
       expect(onEventMock).toHaveBeenCalledWith({ type: 'recoveryItemsChanged', entries: [] })
     })
 
     it('clears cooldown and in-flight even if previousCount is 0 without calling removeManualRecoveryEntryByItemId', async () => {
-      recoveryManager.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
-      recoveryManager.setInFlight('item-1' as ItemId, true)
+      itemOperations.setRecoveryCooldown('item-1' as ItemId, Date.now() + 50000)
+      itemOperations.setInFlight('item-1' as ItemId, true)
       mockReadManualRecoveryCount.mockResolvedValue(0)
 
-      await recoveryManager.clearManualRecoveryForItems(['item-1' as ItemId])
+      await itemOperations.clearManualRecoveryForItems(['item-1' as ItemId])
 
       expect(mockRemoveManualRecoveryEntryByItemId).not.toHaveBeenCalled()
-      expect(recoveryManager.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
-      expect(recoveryManager.isInFlight('item-1' as ItemId)).toBe(false)
+      expect(itemOperations.getRecoveryCooldownUntil('item-1' as ItemId)).toBe(0)
+      expect(itemOperations.isInFlight('item-1' as ItemId)).toBe(false)
     })
 
     it('returns early when itemIds array is empty or accountId is missing', async () => {
-      await recoveryManager.clearManualRecoveryForItems([])
+      await itemOperations.clearManualRecoveryForItems([])
       expect(mockReadManualRecoveryCount).not.toHaveBeenCalled()
 
       depsObj.accountId = null
-      await recoveryManager.clearManualRecoveryForItems(['item-1' as ItemId])
+      await itemOperations.clearManualRecoveryForItems(['item-1' as ItemId])
       expect(mockReadManualRecoveryCount).not.toHaveBeenCalled()
     })
   })
@@ -368,7 +370,7 @@ describe('RecoveryManager', () => {
       const mockEntries = [{ id: 'entry-99', itemId: 'item-99', reason: 'fail', createdAt: 0 }]
       mockReadManualRecoveryEntries.mockResolvedValue(mockEntries)
 
-      const result = await recoveryManager.listRecoveryItems()
+      const result = await itemOperations.listRecoveryItems()
       expect(result).toBe(mockEntries)
     })
   })

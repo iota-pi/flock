@@ -36,9 +36,6 @@ describe('ItemOperations', () => {
         emit: emitMock,
       } as any,
       markDocumentDirty: markDocumentDirtyMock,
-      deletionQueueManager: {
-        cancelDeletion: vi.fn().mockResolvedValue(undefined),
-      } as any,
     }
 
     operations = new ItemOperations(deps)

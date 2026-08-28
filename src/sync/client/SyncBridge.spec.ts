@@ -2,6 +2,9 @@ import { SyncBridge } from './SyncBridge'
 import * as Comlink from 'comlink'
 import { useAppStore } from '../../state/store'
 import { VAULT_STORAGE_KEY } from '../../api/vault/util'
+import type { ItemId } from 'src/shared/schemas/items'
+import { getBlankPerson } from '../../state/items'
+import type { ManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 vi.mock('src/api/vault', () => ({
   exportKeyringData: vi.fn().mockResolvedValue('test-key'),
@@ -530,7 +533,7 @@ describe('SyncBridge', () => {
 
   describe('proxied worker methods', () => {
     it('throws an error if proxied methods are called before initialization', async () => {
-      await expect(SyncBridge.mutateItem('item-1' as any, { name: 'Test' } as any)).rejects.toThrow(
+      await expect(SyncBridge.mutateItem('item-1' as ItemId, { name: 'Test' })).rejects.toThrow(
         'SyncBridge not initialized'
       )
       await expect(SyncBridge.fullResync()).rejects.toThrow('SyncBridge not initialized')
@@ -540,16 +543,19 @@ describe('SyncBridge', () => {
     it('forwards proxied method calls with arguments to syncApi when initialized', async () => {
       await SyncBridge.initialize('test-account')
 
-      await SyncBridge.mutateItem('item-1' as any, { name: 'Updated' } as any)
+      const person = getBlankPerson('item-2' as ItemId, false)
+      const person3 = getBlankPerson('item-3' as ItemId, false)
+
+      await SyncBridge.mutateItem('item-1' as ItemId, { name: 'Updated' })
       expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'Updated' })
 
-      await SyncBridge.createItem({ id: 'item-2', name: 'New' } as any)
-      expect(mockSyncApi.createItem).toHaveBeenCalledWith({ id: 'item-2', name: 'New' })
+      await SyncBridge.createItem(person)
+      expect(mockSyncApi.createItem).toHaveBeenCalledWith(person)
 
-      await SyncBridge.storeItems([{ id: 'item-3' } as any])
-      expect(mockSyncApi.storeItems).toHaveBeenCalledWith([{ id: 'item-3' }])
+      await SyncBridge.storeItems([person3])
+      expect(mockSyncApi.storeItems).toHaveBeenCalledWith([person3])
 
-      await SyncBridge.mutateMetadata({ prayerGoal: 10 } as any)
+      await SyncBridge.mutateMetadata({ prayerGoal: 10 })
       expect(mockSyncApi.mutateMetadata).toHaveBeenCalledWith({ prayerGoal: 10 })
 
       await SyncBridge.flushSync()
@@ -562,13 +568,13 @@ describe('SyncBridge', () => {
       expect(mockSyncApi.exportAllBinaries).toHaveBeenCalledTimes(1)
       expect(exported).toEqual({ documents: {}, skipped: [] })
 
-      await SyncBridge.retryRecoveryItem('item-1' as any)
+      await SyncBridge.retryRecoveryItem('item-1' as ItemId)
       expect(mockSyncApi.retryRecoveryItem).toHaveBeenCalledWith('item-1')
 
-      await SyncBridge.forceOverwriteRecoveryItem('item-1' as any)
+      await SyncBridge.forceOverwriteRecoveryItem('item-1' as ItemId)
       expect(mockSyncApi.forceOverwriteRecoveryItem).toHaveBeenCalledWith('item-1')
 
-      await SyncBridge.forceDeleteRecoveryItem('item-1' as any)
+      await SyncBridge.forceDeleteRecoveryItem('item-1' as ItemId)
       expect(mockSyncApi.forceDeleteRecoveryItem).toHaveBeenCalledWith('item-1')
 
       await SyncBridge.dismissRecoveryItem('entry-1')
@@ -599,7 +605,16 @@ describe('SyncBridge', () => {
       expect(mockSyncApi.reencryptAllItems).toHaveBeenCalledTimes(1)
       expect(Comlink.proxy).toHaveBeenCalledWith(onProgress)
 
-      const entries = [{ id: 'rec-1', itemId: 'item-1' }] as any
+      const entries: ManualRecoveryEntry[] = [
+        {
+          id: 'rec-1',
+          itemId: 'item-1' as ItemId,
+          type: 'corrupted',
+          reason: 'invalid document',
+          occurredAt: 123456,
+          rawPayload: 'data',
+        },
+      ]
       mockSyncApi.listRecoveryItems.mockResolvedValueOnce(entries)
       const listResult = await SyncBridge.listRecoveryItems()
       expect(listResult).toEqual(entries)
@@ -607,9 +622,9 @@ describe('SyncBridge', () => {
 
     it('throws a TypeError when calling a nonexistent method on syncApi', async () => {
       await SyncBridge.initialize('test-account')
-      await expect((SyncBridge as any).nonExistentMethod()).rejects.toThrow(
-        "SyncBridge: method 'nonExistentMethod' does not exist on syncApi"
-      )
+      await expect(
+        (SyncBridge as unknown as Record<string, () => Promise<void>>).nonExistentMethod()
+      ).rejects.toThrow("SyncBridge: method 'nonExistentMethod' does not exist on syncApi")
     })
   })
 })

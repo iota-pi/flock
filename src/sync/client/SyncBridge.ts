@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as Comlink from 'comlink'
 
 import type { SyncApi } from 'src/sync/worker/syncProtocol'
@@ -361,16 +360,18 @@ type Promisified<T> = {
 
 export type SyncBridgeType = typeof baseBridge & Promisified<SyncApi>
 
-export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as any, {
+export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as unknown as SyncBridgeType, {
   get(target, prop, receiver) {
     if (prop in target) {
       return Reflect.get(target, prop, receiver)
     }
 
     if (typeof prop === 'string') {
-      return async (...args: any[]) => {
+      return async (...args: unknown[]) => {
         await target.ensureReady()
-        const method = (syncApi as any)?.[prop]
+        const method = syncApi
+          ? (syncApi as unknown as Record<string, (...methodArgs: unknown[]) => unknown>)[prop]
+          : undefined
         if (typeof method !== 'function') {
           throw new TypeError(`SyncBridge: method '${prop}' does not exist on syncApi`)
         }
