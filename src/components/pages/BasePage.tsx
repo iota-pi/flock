@@ -7,7 +7,7 @@ import { styled } from '@mui/material/styles'
 
 import { AddIcon } from '../Icons'
 import TopBar, { MenuItemData } from '../layout/TopBar'
-import { useAppStore } from 'src/state/store'
+import { useDebouncedSyncIndicator } from 'src/hooks/useDebouncedSyncIndicator'
 import { usePage } from '.'
 import type { ItemType } from 'src/shared/itemTypes'
 
@@ -98,8 +98,7 @@ function BasePage({
   topBar,
   topBarTitle,
 }: Props) {
-  const activeRequests = useAppStore(state => state.activeRequests)
-  const loading = activeRequests > 0
+  const loading = useDebouncedSyncIndicator()
 
   const page = usePage()
 
