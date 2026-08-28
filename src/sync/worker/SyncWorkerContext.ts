@@ -81,6 +81,14 @@ export class SyncWorkerContext {
       indexManager: this.indexManager,
     }, clientEventHub)
 
+    this.pullQueueManager.onDecryptionFailure = (itemId, error) => {
+      void this.recoveryManager.reportDecryptionFailure(itemId, error)
+    }
+
+    this.broker.onItemMessageParsed = (itemId) => {
+      void this.recoveryManager.clearManualRecoveryForItems([itemId])
+    }
+
     this.manifestSyncManager = new ManifestSyncManager(
       {
         accountId,
@@ -142,6 +150,8 @@ export class SyncWorkerContext {
     } catch (err) {
       console.error('[SyncWorkerContext] Error shutting down DocStore repo', err)
     }
+
+    this.recoveryManager.reset()
 
     if (options?.clearLocalData) {
       try {

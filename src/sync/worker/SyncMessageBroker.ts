@@ -1,7 +1,6 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncPoller, type PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { clearManualRecoveryForItems } from '../../api/syncHealthCoordinator'
 import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
@@ -20,6 +19,7 @@ export class SyncMessageBroker {
   private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   public onFlushNeeded: (() => void) | null = null
+  public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
 
   constructor(
     private adapter: VaultNetworkAdapter,
@@ -30,7 +30,7 @@ export class SyncMessageBroker {
   ) {
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
       if (this.account) {
-        clearManualRecoveryForItems(this.account, [itemId]).catch(console.error)
+        this.onItemMessageParsed?.(itemId)
       }
       this.adapter.receiveMessage(documentId, message)
       this.indexManager.addAutomergeItemIdsToIndex([itemId]).catch(console.error)

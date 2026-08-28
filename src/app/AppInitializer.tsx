@@ -3,7 +3,6 @@ import { loadAccount } from '../api/vault'
 import { useAppStore } from '../state/store'
 import { useLoggedIn } from '../state/selectors'
 import useSyncCoordinatorLifecycle from '../sync/client/useSyncCoordinatorLifecycle'
-import { initializeSyncHealthWatchers } from '../api/syncHealthCoordinator'
 import { ensurePersistentStorage } from '../utils/storageQuota'
 import { getTrackedFetch } from 'src/api/trackedFetch'
 import { initTrpcClient } from 'src/api/trpcClient'
@@ -22,12 +21,8 @@ export default function AppInitializer() {
       useAppStore.getState().finishRequest,
     )
     initTrpcClient(trackedFetch)
-    const teardownWatchers = initializeSyncHealthWatchers()
     void ensurePersistentStorage()
     void loadAccount().catch(console.error)
-    return () => {
-      teardownWatchers()
-    }
   }, [setFatalError])
 
   useEffect(() => {

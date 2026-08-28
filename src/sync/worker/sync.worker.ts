@@ -209,6 +209,9 @@ export class SyncWorker implements SyncApi {
 
     this.unsubscribeRealtimeBus = subscribeRealtimeBusSyncPing(itemIds => {
       this.subscribeToItems(itemIds)
+      if (this._context) {
+        this._context.recoveryManager.clearManualRecoveryForItems(itemIds).catch(console.error)
+      }
     })
 
     this.clientEventHub.emit({ type: 'ready' })
