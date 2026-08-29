@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
 import wasm from 'vite-plugin-wasm'
-import topLevelAwait from 'vite-plugin-top-level-await'
 
 import { visualizer } from 'rollup-plugin-visualizer'
 
@@ -16,7 +15,6 @@ export default defineConfig({
   base: '/',
   plugins: [
     wasm(),
-    topLevelAwait(),
     react(),
     VitePWA({
       strategies: 'injectManifest',
@@ -66,7 +64,7 @@ export default defineConfig({
     port: 3000,
   },
   build: {
-    target: 'es2020',
+    target: 'es2022',
     outDir: 'dist/app',
     sourcemap: true,
     rollupOptions: {
@@ -109,7 +107,6 @@ export default defineConfig({
     format: 'es',
     plugins: () => [
       wasm(),
-      topLevelAwait(),
     ],
   },
 })
