@@ -6,124 +6,127 @@ import { useAppStore } from 'src/state/store'
 import { exportKeyringData } from 'src/api/vault'
 import type { Item } from 'src/state/items'
 import type { ManualRecoveryEntry } from 'src/sync/shared/manualRecoveryStore'
+import type { BackupSyncState } from 'src/types/backup'
+import type { ItemId } from 'src/shared/schemas/items'
+import type { AccountMetadata } from 'src/state/metadata'
 import { setupWorkerHealthCheck, stopWorkerHeartbeat, resetCrashMetrics } from './syncWorkerHealth'
 import { getOnlineState } from 'src/utils/onlineStatus'
 
 
-let syncApi: Comlink.Remote<SyncApi> | null = null
-let workerInstance: Worker | null = null
-let currentAccountId: string | null = null
-const ITEM_UPDATE_BATCH_MAX = 50
-let onlineListenerAttached = false
+class SyncBridgeService {
+  private syncApi: Comlink.Remote<SyncApi> | null = null
+  private workerInstance: Worker | null = null
+  private currentAccountId: string | null = null
+  private readonly ITEM_UPDATE_BATCH_MAX = 50
+  private onlineListenerAttached = false
 
-const pendingItemUpdates = new Map<string, Item | null>()
-let itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
-let _globalEventChannel: MessageChannel | null = null
-let _pingChannel: MessageChannel | null = null
+  private pendingItemUpdates = new Map<string, Item | null>()
+  private itemUpdateFlushHandle: ReturnType<typeof setTimeout> | null = null
+  private globalEventChannel: MessageChannel | null = null
+  private pingChannel: MessageChannel | null = null
 
-let recoveryEntries: ManualRecoveryEntry[] = []
-const recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
+  private recoveryEntries: ManualRecoveryEntry[] = []
+  private recoveryEntriesListeners = new Set<(entries: ManualRecoveryEntry[]) => void>()
 
-const flushItemUpdates = () => {
-  if (pendingItemUpdates.size === 0) return
+  private initializationPromise: Promise<void> | null = null
+  private currentInitSession = 0
 
-  const updates = Array.from(pendingItemUpdates.entries()).map(([id, item]) => ({ id, item }))
-  pendingItemUpdates.clear()
-  itemUpdateFlushHandle = null
+  private flushItemUpdates = () => {
+    if (this.pendingItemUpdates.size === 0) return
 
-  useAppStore.getState().updateItemsFromServer(updates)
-}
+    const updates = Array.from(this.pendingItemUpdates.entries()).map(([id, item]) => ({ id, item }))
+    this.pendingItemUpdates.clear()
+    this.itemUpdateFlushHandle = null
 
-const scheduleItemUpdateFlush = () => {
-  if (itemUpdateFlushHandle !== null) return
-  itemUpdateFlushHandle = setTimeout(flushItemUpdates, 0)
-}
+    useAppStore.getState().updateItemsFromServer(updates)
+  }
 
-const handleSyncEvent = (event: ClientEvent) => {
-  switch (event.type) {
-    case 'ready':
-      break
-    case 'statusChange':
-      useAppStore.getState().setSyncStatus(event.status)
-      break
-    case 'itemUpdated': {
-      const { id, item } = event
-      pendingItemUpdates.set(id, item)
+  private scheduleItemUpdateFlush = () => {
+    if (this.itemUpdateFlushHandle !== null) return
+    this.itemUpdateFlushHandle = setTimeout(this.flushItemUpdates, 0)
+  }
 
-      if (pendingItemUpdates.size >= ITEM_UPDATE_BATCH_MAX) {
-        if (itemUpdateFlushHandle !== null) {
-          clearTimeout(itemUpdateFlushHandle)
-          itemUpdateFlushHandle = null
+  private handleSyncEvent = (event: ClientEvent) => {
+    switch (event.type) {
+      case 'ready':
+        break
+      case 'statusChange':
+        useAppStore.getState().setSyncStatus(event.status)
+        break
+      case 'itemUpdated': {
+        const { id, item } = event
+        this.pendingItemUpdates.set(id, item)
+
+        if (this.pendingItemUpdates.size >= this.ITEM_UPDATE_BATCH_MAX) {
+          if (this.itemUpdateFlushHandle !== null) {
+            clearTimeout(this.itemUpdateFlushHandle)
+            this.itemUpdateFlushHandle = null
+          }
+          this.flushItemUpdates()
+          return
         }
-        flushItemUpdates()
-        return
-      }
 
-      scheduleItemUpdateFlush()
-      break
-    }
-    case 'indexUpdated':
-      useAppStore.getState().updateIndexFromServer(event.itemIds)
-      break
-    case 'metadataUpdated':
-      useAppStore.getState().updateMetadata(event.metadata)
-      break
-    case 'mutationFailed':
-      console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
-      break
-    case 'startRequest':
-      useAppStore.getState().startRequest()
-      break
-    case 'finishRequest':
-      useAppStore.getState().finishRequest()
-      break
-    case 'authFailure': {
-      const syncStore = useAppStore.getState()
-      syncStore.setSyncStatus('offline')
-      syncStore.setSyncWarning(event.message)
-      break
-    }
-    case 'recoveryItemsChanged':
-      recoveryEntries = event.entries
-      for (const listener of recoveryEntriesListeners) {
-        listener(event.entries)
+        this.scheduleItemUpdateFlush()
+        break
       }
-      break
-    case 'quotaExceeded': {
-      const syncStore = useAppStore.getState()
-      syncStore.setSyncStatus('degraded')
-      syncStore.setSyncWarning(event.message)
-      break
+      case 'indexUpdated':
+        useAppStore.getState().updateIndexFromServer(event.itemIds)
+        break
+      case 'metadataUpdated':
+        useAppStore.getState().updateMetadata(event.metadata)
+        break
+      case 'mutationFailed':
+        console.error(`Mutation ${event.mutationType} failed: ${event.error}`)
+        break
+      case 'startRequest':
+        useAppStore.getState().startRequest()
+        break
+      case 'finishRequest':
+        useAppStore.getState().finishRequest()
+        break
+      case 'authFailure': {
+        const syncStore = useAppStore.getState()
+        syncStore.setSyncStatus('offline')
+        syncStore.setSyncWarning(event.message)
+        break
+      }
+      case 'recoveryItemsChanged':
+        this.recoveryEntries = event.entries
+        for (const listener of this.recoveryEntriesListeners) {
+          listener(event.entries)
+        }
+        break
+      case 'quotaExceeded': {
+        const syncStore = useAppStore.getState()
+        syncStore.setSyncStatus('degraded')
+        syncStore.setSyncWarning(event.message)
+        break
+      }
     }
   }
-}
 
-let initializationPromise: Promise<void> | null = null
-let currentInitSession = 0
-
-const baseBridge = {
-  ensureReady: async () => {
-    if (initializationPromise) {
-      await initializationPromise
+  async ensureReady() {
+    if (this.initializationPromise) {
+      await this.initializationPromise
     }
-    if (!syncApi) {
+    if (!this.syncApi) {
       throw new Error('SyncBridge not initialized')
     }
-  },
+  }
 
-  initialize: (accountId: string): Promise<void> => {
-    if (syncApi && currentAccountId === accountId) return Promise.resolve()
-    if (initializationPromise && currentAccountId === accountId) {
-      return initializationPromise
+  initialize(accountId: string): Promise<void> {
+    if (this.syncApi && this.currentAccountId === accountId) return Promise.resolve()
+    if (this.initializationPromise && this.currentAccountId === accountId) {
+      return this.initializationPromise
     }
 
-    currentAccountId = accountId
-    currentInitSession += 1
-    const initSession = currentInitSession
+    this.currentAccountId = accountId
+    this.currentInitSession += 1
+    const initSession = this.currentInitSession
 
-    initializationPromise = (async () => {
-      if (syncApi || workerInstance) {
-        await baseBridge.shutdown({ internalRestart: true })
+    this.initializationPromise = (async () => {
+      if (this.syncApi || this.workerInstance) {
+        await this.shutdown({ internalRestart: true })
       }
 
       useAppStore.getState().setSyncStatus('connecting')
@@ -134,7 +137,7 @@ const baseBridge = {
         const vaultKey = await exportKeyringData()
         if (!vaultKey) throw new Error('Vault key not found in storage')
 
-        if (initSession !== currentInitSession || currentAccountId !== accountId) {
+        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
           return
         }
@@ -148,19 +151,19 @@ const baseBridge = {
           }
         })
 
-        workerInstance = worker
+        this.workerInstance = worker
         const wrappedApi = Comlink.wrap<SyncApi>(worker)
 
         const globalEventChannel = new MessageChannel()
-        _globalEventChannel = globalEventChannel
+        this.globalEventChannel = globalEventChannel
         globalEventChannel.port1.onmessage = ev => {
-          handleSyncEvent(ev.data as ClientEvent)
+          this.handleSyncEvent(ev.data as ClientEvent)
         }
         globalEventChannel.port1.start()
         worker.postMessage({ type: 'EVENT_PORT', port: globalEventChannel.port2 }, [globalEventChannel.port2])
 
         const pingChannel = new MessageChannel()
-        _pingChannel = pingChannel
+        this.pingChannel = pingChannel
         pingChannel.port1.start()
         worker.postMessage({ type: 'INIT_PING_PORT', port: pingChannel.port2 }, [pingChannel.port2])
 
@@ -171,23 +174,23 @@ const baseBridge = {
         await wrappedApi.setOnlineState(initialOnlineState)
         await wrappedApi.bootstrapItems()
 
-        if (initSession !== currentInitSession || currentAccountId !== accountId) {
+        if (initSession !== this.currentInitSession || this.currentAccountId !== accountId) {
           console.warn('[SyncBridge] Initialization aborted due to account change or concurrent shutdown')
           worker.terminate()
-          if (workerInstance === worker) {
-            workerInstance = null
+          if (this.workerInstance === worker) {
+            this.workerInstance = null
           }
           return
         }
 
-        syncApi = wrappedApi
+        this.syncApi = wrappedApi
 
-        if (!onlineListenerAttached) {
-          onlineListenerAttached = true
+        if (!this.onlineListenerAttached) {
+          this.onlineListenerAttached = true
 
           const handleOnlineStateChange = () => {
-            if (!syncApi) return
-            void syncApi.setOnlineState(getOnlineState())
+            if (!this.syncApi) return
+            void this.syncApi.setOnlineState(getOnlineState())
           }
 
           window.addEventListener(
@@ -204,26 +207,26 @@ const baseBridge = {
         setupWorkerHealthCheck({
           worker,
           pingPort: pingChannel.port1,
-          isCurrentWorker: () => workerInstance === worker && !!syncApi,
+          isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
           onCrash: () => {
-            if (workerInstance === worker) {
-              if (_globalEventChannel) {
-                _globalEventChannel.port1.close()
-                _globalEventChannel = null
+            if (this.workerInstance === worker) {
+              if (this.globalEventChannel) {
+                this.globalEventChannel.port1.close()
+                this.globalEventChannel = null
               }
-              if (_pingChannel) {
-                _pingChannel.port1.close()
-                _pingChannel = null
+              if (this.pingChannel) {
+                this.pingChannel.port1.close()
+                this.pingChannel = null
               }
-              workerInstance = null
-              syncApi = null
-              initializationPromise = null
+              this.workerInstance = null
+              this.syncApi = null
+              this.initializationPromise = null
             }
           },
           onRestart: () => {
             setTimeout(() => {
-              if (currentAccountId === accountId) {
-                baseBridge.initialize(accountId).catch(err => {
+              if (this.currentAccountId === accountId) {
+                this.initialize(accountId).catch(err => {
                   console.error('[SyncBridge] Auto-restart initialization failed:', err)
                 })
               }
@@ -235,84 +238,84 @@ const baseBridge = {
         if (worker) {
           worker.terminate()
         }
-        if (_globalEventChannel) {
-          _globalEventChannel.port1.close()
-          _globalEventChannel = null
+        if (this.globalEventChannel) {
+          this.globalEventChannel.port1.close()
+          this.globalEventChannel = null
         }
-        if (_pingChannel) {
-          _pingChannel.port1.close()
-          _pingChannel = null
+        if (this.pingChannel) {
+          this.pingChannel.port1.close()
+          this.pingChannel = null
         }
-        if (workerInstance === worker) {
-          workerInstance = null
+        if (this.workerInstance === worker) {
+          this.workerInstance = null
         }
-        if (initSession === currentInitSession) {
+        if (initSession === this.currentInitSession) {
           useAppStore.getState().setSyncStatus('offline')
-          syncApi = null
-          currentAccountId = null
-          initializationPromise = null
+          this.syncApi = null
+          this.currentAccountId = null
+          this.initializationPromise = null
         }
         throw error
       }
     })()
 
-    return initializationPromise
-  },
+    return this.initializationPromise
+  }
 
-  listRecoveryItems: async (): Promise<ManualRecoveryEntry[]> => {
-    await baseBridge.ensureReady()
-    const entries = await syncApi!.listRecoveryItems()
-    recoveryEntries = entries
-    for (const listener of recoveryEntriesListeners) {
+  async listRecoveryItems(): Promise<ManualRecoveryEntry[]> {
+    await this.ensureReady()
+    const entries = await this.syncApi!.listRecoveryItems()
+    this.recoveryEntries = entries
+    for (const listener of this.recoveryEntriesListeners) {
       listener(entries)
     }
     return entries
-  },
+  }
 
-  subscribeRecoveryItems: (listener: (entries: ManualRecoveryEntry[]) => void) => {
-    recoveryEntriesListeners.add(listener)
-    listener(recoveryEntries)
+  subscribeRecoveryItems(listener: (entries: ManualRecoveryEntry[]) => void) {
+    this.recoveryEntriesListeners.add(listener)
+    listener(this.recoveryEntries)
     return () => {
-      recoveryEntriesListeners.delete(listener)
+      this.recoveryEntriesListeners.delete(listener)
     }
-  },
+  }
 
-  restoreFromBinaries: async (documents: Partial<Record<string, string>>) => {
-    await baseBridge.ensureReady()
-    const result = await syncApi!.restoreFromBinaries(documents)
+  async restoreFromBinaries(documents: Partial<Record<string, string>>) {
+    await this.ensureReady()
+    const result = await this.syncApi!.restoreFromBinaries(documents)
     useAppStore.getState().incrementGeneration()
     return result
-  },
+  }
 
-  reencryptAllItems: async (onProgress: (done: number, total: number) => void) => {
-    await baseBridge.ensureReady()
-    await syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
-  },
+  async reencryptAllItems(onProgress: (done: number, total: number) => void) {
+    await this.ensureReady()
+    await this.syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
+  }
 
-  shutdown: async (options?: { clearLocalData?: boolean; internalRestart?: boolean }) => {
+  async shutdown(options?: { clearLocalData?: boolean; internalRestart?: boolean }) {
     if (!options?.internalRestart) {
-      currentInitSession += 1
-      initializationPromise = null
-      currentAccountId = null
+      this.currentInitSession += 1
+      this.initializationPromise = null
+      this.currentAccountId = null
     }
     stopWorkerHeartbeat()
     resetCrashMetrics()
 
-    const oldWorker = workerInstance
-    const oldSyncApi = syncApi
-    const oldGlobalEventChannel = _globalEventChannel
-    const oldPingChannel = _pingChannel
-    workerInstance = null
-    syncApi = null
-    _globalEventChannel = null
-    _pingChannel = null
+    const oldWorker = this.workerInstance
+    const oldSyncApi = this.syncApi
+    const oldGlobalEventChannel = this.globalEventChannel
+    const oldPingChannel = this.pingChannel
+    this.workerInstance = null
+    this.syncApi = null
+    this.globalEventChannel = null
+    this.pingChannel = null
 
     if (!options?.internalRestart) {
-      if (itemUpdateFlushHandle !== null) {
-        clearTimeout(itemUpdateFlushHandle)
-        itemUpdateFlushHandle = null
+      if (this.itemUpdateFlushHandle !== null) {
+        clearTimeout(this.itemUpdateFlushHandle)
+        this.itemUpdateFlushHandle = null
       }
-      pendingItemUpdates.clear()
+      this.pendingItemUpdates.clear()
       useAppStore.getState().reset()
     }
 
@@ -338,52 +341,108 @@ const baseBridge = {
     if (oldPingChannel) {
       oldPingChannel.port1.close()
     }
-    if (!initializationPromise) {
+    if (!this.initializationPromise) {
       useAppStore.getState().setSyncStatus('offline')
     }
 
     if (!options?.internalRestart) {
-      recoveryEntries = []
-      for (const listener of recoveryEntriesListeners) {
+      this.recoveryEntries = []
+      for (const listener of this.recoveryEntriesListeners) {
         listener([])
       }
-      recoveryEntriesListeners.clear()
+      this.recoveryEntriesListeners.clear()
     }
-  },
+  }
+
+  async initRepo(accountId: string, vaultKey: string): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.initRepo(accountId, vaultKey)
+  }
+
+  async setOnlineState(isOnline: boolean): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.setOnlineState(isOnline)
+  }
+
+  async bootstrapItems(): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.bootstrapItems()
+  }
+
+  async mutateItem(id: ItemId, changes: Partial<Item>): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.mutateItem(id, changes)
+  }
+
+  async createItem(item: Item): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.createItem(item)
+  }
+
+  async storeItems(items: Item[]): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.storeItems(items)
+  }
+
+  async mutateMetadata(changes: Partial<AccountMetadata>): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.mutateMetadata(changes)
+  }
+
+  async exportAllBinaries(): Promise<{ documents: Partial<Record<string, string>>; skipped: string[] }> {
+    await this.ensureReady()
+    return this.syncApi!.exportAllBinaries()
+  }
+
+  async flushSync(): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.flushSync()
+  }
+
+  async fullResync(): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.fullResync()
+  }
+
+  async pushSnapshots(): Promise<{ persisted: number; total: number }> {
+    await this.ensureReady()
+    return this.syncApi!.pushSnapshots()
+  }
+
+  async retryRecoveryItem(itemId: ItemId): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.retryRecoveryItem(itemId)
+  }
+
+  async forceOverwriteRecoveryItem(itemId: ItemId): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.forceOverwriteRecoveryItem(itemId)
+  }
+
+  async forceDeleteRecoveryItem(itemId: ItemId): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.forceDeleteRecoveryItem(itemId)
+  }
+
+  async dismissRecoveryItem(entryId: string): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.dismissRecoveryItem(entryId)
+  }
+
+  async updateVaultKey(vaultKey: string): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.updateVaultKey(vaultKey)
+  }
+
+  async exportSyncState(): Promise<BackupSyncState> {
+    await this.ensureReady()
+    return this.syncApi!.exportSyncState()
+  }
+
+  async restoreSyncState(state: Partial<BackupSyncState>): Promise<void> {
+    await this.ensureReady()
+    return this.syncApi!.restoreSyncState(state)
+  }
 }
 
-type Promisified<T> = {
-  [K in keyof T]: T[K] extends (...args: infer A) => infer R
-    ? (...args: A) => Promise<Awaited<R>>
-    : T[K]
-}
-
-export type SyncBridgeType = typeof baseBridge & Promisified<SyncApi>
-
-export const SyncBridge: SyncBridgeType = new Proxy(baseBridge as unknown as SyncBridgeType, {
-  get(target, prop, receiver) {
-    if (prop === 'then') {
-      return undefined
-    }
-
-    if (prop in target) {
-      return Reflect.get(target, prop, receiver)
-    }
-
-    if (typeof prop === 'string') {
-      return async (...args: unknown[]) => {
-        await target.ensureReady()
-        const method = syncApi
-          ? (syncApi as unknown as Record<string, (...methodArgs: unknown[]) => unknown>)[prop]
-          : undefined
-        if (typeof method !== 'function') {
-          throw new TypeError(`SyncBridge: method '${prop}' does not exist on syncApi`)
-        }
-        return await method.apply(syncApi, args)
-      }
-    }
-
-    return Reflect.get(target, prop, receiver)
-  },
-})
-
+export const SyncBridge = new SyncBridgeService()

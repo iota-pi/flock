@@ -619,12 +619,6 @@ describe('SyncBridge', () => {
       expect(listResult).toEqual(entries)
     })
 
-    it('throws a TypeError when calling a nonexistent method on syncApi', async () => {
-      await SyncBridge.initialize('test-account')
-      await expect(
-        (SyncBridge as unknown as Record<string, () => Promise<void>>).nonExistentMethod()
-      ).rejects.toThrow("SyncBridge: method 'nonExistentMethod' does not exist on syncApi")
-    })
   })
 })
 
