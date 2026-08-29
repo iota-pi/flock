@@ -4,7 +4,6 @@ import { ItemId, ItemIdSchema, standardItemSchema, errorItemSchema, ErrorItem } 
 import type { Item } from '../../../state/items'
 import type { AccountMetadata } from '../../../state/metadata'
 import { readObjectSnapshot, toAutomergeUrlFromItemId, ACCOUNT_INDEX_DOCUMENT_ID, type BackupDocId } from '../utils/automerge'
-import { encodeBytesToBase64, decodeBase64ToBytes } from '../utils/base64Utils'
 import { isPlainObject } from '../utils/objectUtils'
 import type { AutomergeIndexManager } from './AutomergeIndexManager'
 
@@ -351,12 +350,12 @@ export class AutomergeDocStore {
       }
 
       const binary = Automerge.save(doc)
-      exported[itemId] = encodeBytesToBase64(binary)
+      exported[itemId] = binary.toBase64()
     }
 
     const indexDoc = await indexManager.getIndexSnapshot()
     const indexBinary = new TextEncoder().encode(JSON.stringify(indexDoc))
-    exported[ACCOUNT_INDEX_DOCUMENT_ID] = encodeBytesToBase64(indexBinary)
+    exported[ACCOUNT_INDEX_DOCUMENT_ID] = indexBinary.toBase64()
 
     return { documents: exported, skipped }
   }
@@ -370,7 +369,7 @@ export class AutomergeDocStore {
     const encodedIndex = items[ACCOUNT_INDEX_DOCUMENT_ID]
     if (encodedIndex && typeof encodedIndex === 'string') {
       try {
-        const indexBinary = decodeBase64ToBytes(encodedIndex)
+        const indexBinary = Uint8Array.fromBase64(encodedIndex)
         const indexDoc = JSON.parse(new TextDecoder().decode(indexBinary))
         if (indexDoc && typeof indexDoc === 'object') {
           await indexManager.replaceIndex(indexDoc)
@@ -389,7 +388,7 @@ export class AutomergeDocStore {
 
       await this.hydrateAutomergeDocumentBinary(
         normalizedItemId,
-        decodeBase64ToBytes(encodedBinary)
+        Uint8Array.fromBase64(encodedBinary)
       )
 
       restoredItemIds.push(normalizedItemId)

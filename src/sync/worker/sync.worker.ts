@@ -25,7 +25,6 @@ import { SyncWorkerContext } from './SyncWorkerContext'
 import { normalizeItemSnapshot, RepoDoc } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import { loadSyncBatch, restoreSyncBatch } from '../shared/VaultPersistence'
-import { encodeBytesToBase64, decodeBase64ToBytes } from './utils/base64Utils'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
@@ -342,7 +341,7 @@ export class SyncWorker implements SyncApi {
     const pendingSyncRaw = await loadSyncBatch(context.accountId)
     const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
       itemId,
-      messages.map(m => encodeBytesToBase64(m.data))
+      messages.map(m => m.data.toBase64())
     ] as [ItemId, string[]])
     const lastModified = context.snapshotManager.exportLastModified()
 
@@ -355,7 +354,7 @@ export class SyncWorker implements SyncApi {
     if (state.pendingSync) {
       const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
         itemId,
-        base64Msgs.map(decodeBase64ToBytes)
+        base64Msgs.map(msg => Uint8Array.fromBase64(msg))
       ] as [ItemId, Uint8Array[]])
       await restoreSyncBatch(context.accountId, decodedPendingSync)
     }
