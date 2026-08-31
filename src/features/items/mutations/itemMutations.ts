@@ -1,4 +1,4 @@
-import { getBlankItem, type Item } from 'src/state/items'
+import { convertItem, getBlankItem, type Item } from 'src/state/items'
 import type { ItemType } from 'src/shared/itemTypes'
 import { ERROR_ITEM_TYPE, ITEM_TYPES, type ItemId, GroupItem, groupItemSchema, personItemSchema, topicItemSchema } from 'src/shared/schemas/items'
 import type { AccountMetadata } from 'src/state/metadata'
@@ -77,7 +77,7 @@ function sanitizeMetadata(metadata: AccountMetadata): AccountMetadata {
 
 type CreateItemOverrides = Partial<Omit<Item, 'id' | 'type'>>
 
-function updateGroupsForDeletedMembers(allItems: Record<ItemId, Item>, idsSet: Set<ItemId>): Item[] {
+function updateGroupsRemovingMembers(allItems: Record<ItemId, Item>, idsSet: Set<ItemId>): GroupItem[] {
   return Object.values(allItems)
     .filter(
       (item): item is GroupItem => (
@@ -93,7 +93,7 @@ function updateGroupsForDeletedMembers(allItems: Record<ItemId, Item>, idsSet: S
 
 function buildDeletionUpdates(allItems: Record<ItemId, Item>, ids: ItemId[]): Item[] {
   const idsSet = new Set(ids)
-  const groupsToUpdate = updateGroupsForDeletedMembers(allItems, idsSet)
+  const groupsToUpdate = updateGroupsRemovingMembers(allItems, idsSet)
 
   const tombstones: Item[] = ids.flatMap(id => {
     const item = allItems[id]
@@ -256,6 +256,32 @@ export async function deleteItems(
   useAppStore.getState().closeIfOpen(ids)
 
   return ids
+}
+
+export async function convertItemType(
+  itemId: ItemId,
+  newType: ItemType,
+): Promise<Item> {
+  const currentItems = useAppStore.getState().items
+  const item = currentItems[itemId] as Item | undefined
+  if (!item) {
+    throw new Error(`Item not found: ${itemId}`)
+  }
+
+  if (item.type === newType) {
+    return item
+  }
+
+  const convertedItem = convertItem(item, newType)
+
+  if (newType === 'group') {
+    const groupsToUpdate = updateGroupsRemovingMembers(currentItems, new Set([itemId]))
+    await storeItems([convertedItem, ...groupsToUpdate])
+  } else {
+    await storeItems([convertedItem])
+  }
+
+  return convertedItem
 }
 
 export async function setMetadata(

@@ -12,7 +12,6 @@ import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
 
 import {
-  convertItem,
   getItemName,
   getItemTypeLabel,
   isValid,
@@ -32,9 +31,10 @@ import {
   UnarchiveIcon,
 } from 'src/components/Icons'
 import { getLastPrayedFor } from 'src/utils/prayer'
-import { deleteItems, mutateItem } from '../mutations/itemMutations'
+import { convertItemType, deleteItems, mutateItem } from '../mutations/itemMutations'
 import ItemViewTopBar from './ItemViewTopBar'
 import { ITEM_TYPES, ItemId } from 'src/shared/schemas/items'
+import type { ItemType } from 'src/shared/itemTypes'
 import { useAppStore } from 'src/state/store'
 
 
@@ -139,22 +139,30 @@ function ItemDrawer({
     [archived, handleChange, isNew],
   )
 
+  const handleConvertType = useCallback(
+    async (targetType: ItemType) => {
+      if (!itemId || !resolvedItem) return
+
+      try {
+        setHasEdited(true)
+        await convertItemType(itemId, targetType)
+      } catch (error) {
+        setMessage({
+          message: 'Failed to convert item type: ' + (error as Error).message,
+          severity: 'error',
+        })
+      }
+    },
+    [itemId, resolvedItem, setMessage],
+  )
+
   const changeTypeMenuItems = useMemo(
     () => ITEM_TYPES.filter(t => t !== resolvedItem?.type).map(itemType => (
       <MenuItem
         data-cy="change-type"
         key={itemType}
         onClick={() => {
-          if (resolvedItem) {
-            try {
-              handleChange(i => convertItem(i, itemType))
-            } catch (error) {
-              setMessage({
-                message: 'Failed to convert item type: ' + (error as Error).message,
-                severity: 'error',
-              })
-            }
-          }
+          void handleConvertType(itemType)
         }}
       >
         <ListItemIcon>
@@ -163,7 +171,7 @@ function ItemDrawer({
         <ListItemText>Convert to {getItemTypeLabel(itemType)}</ListItemText>
       </MenuItem>
     )),
-    [resolvedItem, handleChange, setMessage],
+    [handleConvertType, resolvedItem?.type],
   )
 
   const markPrayedMenuItem = useMemo(

@@ -1,5 +1,5 @@
-import { getBlankGroup, getBlankPerson, type Item } from '../state/items'
-import { createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
+import { getBlankGroup, getBlankItem, getBlankPerson, type Item } from '../state/items'
+import { convertItemType, createItem, deleteItems, mutateItem, setMetadata, storeItems } from '../features/items/mutations/itemMutations'
 import { SyncBridge } from '../sync/client/SyncBridge'
 import { setApiAuthToken } from './runtime'
 import { useAppStore } from '../state/store'
@@ -119,6 +119,125 @@ describe('local-first mutations', () => {
       expect.objectContaining({ id: 'g1', members: [] }),
       expect.objectContaining({ id: 'p1', deleted: true }),
     ]))
+  })
+
+  it('converts person to group and removes the item from all groups it is a member of', async () => {
+    const group1 = {
+      ...getBlankGroup('g1' as ItemId, false),
+      members: ['p1' as ItemId, 'p2' as ItemId],
+    }
+    const group2 = {
+      ...getBlankGroup('g2' as ItemId, false),
+      members: ['p1' as ItemId],
+    }
+    const unrelatedGroup = {
+      ...getBlankGroup('g3' as ItemId, false),
+      members: ['p2' as ItemId],
+    }
+    const person1 = getBlankPerson('p1' as ItemId, false)
+    person1.name = 'Alice'
+
+    useAppStore.setState({
+      items: {
+        g1: group1,
+        g2: group2,
+        g3: unrelatedGroup,
+        p1: person1,
+      },
+    })
+
+    const converted = await convertItemType('p1' as ItemId, 'group')
+
+    expect(converted.type).toBe('group')
+    expect(converted.id).toBe('p1')
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'p1',
+        type: 'group',
+        members: [],
+      }),
+      expect.objectContaining({
+        id: 'g1',
+        members: ['p2'],
+      }),
+      expect.objectContaining({
+        id: 'g2',
+        members: [],
+      }),
+    ])
+  })
+
+  it('converts topic to group and removes the item from all groups it is a member of', async () => {
+    const group1 = {
+      ...getBlankGroup('g1' as ItemId, false),
+      members: ['t1' as ItemId],
+    }
+    const topic = {
+      ...getBlankItem('topic', false),
+      id: 't1' as ItemId,
+      name: 'World Peace',
+    }
+
+    useAppStore.setState({
+      items: {
+        g1: group1,
+        t1: topic,
+      },
+    })
+
+    const converted = await convertItemType('t1' as ItemId, 'group')
+
+    expect(converted.type).toBe('group')
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 't1',
+        type: 'group',
+        members: [],
+      }),
+      expect.objectContaining({
+        id: 'g1',
+        members: [],
+      }),
+    ])
+  })
+
+  it('converts group to person and clears group properties without modifying other groups', async () => {
+    const group1 = {
+      ...getBlankGroup('g1' as ItemId, false),
+      name: 'Bible Study',
+      members: ['p1' as ItemId],
+    }
+
+    useAppStore.setState({
+      items: {
+        g1: group1,
+      },
+    })
+
+    const converted = await convertItemType('g1' as ItemId, 'person')
+
+    expect(converted.type).toBe('person')
+    expect((converted as any).members).toBeUndefined()
+    expect(SyncBridge.storeItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'g1',
+        type: 'person',
+      }),
+    ])
+  })
+
+  it('returns same item when converting to current type', async () => {
+    const person = getBlankPerson('p1' as ItemId, false)
+    useAppStore.setState({ items: { p1: person } })
+
+    const result = await convertItemType('p1' as ItemId, 'person')
+    expect(result).toBe(person)
+    expect(SyncBridge.storeItems).not.toHaveBeenCalled()
+  })
+
+  it('throws when item is not found during convertItemType', async () => {
+    useAppStore.setState({ items: {} })
+    await expect(convertItemType('nonexistent' as ItemId, 'group')).rejects.toThrow('Item not found: nonexistent')
   })
 
   it('updates metadata locally', async () => {
@@ -251,6 +370,45 @@ describe('local-first mutations', () => {
           item: expect.objectContaining({
             id: 'p1',
             name: 'Old Name',
+          }),
+        },
+      ])
+    })
+
+    it('rolls back convertItemType and group updates on SyncBridge failure', async () => {
+      const originalPerson = getBlankPerson('p1' as ItemId, false)
+      originalPerson.name = 'Alice'
+      const originalGroup = {
+        ...getBlankGroup('g1' as ItemId, false),
+        members: ['p1' as ItemId],
+      }
+      useAppStore.setState({
+        items: {
+          p1: originalPerson,
+          g1: originalGroup,
+        },
+      })
+
+      vi.mocked(SyncBridge.storeItems).mockRejectedValueOnce(new Error('Sync failure'))
+
+      await expect(convertItemType('p1' as ItemId, 'group')).rejects.toThrow('Sync failure')
+
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: 'p1',
+          item: expect.objectContaining({
+            id: 'p1',
+            type: 'person',
+            name: 'Alice',
+          }),
+        },
+      ])
+      expect(mockStoreState.updateItemsFromServer).toHaveBeenCalledWith([
+        {
+          id: 'g1',
+          item: expect.objectContaining({
+            id: 'g1',
+            members: ['p1'],
           }),
         },
       ])
