@@ -5,14 +5,9 @@ import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { persistSyncMessages } from '../shared/VaultPersistence'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
 import type { ItemId } from 'src/shared/schemas/items'
-
-
-vi.mock('../shared/VaultPersistence', () => ({
-  persistSyncMessages: vi.fn().mockResolvedValue(undefined),
-}))
+import type { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
 function createSyncMessage(itemId: string, data: number[]): Message {
   const docId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId as ItemId))
@@ -32,6 +27,7 @@ describe('SyncMessageBroker', () => {
   let internalEventHub: WorkerInternalEventHub
   let indexManager: AutomergeIndexManager
   let pullQueueManager: SyncPullQueueManager
+  let mockWal: SyncWriteAheadLog
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -49,6 +45,12 @@ describe('SyncMessageBroker', () => {
       hasPendingPulls: vi.fn().mockReturnValue(false),
       shutdown: vi.fn().mockResolvedValue(undefined),
     } as unknown as SyncPullQueueManager
+    mockWal = {
+      append: vi.fn().mockResolvedValue('entry-1'),
+      readAll: vi.fn().mockResolvedValue(new Map()),
+      remove: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SyncWriteAheadLog
 
     broker = new SyncMessageBroker(
       adapter,
@@ -56,10 +58,11 @@ describe('SyncMessageBroker', () => {
       internalEventHub,
       indexManager,
       pullQueueManager,
+      mockWal,
     )
   })
 
-  it('does not buffer writes if send is not enabled or account is not set', () => {
+  it('does not write to WAL if send is not enabled or account is not set', () => {
     const msg = createSyncMessage('item123', [1, 2, 3])
 
     broker.setSendEnabled(false)
@@ -69,111 +72,44 @@ describe('SyncMessageBroker', () => {
     // Account not set yet
     adapter.onMessageToSend?.(msg)
 
-    expect(persistSyncMessages).not.toHaveBeenCalled()
+    expect(mockWal.append).not.toHaveBeenCalled()
   })
 
-  it('persists pending writes for the active account when flushed', async () => {
+  it('appends outgoing sync messages to WAL immediately and triggers flush', async () => {
+    const flushSpy = vi.fn()
+    broker.onFlushNeeded = flushSpy
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
+    broker.setWal(mockWal)
 
     const msg = createSyncMessage('item123', [1, 2, 3])
     adapter.onMessageToSend?.(msg)
+    await Promise.resolve()
 
-    // Shutdown flushes pending writes
-    await broker.shutdown()
-
-    expect(persistSyncMessages).toHaveBeenCalledWith('account-1', expect.any(Map))
-    const calls = vi.mocked(persistSyncMessages).mock.calls
-    const writtenMap = calls[0][1] as Map<string, Uint8Array[]>
-    expect(writtenMap.has('item123')).toBe(true)
-    expect(writtenMap.get('item123')?.[0]).toEqual(new Uint8Array([1, 2, 3]))
+    expect(mockWal.append).toHaveBeenCalledWith('item123', new Uint8Array([1, 2, 3]))
+    expect(flushSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('prevents cross-account data leakage when messages arrive during account switch', async () => {
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-A')
-
-    const msgA = createSyncMessage('itemA', [10, 20])
-
-    let resolvePersist: (() => void) | null = null
-    const persistDeferred = new Promise<void>(resolve => {
-      resolvePersist = resolve
-    })
-
-    // First persistSyncMessages will block until resolvePersist is called
-    vi.mocked(persistSyncMessages).mockImplementationOnce(() => persistDeferred)
-
-    // Initial message for account A
-    adapter.onMessageToSend?.(msgA)
-
-    // Start account switch to account B (this calls persistPendingWrites and awaits)
-    const switchPromise = broker.setAccount('account-B')
-
-    // While persistPendingWrites for account A is in flight, another message arrives
-    const msgA2 = createSyncMessage('itemA2', [30, 40])
-    adapter.onMessageToSend?.(msgA2)
-
-    // Resolve the first persist
-    resolvePersist!()
-    await switchPromise
-
-    // Now broker.account is account-B
-    // Now trigger flush of remaining writes
-    await broker.shutdown()
-
-    // Verify all persistSyncMessages calls
-    const calls = vi.mocked(persistSyncMessages).mock.calls
-    expect(calls.length).toBe(2)
-
-    // First call was for account-A with itemA
-    expect(calls[0][0]).toBe('account-A')
-    const firstMap = calls[0][1] as Map<string, Uint8Array[]>
-    expect(firstMap.has('itemA')).toBe(true)
-
-    // Second call should ALSO be for account-A with itemA2, NOT account-B!
-    expect(calls[1][0]).toBe('account-A')
-    const secondMap = calls[1][1] as Map<string, Uint8Array[]>
-    expect(secondMap.has('itemA2')).toBe(true)
-    expect(secondMap.has('itemA')).toBe(false)
-  })
-
-  it('restores writes if persistSyncMessages fails', async () => {
+  it('handles request type message by adding pending item and triggering flush', async () => {
+    const flushSpy = vi.fn()
+    broker.onFlushNeeded = flushSpy
     broker.setSendEnabled(true)
     await broker.setAccount('account-1')
 
-    const msg = createSyncMessage('item1', [1])
-    adapter.onMessageToSend?.(msg)
+    const docId = interpretAsDocumentId(toAutomergeUrlFromItemId('item-req' as ItemId))
+    const reqMsg: Message = {
+      type: 'request',
+      senderId: 'client' as any,
+      targetId: 'vault' as any,
+      documentId: docId,
+      data: new Uint8Array([]),
+    }
 
-    vi.mocked(persistSyncMessages).mockRejectedValueOnce(new Error('Network error'))
+    adapter.onMessageToSend?.(reqMsg)
 
-    await expect(broker.shutdown()).rejects.toThrow('Network error')
-
-    // Next successful call to persist should retry the failed writes
-    vi.mocked(persistSyncMessages).mockResolvedValueOnce(undefined)
-    await broker.shutdown()
-
-    expect(persistSyncMessages).toHaveBeenCalledTimes(2)
-    const secondCall = vi.mocked(persistSyncMessages).mock.calls[1]
-    expect(secondCall[0]).toBe('account-1')
-    const map = secondCall[1] as Map<string, Uint8Array[]>
-    expect(map.has('item1')).toBe(true)
-  })
-
-  it('persists pending writes during shutdown even if pullQueueManager.shutdown throws', async () => {
-    broker.setSendEnabled(true)
-    await broker.setAccount('account-1')
-
-    const msg = createSyncMessage('item1', [1])
-    adapter.onMessageToSend?.(msg)
-
-    vi.mocked(pullQueueManager.shutdown).mockRejectedValueOnce(new Error('PullQueue shutdown error'))
-
-    await expect(broker.shutdown()).rejects.toThrow('PullQueue shutdown error')
-
-    expect(persistSyncMessages).toHaveBeenCalledWith('account-1', expect.any(Map))
-    const calls = vi.mocked(persistSyncMessages).mock.calls
-    const writtenMap = calls[0][1] as Map<string, Uint8Array[]>
-    expect(writtenMap.has('item1')).toBe(true)
+    expect(pullQueueManager.addPendingItem).toHaveBeenCalledWith('item-req')
+    expect(flushSpy).toHaveBeenCalledTimes(1)
+    expect(mockWal.append).not.toHaveBeenCalled()
   })
 
   it('notifies onItemMessageParsed when pullQueueManager parses a message', async () => {
@@ -186,5 +122,9 @@ describe('SyncMessageBroker', () => {
 
     expect(mockOnItemParsed).toHaveBeenCalledWith('item-1')
   })
-})
 
+  it('shuts down pullQueueManager cleanly', async () => {
+    await broker.shutdown()
+    expect(pullQueueManager.shutdown).toHaveBeenCalledTimes(1)
+  })
+})

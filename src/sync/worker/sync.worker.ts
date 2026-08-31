@@ -24,7 +24,7 @@ import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncWorkerContext } from './SyncWorkerContext'
 import { normalizeItemSnapshot, RepoDoc } from './docStore'
 import { toAutomergeUrlFromItemId } from './utils/automerge'
-import { loadSyncBatch, restoreSyncBatch } from '../shared/VaultPersistence'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 import type { PollOutcome } from './SyncPoller'
 import { initTrpcClient } from 'src/api/trpcClient'
 import { getTrackedFetch } from 'src/api/trackedFetch'
@@ -136,6 +136,7 @@ export class SyncWorker implements SyncApi {
 
     const cursorStore = new CursorStore(accountId)
     const indexStore = new IndexStore(accountId)
+    const wal = new SyncWriteAheadLog(accountId)
     const indexManager = new AutomergeIndexManager(
       accountId,
       indexStore,
@@ -149,7 +150,8 @@ export class SyncWorker implements SyncApi {
       this.clientEventHub,
       this.internalEventHub,
       indexManager,
-      pullQueueManager
+      pullQueueManager,
+      wal
     )
 
     this._context = new SyncWorkerContext({
@@ -163,6 +165,7 @@ export class SyncWorker implements SyncApi {
       indexManager,
       cursorStore,
       pullQueueManager,
+      wal,
     })
     // Listen to client events
     this.clientEventHub.subscribe((event: ClientEvent) => {
@@ -338,11 +341,11 @@ export class SyncWorker implements SyncApi {
   async exportSyncState(): Promise<BackupSyncState> {
     const context = this.context
     const cursors = context.broker.exportCursors()
-    const pendingSyncRaw = await loadSyncBatch(context.accountId)
-    const pendingSync = pendingSyncRaw.map(([itemId, messages]) => [
+    const walMap = context.wal ? await context.wal.readAll() : new Map()
+    const pendingSync: [ItemId, string[]][] = Array.from(walMap.entries()).map(([itemId, entries]) => [
       itemId,
-      messages.map(m => m.data.toBase64())
-    ] as [ItemId, string[]])
+      entries.map(e => e.data.toBase64()),
+    ])
     const lastModified = context.snapshotManager.exportLastModified()
 
     return { cursors, pendingSync, lastModified }
@@ -351,12 +354,12 @@ export class SyncWorker implements SyncApi {
   async restoreSyncState(state: Partial<BackupSyncState>) {
     const context = this.context
     if (state.cursors) await context.broker.importCursors(state.cursors)
-    if (state.pendingSync) {
-      const decodedPendingSync = state.pendingSync.map(([itemId, base64Msgs]) => [
-        itemId,
-        base64Msgs.map(msg => Uint8Array.fromBase64(msg))
-      ] as [ItemId, Uint8Array[]])
-      await restoreSyncBatch(context.accountId, decodedPendingSync)
+    if (state.pendingSync && context.wal) {
+      for (const [itemId, base64Msgs] of state.pendingSync) {
+        for (const msg of base64Msgs) {
+          await context.wal.append(itemId, Uint8Array.fromBase64(msg))
+        }
+      }
     }
     if (state.lastModified) await context.snapshotManager.importLastModified(state.lastModified)
   }

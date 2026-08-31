@@ -14,6 +14,7 @@ import { SyncMessageBroker } from './SyncMessageBroker'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
 export interface SyncWorkerContextDeps {
   accountId: string
@@ -26,6 +27,7 @@ export interface SyncWorkerContextDeps {
   indexManager: AutomergeIndexManager
   cursorStore: CursorStore
   pullQueueManager: SyncPullQueueManager
+  wal?: SyncWriteAheadLog
 }
 
 export class SyncWorkerContext {
@@ -39,6 +41,7 @@ export class SyncWorkerContext {
   public readonly indexStore: IndexStore
   public readonly cursorStore: CursorStore
   public readonly lastModifiedStore: LastModifiedStore
+  public readonly wal: SyncWriteAheadLog
 
   public readonly docStore: AutomergeDocStore
   public readonly indexManager: AutomergeIndexManager
@@ -62,6 +65,7 @@ export class SyncWorkerContext {
     this.cursorStore = deps.cursorStore
     this.pullQueueManager = deps.pullQueueManager
     this.lastModifiedStore = new LastModifiedStore(deps.accountId)
+    this.wal = deps.wal ?? new SyncWriteAheadLog(deps.accountId)
 
     this.docStore = new AutomergeDocStore(deps.repo)
 
@@ -158,6 +162,7 @@ export class SyncWorkerContext {
           this.indexStore.clear(),
           this.cursorStore.clear(),
           this.lastModifiedStore.clear(),
+          this.wal.clear(),
         ])
       } catch (err) {
         console.error('[SyncWorkerContext] Error clearing metadata stores on logout', err)

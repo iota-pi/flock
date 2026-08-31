@@ -89,13 +89,33 @@ export const syncRouter = router({
       }
 
       if (shouldUpdateAccount) {
-        await ctx.vault.updateAccountData({
-          account: input.account,
-          ...(snapshotRequest ? { lastSnapshotRequestedAt: now } : {}),
-          ...(pushResults.length > 0
-            ? { latestSyncCursor: Math.max(maxPushCursor, account.latestSyncCursor ?? 0) }
-            : {}),
-        })
+        const maxRetries = 3
+        let currentAccount = account
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            await ctx.vault.updateAccountData({
+              account: input.account,
+              ...(snapshotRequest ? { lastSnapshotRequestedAt: now } : {}),
+              ...(pushResults.length > 0
+                ? { latestSyncCursor: Math.max(maxPushCursor, currentAccount.latestSyncCursor ?? 0) }
+                : {}),
+            })
+            break
+          } catch (err) {
+            const isConditionalFailure =
+              err instanceof Error && (
+                err.name === 'ConditionalCheckFailedException'
+                || err.message.includes('ConditionalCheckFailed')
+                || err.message.includes('conditional request failed')
+              )
+            if (isConditionalFailure && attempt < maxRetries) {
+              // Re-read account for latest cursor
+              currentAccount = await ctx.vault.getAccount({ account: input.account, session: ctx.authToken })
+              continue
+            }
+            throw err
+          }
+        }
       }
 
       return { success: true, pushResults, pullResults, snapshotRequest }

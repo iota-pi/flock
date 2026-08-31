@@ -2,11 +2,11 @@ import { chunk } from 'lodash-es'
 
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { encryptBytes } from '../../api/vault'
-import { loadSyncBatch, removeSentSyncMessages, type QueuedMessage } from '../shared/VaultPersistence'
 import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
+import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -20,10 +20,15 @@ export class SyncPoller {
     private clientEventHub: ClientEventHub,
     private internalEventHub: WorkerInternalEventHub,
     private indexManager: AutomergeIndexManager,
+    private wal?: SyncWriteAheadLog | null,
   ) {}
 
   setAccount(account: string | null): void {
     this.account = account
+  }
+
+  setWal(wal: SyncWriteAheadLog | null): void {
+    this.wal = wal
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -43,10 +48,16 @@ export class SyncPoller {
       const authToken = await getActiveSessionToken()
       if (!authToken) return 'no-poll'
 
-      let batchEntries: [ItemId, QueuedMessage[]][]
+      let batchEntries: [ItemId, WalEntry[]][]
       try {
-        batchEntries = await loadSyncBatch(this.account)
-      } catch (_) {
+        if (this.wal) {
+          const walMap = await this.wal.readAll()
+          batchEntries = Array.from(walMap.entries())
+        } else {
+          batchEntries = []
+        }
+      } catch (err) {
+        console.error('[SyncPoller] Failed to load WAL entries', err)
         return 'failure'
       }
 
@@ -85,11 +96,13 @@ export class SyncPoller {
 
       let highestSnapshotRequest: { cursor: number; requestedAt: number } | null = null
       for (const chunkEntry of chunks) {
+        const sentIds: string[] = []
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
             let totalLength = 0
             for (const m of messages) {
               totalLength += 4 + m.data.length
+              sentIds.push(m.id)
             }
             const combined = new Uint8Array(totalLength)
             const view = new DataView(combined.buffer)
@@ -140,7 +153,9 @@ export class SyncPoller {
           }
         }
 
-        await removeSentSyncMessages(this.account, chunkEntry)
+        if (this.wal && sentIds.length > 0) {
+          await this.wal.remove(sentIds)
+        }
       }
 
       if (highestSnapshotRequest) {

@@ -3,8 +3,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { CursorStore } from './stores/CursorStore'
-
-import { loadSyncBatch, type QueuedMessage } from '../shared/VaultPersistence'
+import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
 import { ItemId } from 'src/shared/schemas/items'
 
 const mockPollSyncBatchWithToken = vi.fn()
@@ -24,17 +23,13 @@ vi.mock('../shared/workerAuthStore', () => ({
   getActiveSessionToken: vi.fn().mockResolvedValue('mock-token'),
 }))
 
-vi.mock('../shared/VaultPersistence', () => ({
-  loadSyncBatch: vi.fn().mockResolvedValue([]),
-  removeSentSyncMessages: vi.fn().mockResolvedValue(undefined),
-}))
-
 describe('SyncPoller', () => {
   let poller: SyncPoller
   let clientEventHub: ClientEventHub
   let internalEventHub: WorkerInternalEventHub
   let pullQueueManager: SyncPullQueueManager
   let indexManager: AutomergeIndexManager
+  let mockWal: SyncWriteAheadLog
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -44,12 +39,19 @@ describe('SyncPoller', () => {
     indexManager = {
       updateLastSyncTime: vi.fn().mockResolvedValue(undefined),
     } as unknown as AutomergeIndexManager
+    mockWal = {
+      append: vi.fn().mockResolvedValue('id-1'),
+      readAll: vi.fn().mockResolvedValue(new Map()),
+      remove: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SyncWriteAheadLog
 
     poller = new SyncPoller(
       pullQueueManager,
       clientEventHub,
       internalEventHub,
       indexManager,
+      mockWal,
     )
     poller.setAccount('test-account')
     poller.setOnlineState(true)
@@ -76,13 +78,15 @@ describe('SyncPoller', () => {
     expect(indexManager.updateLastSyncTime).toHaveBeenCalled()
   })
 
-  it('sends cursors with every chunk in multi-chunk batch', async () => {
+  it('sends cursors and removes sent IDs from WAL with every chunk in multi-chunk batch', async () => {
     // 6 items will produce 2 chunks of size 5 and 1
-    const mockBatch: [ItemId, QueuedMessage[]][] = Array.from({ length: 6 }, (_, i) => [
-      `item-${i}` as ItemId,
-      [{ id: `msg-${i}`, data: new Uint8Array([1, 2, 3]) }],
-    ])
-    vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
+    const walMap = new Map<ItemId, WalEntry[]>()
+    for (let i = 0; i < 6; i++) {
+      walMap.set(`item-${i}` as ItemId, [
+        { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: i },
+      ])
+    }
+    vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
     // Add a pending item to pullQueueManager to verify cursors are populated
     pullQueueManager.addPendingItem('pending-item-1' as ItemId)
@@ -120,6 +124,11 @@ describe('SyncPoller', () => {
         clientLatestCursor: 0,
       }),
     )
+
+    // Removed sent IDs from WAL
+    expect(mockWal.remove).toHaveBeenCalledTimes(2)
+    expect(mockWal.remove).toHaveBeenNthCalledWith(1, ['msg-0', 'msg-1', 'msg-2', 'msg-3', 'msg-4'])
+    expect(mockWal.remove).toHaveBeenNthCalledWith(2, ['msg-5'])
   })
 
   describe('isAuthError classification', () => {
@@ -202,11 +211,13 @@ describe('SyncPoller', () => {
 
     it('emits snapshotNeeded with the highest cursor across multiple chunks', async () => {
       const emitSpy = vi.spyOn(internalEventHub, 'emit')
-      const mockBatch: [ItemId, QueuedMessage[]][] = Array.from({ length: 12 }, (_, i) => [
-        `item-${i}` as ItemId,
-        [{ id: `msg-${i}`, data: new Uint8Array([1, 2, 3]) }],
-      ])
-      vi.mocked(loadSyncBatch).mockResolvedValueOnce(mockBatch)
+      const walMap = new Map<ItemId, WalEntry[]>()
+      for (let i = 0; i < 12; i++) {
+        walMap.set(`item-${i}` as ItemId, [
+          { id: `msg-${i}`, itemId: `item-${i}` as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: i },
+        ])
+      }
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
 
       // 3 chunks (5, 5, 2)
       mockPollSyncBatchWithToken

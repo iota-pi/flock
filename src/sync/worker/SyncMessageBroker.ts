@@ -1,12 +1,12 @@
 import { SyncPullQueueManager } from './SyncPullQueueManager'
 import { SyncPoller, type PollOutcome } from './SyncPoller'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
-import { persistSyncMessages } from '../shared/VaultPersistence'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import type { ItemId } from 'src/shared/schemas/items'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { toVaultItemIdFromAutomergeId } from './utils/automerge'
 import { type Message } from '@automerge/automerge-repo/slim'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
 
 export class SyncMessageBroker {
   private account: string | null = null
@@ -14,9 +14,7 @@ export class SyncMessageBroker {
   private sendEnabled = false
 
   private syncPoller: SyncPoller
-
-  private pendingWritesByAccount: Map<string, Map<string, Uint8Array[]>> = new Map()
-  private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private wal: SyncWriteAheadLog | null = null
 
   public onFlushNeeded: (() => void) | null = null
   public onItemMessageParsed: ((itemId: ItemId) => void) | null = null
@@ -27,7 +25,10 @@ export class SyncMessageBroker {
     private internalEventHub: WorkerInternalEventHub,
     private indexManager: AutomergeIndexManager,
     private pullQueueManager: SyncPullQueueManager,
+    wal?: SyncWriteAheadLog | null,
   ) {
+    this.wal = wal ?? null
+
     this.pullQueueManager.onMessageParsed = (itemId, documentId, message) => {
       if (this.account) {
         this.onItemMessageParsed?.(itemId)
@@ -41,10 +42,11 @@ export class SyncMessageBroker {
       this.clientEventHub,
       this.internalEventHub,
       this.indexManager,
+      this.wal,
     )
 
     this.adapter.onMessageToSend = (msg: Message) => {
-      this.handleOutgoingMessage(msg)
+      void this.handleOutgoingMessage(msg)
     }
   }
 
@@ -59,15 +61,17 @@ export class SyncMessageBroker {
       return
     }
 
-    if (this.persistTimeoutId) {
-      clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    await this.persistPendingWrites()
-
     this.account = nextAccount
+    this.wal = this.account ? new SyncWriteAheadLog(this.account) : null
+    this.syncPoller.setWal(this.wal)
+
     await this.pullQueueManager.setAccount(this.account)
     this.syncPoller.setAccount(this.account)
+  }
+
+  setWal(wal: SyncWriteAheadLog | null): void {
+    this.wal = wal
+    this.syncPoller.setWal(wal)
   }
 
   setOnlineState(isOnline: boolean): void {
@@ -79,7 +83,7 @@ export class SyncMessageBroker {
     this.syncPoller.setOnlineState(isOnline)
   }
 
-  private handleOutgoingMessage(message: Message): void {
+  private async handleOutgoingMessage(message: Message): Promise<void> {
     if (!this.sendEnabled || !this.account) {
       return
     }
@@ -95,80 +99,18 @@ export class SyncMessageBroker {
       this.pullQueueManager.addPendingItem(itemId)
       this.flush()
     } else if (message.type === 'sync' && message.data instanceof Uint8Array) {
-      let accountWrites = this.pendingWritesByAccount.get(this.account)
-      if (!accountWrites) {
-        accountWrites = new Map()
-        this.pendingWritesByAccount.set(this.account, accountWrites)
+      if (this.wal) {
+        try {
+          await this.wal.append(itemId, message.data)
+        } catch (err) {
+          console.error('[SyncMessageBroker] Failed to append to WAL', err)
+        }
       }
-      let messages = accountWrites.get(itemId)
-      if (!messages) {
-        messages = []
-        accountWrites.set(itemId, messages)
-      }
-      messages.push(message.data)
       this.flush()
     }
   }
 
-  private async persistPendingWrites(): Promise<void> {
-    if (this.pendingWritesByAccount.size === 0) {
-      return
-    }
-    const writesToProcess = new Map(this.pendingWritesByAccount)
-    this.pendingWritesByAccount.clear()
-
-    let firstError: unknown = null
-
-    for (const [account, writes] of writesToProcess.entries()) {
-      if (firstError) {
-        this.restoreWrites(account, writes)
-        continue
-      }
-      try {
-        await persistSyncMessages(account, writes)
-      } catch (err) {
-        firstError = err
-        this.restoreWrites(account, writes)
-      }
-    }
-
-    if (firstError) {
-      throw firstError
-    }
-  }
-
-  private restoreWrites(account: string, writes: Map<string, Uint8Array[]>): void {
-    let accountWrites = this.pendingWritesByAccount.get(account)
-    if (!accountWrites) {
-      accountWrites = new Map()
-      this.pendingWritesByAccount.set(account, accountWrites)
-    }
-    for (const [itemId, messages] of writes.entries()) {
-      const existing = accountWrites.get(itemId)
-      if (existing) {
-        accountWrites.set(itemId, [...messages, ...existing])
-      } else {
-        accountWrites.set(itemId, messages)
-      }
-    }
-  }
-
   flush(): void {
-    if (this.persistTimeoutId === null) {
-      this.persistTimeoutId = setTimeout(
-        () => {
-          this.flushPersistAndSignal().catch(err => {
-            console.error('[SyncMessageBroker] Error in flushPersistAndSignal:', err)
-          })
-        },
-        0
-      )
-    }
-  }
-
-  private async flushPersistAndSignal(): Promise<void> {
-    this.persistTimeoutId = null
-    await this.persistPendingWrites()
     this.onFlushNeeded?.()
   }
 
@@ -193,14 +135,6 @@ export class SyncMessageBroker {
   }
 
   async shutdown(): Promise<void> {
-    if (this.persistTimeoutId) {
-      clearTimeout(this.persistTimeoutId)
-      this.persistTimeoutId = null
-    }
-    try {
-      await this.pullQueueManager.shutdown()
-    } finally {
-      await this.persistPendingWrites()
-    }
+    await this.pullQueueManager.shutdown()
   }
 }

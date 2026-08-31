@@ -49,11 +49,12 @@ const SYNC_MESSAGE_TTL = 7 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
 const DEFAULT_SYNC_MESSAGE_LIMIT = 200
 
-const DATA_ATTRIBUTES = ['#metadata', '#cipher', '#snapshot']
+const DATA_ATTRIBUTES = ['#metadata', '#cipher', '#snapshot', '#version']
 const DATA_ATTRIBUTE_NAMES = {
   '#metadata': 'metadata',
   '#cipher': 'cipher',
   '#snapshot': 'snapshot',
+  '#version': 'version',
 }
 
 const MAX_ITEM_SIZE = 50_000
@@ -63,6 +64,7 @@ const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type PersistedVaultItem = VaultItem & {
   modifiedAt?: number
+  version?: number
 }
 
 /**
@@ -102,8 +104,10 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
     ? Math.floor(Date.now() / 1000) + TOMBSTONE_TTL_SECONDS
     : item.ttl
 
+  const nextVersion = (item.version ?? 0) + 1
   const persistedItem: PersistedVaultItem = {
     ...item,
+    version: nextVersion,
     ...(modifiedAt !== undefined ? { modifiedAt } : {}),
     ...(ttl !== undefined ? { ttl } : {}),
   }
@@ -111,6 +115,12 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   const params: PutCommandInput = {
     TableName: ITEM_TABLE_NAME,
     Item: persistedItem,
+    ConditionExpression: typeof item.version === 'number'
+      ? 'attribute_not_exists(account) OR version = :expectedVersion'
+      : 'attribute_not_exists(account)',
+    ExpressionAttributeValues: typeof item.version === 'number'
+      ? { ':expectedVersion': item.version }
+      : undefined,
   }
 
   return params
@@ -475,6 +485,9 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     if (typeof latestSyncCursor === 'number') {
       updateExpressions.push('latestSyncCursor = :latestSyncCursor')
       expressionAttributeValues[':latestSyncCursor'] = latestSyncCursor
+      conditionExpressions.push(
+        '(attribute_not_exists(latestSyncCursor) OR latestSyncCursor <= :latestSyncCursor)',
+      )
     }
     if (typeof keyring === 'string') {
       updateExpressions.push('keyring = :keyring')

@@ -20,7 +20,7 @@ describe('DynamoDriver', function () {
 
     await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
     const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
+    expect(result).toEqual({ cipher, metadata: { type, iv, modified }, version: 1 })
 
     await driver.delete({ account, item })
     const p = driver.get({ account, item })
@@ -38,9 +38,9 @@ describe('DynamoDriver', function () {
     await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
     cipher = 'good'
     iv = 'bye'
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
+    await driver.set({ account, item, cipher, metadata: { type, iv, modified }, version: 1 })
     const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified } })
+    expect(result).toEqual({ cipher, metadata: { type, iv, modified }, version: 2 })
   })
 
   it('set injects ttl for tombstones', async () => {

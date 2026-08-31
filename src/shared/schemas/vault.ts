@@ -56,6 +56,7 @@ export const VaultItemSchema = VaultKeySchema.extend({
   cipher: z.string().optional(),
   snapshot: CryptoResultSchema.optional(),
   ttl: z.number().optional(),
+  version: z.number().optional(),
 })
 
 export const StoredSyncMessageSchema = z.object({

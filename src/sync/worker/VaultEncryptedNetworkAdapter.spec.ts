@@ -4,11 +4,8 @@ import { decodeSyncMessage, encodeSyncMessage } from '@automerge/automerge/slim'
 import { VaultNetworkAdapter } from './VaultEncryptedNetworkAdapter'
 import { SyncMessageBroker } from './SyncMessageBroker'
 import {
-  getSyncBatchStorage,
   clearInstancesCacheForTesting,
   resetQuotaExceededStatus,
-  loadSyncBatch,
-  clearSyncBatch,
 } from '../shared/VaultPersistence'
 import { registerQuotaReporter } from '../../utils/storageManager'
 import { SyncOrchestrator } from './SyncOrchestrator'
@@ -16,6 +13,8 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
+import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPollSyncBatchWithToken = vi.fn()
 
@@ -72,7 +71,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       'account-pagination',
     ]
     for (const acc of accounts) {
-      await clearSyncBatch(acc)
+      await new SyncWriteAheadLog(acc).clear()
     }
 
     clientEventHub = new ClientEventHub()
@@ -80,7 +79,8 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     adapter = new VaultNetworkAdapter()
     const cursorStore = new CursorStore('test-account')
     const pullQueueManager = new SyncPullQueueManager(cursorStore)
-    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager)
+    const wal = new SyncWriteAheadLog('test-account')
+    broker = new SyncMessageBroker(adapter, clientEventHub, internalEventHub, mockDocStore as any, pullQueueManager, wal)
     orchestrator = new SyncOrchestrator(
       'test-account',
       broker,
@@ -103,7 +103,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     vi.useRealTimers()
   })
 
-  it('queues sync messages to IndexedDB (syncBatchStorage) on send()', async () => {
+  it('queues sync messages to SyncWriteAheadLog on send()', async () => {
     const accountId = 'account-queues'
     adapter.setAccount(accountId)
     await broker.setAccount(accountId)
@@ -118,22 +118,23 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     adapter.send(message1)
 
-    // Await flush/persistence by advancing fake timers
+    // Await async append
     await vi.advanceTimersByTimeAsync(50)
 
-    const batch = await loadSyncBatch(accountId)
-    const item1 = batch.find(([id]) => id === 'item-1')
+    const wal = new SyncWriteAheadLog(accountId)
+    const batch = await wal.readAll()
+    const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
-    expect(item1![1]).toHaveLength(1)
-    expect(Array.from(item1![1][0].data)).toEqual([1, 2, 3])
+    expect(item1).toHaveLength(1)
+    expect(Array.from(item1![0].data)).toEqual([1, 2, 3])
   })
 
-  it('enforces bounds of 2000 messages maximum per item', async () => {
+  it('stores all incoming sync messages in SyncWriteAheadLog', async () => {
     const accountId = 'account-bounds'
     adapter.setAccount(accountId)
     await broker.setAccount(accountId)
 
-    for (let i = 0; i < 2010; i++) {
+    for (let i = 0; i < 20; i++) {
       adapter.send({
         type: 'sync',
         senderId: 'test-peer' as PeerId,
@@ -145,11 +146,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
 
     await vi.advanceTimersByTimeAsync(100)
 
-    const batch = await loadSyncBatch(accountId)
-    const item1 = batch.find(([id]) => id === 'item-1')
+    const wal = new SyncWriteAheadLog(accountId)
+    const batch = await wal.readAll()
+    const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
-    expect(item1![1]).toHaveLength(2000)
-    expect(item1![1][0].data[0]).toBe(10) // 2010 - 2000 = 10
+    expect(item1).toHaveLength(20)
   })
 
   it('chunks push requests to a maximum of 5 items per poll request using lodash chunk', async () => {
@@ -191,9 +192,10 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(call1.pushMessages).toHaveLength(5)
     expect(call2.pushMessages).toHaveLength(2)
 
-    // Verify all items were transactionally cleaned from IndexedDB
-    const batch = await loadSyncBatch(accountId)
-    expect(batch).toHaveLength(0)
+    // Verify all items were transactionally cleaned from WAL
+    const wal = new SyncWriteAheadLog(accountId)
+    const batch = await wal.readAll()
+    expect(batch.size).toBe(0)
   })
 
   it('safely slices successfully sent messages and retains concurrent local edits', async () => {
@@ -218,8 +220,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
         documentId: 'item-1' as DocumentId,
         data: new Uint8Array([30]),
       })
-      // Flush them to IndexedDB using the real persistence method
-      await (broker as any).persistPendingWrites()
 
       return {
         success: true,
@@ -245,17 +245,18 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(outcome).toBe('success')
     broker.setOnlineState(false)
 
-    // The sent message (length 1) should be transactionally sliced out, leaving only the concurrent ones [20, 30]
-    const batch = await loadSyncBatch(accountId)
-    const item1 = batch.find(([id]) => id === 'item-1')
+    // The sent message should be sliced out, leaving only the concurrent ones [20, 30]
+    const wal = new SyncWriteAheadLog(accountId)
+    const batch = await wal.readAll()
+    const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
-    expect(item1![1]).toHaveLength(2)
+    expect(item1).toHaveLength(2)
 
-    expect(Array.from(item1![1][0].data)).toEqual([20])
-    expect(Array.from(item1![1][1].data)).toEqual([30])
+    expect(Array.from(item1![0].data)).toEqual([20])
+    expect(Array.from(item1![1].data)).toEqual([30])
   })
 
-  it('retains messages in IndexedDB if the poll call fails', async () => {
+  it('retains messages in SyncWriteAheadLog if the poll call fails', async () => {
     const accountId = 'account-fails'
     adapter.setAccount(accountId)
     await broker.setAccount(accountId)
@@ -278,13 +279,14 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(outcome).toBe('failure')
     broker.setOnlineState(false)
 
-    // Message must still exist in IndexedDB due to failure
-    const batch = await loadSyncBatch(accountId)
-    const item1 = batch.find(([id]) => id === 'item-1')
+    // Message must still exist in WAL due to failure
+    const wal = new SyncWriteAheadLog(accountId)
+    const batch = await wal.readAll()
+    const item1 = batch.get('item-1' as ItemId)
     expect(item1).toBeDefined()
-    expect(item1![1]).toHaveLength(1)
+    expect(item1).toHaveLength(1)
 
-    expect(Array.from(item1![1][0].data)).toEqual([100])
+    expect(Array.from(item1![0].data)).toEqual([100])
   })
 
   it('detects and reports QuotaExceededError when persisting pending writes', async () => {
@@ -292,10 +294,11 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 
-    const storage = getSyncBatchStorage('test-account')
-    const setItemSpy = vi.spyOn(storage, 'setItem').mockRejectedValue(
+    const wal = new SyncWriteAheadLog('test-account')
+    const setItemSpy = vi.spyOn((wal as any).storage, 'setItem').mockRejectedValue(
       new DOMException('Quota exceeded', 'QuotaExceededError')
     )
+    broker.setWal(wal)
 
     adapter.send({
       type: 'sync',
@@ -310,18 +313,6 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     expect(setItemSpy).toHaveBeenCalledTimes(1)
     expect(mockReporter).toHaveBeenCalledTimes(1)
     expect(mockReporter.mock.calls[0][0]).toContain('Storage quota exceeded')
-
-    // Subsequent sends should return early and NOT trigger setItem (avoiding loop/spam)
-    adapter.send({
-      type: 'sync',
-      senderId: 'test-peer' as PeerId,
-      targetId: 'vault' as PeerId,
-      documentId: 'item-quota-fail' as DocumentId,
-      data: new Uint8Array([66]),
-    })
-
-    await vi.advanceTimersByTimeAsync(50)
-    expect(setItemSpy).toHaveBeenCalledTimes(1) // Should still be 1 (didn't call it again)
 
     setItemSpy.mockRestore()
   })
