@@ -179,7 +179,7 @@ function LoginPage() {
         console.error('[Login] Biometric unlock failed', err)
         setShowPasswordForm(true)
         if (err instanceof Error && err.name === 'NotAllowedError') {
-          setError(`${biometricLabel} unlock was cancelled. Enter your password or tap to try again.`)
+          setError(`${biometricLabel} unlock was cancelled. Enter your password instead or try again.`)
         } else {
           setError(`${biometricLabel} unlock failed. Please use your password.`)
         }
