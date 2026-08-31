@@ -101,6 +101,29 @@ describe('SyncBridge', () => {
     globalThis.Worker = MockWorker as any
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify({ account: 'test-account', key: 'test-key' }))
     vi.clearAllMocks()
+    mockSyncApi.setOnlineState.mockResolvedValue(undefined)
+    mockSyncApi.initRepo.mockResolvedValue(undefined)
+    mockSyncApi.bootstrapItems.mockResolvedValue(undefined)
+    mockSyncApi.clearAutomergeDocStore.mockResolvedValue(undefined)
+    mockSyncApi.listRecoveryItems.mockResolvedValue([])
+    mockSyncApi.exportSyncState.mockResolvedValue({ cursors: [], pendingSync: [], lastModified: [] })
+    mockSyncApi.restoreSyncState.mockResolvedValue(undefined)
+    mockSyncApi.forceSync.mockResolvedValue(undefined)
+    mockSyncApi.fullResync.mockResolvedValue(undefined)
+    mockSyncApi.shutdown.mockResolvedValue(undefined)
+    mockSyncApi.mutateItem.mockResolvedValue(undefined)
+    mockSyncApi.createItem.mockResolvedValue(undefined)
+    mockSyncApi.storeItems.mockResolvedValue(undefined)
+    mockSyncApi.mutateMetadata.mockResolvedValue(undefined)
+    mockSyncApi.exportAllBinaries.mockResolvedValue({ documents: {}, skipped: [] })
+    mockSyncApi.restoreFromBinaries.mockResolvedValue(['doc-1'])
+    mockSyncApi.retryRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.forceOverwriteRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.forceDeleteRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.dismissRecoveryItem.mockResolvedValue(undefined)
+    mockSyncApi.updateVaultKey.mockResolvedValue(undefined)
+    mockSyncApi.reencryptAllItems.mockResolvedValue(undefined)
+    mockSyncApi.flushSync.mockReturnValue(undefined)
     useAppStore.setState({ syncStatus: 'idle', fatalError: null, syncWarning: null })
   })
 
@@ -445,11 +468,110 @@ describe('SyncBridge', () => {
     }
   })
 
-  it('re-throws error when initialization fails', async () => {
-    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed'))
+  it('schedules retry with backoff on initialization failure and queues ensureReady callers', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('initRepo failed transiently'))
 
-    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('initRepo failed')
+    const initPromise = SyncBridge.initialize('retry-account')
+    await expect(initPromise).rejects.toThrow('initRepo failed transiently')
+
+    // Warning is set
+    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+
+    // ensureReady callers wait on the retry
+    let ready = false
+    const ensureReadyPromise = SyncBridge.ensureReady().then(() => {
+      ready = true
+    })
+
+    // Advance 1s - still waiting
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ready).toBe(false)
+
+    // Advance remaining 1000ms - retry runs and succeeds
+    await vi.advanceTimersByTimeAsync(1000)
+    await ensureReadyPromise
+    expect(ready).toBe(true)
+    expect(mockSyncApi.initRepo).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState().syncWarning).toBeNull()
+
+    vi.useRealTimers()
+  })
+
+  it('exhausts retries after 5 attempts and sets fatal error', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValue(new Error('persistent failure'))
+
+    // Attempt 1 fails
+    await expect(SyncBridge.initialize('fail-account')).rejects.toThrow('persistent failure')
+
+    // Delays: 2000, 5000, 10000, 30000, 60000
+    const delays = [2000, 5000, 10000, 30000, 60000]
+    for (let i = 0; i < delays.length; i++) {
+      await vi.advanceTimersByTimeAsync(delays[i])
+    }
+
+    expect(useAppStore.getState().fatalError).toBe('Unable to start sync. Please refresh the page.')
     expect(useAppStore.getState().syncStatus).toBe('offline')
+
+    vi.useRealTimers()
+  })
+
+  it('cancels retry when account changes during retry delay', async () => {
+    vi.useFakeTimers()
+    mockSyncApi.initRepo.mockRejectedValueOnce(new Error('account 1 failed'))
+
+    await expect(SyncBridge.initialize('account-fail')).rejects.toThrow('account 1 failed')
+    expect(useAppStore.getState().syncWarning).toBe('Sync initialization failed. Retrying in 2s...')
+
+    // Switch account before retry timer fires
+    const initTwo = SyncBridge.initialize('account-success')
+    await initTwo
+
+    // Advance timer for old retry
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Should be initialized with account-success, not failed account
+    expect(mockSyncApi.initRepo).toHaveBeenLastCalledWith('account-success', 'test-key')
+
+    vi.useRealTimers()
+  })
+
+  it('queues mutations during worker crash and applies them after restart', async () => {
+    vi.useFakeTimers()
+    let capturedWorker: any = null
+    globalThis.Worker = class extends MockWorker {
+      constructor(url: string, options: any) {
+        super(url, options)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        capturedWorker = this
+      }
+    } as any
+
+    await SyncBridge.initialize('test-account')
+    expect(capturedWorker).not.toBeNull()
+
+    // Crash the worker
+    capturedWorker.dispatchEvent(new ErrorEvent('error', { message: 'crash' }))
+
+    // Issue mutation during restart gap
+    let mutationResolved = false
+    const mutatePromise = SyncBridge.mutateItem('item-1' as ItemId, { name: 'queued' }).then(() => {
+      mutationResolved = true
+    })
+
+    // Advance 500ms (still within 1000ms restart gap)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mutationResolved).toBe(false)
+
+    // Advance remaining 500ms to trigger auto-restart
+    await vi.advanceTimersByTimeAsync(500)
+    await mutatePromise
+
+    expect(mutationResolved).toBe(true)
+    expect(mockSyncApi.mutateItem).toHaveBeenCalledWith('item-1', { name: 'queued' })
+
+    vi.useRealTimers()
   })
 
   it('allows ensureReady to wait for initialization during re-initialization with a new account', async () => {

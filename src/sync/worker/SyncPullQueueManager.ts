@@ -12,6 +12,11 @@ import { parseBatchedMessages } from './utils/messageParser'
 export class SyncPullQueueManager {
   private account: string | null = null
   private readonly pendingPullItemIds = new Set<ItemId>()
+  private readonly retryCountByItemId = new Map<ItemId, number>()
+  private static readonly MAX_PULL_RETRIES = 5
+
+  private readonly seenMessageCursors = new Set<string>() // "itemId:cursor" compound keys
+  private static readonly SEEN_CACHE_MAX = 2000
 
   private cursorByItemId = new Map<ItemId, number>()
   private readonly saveCursorsDebounced = debounce(() => void this.persistCursors(), 1000)
@@ -21,11 +26,32 @@ export class SyncPullQueueManager {
 
   constructor(private readonly cursorStore: CursorStore) {}
 
+  private makeSeenKey(itemId: ItemId, cursor: number): string {
+    return `${itemId}:${cursor}`
+  }
+
+  private markSeen(itemId: ItemId, cursor: number): void {
+    const key = this.makeSeenKey(itemId, cursor)
+    this.seenMessageCursors.add(key)
+    // Evict oldest entries if cache grows too large
+    if (this.seenMessageCursors.size > SyncPullQueueManager.SEEN_CACHE_MAX) {
+      const iterator = this.seenMessageCursors.values()
+      const oldest = iterator.next().value
+      if (oldest) this.seenMessageCursors.delete(oldest)
+    }
+  }
+
+  private hasSeen(itemId: ItemId, cursor: number): boolean {
+    return this.seenMessageCursors.has(this.makeSeenKey(itemId, cursor))
+  }
+
   setAccount(account: string | null): Promise<void> {
     this.saveCursorsDebounced.cancel()
     this.account = account
 
     this.pendingPullItemIds.clear()
+    this.retryCountByItemId.clear()
+    this.seenMessageCursors.clear()
     this.cursorByItemId.clear()
 
     if (account) {
@@ -60,6 +86,8 @@ export class SyncPullQueueManager {
     this.saveCursorsDebounced.cancel()
     await this.persistCursors()
     this.pendingPullItemIds.clear()
+    this.retryCountByItemId.clear()
+    this.seenMessageCursors.clear()
     this.cursorByItemId.clear()
   }
 
@@ -100,10 +128,7 @@ export class SyncPullQueueManager {
       }
 
       return { parsed: true, cursor: entry.cursor }
-    } catch (error) {
-      if (this.account) {
-        this.onDecryptionFailure?.(itemId, error)
-      }
+    } catch {
       return { parsed: false }
     }
   }
@@ -147,10 +172,14 @@ export class SyncPullQueueManager {
           const documentId = interpretAsDocumentId(toAutomergeUrlFromItemId(itemId))
 
           for (const entry of result.messages || []) {
+            if (Number.isFinite(entry.cursor) && this.hasSeen(itemId, entry.cursor)) {
+              continue // overlap window dedup
+            }
             const handled = await this.handleMessageEntry(itemId, documentId, entry)
             if (handled.parsed) {
               successfullyPulledItemIds.add(itemId)
               if (Number.isFinite(handled.cursor)) {
+                this.markSeen(itemId, handled.cursor!)
                 highestCursor = Math.max(highestCursor, handled.cursor!)
               }
             } else {
@@ -173,8 +202,25 @@ export class SyncPullQueueManager {
 
           if (hasMore && !hasParseFailure) {
             this.pendingPullItemIds.add(itemId)
+            this.retryCountByItemId.delete(itemId) // success resets counter
+          } else if (hasParseFailure) {
+            const retries = (this.retryCountByItemId.get(itemId) ?? 0) + 1
+            this.retryCountByItemId.set(itemId, retries)
+            if (retries >= SyncPullQueueManager.MAX_PULL_RETRIES) {
+              this.pendingPullItemIds.delete(itemId)
+              this.retryCountByItemId.delete(itemId)
+              this.onDecryptionFailure?.(
+                itemId,
+                new Error(
+                  `Permanently failed to parse sync messages after ${retries} attempts`
+                )
+              )
+            } else {
+              this.pendingPullItemIds.add(itemId)
+            }
           } else {
             this.pendingPullItemIds.delete(itemId)
+            this.retryCountByItemId.delete(itemId)
           }
         } catch (innerError) {
           console.error(`[SyncPullQueueManager] Pull sync failed for item: ${result.itemId}`, innerError)

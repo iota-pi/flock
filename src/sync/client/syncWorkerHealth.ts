@@ -23,7 +23,7 @@ interface HealthCheckOptions {
   pingPort?: MessagePort
   pingFn?: () => Promise<void>
   isCurrentWorker: () => boolean
-  onCrash: () => void
+  onCrash: (willRestart?: boolean) => void
   onRestart: () => void
 }
 
@@ -40,8 +40,6 @@ function handleWorkerCrash({
     console.error('[SyncBridge] Error terminating crashed worker:', err)
   }
 
-  onCrash()
-
   const now = Date.now()
   const CRASH_RESET_WINDOW_MS = 60000
   if (now - lastCrashTime > CRASH_RESET_WINDOW_MS) {
@@ -52,7 +50,11 @@ function handleWorkerCrash({
   lastCrashTime = now
 
   const MAX_CONSECUTIVE_CRASHES = 3
-  if (crashCount >= MAX_CONSECUTIVE_CRASHES) {
+  const willRestart = crashCount < MAX_CONSECUTIVE_CRASHES
+
+  onCrash(willRestart)
+
+  if (!willRestart) {
     console.error(`[SyncBridge] Worker crashed consecutively ${crashCount} times. Halting auto-restart.`)
     useAppStore.getState().setFatalError(
       'Sync worker crashed repeatedly. Please refresh the page to try again.'

@@ -30,6 +30,10 @@ class SyncBridgeService {
 
   private initializationPromise: Promise<void> | null = null
   private currentInitSession = 0
+  private initRetryCount = 0
+  private static readonly MAX_INIT_RETRIES = 5
+  private static readonly INIT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000]
+  private _restartResolve: (() => void) | null = null
 
   private flushItemUpdates = () => {
     if (this.pendingItemUpdates.size === 0) return
@@ -203,12 +207,13 @@ class SyncBridgeService {
           )
         }
 
+        this.initRetryCount = 0
         useAppStore.getState().clearSyncWarning()
         setupWorkerHealthCheck({
           worker,
           pingPort: pingChannel.port1,
           isCurrentWorker: () => this.workerInstance === worker && !!this.syncApi,
-          onCrash: () => {
+          onCrash: (willRestart = true) => {
             if (this.workerInstance === worker) {
               if (this.globalEventChannel) {
                 this.globalEventChannel.port1.close()
@@ -220,15 +225,35 @@ class SyncBridgeService {
               }
               this.workerInstance = null
               this.syncApi = null
-              this.initializationPromise = null
+              if (willRestart) {
+                // Keep initializationPromise as a pending promise so mutations queue up
+                this.initializationPromise = new Promise(resolve => {
+                  this._restartResolve = resolve
+                })
+              } else {
+                this.initializationPromise = null
+                this._restartResolve?.()
+                this._restartResolve = null
+              }
             }
           },
           onRestart: () => {
             setTimeout(() => {
               if (this.currentAccountId === accountId) {
-                this.initialize(accountId).catch(err => {
-                  console.error('[SyncBridge] Auto-restart initialization failed:', err)
-                })
+                this.initializationPromise = null
+                this.initialize(accountId)
+                  .then(() => {
+                    this._restartResolve?.()
+                    this._restartResolve = null
+                  })
+                  .catch(err => {
+                    console.error('[SyncBridge] Auto-restart initialization failed:', err)
+                    this._restartResolve?.()
+                    this._restartResolve = null
+                  })
+              } else {
+                this._restartResolve?.()
+                this._restartResolve = null
               }
             }, 1000)
           },
@@ -249,11 +274,35 @@ class SyncBridgeService {
         if (this.workerInstance === worker) {
           this.workerInstance = null
         }
-        if (initSession === this.currentInitSession) {
-          useAppStore.getState().setSyncStatus('offline')
+        if (this.syncApi) {
           this.syncApi = null
-          this.currentAccountId = null
-          this.initializationPromise = null
+        }
+
+        if (initSession === this.currentInitSession && this.initRetryCount < SyncBridgeService.MAX_INIT_RETRIES) {
+          const delay = SyncBridgeService.INIT_RETRY_DELAYS[
+            Math.min(this.initRetryCount, SyncBridgeService.INIT_RETRY_DELAYS.length - 1)
+          ]
+          this.initRetryCount += 1
+          useAppStore.getState().setSyncWarning(`Sync initialization failed. Retrying in ${delay / 1000}s...`)
+
+          // Keep initializationPromise alive so ensureReady() callers wait
+          const retryPromise = new Promise<void>((resolve, reject) => {
+            setTimeout(() => {
+              if (this.currentInitSession !== initSession) return reject(new Error('Aborted'))
+              this.initializationPromise = null
+              this.initialize(accountId).then(resolve).catch(reject)
+            }, delay)
+          })
+          retryPromise.catch(() => {})
+          this.initializationPromise = retryPromise
+        } else {
+          // Exhausted retries — surface to user
+          if (initSession === this.currentInitSession) {
+            useAppStore.getState().setFatalError('Unable to start sync. Please refresh the page.')
+            useAppStore.getState().setSyncStatus('offline')
+            this.currentAccountId = null
+            this.initializationPromise = null
+          }
         }
         throw error
       }
@@ -297,6 +346,11 @@ class SyncBridgeService {
       this.currentInitSession += 1
       this.initializationPromise = null
       this.currentAccountId = null
+    }
+    this.initRetryCount = 0
+    if (this._restartResolve) {
+      this._restartResolve()
+      this._restartResolve = null
     }
     stopWorkerHeartbeat()
     resetCrashMetrics()
