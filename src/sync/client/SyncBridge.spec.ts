@@ -33,7 +33,7 @@ const mockSyncApi = {
   forceDeleteRecoveryItem: vi.fn().mockResolvedValue(undefined),
   dismissRecoveryItem: vi.fn().mockResolvedValue(undefined),
   updateVaultKey: vi.fn().mockResolvedValue(undefined),
-  reencryptAllItems: vi.fn().mockResolvedValue(undefined),
+  reencryptAllItems: vi.fn().mockResolvedValue({ succeeded: [], failed: [] }),
   flushSync: vi.fn().mockReturnValue(undefined),
 }
 
@@ -305,7 +305,7 @@ describe('SyncBridge', () => {
 
     // No more restarts. Fatal error should be set.
     expect(useAppStore.getState().fatalError).toBe('Sync worker crashed repeatedly. Please refresh the page to try again.')
-    expect(useAppStore.getState().syncStatus).toBe('offline')
+    expect(useAppStore.getState().syncStatus).toBe('dead')
     expect(initializeSpy).toHaveBeenCalledTimes(3) // should not have incremented
 
     vi.useRealTimers()

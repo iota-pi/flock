@@ -1,4 +1,5 @@
 import { reencryptAllItems } from './reencryptAllItems'
+import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
 
 const mockPutSnapshotsWithToken = vi.fn()
 const mockGetActiveSessionToken = vi.fn()
@@ -10,6 +11,10 @@ vi.mock('../../api/vault/SyncWorkerClient', () => ({
 
 vi.mock('../shared/workerAuthStore', () => ({
   getActiveSessionToken: () => mockGetActiveSessionToken(),
+}))
+
+vi.mock('../shared/manualRecoveryStore', () => ({
+  upsertManualRecoveryEntry: vi.fn().mockResolvedValue({ id: 'mock-entry' }),
 }))
 
 vi.mock('../../api/vault', () => ({
@@ -93,8 +98,9 @@ describe('reencryptAllItems', () => {
     mockListAutomergeItemIds.mockResolvedValue([])
 
     const onProgress = vi.fn()
-    await reencryptAllItems(context as any, onProgress)
+    const result = await reencryptAllItems(context as any, onProgress)
 
+    expect(result).toEqual({ succeeded: [], failed: [] })
     expect(onProgress).toHaveBeenCalledWith(0, 0)
     expect(mockPutSnapshotsWithToken).not.toHaveBeenCalled()
   })
@@ -105,20 +111,31 @@ describe('reencryptAllItems', () => {
     mockPutSnapshotsWithToken.mockResolvedValue({ success: true })
 
     const onProgress = vi.fn()
-    await reencryptAllItems(context as any, onProgress)
+    const result = await reencryptAllItems(context as any, onProgress)
 
+    expect(result).toEqual({
+      succeeded: ['item-1', 'item-2'],
+      failed: [],
+    })
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(1)
     expect(onProgress).toHaveBeenCalledWith(2, 2)
   })
 
-  it('throws error if server upload fails', async () => {
+  it('records failed items and quarantines to manual recovery store if server upload fails', async () => {
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
     mockListAutomergeItemIds.mockResolvedValue(['item-1'])
     mockPutSnapshotsWithToken.mockResolvedValue({ success: false })
 
-    await expect(reencryptAllItems(context as any)).rejects.toThrow(
-      'Re-encryption completed with 1 error(s). First error: Failed to upload snapshots for batch starting at index 0 after 3 attempts'
-    )
+    const result = await reencryptAllItems(context as any)
+
+    expect(result.succeeded).toEqual([])
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].itemId).toBe('item-1')
+    expect(result.failed[0].error).toContain('Failed to upload snapshots')
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+      itemId: 'item-1',
+      reason: expect.stringContaining('Re-encryption upload failed'),
+    })
   })
 
   it('continues processing remaining batches if a single batch upload fails', async () => {
@@ -135,9 +152,11 @@ describe('reencryptAllItems', () => {
       .mockResolvedValueOnce({ success: true })
 
     const onProgress = vi.fn()
-    await expect(reencryptAllItems(context as any, onProgress)).rejects.toThrow(
-      'Re-encryption completed with 1 error(s).'
-    )
+    const result = await reencryptAllItems(context as any, onProgress)
+
+    expect(result.succeeded).toHaveLength(2)
+    expect(result.succeeded).toEqual(['item-10', 'item-11'])
+    expect(result.failed).toHaveLength(10)
 
     // 3 attempts for batch 1 + 1 attempt for batch 2 = 4 calls
     expect(mockPutSnapshotsWithToken).toHaveBeenCalledTimes(4)
@@ -145,7 +164,7 @@ describe('reencryptAllItems', () => {
     expect(onProgress).toHaveBeenCalledWith(12, 12)
   })
 
-  it('continues processing remaining items if a single item fails to build snapshot and retries building', async () => {
+  it('continues processing remaining items if a single item fails to build snapshot and quarantines it', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockGetActiveSessionToken.mockResolvedValue('mock-token')
@@ -170,9 +189,16 @@ describe('reencryptAllItems', () => {
     })
 
     const onProgress = vi.fn()
-    await expect(reencryptAllItems(context as any, onProgress)).rejects.toThrow(
-      'Re-encryption completed with 1 error(s).'
-    )
+    const result = await reencryptAllItems(context as any, onProgress)
+
+    expect(result.succeeded).toEqual(['item-1', 'item-2'])
+    expect(result.failed).toEqual([
+      { itemId: 'item-bad', error: expect.stringContaining('Corrupt document') },
+    ])
+    expect(upsertManualRecoveryEntry).toHaveBeenCalledWith('test-account', {
+      itemId: 'item-bad',
+      reason: expect.stringContaining('Corrupt document'),
+    })
 
     // Should have retried bad item 3 times
     expect(badItemAttempts).toBe(3)
@@ -181,10 +207,7 @@ describe('reencryptAllItems', () => {
     expect(callArgs.snapshots).toHaveLength(2)
     expect(callArgs.snapshots.map((s: any) => s.itemId)).toEqual(['item-1', 'item-2'])
     expect(onProgress).toHaveBeenCalledWith(3, 3)
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[reencryptAllItems] Failed to build snapshot for item item-bad:'),
-      expect.any(Error)
-    )
+
     consoleErrorSpy.mockRestore()
     consoleWarnSpy.mockRestore()
   })

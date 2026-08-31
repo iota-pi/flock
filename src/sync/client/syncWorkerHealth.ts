@@ -59,7 +59,7 @@ function handleWorkerCrash({
     useAppStore.getState().setFatalError(
       'Sync worker crashed repeatedly. Please refresh the page to try again.'
     )
-    useAppStore.getState().setSyncStatus('offline')
+    useAppStore.getState().setSyncStatus('dead')
   } else {
     console.warn(`[SyncBridge] Attempting automatic restart (crash count: ${crashCount}/${MAX_CONSECUTIVE_CRASHES})...`)
     useAppStore.getState().setSyncStatus('connecting')

@@ -118,6 +118,7 @@ export class SyncWorker implements SyncApi {
     this.syncStatusManager = new SyncStatusManager(this.clientEventHub)
     this.internalEventHub = new WorkerInternalEventHub()
     registerQuotaReporter((msg: string) => {
+      this.syncStatusManager.setQuotaExceeded(true)
       this.clientEventHub.emit({ type: 'quotaExceeded', message: msg })
     })
 
@@ -144,6 +145,9 @@ export class SyncWorker implements SyncApi {
       metadata => this.clientEventHub.emit({ type: 'metadataUpdated', metadata })
     )
     const pullQueueManager = new SyncPullQueueManager(cursorStore)
+    pullQueueManager.onRetryingStateChange = isRetrying => {
+      this.syncStatusManager.setDegradedPull(isRetrying)
+    }
 
     this.broker = new SyncMessageBroker(
       this.adapter,
@@ -331,7 +335,7 @@ export class SyncWorker implements SyncApi {
   async listRecoveryItems() { return this.context.itemOperations.listRecoveryItems() }
   async updateVaultKey(vaultKey: string) { await initWorkerVault(vaultKey) }
   async reencryptAllItems(onProgress: (done: number, total: number) => void) {
-    await reencryptAllItems({
+    return await reencryptAllItems({
       accountId: this.context.accountId,
       repo: this.context.repo,
       indexManager: this.context.indexManager,

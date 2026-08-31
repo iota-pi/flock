@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { AppStore } from '../store'
 
-export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded'
+export type SyncStatus = 'idle' | 'connecting' | 'syncing' | 'offline' | 'degraded' | 'dead'
 
 interface SyncState {
   syncStatus: SyncStatus

@@ -23,7 +23,10 @@ export interface SyncApi {
   dismissRecoveryItem: (entryId: string) => Promise<void>
   listRecoveryItems: () => Promise<ManualRecoveryEntry[]>
   updateVaultKey: (vaultKey: string) => Promise<void>
-  reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<void>
+  reencryptAllItems: (onProgress: (done: number, total: number) => void) => Promise<{
+    succeeded: ItemId[]
+    failed: Array<{ itemId: ItemId; error: string }>
+  }>
   exportSyncState: () => Promise<BackupSyncState>
   restoreSyncState: (state: Partial<BackupSyncState>) => Promise<void>
   shutdown: (options?: { clearLocalData?: boolean }) => Promise<void>

@@ -23,6 +23,7 @@ export class SyncPullQueueManager {
 
   public onMessageParsed: (itemId: ItemId, documentId: DocumentId, message: Uint8Array) => void = () => {}
   public onDecryptionFailure: ((itemId: ItemId, error: unknown) => void) | null = null
+  public onRetryingStateChange: ((isRetrying: boolean) => void) | null = null
 
   constructor(private readonly cursorStore: CursorStore) {}
 
@@ -53,6 +54,7 @@ export class SyncPullQueueManager {
     this.retryCountByItemId.clear()
     this.seenMessageCursors.clear()
     this.cursorByItemId.clear()
+    this.onRetryingStateChange?.(false)
 
     if (account) {
       return this.loadCursors()
@@ -233,6 +235,7 @@ export class SyncPullQueueManager {
     } catch (error) {
       console.error('[SyncPullQueueManager] Pull sync batch failed', error)
     } finally {
+      this.onRetryingStateChange?.(this.retryCountByItemId.size > 0)
       if (successfullyPulledItemIds.size > 0) {
         try {
           publishRealtimeBusSyncPing(Array.from(successfullyPulledItemIds))

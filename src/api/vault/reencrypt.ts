@@ -6,7 +6,7 @@ export const REENCRYPT_PENDING_KEY_PREFIX = 'vault_reencrypt_pending_'
 export async function reencryptAllItems(
   account: string,
   onProgress?: (done: number, total: number) => void
-): Promise<void> {
+): Promise<{ succeeded: string[]; failed: Array<{ itemId: string; error: string }> }> {
   const pendingKey = `${REENCRYPT_PENDING_KEY_PREFIX}${account}`
   localStorage.setItem(pendingKey, 'true')
 
@@ -23,9 +23,10 @@ export async function reencryptAllItems(
   await SyncBridge.updateVaultKey(newKeyring)
 
   // 4. Run the re-encryption on the worker
-  await SyncBridge.reencryptAllItems(onProgress || (() => {}))
+  const result = await SyncBridge.reencryptAllItems(onProgress || (() => {}))
 
   localStorage.removeItem(pendingKey)
+  return result
 }
 
 export async function resumePendingReencryption(account: string): Promise<void> {

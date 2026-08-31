@@ -35,15 +35,27 @@ export default function ReencryptVaultDialog({ open, onClose }: Props) {
     setStatus('running')
     setErrorMsg('')
     try {
-      await reencryptAllItems(account, (done, total) => {
+      const result = await reencryptAllItems(account, (done, total) => {
         setProgress({ done, total })
       })
-      setStatus('completed')
-      setMessage({
-        severity: 'success',
-        message: 'All vault items re-encrypted successfully.',
-      })
-      handleClose()
+
+      if (result && result.failed.length > 0) {
+        setStatus('error')
+        setErrorMsg(
+          `Re-encryption completed with ${result.failed.length} failed item(s). These items have been moved to Data Recovery.`
+        )
+        setMessage({
+          severity: 'warning',
+          message: `${result.succeeded.length} items re-encrypted. ${result.failed.length} items moved to Data Recovery.`,
+        })
+      } else {
+        setStatus('completed')
+        setMessage({
+          severity: 'success',
+          message: 'All vault items re-encrypted successfully.',
+        })
+        handleClose()
+      }
     } catch (err) {
       console.error('[ReencryptVaultDialog] reencryptAllItems failed', err)
       setStatus('error')

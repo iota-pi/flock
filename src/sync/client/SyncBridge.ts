@@ -488,6 +488,14 @@ class SyncBridgeService {
     return this.syncApi!.updateVaultKey(vaultKey)
   }
 
+  async reencryptAllItems(onProgress: (done: number, total: number) => void): Promise<{
+    succeeded: ItemId[]
+    failed: Array<{ itemId: ItemId; error: string }>
+  }> {
+    await this.ensureReady()
+    return this.syncApi!.reencryptAllItems(Comlink.proxy(onProgress))
+  }
+
   async exportSyncState(): Promise<BackupSyncState> {
     await this.ensureReady()
     return this.syncApi!.exportSyncState()

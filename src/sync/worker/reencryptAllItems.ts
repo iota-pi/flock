@@ -3,6 +3,9 @@ import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
 import { getActiveSessionToken } from '../shared/workerAuthStore'
 import { putSnapshotsWithToken } from '../../api/vault/SyncWorkerClient'
 import { buildSnapshot } from './snapshotBuilder'
+import { upsertManualRecoveryEntry } from '../shared/manualRecoveryStore'
+import type { ItemId } from 'src/shared/schemas/items'
+import type { EncryptedSnapshot } from 'src/shared/schemas/vault'
 
 const MAX_BATCH_RETRIES = 3
 
@@ -12,10 +15,15 @@ export interface ReencryptDeps {
   indexManager: AutomergeIndexManager
 }
 
+export interface ReencryptResult {
+  succeeded: ItemId[]
+  failed: Array<{ itemId: ItemId; error: string }>
+}
+
 export async function reencryptAllItems(
   deps: ReencryptDeps,
   onProgress?: (done: number, total: number) => void
-): Promise<void> {
+): Promise<ReencryptResult> {
   if (!deps.accountId || !deps.repo || !deps.indexManager) {
     throw new Error('SyncWorker not initialized')
   }
@@ -30,12 +38,13 @@ export async function reencryptAllItems(
     if (onProgress) {
       onProgress(0, 0)
     }
-    return
+    return { succeeded: [], failed: [] }
   }
 
   const snapshotCursor = Date.now()
   const batchSize = 10
-  const errors: Error[] = []
+  const succeeded: ItemId[] = []
+  const failed: Array<{ itemId: ItemId; error: string }> = []
 
   for (let start = 0; start < total; start += batchSize) {
     const chunkIds = itemIds.slice(start, start + batchSize)
@@ -56,28 +65,45 @@ export async function reencryptAllItems(
     })
     const settled = await Promise.allSettled(snapshotPromises)
 
-    const snapshots = []
+    const readySnapshots: Array<{ itemId: ItemId; snapshot: EncryptedSnapshot }> = []
     for (const [index, result] of settled.entries()) {
+      const itemId = chunkIds[index]
       if (result.status === 'fulfilled') {
         if (result.value.type === 'success') {
-          snapshots.push(result.value.snapshot)
+          readySnapshots.push({ itemId, snapshot: result.value.snapshot })
         } else if (result.value.type === 'not-ready') {
-          console.warn(`[reencryptAllItems] Item ${chunkIds[index]} was not ready. Skipping.`)
+          console.warn(`[reencryptAllItems] Item ${itemId} was not ready. Skipping.`)
         } else if (result.value.type === 'error') {
-          const errMsg = `Failed to build snapshot for item ${chunkIds[index]}`
+          const errMsg = `Failed to build snapshot for item ${itemId}`
           console.error(`[reencryptAllItems] ${errMsg}`)
-          errors.push(new Error(errMsg))
+          failed.push({ itemId, error: errMsg })
+          try {
+            await upsertManualRecoveryEntry(deps.accountId, {
+              itemId,
+              reason: `Re-encryption snapshot build failed: ${errMsg}`,
+            })
+          } catch (storageErr) {
+            console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
+          }
         }
       } else {
-        const errMsg = `Failed to build snapshot for item ${chunkIds[index]}: ${
+        const errMsg = `Failed to build snapshot for item ${itemId}: ${
           result.reason instanceof Error ? result.reason.message : String(result.reason)
         }`
         console.error(`[reencryptAllItems] ${errMsg}`, result.reason)
-        errors.push(result.reason instanceof Error ? result.reason : new Error(errMsg))
+        failed.push({ itemId, error: errMsg })
+        try {
+          await upsertManualRecoveryEntry(deps.accountId, {
+            itemId,
+            reason: `Re-encryption snapshot build failed: ${errMsg}`,
+          })
+        } catch (storageErr) {
+          console.error(`[reencryptAllItems] Failed to quarantine item ${itemId}:`, storageErr)
+        }
       }
     }
 
-    if (snapshots.length > 0) {
+    if (readySnapshots.length > 0) {
       let uploadSuccess = false
       let lastError: unknown = null
 
@@ -86,7 +112,7 @@ export async function reencryptAllItems(
           const response = await putSnapshotsWithToken({
             account: deps.accountId,
             authToken,
-            snapshots,
+            snapshots: readySnapshots.map(r => r.snapshot),
           })
 
           if (response?.success) {
@@ -102,12 +128,26 @@ export async function reencryptAllItems(
         }
       }
 
-      if (!uploadSuccess) {
+      if (uploadSuccess) {
+        for (const item of readySnapshots) {
+          succeeded.push(item.itemId)
+        }
+      } else {
         const errMsg =
           `Failed to upload snapshots for batch starting at index ${start} after ${MAX_BATCH_RETRIES} attempts` +
             (lastError instanceof Error ? `: ${lastError.message}` : '')
         console.error(`[reencryptAllItems] ${errMsg}`)
-        errors.push(new Error(errMsg))
+        for (const item of readySnapshots) {
+          failed.push({ itemId: item.itemId, error: errMsg })
+          try {
+            await upsertManualRecoveryEntry(deps.accountId, {
+              itemId: item.itemId,
+              reason: `Re-encryption upload failed: ${errMsg}`,
+            })
+          } catch (storageErr) {
+            console.error(`[reencryptAllItems] Failed to quarantine item ${item.itemId}:`, storageErr)
+          }
+        }
       }
     }
 
@@ -117,9 +157,5 @@ export async function reencryptAllItems(
     }
   }
 
-  if (errors.length > 0) {
-    throw new Error(
-      `Re-encryption completed with ${errors.length} error(s). First error: ${errors[0].message}`
-    )
-  }
+  return { succeeded, failed }
 }
