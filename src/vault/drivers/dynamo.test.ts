@@ -43,28 +43,6 @@ describe('DynamoDriver', function () {
     expect(result).toEqual({ cipher, metadata: { type, iv, modified }, version: 2 })
   })
 
-  it('set injects ttl for tombstones', async () => {
-    const account = generateAccountId()
-    const item = generateItemId()
-    const type: ItemType = 'person'
-    const modified = new Date().getTime()
-
-    await driver.set({
-      account,
-      item,
-      cipher: 'tombstone-cipher',
-      metadata: {
-        type,
-        iv: 'tombstone-iv',
-        modified,
-        deleted: true,
-      },
-    })
-
-    const result = await driver.get({ account, item: item })
-    expect(result.metadata.deleted).toBe(true)
-    expect(typeof result.ttl).toBe('number')
-  })
 
   it('set rejects oversized items', async () => {
     const account = generateAccountId()

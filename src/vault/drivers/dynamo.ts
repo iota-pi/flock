@@ -60,7 +60,6 @@ const DATA_ATTRIBUTE_NAMES = {
 const MAX_ITEM_SIZE = 50_000
 const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ACTIVE_SESSIONS = 8
-const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 type PersistedVaultItem = VaultItem & {
   modifiedAt?: number
@@ -99,10 +98,7 @@ function getItemPutParams(item: VaultItem): PutCommandInput {
   validateItem(item)
 
   const modifiedAt = typeof item.metadata?.modified === 'number' ? item.metadata.modified : undefined
-  const shouldSetTtl = item.metadata?.deleted === true && typeof item.ttl !== 'number'
-  const ttl = shouldSetTtl
-    ? Math.floor(Date.now() / 1000) + TOMBSTONE_TTL_SECONDS
-    : item.ttl
+  const ttl = item.ttl
 
   const nextVersion = (item.version ?? 0) + 1
   const persistedItem: PersistedVaultItem = {
@@ -602,11 +598,8 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
       {
         TableName: ITEM_TABLE_NAME,
         Key: { account, item },
-        ProjectionExpression: [...DATA_ATTRIBUTES, '#ttl'].join(', '),
-        ExpressionAttributeNames: {
-          ...DATA_ATTRIBUTE_NAMES,
-          '#ttl': 'ttl',
-        },
+        ProjectionExpression: DATA_ATTRIBUTES.join(', '),
+        ExpressionAttributeNames: DATA_ATTRIBUTE_NAMES,
       },
     ))
     if (response?.Item) {
@@ -751,11 +744,10 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     const batches = chunk(uniqueItemIds, 100)
     const results: VaultItem[] = []
 
-    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES, '#ttl'].join(',')
+    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
     const expressionAttributeNames = {
       '#itemKey': 'item',
       ...DATA_ATTRIBUTE_NAMES,
-      '#ttl': 'ttl',
     }
 
     for (const batch of batches) {
