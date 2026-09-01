@@ -44,10 +44,6 @@ class TestDriver extends BaseDriver {
     return this.extendSessionMock(data)
   }
 
-  async fetchAll(): ReturnType<BaseDriver['fetchAll']> {
-    throw new Error('not implemented')
-  }
-
   async fetchManifest(): ReturnType<BaseDriver['fetchManifest']> {
     throw new Error('not implemented')
   }

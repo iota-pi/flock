@@ -609,44 +609,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  // fetchAll is used only for legacy migration
-  async fetchAll(
-    { account }: { account: string },
-  ): Promise<VaultItem[]> {
-    const items: VaultItem[] = []
-    let lastEvaluatedKey: QueryCommandOutput['LastEvaluatedKey'] | undefined = undefined
-
-    const projectionExpression = ['#itemKey', ...DATA_ATTRIBUTES].join(',')
-
-    while (true) {
-      const queryInput: QueryCommandInput = {
-        TableName: ITEM_TABLE_NAME,
-        KeyConditionExpression: 'account = :accountid',
-        ExpressionAttributeNames: {
-          '#itemKey': 'item',
-          ...DATA_ATTRIBUTE_NAMES,
-        },
-        ExpressionAttributeValues: {
-          ':accountid': account,
-        },
-        ProjectionExpression: projectionExpression,
-        ExclusiveStartKey: lastEvaluatedKey,
-      }
-
-      const response = await this.client.send(new QueryCommand(queryInput))
-
-      if (response?.Items) {
-        items.push(...response?.Items as VaultItem[])
-      }
-      lastEvaluatedKey = response?.LastEvaluatedKey
-      if (!lastEvaluatedKey) {
-        break
-      }
-    }
-
-    return items
-  }
-
   async fetchManifest(
     { account }: { account: string },
   ): Promise<Array<{ itemId: string; modifiedAt: number }>> {
@@ -912,7 +874,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     for (const item of (response.Items as (StoredSyncMessage & { syncId: string })[] || [])) {
       const itemId = item.syncId.split('#')[1] as ItemId
       if (!itemId) continue
-      
+
       let messages = messagesByItem.get(itemId)
       if (!messages) {
         messages = []

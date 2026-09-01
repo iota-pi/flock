@@ -56,22 +56,6 @@ describe('DynamoDriver', function () {
     ).rejects.toThrow('exceeds maximum')
   })
 
-  it('fetchAll works', async () => {
-    const account = generateAccountId()
-    const individuals = []
-    const type: ItemType = 'person'
-    const cipher = 'hello'
-    const iv = 'there'
-    const modified = new Date().getTime()
-    for (let i = 0; i < 10; ++i) {
-      const item = generateItemId()
-      individuals.push(item)
-      await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-    }
-    const result = await driver.fetchAll({ account })
-    expect(result.length).toEqual(10)
-  })
-
   const authToken = 'an_example_auth_token_for_testing'
   const metadata = {}
   const salt = 'an_example_salt_for_testing'

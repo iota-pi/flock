@@ -5,9 +5,6 @@ import {
   PutSnapshotBatchSchema,
 } from 'src/shared/schemas/trpc'
 import {
-  fetchItems,
-} from '../../services/itemService'
-import {
   fetchManifest,
   fetchSnapshotsByIds,
 } from '../../services/manifestService'
@@ -15,20 +12,6 @@ import type { VaultItem } from '../../drivers/base'
 import type { ItemType } from '../../types'
 
 export const itemsRouter = router({
-  // TODO: legacy route, remove after migration to fetchManifest is complete
-  fetchMany: protectedProcedure
-    .input(FetchItemsInputSchema)
-    .query(async ({ ctx, input }) => {
-      const result = await fetchItems(ctx, input)
-
-      return {
-        success: true,
-        items: result.items,
-        nextCursor: null,
-        serverTime: result.serverTime,
-      }
-    }),
-
   fetchManifest: protectedProcedure
     .input(FetchItemsInputSchema)
     .query(async ({ ctx, input }) => {
