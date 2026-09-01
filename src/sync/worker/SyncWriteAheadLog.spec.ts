@@ -112,6 +112,16 @@ describe('SyncWriteAheadLog', () => {
     expect(entries.size).toBe(0)
   })
 
+  it('clears all entries via static SyncWriteAheadLog.clear(accountId)', async () => {
+    await wal.append('item-1' as ItemId, new Uint8Array([1]))
+    await wal.append('item-2' as ItemId, new Uint8Array([2]))
+
+    await SyncWriteAheadLog.clear('test-account')
+
+    const entries = await wal.readAll()
+    expect(entries.size).toBe(0)
+  })
+
   it('recovers un-flushed entries when re-instantiated with same account (crash recovery simulation)', async () => {
     const id1 = await wal.append('item-crash' as ItemId, new Uint8Array([99, 100]))
 

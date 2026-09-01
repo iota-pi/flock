@@ -32,11 +32,24 @@ function toUint8Array(data: unknown): Uint8Array {
 export class SyncWriteAheadLog {
   private readonly storage: LocalForage
 
-  constructor(accountId: string) {
-    this.storage = localforage.createInstance({
+  public static getStorage(accountId: string): LocalForage {
+    return localforage.createInstance({
       name: `FlockVault_SyncWAL_${accountId}`,
       storeName: 'wal-entries',
     })
+  }
+
+  /**
+   * Clear all entries for an account without needing an active instance.
+   */
+  public static async clear(accountId: string): Promise<void> {
+    if (!accountId) return
+    const storage = SyncWriteAheadLog.getStorage(accountId)
+    await storage.clear()
+  }
+
+  constructor(accountId: string) {
+    this.storage = SyncWriteAheadLog.getStorage(accountId)
   }
 
   /**

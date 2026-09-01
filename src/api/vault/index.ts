@@ -29,7 +29,7 @@ import {
 } from './crypto'
 import { SyncBridge } from 'src/sync/client/SyncBridge'
 import { readStoredMetadata, VAULT_STORAGE_KEY, VaultStoredMetadata, DEFAULT_CRYPTO_ITERATIONS } from './util'
-import { clearSyncBatch } from 'src/sync/shared/VaultPersistence'
+import { SyncWriteAheadLog } from 'src/sync/worker/SyncWriteAheadLog'
 import { clearScheduledDeletions } from 'src/sync/shared/deletionQueueStore'
 import {
   clearBiometricData,
@@ -407,7 +407,7 @@ export async function removeVaultFromDevice() {
     } catch (error) {
       console.error('Failed to unsubscribe from notifications', error)
     }
-    await clearSyncBatch(account)
+    await SyncWriteAheadLog.clear(account)
     await clearScheduledDeletions(account)
     await clearManualRecoveryEntries(account)
   }
