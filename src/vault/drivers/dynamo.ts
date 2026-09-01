@@ -10,7 +10,6 @@ import {
   BatchGetCommandInput,
   BatchWriteCommand,
   BatchWriteCommandInput,
-  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -33,7 +32,6 @@ import BaseDriver, {
   VaultAccount,
   VaultAccountWithAuth,
   VaultItem,
-  VaultKey,
   VaultSessionRecord,
 } from './base'
 import type { WebPushSubscription } from '../types'
@@ -45,7 +43,7 @@ export const ACCOUNT_TABLE_NAME = process.env.ACCOUNTS_TABLE || 'FlockAccounts'
 export const ITEM_TABLE_NAME = process.env.ITEMS_TABLE || 'FlockItems'
 const SYNC_MESSAGES_TABLE_NAME = process.env.SYNC_MESSAGES_TABLE || 'FlockSyncMessages'
 
-const SYNC_MESSAGE_TTL = 7 * 24 * 60 * 60
+const SYNC_MESSAGE_TTL = 30 * 24 * 60 * 60
 const PUSH_BATCH_SIZE = 25
 const DEFAULT_SYNC_MESSAGE_LIMIT = 200
 
