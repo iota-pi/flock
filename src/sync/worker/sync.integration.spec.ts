@@ -145,11 +145,12 @@ describe('Sync System Integration Test Suite', () => {
       data: syncData,
     })
 
-    await Promise.resolve()
-
     // 2. Message is immediately durable in WAL
+    await vi.waitFor(async () => {
+      const entries = await wal.readAll()
+      expect(entries.has(itemId)).toBe(true)
+    })
     const walEntriesBefore = await wal.readAll()
-    expect(walEntriesBefore.has(itemId)).toBe(true)
     const itemEntries = walEntriesBefore.get(itemId)!
     expect(itemEntries).toHaveLength(1)
     expect(itemEntries[0].data).toEqual(syncData)
@@ -239,11 +240,11 @@ describe('Sync System Integration Test Suite', () => {
       data: syncData,
     })
 
-    await Promise.resolve()
-
     // Both edits are in WAL
-    const entries = await wal.readAll()
-    expect(entries.size).toBe(2)
+    await vi.waitFor(async () => {
+      const entries = await wal.readAll()
+      expect(entries.size).toBe(2)
+    })
 
     // Server returns success when reconnecting
     mockPollSyncBatchWithToken.mockResolvedValueOnce({

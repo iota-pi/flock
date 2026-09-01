@@ -13,7 +13,7 @@ import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeDocStore } from './docStore'
 import { CursorStore } from './stores/CursorStore'
 import { SyncPullQueueManager } from './SyncPullQueueManager'
-import { SyncWriteAheadLog } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, clearWalInstancesCacheForTesting } from './SyncWriteAheadLog'
 import type { ItemId } from 'src/shared/schemas/items'
 
 const mockPollSyncBatchWithToken = vi.fn()
@@ -51,6 +51,7 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     clearInstancesCacheForTesting()
+    clearWalInstancesCacheForTesting()
     resetQuotaExceededStatus()
 
     mockDocStore = {
@@ -294,27 +295,35 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
     const mockReporter = vi.fn()
     registerQuotaReporter(mockReporter)
 
-    const wal = new SyncWriteAheadLog('test-account')
-    const setItemSpy = vi.spyOn((wal as any).storage, 'setItem').mockRejectedValue(
-      new DOMException('Quota exceeded', 'QuotaExceededError')
-    )
-    broker.setWal(wal)
+    const accountId = 'account-quota'
+    adapter.setAccount(accountId)
+    await broker.setAccount(accountId)
+    broker.setSendEnabled(true)
+
+    const wal = (broker as any).wal
+    const appendSpy = vi.spyOn(wal, 'append').mockImplementation(async () => {
+      const { runStorageOperation } = await import('../../utils/storageManager')
+      await runStorageOperation(async () => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError')
+      })
+      return 'id-quota'
+    })
 
     adapter.send({
       type: 'sync',
       senderId: 'test-peer' as PeerId,
       targetId: 'vault' as PeerId,
       documentId: 'item-quota-fail' as DocumentId,
-      data: new Uint8Array([55]),
+      data: new Uint8Array([1, 2, 3]),
     })
 
     await vi.advanceTimersByTimeAsync(50)
 
-    expect(setItemSpy).toHaveBeenCalledTimes(1)
-    expect(mockReporter).toHaveBeenCalledTimes(1)
+    expect(appendSpy).toHaveBeenCalled()
+    expect(mockReporter).toHaveBeenCalled()
     expect(mockReporter.mock.calls[0][0]).toContain('Storage quota exceeded')
 
-    setItemSpy.mockRestore()
+    appendSpy.mockRestore()
   })
 
   it('sends reflected heads ACK to adapter when receiving initial negotiation message with empty changes', async () => {

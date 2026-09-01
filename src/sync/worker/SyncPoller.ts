@@ -6,7 +6,7 @@ import type { SyncPullQueueManager } from './SyncPullQueueManager'
 import { ItemId } from 'src/shared/schemas/items'
 import { ClientEventHub, WorkerInternalEventHub } from './SyncEventHub'
 import { AutomergeIndexManager } from './docStore/AutomergeIndexManager'
-import type { SyncWriteAheadLog, WalEntry } from './SyncWriteAheadLog'
+import { SyncWriteAheadLog, packBatchedMessages, type WalEntry } from './SyncWriteAheadLog'
 
 export type PollOutcome = 'success' | 'failure' | 'auth-failure' | 'no-poll'
 
@@ -107,21 +107,10 @@ export class SyncPoller {
         const sentIds: string[] = []
         const pushMessages = await Promise.all(
           chunkEntry.map(async ([itemId, messages]) => {
-            let totalLength = 0
             for (const m of messages) {
-              totalLength += 4 + m.data.length
               sentIds.push(m.id)
             }
-            const combined = new Uint8Array(totalLength)
-            const view = new DataView(combined.buffer)
-            let offset = 0
-            for (const m of messages) {
-              view.setUint32(offset, m.data.length, false)
-              offset += 4
-              combined.set(m.data, offset)
-              offset += m.data.length
-            }
-
+            const combined = packBatchedMessages(messages)
             const encryptedMessage = await encryptBytes(combined)
             return {
               itemId,
