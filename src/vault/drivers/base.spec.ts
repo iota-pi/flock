@@ -52,15 +52,8 @@ class TestDriver extends BaseDriver {
     throw new Error('not implemented')
   }
 
-  async get(): ReturnType<BaseDriver['get']> {
-    throw new Error('not implemented')
-  }
 
   async set() {
-    throw new Error('not implemented')
-  }
-
-  async delete() {
     throw new Error('not implemented')
   }
 

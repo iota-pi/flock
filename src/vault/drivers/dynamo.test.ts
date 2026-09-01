@@ -10,23 +10,6 @@ describe('DynamoDriver', function () {
     driver.connect(getConnectionParams())
   })
 
-  it('set, get, delete', async () => {
-    const account = generateAccountId()
-    const item = generateItemId()
-    const type: ItemType = 'person'
-    const cipher = 'hello'
-    const iv = 'there'
-    const modified = new Date().getTime()
-
-    await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-    const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified }, version: 1 })
-
-    await driver.delete({ account, item })
-    const p = driver.get({ account, item })
-    await expect(p).rejects.toThrow()
-  })
-
   it('set can create and update', async () => {
     const account = generateAccountId()
     const item = generateItemId()
@@ -39,8 +22,8 @@ describe('DynamoDriver', function () {
     cipher = 'good'
     iv = 'bye'
     await driver.set({ account, item, cipher, metadata: { type, iv, modified }, version: 1 })
-    const result = await driver.get({ account, item })
-    expect(result).toEqual({ cipher, metadata: { type, iv, modified }, version: 2 })
+    const results = await driver.fetchByIds({ account, itemIds: [item] })
+    expect(results[0]).toEqual({ item, cipher, metadata: { type, iv, modified }, version: 2 })
   })
 
 

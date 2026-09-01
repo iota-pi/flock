@@ -593,21 +593,7 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
   }
 
-  async get({ account, item }: VaultKey) {
-    const response = await this.client.send(new GetCommand(
-      {
-        TableName: ITEM_TABLE_NAME,
-        Key: { account, item },
-        ProjectionExpression: DATA_ATTRIBUTES.join(', '),
-        ExpressionAttributeNames: DATA_ATTRIBUTE_NAMES,
-      },
-    ))
-    if (response?.Item) {
-      return response.Item as VaultItem
-    } else {
-      throw new Error(`Could not find item (${item}) for this account (${account})`)
-    }
-  }
+
 
   async fetchManifest(
     { account }: { account: string },
@@ -732,13 +718,6 @@ export default class DynamoDriver<T extends DynamoDBClientConfig = DynamoDBClien
     }
 
     return results
-  }
-
-  async delete({ account, item }: VaultKey) {
-    await this.client.send(new DeleteCommand({
-      TableName: ITEM_TABLE_NAME,
-      Key: { account, item },
-    }))
   }
 
   private async executeBatchWriteWithRetry(

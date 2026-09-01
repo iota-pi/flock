@@ -77,10 +77,8 @@ export default abstract class BaseDriver<T = unknown> {
 
   // Item CRUD operations
   abstract set(item: VaultItem): Promise<void>
-  abstract get(key: VaultKey): Promise<VaultItem>
   abstract fetchManifest(opts: Pick<VaultKey, 'account'>): Promise<Array<{ itemId: string; modifiedAt: number }>>
   abstract fetchByIds(opts: { account: string; itemIds: string[] }): Promise<VaultItem[]>
-  abstract delete(key: VaultKey): Promise<void>
 
   // Sync message operations
   abstract appendSyncMessage(input: {

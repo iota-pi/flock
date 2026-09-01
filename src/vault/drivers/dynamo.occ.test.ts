@@ -21,7 +21,8 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       const modified = Date.now()
 
       await driver.set({ account, item, cipher, metadata: { type, iv, modified } })
-      const stored = await driver.get({ account, item })
+      const results = await driver.fetchByIds({ account, itemIds: [item] })
+      const stored = results[0]
 
       expect(stored.version).toBe(1)
       expect(stored.cipher).toBe('first-write')
@@ -34,12 +35,14 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       const modified = Date.now()
 
       await driver.set({ account, item, cipher: 'v1', metadata: { type, iv: 'iv-1', modified } })
-      const first = await driver.get({ account, item })
+      const firstResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const first = firstResults[0]
       expect(first.version).toBe(1)
 
       // Write v2 with version: 1
       await driver.set({ account, item, cipher: 'v2', metadata: { type, iv: 'iv-2', modified: modified + 100 }, version: 1 })
-      const second = await driver.get({ account, item })
+      const secondResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const second = secondResults[0]
 
       expect(second.version).toBe(2)
       expect(second.cipher).toBe('v2')
@@ -63,7 +66,8 @@ describe('DynamoDriver OCC & Conditional Cursors', () => {
       ).rejects.toThrow(VersionConflictError)
 
       // Verify the item is still v2
-      const current = await driver.get({ account, item })
+      const currentResults = await driver.fetchByIds({ account, itemIds: [item] })
+      const current = currentResults[0]
       expect(current.version).toBe(2)
       expect(current.cipher).toBe('v2')
     })
