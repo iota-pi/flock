@@ -75,11 +75,19 @@ export class SyncPoller {
         })
 
         if (response && response.pushResults) {
-          this.pullQueueManager.processPushResults(response.pushResults)
+          try {
+            this.pullQueueManager.processPushResults(response.pushResults)
+          } catch (pushErr) {
+            console.error('[SyncPoller] Error processing push results', pushErr)
+          }
         }
 
         if (response && response.pullResults) {
-          await this.pullQueueManager.processPullResults(response.pullResults)
+          try {
+            await this.pullQueueManager.processPullResults(response.pullResults)
+          } catch (pullErr) {
+            console.error('[SyncPoller] Error processing pull results', pullErr)
+          }
         }
 
         if (response?.snapshotRequest?.requested) {
@@ -136,12 +144,28 @@ export class SyncPoller {
           clientLatestCursor: this.pullQueueManager.getGlobalLatestCursor(),
         })
 
+        if (this.wal && sentIds.length > 0) {
+          try {
+            await this.wal.remove(sentIds)
+          } catch (walErr) {
+            console.error('[SyncPoller] Failed to remove sent IDs from WAL', walErr)
+          }
+        }
+
         if (response && response.pushResults) {
-          this.pullQueueManager.processPushResults(response.pushResults)
+          try {
+            this.pullQueueManager.processPushResults(response.pushResults)
+          } catch (pushErr) {
+            console.error('[SyncPoller] Error processing push results', pushErr)
+          }
         }
 
         if (response && response.pullResults) {
-          await this.pullQueueManager.processPullResults(response.pullResults)
+          try {
+            await this.pullQueueManager.processPullResults(response.pullResults)
+          } catch (pullErr) {
+            console.error('[SyncPoller] Error processing pull results', pullErr)
+          }
         }
 
         if (response?.snapshotRequest?.requested) {
@@ -151,10 +175,6 @@ export class SyncPoller {
               requestedAt: response.snapshotRequest.requestedAt,
             }
           }
-        }
-
-        if (this.wal && sentIds.length > 0) {
-          await this.wal.remove(sentIds)
         }
       }
 

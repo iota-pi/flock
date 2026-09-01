@@ -258,4 +258,39 @@ describe('SyncPoller', () => {
       })
     })
   })
+
+  describe('poison pill and error isolation', () => {
+    it('removes WAL items even if processPullResults throws an error', async () => {
+      const walMap = new Map<ItemId, WalEntry[]>()
+      walMap.set('item-1' as ItemId, [
+        { id: 'msg-1', itemId: 'item-1' as ItemId, data: new Uint8Array([1, 2, 3]), createdAt: 1 },
+      ])
+      vi.mocked(mockWal.readAll).mockResolvedValueOnce(walMap)
+
+      vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [{ itemId: 'item-1', cursor: 1 }],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+      expect(mockWal.remove).toHaveBeenCalledWith(['msg-1'])
+    })
+
+    it('does not fail empty poll when processPullResults throws', async () => {
+      vi.spyOn(pullQueueManager, 'processPullResults').mockRejectedValueOnce(new Error('Corrupt pull batch data'))
+
+      mockPollSyncBatchWithToken.mockResolvedValueOnce({
+        success: true,
+        pushResults: [],
+        pullResults: [{ itemId: 'item-1', messages: [], hasMore: false }],
+      })
+
+      const outcome = await poller.executePoll()
+      expect(outcome).toBe('success')
+    })
+  })
 })
