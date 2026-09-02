@@ -303,7 +303,22 @@ export class AutomergeDocStore {
     }
 
     try {
-      await this.seedImportedDocument(normalizedItemId, binary)
+      const existingHandle = await this.findHandle(normalizedItemId)
+
+      if (existingHandle && existingHandle.isReady()) {
+        const incomingHandle = this.repo.import<RepoDoc>(binary)
+        try {
+          existingHandle.merge(incomingHandle)
+        } finally {
+          try {
+            this.repo.delete(incomingHandle.documentId)
+          } catch {
+            // Ignore temp handle cleanup failure
+          }
+        }
+      } else {
+        await this.seedImportedDocument(normalizedItemId, binary)
+      }
     } catch (error) {
       console.error('[automerge] failed to hydrate document', {
         itemId,

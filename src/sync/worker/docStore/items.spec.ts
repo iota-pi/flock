@@ -1,4 +1,5 @@
 import { Repo } from '@automerge/automerge-repo/slim'
+import * as Automerge from '@automerge/automerge/slim'
 import { AutomergeDocStore, normalizeItemSnapshot } from './AutomergeDocStore'
 import type { Item } from 'src/state/items'
 import { ItemId } from 'src/shared/schemas/items'
@@ -180,6 +181,80 @@ describe('items operations', () => {
     expect(handleA).toBe(handleB)
     expect(importSpy).toHaveBeenCalledTimes(1)
     expect(deleteSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('should cleanly import snapshot when document does not exist locally', async () => {
+    const remoteDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'imported-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Remote Prayer'
+      doc.description = 'Remote Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = []
+      doc.prayedFor = []
+    })
+    const remoteBinary = Automerge.save(remoteDoc)
+
+    await docStore.hydrateAutomergeDocumentBinary('imported-item-1', remoteBinary)
+
+    const retrieved = await docStore.getAutomergeItem('imported-item-1' as ItemId)
+    expect(retrieved).not.toBeNull()
+    expect(retrieved?.name).toBe('Remote Prayer')
+    expect(retrieved?.description).toBe('Remote Description')
+  })
+
+  it('should MERGE local CRDT history with incoming snapshot when document already exists locally', async () => {
+    const baseNote = { id: 'note-base', text: 'Base Note', archived: false, time: 1000 }
+    const localNote = { id: 'note-local', text: 'Local Note', archived: false, time: 2000 }
+    const remoteNote = { id: 'note-remote', text: 'Remote Note', archived: false, time: 3000 }
+
+    // 1. Initial base document
+    const baseDoc = Automerge.change(Automerge.init<Item>(), doc => {
+      doc.id = 'merged-item-1' as ItemId
+      doc.type = 'person'
+      doc.name = 'Base Name'
+      doc.description = 'Base Description'
+      doc.created = 1000
+      doc.archived = false
+      doc.prayerFrequency = 'none'
+      doc.notes = [baseNote]
+      doc.prayedFor = []
+    })
+    const baseBinary = Automerge.save(baseDoc)
+
+    // Load base doc into local docStore
+    await docStore.hydrateAutomergeDocumentBinary('merged-item-1', baseBinary)
+
+    // 2. Make concurrent local edits in docStore
+    await docStore.changeDocument('merged-item-1' as ItemId, (doc: any) => {
+      doc.name = 'Locally Updated Name'
+      doc.notes.push(localNote)
+    })
+
+    // 3. Simultaneously, remote branch makes different edits from baseDoc
+    const remoteBranch = Automerge.load<Item>(baseBinary)
+    const remoteUpdatedDoc = Automerge.change(remoteBranch, doc => {
+      doc.description = 'Remotely Updated Description'
+      doc.notes.push(remoteNote)
+    })
+    const remoteSnapshotBinary = Automerge.save(remoteUpdatedDoc)
+
+    // 4. Hydrate the incoming snapshot into docStore
+    await docStore.hydrateAutomergeDocumentBinary('merged-item-1', remoteSnapshotBinary)
+
+    // 5. Verify that local and remote changes are both merged seamlessly
+    const mergedResult = await docStore.getAutomergeItem('merged-item-1' as ItemId)
+    expect(mergedResult).not.toBeNull()
+    // Local edit preserved
+    expect(mergedResult?.name).toBe('Locally Updated Name')
+    // Remote edit merged in
+    expect(mergedResult?.description).toBe('Remotely Updated Description')
+    // Both notes present in merged CRDT state
+    const noteTexts = mergedResult?.notes?.map(n => n.text)
+    expect(noteTexts).toContain('Local Note')
+    expect(noteTexts).toContain('Remote Note')
   })
 })
 
