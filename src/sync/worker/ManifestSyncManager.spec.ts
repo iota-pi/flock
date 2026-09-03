@@ -377,4 +377,112 @@ describe('ManifestSyncManager', () => {
       consoleSpy.mockRestore()
     })
   })
+
+  describe('lockout prevention on failure', () => {
+    it('does NOT update lastManifestSyncTime when a snapshot batch fails to fetch', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [
+          ['item-1', 100],
+          ['item-2', 200],
+        ],
+        serverTime: Date.now(),
+      })
+
+      // Batch fetch fails with network error
+      mockFetchSnapshotsByIds.mockRejectedValue(new Error('Network error fetching batch'))
+
+      await manifestSyncManager.sync()
+
+      expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Some batches or items failed to sync; lastManifestSyncTime not updated')
+      )
+
+      consoleSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    it('does NOT update lastManifestSyncTime when item hydration throws an error', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-corrupt', 100]],
+        serverTime: Date.now(),
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-corrupt',
+            snapshot: { iv: 'iv-c', cipher: 'c-c' },
+          },
+        ],
+        serverTime: Date.now(),
+      })
+
+      mockDecryptBytes.mockResolvedValue(new Uint8Array([1, 2]))
+      mockHydrateAutomergeDocumentBinary.mockRejectedValue(new Error('CRDT hydration crashed'))
+
+      await manifestSyncManager.sync()
+
+      expect(mockUpdateLastManifestSyncTime).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Some batches or items failed to sync; lastManifestSyncTime not updated')
+      )
+
+      consoleSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    it('quarantines un-decryptable items to onDecryptionFailure and records timestamp to prevent endless retry loop', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const onDecryptionFailure = vi.fn()
+
+      const manager = new ManifestSyncManager(
+        depsObj as any,
+        storeItemsSpy,
+        mutateMetadataSpy,
+        onDecryptionFailure
+      )
+
+      mockListAutomergeItemIds.mockResolvedValue([])
+      mockFetchManifest.mockResolvedValue({
+        manifest: [['item-undecryptable', 500]],
+        serverTime: 500,
+      })
+
+      mockFetchSnapshotsByIds.mockResolvedValue({
+        items: [
+          {
+            item: 'item-undecryptable',
+            snapshot: { iv: 'bad-iv', cipher: 'bad-cipher' },
+          },
+        ],
+        serverTime: 500,
+      })
+
+      // decrypt fails (missing key or corrupted ciphertext)
+      mockDecryptBytes.mockResolvedValue(null)
+
+      const result = await manager.sync()
+
+      expect(onDecryptionFailure).toHaveBeenCalledWith(
+        'item-undecryptable',
+        expect.any(Error)
+      )
+      // Timestamp recorded in SnapshotManager to prevent re-pulling this exact revision
+      expect(depsObj.snapshotManager.importLastModified).toHaveBeenCalledWith([
+        ['item-undecryptable', 500],
+      ])
+      expect(result).toEqual({ added: [] })
+
+      warnSpy.mockRestore()
+    })
+  })
 })

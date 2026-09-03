@@ -108,6 +108,9 @@ export class SyncWorkerContext {
       },
       items => this.itemOperations.storeItems(items),
       changes => this.itemOperations.mutateMetadata(changes),
+      (itemId, error) => {
+        void this.itemOperations.reportDecryptionFailure(itemId, error)
+      },
     )
   }
 

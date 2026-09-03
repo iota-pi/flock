@@ -1,4 +1,5 @@
 import { chunk } from 'lodash-es'
+
 import type { Item } from '../../state/items'
 import type { AccountMetadata } from '../../state/metadata'
 import { AutomergeDocStore } from './docStore'
@@ -24,7 +25,8 @@ export class ManifestSyncManager {
       snapshotManager: SnapshotManager
     },
     private storeItems: (items: Item[]) => Promise<void>,
-    private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>
+    private mutateMetadata: (changes: Partial<AccountMetadata>) => Promise<void>,
+    private onDecryptionFailure?: (itemId: ItemId, error: unknown) => void
   ) {}
 
   async sync(force = false): Promise<{ added: ItemId[] }> {
@@ -92,6 +94,7 @@ export class ManifestSyncManager {
     // Fetch missing item snapshots in batches of 50
     const batches = chunk(missingIds, BATCH_SIZE)
     const fetchedItems: VaultItem[] = []
+    let hasBatchFailures = false
 
     for (const batch of batches) {
       try {
@@ -99,10 +102,13 @@ export class ManifestSyncManager {
           account: this.deps.accountId,
           itemIds: batch,
         })
-        if (response.items && Array.isArray(response.items)) {
+        if (response?.items && Array.isArray(response.items)) {
           fetchedItems.push(...response.items)
+        } else {
+          hasBatchFailures = true
         }
       } catch (error) {
+        hasBatchFailures = true
         console.error('[ManifestSyncManager] Failed to fetch snapshot batch', {
           batch,
           error,
@@ -121,29 +127,35 @@ export class ManifestSyncManager {
     const snapshots: Item[] = []
     const hydratedIds: ItemId[] = []
     const lastModifiedUpdates: [ItemId, number][] = []
+    let hasHydrationFailures = false
 
     const promises = validFetchedItems.map(async item => {
       try {
         const manifestEntry = manifestResponse.manifest.find(([id]) => id === item.item)
         const serverTime = manifestEntry ? manifestEntry[1] : Date.now()
+        const itemId = item.item
 
         if (item.metadata?.deleted === true) {
           snapshots.push({ id: item.item, deleted: true } as unknown as Item)
-          lastModifiedUpdates.push([item.item as ItemId, serverTime])
+          lastModifiedUpdates.push([itemId, serverTime])
           return
         }
+
+        let decryptedSuccessfully = false
 
         if (item.snapshot) {
           const binary = await this.decryptSnapshotBinary(item.snapshot)
           if (binary) {
             await this.deps.docStore.hydrateAutomergeDocumentBinary(item.item, binary)
-            hydratedIds.push(item.item as ItemId)
-            lastModifiedUpdates.push([item.item as ItemId, serverTime])
+            hydratedIds.push(itemId)
+            lastModifiedUpdates.push([itemId, serverTime])
+            decryptedSuccessfully = true
             return
           }
         }
 
         if (
+          !decryptedSuccessfully &&
           typeof item.cipher === 'string' &&
           item.cipher.length > 0 &&
           typeof item.metadata?.iv === 'string' &&
@@ -161,9 +173,20 @@ export class ManifestSyncManager {
             }
             snapshots.push(snapshot as Item)
             lastModifiedUpdates.push([snapshot.id as ItemId, serverTime])
+            decryptedSuccessfully = true
+            return
           }
         }
+
+        if (!decryptedSuccessfully) {
+          console.warn(
+            `[ManifestSyncManager] Item ${itemId} could not be decrypted; quarantining to manual recovery`
+          )
+          this.onDecryptionFailure?.(itemId, new Error('Failed to decrypt snapshot binary or legacy cipher'))
+          lastModifiedUpdates.push([itemId, serverTime])
+        }
       } catch (error) {
+        hasHydrationFailures = true
         console.error('[ManifestSyncManager] Failed to hydrate fetched item envelope', {
           itemId: item.item,
           error,
@@ -190,7 +213,14 @@ export class ManifestSyncManager {
     }
 
     await this.hydrateMetadata()
-    await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+
+    if (!hasBatchFailures && !hasHydrationFailures) {
+      await this.deps.indexManager.updateLastManifestSyncTime(Date.now())
+    } else {
+      console.warn(
+        '[ManifestSyncManager] Some batches or items failed to sync; lastManifestSyncTime not updated to allow retry'
+      )
+    }
 
     return { added: hydratedIds }
   }

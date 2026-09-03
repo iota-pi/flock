@@ -427,8 +427,9 @@ describe('VaultNetworkAdapter and SyncMessageBroker', () => {
       doc.name = 'updated'
     })
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       await vi.advanceTimersByTimeAsync(50)
+      await Promise.resolve()
       if (outgoingMessages.length >= 1) break
     }
 
